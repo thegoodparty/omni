@@ -266,6 +266,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
       has,
       sender: 'the official',
       replyGoal: 'how this lands',
+      card: true,
     }),
   ].join('\n')
 }

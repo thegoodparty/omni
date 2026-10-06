@@ -1,5 +1,8 @@
 import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
-import { SOCIAL_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import {
+  SAMPLE_TARGET_REPLIES,
+  SOCIAL_PURPOSE_VALUES,
+} from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
@@ -7,6 +10,12 @@ import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowled
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { localDay, todayLine } from '../services/todayLine'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
+import {
+  buildSampleSizingRules,
+  EXAMPLE_AUDIENCE,
+  EXAMPLE_SAMPLE,
+} from '../chat-tools/outreachSampling.prompt'
 
 export type { BallotStatus }
 
@@ -512,6 +521,34 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   )
 }
 
+const people = (n: number): string => n.toLocaleString('en-US')
+const dollars = (texts: number): string =>
+  `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
+
+// Shown exactly when size_outreach_sample is registered: beside the
+// saved-list tool, because a sized sample is acted on by saving it as a list
+// and opening that list in Voter Outreach. The card the Chief of Staff
+// presents is not on this surface yet, so the candidate gets a link instead.
+const outreachSamplingBlock = (ctx: CampaignManagerContext): string | null =>
+  ctx.crmToolsEnabled &&
+  ctx.organization &&
+  ctx.isPro !== false &&
+  ctx.savedFilterToolsEnabled
+    ? [
+        'SAMPLING RULES (apply whenever the candidate wants to text voters):',
+        '- Texting every voter a filter matches costs real money, and most texts do not need everyone. Before you recommend a text, count the voters with a cell phone with count_contacts, then size a random sample with size_outreach_sample and offer it.',
+        '- When the text asks voters something (a question, a survey, what they think of a position), recommend the sample. When it tells them something they all need to know, recommend everyone and mention the sample in one line as the cheaper option.',
+        `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies."`,
+        ...buildSampleSizingRules({
+          has: () => false,
+          sender: 'the candidate',
+          replyGoal: 'how voters feel about it',
+          card: false,
+        }),
+        '- Once the candidate picks one, save it with crud_saved_filters create: the same filter you counted, with sample.size set to the sampleSize that size_outreach_sample returned, or with sample left out to save everyone. Then write the message for them and give them the link to send it, with the id crud_saved_filters returned: [Start the text in Voter Outreach](/dashboard/outreach?compose=text&listId=ID&source=campaign_manager). That opens texting with the list already picked.',
+      ].join('\n')
+    : null
+
 // Search is a tool, so results pass the "use only what a tool returns" rule
 // and read as settled fact once they land in a reply. This makes that
 // provenance explicit for every search, not only the ballot-access case
@@ -667,6 +704,7 @@ export const buildCampaignManagerSystemPrompt = (
     tasksBlock(ctx),
     dataBlock(ctx),
     crmToolsBlock(ctx),
+    outreachSamplingBlock(ctx),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
     LEGAL_AND_COMPLIANCE_RULES,

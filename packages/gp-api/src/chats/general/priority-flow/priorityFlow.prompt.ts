@@ -262,6 +262,7 @@ const buildSamplingBlock = (has: (name: string) => boolean): string =>
       has,
       sender: 'the official',
       replyGoal: 'if this is the problem',
+      card: true,
     }),
   ].join('\n')
 

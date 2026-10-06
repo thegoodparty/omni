@@ -26,7 +26,7 @@ const sizeOutreachSampleInput = z.object({
     .max(1)
     .optional()
     .describe(
-      "This office's own text reply rate as a fraction (0.04 for 4%), " +
+      'Their own text reply rate as a fraction (0.04 for 4%), ' +
         'from read_past_outreach. Omit it when there is none.',
     ),
   repliesAlready: z

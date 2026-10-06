@@ -528,7 +528,7 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Size a text sample with size_outreach_sample')
     expect(prompt).toContain('never work out a sample or a cost yourself')
     expect(prompt).toContain('When wholeAudience comes back true')
-    expect(prompt).toContain('take replyRate from its past texts')
+    expect(prompt).toContain('take replyRate from past texts')
     expect(prompt).toContain('Each side of a check gets its own sample')
     expect(prompt).toContain('Never sample more people than the audience holds')
     expect(prompt).toContain('not by a reply rate')

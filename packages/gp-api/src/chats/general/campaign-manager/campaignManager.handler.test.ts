@@ -570,6 +570,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       'count_contacts',
       'list_precincts',
       'crud_saved_filters',
+      'size_outreach_sample',
     ]) {
       expect(Object.keys(tools)).not.toContain(name)
     }
@@ -644,17 +645,20 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       buildVoterFileFilters(),
     ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
     expect(Object.keys(withWrites)).toContain('crud_saved_filters')
+    expect(Object.keys(withWrites)).toContain('size_outreach_sample')
 
     const noService = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
     )
     expect(Object.keys(noService)).not.toContain('crud_saved_filters')
+    expect(Object.keys(noService)).not.toContain('size_outreach_sample')
 
     const flagOff = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
     ).buildTools(ctxWith(CRM_ON))
     expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
+    expect(Object.keys(flagOff)).not.toContain('size_outreach_sample')
   })
 
   const buildBallotHandler = (

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { HttpStatus } from '@nestjs/common'
+import { HttpService } from '@nestjs/axios'
+import { of } from 'rxjs'
 import { useTestService } from '@/test-service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
@@ -119,6 +121,60 @@ describe('lists saved as a sample', () => {
       sample: { size: 1 },
     })
     const findPeople = stubAudience(1)
+
+    const listed = await service.client.get('/v1/contacts', {
+      params: { segment: String(created.data.id), page: 1, resultsPerPage: 10 },
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+    expect(listed.status).toBe(HttpStatus.OK)
+    expect(findPeople.mock.calls[0]?.[0]?.filters).toMatchObject({
+      filterOperators: { id: { operator: 'in', values: drawn } },
+    })
+  })
+
+  // The Campaign Manager saves samples for Win campaigns, whose phone list
+  // goes to Peerly through the same resolution: a campaign's sampled list
+  // has to read as its draw too, or a candidate would text everyone.
+  it("reads a Win campaign's sampled list as its draw", async () => {
+    const slug = `campaign-sample-${Date.now()}`
+    await service.prisma.organization.create({
+      data: {
+        slug,
+        ownerId: service.user.id,
+        overrideDistrictId: randomUUID(),
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${slug}-campaign`,
+        organizationSlug: slug,
+        isPro: true,
+      },
+    })
+    vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
+      of({
+        data: {
+          id: slug,
+          state: 'NC',
+          L2DistrictType: 'City',
+          L2DistrictName: 'Asheville',
+        },
+        status: 200,
+      }) as never,
+    )
+    const drawn = [randomUUID(), randomUUID()]
+    stubAudience(53_000)
+    stubDraw(drawn)
+    const created = await createFilter(slug, {
+      name: 'Bike lanes',
+      hasCellPhone: true,
+      sample: { size: 2 },
+    })
+    expect(created.status).toBe(HttpStatus.CREATED)
+    expect(await sampleMemberIds(created.data.id)).toEqual([...drawn].sort())
+    const findPeople = stubAudience(2)
 
     const listed = await service.client.get('/v1/contacts', {
       params: { segment: String(created.data.id), page: 1, resultsPerPage: 10 },

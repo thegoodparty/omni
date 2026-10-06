@@ -41,6 +41,7 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
@@ -482,6 +483,12 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         filterConsumers: registeredFilterConsumers(filterTools),
       })
       Object.assign(tools, filterTools)
+      // Beside the saved-list tool because a sized sample is acted on by
+      // saving it as a list; a session that cannot save one gets a number
+      // it can do nothing with.
+      if (filterTools.crud_saved_filters) {
+        tools.size_outreach_sample = buildSizeOutreachSampleTool()
+      }
     }
 
     return tools
