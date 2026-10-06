@@ -80,7 +80,26 @@ export interface SweepReport {
   // cannot carry: a conformance regression usually reads BETTER as prose, so
   // the judge prefers it and the delta points the wrong way.
   invariantViolations?: readonly InvariantViolation[]
+  // Where each agent's per-case rulings were stored. Only the location, never
+  // a ruling: a ruling quotes the agent's output and this page is public.
+  rulings?: readonly StoredRulings[]
 }
+
+// `location` is null when the write failed. The verdict above it still
+// stands, since it was scored from the same judgments in memory.
+export interface StoredRulings {
+  agentId: string
+  location: string | null
+}
+
+const rulingsLines = (rulings: readonly StoredRulings[]): string[] => [
+  'Per-case rulings, kept off this page because they quote agent output:',
+  ...rulings.map((r) =>
+    r.location === null
+      ? `- ${r.agentId}: not stored, the write failed`
+      : `- ${r.agentId}: \`${r.location}\``,
+  ),
+]
 
 const signed = (value: number, digits: number): string =>
   `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`
@@ -747,6 +766,12 @@ export const renderReport = (
 
   if (report.armGap !== undefined) {
     lines.push(...armGapLines(report.armGap))
+    lines.push('')
+  }
+
+  const rulings = report.rulings ?? []
+  if (rulings.length > 0) {
+    lines.push(...rulingsLines(rulings))
     lines.push('')
   }
 

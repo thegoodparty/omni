@@ -166,7 +166,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `caseParams.ts`                                        | The placeholder vocabulary, its substitution, and the pre-dispatch guard.      |
 | `judgeIdentifiers.ts` / `sweepFixture.ts`              | Resolves the three per-sweep identifiers, and threads them to both arms.       |
 | `judgeFixtureIdentity.ts` / `judgeFixtureSeed.ts`      | The dev account the three gp-api readers run as, and the rows that seed it.    |
-| `records.ts`                                           | The record store: local directory or S3, behind one narrow interface.          |
+| `records.ts`                                           | The record store: local directory or S3, behind one narrow interface. Also holds each sweep's per-case rulings. |
 | `sweepArm.ts`                                          | Walks a case list for **one** arm. The runner is injected.                     |
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.         |
 | `sweep.ts`                                             | Step 3: reads both arms, judges, scores, reports.                              |
@@ -698,6 +698,30 @@ because writing to S3 needs an IAM grant that does not exist yet **and**
 Anthropic and Databricks credentials in its environment. Widening that job's
 permissions is a change to review on its own. Set `JUDGE_RECORDS_BUCKET`
 instead of `JUDGE_RECORDS_DIR` once both land.
+
+**Per-case rulings live there too.** After judging an agent, step 3 writes
+every judgment the panel made to `_judge/<sweepId>/rulings/<agentId>.json`:
+each case, attempt and order, with every dimension's verdict, magnitude and
+reasoning, the overall, the floor, the flags, and the slot map that says which
+arm X was. That is what lets a bench be read probe by probe rather than only
+as one delta. A ruling quotes the agent's output, so it never goes in the
+report; the report prints only where each agent's rulings went (a file path,
+or an `s3://` URL), and says so if the write failed. The verdict does not
+depend on the write. Until the bucket is wired, a CI sweep's rulings die with
+the job like its records, so read them from a local run. A second judging
+run over the same sweep id overwrites the file, so it holds the latest
+grading.
+
+**Flags come from a closed list**, the rubric doc's (`FLAG_TYPES` in
+`judge.ts`): `restricted_data`, `unrequested_action`, `fabricated_source`,
+`instruction_injection`, `consequential_misstatement`, `partisan_steering`,
+`other_severe`. The prompt names them and the schema the model fills refuses
+anything else. A free-text type let one finding arrive under two names, so
+flag counts did not compare run to run, and the type is printed in the public
+report. A type off the list (Anthropic's tool mode does not enforce an enum)
+is replaced with `other_severe` rather than failing the seat. Changing the
+list is a rubric change: edit the doc and `FLAG_TYPES`
+together and bump `RUBRIC_VERSION`.
 
 ## If you are building a track
 

@@ -23,13 +23,19 @@ import {
 } from './normalize'
 import { invariantViolations } from './invariants'
 import type { RunRecord } from './record'
-import { RecordStoreError, type ArmManifest, type RecordStore } from './records'
+import {
+  RecordStoreError,
+  type AgentRulings,
+  type ArmManifest,
+  type RecordStore,
+} from './records'
 import {
   renderReport,
   unpinnedMartReads,
   type AgentIdenticalConfig,
   type Refusal,
   type SeededTranscripts,
+  type StoredRulings,
   type SweepReport,
 } from './report'
 import { scoreAgent, type AgentScore } from './score'
@@ -124,6 +130,24 @@ const refusalFor = (
   return null
 }
 
+// A failed write costs the per-case record, not the verdict: the judgments
+// are already paid for and scored in memory, so the sweep reports and says
+// the rulings were lost rather than throwing the verdict away with them.
+const storeRulings = async (
+  store: RecordStore,
+  rulings: AgentRulings,
+): Promise<string | null> => {
+  try {
+    return await store.putRulings(rulings)
+  } catch (err) {
+    console.error(
+      `rulings for ${rulings.agentId} were not stored: ` +
+        (err instanceof Error ? err.name : 'unknown error'),
+    )
+    return null
+  }
+}
+
 export const judgeSweep = async (
   deps: JudgingDeps,
   env: SweepEnv,
@@ -175,6 +199,7 @@ export const judgeSweep = async (
   const identical: IdenticalOutputs[] = []
   const identicalConfigs: AgentIdenticalConfig[] = []
   const identicalOutputsReported: string[] = []
+  const rulings: StoredRulings[] = []
 
   // A REQUEST THAT NAMED ITS AGENTS DISARMS BOTH SAMENESS REFUSALS. Not the
   // other guards: a missing manifest, one arm's records, a spend switch the
@@ -246,6 +271,15 @@ export const judgeSweep = async (
 
       const judgments = await judgeAll(deps.llm, normalized.judgeable, config)
       scores.push(scoreAgent({ normalized, judgments }, config))
+      rulings.push({
+        agentId,
+        location: await storeRulings(deps.store, {
+          sweepId: env.sweepId,
+          agentId,
+          rubricVersion: RUBRIC_VERSION,
+          judgments,
+        }),
+      })
     } catch (err) {
       if (
         !(err instanceof IdenticalConfigError) &&
@@ -287,6 +321,7 @@ export const judgeSweep = async (
     // say which reads the missing pin was free to move.
     ...(unpinned.length > 0 && { unpinnedMart: unpinned }),
     ...(broken.length > 0 && { invariantViolations: broken }),
+    ...(rulings.length > 0 && { rulings }),
   }
 
   return {
