@@ -44,9 +44,6 @@ vi.mock('../shared/FilingInstructionsDetails', () => ({
   default: () => <div>filing-instructions</div>,
 }))
 
-vi.mock('./useSessionHeadline', () => ({
-  useSessionHeadline: () => "Let's get to work",
-}))
 vi.mock('../components/tasks/CountModal', () => ({
   default: ({ onSubmit }: { onSubmit: (count: number) => void }) => (
     <button type="button" onClick={() => onSubmit(42)}>
@@ -89,7 +86,7 @@ beforeEach(() => {
 })
 
 describe('NextThingCard', () => {
-  it('shows the one task to do next, in plan order, under the session headline', () => {
+  it('shows the one task to do next, in plan order, ', () => {
     mockResult.mockReturnValue(
       settled([
         task({ id: 'later', title: 'Knock doors', phase: 'active' }),
@@ -98,12 +95,6 @@ describe('NextThingCard', () => {
     )
     render(<NextThingCard />)
 
-    expect(
-      screen.getByRole('heading', {
-        level: 2,
-        name: "Let's get to work",
-      }),
-    ).toBeInTheDocument()
     expect(
       screen.getByRole('heading', { level: 3, name: 'Order yard signs' }),
     ).toBeInTheDocument()
@@ -266,9 +257,6 @@ describe('NextThingCard', () => {
     it('leads with getting on the ballot and shows how to file', async () => {
       render(<NextThingCard />)
 
-      expect(
-        screen.getByRole('heading', { level: 2, name: "Let's get to work" }),
-      ).toBeInTheDocument()
       await userEvent.click(
         screen.getByRole('button', { name: 'See how to file' }),
       )
@@ -291,11 +279,10 @@ describe('NextThingCard', () => {
     })
   })
 
-  it('keeps the headline while the plan is still coming together', () => {
+  it('says the first step is on its way while the plan comes together', () => {
     mockResult.mockReturnValue(settled([]))
     render(<NextThingCard />)
 
-    expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument()
     expect(
       screen.getByText(/your first step will show up here/i),
     ).toBeInTheDocument()

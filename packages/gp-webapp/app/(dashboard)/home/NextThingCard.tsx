@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import {
-  Badge,
   Button,
   Card,
   CircleCheckIcon,
@@ -45,14 +44,7 @@ import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatP
 import CountModal from '../components/tasks/CountModal'
 import FilingInstructionsDetails from '../shared/FilingInstructionsDetails'
 import { useNextThing } from './useNextThing'
-import { useCampaign } from '@shared/hooks/useCampaign'
-import {
-  countdownFor,
-  kindOf,
-  questionsFor,
-  type TaskKind,
-} from './nextThingCopy'
-import { useSessionHeadline } from './useSessionHeadline'
+import { kindOf, questionsFor, type TaskKind } from './nextThingCopy'
 
 // A task's own action link, if it has a non-empty one. Trimmed so an empty or
 // whitespace string (which the agent can emit) counts as "no link".
@@ -142,55 +134,21 @@ const TRAY_TINTS: Record<TaskKind, string> = {
   other: 'bg-secondary-light/50',
 }
 
-// The headline is the section's heading in every state (loading, error,
-// caught up), so Home always has one stable landmark. Centered with room
-// below it, it greets the page rather than titling the card.
+// The card's landmark takes its name from the greeting above it (HomeGreeting),
+// which Home lays out as its own row so the card can sit at the center.
 const NextThingSection = ({
-  headline,
-  countdown,
   children,
 }: {
-  headline: string | null
-  countdown: string | null
   children: React.ReactNode
-}): React.JSX.Element => {
-  const ready = headline !== null
-  return (
-    <section
-      className="flex flex-col gap-5"
-      aria-labelledby="next-thing-heading"
-    >
-      {/* Until the client fills them in, a blank headline and an invisible
-          badge hold the height. The greeting is set in the marketing site's
-          display face, so Home speaks in the brand's voice. */}
-      <div className="flex flex-col items-center gap-3 pb-6 pt-2 text-center lg:pb-10 lg:pt-6">
-        {(countdown || !ready) && (
-          <Badge
-            variant="outline"
-            className={cn(
-              'bg-card font-normal text-muted-foreground',
-              !ready && 'invisible',
-            )}
-          >
-            {countdown ?? '\u00a0'}
-          </Badge>
-        )}
-        <h2
-          id="next-thing-heading"
-          className="text-balance font-outfit text-3xl font-semibold text-foreground lg:text-4xl"
-        >
-          {headline ?? '\u00a0'}
-        </h2>
-      </div>
-      {children}
-    </section>
-  )
-}
+}): React.JSX.Element => (
+  <section className="flex flex-col" aria-labelledby="next-thing-heading">
+    {children}
+  </section>
+)
 
 /**
  * The one thing a candidate should do next, chosen by the same
- * selectNextTrackerTask the campaign plan uses, under a short, friendly
- * headline. One filled action, a quiet "Mark done", rare choices in the "…" menu,
+ * selectNextTrackerTask the campaign plan uses. One filled action, a quiet "Mark done", rare choices in the "…" menu,
  * and "Chat about this" in the tray under the card. It stays
  * until they do it, mark it done, skip it, or its date passes on a task that
  * only exists on that date.
@@ -203,13 +161,6 @@ export default function NextThingCard(): React.JSX.Element {
   const skipTask = useSkipTrackerTask()
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
   const [filingOpen, setFilingOpen] = useState(false)
-
-  const headline = useSessionHeadline()
-  const [campaign] = useCampaign()
-  // Today is the browser's, so the countdown waits for the client like the
-  // headline does; the server's clock and time zone would mismatch.
-  const countdown =
-    headline === null ? null : countdownFor(campaign, new Date())
 
   // Once per task shown, not per render: the tracker query polls.
   const nextId = next?.id ?? null
@@ -268,7 +219,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isPending) {
     return (
-      <NextThingSection headline={headline} countdown={countdown}>
+      <NextThingSection>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             Loading your next step.
@@ -280,7 +231,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isError) {
     return (
-      <NextThingSection headline={headline} countdown={countdown}>
+      <NextThingSection>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             We could not load your next step. Refresh to try again.
@@ -292,7 +243,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (!next) {
     return (
-      <NextThingSection headline={headline} countdown={countdown}>
+      <NextThingSection>
         {tasks.length === 0 ? (
           <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
             <p className="text-sm text-muted-foreground">
@@ -320,7 +271,7 @@ export default function NextThingCard(): React.JSX.Element {
   const reasonTag = reasonTagFor(next)
 
   return (
-    <NextThingSection headline={headline} countdown={countdown}>
+    <NextThingSection>
       {/* The card sits in a tray, so the two read as one object: the card's
           border overlaps the tray's top and sides, and "Chat about this" sits
           in the strip below it. The questions about the task open in the
