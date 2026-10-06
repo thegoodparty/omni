@@ -8,6 +8,10 @@ const WEBAPP_ENV_SCHEMA_PATH = join(
   __dirname,
   '../../../gp-webapp/env.schema.ts',
 )
+const GRAFANA_LAUNCHER_PATH = join(
+  __dirname,
+  '../../../../scripts/mcp/grafana.sh',
+)
 
 // ENV_VAR_CONTRACT entries are the only two-space-indented SCREAMING_CASE
 // keys in that file; the type declarations above them are camelCase.
@@ -34,5 +38,14 @@ describe('DECLARED_ENV_VARS', () => {
     expect([...DECLARED_ENV_VARS['gp-webapp']].sort()).toEqual(
       fromSource.sort(),
     )
+  })
+
+  it('declares exactly the token the Grafana MCP launcher reads', () => {
+    const launcher = readFileSync(GRAFANA_LAUNCHER_PATH, 'utf8')
+
+    expect([...DECLARED_ENV_VARS.mcp]).toEqual([
+      'GRAFANA_SERVICE_ACCOUNT_TOKEN',
+    ])
+    expect(launcher).toContain('s/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p')
   })
 })

@@ -28,6 +28,9 @@ const wellFormedBlob = {
   'gp-webapp': {
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_devenvservicetest',
   },
+  mcp: {
+    GRAFANA_SERVICE_ACCOUNT_TOKEN: 'glsa_devenvservicetest',
+  },
 }
 
 const secretsMock = mockClient(SecretsManagerClient)
@@ -68,7 +71,16 @@ describe('DevEnvService', () => {
       bundles: [
         { package: 'gp-api', variables: wellFormedBlob['gp-api'] },
         { package: 'gp-webapp', variables: wellFormedBlob['gp-webapp'] },
+        { package: 'mcp', variables: wellFormedBlob.mcp },
       ],
+    })
+  })
+
+  it('vends an empty bundle for a package the blob has no entry for yet', async () => {
+    givenSecret(JSON.stringify({ 'gp-api': wellFormedBlob['gp-api'] }))
+
+    await expect(service.getBundles(['mcp'], 'octocat')).resolves.toEqual({
+      bundles: [{ package: 'mcp', variables: {} }],
     })
   })
 
@@ -100,7 +112,10 @@ describe('DevEnvService', () => {
     await service.getBundles(undefined, 'octocat')
 
     expect(logger.info).toHaveBeenCalledWith(
-      { githubLogin: 'octocat', packages: ['gp-api', 'gp-webapp'] },
+      {
+        githubLogin: 'octocat',
+        packages: ['gp-api', 'gp-webapp', 'mcp'],
+      },
       'Vended local dev env bundle',
     )
     expect(loggedJson(logger)).not.toContain(CLERK_DEV_VALUE)
@@ -113,6 +128,14 @@ describe('DevEnvService', () => {
 
     await expect(service.getBundles(undefined, 'octocat')).rejects.toThrow(
       /gp-api\.CLERK_SECRET_KEYY/,
+    )
+  })
+
+  it('fails loudly on an mcp key the Grafana launcher does not read', async () => {
+    givenSecret(JSON.stringify({ mcp: { GRAFANA_API_KEY: 'glsa_x' } }))
+
+    await expect(service.getBundles(undefined, 'octocat')).rejects.toThrow(
+      /mcp\.GRAFANA_API_KEY/,
     )
   })
 
