@@ -299,7 +299,9 @@ const listProposalFromSegments = (
 // right-side sheet the contacts page uses for a person.
 const ChiefOfStaffChatBody = (props: Props): React.JSX.Element => (
   <CardDetailProvider>
-    <ProposalFlowsProvider>
+    <ProposalFlowsProvider
+      mode={props.scope === 'campaign_assistant' ? 'win' : 'serve'}
+    >
       <ChiefOfStaffChatThread {...props} />
     </ProposalFlowsProvider>
     <CardDetailSheetHost />

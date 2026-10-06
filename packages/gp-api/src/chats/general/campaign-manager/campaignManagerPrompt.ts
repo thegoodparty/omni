@@ -16,6 +16,7 @@ import {
   EXAMPLE_AUDIENCE,
   EXAMPLE_SAMPLE,
 } from '../chat-tools/outreachSampling.prompt'
+import { WIN_TEXT_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 
 export type { BallotStatus }
 
@@ -483,11 +484,6 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
 // promises a tool the model can't call.
 const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
-  // No voter file tool is registered for a campaign without Pro, so there is
-  // nothing for this block to describe. What filtering covers and what it
-  // needs are the product map's facts, so a change to the gate is a change
-  // to the map.
-  if (ctx.isPro === false) return null
   const readGuidance =
     'You can explore the voter file in aggregate: call ' +
     'describe_filter_dimensions to see every filterable dimension and its ' +
@@ -500,6 +496,20 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'the dimension you used instead. Never say a dimension is ' +
     'unavailable, and never offer one, without having called ' +
     'describe_filter_dimensions in this conversation.'
+  // Counting and the text card are open to a campaign without Pro; saving
+  // lists here, precincts and sending are not, and the card's own button is
+  // where the candidate meets that gate.
+  if (ctx.isPro === false) {
+    return (
+      readGuidance +
+      ' This campaign does not have Pro. You can still count voters and ' +
+      'present a text, but saving lists here, seeing precincts and sending ' +
+      'the text need Pro. When they start a text from your card, it takes ' +
+      'them to the Pro upgrade, so say that once when you present it ' +
+      'rather than refusing to help. Do not describe what happens after ' +
+      'they upgrade, such as where the text gets built or saved.'
+    )
+  }
   if (!ctx.savedFilterToolsEnabled) return readGuidance
   return (
     readGuidance +
@@ -525,27 +535,24 @@ const people = (n: number): string => n.toLocaleString('en-US')
 const dollars = (texts: number): string =>
   `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
 
-// Shown exactly when size_outreach_sample is registered: beside the
-// saved-list tool, because a sized sample is acted on by saving it as a list
-// and opening that list in Voter Outreach. The card the Chief of Staff
-// presents is not on this surface yet, so the candidate gets a link instead.
-const outreachSamplingBlock = (ctx: CampaignManagerContext): string | null =>
-  ctx.crmToolsEnabled &&
-  ctx.organization &&
-  ctx.isPro !== false &&
-  ctx.savedFilterToolsEnabled
+// Gated on the tools the handler actually registered, so the prompt can
+// never ask for a card or a sample size the model has no tool for.
+const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
+  toolNames.includes('size_outreach_sample') &&
+  toolNames.includes('present_outreach_proposal')
     ? [
         'SAMPLING RULES (apply whenever the candidate wants to text voters):',
-        '- Texting every voter a filter matches costs real money, and most texts do not need everyone. Before you recommend a text, count the voters with a cell phone with count_contacts, then size a random sample with size_outreach_sample and offer it.',
+        '- Texting every voter a filter matches costs real money, and most texts do not need everyone. Before you present a text, count the voters with a cell phone with count_contacts, then size a random sample with size_outreach_sample and offer it.',
         '- When the text asks voters something (a question, a survey, what they think of a position), recommend the sample. When it tells them something they all need to know, recommend everyone and mention the sample in one line as the cheaper option.',
-        `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies."`,
+        `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
         ...buildSampleSizingRules({
-          has: () => false,
+          has: (name) => toolNames.includes(name),
           sender: 'the candidate',
           replyGoal: 'how voters feel about it',
-          card: false,
+          card: true,
         }),
-        '- Once the candidate picks one, save it with crud_saved_filters create: the same filter you counted, with sample.size set to the sampleSize that size_outreach_sample returned, or with sample left out to save everyone. Then write the message for them and give them the link to send it, with the id crud_saved_filters returned: [Start the text in Voter Outreach](/dashboard/outreach?compose=text&listId=ID&source=campaign_manager). That opens texting with the list already picked.',
+        '- Present the text with present_outreach_proposal once the message is final: the filter you counted with as audienceFilters, count as every voter it matched with a cell phone, a short listName, channel text, and the message. Do not save a list for it with crud_saved_filters: the list is saved when the candidate starts the text from the card. Only a text goes on a card here; describe phone banking, door knocking or a social post in your reply.',
+        WIN_TEXT_MESSAGE_RULES,
       ].join('\n')
     : null
 
@@ -693,6 +700,7 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
 
 export const buildCampaignManagerSystemPrompt = (
   ctx: CampaignManagerContext,
+  toolNames: readonly string[] = [],
 ): string =>
   [
     ROLE,
@@ -704,7 +712,7 @@ export const buildCampaignManagerSystemPrompt = (
     tasksBlock(ctx),
     dataBlock(ctx),
     crmToolsBlock(ctx),
-    outreachSamplingBlock(ctx),
+    outreachSamplingBlock(toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
     LEGAL_AND_COMPLIANCE_RULES,

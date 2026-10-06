@@ -12,8 +12,9 @@ import {
 import { proposalOutreachQueryOptions } from './cardQueries'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 import {
+  PROPOSAL_CTA,
   PROPOSAL_OUTREACH_TYPE,
-  SERVE_PROPOSAL_CTA,
+  type CardMode,
   outreachDetailHref,
   peopleCount,
   proposalSampleLine,
@@ -22,6 +23,15 @@ import {
 export const SERVE_OUTREACH_PROPOSAL_COPY = {
   sentTo: 'Sent to',
   textUnavailable: 'Texting is not available for your office yet',
+}
+
+export const WIN_OUTREACH_PROPOSAL_COPY = {
+  sentTo: 'Sent to',
+}
+
+const SENT_TO: Record<CardMode, string> = {
+  win: WIN_OUTREACH_PROPOSAL_COPY.sentTo,
+  serve: SERVE_OUTREACH_PROPOSAL_COPY.sentTo,
 }
 
 type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
@@ -43,6 +53,7 @@ type OutreachProposalCardProps = {
  */
 const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
   const flows = useProposalFlows()
+  const mode = flows?.mode ?? 'serve'
   const {
     data: sent,
     isPending,
@@ -57,10 +68,11 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
     return (
       <CompactCardLink
         title={proposal.audience}
-        subtitle={`${SERVE_OUTREACH_PROPOSAL_COPY.sentTo} ${peopleCount(
+        subtitle={`${SENT_TO[mode]} ${peopleCount(
           sent.textCount ?? sent.billableTextCount ?? proposal.count,
+          mode,
         )}${when ? ` · ${shortOutreachDate(when)}` : ''}`}
-        href={outreachDetailHref(sent.id)}
+        href={outreachDetailHref(sent.id, mode)}
       />
     )
   }
@@ -69,7 +81,7 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
     proposalSampleLine(proposal) ??
     [
       getChannelLabel(PROPOSAL_OUTREACH_TYPE[proposal.channel]),
-      proposal.channel === 'social' ? '' : peopleCount(proposal.count),
+      proposal.channel === 'social' ? '' : peopleCount(proposal.count, mode),
     ]
       .filter(Boolean)
       .join(' · ')
@@ -89,6 +101,14 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
     )
   }
 
+  // Campaign Manager proposes text only, and a card has no Win flow to open
+  // for any other channel, so one would offer a button that leads nowhere.
+  if (mode === 'win' && proposal.channel !== 'text') {
+    return (
+      <CompactCardStatic title={proposal.audience} subtitle={channelLine} />
+    )
+  }
+
   return (
     <CompactCardStatic
       title={proposal.audience}
@@ -98,10 +118,12 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
           type="button"
           size="small"
           className="shrink-0"
-          disabled={!flows}
+          // Win's text gate reads the campaign and its texting registration
+          // first, and a press before they arrive would gate on neither.
+          disabled={!flows || (mode === 'win' && !flows.textResolved)}
           onClick={() => flows?.open(proposal, priorityId)}
         >
-          {SERVE_PROPOSAL_CTA[proposal.channel]}
+          {PROPOSAL_CTA[mode][proposal.channel]}
         </Button>
       }
     />

@@ -45,6 +45,10 @@ import {
 } from '../util/campaignGeography.util'
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
+import {
+  createUnderProposalKey,
+  UNSENT_PROPOSAL_STATUSES,
+} from '../util/createUnderProposalKey.util'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
@@ -839,17 +843,25 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // draftOutreachId likewise: the resume path consumes it, and Prisma would
     // reject it as an unknown column.
     delete outreachData.draftOutreachId
-    return await this.model.create({
-      data: {
-        ...outreachData,
-        organizationSlug: campaign.organizationSlug,
-        ...(imageUrl ? { imageUrl } : {}),
-        ...(identityId ? { identityId } : {}),
-      },
-      include: {
-        voterFileFilter: true,
-      },
-    })
+    const data = {
+      ...outreachData,
+      organizationSlug: campaign.organizationSlug,
+      ...(imageUrl ? { imageUrl } : {}),
+      ...(identityId ? { identityId } : {}),
+    }
+    const include = { voterFileFilter: true }
+    return outreachData.proposalKey === undefined
+      ? await this.model.create({ data, include })
+      : await createUnderProposalKey(
+          this.client,
+          {
+            proposalKey: outreachData.proposalKey,
+            organizationSlug: campaign.organizationSlug,
+            outreachType: outreachData.outreachType,
+          },
+          (tx) => tx.outreach.create({ data, include }),
+          (id) => this.model.findUniqueOrThrow({ where: { id }, include }),
+        )
   }
 
   // Scoped by organizationSlug, not campaignId: archiving is an
@@ -1368,13 +1380,14 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // No legacy null-slug branch the way setArchived needs one — proposalKey
   // only exists on rows written after the column did.
   // A text holds its key from the draft on, and is not sent until it is
-  // paid for, so an unpaid draft reads as nothing sent yet.
+  // paid for, so an unpaid draft reads as nothing sent yet. Win's build-mode
+  // `draft` is unpaid too.
   async findByProposalKey(proposalKey: string, organizationSlug: string) {
     return this.model.findFirst({
       where: {
         proposalKey,
         organizationSlug,
-        status: { not: OutreachStatus.pending_payment },
+        status: { notIn: UNSENT_PROPOSAL_STATUSES },
       },
       include: { voterFileFilter: true },
     })

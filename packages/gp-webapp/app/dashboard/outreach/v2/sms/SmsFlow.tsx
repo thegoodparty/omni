@@ -323,10 +323,15 @@ interface SmsFlowProps {
   // opens on the list builder already filled in, and saves it when the
   // official confirms and names it.
   proposedAudience?: ProposedAudience
-  // The chat card proposal this flow was opened from. Rides on the Serve
-  // create, so the draft holds the card's key (a paid one reads as sent and
-  // cannot be paid twice) and the paid send puts the priority's check out.
+  // The chat card proposal this flow was opened from. Rides on the create
+  // (Serve's whole link, Win's key), so the draft holds the card's key (a
+  // paid one reads as sent and cannot be paid twice) and, on a priority, the
+  // paid send puts its check out.
   proposalLink?: ProposalLink
+  // Win's create was refused while carrying the card's key, which is how a
+  // card sent from another tab or an earlier session answers (409). The
+  // card's surface decides whether that means it already went out.
+  onProposalCreateFailed?: () => void
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -499,6 +504,7 @@ export const SmsFlow = ({
   initialScript,
   proposedAudience,
   proposalLink,
+  onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
@@ -1347,6 +1353,10 @@ export const SmsFlow = ({
     const discount = campaign?.hasFreeTextsOffer
       ? Math.min(phoneList.leadsLoaded, FREE_TEXTS_OFFER.COUNT)
       : 0
+    // Never beside draftOutreachId: the server takes a card's key on a fresh
+    // draft only, since a saved one was built without it.
+    const sendsProposalKey =
+      proposalLink !== undefined && !(resumed && savedDraft)
     ;(async () => {
       try {
         const outreach = await createOutreach(
@@ -1385,6 +1395,9 @@ export const SmsFlow = ({
             ...(resumed && savedDraft
               ? { draftOutreachId: savedDraft.id }
               : {}),
+            ...(sendsProposalKey
+              ? { proposalKey: proposalLink.proposalKey }
+              : {}),
             draft: true,
           },
           resumed ? null : image,
@@ -1421,6 +1434,7 @@ export const SmsFlow = ({
             )
         } else {
           setDraftCreateError(true)
+          if (sendsProposalKey) onProposalCreateFailed?.()
         }
       } finally {
         if (generation === draftGenerationRef.current) {
@@ -1443,6 +1457,8 @@ export const SmsFlow = ({
     name,
     audience.selectedListId,
     image,
+    proposalLink,
+    onProposalCreateFailed,
   ])
 
   const handleScheduled = async (paid: boolean) => {

@@ -10,14 +10,12 @@
  * CARRIES the map's Pro status line and the access rule; only an eval shows
  * the model acts on them.
  *
- * The failure this guards against: a candidate without Pro asks about voter
- * lists, is walked through every filter dimension as though it were
- * available, then asks for a count and learns from a tool's refusal that
- * filtering needs the Pro upgrade. The map now says whether the campaign has
- * Pro, one rule says to name that gate from the map instead of presenting
- * the locked part as available, and no voter file tool is registered for a
- * campaign the row says lacks Pro, the filter catalog included, so the map
- * is the only source of what filtering covers.
+ * The failure this guards against: a candidate without Pro learns about a
+ * locked part of the product from a tool's refusal, or is told it is
+ * available. The map says whether the campaign has Pro and one rule says to
+ * name a gate from the map. Counting, the catalog and the text card are open
+ * to a campaign without Pro (the card's button is its Pro gate); precincts
+ * and saved-list management are not registered for it.
  *
  * Built through the real handler over fake services, so the prompt and the
  * tool list come from the wiring production uses: the campaign row's flag
@@ -81,8 +79,8 @@ interface ToolCall {
 
 // pro drives the fake campaign row and every fake service method together.
 // priorTurns lets a case start after the gate has already been named once.
-// mustCallTools is for the Pro cases; a non-Pro case forbids every gated
-// call regardless (see isGatedCall).
+// mustCallTools asserts calls that must happen; a non-Pro case also forbids
+// every gated call (see isGatedCall).
 interface ProGateEvalCase extends EvalCase {
   pro: boolean
   priorTurns?: LlmMessage[]
@@ -186,7 +184,8 @@ const buildHandler = (pro: boolean): CampaignManagerHandler => {
   } as unknown as CampaignsService
   const contacts = {
     getFilterDimensions: () => DIMENSIONS,
-    countContacts: () => gated({ count: 1234 }, PRO_FILTERING_REQUIRED_MESSAGE),
+    // Not gated, as in the service: a count is a number about the district.
+    countContacts: () => Promise.resolve({ count: 1234 }),
     getPrecincts: () =>
       gated(
         { options: PRECINCTS, truncated: false },
@@ -221,12 +220,11 @@ const buildHandler = (pro: boolean): CampaignManagerHandler => {
   )
 }
 
-// A call that a campaign without Pro cannot make. Listing saved lists is the
-// one saved-list action the service does not gate; the other four reach it.
+// A call that a campaign without Pro cannot make. Counting is open to it;
+// listing saved lists is the one saved-list action the service does not
+// gate, and the other four reach it.
 const isGatedCall = (call: ToolCall): boolean => {
-  if (call.name === 'count_contacts' || call.name === 'list_precincts') {
-    return true
-  }
+  if (call.name === 'list_precincts') return true
   if (call.name !== 'crud_saved_filters') return false
   const action =
     typeof call.input === 'object' &&
@@ -323,27 +321,18 @@ const CASES: ProGateEvalCase[] = [
     name: 'no Pro: asks what voters can be filtered by',
     pro: false,
     userMessage: 'What can I filter voters by? Just curious.',
-    mustContain: [MENTIONS_PRO],
-    // The catalog is the same for every campaign and none of it applies
-    // without Pro; a "free tier" of filters is an invention seen once.
+    mustContain: [/age range|turnout|cell phone/i],
+    // A "free tier" of filters is an invention seen once.
     mustNotContain: [/free tier|free account/i],
   },
   {
-    name: 'no Pro: asks for a count after the gate was already named',
+    // Counting is open to a campaign without Pro, so it gets the number
+    // rather than a refusal.
+    name: 'no Pro: asks for a count, gets it',
     pro: false,
-    priorTurns: [
-      { role: 'user', content: VOTER_LIST_QUESTION },
-      {
-        role: 'assistant',
-        content:
-          'Filtering the voter file needs the Pro upgrade, which your ' +
-          'campaign does not have yet. The Pro upgrade tab is where that ' +
-          'happens. Once you have it, you can build lists by age, turnout ' +
-          'likelihood, and whether a cell phone is on file.',
-      },
-    ],
-    userMessage: 'Count my likely voters anyway.',
-    mustContain: [MENTIONS_PRO],
+    userMessage: 'How many likely voters are in my district?',
+    mustCallTools: ['count_contacts'],
+    mustContain: [/1,?234/],
   },
   {
     name: 'no Pro: asks about opponents, a second gated area',

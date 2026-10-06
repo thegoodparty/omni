@@ -20,7 +20,7 @@ nearest reference wrapper.
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
 | `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below. |
 | `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
-| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. The copy is Serve copy (`SERVE_*`); Win's Campaign Manager mounts the Chief of Staff body but its agent has none of these tools. See "Cards" below. |
+| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent emits only text proposals (`present_outreach_proposal`). The proposal card's copy and links are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope); the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
@@ -205,6 +205,30 @@ there is the agent's to say, once, in its message; no card repeats it.
   proposal says texting is not available instead of offering a button.
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
   hub. No compose, edit or send UI lives in a card: the flows own it.
+- **Campaign Manager's text card is Win's.** `ChiefOfStaffChatBody` hands
+  `ProposalFlowsProvider` a `mode` off its `scope` (`campaign_assistant` is
+  `win`; priorities and a card outside any provider are `serve`), and the
+  card reads it from the provider. In Win mode the card counts voters
+  (`peopleCount`), a sent card links to `/dashboard/outreach?outreachId=`
+  (`outreachDetailHref`), and the button opens Win's `SmsFlow` (its default
+  surface, the campaign's texting registration as `tcrCompliance`) rather
+  than the Serve one, with no `serve-sms-outreach` flag. Before it opens,
+  the provider runs the text gate: a free campaign (the Campaign Manager
+  shows it the card too) gets the Pro pitch (`ProPitchDialog`, source
+  `campaign_manager`, channel `sms`) in place of the flow, and a Pro one
+  passes only with an approved registration (`useTextOutreachGate`'s
+  compliance modal). Outreach Pro gating is fully rolled out, so the card
+  does not read the `outreach-pro-gating-v2` flag. The button waits until
+  the campaign and registration have loaded. The card's
+  `proposalKey` rides Win's `POST /v1/outreach` create, and
+  `GET /v1/outreach/by-proposal-key/:proposalKey` resolves it once paid.
+  The key rides a fresh draft only, never a resume: a draft built in build
+  mode and resumed later does not carry it, so that card never reads as
+  sent. A create refused while carrying the key (a 409: already sent) has
+  the provider re-read the card, and a card that resolves as sent closes
+  the flow. A
+  Win card for any other channel shows its line with no button: nothing
+  else has a Win flow here.
 
 Chief of Staff renders inside a vaul drawer, and React bubbles a portal's
 pointer events up the React tree into it, which is why the detail sheet

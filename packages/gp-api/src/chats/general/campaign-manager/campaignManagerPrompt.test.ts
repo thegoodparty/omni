@@ -323,7 +323,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(noOrg).not.toContain('count_contacts')
   })
 
-  it('renders no voter data block without Pro', () => {
+  it('tells a campaign without Pro what it can do and where the gate is', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
@@ -333,16 +333,13 @@ describe('buildCampaignManagerSystemPrompt', () => {
       }),
     )
 
-    // Nothing is registered, so nothing is described; the map carries what
-    // filtering covers and what it needs.
-    for (const name of [
-      'describe_filter_dimensions',
-      'count_contacts',
-      'list_precincts',
-      'crud_saved_filters',
-    ]) {
-      expect(prompt).not.toContain(name)
-    }
+    expect(prompt).toContain('count_contacts')
+    expect(prompt).toContain('This campaign does not have Pro')
+    expect(prompt).toContain('takes them to the Pro upgrade')
+    expect(prompt).toContain('Do not describe what happens after')
+    // Saved lists and precincts are not registered for it.
+    expect(prompt).not.toContain('crud_saved_filters')
+    expect(prompt).not.toContain('list_precincts')
   })
 
   it('keeps the full voter-data guidance when Pro status is unknown', () => {
@@ -386,35 +383,30 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(withWrites).toContain('abbreviating it does not make it belong')
   })
 
-  it('offers a random sample only where it can save one as a list', () => {
-    const readOnly = buildCampaignManagerSystemPrompt(
-      ctx({
-        crmToolsEnabled: true,
-        isPro: true,
-        organization: { slug: 'win-campaign' } as Organization,
-      }),
-    )
-    expect(readOnly).not.toContain('SAMPLING RULES')
-    expect(readOnly).not.toContain('size_outreach_sample')
+  it('offers a sampled text card only where both tools are registered', () => {
+    const crm = ctx({
+      crmToolsEnabled: true,
+      savedFilterToolsEnabled: true,
+      isPro: true,
+      organization: { slug: 'win-campaign' } as Organization,
+    })
+    const noTools = buildCampaignManagerSystemPrompt(crm)
+    expect(noTools).not.toContain('SAMPLING RULES')
+    expect(noTools).not.toContain('size_outreach_sample')
+    expect(noTools).not.toContain('present_outreach_proposal')
 
-    const notPro = buildCampaignManagerSystemPrompt(
-      ctx({
-        crmToolsEnabled: true,
-        savedFilterToolsEnabled: true,
-        isPro: false,
-        organization: { slug: 'win-campaign' } as Organization,
-      }),
-    )
-    expect(notPro).not.toContain('SAMPLING RULES')
+    const sizeOnly = buildCampaignManagerSystemPrompt(crm, [
+      'count_contacts',
+      'size_outreach_sample',
+    ])
+    expect(sizeOnly).not.toContain('SAMPLING RULES')
 
-    const prompt = buildCampaignManagerSystemPrompt(
-      ctx({
-        crmToolsEnabled: true,
-        savedFilterToolsEnabled: true,
-        isPro: true,
-        organization: { slug: 'win-campaign' } as Organization,
-      }),
-    )
+    const prompt = buildCampaignManagerSystemPrompt(crm, [
+      'count_contacts',
+      'crud_saved_filters',
+      'size_outreach_sample',
+      'present_outreach_proposal',
+    ])
     expect(prompt).toContain('SAMPLING RULES')
     expect(prompt).toContain('size a random sample with size_outreach_sample')
     expect(prompt).toContain('When the text asks voters something')
@@ -427,18 +419,22 @@ describe('buildCampaignManagerSystemPrompt', () => {
         'is enough to tell how voters feel about it.',
     )
     expect(prompt).toContain('never work out a sample or a cost yourself')
-    expect(prompt).toContain('with sample.size set to the sampleSize')
+    expect(prompt).toContain('On the card, count stays the whole audience')
+    expect(prompt).toContain('Present the text with present_outreach_proposal')
     expect(prompt).toContain(
-      '[Start the text in Voter Outreach](/dashboard/outreach?compose=text' +
-        '&listId=ID&source=campaign_manager)',
+      'Do not save a list for it with crud_saved_filters',
     )
+    expect(prompt).toContain('this is Renee, candidate for Asheville City')
+    expect(prompt).toContain('"Paid for by"')
+    expect(prompt).not.toContain('sample.size set to the sampleSize')
+    expect(prompt).not.toContain('/dashboard/outreach?compose=text')
     const block = prompt
       .slice(prompt.indexOf('SAMPLING RULES'))
       .split('\n\n')[0]
-    // There is no proposal card on this surface yet, and it is Win copy.
-    expect(block).not.toContain('On the card')
+    expect(block).toContain('WHAT THE TEXT NEEDS')
     expect(block).not.toContain('constituent')
     expect(block).not.toContain('official')
+    expect(block).not.toContain('{{first_name}}')
   })
 
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {

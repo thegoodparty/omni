@@ -307,9 +307,11 @@ describe('the voter-file family a seeded campaign registers', () => {
     )
   })
 
-  // The negative, on the column the gate actually reads. `isPro` defaults to
-  // false, which is the state every one of these runs was in.
-  it('registers none of the four once the campaign is not Pro', async () => {
+  // On the column the gate actually reads. `isPro` defaults to false, which
+  // is the state every one of these runs was in: a free campaign keeps
+  // counting and the catalog, and loses only the tools whose services refuse
+  // it.
+  it('keeps counting but not precincts or saved lists once the campaign is not Pro', async () => {
     const { conversationId, organizationSlug } = await seedAndOpen(
       'campaign_assistant',
       'ca-free',
@@ -324,9 +326,10 @@ describe('the voter-file family a seeded campaign registers', () => {
     expect(ctx.isPro).toBe(false)
     const tools = Object.keys(handler.buildTools(ctx))
 
-    for (const tool of VOTER_FILE_TOOLS) {
-      expect(tools).not.toContain(tool)
-    }
+    expect(tools).toContain('count_contacts')
+    expect(tools).toContain('describe_filter_dimensions')
+    expect(tools).not.toContain('list_precincts')
+    expect(tools).not.toContain('crud_saved_filters')
   })
 })
 
