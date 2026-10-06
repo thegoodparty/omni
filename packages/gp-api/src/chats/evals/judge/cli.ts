@@ -5,6 +5,7 @@ import { AGENTS, coverage, type AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
   baseChatAttemptsIn,
+  DEFAULT_SOURCES,
   estimateAgent,
   priceAgainstReferences,
   type AgentEstimate,
@@ -146,16 +147,19 @@ export const parseArgs = (argv: string[]): CliArgs => {
   }
 }
 
+// What a ref's list for a chat agent drives: its turns, `absent` when the ref
+// has no such list (an empty file: the workflow writes one on a 404), or
+// `unread` when it was not fetched or cannot be read, which fails closed.
+export type RefTurns = number | 'absent' | 'unread'
+
 export interface LoadedReference extends Reference {
-  // The turns this ref's list for a chat agent drives, or undefined when it
-  // has none or it cannot be read.
-  chatTurns: (agent: AgentEntry) => number | undefined
+  chatTurns: (agent: AgentEntry) => RefTurns
 }
 
-const UNREAD: LoadedReference = {
+export const UNREAD: LoadedReference = {
   estimate: undefined,
   chatAttempts: undefined,
-  chatTurns: () => undefined,
+  chatTurns: () => 'unread',
 }
 
 const ReferenceModuleSchema = z.object({
@@ -168,10 +172,17 @@ const TurnsOnlySchema = z.object({
   cases: z.array(z.object({ turns: z.array(z.string()).optional() })),
 })
 
-// Anything that goes wrong here leaves that part undefined. A price file or
-// config that will not read fails closed (see priceAgainstReferences); a
-// case list that will not read counts as this branch's, as armBudget.ts
-// plans it, because a chat agent new on this branch has none on the ref.
+// Anything that goes wrong here leaves that part unread, and the price fails
+// closed (see priceAgainstReferences). The one exception is a case list the
+// ref does not have, which counts as this branch's, as armBudget.ts plans
+// it, because a chat agent new on this branch has none there.
+//
+// The list is read at `<agentId>.json`, the name the workflow fetched it
+// under, not at this branch's registry filename: a PR that pointed an agent
+// at a new, shorter file would otherwise read as having none on the ref.
+// chatCaseLists.test.ts pins every registry filename to that name, which
+// also holds armBudget.ts's baseChatTurns, reading the base worktree under
+// this branch's filename, to the right file.
 export const loadReference = async (spec: string): Promise<LoadedReference> => {
   const [planCostPath, configPath, casesDir] = spec.split(',')
   if (!planCostPath || !configPath || !casesDir) return UNREAD
@@ -189,15 +200,23 @@ export const loadReference = async (spec: string): Promise<LoadedReference> => {
   } catch {
     chatAttempts = undefined
   }
-  const chatTurns = (agent: AgentEntry): number | undefined => {
+  const chatTurns = (agent: AgentEntry): RefTurns => {
+    // A file the workflow never wrote was never fetched, so nothing is
+    // known about it.
+    let text: string
     try {
-      return TurnsOnlySchema.parse(
-        JSON.parse(
-          readFileSync(path.join(casesDir, agent.cases ?? ''), 'utf8'),
-        ),
-      ).cases.reduce((sum, one) => sum + (one.turns?.length ?? 1), 0)
+      text = readFileSync(path.join(casesDir, `${agent.agentId}.json`), 'utf8')
     } catch {
-      return undefined
+      return 'unread'
+    }
+    if (text === '') return 'absent'
+    try {
+      return TurnsOnlySchema.parse(JSON.parse(text)).cases.reduce(
+        (sum, one) => sum + (one.turns?.length ?? 1),
+        0,
+      )
+    } catch {
+      return 'unread'
     }
   }
   return { estimate, chatAttempts, chatTurns }
@@ -215,13 +234,21 @@ export const pricingConfig = (
   ),
 })
 
-// The longest list any ref's base arm could walk.
+// The longest list any ref's base arm could walk. When this branch's
+// registry names a file other than `<agentId>.json`, the ref's list was read
+// under the other name, so this branch's count is a floor for it too.
 export const referenceTurns =
-  (references: readonly LoadedReference[]) =>
+  (
+    references: readonly LoadedReference[],
+    candidateTurns: (agent: AgentEntry) => number = DEFAULT_SOURCES.countTurns,
+  ) =>
   (agent: AgentEntry): number | undefined => {
     const found = references
       .map((one) => one.chatTurns(agent))
-      .filter((turns): turns is number => turns !== undefined)
+      .filter((turns): turns is number => typeof turns === 'number')
+    if (agent.cases !== `${agent.agentId}.json`) {
+      found.push(candidateTurns(agent))
+    }
     return found.length === 0 ? undefined : Math.max(...found)
   }
 

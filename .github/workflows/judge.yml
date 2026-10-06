@@ -902,12 +902,29 @@ jobs:
           # price file or config is missing or will not load. Each ref's chat
           # case lists come too, because each arm walks its own. planCost.ts
           # sits beside the candidate's so its imports resolve here.
+          #
+          # A 404 leaves an empty file, which the CLI reads as "the ref has
+          # none". Any other failure leaves a line that is not a file at all,
+          # which the CLI reads as unreadable and prices at the worst case.
           judge_dir="$(dirname "$CLI")"
           fetch() {
-            { [ -n "$1" ] && gh api -H 'Accept: application/vnd.github.raw' \
-              "repos/$GITHUB_REPOSITORY/contents/$WORKSPACE/$judge_dir/$2?ref=$1"; } \
-              > "$3" || : > "$3"
+            local err=""
+            if [ -n "$1" ] && err="$(gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/$GITHUB_REPOSITORY/contents/$WORKSPACE/$judge_dir/$2?ref=$1" \
+              2>&1 > "$3")"; then
+              return 0
+            fi
+            case "$err" in
+              *'HTTP 404'*) : > "$3" ;;
+              *) echo 'fetch failed' > "$3" ;;
+            esac
           }
+          # The chat agents in the plan, by id, which is what `all` means
+          # here. A first, unpriced run of the CLI, because it knows the
+          # registry. A failure lists none, and a list never fetched reads as
+          # unreadable, so those agents price at the worst case.
+          chat_ids="$(npx tsx "$CLI" --agents="$AGENTS" --dry-run 2>/dev/null \
+            | sed -nE 's/^  ([a-z0-9_]+)  \[chat\]  .*$/\1/p' || true)"
           [[ "${DEFAULT_REF:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || DEFAULT_REF=""
           references=()
           for ref in base:"$BASE_REF" default:"$DEFAULT_REF"; do
@@ -915,7 +932,7 @@ jobs:
             mkdir -p "$dir/cases"
             fetch "${ref#*:}" planCost.ts "$PWD/$judge_dir/planCost.${ref%%:*}.ts"
             fetch "${ref#*:}" config.ts "$dir/config.ts"
-            for id in ${AGENTS//,/ }; do
+            for id in $chat_ids; do
               fetch "${ref#*:}" "cases/$id.json" "$dir/cases/$id.json"
             done
             references+=("--reference=$PWD/$judge_dir/planCost.${ref%%:*}.ts,$dir/config.ts,$dir/cases")

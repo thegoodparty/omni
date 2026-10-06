@@ -269,6 +269,8 @@ export type EstimateFn = (
 export interface Reference {
   estimate: EstimateFn | undefined
   chatAttempts: number | undefined
+  // The ref's list for a chat agent was fetched and could not be read.
+  chatTurns?: (agent: AgentEntry) => number | 'absent' | 'unread'
 }
 
 // THE HIGHEST OF THIS BRANCH'S PRICE AND EVERY REFERENCE'S, per agent, all
@@ -277,8 +279,8 @@ export interface Reference {
 // and never lower it.
 //
 // FAILS CLOSED. When any reference's prices cannot be computed (its copy is
-// missing, will not load or throws), or a chat agent's attempts cannot be
-// read from a reference's config, the agent is priced as though nothing were
+// missing, will not load or throws), or a chat agent's attempts or list
+// cannot be read from a reference, the agent is priced as though nothing were
 // measured: the worst case, labelled so. The candidate's own figure alone
 // would be the self-serving number this exists to stop.
 //
@@ -300,7 +302,9 @@ export const priceAgainstReferences = (
       try {
         theirs =
           reference.estimate === undefined ||
-          (agent.shape === 'chat' && reference.chatAttempts === undefined)
+          (agent.shape === 'chat' &&
+            (reference.chatAttempts === undefined ||
+              reference.chatTurns?.(agent) === 'unread'))
             ? undefined
             : AgentEstimateSchema.parse(
                 reference.estimate(agent, config, sources),

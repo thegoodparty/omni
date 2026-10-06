@@ -190,6 +190,10 @@ const warnLine = (line: string): void => {
 // How many turns a chat agent's list drives per attempt on the base ref.
 // Undefined when there is none, and the candidate's count stands.
 //
+// Read under THIS branch's registry filename, which is only the base arm's
+// file because every list is named `<agentId>.json`; chatCaseLists.test.ts
+// pins that, and planCost's estimate relies on it too.
+//
 // A list that is there but will not parse here is warned about rather than
 // refused: the base arm reads it with its own parser, which may accept it
 // and walk every case, so the candidate's count can then be low.

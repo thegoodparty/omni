@@ -336,6 +336,26 @@ describe('priceAgainstReferences', () => {
     ).toMatchObject({ cents: 4800, basis: 'base-unread' })
   })
 
+  // A ref whose chat list was fetched and will not read fails closed too.
+  it("prices chat at the worst case when a ref's list cannot be read", () => {
+    const chat: AgentEntry = {
+      agentId: 'chief_of_staff',
+      shape: 'chat',
+      cases: 'chief_of_staff.json',
+      status: 'pending',
+    }
+    const withList = (turns: number | 'absent' | 'unread') => [
+      { estimate: estimateAgent, chatAttempts: 3, chatTurns: () => turns },
+    ]
+    expect(
+      priceAgainstReferences(withList('unread'), DEFAULT_JUDGE_CONFIG)(chat),
+    ).toMatchObject({ cents: 3750, basis: 'base-unread' })
+    expect(
+      priceAgainstReferences(withList('absent'), DEFAULT_JUDGE_CONFIG)(chat)
+        .basis,
+    ).toBe('measured')
+  })
+
   // Failing closed never lowers a price another ref already put higher.
   it('keeps a higher ref price over the worst case', () => {
     expect(

@@ -238,7 +238,7 @@ describe('reference pricing', () => {
     const ref = await loadReference(`${high},${config},${cases}`)
     expect(ref.chatAttempts).toBe(5)
     expect(ref.chatTurns(chat)).toBe(3)
-    expect(ref.chatTurns(agent)).toBeUndefined()
+    expect(ref.chatTurns(agent)).toBe('unread')
     const plan = run(
       ['--agents=race_opponent_summary', '--dry-run', '--reference=x'],
       [agent],
@@ -266,8 +266,34 @@ describe('reference pricing', () => {
     ).toBeUndefined()
   })
 
-  it('reads nothing from a malformed spec', async () => {
-    expect((await loadReference('only-one-part')).estimate).toBeUndefined()
+  it.each(['only-one-part', `${high},${config}`])(
+    'reads nothing from the malformed spec %j',
+    async (spec) => {
+      const ref = await loadReference(spec)
+      expect(ref.estimate).toBeUndefined()
+      expect(ref.chatAttempts).toBeUndefined()
+      expect(ref.chatTurns(chat)).toBe('unread')
+    },
+  )
+
+  // What the workflow writes: an empty file on a 404, a line that is not a
+  // list on any other failure.
+  it.each([
+    ['', 'absent'],
+    ['fetch failed\n', 'unread'],
+  ])('reads a list fetched as %j as %s', async (text, read) => {
+    const other = path.join(dir, `cases-${read}`)
+    mkdirSync(other)
+    writeFileSync(path.join(other, 'chief_of_staff.json'), text)
+    const ref = await loadReference(`${high},${config},${other}`)
+    expect(ref.chatTurns(chat)).toBe(read)
+  })
+
+  // Read where the workflow fetched it, under the agent's id, whatever this
+  // branch's registry calls the file.
+  it("reads a ref's list under the agent id", async () => {
+    const ref = await loadReference(`${high},${config},${cases}`)
+    expect(ref.chatTurns({ ...chat, cases: 'renamed.json' })).toBe(3)
   })
 
   // The base arm's longer list is priced, not twice this branch's:
@@ -285,10 +311,25 @@ describe('reference pricing', () => {
     const turns = referenceTurns([
       { estimate: undefined, chatAttempts: 3, chatTurns: () => 4 },
       { estimate: undefined, chatAttempts: 3, chatTurns: () => 9 },
-      { estimate: undefined, chatAttempts: 3, chatTurns: () => undefined },
+      { estimate: undefined, chatAttempts: 3, chatTurns: () => 'absent' },
     ])
     expect(turns(chat)).toBe(9)
     expect(referenceTurns([])(chat)).toBeUndefined()
+  })
+
+  // A PR that points an agent at a new, shorter file: the ref's list was
+  // fetched under the agent id, so this branch's count is a floor too.
+  it('floors at this branch when its filename differs', () => {
+    const renamed = { ...chat, cases: 'short.json' }
+    const refs = [
+      {
+        estimate: undefined,
+        chatAttempts: 3,
+        chatTurns: () => 'absent' as const,
+      },
+    ]
+    expect(referenceTurns(refs, () => 5)(renamed)).toBe(5)
+    expect(referenceTurns(refs, () => 5)(chat)).toBeUndefined()
   })
 
   // Asked to compare and handed nothing: the worst case, not this branch's.

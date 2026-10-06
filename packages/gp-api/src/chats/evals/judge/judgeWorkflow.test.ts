@@ -1375,7 +1375,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   const runEstimate = (
     plan: string,
     agents: string,
-    ghAnswers = true,
+    gh: 'ok' | '404' | 'error' = 'ok',
     defaultRef = 'trunk',
   ) => {
     // Real, because the step builds the base copy's path from `$PWD`.
@@ -1391,7 +1391,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     writeFileSync(path.join(dir, 'plan.fixture'), plan)
     writeFileSync(
       path.join(bin, 'npx'),
-      `#!/bin/bash\necho "$*" > "${path.join(dir, 'npx.args')}"\n` +
+      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'npx.args')}"\n` +
         `cat "${path.join(dir, 'plan.fixture')}"\n`,
     )
     // Stands in for the base ref's files; a GitHub API that does not answer
@@ -1399,7 +1399,11 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     writeFileSync(
       path.join(bin, 'gh'),
       `#!/bin/bash\necho "$*" >> "${path.join(dir, 'gh.args')}"\n` +
-        (ghAnswers ? `echo "// $*"\n` : 'echo not found; exit 1\n'),
+        {
+          ok: `echo "// $*"\n`,
+          '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1\n',
+          error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1\n',
+        }[gh],
     )
     chmodSync(path.join(bin, 'npx'), 0o755)
     chmodSync(path.join(bin, 'gh'), 0o755)
@@ -1531,36 +1535,59 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'Universal Judge — plan (1 agents)\n\n' +
         '  self_research  [background]  cents: 4800 (base-unread)  cases: self_research.json\n',
       'self_research',
-      true,
+      'ok',
       '--upload-pack=x',
     )
     expect(result.status).toBe(0)
     expect(result.ghArgs).not.toContain('upload-pack')
     expect(
       readFileSync(path.join(result.dir, 'judge/planCost.default.ts'), 'utf8'),
-    ).toBe('')
+    ).toBe('fetch failed\n')
   })
 
-  // The CLI then fails closed on the empty files: see priceAgainstReferences.
-  it('still prices when the ref files cannot be fetched, leaving them empty', () => {
+  // A 404 is a file the ref does not have, and is left empty: the CLI reads
+  // an empty list as none. Anything else is left as a line that is not a
+  // file, which the CLI reads as unreadable and prices at the worst case.
+  it.each([
+    ['404', ''],
+    ['error', 'fetch failed\n'],
+  ] as const)('leaves what a %s fetch says for the CLI', (gh, written) => {
     const result = runEstimate(
       'Universal Judge — plan (1 agents)\n\n' +
-        '  self_research  [background]  cents: 4800 (base-unread)  cases: self_research.json\n',
-      'self_research',
-      false,
+        '  chief_of_staff  [chat]  cents: 3750 (base-unread)  cases: chief_of_staff.json\n',
+      'chief_of_staff',
+      gh,
     )
     expect(result.status).toBe(0)
     for (const name of ['base', 'default']) {
-      expect(
-        readFileSync(
-          path.join(result.dir, `judge/planCost.${name}.ts`),
-          'utf8',
-        ),
-      ).toBe('')
+      for (const file of [
+        `judge/planCost.${name}.ts`,
+        `ref-${name}/config.ts`,
+        `ref-${name}/cases/chief_of_staff.json`,
+      ]) {
+        expect(readFileSync(path.join(result.dir, file), 'utf8')).toBe(written)
+      }
     }
-    expect(result.comment).toMatch(
-      /^\| self_research \| .* \| ~48\.00 \(base price unread, worst case\) \|$/m,
+  })
+
+  // `all` is the selector, not an id: the lists fetched are the chat agents
+  // the CLI plans.
+  it('fetches every planned chat list for `all`, from both refs', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cents: 4800 (unmeasured)  cases: self_research.json\n',
+      'all',
     )
+    expect(result.status).toBe(0)
+    const contents = 'repos/thegoodparty/omni/contents/packages/gp-api/judge'
+    for (const ref of ['feature-x', 'trunk']) {
+      expect(result.ghArgs).toContain(
+        `${contents}/cases/chief_of_staff.json?ref=${ref}`,
+      )
+    }
+    expect(result.ghArgs).not.toContain('cases/all.json')
+    expect(result.ghArgs).not.toContain('cases/self_research.json')
   })
 
   it('refuses when it can read fewer priced rows than the CLI planned', () => {
