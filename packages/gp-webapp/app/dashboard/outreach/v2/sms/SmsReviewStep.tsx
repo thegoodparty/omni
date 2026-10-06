@@ -111,6 +111,10 @@ export const SmsReviewStep = ({
   const [isRedeeming, setIsRedeeming] = useState(false)
   const [payError, setPayError] = useState(false)
   const [payErrorMessage, setPayErrorMessage] = useState<string | null>(null)
+  // What Stripe is actually charging once the form has priced the session,
+  // which is the only figure that reflects an applied promo code. Null until
+  // the form reports it, so the summary falls back to the session amount.
+  const [liveTotalDollars, setLiveTotalDollars] = useState<number | null>(null)
   const isRedeemingRef = useRef(false)
   const hasFetchedSession = useRef(false)
 
@@ -120,7 +124,9 @@ export const SmsReviewStep = ({
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
-  const totalDollars = isFree ? 0 : (checkoutSession?.amount ?? 0)
+  const totalDollars = isFree
+    ? 0
+    : (liveTotalDollars ?? checkoutSession?.amount ?? 0)
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
   const summaryDollars =
@@ -377,6 +383,7 @@ export const SmsReviewStep = ({
             <CheckoutPayment
               onPaymentSuccess={handlePaidComplete}
               onPaymentError={() => setPayError(true)}
+              onTotalChange={setLiveTotalDollars}
             />
           </Card>
           <Alert variant="info" icon={<InfoIcon className="size-4" />}>
