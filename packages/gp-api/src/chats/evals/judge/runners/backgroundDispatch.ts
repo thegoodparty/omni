@@ -64,7 +64,7 @@ export const ARM_BUDGET_MS = 70 * 60 * 1000
 // Chat agents walk one turn after another and nothing times a turn out, so
 // a selection with more turns than an arm holds ran into the vitest timeout,
 // which kills the arm with no manifest and orphans every background run
-// still out. `all` is 4 agents x 8 cases x 3 attempts = 96 turns an arm.
+// still out. `all` is 5 agents x 8 cases x 3 attempts = 120 turns an arm.
 //
 // Measured, not chosen: chief_of_staff from the first live sweep (run
 // 36999748321), 48 turns averaging 12.0s, the slowest 32s, and 24 turns in

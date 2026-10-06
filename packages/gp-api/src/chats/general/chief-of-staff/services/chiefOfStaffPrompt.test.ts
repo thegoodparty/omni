@@ -358,12 +358,12 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(withCount).not.toContain('abbreviating it does not make it belong')
   })
 
-  it('gates the naming and count-readback rules on crud_saved_filters', () => {
+  it('gates the naming and card-created rules on crud_saved_filters', () => {
     const withSaved = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: ['crud_saved_filters'],
     })
-    expect(withSaved).toContain('report the count crud_saved_filters returned')
+    expect(withSaved).toContain('When the user creates a list from a card')
     expect(withSaved).toContain('abbreviating it does not make it belong')
     expect(withSaved).not.toContain(
       'name any part of the request the filter could not apply',
@@ -377,6 +377,21 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).not.toContain('CONTACT LIST RULES')
     expect(prompt).not.toContain(FILTER_DIMENSION_PROVENANCE_RULES)
+  })
+
+  // A prose "Ready to save it?" got a typed "yes" back, which is the exchange
+  // the card replaces: the model offers, the button saves.
+  it('offers lists as a card and never asks to save one in prose', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['crud_saved_filters', 'present_list_proposal'],
+    })
+    expect(prompt).toContain('Never create a list yourself')
+    expect(prompt).toContain('Never ask whether to save a list')
+    expect(prompt).toContain(
+      'Offer a list to save with `present_list_proposal`',
+    )
+    expect(prompt).not.toContain('confirm the size with the user')
   })
 
   it('teaches the segmentation method once saving is available', () => {

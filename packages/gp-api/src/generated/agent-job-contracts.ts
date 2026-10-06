@@ -3639,6 +3639,15 @@ export interface MeetingBriefingFull {
   }[]
   run_metadata: {
     /**
+     * Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda.
+     */
+    agenda_availability?:
+      | 'full_packet'
+      | 'html_agenda'
+      | 'partial'
+      | 'not_published'
+      | 'inferred_from_prior'
+    /**
      * Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found.
      */
     agenda_packet_url: string | null
@@ -4075,6 +4084,15 @@ export interface MeetingBriefingPlaceholder {
     skip_reasons_allowed?: string[]
   }[]
   run_metadata: {
+    /**
+     * Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda.
+     */
+    agenda_availability?:
+      | 'full_packet'
+      | 'html_agenda'
+      | 'partial'
+      | 'not_published'
+      | 'inferred_from_prior'
     /**
      * Permanent URL to the agenda packet. May be null when briefing_status is awaiting_agenda or no_meeting_found.
      */

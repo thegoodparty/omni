@@ -189,6 +189,11 @@
                 "maxLength": 2000,
                 "description": "Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists."
               },
+              "agenda_availability": {
+                "type": "string",
+                "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
+                "description": "Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda."
+              },
               "source_bundle_retrieved_at": {
                 "type": "string",
                 "format": "date-time"
@@ -357,6 +362,11 @@
                 "type": ["string", "null"],
                 "maxLength": 2000,
                 "description": "Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists."
+              },
+              "agenda_availability": {
+                "type": "string",
+                "enum": ["full_packet", "html_agenda", "partial", "not_published", "inferred_from_prior"],
+                "description": "Fill on every run. v1 operational classification of how the target meeting's agenda was obtained. full_packet: the packet PDF(s) for this meeting were read. html_agenda: this meeting's agenda was read item by item from the platform's page, with no PDF reachable. partial: only some of this meeting's documents were reachable. not_published: the meeting is listed but no agenda is posted yet. inferred_from_prior: items were taken from other meetings' documents or news because this meeting's agenda was not reachable. partial, not_published, and inferred_from_prior require briefing_status awaiting_agenda."
               },
               "source_bundle_retrieved_at": {
                 "type": "string",

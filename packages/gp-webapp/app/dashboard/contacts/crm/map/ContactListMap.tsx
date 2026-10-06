@@ -78,6 +78,29 @@ const BOUNDARY_FILL_MUTED: [number, number, number, number] = [
   ...PRIMARY_BLUE,
   18,
 ]
+type Rgb = [number, number, number]
+
+// A shape's colour is a hex the holder picked from the turf palette, and
+// deck.gl takes channels. Anything unparseable falls back to the brand blue
+// every boundary was drawn in before shapes had colours.
+const rgbOf = (hex: string | undefined): Rgb => {
+  const match = hex?.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i)
+  return match
+    ? [
+        parseInt(match[1]!, 16),
+        parseInt(match[2]!, 16),
+        parseInt(match[3]!, 16),
+      ]
+    : PRIMARY_BLUE
+}
+
+const rgba = (rgb: Rgb, alpha: number): [number, number, number, number] => [
+  rgb[0],
+  rgb[1],
+  rgb[2],
+  alpha,
+]
+
 const VERTEX_FILL: [number, number, number, number] = [255, 255, 255, 255]
 const VERTEX_RADIUS_PX = 6
 const VERTEX_PICK_RADIUS_PX = 10
@@ -119,6 +142,12 @@ interface ContactListMapProps {
   // boundary, and only one part takes the gesture at a time, so grabbable
   // corners on the rest would be corners the click handler ignores.
   otherRings?: PolygonRing[]
+  // Each shape's own colour, as hex: `drawColor` for the part being edited,
+  // `otherRingColors` aligned by index with `otherRings`. Omitted, every
+  // part is the brand blue, which is what a caller with no named shapes
+  // (the chat card before its list loads) has always drawn.
+  drawColor?: string
+  otherRingColors?: string[]
 }
 
 export default function ContactListMap({
@@ -131,6 +160,8 @@ export default function ContactListMap({
   drawRing,
   onDrawRingChange,
   otherRings = EMPTY_RINGS,
+  drawColor,
+  otherRingColors,
 }: ContactListMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -300,7 +331,10 @@ export default function ContactListMap({
     if (!overlay) return
     const selectedKey = selectedPersonId ?? null
     const ring = drawRing ?? []
-    const drawnOtherRings = otherRings.filter((r) => r.length >= 3)
+    const drawnOtherRings = otherRings
+      .map((ring, index) => ({ ring, rgb: rgbOf(otherRingColors?.[index]) }))
+      .filter(({ ring: r }) => r.length >= 3)
+    const activeRgb = rgbOf(drawColor)
     overlay.setProps({
       layers: [
         new ScatterplotLayer<ContactPoint>({
@@ -342,12 +376,20 @@ export default function ContactListMap({
         // edited is the one whose outline reads on top.
         ...(drawnOtherRings.length > 0
           ? [
-              new PolygonLayer<PolygonRing>({
+              new PolygonLayer<{ ring: PolygonRing; rgb: Rgb }>({
                 id: 'boundary-other',
                 data: drawnOtherRings,
-                getPolygon: (r) => r,
-                getFillColor: isDrawing ? BOUNDARY_FILL_MUTED : BOUNDARY_FILL,
-                getLineColor: isDrawing ? BOUNDARY_LINE_MUTED : BOUNDARY_LINE,
+                getPolygon: (d) => d.ring,
+                getFillColor: (d) =>
+                  rgba(
+                    d.rgb,
+                    (isDrawing ? BOUNDARY_FILL_MUTED : BOUNDARY_FILL)[3],
+                  ),
+                getLineColor: (d) =>
+                  rgba(
+                    d.rgb,
+                    (isDrawing ? BOUNDARY_LINE_MUTED : BOUNDARY_LINE)[3],
+                  ),
                 lineWidthMinPixels: 2.5,
                 pickable: false,
               }),
@@ -361,8 +403,8 @@ export default function ContactListMap({
                 id: 'boundary',
                 data: [ring],
                 getPolygon: (r) => r,
-                getFillColor: BOUNDARY_FILL,
-                getLineColor: BOUNDARY_LINE,
+                getFillColor: rgba(activeRgb, BOUNDARY_FILL[3]),
+                getLineColor: rgba(activeRgb, BOUNDARY_LINE[3]),
                 lineWidthMinPixels: 2.5,
                 pickable: false,
               }),
@@ -380,7 +422,7 @@ export default function ContactListMap({
                 // than as something to grab, which at the density a block is
                 // drawn at is indistinguishable from the people underneath.
                 getFillColor: VERTEX_FILL,
-                getLineColor: BOUNDARY_LINE,
+                getLineColor: rgba(activeRgb, BOUNDARY_LINE[3]),
                 stroked: true,
                 filled: true,
                 lineWidthMinPixels: 2.5,
@@ -400,6 +442,8 @@ export default function ContactListMap({
     drawRing,
     otherRings,
     isDrawing,
+    drawColor,
+    otherRingColors,
   ])
 
   // Frame the list once it is known, and again whenever the list changes

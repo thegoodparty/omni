@@ -129,7 +129,8 @@ is silently ignored rather than erroring.
 `ordinances/components/stepWidgets.tsx` is the reference registry. Chief of
 Staff's `show_list_map` is deliberately not on one: its map renders after the
 turn's prose and only once per turn, and a registry entry would move it to
-where the tool fired.
+where the tool fired. `present_list_proposal` is off the registry for the same
+reason, because once its list is created the card becomes that map.
 
 ## Cards — one row each, the detail somewhere else
 
