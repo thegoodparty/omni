@@ -94,7 +94,7 @@ naming it.
 | `JUDGE_RECORDS_BUCKET`    | all   | An S3 bucket. Not wired in CI yet — see below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `JUDGE_SPEND`             | all   | Only the exact string `true` calls a real model. Anything else uses a canned reply, which is how the pipeline is exercised for nothing. **Step 3 spends too** — one panel call per judgeable pair, per seat — so all three must agree; step 3 refuses a setting that differs from what the arms' manifests recorded.                                                                                                                                                                                                                                                                                                                                                  |
 | `JUDGE_DATA_VERSION`      | 1, 2  | The Delta version both arms read. Resolved ONCE by `dataVersion.ts` in a `sweep` step of its own, before either arm runs, and published as a step output both arms read: an arm that looked up "current" itself would look it up an hour after the other and get a different answer. Empty when the mart could not be read — no credential, a dead one, a history the warehouse will not hand over — which reads here as "not pinned". The sweep then proceeds against the live mart rather than refusing, because most agents never query it, and `report.ts` names every run that queried the mart anyway.                                                          |
-| `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2 | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. Every admitted run starts at once and the arm is done when the slowest is, so an agent is admitted when one of its runs fits the arm on whichever arm is slower and its runs fit the `config.background.maxInFlight` slots left; one missing from the base ref is refused before anyone pays. Against a base ref whose arm still walks runs one after another (no `BACKGROUND_WALKS_CONCURRENTLY` in its `sweepArm.ts`), admission spends the arm's wall clock down run by run instead. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
+| `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2 | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. Every admitted run starts at once and the arm is done when the slowest is, so an agent is admitted when one of its runs fits the arm on whichever arm is slower and its runs fit the `config.background.maxInFlight` slots left; one missing from the base ref is refused before anyone pays. The same step refuses, by name, a chat agent the base ref cannot run (blocked in its `agents.ts`, or with no case list there): the base arm would skip it and the candidate arm would pay for every turn with nothing to pair. Against a base ref whose arm still walks runs one after another (no `BACKGROUND_WALKS_CONCURRENTLY` in its `sweepArm.ts`), admission spends the arm's wall clock down run by run instead. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
 | `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL` | 1, 2 | The identifiers six background case lists cannot carry, resolved ONCE by `judgeIdentifiers.ts` for both arms: a `judge-` slug from the sweep id, a BallotReady race id, a reserved address. The three agents that read gp-api use the fixed `judge-fixture` slug instead. Empty reads as "not resolved", and every background agent is then refused by name before anything is staged. See [Six background agents need identifiers a case list cannot carry](#six-background-agents-need-identifiers-a-case-list-cannot-carry). |
 | `JUDGE_SELECTION`         | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.       |
 | `JUDGE_ANTHROPIC_API_KEY` | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one. |
@@ -152,6 +152,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `pricing.ts`                                           | Versioned token rates. Re-derive cost from here; never compare stored dollars. |
 | `runners/chat.ts`                                      | Drives one real chat case — one turn or several — and emits one record.        |
 | `runners/seedTranscript.ts`                            | Writes a prior transcript through the store path the live turn reads.          |
+| `runners/briefingFixture.ts`                           | The briefing a briefing chat case is asked about, and its pinned `today`.      |
 | `cases.ts`                                             | Loads and validates one agent's case list.                                     |
 | `cases/*.json`                                         | The case lists themselves. One per agent — see below.                          |
 | `caseParams.ts`                                        | The placeholder vocabulary, its substitution, and the pre-dispatch guard.      |
@@ -228,8 +229,39 @@ thin an answer — it takes a tool off the model's list. `runners/seedChatOrg.ts
 creates one organization per case, with `positionId` set, plus per scope: a
 Pro campaign carrying `details` and a `raceId` (`campaign_assistant`), an
 ordinance and an `OrdinanceCodeRecord` placing the agent in Judge City WA
-(`ordinance_flow`), a priority (`priority_flow`), or an elected office alone
-(`chief_of_staff`). It still seeds no contacts, briefings or community issues.
+(`ordinance_flow`), a priority (`priority_flow`), a meeting briefing and one
+note on it (`briefing_annotation`), or an elected office alone
+(`chief_of_staff`). It still seeds no contacts or community issues.
+
+**Briefing chat is opened the way the webapp opens it.** Its conversation is
+created with its annotation, in one transaction, by `POST /v1/briefing-chats
+{meetingDate, anchor}`, and each turn goes to
+`/v1/briefing-chats/:annotationId/messages`. The registry's `POST /v1/chats`
+refuses the scope on purpose, so the runner uses the briefing routes rather
+than teaching the registry a second way in; the handler that answers is the
+same instance the registry holds. Two inputs of that turn cannot come from the
+database, and `installBriefingFixture` in `runners/chatSeam.ts` supplies both
+for the seeded bucket only, refusing outside a test process:
+
+- **The artifact.** Production reads it from S3 by the bucket and key on the
+  `MeetingBriefing` row. The seam serves `runners/briefingFixture.ts` instead:
+  the Hendersonville meeting the briefing prompt evals use, as the
+  `BriefingSchema` JSON the pipeline writes, so `get_artifacts` and highlights
+  work the way they do in production.
+- **Today.** The prompt says `Today is <date in the meeting's timezone>`, so
+  two arms captured either side of midnight there would read two different
+  prompts for one branch. The seam pins it to a fixed day, five days before
+  the meeting. It is in the system prompt, so the config digest covers it like
+  everything else the agent reads.
+
+Every case in an arm seeds its own office for the one judge user, but the
+briefing route finds a briefing by meeting date and the caller's office, which
+assumes one office per user. So the briefing seed deletes the earlier cases'
+judge briefings on the fixture date first; otherwise a later case would be
+routed onto an earlier briefing and continue its conversation. The district,
+by contrast, is resolved from the briefing's own organization, which is the
+one this case seeded, so `accountState.district` works on briefing chat the
+way it does on the other Serve scopes.
 
 `query_constituent_data` and `describe_constituent_data` stay unregistered on
 every run this harness makes, but **that is now a deployment gap rather than a
@@ -440,7 +472,10 @@ whole CRM and voter-file family on `ctx.isPro !== false`), `district`
 (`organization.positionId`, the half of the district gate that lives in our own
 database), `campaignDetails` (the blob carrying `raceId`, which
 `get_ballot_requirements` registers on) and `ordinanceStep` (each step past
-clarify carries its own `present_*` tools). `.strict()` keeps it closed: an
+clarify carries its own `present_*` tools). `briefingHighlight` is the one
+that gates no tool: like `ordinanceStep` it picks what the conversation is
+anchored on, here a highlighted passage instead of the whole briefing, which
+the briefing prompt renders differently. `.strict()` keeps it closed: an
 open bag of column overrides would let a case list seed a state no deployment
 can produce, and the verdict would be about an agent we do not ship.
 
