@@ -62,23 +62,21 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
   })
 })
 
-describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
-  it('opens with Home, Game Plan, Outreach and Voters, then Your Story', () => {
+describe('getDashboardMenuItems: Win tab order', () => {
+  // Your story has no menu item; it opens from the Game Plan's story card.
+  it('opens with Home, Game Plan, Outreach and Voters', () => {
     const items = links()
     const campaignTabs = items
       .filter((i) => i.v2Category === 'campaign')
       .map((i) => i.id)
 
-    expect(campaignTabs.slice(0, 5)).toEqual([
+    expect(campaignTabs.slice(0, 4)).toEqual([
       'campaign-tracker-dashboard',
       'campaign-plan-dashboard',
       'outreach-dashboard',
       'win-contacts-dashboard',
-      'campaign-story-dashboard',
     ])
-    expect(items.find((i) => i.id === 'campaign-story-dashboard')?.label).toBe(
-      'Your Story',
-    )
+    expect(campaignTabs).not.toContain('campaign-story-dashboard')
   })
 })
 

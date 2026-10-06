@@ -1,11 +1,13 @@
 # app/(dashboard)/campaign-story/
 
-**The standalone `/campaign-story` route + "Your Story" sidebar tab
-exist** (restored under the `campaign-story` flag). The page
-(`components/CampaignStoryPage.tsx`) renders the **onboarding** story cards
-(`app/onboarding/components/StoryIntakeCard` for why/background,
-`StoryIssuesCard` for the policy priorities). Unlike onboarding it's a single
-editable page: one **Save** in the page title bar commits every
+**The standalone `/campaign-story` route has no menu item.** It opens from
+the "Your story" card at the top of the Game Plan, as a full page with no
+sidebar: a back chevron and the "Your story" title, then the inputs. Back
+returns to wherever the candidate came from, or the Game Plan when opened
+directly. The page (`components/CampaignStoryPage.tsx`) renders the
+**onboarding** story cards (`app/onboarding/components/StoryIntakeCard` for
+why/background, `StoryIssuesCard` for the policy priorities). Unlike onboarding
+it's a single editable page: one **Save** beside the title commits every
 dirty field at once (`saveAll`), and a **Start over** at the bottom (shown once
 any field has content) clears the fields in memory — Save stays the only thing
 that persists, so Start over deletes nothing until the candidate Saves the empty
@@ -184,8 +186,8 @@ already round-trips through `Website.content.about`.
   on leaving the story) and the `/campaign-story` page (single header
   Save + Start over) — see `app/onboarding/CLAUDE.md`.
 - `app/(dashboard)/shared/DashboardMenu.tsx` — always labels the plan tab
-  "Game Plan" and always renders the "Your Story" entry (on Win, in the Manage
-  account menu).
+  "Game Plan". Your story has no menu entry; the Game Plan's overview cards
+  (`campaign-plan/components/CampaignPlanOverviewCards.tsx`) link to it.
 - `app/(dashboard)/campaign-plan/components/CampaignPlanGenerateGate.tsx` — reads
   the story + website to preview whatever exists before generation.
 - `packages/gp-api/src/campaignStory/` — `campaign_story` table (`background`,

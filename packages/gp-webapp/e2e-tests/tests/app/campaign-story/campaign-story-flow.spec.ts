@@ -110,7 +110,7 @@ test.describe('campaign story flow', () => {
     })
   })
 
-  test('"Your Story" is in the account menu and the plan tab reads "Game Plan"', async ({
+  test('Your story opens from the Game Plan, and the plan tab reads "Game Plan"', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
@@ -121,8 +121,14 @@ test.describe('campaign story flow', () => {
     await expect(page.locator('#campaign-plan-dashboard')).toHaveText(
       /^game plan$/i,
     )
-    await page.getByText('Manage account').click()
-    await expect(page.locator('#campaign-story-dashboard')).toBeVisible()
+    await expect(page.locator('#campaign-story-dashboard')).toHaveCount(0)
+
+    await page.goto('/campaign-plan')
+    await page.getByRole('link', { name: /Your story/ }).click()
+    await page.waitForURL('**/campaign-story')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Your story' }),
+    ).toBeVisible({ timeout: 15000 })
   })
 
   test('/campaign-story renders the editor and persists a saved answer', async ({
@@ -132,9 +138,9 @@ test.describe('campaign story flow', () => {
 
     await page.goto('/campaign-story')
 
-    // No guard redirect: the "Your Story" navHeader renders directly.
+    // No guard redirect: the page's own header renders directly.
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Your Story' }),
+      page.getByRole('heading', { level: 1, name: 'Your story' }),
     ).toBeVisible({ timeout: 15000 })
 
     await expect(
@@ -145,8 +151,7 @@ test.describe('campaign story flow', () => {
     const whyAnswer = `I'm running because my community deserves better — ${Date.now()}`
     await whyField.fill(whyAnswer)
 
-    // The page-level Save button is portaled into the navHeader bar via
-    // DashboardNavHeaderAction.
+    // The page-level Save sits in the header beside the title.
     const saveButton = page.getByRole('button', { name: 'Save' })
     await expect(saveButton).toBeEnabled()
     await saveButton.click()
@@ -155,7 +160,7 @@ test.describe('campaign story flow', () => {
     await page.reload()
 
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Your Story' }),
+      page.getByRole('heading', { level: 1, name: 'Your story' }),
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole('textbox').first()).toHaveValue(whyAnswer, {
       timeout: 15000,

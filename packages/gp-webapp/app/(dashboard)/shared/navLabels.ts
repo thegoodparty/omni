@@ -1,5 +1,4 @@
 import {
-  BookOpenIcon,
   CircleUserRoundIcon,
   ClipboardListIcon,
   FlagIcon,
@@ -30,7 +29,6 @@ export const NAV_HEADER_ICONS = {
   swords: SwordsIcon,
   house: HouseIcon,
   checklist: ListChecksIcon,
-  book: BookOpenIcon,
   profile: CircleUserRoundIcon,
   megaphone: MegaphoneIcon,
   target: TargetIcon,
@@ -43,7 +41,6 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 // they clicked in the left rail. Same single-source rule as contactsLabels.ts.
 export const NAV_LABELS = {
   home: 'Home',
-  campaignStory: 'Your Story',
   campaignPlan: 'Game Plan',
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',

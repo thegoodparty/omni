@@ -3,7 +3,7 @@ import candidateAccess from '../shared/candidateAccess'
 import CampaignStoryPage from './components/CampaignStoryPage'
 
 const meta = pageMetaData({
-  title: 'Your Story | GoodParty.org',
+  title: 'Your story | GoodParty.org',
   description: 'Your why, your background, and the issues you will fight for.',
   slug: '/campaign-story',
 })
@@ -15,5 +15,5 @@ export const dynamic = 'force-dynamic'
 // onboarding), so this route only gates access and renders the shell.
 export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
-  return <CampaignStoryPage pathname="/campaign-story" />
+  return <CampaignStoryPage />
 }

@@ -137,14 +137,14 @@ const WIN_AREAS: ProductArea[] = [
     ],
   },
   {
-    navId: 'campaign-story-dashboard',
-    name: 'Your Story',
+    navId: null,
+    name: 'Your story',
     path: '/campaign-story',
     modes: ['win'],
     does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign and outreach plan is generated from.',
     inside: [
-      'Not in the main left rail: it is in the account menu, opened from Manage account at the bottom of the left-hand menu',
-      'One Save in the page title bar commits every field at once; nothing saves until they press it',
+      'Not in the left-hand menu: it opens from the Your story card at the top of the Game Plan, as a full page with a back arrow',
+      'One Save beside the Your story title commits every field at once; nothing saves until they press it',
       'Start over at the bottom clears the fields on screen but deletes nothing until they Save',
     ],
   },
@@ -155,7 +155,7 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
     inside: [
-      'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Profile, the story on Your Story, opponents on Know Your Opponent',
+      'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Profile, the story on Your story, opponents on Know Your Opponent',
       'Below them, a bar per phase (Pre-launch, Launch, Active campaign, Get out the vote) shows how far along they are, which phase they are in, and how many tasks are done',
       'The phase they are in opens to its tasks, and the task to do next is the same card as on Home, with its button, Mark done, the three-dot menu and Chat about this',
     ],
@@ -430,7 +430,7 @@ export const areasForMode = (mode: ProductMode): ProductArea[] =>
 // nothing to do with it.
 export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   win: [
-    'The Campaign Story you write with me is saved to Your Story. A campaign and outreach plan does not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
+    'The Campaign Story you write with me is saved to Your story. A campaign and outreach plan does not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
     'Your Public Profile is separate. It has its own "Why I’m running" on the Public Profile page, and writing your story here does not change it. If someone wants their story on their public page, say plainly that it has to be entered there and point them at the tab.',
     'Saved lists I create are real, and appear under Voters.',
     'I cannot edit the campaign and outreach plan, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',

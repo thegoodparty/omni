@@ -61,7 +61,6 @@ vi.mock('@styleguide/components/ui/icons', () => ({
   ScrollTextIcon: () => null,
   HouseIcon: () => null,
   ListChecksIcon: () => null,
-  BookOpenIcon: () => null,
   CircleUserRoundIcon: () => null,
   MegaphoneIcon: () => null,
   TargetIcon: () => null,
@@ -179,7 +178,7 @@ describe('DashboardLayout chat dock', () => {
 // stand-in harness — the wiring under test (ref callback -> state -> context ->
 // portal, plus the mounted-action count) lives in DashboardLayout itself.
 describe('DashboardLayout nav header CTA', () => {
-  const navHeader = { icon: 'book', label: 'Your Story' } as const
+  const navHeader = { icon: 'flag', label: 'Know Your Opponent' } as const
   const bar = () =>
     document.querySelector('[data-slot="nav-header-action"]')?.parentElement
 
@@ -235,7 +234,7 @@ describe('DashboardLayout nav header CTA', () => {
 
     expect(bar()).toBeUndefined()
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Your Story' }),
+      screen.getByRole('heading', { level: 1, name: 'Know Your Opponent' }),
     ).toHaveClass('sr-only')
   })
 

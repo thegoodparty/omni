@@ -3,10 +3,14 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
-import DashboardLayout from '../../shared/DashboardLayout'
-import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
-import { NAV_LABELS } from '../../shared/navLabels'
-import { Button, Card, CheckIcon } from '@styleguide'
+import { useRouter } from 'next/navigation'
+import {
+  Button,
+  Card,
+  CheckIcon,
+  ChevronLeftIcon,
+  IconButton,
+} from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -30,31 +34,45 @@ import {
 const CARD_DESCRIPTION =
   "We'll use this to draft your voter outreach and personalize your campaign plan."
 
-interface CampaignStoryPageProps {
-  pathname?: string
-}
+// The "Your story" page: a full page of its own, with no sidebar, opened from
+// the Game Plan's story card. Reuses the onboarding story cards
+// (StoryIntakeCard for why/background, StoryIssuesCard for the policy
+// priorities). Unlike onboarding, it's a single editable page: one Save in the
+// header commits every field at once, and a "Start over" clears them (Save
+// still being the only thing that persists).
+const CampaignStoryPage = (): React.JSX.Element => (
+  <main className="min-h-screen bg-sidebar">
+    <StoryEditor />
+  </main>
+)
 
-// The standalone "Your Story" dashboard page. Reuses the same onboarding story
-// cards (StoryIntakeCard for why/background, StoryIssuesCard for the policy
-// priorities). Unlike onboarding, it's a single editable page: one page-level
-// Save in the title bar commits every field at once, and a "Start over" clears
-// them (Save still being the only thing that persists).
-//
-// The page title comes from DashboardLayout's navHeader — the shared bar every
-// main nav page uses — so it carries the same icon and name as the sidebar tab.
-// The form's Save portals into that bar (see StoryEditorForm).
-const CampaignStoryPage = ({
-  pathname,
-}: CampaignStoryPageProps): React.JSX.Element => {
+// Back returns to wherever the candidate came from (usually the Game Plan),
+// and to the Game Plan when the page was opened directly.
+const StoryHeader = ({
+  action,
+}: {
+  action?: React.ReactNode
+}): React.JSX.Element => {
+  const router = useRouter()
+  const goBack = (): void => {
+    if (window.history.length > 1) router.back()
+    else router.push('/campaign-plan')
+  }
   return (
-    <DashboardLayout
-      pathname={pathname}
-      wrapperClassName="w-full"
-      showAlert={false}
-      navHeader={{ icon: 'book', label: NAV_LABELS.campaignStory }}
-    >
-      <StoryEditor />
-    </DashboardLayout>
+    <header className="mx-auto flex w-full max-w-2xl items-center gap-2 px-4 pt-6 sm:px-8 sm:pt-10">
+      <IconButton
+        type="button"
+        variant="ghost"
+        size="small"
+        className="-ml-2 size-10"
+        aria-label="Back"
+        onClick={goBack}
+      >
+        <ChevronLeftIcon className="size-5" aria-hidden />
+      </IconButton>
+      <h1 className="text-2xl font-semibold text-foreground">Your story</h1>
+      {action && <div className="ml-auto">{action}</div>}
+    </header>
   )
 }
 
@@ -85,20 +103,26 @@ const StoryEditor = (): React.JSX.Element => {
 
   if (isError) {
     return (
-      <StoryBody>
-        <p className="text-sm text-destructive">
-          We couldn&apos;t load your saved story. Check your connection and
-          refresh the page to try again.
-        </p>
-      </StoryBody>
+      <>
+        <StoryHeader />
+        <StoryBody>
+          <p className="text-sm text-destructive">
+            We couldn&apos;t load your saved story. Check your connection and
+            refresh the page to try again.
+          </p>
+        </StoryBody>
+      </>
     )
   }
 
   if (!isReady) {
     return (
-      <StoryBody>
-        <p className="text-sm text-muted-foreground">Loading your story…</p>
-      </StoryBody>
+      <>
+        <StoryHeader />
+        <StoryBody>
+          <p className="text-sm text-muted-foreground">Loading your story…</p>
+        </StoryBody>
+      </>
     )
   }
 
@@ -226,20 +250,20 @@ export function StoryEditorForm({
 
   return (
     <>
-      {/* Scaled to the title bar's fixed height (h-14): a small button clears
-          the 56px bar without growing it. */}
-      <DashboardNavHeaderAction>
-        <Button
-          size="small"
-          icon={<CheckIcon />}
-          loading={anySaving}
-          loadingText="Saving…"
-          disabled={!anyDirty || anySaving}
-          onClick={() => void saveAll()}
-        >
-          Save
-        </Button>
-      </DashboardNavHeaderAction>
+      <StoryHeader
+        action={
+          <Button
+            size="small"
+            icon={<CheckIcon />}
+            loading={anySaving}
+            loadingText="Saving…"
+            disabled={!anyDirty || anySaving}
+            onClick={() => void saveAll()}
+          >
+            Save
+          </Button>
+        }
+      />
 
       <StoryBody>
         <p className="text-base text-muted-foreground">

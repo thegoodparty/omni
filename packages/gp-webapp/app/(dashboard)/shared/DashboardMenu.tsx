@@ -6,7 +6,6 @@ import {
   MdFactCheck,
   MdFileOpen,
   MdFolderShared,
-  MdMenuBook,
   MdMessage,
   MdPeople,
   MdPoll,
@@ -278,15 +277,6 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
-const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
-  id: 'campaign-story-dashboard',
-  label: NAV_LABELS.campaignStory,
-  link: '/campaign-story',
-  icon: <MdMenuBook />,
-  v2Icon: NAV_HEADER_ICONS.book,
-  v2Category: 'campaign',
-}
-
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
   label: NAV_LABELS.knowYourOpponent,
@@ -366,15 +356,6 @@ export const getDashboardMenuItems = (
 
   menuItems.splice(afterHome, 0, CAMPAIGN_PLAN_MENU_ITEM)
 
-  // "Your Story" follows the daily-use tabs, right after Voter Data.
-  const voterDataItemIndex = menuItems.findIndex(
-    (item) =>
-      item === WIN_CONTACTS_MENU_ITEM ||
-      item === VOTER_DATA_UPGRADE_ITEM ||
-      item === CONTACTS_MENU_ITEM,
-  )
-  menuItems.splice(voterDataItemIndex + 1, 0, CAMPAIGN_STORY_MENU_ITEM)
-
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
   menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
@@ -450,7 +431,6 @@ export default function DashboardMenu({
 // account menu (Manage account) instead of the main nav, which keeps the rail
 // to the pages a candidate works in every day.
 const WIN_ACCOUNT_MENU_PAGE_IDS = new Set([
-  'campaign-story-dashboard',
   'race-opponent-dashboard',
   'public-profile-campaign',
 ])

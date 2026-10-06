@@ -202,7 +202,6 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/priorities', NAV_LABELS.priorities],
   ['/constituent-outreach', NAV_LABELS.constituentOutreach],
   ['/race-opponent', NAV_LABELS.knowYourOpponent],
-  ['/campaign-story', NAV_LABELS.campaignStory],
   ['/outreach', NAV_LABELS.voterOutreach],
   ['/campaign-verification', 'Campaign verification'],
   // /contacts is intentionally absent: its title depends on Win vs
