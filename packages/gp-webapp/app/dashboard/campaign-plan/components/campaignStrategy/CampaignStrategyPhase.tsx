@@ -29,6 +29,7 @@ interface CampaignStrategyPhaseProps {
     taskId: string,
   ) => void
   onDiscuss?: (task: CampaignStrategyTask) => void
+  onSkip?: (task: CampaignStrategyTask) => void
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
@@ -52,6 +53,7 @@ const WeekNavigator = ({
   onToggleComplete,
   onStartOutreach,
   onDiscuss,
+  onSkip,
   getAction,
 }: {
   weeks: CampaignStrategyWeek[]
@@ -62,6 +64,7 @@ const WeekNavigator = ({
     taskId: string,
   ) => void
   onDiscuss?: (task: CampaignStrategyTask) => void
+  onSkip?: (task: CampaignStrategyTask) => void
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
@@ -129,6 +132,7 @@ const WeekNavigator = ({
               onToggleComplete={onToggleComplete}
               onStartOutreach={onStartOutreach}
               onDiscuss={onDiscuss}
+              onSkip={onSkip}
               getAction={getAction}
             />
           ))}
@@ -173,6 +177,7 @@ const CampaignStrategyPhase = ({
   onToggleComplete,
   onStartOutreach,
   onDiscuss,
+  onSkip,
   getAction,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
   <AccordionItem
@@ -207,6 +212,7 @@ const CampaignStrategyPhase = ({
           onToggleComplete={onToggleComplete}
           onStartOutreach={onStartOutreach}
           onDiscuss={onDiscuss}
+          onSkip={onSkip}
           getAction={getAction}
         />
       ) : (
@@ -228,6 +234,7 @@ const CampaignStrategyPhase = ({
                   onToggleComplete={onToggleComplete}
                   onStartOutreach={onStartOutreach}
                   onDiscuss={onDiscuss}
+                  onSkip={onSkip}
                   getAction={getAction}
                 />
               ))}

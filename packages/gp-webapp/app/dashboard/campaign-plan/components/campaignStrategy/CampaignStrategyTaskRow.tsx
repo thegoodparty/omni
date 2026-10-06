@@ -38,6 +38,9 @@ interface CampaignStrategyTaskRowProps {
   // Opens the Campaign Manager chat about this task; the row's one visible
   // action. Everything else it can do sits in its menu.
   onDiscuss?: (task: CampaignStrategyTask) => void
+  // Sends the "Do this next" task to the back of the stack, the same skip the
+  // next-task card offers, so its row keeps a menu once its action is a button.
+  onSkip?: (task: CampaignStrategyTask) => void
   // The task's real action (the same mapping the next-task card leads with).
   // When given, it replaces the older link / "Start outreach" menu items.
   getAction?: (
@@ -81,6 +84,7 @@ const CampaignStrategyTaskRow = ({
   onToggleComplete,
   onStartOutreach,
   onDiscuss,
+  onSkip,
   getAction,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
@@ -148,6 +152,9 @@ const CampaignStrategyTaskRow = ({
             },
           },
         ]
+      : []),
+    ...(onSkip && task.isNext && !task.completed
+      ? [{ label: 'Skip', onClick: () => onSkip(task) }]
       : []),
     ...(onToggleComplete && !completesItself
       ? [

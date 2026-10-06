@@ -177,6 +177,11 @@ const writeSkipped = (ids: string[]): void => {
   skipListeners.forEach((listener) => listener())
 }
 
+// Skip a task from outside the card (the tracker's "Do this next" row), so
+// both surfaces share one skip list.
+export const skipNextTask = (id: string): void =>
+  writeSkipped([...readSkipped().filter((skipped) => skipped !== id), id])
+
 const subscribeSkipped = (listener: () => void): (() => void) => {
   skipListeners.add(listener)
   window.addEventListener('storage', listener)

@@ -11,7 +11,7 @@ import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useGenerateTrackerTasks, useTrackerTasks } from './useTrackerTasks'
 import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
-import { discussTaskMessage, taskAction } from './NextTaskCard'
+import { discussTaskMessage, skipNextTask, taskAction } from './NextTaskCard'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
@@ -212,6 +212,7 @@ const CampaignStrategySection = ({
                     'plan',
                   )
                 }
+                onSkip={(task) => skipNextTask(task.id)}
                 onDiscuss={
                   chat
                     ? (task) => chat.discussTask(discussTaskMessage(task))
