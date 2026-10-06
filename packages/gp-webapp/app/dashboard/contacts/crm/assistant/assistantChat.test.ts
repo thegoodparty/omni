@@ -4,7 +4,10 @@ import { campaignManagerChatApi } from '../../../campaign-manager/campaignManage
 import { CAMPAIGN_MANAGER_HISTORY_KEY } from '../../../campaign-manager/campaignManagerChat'
 import { chiefOfStaffChatApi } from '../../../chief-of-staff/data/chat-api'
 import { HISTORY_KEY } from '../../../chief-of-staff/data/use-chat-history'
-import { toolDisplayName } from '../../../chief-of-staff/components/chat/chatConstants'
+import {
+  COS_INTRO_MESSAGES,
+  toolDisplayName,
+} from '../../../chief-of-staff/components/chat/chatConstants'
 
 describe('getAssistantChat', () => {
   it('binds Win to the campaign_assistant client and its history key', () => {
@@ -13,6 +16,7 @@ describe('getAssistantChat', () => {
     expect(binding.historyKey).toBe(CAMPAIGN_MANAGER_HISTORY_KEY)
     expect(binding.scope).toBe('campaign_assistant')
     expect(binding.agentName).toBe('Campaign manager')
+    expect(binding.defaultIntro[0]).toBe("Hi, I'm your Campaign Manager.")
   })
 
   it('binds Serve to the chief_of_staff client and its history key', () => {
@@ -21,6 +25,7 @@ describe('getAssistantChat', () => {
     expect(binding.historyKey).toBe(HISTORY_KEY)
     expect(binding.scope).toBe('chief_of_staff')
     expect(binding.agentName).toBe('Chief of Staff')
+    expect(binding.defaultIntro).toBe(COS_INTRO_MESSAGES)
   })
 })
 
@@ -39,5 +44,13 @@ describe('the shared tool labels cover the list tools', () => {
 
   it('still covers the other scope tools', () => {
     expect(toolDisplayName('web_search')).toBe('Searching the web')
+  })
+
+  it("labels the Campaign Manager's own tools", () => {
+    expect(toolDisplayName('size_outreach_sample')).toBe('Sizing a sample')
+    expect(toolDisplayName('search_help_center')).toBe(
+      'Searching the help center',
+    )
+    expect(toolDisplayName('campaign_story')).toBe('Working on your story')
   })
 })

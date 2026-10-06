@@ -119,7 +119,9 @@ module republishes for the registry. Its `resolveConversation` rejects: a
 briefing conversation is created with its `Annotation` in one transaction
 (`POST /v1/briefing-chats`), so the generic create path cannot produce a usable
 one. Handlers may also declare an
-optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8).
+optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8;
+the Campaign Manager and Chief of Staff use 15, because a single outreach turn
+chains describe, count, size and present before any retry).
 
 **The session model is shared, and stays that way.** `GeneralChatsService.
 resolveConversation` owns it: every open creates a NEW conversation, and

@@ -187,6 +187,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   readonly scope = ChatScope.campaign_assistant
   readonly isSensitive = true
   readonly models = [...CAMPAIGN_MANAGER_MODELS]
+  // The default 5 steps ran out mid-outreach: describe, count, size, then
+  // save or present is already four tool calls before any retry or search,
+  // and a turn that runs out of steps ends without presenting anything.
+  readonly maxSteps = 15
 
   constructor(
     private readonly store: GeneralChatStoreService,

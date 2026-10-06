@@ -780,6 +780,30 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     }
   })
 
+  // 9pm in California is already tomorrow in UTC. The term counts have to
+  // start from the same local day the today line names, or a term ending
+  // tomorrow reads as over while the prompt says it is still today.
+  it("counts the term from the office's own day, not the server's", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-15T04:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          state: 'CA',
+          termStartDate: new Date('2022-09-15T00:00:00.000Z'),
+          termEndDate: new Date('2026-09-15T00:00:00.000Z'),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        'Today is Monday, September 14, 2026 (Pacific Time).',
+      )
+      expect(prompt).not.toContain('this term has ended')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // Terms are half-open [start, end), so the seat is not held on the end date
   // itself. Same boundary deriveIsActive / isHeldOffice use for a past office.
   it('treats a term ending today as already ended', () => {

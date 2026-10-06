@@ -98,6 +98,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
         analyticsLabel={chat.analyticsLabel}
         historyKey={chat.historyKey}
         scope={chat.scope}
+        defaultIntro={chat.defaultIntro}
         onMessageSent={() =>
           trackEvent(EVENTS.Contacts.AssistantMessageSent, { context })
         }
