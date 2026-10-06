@@ -3657,6 +3657,14 @@ export interface MeetingBriefingFull {
      */
     discovered_agenda_location: string | null
     /**
+     * matched: packet_stated_meeting_date is within three days of meeting_date. mismatched: it is further off. unavailable: no date could be read from the document. Recorded so a missing date is a known state, not a silent pass.
+     */
+    packet_date_verification?: 'matched' | 'mismatched' | 'unavailable'
+    /**
+     * The meeting date the agenda document itself states, read from its cover or header. null when no date could be read.
+     */
+    packet_stated_meeting_date?: string | null
+    /**
      * Curated trail of agent judgment calls. Separate from conversation/log.txt; this is QA-facing.
      */
     run_decisions?: {
@@ -4102,6 +4110,14 @@ export interface MeetingBriefingPlaceholder {
      * Best current prose describing where future agenda packets will likely be found for this body, persisted by gp-api as a hint for subsequent runs. Prefer a URL to the PARENT page that lists meetings (e.g. the streaming platform's calendar, the city's agendas index, a CDN directory) — not the deep link to today's specific packet PDF. Prose with multi-step navigation is allowed when no single URL captures it. Emit even on awaiting_agenda / no_meeting_found runs when the parent page was still reachable; set to null only when no plausible future-run starting point exists.
      */
     discovered_agenda_location: string | null
+    /**
+     * matched: packet_stated_meeting_date is within three days of meeting_date. mismatched: it is further off. unavailable: no date could be read from the document. Recorded so a missing date is a known state, not a silent pass.
+     */
+    packet_date_verification?: 'matched' | 'mismatched' | 'unavailable'
+    /**
+     * The meeting date the agenda document itself states, read from its cover or header. null when no date could be read.
+     */
+    packet_stated_meeting_date?: string | null
     /**
      * Curated trail of agent judgment calls. Separate from conversation/log.txt; this is QA-facing.
      */

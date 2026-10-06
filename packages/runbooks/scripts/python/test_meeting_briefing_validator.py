@@ -510,6 +510,8 @@ def _ready_artifact(
     *,
     decisions: list[dict] | None = None,
     status: str = "briefing_ready",
+    stated_date: str | None = "2026-06-01",
+    verification: str = "matched",
 ) -> dict:
     return {
         "briefing_status": status,
@@ -517,6 +519,8 @@ def _ready_artifact(
         "run_metadata": {
             "agenda_availability": availability,
             "agenda_packet_url": "https://example.gov/agenda.pdf",
+            "packet_stated_meeting_date": stated_date,
+            "packet_date_verification": verification,
             "run_decisions": decisions or [],
         },
     }
@@ -592,3 +596,40 @@ class TestRunDecisionsAdmitUnavailableAgenda:
         v = _load_validator()
         names = {c.__name__ for c in v.CHECKS}
         assert {"check_agenda_availability_consistency", "check_run_decisions_admit_unavailable_agenda"} <= names
+
+
+class TestPacketDate:
+    def _findings(self, **kwargs) -> list:
+        v = _load_validator()
+        findings: list = []
+        v.check_agenda_availability_consistency(_ready_artifact(**kwargs), findings)
+        return [(f.check, f.severity) for f in findings]
+
+    def test_user_provided_packet_the_agent_called_mismatched_is_an_error(self):
+        assert self._findings(status="agenda_provided_by_user", stated_date="2026-05-18", verification="mismatched") == [
+            ("packet_date.states_another_meeting", "error")
+        ]
+
+    def test_user_provided_packet_two_weeks_off_is_an_error_even_when_called_matched(self):
+        assert self._findings(status="agenda_provided_by_user", stated_date="2026-05-18", verification="matched") == [
+            ("packet_date.states_another_meeting", "error")
+        ]
+
+    def test_user_provided_packet_one_day_off_passes(self):
+        assert self._findings(status="agenda_provided_by_user", stated_date="2026-06-02") == []
+
+    def test_user_provided_packet_with_no_readable_date_passes(self):
+        assert self._findings(status="agenda_provided_by_user", stated_date=None, verification="unavailable") == []
+
+    def test_malformed_stated_date_counts_as_unread(self):
+        assert self._findings(status="agenda_provided_by_user", stated_date="June 1") == []
+
+    def test_discovered_agenda_for_another_meeting_is_a_warning(self):
+        assert self._findings(stated_date="2026-05-18", verification="mismatched") == [
+            ("packet_date.states_another_meeting", "warning")
+        ]
+
+    def test_agent_mismatch_without_a_date_is_still_an_error_on_user_provided(self):
+        assert self._findings(status="agenda_provided_by_user", stated_date=None, verification="mismatched") == [
+            ("packet_date.states_another_meeting", "error")
+        ]

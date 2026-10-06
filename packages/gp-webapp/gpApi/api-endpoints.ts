@@ -170,9 +170,19 @@ export interface MeetingsListItemDto {
    * gp-api's MeetingsListItemDto.userAgendaStatus.
    */
   userAgendaStatus?: UserAgendaStatus | null
+  /**
+   * Why gp-api declined to publish the user's agenda run, when
+   * userAgendaStatus is 'rejected'. Machine string; null otherwise.
+   */
+  userAgendaReason?: string | null
 }
 
-export type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
+export type UserAgendaStatus =
+  | 'processing'
+  | 'failed'
+  | 'rejected'
+  | 'completed'
+  | 'unknown'
 
 // A row of campaign_position with its relations included. `description` is the
 // candidate's own wording; `position.name` is the catalog stance it was chosen
