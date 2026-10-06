@@ -253,14 +253,70 @@ export const baseChatAttempts = (baseDir: string): number | undefined => {
   }
 }
 
+// WHETHER THE BASE ARM CAN RUN A CHAT AGENT AT ALL, read off the base ref's
+// own registry the way the probes above read its arm. A base that blocks the
+// agent, or registers no case list for it, skips it — and the candidate arm,
+// told nothing, walks every case and pays for every turn, which the report
+// then refuses because nothing pairs. That is the state of any chat agent a
+// branch unblocks. Background agents are refused before spend by
+// resolveAdmission when the base cannot cost them; this is the chat half.
+//
+// Three facts, each a raw read: the agent's key in the base's
+// CHAT_BLOCKED_REASONS object, its `agentId: '<file>'` row in the base's case
+// list map, and the file itself. A registry this cannot find the blocked map
+// in is refused too: as with the admission probe, a refactor that moves it
+// costs a sweep and bills nothing.
+const BASE_AGENTS_PATH = 'packages/gp-api/src/chats/evals/judge/agents.ts'
+const BASE_BLOCKED_MAP =
+  /const CHAT_BLOCKED_REASONS\b[^=]*=\s*(\{\}|\{[\s\S]*?\n\})/
+
+export const baseCannotRunChat = (
+  baseDir: string,
+  agent: AgentEntry,
+): string | undefined => {
+  let registry: string
+  try {
+    registry = readFileSync(join(baseDir, BASE_AGENTS_PATH), 'utf8')
+  } catch {
+    return 'its agent registry is not on the base ref'
+  }
+  const blocked = BASE_BLOCKED_MAP.exec(registry)?.[1]
+  if (blocked === undefined) {
+    return "its agent registry's blocked list could not be found"
+  }
+  if (new RegExp(`^\\s*${agent.agentId}\\s*:`, 'm').test(blocked)) {
+    return 'it is blocked there'
+  }
+  const file = agent.cases ?? ''
+  const listed = new RegExp(
+    `^\\s*${agent.agentId}: '${file.replaceAll('.', '\\.')}',?\\s*$`,
+    'm',
+  ).test(registry)
+  let onDisk = true
+  try {
+    readFileSync(
+      join(baseDir, 'packages/gp-api/src/chats/evals/judge/cases', file),
+    )
+  } catch {
+    onDisk = false
+  }
+  return listed && onDisk ? undefined : 'it has no case list there'
+}
+
+const baseRefusalReason = (why: string): string =>
+  `the base ref cannot run this agent (${why}), so the candidate arm would ` +
+  'pay for turns with nothing to compare; this clears once the base ref can ' +
+  'run it'
+
 // THE CHAT AGENTS NEITHER ARM MAY WALK, decided once for the reason
 // background admission is: each arm reads its own case lists and its own
 // attempts, and two arms refusing different agents pay for turns that pair
 // with nothing. Each agent is costed at the larger turn count and the larger
 // attempts of the two arms, which bounds whichever arm is slower.
 //
-// Against a base that would not obey, nothing is refused, which leaves the
-// sweep exactly as unbounded as that base already was.
+// Against a base that would not obey, nothing is refused for time, which
+// leaves the sweep exactly as unbounded as that base already was. An agent
+// the base cannot run at all is refused either way: see baseCannotRunChat.
 type ChatCosts = {
   candidate: (agent: AgentEntry) => number
   base: (
@@ -270,6 +326,7 @@ type ChatCosts = {
   ) => number | undefined
   baseAttempts: (baseDir: string) => number | undefined
   boundsChat: (baseDir: string) => boolean
+  baseCannotRun: (baseDir: string, agent: AgentEntry) => string | undefined
 }
 
 export const CHAT_COSTS: ChatCosts = {
@@ -277,6 +334,7 @@ export const CHAT_COSTS: ChatCosts = {
   base: baseChatTurns,
   baseAttempts: baseChatAttempts,
   boundsChat: baseBoundsChat,
+  baseCannotRun: baseCannotRunChat,
 }
 
 export const resolveChatRefusals = (
@@ -287,11 +345,25 @@ export const resolveChatRefusals = (
   costs: ChatCosts = CHAT_COSTS,
   warn: (line: string) => void = warnLine,
 ): { agentId: string; reason: string }[] => {
-  if (!costs.boundsChat(baseDir)) return []
-  const selected = selectAgents(
+  const requested = selectAgents(
     { kind: 'list', ids: [...new Set(agentIds)] },
     registry,
   ).selected
+  // FIRST, AND WHATEVER THE BASE ARM'S OWN BOUNDING. The base arm skips an
+  // agent it cannot run whether or not it reads this list, so refusing it
+  // here only stops the candidate paying for turns that pair with nothing.
+  // Taken out before the time budget, which they would otherwise use up.
+  const unrunnable = requested.flatMap((agent) => {
+    if (agent.shape !== 'chat' || agent.cases === null) return []
+    const why = costs.baseCannotRun(baseDir, agent)
+    return why === undefined
+      ? []
+      : [{ agentId: agent.agentId, reason: baseRefusalReason(why) }]
+  })
+  if (!costs.boundsChat(baseDir)) return unrunnable
+  const selected = requested.filter(
+    (agent) => !unrunnable.some((one) => one.agentId === agent.agentId),
+  )
   const baseAttempts = costs.baseAttempts(baseDir)
   // Warned rather than refused: a base that walks more attempts than this
   // branch is then planned low.
@@ -311,13 +383,16 @@ export const resolveChatRefusals = (
       return 0
     }
   }
-  return refuseChat(
-    selected,
-    (agent) =>
-      Math.max(onCandidate(agent), costs.base(baseDir, agent, warn) ?? 0) *
-      attempts,
-    ARM_BUDGET_MS,
-  )
+  return [
+    ...unrunnable,
+    ...refuseChat(
+      selected,
+      (agent) =>
+        Math.max(onCandidate(agent), costs.base(baseDir, agent, warn) ?? 0) *
+        attempts,
+      ARM_BUDGET_MS,
+    ),
+  ]
 }
 
 const candidateCost = (agent: AgentEntry, config: JudgeConfig): ArmWalk => {

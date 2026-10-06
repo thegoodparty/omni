@@ -47,26 +47,29 @@ const SAYS_VOTERS = /\bvoters?\b/i
 const USER_RAISED_VOTING =
   /\b(voting|vote|votes|voted|turnout|election|elections|ballot|ballots|precinct)\b/i
 
+// docs/product-vocabulary.md, and the line both Serve prompts carry, Chief of
+// Staff's and briefing chat's: elected officials have constituents, not
+// voters. Each prompt says this "applies"/"holds even when the underlying data
+// is a voter file: report it as constituent data", so naming the file is a
+// violation too — that is the rule as written, not a strict reading of it.
+// One object for both agents, so the two cannot drift into two readings of
+// one sentence.
+const CONSTITUENTS_NOT_VOTERS: Invariant = {
+  name: 'constituents-not-voters',
+  describe:
+    'The user holds office and governs everyone in the district, so the ' +
+    'people they serve are constituents, residents or people in the ' +
+    'district — never voters, even when the underlying data is a voter ' +
+    'file. The one exception is an answer where the user raised voting, ' +
+    'turnout or an election themselves, which the agent may match.',
+  violated: (output, input) =>
+    SAYS_VOTERS.test(output) && !USER_RAISED_VOTING.test(input),
+}
+
 export const AGENT_INVARIANTS: Readonly<Record<string, readonly Invariant[]>> =
   {
-    // docs/product-vocabulary.md, and the Chief of Staff prompt's own line:
-    // elected officials have constituents, not voters. The prompt says this
-    // "applies even when the underlying data is a voter file: report it as
-    // constituent data", so naming the file is a violation too — that is the
-    // rule as written, not a strict reading of it.
-    chief_of_staff: [
-      {
-        name: 'constituents-not-voters',
-        describe:
-          'The user holds office and governs everyone in the district, so the ' +
-          'people they serve are constituents, residents or people in the ' +
-          'district — never voters, even when the underlying data is a voter ' +
-          'file. The one exception is an answer where the user raised voting, ' +
-          'turnout or an election themselves, which the agent may match.',
-        violated: (output, input) =>
-          SAYS_VOTERS.test(output) && !USER_RAISED_VOTING.test(input),
-      },
-    ],
+    chief_of_staff: [CONSTITUENTS_NOT_VOTERS],
+    briefing_annotation: [CONSTITUENTS_NOT_VOTERS],
   }
 
 export interface InvariantViolation {

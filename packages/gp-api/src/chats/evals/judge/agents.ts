@@ -87,8 +87,8 @@ type ChatAgentId = (typeof CHAT_AGENT_IDS)[number]
 // so a typo there compiles — what catches a registry entry pointing at a file
 // nobody wrote is the directory check in chatCaseLists.test.ts.
 //
-// briefing_annotation is absent on purpose. It is blocked, not unwritten, so
-// a case list would be inputs for a runner that cannot drive it.
+// briefing_annotation is absent on purpose. It is blocked until its case
+// list lands, and a case list is what unblocks it.
 //
 // All four are placeholder lists — see the `note` in each file. That does
 // not stop an agent being wired; the coverage line counts it separately.
@@ -103,10 +103,9 @@ const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
 // dropping its reason is a typecheck failure.
 const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {
   briefing_annotation:
-    'Registered as a ChatScopeHandler, but the chat runner cannot drive it ' +
-    'yet: a briefing conversation is created with its annotation, so ' +
-    'POST /v1/chats refuses the scope, and there is no case list. ' +
-    'Unblocked by a follow-up that adds a briefing seed and its cases.',
+    'Case list pending. The runner opens a briefing chat through ' +
+    'POST /v1/briefing-chats and the seed gives it a briefing to open on, ' +
+    'but there are no inputs to judge it on yet.',
 }
 
 const CHAT_AGENTS: AgentEntry[] = CHAT_AGENT_IDS.map((agentId) => {
