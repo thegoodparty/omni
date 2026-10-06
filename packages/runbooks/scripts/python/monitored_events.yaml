@@ -873,6 +873,9 @@ dismissed:
 #       relocated (+ route: "/path") | not_a_change (the guard was wrong; say why)
 # A not_a_change row with no metric: reports a dead listing the guard got wrong (the
 # event still fires in a way it cannot see) and clears that block; triage treats it as a guard bug.
+# A call moved into another file is one line, no metric, checked against the code (the file
+# must gain a call site in that change and be imported); Queue C skips it:
+#   - {event: "<event>", intent: moved, to: "<file>", reason: "<why>", date: "YYYY-MM-DD"}
 # Queue C turns each row into the gp-data-platform anchored_on change, then deletes it.
 # Empty most of the time. Leave the key bare (not `intents: []`) so a row can be appended.
 #
