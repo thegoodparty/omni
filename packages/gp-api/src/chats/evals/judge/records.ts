@@ -29,10 +29,9 @@ import {
 // this store: the candidate process cannot hand the base process's records to
 // the judge in memory.
 //
-// Both CI and local use the directory today. S3 is what the design wants,
-// because records that outlive the run let a rubric change re-grade them at
-// zero agent cost — but it needs an IAM grant and an `id-token: write` that
-// judge.yml deliberately does not take yet, and that file explains why.
+// CI uses S3, because records that outlive the run let a rubric change
+// re-grade them at zero agent cost; a local run uses the directory. judge.yml
+// falls back to the directory when its AWS role was not assumed.
 //
 // TESTS USE THE LOCAL ONE. Nothing in this file constructs an S3 client on its
 // own; `createS3RecordStore` takes the client, so a test that wanted to reach
