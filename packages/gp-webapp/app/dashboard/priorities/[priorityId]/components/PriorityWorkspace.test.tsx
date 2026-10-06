@@ -635,6 +635,46 @@ describe('PriorityWorkspace', () => {
     gate.resolve()
   })
 
+  it('holds the shimmer off after a finding card until the next tool starts', async () => {
+    const gate = deferred()
+    const next = deferred()
+    mocks.streamMessage.mockImplementation(async function* () {
+      yield { type: 'text', delta: 'Here is what other cities did. ' }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_comparables',
+        toolCallId: 'tc-c',
+        args: {
+          comparables: [
+            {
+              city: 'Boulder',
+              state: 'CO',
+              quote: 'Containers are required.',
+              status: 'passed',
+              source: { id: 's1', title: 'Waste Regulations' },
+            },
+          ],
+        },
+      }
+      await next.promise
+      yield { type: 'tool_input_start', toolName: 'present_outside_contact' }
+      await gate.promise
+      yield { type: 'done', assistantMessageId: 'a1' }
+    })
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Containers are required/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    next.resolve()
+    expect(
+      await screen.findByText('Looking up who to contact...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
   it('drops the shimmer as soon as a question card is up', async () => {
     const gate = deferred()
     mocks.streamMessage.mockImplementation(

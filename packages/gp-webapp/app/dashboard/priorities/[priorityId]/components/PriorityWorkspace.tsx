@@ -104,6 +104,8 @@ const GENERATING_LABELS: Record<string, string> = {
   [AUTHORITY_TOOL]: 'Checking what you can do here...',
 }
 
+const FINDING_TOOLS = [COMPARABLES_TOOL, CURRENT_LAW_TOOL, AUTHORITY_TOOL]
+
 type Phase = 'loading' | 'ready' | 'error'
 
 type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
@@ -167,6 +169,9 @@ const PriorityWorkspaceBody = ({
   const [streamError, setStreamError] = useState<string | null>(null)
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [streamDone, setStreamDone] = useState(false)
+  // A finding card can be the last thing in a turn, so the shimmer stays off
+  // right after one lands and comes back with the agent's next tool.
+  const [afterFinding, setAfterFinding] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -197,20 +202,26 @@ const PriorityWorkspaceBody = ({
       setLiveWidgets([])
       setGeneratingTool(null)
       setStreamDone(false)
+      setAfterFinding(false)
     },
     onTurnSettle: () => {
       setLiveWidgets([])
       setGeneratingTool(null)
       setStreamDone(false)
+      setAfterFinding(false)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
       if (event.type === 'tool_input_start') {
         setGeneratingTool(event.toolName)
+        setAfterFinding(false)
         return true
       }
-      if (event.type === 'tool_call') setGeneratingTool(null)
+      if (event.type === 'tool_call') {
+        setGeneratingTool(null)
+        setAfterFinding(FINDING_TOOLS.includes(event.toolName))
+      }
       if (event.type === 'done') setStreamDone(true)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
@@ -434,6 +445,7 @@ const PriorityWorkspaceBody = ({
   const working =
     sending &&
     !clarifyLive &&
+    !afterFinding &&
     (blocks.length === 0 || (revealDone && !pillRunning && !streamDone))
   const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
   const workingLabel =

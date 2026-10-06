@@ -39,7 +39,9 @@ back whenever the agent is working with nothing moving on screen: between tool
 calls, and while any widget's arguments stream in (`tool_input_start`, the same
 signal the ordinance chat uses). It is named for the widget being written
 ("Looking up who to contact...", "Preparing your question...") or falls back to
-the tool's pill label, and stays off while a pill is shimmering. Contact,
+the tool's pill label. It stays off while a pill is shimmering, once a
+question card is up, and right after a finding card lands until the next tool
+starts, since either can end the turn. Contact,
 outreach and list work can take a long while, and without it the chat looked
 stalled with text already on screen.
 
