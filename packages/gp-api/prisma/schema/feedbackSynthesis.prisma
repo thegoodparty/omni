@@ -1,0 +1,78 @@
+enum SynthesisScope {
+  effort
+  organization
+}
+
+enum SynthesisRunStatus {
+  running
+  completed
+  failed
+  superseded
+}
+
+model FeedbackSynthesisRun {
+  id                 String             @id @default(uuid(7))
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  completedAt        DateTime?          @map("completed_at")
+  organizationSlug   String             @map("organization_slug")
+  organization       Organization       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  scope              SynthesisScope
+  // Set for effort scope, null for organization scope. Enforced in code,
+  // the same call the knock contract makes about its two answer vocabularies.
+  outreachId         Int?               @map("outreach_id")
+  outreach           Outreach?          @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  status             SynthesisRunStatus @default(running)
+  // "<org>:<outreachId or org>" while running, null otherwise. The unique
+  // index is what makes "one run in flight per scope" true under a race
+  // between the report's button and the completion trigger.
+  activeKey          String?            @unique @map("active_key")
+  // Denominators as of the run, so the caption cannot drift from the themes.
+  conversations      Int
+  memos              Int
+  confirmed          Int
+  engine             String
+  error              String?
+  requestedByUserId  Int?               @map("requested_by_user_id")
+  requestedBy        User?              @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  themes       FeedbackTheme[]
+  tagsApplied  ConstituentFeedbackTag[]
+  tagsProposed IssueTag[]
+
+  @@index([organizationSlug, outreachId, createdAt])
+  @@index([organizationSlug, scope, createdAt])
+  @@map("feedback_synthesis_run")
+}
+
+model FeedbackTheme {
+  id        String               @id @default(uuid(7))
+  createdAt DateTime             @default(now()) @map("created_at")
+  runId     String               @map("run_id")
+  run     FeedbackSynthesisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  rank    Int
+  title   String
+  summary String               @db.Text
+  details String               @db.Text
+  // The tag this theme matched or proposed, linked at ingest. A proposed tag
+  // becomes accepted through curation; the link does not change.
+  tagId   String?              @map("tag_id")
+  tag     IssueTag?            @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  members FeedbackThemeMember[]
+
+  @@index([runId, rank])
+  @@map("feedback_theme")
+}
+
+// A memo can sit in more than one theme: the pipeline splits a compound
+// memo into fragments, and two fragments can land in two groups.
+model FeedbackThemeMember {
+  themeId    String              @map("theme_id")
+  theme      FeedbackTheme       @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  feedbackId String              @map("feedback_id")
+  feedback   ConstituentFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@id([themeId, feedbackId])
+  @@map("feedback_theme_member")
+}

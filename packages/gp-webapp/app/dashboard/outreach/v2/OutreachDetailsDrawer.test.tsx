@@ -174,7 +174,10 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(screen.getByText('Free')).toBeInTheDocument()
 
     const cta = screen.getByRole('link', { name: 'Continue calling' })
-    expect(cta).toHaveAttribute('href', '/dashboard/outreach/phone-banking/5')
+    expect(cta).toHaveAttribute(
+      'href',
+      '/dashboard/outreach/phone-banking/5?outreachId=30',
+    )
 
     // In-progress drawer never shows the completed results table or Delete.
     expect(screen.queryByText(/Results/)).not.toBeInTheDocument()
@@ -219,7 +222,10 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
 
     const cta = await screen.findByRole('link', { name: 'Call this list' })
-    expect(cta).toHaveAttribute('href', '/dashboard/outreach/phone-banking/5')
+    expect(cta).toHaveAttribute(
+      'href',
+      '/dashboard/outreach/phone-banking/5?outreachId=30',
+    )
     expect(
       screen.queryByRole('link', { name: 'Continue calling' }),
     ).not.toBeInTheDocument()

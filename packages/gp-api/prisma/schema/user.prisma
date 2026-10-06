@@ -51,6 +51,7 @@ model User {
   constituentFeedback         ConstituentFeedback[]
   outreachAssignments         OutreachAssignment[]
   assignedOutreachAssignments OutreachAssignment[]             @relation("OutreachAssignmentAssignedBy")
+  feedbackSynthesisRunsRequested FeedbackSynthesisRun[]
 
   @@index([firstName])
   @@index([lastName])

@@ -29,6 +29,8 @@ model Organization {
   contactCurrentStatuses            ContactCurrentStatus[]
   memberships                       OrganizationMembership[]
   outreachAssignments               OutreachAssignment[]
+  issueTags                         IssueTag[]
+  feedbackSynthesisRuns             FeedbackSynthesisRun[]
 
   @@index([ownerId])
   @@map("organization")

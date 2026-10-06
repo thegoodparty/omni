@@ -23,7 +23,8 @@ enum DoorKnockingPurpose {
   early_voting
   election_day_turnout
   custom
-  // Serve-only, matching PhoneBankingPurpose's own split.
+  // Serve-only, matching PhoneBankingPurpose's own split, except
+  // community_input, which Win carries too as "Hear from voters".
   explain_decision
   community_input
   share_resource
