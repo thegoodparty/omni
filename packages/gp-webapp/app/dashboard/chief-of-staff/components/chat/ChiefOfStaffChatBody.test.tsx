@@ -2201,6 +2201,71 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   })
 })
 
+describe('<ChiefOfStaffChatBody> upload racing the status poll', () => {
+  it('shows one chip when the poll returns the row before the upload resolves', async () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const polled = vi.fn()
+    api.mock('GET /v1/chats/:conversationId/attachments', () => {
+      polled()
+      return {
+        status: 200,
+        data: {
+          attachments: [
+            {
+              id: 'att-1',
+              source: 'upload',
+              sourceUrl: null,
+              fileName: 'budget.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 1,
+              pageCount: null,
+              status: 'ready',
+              failureReason: null,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      }
+    })
+    let resolveUpload: (value: unknown) => void = () => undefined
+    uploadAttachmentMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpload = resolve
+      }),
+    )
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+
+    fireEvent.drop(container.firstElementChild as HTMLElement, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [new File(['x'], 'budget.pdf', { type: 'application/pdf' })],
+      },
+    })
+    await waitFor(() => expect(polled).toHaveBeenCalled(), { timeout: 5_000 })
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+      ).toHaveLength(2),
+    )
+
+    resolveUpload({
+      id: 'att-1',
+      fileName: 'budget.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    // With every row ready the poll stops, so a duplicate would stay put.
+    await new Promise((resolve) => setTimeout(resolve, 3_500))
+    expect(
+      screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+    ).toHaveLength(1)
+  }, 15_000)
+})
+
 describe('<ChiefOfStaffChatBody> link attachments', () => {
   const renderBody = (scope?: 'chief_of_staff' | 'campaign_assistant') => {
     listConversationsMock.mockResolvedValue([])
