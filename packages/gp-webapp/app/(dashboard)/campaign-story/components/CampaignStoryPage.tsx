@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import { useRouter } from 'next/navigation'
-import { Card, ChevronLeftIcon, IconButton } from '@styleguide'
+import { ArrowLeftIcon, Card, IconButton } from '@styleguide'
 import AlertDialog from '@shared/utils/AlertDialog'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -57,16 +57,18 @@ const StoryHeader = ({
     else router.push('/campaign-plan')
   }
   return (
-    <header className="mx-auto flex w-full max-w-2xl items-center gap-2 px-4 pt-6 sm:px-8 sm:pt-10">
+    // From sm up, Back hangs in the margin left of the column, so the title
+    // lines up with the cards below it; on a phone it sits inline.
+    <header className="relative mx-auto flex w-full max-w-2xl items-center gap-3 px-4 pt-6 sm:px-8 sm:pt-10">
       <IconButton
         type="button"
-        variant="outline"
+        variant="neutral"
         size="small"
-        className="mr-1 size-10"
+        className="size-10 shrink-0 sm:absolute sm:-left-6"
         aria-label="Back"
         onClick={() => void goBack()}
       >
-        <ChevronLeftIcon className="size-5" aria-hidden />
+        <ArrowLeftIcon className="size-5" aria-hidden />
       </IconButton>
       <h1 className="text-2xl font-semibold text-foreground">Your story</h1>
       <p
