@@ -683,6 +683,31 @@ marks the outreach permanently `failed` — on a row that is already paid, which
 its own log line calls out as needing a refund decision. So a filter matching
 105,000 rows and resolving 85,000 recipients must keep sending, and does.
 
+**The upload at the end of the build gets three attempts (INC-108).** Everything
+above is spent before the CSV is handed to Peerly, so a single refused upload
+used to discard the whole build: one candidate's 3,700-person list died on one
+`400 {"Error": "Failed to upload the file"}` (0.7s into the POST, the first such
+refusal in prod in three days against ~41 successful builds in the 23h before
+it) and she rebuilt it by hand. `PeerlyPhoneListService.postPhoneList` now makes
+up to 3 attempts, 300ms and 600ms apart, for failures that say nothing about the
+file — an aborted/reset connection, 429, 5xx, and that one 400 whose message
+names Peerly's own file handling. A rejection that names the request (bad column
+map, content rejection) is not retried: it fails identically every time.
+
+Two things that path depends on:
+
+- **Each attempt builds its own multipart body.** A `form-data` body is
+  consumed as it is sent, so re-sending the same instance posts an empty file
+  and earns exactly the refusal above. For the same reason `PeerlyHttpService`'s
+  own rxjs retry is switched off for this one call
+  (`retryTransportErrors: false`) — it re-subscribes with the spent body. Any
+  future Peerly call with a stream body needs the same treatment.
+- **The final failure logs the file's shape, never its contents** (`csvShape`:
+  bytes, rows, rows carrying a control character). The file is other people's
+  names and numbers, and Peerly tells us nothing about why it refused, so these
+  three counts are the only way to tell a vendor wobble from a file we generated
+  badly. A non-zero `controlCharRows` is the thing to look at first.
+
 ### Write-back (collect-forward)
 
 Two `@Cron` sweeps in `src/outreach/services/` (scheduled fetch — Peerly

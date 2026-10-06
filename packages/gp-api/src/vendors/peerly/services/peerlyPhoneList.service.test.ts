@@ -1,4 +1,4 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import {
   AxiosError,
   AxiosHeaders,
@@ -35,6 +35,19 @@ function createAxiosError(
     config as AxiosError['config'],
     {},
     response,
+  )
+}
+
+function createTransportError(code = 'ECONNABORTED'): AxiosError {
+  const config: AxiosRequestConfig = {
+    url: '/phonelists',
+    method: 'POST',
+    headers: new AxiosHeaders(),
+  }
+  return new AxiosError(
+    'timeout of 60000ms exceeded',
+    code,
+    config as AxiosError['config'],
   )
 }
 
@@ -140,6 +153,118 @@ describe('PeerlyPhoneListService', () => {
       expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
     })
   })
+  // INC-108: one candidate's 3,700-person list was thrown away because Peerly
+  // answered a single upload with 400 "Failed to upload the file". The build
+  // behind an upload costs seconds of upstream paging with a person waiting on
+  // it, so a refusal that says nothing about the file gets another attempt.
+  describe('uploadPhoneList', () => {
+    const csvBuffer = Buffer.from(
+      'lead_first_name,lead_last_name,lead_phone,lead_state,lead_city,lead_zip\n' +
+        'Ada,Lovelace,5551230000,CA,Oakland,94601\n',
+      'utf8',
+    )
+    const uploadParams = {
+      listName: 'My Voters',
+      csvBuffer,
+      identityId: 'identity-1',
+    }
+    const vendorRefusal = () =>
+      createAxiosError({ Error: 'Failed to upload the file' }, 400)
+
+    it('retries a vendor-side upload failure, with the whole file on every attempt', async () => {
+      mockHttpService.post
+        .mockRejectedValueOnce(vendorRefusal())
+        .mockResolvedValueOnce({ data: {} })
+      mockHttpService.validateResponse.mockReturnValue({
+        Data: { token: 'upload-token' },
+      })
+
+      const token = await service.uploadPhoneList(uploadParams)
+
+      expect(token).toBe('upload-token')
+      expect(mockHttpService.post).toHaveBeenCalledTimes(2)
+      expect(mockErrorHandling.handleApiError).not.toHaveBeenCalled()
+      // A form-data body is consumed as it is sent, so each attempt has to
+      // build its own: the point of the retry is that the second POST still
+      // carries the file, not an empty one.
+      for (const call of mockHttpService.post.mock.calls) {
+        const [path, form, , options] = call as [
+          string,
+          FormData,
+          unknown,
+          unknown,
+        ]
+        expect(path).toBe('/phonelists')
+        const body = form.getBuffer().toString()
+        expect(body).toContain('5551230000')
+        expect(body).toContain('name="list_name"\r\n\r\nMy Voters')
+        // The HTTP client's own retry would re-send the spent body.
+        expect(options).toEqual({ retryTransportErrors: false })
+      }
+    })
+
+    it('retries an upload that never reached Peerly', async () => {
+      mockHttpService.post
+        .mockRejectedValueOnce(createTransportError())
+        .mockResolvedValueOnce({ data: {} })
+      mockHttpService.validateResponse.mockReturnValue({
+        Data: { token: 'upload-token' },
+      })
+
+      await expect(service.uploadPhoneList(uploadParams)).resolves.toBe(
+        'upload-token',
+      )
+      expect(mockHttpService.post).toHaveBeenCalledTimes(2)
+    })
+
+    it('gives up after three attempts, logging the shape of the file it could not upload', async () => {
+      const error = vendorRefusal()
+      mockHttpService.post.mockRejectedValue(error)
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error: Failed to upload the file'),
+      )
+
+      await expect(service.uploadPhoneList(uploadParams)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockHttpService.post).toHaveBeenCalledTimes(3)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith({
+        error,
+        logger: mockLogger,
+      })
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attempts: 3,
+          listName: 'My Voters',
+          bytes: csvBuffer.length,
+          rows: 1,
+          controlCharRows: 0,
+        }),
+        expect.stringContaining('every attempt'),
+      )
+    })
+
+    it('does not retry a rejection that names what is wrong with the request', async () => {
+      const error = createAxiosError({ error: 'Invalid list_map' }, 400)
+      mockHttpService.post.mockRejectedValue(error)
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error: Invalid list_map'),
+      )
+
+      await expect(service.uploadPhoneList(uploadParams)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockHttpService.post).toHaveBeenCalledTimes(1)
+    })
+
+    it('refuses a file over the vendor size limit without calling Peerly', async () => {
+      await expect(
+        service.uploadPhoneList({ ...uploadParams, fileSize: 104857601 }),
+      ).rejects.toThrow(BadRequestException)
+      expect(mockHttpService.post).not.toHaveBeenCalled()
+    })
+  })
+
   describe('uploadTestPhoneList', () => {
     // Peerly only texts a number that sits on a TEST list, and test mode is
     // the one upload field that makes a list one. A list uploaded in P2P

@@ -15,6 +15,8 @@ import {
   P2P_PHONE_LIST_MAP,
 } from '../constants/p2pJob.constants'
 import { PinoLogger } from 'nestjs-pino'
+import { csvShape } from '@/shared/util/csv.util'
+import { sleep } from '@/shared/util/sleep.util'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 
@@ -25,6 +27,21 @@ const P2P_SUPPRESS_CELL_PHONES = '4'
 // recipient. https://api-docs.peerly.com/reference/send-test-message
 export const TEST_SUPPRESS_CELL_PHONES = 6
 const MAX_FILE_SIZE = 104857600
+
+// A phone list is minutes of upstream paging and a person waiting on it, so a
+// single refused upload must not cost the whole build (INC-108): one candidate
+// lost a 3,700-person list to one 400 from Peerly and had to build it again by
+// hand. Three attempts over ~0.9s, which is nothing against the 6s the build
+// behind it took.
+const UPLOAD_MAX_ATTEMPTS = 3
+const UPLOAD_RETRY_BASE_DELAY_MS = 300
+
+// Peerly's wording when its own file handling failed, returned as a 400 with
+// no reference to the file's contents. It is not a statement about the
+// candidate's filter or our CSV, so it is worth another attempt — unlike a
+// content rejection (banned word, column map), which fails identically every
+// time and is surfaced to the candidate as a 400 by the error handler.
+const VENDOR_UPLOAD_FAILURE = 'failed to upload the file'
 
 interface UploadPhoneListParams {
   listName: string
@@ -81,6 +98,65 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
     csvBuffer: Buffer
     filename: string
   }): Promise<string> {
+    let lastError: unknown
+
+    for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+      try {
+        return await this.attemptUpload({ formFields, csvBuffer, filename })
+      } catch (error) {
+        lastError = error
+        if (
+          attempt === UPLOAD_MAX_ATTEMPTS ||
+          !this.isRetryableUploadFailure(error)
+        ) {
+          break
+        }
+        this.logger.warn(
+          {
+            attempt,
+            listName: formFields.list_name,
+            ...csvShape(csvBuffer),
+            peerlyMessage: this.peerlyMessage(error),
+            code: isAxiosError(error) ? error.code : undefined,
+            status: isAxiosError(error) ? error.response?.status : undefined,
+          },
+          'Peerly refused a phone list upload for reasons of its own; retrying the upload',
+        )
+        await sleep(UPLOAD_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1))
+      }
+    }
+
+    // The file is other people's names and numbers and cannot be logged, but
+    // without its shape a refusal like INC-108's is undiagnosable after the
+    // fact: all we kept was Peerly's one-line message.
+    this.logger.error(
+      {
+        attempts: UPLOAD_MAX_ATTEMPTS,
+        listName: formFields.list_name,
+        ...csvShape(csvBuffer),
+      },
+      'Peerly refused this phone list upload on every attempt',
+    )
+
+    return this.peerlyErrorHandling.handleApiError({
+      error: lastError,
+      logger: this.logger,
+    })
+  }
+
+  // The multipart body is built here, inside the attempt, because a form-data
+  // body is consumed as it is sent: a retry has to build its own or it posts
+  // an empty file. For the same reason the HTTP client's own retry is off for
+  // this call — it would re-send the spent body.
+  private async attemptUpload({
+    formFields,
+    csvBuffer,
+    filename,
+  }: {
+    formFields: Record<string, string | number>
+    csvBuffer: Buffer
+    filename: string
+  }): Promise<string> {
     const form = new FormData()
     Object.entries(formFields).forEach(([key, value]) => {
       form.append(key, value)
@@ -91,26 +167,54 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
       contentType: 'text/csv',
     })
 
-    try {
-      const response = await this.peerlyHttpService.post('/phonelists', form, {
+    const response = await this.peerlyHttpService.post(
+      '/phonelists',
+      form,
+      {
         headers: form.getHeaders(),
         timeout: this.uploadTimeoutMs,
         maxBodyLength: MAX_FILE_SIZE,
         maxContentLength: MAX_FILE_SIZE,
-      })
+      },
+      { retryTransportErrors: false },
+    )
 
-      const validated = this.peerlyHttpService.validateResponse(
-        response.data,
-        UploadPhoneListResponseDto,
-        'upload',
-      )
-      return validated.Data.token
-    } catch (error) {
-      return this.peerlyErrorHandling.handleApiError({
-        error,
-        logger: this.logger,
-      })
-    }
+    const validated = this.peerlyHttpService.validateResponse(
+      response.data,
+      UploadPhoneListResponseDto,
+      'upload',
+    )
+    return validated.Data.token
+  }
+
+  // Worth a second attempt with a freshly built body: anything that never
+  // reached Peerly (aborted or reset connection), anything Peerly answered
+  // from its own machinery (429, 5xx), and the one 400 that names its file
+  // handling rather than our file. Everything else — a content rejection, a
+  // bad column map, an unparseable response — fails the same way every time.
+  private isRetryableUploadFailure(error: unknown): boolean {
+    if (!isAxiosError(error)) return false
+    const status = error.response?.status
+    if (!error.response) return error.code !== 'ERR_CANCELED'
+    if (status === 429 || (status ?? 0) >= 500) return true
+    return (
+      status === 400 &&
+      (this.peerlyMessage(error) ?? '')
+        .toLowerCase()
+        .includes(VENDOR_UPLOAD_FAILURE)
+    )
+  }
+
+  private peerlyMessage(error: unknown): string | undefined {
+    if (!isAxiosError(error)) return undefined
+    const data: unknown = error.response?.data
+    if (!data || typeof data !== 'object') return undefined
+    const message =
+      ('error' in data && data.error) ||
+      ('message' in data && data.message) ||
+      ('Error' in data && data.Error) ||
+      ''
+    return typeof message === 'string' ? message : undefined
   }
 
   // A one-number test list for the CAS test send: the same upload in
@@ -212,19 +316,9 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
   private isTransientPhoneListError(error: unknown): boolean {
     if (!isAxiosError(error)) return false
     if (error.response?.status !== 400) return false
-    const data: unknown = error.response?.data
-    if (!data || typeof data !== 'object') return false
-    const message =
-      ('error' in data && data.error) ||
-      ('message' in data && data.message) ||
-      ('Error' in data && data.Error) ||
-      ''
-    return (
-      typeof message === 'string' &&
-      message
-        .toLowerCase()
-        .includes('there may be an error with the phone list for context')
-    )
+    return (this.peerlyMessage(error) ?? '')
+      .toLowerCase()
+      .includes('there may be an error with the phone list for context')
   }
 
   async getPhoneListDetails(
