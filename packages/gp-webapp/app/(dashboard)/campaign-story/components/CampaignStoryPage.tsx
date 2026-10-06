@@ -341,7 +341,7 @@ export function StoryEditorForm({
         {/* Same shape as the why and background sections: the question
             above, then the priorities (each its own card). */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-xl font-semibold text-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             What issues do you most want to solve if elected?
           </h2>
           <StoryIssuesCard issues={issues} onChange={setIssues} />

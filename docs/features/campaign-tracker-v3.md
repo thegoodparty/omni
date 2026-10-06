@@ -78,14 +78,14 @@ offers generation to everyone and invites the story alongside it.
 
 ### The campaign story prompt
 
-Two surfaces:
+The prompt to write the story is:
 
-- **The "Your story" card** in the row at the top of the Game Plan
-  (`CampaignPlanOverviewCards`), which reads "Add yours to make this plan
-  about you" while the story is incomplete and opens `/campaign-story`.
 - **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
   entry) at the **end of pre-launch**, so the prompt flows through the same row
-  machinery as everything else rather than being a bespoke surface.
+  machinery as everything else rather than being a bespoke surface. The
+  "Your story" card at the top of the Game Plan (`CampaignPlanOverviewCards`)
+  is a plain way in to `/campaign-story`; it does not change with the story's
+  state.
 
 The task's `completed` mirrors whether the story is finished, in both
 directions, and the row is never deleted. That is what makes the tracker the

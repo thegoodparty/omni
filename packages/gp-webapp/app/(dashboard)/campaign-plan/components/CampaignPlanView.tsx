@@ -3,9 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { dateUsHelper } from 'helpers/dateHelper'
 import type { User } from 'helpers/types'
-import { useCampaign } from '@shared/hooks/useCampaign'
 import PlanView, {
   type PlanDownloadSource,
 } from 'app/onboarding/success/components/PlanView'
@@ -33,7 +31,6 @@ const CampaignPlanView = ({
   initialUser,
 }: CampaignPlanViewProps): React.JSX.Element => {
   const router = useRouter()
-  const [campaign] = useCampaign()
   const data = useCampaignPlanData(initialUser)
   const { campaignId, strategy, media } = data
 
@@ -104,35 +101,12 @@ const CampaignPlanView = ({
     router.push('/home')
   }
 
-  // The race card's "Election Day" is the *general* date (not
-  // data.plan.electionDate, which is stage-anchored to relevantElectionDate and
-  // would be the primary during the primary phase).
-  const metrics = campaign?.raceTargetMetrics
-  // Only true general-election sources (never relevantElectionDate, which is the
-  // primary during the primary phase). If none exist, show no date rather than a
-  // stage-anchored one mislabeled "Election Day".
-  const generalDateIso =
-    metrics?.generalElectionDate ??
-    campaign?.details?.electionDate ??
-    campaign?.electionDate
-  // dateUsHelper parses its arg with `new Date()`; a date-only ISO string is read
-  // as UTC midnight and can render a day early in far-western zones (e.g. AKST).
-  // Parse as local midnight (slice to the date + dash->slash) like the codebase's
-  // other date-only helpers; the slice keeps it safe for full-ISO values too.
-  const formatElectionDate = (iso: string): string =>
-    dateUsHelper(iso.slice(0, 10).replace(/-/g, '/'))
-
   // What the plan is built from on top, then the tracker, then the plan below
   // it (the plan's own hero and bottom bar are hidden).
   return (
     <>
       <div className="mx-auto w-full max-w-3xl px-4 pt-8">
-        <CampaignPlanOverviewCards
-          race={data.plan.race}
-          electionDate={
-            generalDateIso ? formatElectionDate(generalDateIso) : ''
-          }
-        />
+        <CampaignPlanOverviewCards />
         <CampaignStrategySection />
       </div>
       <PlanView

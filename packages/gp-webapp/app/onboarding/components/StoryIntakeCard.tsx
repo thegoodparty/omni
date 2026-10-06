@@ -58,7 +58,7 @@ export default function StoryIntakeCard({
     <h2
       className={cn(
         'text-foreground',
-        isSection ? 'text-xl font-semibold' : 'text-2xl font-bold',
+        isSection ? 'text-base font-semibold' : 'text-2xl font-bold',
       )}
     >
       {question}
@@ -66,12 +66,15 @@ export default function StoryIntakeCard({
   )
   const field = (
     <>
+      {/* Starts about as tall as its example and grows with the answer,
+          rather than holding a fixed block of empty space. */}
       <Textarea
         variant="seamless"
+        autoGrow
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={examplePlaceholder}
-        className="min-h-[140px] resize-none placeholder:text-muted-foreground"
+        className="min-h-24 resize-none placeholder:text-muted-foreground"
       />
 
       <StoryFieldBar
