@@ -18,6 +18,7 @@ import type {
   CampaignStrategyWeek,
 } from './campaignStrategy.types'
 import CampaignStrategyTaskRow from './CampaignStrategyTaskRow'
+import { phaseCounts } from './phaseProgress'
 
 interface CampaignStrategyPhaseProps {
   phase: CampaignStrategyPhaseModel
@@ -156,6 +157,22 @@ const PhaseStatus = ({
   )
 }
 
+// How far through the phase the candidate is, beside its status. Hidden for a
+// gated phase and an empty one, where a count would only say "0 of 0".
+const PhaseCount = ({
+  phase,
+}: {
+  phase: CampaignStrategyPhaseModel
+}): React.JSX.Element | null => {
+  const { done, total } = phaseCounts(phase)
+  if (phase.gate || total === 0 || phase.status === 'done') return null
+  return (
+    <span className="text-sm font-normal tabular-nums text-muted-foreground">
+      {done} of {total} done
+    </span>
+  )
+}
+
 // One phase as a standalone card (active phase gets a blue border). Title and
 // summary stay visible when collapsed; objective/category groups and task rows
 // run edge to edge so dividers and highlights reach the card sides.
@@ -174,9 +191,10 @@ const CampaignStrategyPhase = ({
   >
     <AccordionTrigger className="px-6 py-5 hover:no-underline">
       <span className="flex flex-1 flex-col gap-1 text-left">
-        <span className="flex items-center gap-3">
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="text-base font-semibold">{phase.title}</span>
           <PhaseStatus status={phase.status} />
+          <PhaseCount phase={phase} />
         </span>
         <span className="text-muted-foreground text-sm font-normal">
           {phase.summary}

@@ -1,6 +1,6 @@
 # campaignStrategy/ (Campaign Tracker rendering)
 
-Renders the Campaign Plan page's task rail (Campaign Tracker v3, ENG-10406):
+Renders the Game Plan page's task rail (Campaign Tracker v3, ENG-10406):
 four phases (preLaunch / launch / active / gotv) of dated, prioritized task
 cards the candidate checks off. Feature overview + backend:
 `docs/features/campaign-tracker-v3.md` and
@@ -10,9 +10,9 @@ cards the candidate checks off. Feature overview + backend:
 
 | File                          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `useTrackerTasks.ts`          | Fetches `/campaigns/tracker-tasks`; exposes `isGeneratingDynamic`; fast-polls (20s) while the tracker is _settling_ (`isTrackerSettling`: no rows yet **or** static-only with dynamic still generating), slow background poll after, with a fast-poll budget cap; refetches on mount + window focus (and polls in the background) so navigating to the tab surfaces freshly materialized rows without a manual refresh. Also exports `useGenerateTrackerTasks` (the manual override — see below). |
+| `useTrackerTasks.ts`          | Fetches `/campaigns/tracker-tasks`; exposes `isGeneratingDynamic`; fast-polls (20s) while the tracker is _settling_ (`isTrackerSettling`: no rows yet **or** static-only with dynamic still generating), slow background poll after, with a fast-poll budget cap; refetches on mount + window focus (and polls in the background) so navigating to the tab surfaces freshly materialized rows without a manual refresh.  |
 | `buildTrackerStrategy.ts`     | Builds the render shape from persisted rows (the only path).                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then the accordion. Renders only from persisted rows.                                                                                                                                                                                                                                                                                                                                                                              |
+| `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then `PlanProgress` and the accordion. Renders only from persisted rows.                                                                                                                                                                                                                                                                                                                                                                              |
 | `CampaignStrategyTaskRow.tsx` | One task card (date chip, channel icon, completion toggle).                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `CampaignStrategyPhase.tsx`   | A phase accordion item; the Active phase renders the `WeekNavigator` (one Mon-Sun week, back/forward one).                                                                                                                                                                                                                                                                                                                                                                                        |
 | `campaignStrategy.types.ts`   | Render-shape types (`CampaignStrategyPhase`, `…Week`, `…Task`).                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -35,7 +35,7 @@ cards the candidate checks off. Feature overview + backend:
   or set aside as "not for me"; "happening now" (active) is date-driven (the
   first non-empty phase still in play). Empty intermediate phases are skipped so
   they can't strand a later populated phase as `upcoming`.
-- **"Do this next" is not decided here.** `buildTrackerStrategy` badges the
+- **"Do this next" is not decided here.** `buildTrackerStrategy` flags the
   task `selectNextTrackerTask` (contracts) picks, the same call Home's
   `NextThingCard` makes, so the plan and Home can never point at different
   tasks. It is plan order, earliest first, with ballot access leading for a
@@ -55,18 +55,17 @@ cards the candidate checks off. Feature overview + backend:
   it for every campaign; there is no client-catalog fallback and no story gate
   upstream. When the fetch settles with no rows the section shows a "setting up
   your tracker" state (bootstrap in flight).
-- **Non-prod "Generate tasks" override.** `CampaignStrategySection` renders a
-  `{!IS_PROD}` button (from `appEnv`) that hits `POST
-/v1/campaigns/tracker-tasks/generate` (gp-api 404s it in prod). It exists
-  because the weekly generation cron runs in prod only, so dev/qa never generate
-  on their own. `useGenerateTrackerTasks` owns the polling: a manual run _appends_
-  a new generation (a higher dynamic `max(week)`) rather than emptying the list,
-  so `isTrackerGenerating` can't see it — the hook captures the pre-dispatch
-  generation as a baseline, reports `isGenerating` until a dynamic row past that
-  baseline lands, and fast-polls (`POLL_INTERVAL_MS`) meanwhile. The section
-  shows the existing generating banner while `isGeneratingDynamic || isGenerating`.
-  Note the run is async (a CAP dispatch); on localhost the agent infra usually
-  isn't running, so nothing lands — this is primarily a deployed dev/qa affordance.
+- **The page shows where the candidate is, not a wall of rows.** `PlanProgress`
+  sits above the phases: one bar per phase filled by how much is handled
+  (done or set aside), "You're in <phase>" on the phase holding the next task,
+  and an overall "x of y done". Each phase header carries its own count
+  (`phaseProgress.ts` holds the counting both use). Only the phase holding the
+  next task and the one happening now open by default.
+- **The next task is Home's card, in its place in the list.**
+  `CampaignStrategyTaskRow` renders `NextThingCard surface="plan"` instead of
+  a row for the `isNext` task. The card picks its task through the same
+  `selectNextTrackerTask`, so the two agree, and `surface` rides its events so
+  Home and the Game Plan can be told apart.
 
 ## Gotchas
 

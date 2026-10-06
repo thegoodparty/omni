@@ -3,19 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion, Button, Card } from '@styleguide'
+import { Accordion, Card } from '@styleguide'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
-import { IS_PROD } from 'appEnv'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
   isVoterContactFlowType,
-  useGenerateTrackerTasks,
   useSkipTrackerTask,
   useToggleTrackerTaskComplete,
   useTrackerTasks,
 } from './useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
+import PlanProgress from './PlanProgress'
+import { phaseHasNext } from './phaseProgress'
 import CountModal from '../../../components/tasks/CountModal'
 import { composeOutreachHref } from 'app/(dashboard)/outreach/util/composeOutreachHref.util'
 import {
@@ -25,7 +25,7 @@ import {
 } from 'app/(dashboard)/outreach/util/outreachAnalytics'
 import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 
-// The "Campaign Tracker" section on the campaign plan page: the persisted
+// The task list on the Game Plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
 // dated, prioritized list of cards. The tracker only exists once a campaign
 // has gone through campaign story, so this section is rendered only for the
@@ -47,7 +47,6 @@ const trackerOrigin = (
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
-  const { generate, isGenerating } = useGenerateTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
   const router = useRouter()
   // "Start outreach" links into the hub rather than opening a flow here: the
@@ -190,48 +189,19 @@ const CampaignStrategySection = (): React.JSX.Element => {
     })
   }, [strategy, campaign?.id])
 
-  // Open the phase(s) the candidate is in now; fall back to the first phase.
-  const autoOpenable = (strategy?.phases ?? []).filter(
-    (phase) => phase.key !== 'preLaunch',
-  )
-  const openPhases = autoOpenable
-    .filter((phase) => phase.status === 'active')
+  // Open where the candidate is: the phase holding the next task, and the
+  // phase happening now if that is a different one. Finished and later phases
+  // stay closed, so the long list reads as a map with the current stretch
+  // unfolded rather than a wall of rows.
+  const phases = strategy?.phases ?? []
+  const openPhases = phases
+    .filter((phase) => phaseHasNext(phase) || phase.status === 'active')
     .map((phase) => phase.key)
   const defaultOpen =
-    openPhases.length > 0
-      ? openPhases
-      : autoOpenable[0]
-        ? [autoOpenable[0].key]
-        : []
+    openPhases.length > 0 ? openPhases : phases[0] ? [phases[0].key] : []
 
   return (
-    <section>
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold">Campaign Tracker</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Everything you need to do, in order. We tell you what to do and
-            when, so you always know your next move.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          {/* Non-prod-only manual trigger: prod generates via the weekly cron,
-              but dev/qa have no cron, so this lets us dispatch a run on demand.
-              gp-api 404s the route in prod as a backstop. */}
-          {!IS_PROD && (
-            <Button
-              variant="outline"
-              size="small"
-              onClick={generate}
-              loading={isGenerating}
-              loadingText="Generating…"
-              disabled={isPending}
-            >
-              Generate tasks
-            </Button>
-          )}
-        </div>
-      </div>
+    <section aria-label="Your tasks">
       {isPending ? (
         <Card className="flex items-center gap-3 p-4">
           <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
@@ -256,7 +226,8 @@ const CampaignStrategySection = (): React.JSX.Element => {
         </Card>
       ) : (
         <>
-          {(isGeneratingDynamic || isGenerating) && (
+          <PlanProgress phases={strategy.phases} />
+          {isGeneratingDynamic && (
             <Card className="mb-4 flex items-center gap-3 p-4">
               <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
               <p className="text-muted-foreground text-sm">

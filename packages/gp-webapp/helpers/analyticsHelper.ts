@@ -246,7 +246,8 @@ export const EVENTS = {
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
       PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
       PlanShared: 'Dashboard - Campaign Plan: Plan Shared',
-      // The single next action on Home. Viewed once per task shown, Started
+      // The single next action, on Home and inline on the Game Plan
+      // (`surface`: 'home' | 'plan'). Viewed once per task shown, Started
       // when its main action is taken (`via`: 'cta' | 'chat'), Completed when
       // it is marked done there, Skipped with the candidate's `reason`.
       NextThingViewed: 'Campaign Plan - Next Thing Viewed',

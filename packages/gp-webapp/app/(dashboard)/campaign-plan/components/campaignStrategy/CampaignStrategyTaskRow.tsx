@@ -17,6 +17,7 @@ import {
   PhoneIcon,
   cn,
 } from '@styleguide'
+import NextThingCard from 'app/(dashboard)/home/NextThingCard'
 import type {
   CampaignStrategyTask,
   TaskChannel,
@@ -59,8 +60,8 @@ const CHANNEL_ICONS: Record<
 export const formatTaskDate = (date: string | null): string | null =>
   date ? format(new Date(date.slice(0, 10).replace(/-/g, '/')), 'MMM d') : null
 
-// One task row: status marker, date chip, type icon, title, optional Pro and
-// "Do this next" badges, description, parameter, prerequisite hint, link.
+// One task row: status marker, date chip, type icon, title, optional Pro
+// badge, description, parameter, prerequisite hint, link.
 const isComposeChannel = (
   channel: TaskChannel,
 ): channel is 'text' | 'robocall' =>
@@ -73,6 +74,18 @@ const CampaignStrategyTaskRow = ({
   onUndoSkip,
   onStartOutreach,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
+  // The next task is the same card Home shows, in its place in the list, so
+  // the candidate sees what to do now among what came before and after it.
+  // NextThingCard picks the task itself through the same selectNextTrackerTask
+  // that set isNext here, so the two always agree.
+  if (task.isNext && !task.completed) {
+    return (
+      <li className="border-border block border-t px-4 py-4 first:border-t-0 sm:px-6">
+        <NextThingCard surface="plan" />
+      </li>
+    )
+  }
+
   const formattedDate = formatTaskDate(task.date)
   const setAside = !task.completed && task.skipReason === 'notForMe'
   const Icon = CHANNEL_ICONS[task.channel]
@@ -82,9 +95,7 @@ const CampaignStrategyTaskRow = ({
     'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
     task.completed
       ? 'bg-success text-white'
-      : task.isNext
-        ? 'bg-primary text-white'
-        : 'bg-grayscale-200 text-muted-foreground',
+      : 'bg-grayscale-200 text-muted-foreground',
   )
   const markerContent = task.completed ? (
     <CheckIcon className="size-4" />
@@ -93,12 +104,7 @@ const CampaignStrategyTaskRow = ({
   )
 
   return (
-    <li
-      className={cn(
-        'border-border flex gap-4 border-t px-6 py-4 first:border-t-0',
-        task.isNext && 'bg-primary/5',
-      )}
-    >
+    <li className="border-border flex gap-4 border-t px-6 py-4 first:border-t-0">
       {onToggleComplete ? (
         <Button
           type="button"
@@ -148,7 +154,6 @@ const CampaignStrategyTaskRow = ({
               Not for me
             </Badge>
           )}
-          {task.isNext && <Badge>Do this next</Badge>}
           {task.proRequired && (
             <Badge className="border-transparent bg-secondary text-secondary-foreground">
               Pro

@@ -136,12 +136,20 @@ const TRAY_TINTS: Record<TaskKind, string> = {
 
 // The card's landmark takes its name from the greeting above it (HomeGreeting),
 // which Home lays out as its own row so the card can sit at the center.
+// On the Game Plan there is no greeting, so the card names itself.
 const NextThingSection = ({
+  surface,
   children,
 }: {
+  surface: NextThingSurface
   children: React.ReactNode
 }): React.JSX.Element => (
-  <section className="flex flex-col" aria-labelledby="next-thing-heading">
+  <section
+    className="flex flex-col"
+    {...(surface === 'home'
+      ? { 'aria-labelledby': 'next-thing-heading' }
+      : { 'aria-label': 'Do this next' })}
+  >
     {children}
   </section>
 )
@@ -153,9 +161,24 @@ const NextThingSection = ({
  * until they do it, mark it done, skip it, or its date passes on a task that
  * only exists on that date.
  */
-export default function NextThingCard(): React.JSX.Element {
-  const { tasks, isPending, isError, next, needsFiling, eventProps } =
-    useNextThing()
+type NextThingSurface = 'home' | 'plan'
+
+export default function NextThingCard({
+  surface = 'home',
+}: {
+  // Where the card is shown, carried on its events so Home and the Game Plan
+  // can be told apart.
+  surface?: NextThingSurface
+}): React.JSX.Element {
+  const {
+    tasks,
+    isPending,
+    isError,
+    next,
+    needsFiling,
+    eventProps: baseEventProps,
+  } = useNextThing()
+  const eventProps = baseEventProps ? { ...baseEventProps, surface } : null
   const chat = useCampaignManagerChat()
   const toggleComplete = useToggleTrackerTaskComplete()
   const skipTask = useSkipTrackerTask()
@@ -219,7 +242,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isPending) {
     return (
-      <NextThingSection>
+      <NextThingSection surface={surface}>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             Loading your next step.
@@ -231,7 +254,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (isError) {
     return (
-      <NextThingSection>
+      <NextThingSection surface={surface}>
         <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
           <p className="text-sm text-muted-foreground">
             We could not load your next step. Refresh to try again.
@@ -243,7 +266,7 @@ export default function NextThingCard(): React.JSX.Element {
 
   if (!next) {
     return (
-      <NextThingSection>
+      <NextThingSection surface={surface}>
         {tasks.length === 0 ? (
           <Card className="rounded-2xl border border-grayscale-300 p-4 lg:p-6">
             <p className="text-sm text-muted-foreground">
@@ -271,7 +294,7 @@ export default function NextThingCard(): React.JSX.Element {
   const reasonTag = reasonTagFor(next)
 
   return (
-    <NextThingSection>
+    <NextThingSection surface={surface}>
       {/* The card sits in a tray, so the two read as one object: the card's
           border overlaps the tray's top and sides, and "Chat about this" sits
           in the strip below it. The questions about the task open in the

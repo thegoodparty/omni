@@ -9,9 +9,6 @@ import CampaignStrategySection from './CampaignStrategySection'
 
 const mockTasks = vi.fn<() => TrackerTasksResult>()
 const mockToggle = vi.fn()
-const mockGenerate = vi.fn()
-let mockIsGenerating = false
-let mockIsProd = false
 // Keep the real isVoterContactFlowType; stub only the data + mutation hooks.
 vi.mock('./useTrackerTasks', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./useTrackerTasks')>()),
@@ -21,16 +18,12 @@ vi.mock('./useTrackerTasks', async (importOriginal) => ({
     isPending: false,
   }),
   useSkipTrackerTask: () => ({ mutate: vi.fn(), isPending: false }),
-  useGenerateTrackerTasks: () => ({
-    generate: mockGenerate,
-    isGenerating: mockIsGenerating,
-  }),
 }))
-vi.mock('appEnv', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('appEnv')>()),
-  get IS_PROD() {
-    return mockIsProd
-  },
+// Home's card stands in for the next task's row; it has its own tests.
+vi.mock('app/(dashboard)/home/NextThingCard', () => ({
+  default: ({ surface }: { surface?: string }) => (
+    <div>next-thing-card:{surface}</div>
+  ),
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 55, details: {}, electionDate: null }],
@@ -77,6 +70,14 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   ...over,
 })
 
+// The plan's next task renders as Home's card rather than a row, so tests
+// that act on a row put this ahead of it: same phase, earlier date.
+const lead = task({
+  id: 'lead',
+  title: 'First things first',
+  date: '2099-01-05T00:00:00.000Z',
+})
+
 const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
   tasks,
   isPending: false,
@@ -86,16 +87,16 @@ const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
 
 beforeEach(() => {
   mockToggle.mockClear()
-  mockGenerate.mockClear()
   mockTrackEvent.mockClear()
-  mockIsGenerating = false
-  mockIsProd = false
 })
 
 describe('CampaignStrategySection — completing tasks', () => {
   it('records a voter-contact count when completing an outreach task', async () => {
     mockTasks.mockReturnValue(
-      settled([task({ id: 't1', title: 'Greet voters', flowType: 'events' })]),
+      settled([
+        lead,
+        task({ id: 't1', title: 'Greet voters', flowType: 'events' }),
+      ]),
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
@@ -119,6 +120,7 @@ describe('CampaignStrategySection — completing tasks', () => {
   it('reports a completed task, and the outreach an outreach task logged', async () => {
     mockTasks.mockReturnValue(
       settled([
+        lead,
         task({
           id: 't1',
           title: 'Knock doors',
@@ -167,6 +169,7 @@ describe('CampaignStrategySection — completing tasks', () => {
   it('stays silent when a task is un-completed', async () => {
     mockTasks.mockReturnValue(
       settled([
+        lead,
         task({
           id: 't3',
           title: 'Knock doors',
@@ -193,6 +196,7 @@ describe('CampaignStrategySection — completing tasks', () => {
   it('completes a non-outreach task directly, without a count', async () => {
     mockTasks.mockReturnValue(
       settled([
+        lead,
         task({ id: 't2', title: 'Get Meta verified', flowType: 'awareness' }),
       ]),
     )
@@ -205,27 +209,38 @@ describe('CampaignStrategySection — completing tasks', () => {
   })
 })
 
-describe('CampaignStrategySection — manual generation override', () => {
-  it('hides the Generate tasks button in prod', () => {
-    mockIsProd = true
-    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
+describe('CampaignStrategySection — where the candidate is', () => {
+  it('puts Home’s card where the next task sits in the list', () => {
+    mockTasks.mockReturnValue(
+      settled([lead, task({ id: 't1', title: 'Knock doors' })]),
+    )
     render(<CampaignStrategySection />)
-    expect(
-      screen.queryByRole('button', { name: 'Generate tasks' }),
-    ).not.toBeInTheDocument()
+
+    expect(screen.getByText('next-thing-card:plan')).toBeInTheDocument()
+    expect(screen.queryByText('First things first')).not.toBeInTheDocument()
+    expect(screen.getByText('Knock doors')).toBeInTheDocument()
   })
 
-  it('dispatches a generation when clicked in non-prod', async () => {
-    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
-    const user = userEvent.setup()
+  it('names the phase the candidate is in and how much is done', () => {
+    mockTasks.mockReturnValue(
+      settled([
+        lead,
+        task({ id: 'done', completed: true }),
+        task({ id: 't1', title: 'Knock doors' }),
+      ]),
+    )
     render(<CampaignStrategySection />)
-    await user.click(screen.getByRole('button', { name: 'Generate tasks' }))
-    expect(mockGenerate).toHaveBeenCalledTimes(1)
+
+    expect(screen.getByText('You’re in Launch')).toBeInTheDocument()
+    // Once in the strip for the whole plan, once on the phase it is all in.
+    expect(screen.getAllByText('1 of 3 done')).toHaveLength(2)
   })
 
-  it('shows the generating banner while a run is in flight', () => {
-    mockIsGenerating = true
-    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
+  it('shows the generating banner while personalized tasks are on the way', () => {
+    mockTasks.mockReturnValue({
+      ...settled([task({ id: 't1' })]),
+      isGeneratingDynamic: true,
+    })
     render(<CampaignStrategySection />)
     expect(screen.getByText(/Finding local events/)).toBeInTheDocument()
   })
