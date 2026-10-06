@@ -132,7 +132,7 @@ export default function ChiefOfStaffChatSurface({
         {/* DrawerHeader stacks its children in a column, so the row lives in
             one child. Its close button sits beside this row; the row is 32px
             tall so the close's -mt-1 centers on it. */}
-        <DrawerHeader className="border-b border-border px-4 py-3">
+        <DrawerHeader className="border-b border-border px-4 py-5">
           <div className="flex h-8 items-center gap-3">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background">
               <GoodPartyOrgLogo className="h-3.5 w-4" />

@@ -411,7 +411,7 @@ const NextTaskCard = ({
       <section
         className={cn(
           'flex w-full flex-col',
-          compact ? 'gap-3' : 'gap-4',
+          compact ? 'gap-3' : surface === 'manager' ? 'gap-8' : 'gap-4',
           className,
         )}
       >
@@ -425,7 +425,12 @@ const NextTaskCard = ({
           )}
           onClick={collapsible ? () => writeCollapsed(open) : undefined}
         >
-          <div className="flex flex-col gap-1">
+          <div
+            className={cn(
+              'flex flex-col gap-1',
+              surface === 'manager' && 'w-full items-center text-center',
+            )}
+          >
             <h2
               className={cn(
                 surface === 'manager'

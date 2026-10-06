@@ -5,7 +5,6 @@ import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import { GoodPartyOrgLogo } from '@styleguide'
 import { useUser } from '@shared/hooks/useUser'
-import CampaignManagerInsights from './CampaignManagerInsights'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
@@ -28,20 +27,24 @@ export default function CampaignManagerHome({
   const firstName = user?.firstName
 
   return (
-    <div className="flex min-h-screen flex-col bg-muted">
-      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
-        <div className="hidden items-center gap-2 lg:flex">
-          <GoodPartyOrgLogo size="small" />
-          <span className="text-sm font-semibold text-foreground">
-            Campaign manager
-          </span>
-        </div>
+    // On desktop the manager mark sits at the top and the welcome and the card
+    // in the middle of the space left. The chat dock reserves 6rem below the
+    // page for its bar: pb-24 keeps the centering clear of the bar, and -mb-24
+    // pulls that reserved space under this background so the layout's grey
+    // doesn't show through above it.
+    <div className="flex min-h-screen flex-col bg-muted lg:-mb-24 lg:min-h-dvh lg:pb-24">
+      <div className="hidden flex-col items-center gap-2 pt-6 lg:flex">
+        <GoodPartyOrgLogo />
+        <span className="text-sm font-semibold text-foreground">
+          Campaign manager
+        </span>
+      </div>
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
         <NextTaskCard
           surface="manager"
           heading={firstName ? `Welcome back, ${firstName}!` : 'Welcome back!'}
           subheading="Here’s what to do next"
         />
-        <CampaignManagerInsights />
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
       </div>
