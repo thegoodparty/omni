@@ -221,6 +221,21 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(bothPassed).toContain('Result on record: none')
     })
 
+    it('keeps the primary result line off on primary day itself', () => {
+      const primaryDay = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'KY',
+          now: at('2026-05-19'),
+          electionDate: '2026-11-03',
+          primaryElectionDate: '2026-05-19',
+        }),
+      )
+      expect(primaryDay).toContain(
+        'Primary date on record: Tuesday, May 19, 2026 (today)',
+      )
+      expect(primaryDay).not.toContain('Primary result on record')
+    })
+
     it('keeps the result line off on election day itself', () => {
       const electionDay = buildCampaignManagerSystemPrompt(
         ctx({ state: 'IL', now: at('2026-11-03') }),
