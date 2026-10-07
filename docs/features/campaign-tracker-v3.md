@@ -35,16 +35,36 @@ donation processor).
 
 ## What the candidate sees
 
-The Campaign Plan page (`/dashboard/campaign-plan`) shows a four-phase rail:
-**Pre-launch, Launch, Active campaign, Get out the vote**. Each phase holds
-dated task cards the candidate works through and marks complete.
+The Campaign Plan page (`/dashboard/campaign-plan`) shows the campaign as a
+timeline of three phases: **Launch, Active campaign, Get out the vote**. Each
+phase is a window on the calendar, and holds the tasks dated inside it.
 
-- **Static tasks** (the launch / pre-launch checklist) and the **7 outreach
-  sends** render the moment the tracker is bootstrapped, so there is something
-  to do immediately.
+### The timeline
+
+The windows live in contracts (`CampaignTimeline.ts`), so gp-api dates tasks
+and the webapp groups them by the same rules. They count back from the
+election and forward from the day the plan started:
+
+- **Get out the vote** is the final 30 days (plus the close-out after).
+- **Active campaign** opens about 10 weeks out.
+- **Launch** is everything before that: setup work first, going-public work in
+  its last two weeks. The catalog's `preLaunch` and `launch` timing say which.
+
+A candidate who joins late gets a compressed timeline, not a fake one: Launch
+shrinks to half the time left before get-out-the-vote (four weeks at most),
+and one who joins inside 30 days starts in get-out-the-vote.
+
+A task's phase is the window its **date** falls in, not its catalog category,
+so the AI's weekly tasks dated in June are Launch work for a November race.
+Work with no knowable date (a state deadline, per-item or recurring catalog
+work) is stored at the start of its phase so it sorts, but never shown as due.
+
+- **Static tasks** and the **7 outreach sends** render the moment the tracker
+  is bootstrapped, so there is something to do immediately.
 - **Dynamic tasks and events** land a few minutes later when the first agent
-  run completes. While they generate, a banner says so.
-- **Pre-launch and Launch** show **all** of their tasks at once. The **Active
+  run completes, with no spinner to wait on; the candidate is told what was
+  added.
+- **Launch** shows **all** of its tasks at once. The **Active
   campaign** phase is a **week navigator**: one Monday-Sunday week at a time,
   with controls to step one week back (to review) or one week forward (next
   week's plan, once that Thursday's generation lands), but no further.
@@ -79,7 +99,7 @@ offers generation to everyone and invites the story alongside it.
 ### The campaign story prompt
 
 The prompt is **a real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static`
-catalog entry) at the **end of pre-launch**, so it flows through the same row
+catalog entry) filed as pre-launch work, so it lands early in Launch and flows through the same row
 machinery as everything else rather than being a bespoke surface, and leads
 the next-step card when it is the candidate's next task.
 
@@ -90,12 +110,6 @@ ticks the task — `completeCampaignStoryTaskIfDone` runs on the tracker read, s
 it closes immediately rather than at the next generation — and emptying the
 story reopens it. A candidate never has to tick it by hand, and it can never
 disagree with the story itself.
-
-Known consequence, tracked separately: an open pre-launch row dated in the
-present pulls a mid-campaign candidate's rail back to Pre-launch, because
-`derivePhaseStatuses` decides "happening now" from task dates. Ticking the row
-does not rescue it; the date is what pulls the phase in. The date-driven phase
-model is what needs rethinking, not the row's placement.
 
 The manager home keeps its own `PersonalizeStoryCard` (the task list there
 renders dynamic rows only, so the static story row never appears in it). Ballot
@@ -191,7 +205,7 @@ completion / CTA / update-history machinery is reused against it.
 | --------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `isDefaultTask` | `true` = deterministic row (static catalog **or** outreach send); `false` = agent-generated dynamic task or event |
 | `flowType`      | channel (`text`, `robocall`, `events`, …); `events` marks event rows                                              |
-| `phase`         | `preLaunch` \| `launch` \| `active` \| `gotv` (drives the rail)                                                   |
+| `phase`         | the catalog's kind of work (`preLaunch` \| `launch` \| `active` \| `gotv`); the rail places rows by `date`        |
 | `week`          | **generation index** (see below), not a calendar week                                                             |
 | `date`          | when the task is scheduled (drives sorting + the digest window)                                                   |
 | `completed`     | per-task completion; `updateHistoryId` links voter-contact logging                                                |
@@ -343,7 +357,7 @@ dynamic generation** plus the **deterministic text/robocall outreach** dated in
 the window (`(is_default_task = false AND week = latest generation) OR
 (is_default_task = true AND flow_type IN (text, robocall))`). The static setup
 checklist (non-outreach default rows) is excluded, since it renders in the
-Pre-launch/Launch/GOTV-ops sections rather than the active week the digest
+Launch/GOTV-ops sections rather than the active week the digest
 promotes. Outreach ranks ahead of the dynamic picks. Also excludes GOTV tasks
 until the election is within 30 days (matching the UI), and excludes inactive /
 demo campaigns.
@@ -391,7 +405,7 @@ The table below is the cross-package file index:
 - `buildTrackerStrategy.ts` builds the rail from rows: filter dynamic rows to
   `max(week)`, bucket by phase, and apply the deterministic display rules. A
   phase reads `done` only when **all** its tasks are completed; the "happening
-  now" (active) phase is **date-driven**. Pre-launch / Launch show all of their
+  now" (active) phase is **date-driven**. Launch shows all of its
   tasks; GOTV is gated to the final 30 days. The **Active** phase is built
   separately by `buildActiveWeeks`, which buckets every active task (all
   generations, not just the latest) into Monday-Sunday weeks and flags the week

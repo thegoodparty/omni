@@ -553,11 +553,12 @@ describe('CampaignManagerHome with no next task', () => {
     return () => vi.useRealTimers()
   })
 
+  // The week's AI-picked tasks, which carry their own dates.
   const activeTask = (
     over: Partial<CampaignTrackerTask>,
   ): CampaignTrackerTask => ({
     ...doorsTask,
-    isDefaultTask: true,
+    isDefaultTask: false,
     ...over,
   })
 
@@ -706,7 +707,7 @@ describe('CampaignManagerHome skipping a task', () => {
     })
   })
 
-  it('only lets a required task be put off, until its due date', async () => {
+  it('only lets a required task be put off', async () => {
     mockTasks = [
       task({
         id: 'sigs',
@@ -720,11 +721,32 @@ describe('CampaignManagerHome skipping a task', () => {
     await user.click(
       await screen.findByRole('button', { name: 'Skip this task' }),
     )
+    // Its date is the state's deadline, which we don't know, so the
+    // snooze isn't capped to it.
     expect(
-      await screen.findByRole('menuitem', { name: 'Show on Oct 10' }),
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('menuitem', { name: 'Don’t suggest it again' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('puts a task off no later than its real due date', async () => {
+    mockTasks = [
+      task({
+        id: 'ein',
+        title: 'Get your EIN',
+        date: '2026-10-10T00:00:00.000Z',
+      }),
+    ]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Skip this task' }),
+    )
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show on Oct 10' }),
+    ).toBeInTheDocument()
   })
 })

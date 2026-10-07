@@ -121,14 +121,21 @@ const EXIT_MS = 300
 
 // The fields the card shows. The next task comes from the tracker's render
 // shape and the stacked priorities from raw rows, so both narrow to this.
-type DeckTask = Pick<CampaignStrategyTask, 'id' | 'title' | 'description'> & {
+type DeckTask = Pick<
+  CampaignStrategyTask,
+  'id' | 'title' | 'description' | 'dateKnown'
+> & {
   date: string | null
 }
+
+// The date to show for a task, or null when it is only a placeholder.
+const shownDate = (task: DeckTask): string | null =>
+  task.dateKnown === false ? null : task.date
 
 // Sent as the candidate's first message, so the manager answers about this
 // task instead of opening on its greeting.
 export const discussTaskMessage = (task: DeckTask): string => {
-  const due = formatTaskDate(task.date)
+  const due = formatTaskDate(shownDate(task))
   return [
     `Help me with this task from my campaign plan: "${task.title}".`,
     task.description,
@@ -416,7 +423,7 @@ const NextTaskCard = ({
 
   if (!strategy) return countModal
 
-  const due = frontTask ? taskDueLabel(frontTask.date, new Date()) : null
+  const due = frontTask ? taskDueLabel(shownDate(frontTask), new Date()) : null
   const action = taskAction(frontRow, surface)
 
   // A task done inside the product (its action opens one of our own screens)
@@ -572,7 +579,7 @@ const NextTaskCard = ({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onSelect={() => skipFront('later')}>
-                            {snoozeLabel(frontTask.date)}
+                            {snoozeLabel(shownDate(frontTask))}
                           </DropdownMenuItem>
                           {canSetTaskAsideForGood(frontTask.title) && (
                             <DropdownMenuItem

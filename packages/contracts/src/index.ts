@@ -414,6 +414,20 @@ export {
 } from './campaigns/CampaignTaskCatalog.data'
 
 export {
+  ACTIVE_WEEKS_BEFORE_ELECTION,
+  GOTV_WINDOW_DAYS,
+  campaignPhaseWindows,
+  hasKnownTrackerDate,
+  phaseForDate,
+  phaseStart,
+  resolveTrackerTaskDate,
+  timelinePhase,
+  trackerTimelineStart,
+  type CampaignPhaseWindows,
+  type CampaignTimelinePhase,
+} from './campaigns/CampaignTimeline'
+
+export {
   TRACKER_TASK_SNOOZE_DAYS,
   canSetTaskAsideForGood,
   isTrackerTaskSetAside,

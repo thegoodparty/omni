@@ -5,7 +5,15 @@ import {
   startOfDay,
   startOfWeek,
 } from 'date-fns'
-import { isTrackerTaskSetAside } from '@goodparty_org/contracts'
+import {
+  campaignPhaseWindows,
+  hasKnownTrackerDate,
+  isTrackerTaskSetAside,
+  phaseForDate,
+  timelinePhase,
+  trackerTimelineStart,
+  type CampaignPhaseWindows,
+} from '@goodparty_org/contracts'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type {
   CampaignStrategyData,
@@ -29,14 +37,9 @@ export const PHASE_META: {
   summary: string
 }[] = [
   {
-    key: 'preLaunch',
-    title: 'Pre-launch',
-    summary: 'Ballot access and campaign setup.',
-  },
-  {
     key: 'launch',
     title: 'Launch',
-    summary: 'Introduce yourself to voters across every channel.',
+    summary: 'Set up your campaign, then introduce yourself to voters.',
   },
   {
     key: 'active',
@@ -62,8 +65,6 @@ const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   awareness: 'awareness',
 }
 
-const PHASE_KEYS = new Set<string>(PHASE_META.map((p) => p.key))
-
 const toChannel = (flowType: string | null): TaskChannel =>
   (flowType && FLOW_TYPE_TO_CHANNEL[flowType]) || 'general'
 
@@ -88,6 +89,9 @@ const toRenderTask = (
   unlocksAfter: null,
   isNext: false,
   completed: row.completed,
+  // A catalog row whose date is only a placeholder (a state deadline,
+  // per-item or recurring work) still sorts by it but never shows it.
+  dateKnown: !row.isDefaultTask || hasKnownTrackerDate(row.title),
   setAside: isTrackerTaskSetAside(
     {
       skipReason: row.skipReason ?? null,
@@ -172,10 +176,15 @@ const derivePhaseStatuses = (
   return out
 }
 
-const phaseOf = (task: CampaignTrackerTask): CampaignStrategyPhaseKey =>
-  (task.phase && PHASE_KEYS.has(task.phase)
-    ? task.phase
-    : 'preLaunch') as CampaignStrategyPhaseKey
+// A task's phase is the window its date falls in, not the kind of work it
+// is. Without a timeline to place it on, the catalog's phase stands in.
+const phaseOf = (
+  task: CampaignTrackerTask,
+  windows: CampaignPhaseWindows | null,
+): CampaignStrategyPhaseKey =>
+  windows && task.date
+    ? phaseForDate(windows, localMidnight(task.date))
+    : timelinePhase(task.phase)
 
 // The active phase renders as a week navigator: one Monday-Sunday week at a
 // time. Group every active-phase task (the deterministic outreach + all dynamic
@@ -185,8 +194,9 @@ const phaseOf = (task: CampaignTrackerTask): CampaignStrategyPhaseKey =>
 const buildActiveWeeks = (
   tasks: CampaignTrackerTask[],
   today: Date,
+  windows: CampaignPhaseWindows | null,
 ): CampaignStrategyWeek[] => {
-  const active = tasks.filter((t) => phaseOf(t) === 'active' && t.date)
+  const active = tasks.filter((t) => phaseOf(t, windows) === 'active' && t.date)
   if (active.length === 0) return []
 
   const byWeek = new Map<number, CampaignTrackerTask[]>()
@@ -255,11 +265,19 @@ export const buildTrackerStrategy = (
       ? tasks
       : tasks.filter((t) => t.isDefaultTask || t.week === latestGen)
 
+  // The campaign's timeline: windows counted back from the election and
+  // forward from the day the plan started (contracts' CampaignTimeline).
+  const timelineStart = trackerTimelineStart(tasks)
+  const windows = timelineStart
+    ? campaignPhaseWindows(
+        localMidnight(timelineStart.toISOString()),
+        electionDate,
+      )
+    : null
+
   const byPhase = new Map<CampaignStrategyPhaseKey, CampaignStrategyTask[]>()
   for (const row of visibleTasks) {
-    const phase = (
-      row.phase && PHASE_KEYS.has(row.phase) ? row.phase : 'preLaunch'
-    ) as CampaignStrategyPhaseKey
+    const phase = phaseOf(row, windows)
     const list = byPhase.get(phase) ?? []
     list.push(toRenderTask(row, today))
     byPhase.set(phase, list)
@@ -296,7 +314,7 @@ export const buildTrackerStrategy = (
   // navigable — so correct Active's completion BEFORE deriving statuses, or the
   // completion-driven advance walks past Active into GOTV while open tasks sit
   // one week back in the navigator.
-  const activeWeeks = buildActiveWeeks(tasks, today)
+  const activeWeeks = buildActiveWeeks(tasks, today, windows)
   const navigableTasks = activeWeeks.flatMap((w) => w.tasks)
   if (navigableTasks.length > 0) {
     phaseAllCompleted.set(

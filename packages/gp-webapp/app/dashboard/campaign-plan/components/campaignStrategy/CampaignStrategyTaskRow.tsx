@@ -103,7 +103,9 @@ const CampaignStrategyTaskRow = ({
   onSetAside,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
-  const formattedDate = formatTaskDate(task.date)
+  const formattedDate = formatTaskDate(
+    task.dateKnown === false ? null : task.date,
+  )
   const Icon = CHANNEL_ICONS[task.channel]
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
 

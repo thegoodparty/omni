@@ -61,6 +61,16 @@ export class CampaignTrackerController {
           'campaign story task sync failed, serving tasks as-is',
         ),
       )
+    // Rows dated before the plan became a timeline (or before the race
+    // changed) move onto it. Best-effort for the same reason.
+    await this.trackerTasksService
+      .alignTrackerTaskDates(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'tracker task date alignment failed, serving tasks as-is',
+        ),
+      )
     return this.trackerTasksService.listCampaignTrackerTasks(campaign)
   }
 

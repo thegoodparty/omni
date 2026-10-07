@@ -1,8 +1,9 @@
 # campaignStrategy/ (Campaign Tracker rendering)
 
 Renders the Campaign Plan page's task rail (Campaign Tracker v3, ENG-10406):
-four phases (preLaunch / launch / active / gotv) of dated, prioritized task
-cards the candidate checks off. Feature overview + backend:
+three phases (launch / active / gotv) that are windows on the campaign's
+timeline (contracts' `CampaignTimeline.ts`); a task sits in the phase its date
+falls in. The cards are dated, prioritized tasks the candidate checks off. Feature overview + backend:
 `docs/features/campaign-tracker-v3.md` and
 `packages/gp-api/src/campaigns/campaignTracker/CLAUDE.md`.
 
@@ -33,7 +34,7 @@ cards the candidate checks off. Feature overview + backend:
   "happening now" (active) is date-driven (the first non-empty phase still in
   play). Empty intermediate phases are skipped so they can't strand a later
   populated phase as `upcoming`.
-- **Pre-launch / Launch render all tasks; Active is a week navigator.** No
+- **Launch renders all its tasks; Active is a week navigator.** No
   progressive-reveal cap (the weekly digest is what caps at 3). The Active phase
   is built by `buildActiveWeeks`: it buckets every active task (all generations,
   not just `max(week)`) into Monday-Sunday weeks, flags the week containing

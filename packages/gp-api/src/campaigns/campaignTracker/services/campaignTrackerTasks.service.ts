@@ -3,7 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { addDays, differenceInCalendarDays, format, startOfDay } from 'date-fns'
+import {
+  addDays,
+  differenceInCalendarDays,
+  differenceInCalendarWeeks,
+  format,
+  startOfDay,
+} from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 import {
@@ -15,8 +21,13 @@ import {
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
+  CAMPAIGN_TASK_CATALOG,
+  campaignPhaseWindows,
   canSetTaskAsideForGood,
+  resolveTrackerTaskDate,
   trackerTaskSnoozeUntil,
+  trackerTimelineStart,
+  type TaskTiming,
   type TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
 import {
@@ -84,6 +95,18 @@ const trackerArtifactSchema = z.object({
 // Campaign Tracker tasks live in their own table (campaign_tracker_tasks) so the
 // new tracker coexists with existing users' campaign_task rows. The completion
 // flow mirrors CampaignTasksService against the new model.
+// The timing kinds dated from the timeline's start rather than the election,
+// which alignTrackerTaskDates keeps on the timeline.
+const TIMELINE_DATED_KINDS = new Set<TaskTiming['kind']>([
+  'asap',
+  'onboardingWeek',
+  'preLaunch',
+  'launch',
+  'jurisdiction',
+  'recurring',
+  'perItem',
+])
+
 @Injectable()
 export class CampaignTrackerTasksService extends createPrismaBase(
   MODELS.CampaignTrackerTask,
@@ -329,6 +352,55 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       },
     })
     return count
+  }
+
+  // Default rows are dated once, when the tracker starts. Bring the open ones
+  // back onto the campaign's timeline on read, so rows dated by the old
+  // signup-relative rules, or before the candidate changed their race, land
+  // in the right phase. Election-relative rows (the outreach sends, the GOTV
+  // dates) are left alone: they were always dated from the election, and a
+  // send may already be scheduled from one.
+  async alignTrackerTaskDates(campaign: Campaign): Promise<number> {
+    const rows = await this.model.findMany({
+      where: { campaignId: campaign.id, isDefaultTask: true },
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        completed: true,
+        isDefaultTask: true,
+      },
+    })
+    const start = trackerTimelineStart(rows)
+    if (!start) return 0
+    const windows = campaignPhaseWindows(
+      start,
+      this.resolveElectionDate(campaign),
+    )
+    const moves = rows.flatMap((row) => {
+      if (row.completed) return []
+      const entry = CAMPAIGN_TASK_CATALOG.find(
+        (task) => task.title === row.title,
+      )
+      if (!entry || !TIMELINE_DATED_KINDS.has(entry.timing.kind)) return []
+      const date = startOfDay(resolveTrackerTaskDate(entry, windows))
+      return date.getTime() === row.date.getTime()
+        ? []
+        : [
+            {
+              id: row.id,
+              date,
+              week: Math.max(0, differenceInCalendarWeeks(date, start)),
+            },
+          ]
+    })
+    if (moves.length === 0) return 0
+    await this.client.$transaction(
+      moves.map(({ id, date, week }) =>
+        this.model.update({ where: { id }, data: { date, week } }),
+      ),
+    )
+    return moves.length
   }
 
   private resolveElectionDate(campaign: Campaign): Date | null {

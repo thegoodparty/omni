@@ -48,6 +48,9 @@ export interface CampaignStrategyTask {
   snoozedUntil: string | null
   // Added since this browser last showed the plan; marked for one visit.
   isNew?: boolean
+  // False when `date` is only a placeholder that orders the task; it is not
+  // shown as a due date. Unset means the date is real.
+  dateKnown?: boolean
 }
 
 export interface CampaignStrategyGroup {

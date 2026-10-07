@@ -18,6 +18,15 @@ overview: `docs/features/campaign-tracker-v3.md`.
 
 ## Patterns / non-obvious logic
 
+- **Tasks are dated on the campaign's timeline.** `resolveTrackerTaskDate` and
+  `campaignPhaseWindows` (contracts' `CampaignTimeline.ts`) turn a catalog
+  task's timing into a date inside its phase's window, counted back from the
+  election. Rows dated before that, or before the candidate changed their
+  race, are moved on read: `alignTrackerTaskDates` runs (best-effort) before
+  the GET returns, on open default rows whose timing is signup-relative.
+  Election-relative rows (the outreach sends, GOTV dates) are never moved,
+  since a send may already be scheduled from one.
+
 - **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
   a task aside: `later` sets `snoozedUntil` (`trackerTaskSnoozeUntil`: three
   days, or the due date when that comes first), `notForMe` holds until
@@ -67,20 +76,14 @@ overview: `docs/features/campaign-tracker-v3.md`.
   direction only, and it short-circuits on an indexed count when the row is
   already ticked, so polling the list does not pay for a story read it cannot
   use. The full reconcile still owns the reverse.
-- **It sits at the end of pre-launch.** `phase: 'preLaunch'` with `preLaunch`
-  timing, which resolves a week past the block's anchor, alongside the two
-  catalog rows that close the phase out. `buildCampaignStoryTrackerTaskRows`
+- **It sits early in Launch.** `phase: 'preLaunch'` with `preLaunch` timing,
+  which resolves a week past the timeline's start. `buildCampaignStoryTrackerTaskRows`
   exists separately from `buildStaticTrackerTaskRows` only because the row
   carries `link`/`cta`, which the catalog schema does not model. When the
   reconcile re-adds it to a campaign materialized long ago it recovers that
   campaign's original anchor from its earliest pre-launch row rather than
   taking a fresh one, so the row lands with its siblings instead of a week out
   from today.
-  Known consequence, tracked separately: an open pre-launch row dated in the
-  present pulls a mid-campaign candidate's rail back to Pre-launch, because the
-  webapp decides "happening now" from task dates. Ticking the row does not
-  rescue it — the date is what pulls the phase in. That is the date-driven
-  phase model needing a rethink, not this row's placement.
 - **Ballot access is gated on the candidate's ballot stage.** The catalog's
   `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
   materialization for a candidate who answered onboarding's "Are you already on
