@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import type { Editor } from '@tiptap/react'
+import { deriveRobocallProtectedParts } from '@goodparty_org/contracts'
 import { RobocallComposeStep } from './RobocallComposeStep'
 import type { RobocallRecorder } from './useRobocallRecorder'
 
@@ -67,5 +69,49 @@ describe('RobocallComposeStep compliance-check label', () => {
 
     expect(screen.getByText('Checking for compliance…')).toBeInTheDocument()
     expect(screen.queryByText('Transcribing…')).not.toBeInTheDocument()
+  })
+})
+
+describe('RobocallComposeStep locked parts', () => {
+  const editorOf = () =>
+    (
+      screen.getByRole('textbox', {
+        name: 'Robocall script',
+      }) as HTMLElement & {
+        editor: Editor
+      }
+    ).editor
+
+  const deleteInside = (editor: Editor, needle: string) => {
+    let at = -1
+    editor.state.doc.descendants((node, pos) => {
+      if (at !== -1 || !node.isText) return
+      const index = node.text?.indexOf(needle) ?? -1
+      if (index !== -1) at = pos + index + 2
+    })
+    act(() => {
+      editor.view.dispatch(editor.state.tr.delete(at - 1, at))
+    })
+  }
+
+  it.each([
+    [
+      'Sarah',
+      "A recorded call has to say who's calling, but you can reword the rest.",
+    ],
+    ['Paid for by', 'The law requires this line, read exactly as written.'],
+  ])('refuses an edit inside %s and says why', async (needle, reason) => {
+    render(
+      <RobocallComposeStep
+        {...baseProps}
+        protectedParts={deriveRobocallProtectedParts(baseProps.script, {
+          candidateNames: ['Sarah Chen'],
+        })}
+      />,
+    )
+    deleteInside(editorOf(), needle)
+
+    expect(await screen.findByText(reason)).toBeInTheDocument()
+    expect(editorOf().getText({ blockSeparator: '\n' })).toBe(baseProps.script)
   })
 })
