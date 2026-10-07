@@ -9,7 +9,12 @@ import type { AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { CaseListError, type CaseJudging, type CaseList } from './cases'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
-import { CaseVerdictSchema, RUBRIC_VERSION, type CaseVerdict } from './judge'
+import {
+  CaseVerdictSchema,
+  RUBRIC_VERSION,
+  toWireVerdict,
+  type CaseVerdict,
+} from './judge'
 import type { RunRecord } from './record'
 import {
   createLocalRecordStore,
@@ -87,7 +92,7 @@ const verdict = (slot: 'X' | 'Y'): CaseVerdict => ({
 
 const alwaysX: JsonJudgeModel = {
   jsonCompletion: async ({ schema }) => ({
-    object: schema.parse(verdict('X')),
+    object: schema.parse(toWireVerdict(verdict('X'))),
     tokens: 10,
     model: 'claude-sonnet-4-6',
   }),
@@ -254,7 +259,9 @@ describe('the canned judge', () => {
         store: await seeded(cases(3)),
         llm: {
           jsonCompletion: async ({ schema }) => ({
-            object: schema.parse(cannedVerdict(DEFAULT_JUDGE_CONFIG)),
+            object: schema.parse(
+              toWireVerdict(cannedVerdict(DEFAULT_JUDGE_CONFIG)),
+            ),
             tokens: 0,
             model: 'canned-judge',
           }),
@@ -628,6 +635,58 @@ describe('judgeSweep', () => {
     expect(score?.label).toBe("CAN'T SAY")
     expect(score?.labelNote).toContain('below the floor')
     expect(result.exitCode).toBe(0)
+  })
+
+  // A schema the API refused made every panel call throw, and the sweep
+  // still printed CAN'T SAY over zero cases and exited zero. A judge that
+  // answered nothing is broken, and says so.
+  it('fails when the judge answered no pair at all', async () => {
+    const refused: JsonJudgeModel = {
+      jsonCompletion: async () => {
+        throw new Error('the model refused the schema')
+      },
+    }
+    const result = await run(await seeded(cases(3)), refused)
+    expect(result.report.agents).toEqual([])
+    expect(result.report.refusals?.[0]?.reason).toContain(
+      'The judge returned no verdict on any',
+    )
+    expect(result.exitCode).toBe(1)
+  })
+
+  // Even beside an agent that did score: a refusal of one agent leaves the
+  // others' verdicts standing, but a judge failure says the judge is broken,
+  // which no other agent's verdict vouches for.
+  it('fails when one agent got no verdict and another scored', async () => {
+    const sibling = cases(3).map((record) => ({
+      ...record,
+      agentId: 'priority_flow',
+      runId: `pf-${record.runId}`,
+    }))
+    const failsOnPriorityFlow: JsonJudgeModel = {
+      jsonCompletion: async (options) => {
+        const asked = options.messages.map((m) => String(m.content)).join('')
+        if (asked.includes('<agent_id>priority_flow</agent_id>')) {
+          throw new Error('the model refused the schema')
+        }
+        return alwaysX.jsonCompletion(options)
+      },
+    }
+    const result = await judgeSweep(
+      {
+        store: await seeded([...cases(3), ...sibling]),
+        llm: failsOnPriorityFlow,
+        registry: [COS, PRIORITY_FLOW],
+      },
+      { ...env, agentIds: ['chief_of_staff', 'priority_flow'] },
+    )
+    expect(result.report.agents.map((a) => a.agentId)).toEqual([
+      'chief_of_staff',
+    ])
+    expect(result.report.refusals?.map((r) => r.agentId)).toEqual([
+      'priority_flow',
+    ])
+    expect(result.exitCode).toBe(1)
   })
 })
 
@@ -1087,10 +1146,12 @@ describe('per-case rulings', () => {
 
   const quoting: JsonJudgeModel = {
     jsonCompletion: async ({ schema }) => ({
-      object: schema.parse({
-        ...verdict('X'),
-        overall: { reasoning: PRIVATE, verdict: 'X', magnitude: 'clear' },
-      }),
+      object: schema.parse(
+        toWireVerdict({
+          ...verdict('X'),
+          overall: { reasoning: PRIVATE, verdict: 'X', magnitude: 'clear' },
+        }),
+      ),
       tokens: 10,
       model: 'claude-sonnet-4-6',
     }),
@@ -1330,7 +1391,7 @@ describe('judgeSweep applies each case list condition and control', () => {
         jsonCompletion: async ({ messages, schema }) => {
           prompts.push(messages.map((m) => String(m.content)).join('\n'))
           return {
-            object: schema.parse(verdict('X')),
+            object: schema.parse(toWireVerdict(verdict('X'))),
             tokens: 10,
             model: 'claude-sonnet-4-6',
           }
@@ -1496,7 +1557,7 @@ describe('what a sweep actually spent', () => {
   // 1,000 input at $3/M plus 100 output at $15/M: $0.0045 a call.
   const priced: JsonJudgeModel = {
     jsonCompletion: async ({ schema }) => ({
-      object: schema.parse(verdict('X')),
+      object: schema.parse(toWireVerdict(verdict('X'))),
       tokens: 1_100,
       inputTokens: 1_000,
       outputTokens: 100,
