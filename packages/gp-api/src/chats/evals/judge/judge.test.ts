@@ -417,9 +417,37 @@ describe('the flag vocabulary', () => {
 
   it('shows the model the list in the schema it fills', () => {
     const schema = JSON.stringify(
-      z.toJSONSchema(caseVerdictSchemaFor(DEFAULT_JUDGE_CONFIG.dimensions)),
+      z.toJSONSchema(caseVerdictSchemaFor(DEFAULT_JUDGE_CONFIG.dimensions), {
+        io: 'input',
+      }),
     )
     expect(schema).toContain(JSON.stringify(FLAG_TYPES))
+  })
+
+  // The AI SDK converts with io: 'input', and Anthropic rejects a tool schema
+  // with more than 24 optional parameters, so every panel call fails.
+  it('stays within the 24 optional parameters Anthropic accepts', () => {
+    const optional = (node: unknown): number => {
+      if (node === null || typeof node !== 'object') return 0
+      const own =
+        'properties' in node &&
+        node.properties !== null &&
+        typeof node.properties === 'object'
+          ? Object.keys(node.properties).filter(
+              (key) =>
+                !('required' in node && Array.isArray(node.required)) ||
+                !node.required.includes(key),
+            ).length
+          : 0
+      return (
+        own + Object.values(node).reduce<number>((n, v) => n + optional(v), 0)
+      )
+    }
+    const schema = z.toJSONSchema(
+      caseVerdictSchemaFor(DEFAULT_JUDGE_CONFIG.dimensions),
+      { io: 'input' },
+    )
+    expect(optional(schema)).toBeLessThanOrEqual(24)
   })
 
   // Anthropic's tool mode does not enforce an enum, so an invented type does
