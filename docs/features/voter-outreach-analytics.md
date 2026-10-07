@@ -290,7 +290,7 @@ At the Pro wall the same `source` rides into `Pro Upgrade - Flow Started`,
 beside `channel`, the literal `cta` of the button that opened the gate, and
 `trackerTaskId` / `phase` when a task started the flow. Campaign manager task
 links now carry the tracker task the way campaign plan links do. The Pro side
-is documented in `packages/gp-webapp/app/dashboard/pro-upgrade/AGENTS.md`.
+is documented in `packages/gp-webapp/app/(dashboard)/pro-upgrade/AGENTS.md`.
 
 ### `Dashboard - Campaign Task Status Updated` (revived)
 
@@ -421,7 +421,7 @@ Not built:
 
 ## Related
 
-- `packages/gp-webapp/app/dashboard/outreach/util/outreachAnalytics.ts` — the
+- `packages/gp-webapp/app/(dashboard)/outreach/util/outreachAnalytics.ts` — the
   one place the payload is shaped, and where the omission rules live.
 - `packages/gp-webapp/helpers/analyticsHelper.ts` — the `EVENTS` map.
 - `.claude/skills/event-metadata/SKILL.md` — the `gp-meta` governance block.

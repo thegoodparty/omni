@@ -186,7 +186,7 @@ async function completePledgeStep(page: Page): Promise<void> {
   await submit.click()
   // Completion pins the EO org and routes through /post-auth-redirect to the
   // serve dashboard.
-  await page.waitForURL(/\/dashboard(\/|$)/, { timeout: 60_000 })
+  await page.waitForURL(/\/home(\/|$)/, { timeout: 60_000 })
 }
 
 test('serve onboarding — net-new branch via magic link', async ({ page }) => {
@@ -203,7 +203,7 @@ test('serve onboarding — net-new branch via magic link', async ({ page }) => {
   await completeConstituentsStep(page)
   await completePledgeStep(page)
 
-  expect(page.url()).toMatch(/\/dashboard(\/|$)/)
+  expect(page.url()).toMatch(/\/home(\/|$)/)
   console.log(`Net-new serve onboarding complete: ${page.url()}`)
 })
 
@@ -240,6 +240,6 @@ test('serve onboarding — prefilled confirm branch via magic link', async ({
   await completeConstituentsStep(page)
   await completePledgeStep(page)
 
-  expect(page.url()).toMatch(/\/dashboard(\/|$)/)
+  expect(page.url()).toMatch(/\/home(\/|$)/)
   console.log(`Prefill serve onboarding complete: ${page.url()}`)
 })

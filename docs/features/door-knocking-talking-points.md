@@ -237,7 +237,7 @@ writes the candidate's issues to `website.content.about.issues` via
 that direction.**
 
 Three issue stores exist. `customIssues` and `CampaignPosition` are written only
-by the legacy `/dashboard/questions` flow, which has no nav entry and is
+by the legacy `/questions` flow, which has no nav entry and is
 reachable only by detouring through Content Builder. The website store is what
 modern onboarding fills. `buildCampaignContext` reads the first; the door script
 reads the first two; neither reads the third.
@@ -270,7 +270,7 @@ widens this.
 ### PR 3 — Describe a filter in words, server-side
 
 The prose generator already exists — `buildFilterSummary` in
-`packages/gp-webapp/app/dashboard/contacts/crm/lists/ListFilterSummary.tsx`
+`packages/gp-webapp/app/(dashboard)/contacts/crm/lists/ListFilterSummary.tsx`
 turns a saved filter into *"Age 18-24 or 25-34, Language Spanish, and Support
 status Supporter."* — but it lives in the webapp and gp-api cannot import it.
 gp-api has the label vocabulary and no sentence assembly.

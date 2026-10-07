@@ -30,13 +30,13 @@ interface DownloadReminderModalProps {
   downloading: boolean
   // Triggers the download. The parent closes the modal once it resolves.
   onDownloadNow: () => void
-  // Leaves the page for Campaign Manager regardless of download state.
+  // Leaves the page for Home regardless of download state.
   onContinue: () => void
 }
 
 const TITLE = 'Download your campaign plan?'
 const DESCRIPTION =
-  "You haven't downloaded your campaign plan yet. Download a copy now, or continue to your Campaign Manager."
+  "You haven't downloaded your campaign plan yet. Download a copy now, or continue to Home."
 const PREPARING_TOOLTIP =
   'Your plan is still being generated. This usually takes less than 3 minutes.'
 
@@ -84,7 +84,7 @@ const DownloadReminderModal = ({
       onClick={onContinue}
       className="w-full"
     >
-      Continue to Campaign Manager
+      Continue to Home
     </Button>
   )
 

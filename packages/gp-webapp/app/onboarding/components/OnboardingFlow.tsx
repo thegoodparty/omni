@@ -1024,7 +1024,7 @@ export default function OnboardingFlow({
       return false
     }
     // Launch flips isActive + recomputes raceTargetMetrics on the next read.
-    // Invalidate so /dashboard's CampaignProvider refetches the hydrated
+    // Invalidate so /home's CampaignProvider refetches the hydrated
     // campaign instead of serving the stale (or missing-metrics) entry that
     // was cached earlier in this session.
     void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
@@ -1134,9 +1134,9 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Lands on the Campaign Manager home, whose chat opens with the story
+      // Lands on Home, whose chat opens with the story
       // intake (the plan + tracker are generated from the story later).
-      router.push('/dashboard')
+      router.push('/home')
       return
     }
     if (nextStep) {
@@ -1505,7 +1505,7 @@ export default function OnboardingFlow({
               {nextStep
                 ? 'Continue'
                 : activeStep.id === 'pledge'
-                  ? 'Meet your campaign manager'
+                  ? 'Get started'
                   : 'Complete'}
             </Button>
           )}

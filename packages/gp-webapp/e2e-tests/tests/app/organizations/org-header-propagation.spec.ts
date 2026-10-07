@@ -20,7 +20,7 @@ test.describe('Organization Header Propagation', () => {
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     const cookiesBefore = await page.context().cookies()
@@ -37,7 +37,7 @@ test.describe('Organization Header Propagation', () => {
     expect(campaignOrgName).toBeTruthy()
 
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
 
     const cookiesAfter = await page.context().cookies()
     const slugCookieAfter = cookiesAfter.find(
@@ -52,7 +52,7 @@ test.describe('Organization Header Propagation', () => {
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     const eoOrgName = await getSelectedOrgName(page)
@@ -61,7 +61,7 @@ test.describe('Organization Header Propagation', () => {
     expect(campaignOrgName).toBeTruthy()
 
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
 
     const cookiesAfter = await page.context().cookies()
     const slugCookie = cookiesAfter.find((c) => c.name === 'organization-slug')
@@ -78,7 +78,7 @@ test.describe('Organization Header Propagation', () => {
       }
     })
 
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await WaitHelper.waitForPageReady(page)
 
     expect(capturedHeaders.length).toBeGreaterThan(0)

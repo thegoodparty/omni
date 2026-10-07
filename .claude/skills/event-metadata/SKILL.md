@@ -84,7 +84,7 @@ Rules:
   which is the whole reason the field exists (DATA-2426). Drafted by you from the call
   site, confirmed by the human. Unlike the purpose line it is **mutable** — when the UI
   moves, the anchor should be corrected, because a stale anchor is worse than a blank one.
-- **`url:`** — the product path where the action happens, e.g. `/dashboard/campaign-plan`.
+- **`url:`** — the product path where the action happens, e.g. `/campaign-plan`.
   Paths collide across apps, so name the app whenever it is not the candidate webapp:
   `/dashboard/sms-outreach/:id (gp-admin)`. For global chrome that fires from everywhere,
   leave the value as a short reason rather than a guessed path: `url: n/a (global nav)`.

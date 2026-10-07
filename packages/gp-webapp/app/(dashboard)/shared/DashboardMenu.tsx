@@ -1,0 +1,803 @@
+'use client'
+import Link from 'next/link'
+import {
+  MdAccountCircle,
+  MdAutoAwesome,
+  MdFactCheck,
+  MdFileOpen,
+  MdFolderShared,
+  MdMessage,
+  MdPeople,
+  MdPoll,
+} from 'react-icons/md'
+import {
+  Circle,
+  CircleUserRound,
+  ClipboardList,
+  ExternalLink,
+  LogOut,
+  Send,
+  Settings,
+  Sparkles,
+  UserRound,
+  UsersRound,
+  type LucideIcon,
+} from 'lucide-react'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useMemo } from 'react'
+import Image from 'next/image'
+import { useUser } from '@shared/hooks/useUser'
+import { useUser as useClerkUser } from '@clerk/nextjs'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { CONTACTS_DATA_TITLE } from './contactsLabels'
+// Labels and icons shared with each tab's page title bar (DashboardNavHeader),
+// so the left rail and the top of the page can never read differently.
+import { NAV_HEADER_ICONS, NAV_LABELS } from './navLabels'
+import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
+import {
+  Avatar,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem as DropdownMenuItemComponent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem as SidebarMenuItemComponent,
+  SidebarSeparator,
+  cn,
+  useSidebar,
+} from '@styleguide'
+import {
+  ChevronRightIcon,
+  FlagIcon,
+  LifeBuoyIcon,
+  MegaphoneIcon,
+  MessagesSquareIcon,
+  ScrollTextIcon,
+} from '@styleguide/components/ui/icons'
+import { useCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+import { markArrivingAtHome, morphComposerIntoPill } from './chatMorph'
+import {
+  OrganizationPicker,
+  useOrganization,
+  useOrganizationRole,
+} from '@shared/organization-picker'
+import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
+import { openSupportChat } from '@shared/utils/supportWidget'
+import { MembershipBanner } from './membership/MembershipBanner'
+
+// Adding, renaming or removing an item here also means updating the AI
+// assistants' product map, in
+// packages/gp-api/src/chats/general/product-knowledge/productMap.ts — the
+// Campaign Manager and Chief of Staff answer "where do I find X" from it, and
+// a tab missing from it is one they guess about or punt to support. `id` is
+// what the coverage check matches on, so keep it stable when you rename a
+// label. See docs/product-knowledge.md.
+interface MenuItem {
+  id: string
+  label: string
+  link: string
+  icon: React.ReactNode
+  v2Icon: LucideIcon
+  v2Name?: string
+  v2Category: 'campaign' | 'elected-office' | null
+  onClick?: () => void
+  target?: string
+  isNew?: boolean
+}
+
+interface DashboardMenuProps {
+  pathname: string | null
+}
+
+const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
+  label: CONTACTS_DATA_TITLE.win,
+  icon: <MdFolderShared />,
+  v2Icon: UsersRound,
+  v2Category: 'campaign',
+  link: '/pro-upgrade',
+  id: 'upgrade-pro-dashboard',
+}
+
+// The sidebar is Win's only "you are here" cue (its pages have no title bar),
+// so the current tab layers three signals: a tinted pill with a solid leading
+// bar (the bar carries the 3:1 contrast the pale tint can't), a semibold
+// label, and a heavier icon, in the info palette the page alerts use. Hover
+// stays the faint neutral fill so it never reads as the current page.
+const WIN_ACTIVE_ITEM_CLASSES = cn(
+  'relative',
+  'data-[active=true]:bg-info-50 data-[active=true]:hover:bg-info-50',
+  'data-[active=true]:font-semibold data-[active=true]:text-info-600 data-[active=true]:hover:text-info-600',
+  'data-[active=true]:[&>svg]:text-info-600 data-[active=true]:[&>svg]:stroke-[2.5]',
+  'data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0 data-[active=true]:before:w-1 data-[active=true]:before:rounded-full data-[active=true]:before:bg-info-600',
+)
+
+const DEFAULT_MENU_ITEMS: MenuItem[] = [
+  {
+    label: NAV_LABELS.home,
+    icon: <MdFactCheck />,
+    v2Icon: NAV_HEADER_ICONS.house,
+    link: '/home',
+    v2Category: 'campaign',
+    id: 'campaign-tracker-dashboard',
+    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickDashboard),
+  },
+  {
+    label: NAV_LABELS.voterOutreach,
+    icon: <MdMessage />,
+    v2Icon: NAV_HEADER_ICONS.send,
+    v2Category: 'campaign',
+    link: '/outreach',
+    id: 'outreach-dashboard',
+    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickVoterOutreach),
+  },
+  VOTER_DATA_UPGRADE_ITEM,
+  {
+    label: 'My Profile',
+    icon: <MdAccountCircle />,
+    v2Icon: Circle,
+    v2Category: null,
+    link: '/profile',
+    id: 'campaign-details-dashboard',
+    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
+  },
+  {
+    label: 'Community',
+    icon: (
+      <Image
+        src="/images/logo/heart-white.svg"
+        alt="Community"
+        width={20}
+        height={20}
+        className="opacity-70 hover:opacity-100 transition-opacity"
+      />
+    ),
+    v2Icon: Circle,
+    v2Category: null,
+    link: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
+    target: '_blank',
+    id: 'community-dashboard',
+    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
+  },
+]
+
+const CONTACTS_MENU_ITEM: MenuItem = {
+  id: 'contacts-dashboard',
+  label: 'Contacts',
+  v2Name: CONTACTS_DATA_TITLE.serve,
+  link: '/contacts',
+  icon: <MdPeople />,
+  v2Icon: UsersRound,
+  v2Category: 'elected-office',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
+}
+
+// Win campaigns reuse the Serve Contacts route/components but are categorized
+// as 'campaign', so they need their own item — the elected-office
+// CONTACTS_MENU_ITEM is filtered out for campaign orgs (see the v2Category
+// filter in NewNavMenu). Win reads "Voter Data", never "Constituents".
+const WIN_CONTACTS_MENU_ITEM: MenuItem = {
+  id: 'win-contacts-dashboard',
+  label: 'Contacts',
+  v2Name: CONTACTS_DATA_TITLE.win,
+  link: '/contacts',
+  icon: <MdPeople />,
+  v2Icon: UsersRound,
+  v2Category: 'campaign',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
+}
+
+const POLLS_MENU_ITEM: MenuItem = {
+  id: 'polls-dashboard',
+  label: 'Polls',
+  link: '/polls',
+  icon: <MdPoll />,
+  v2Icon: Send,
+  v2Category: 'elected-office',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickPolls),
+}
+
+const CONSTITUENT_OUTREACH_MENU_ITEM: MenuItem = {
+  id: 'constituent-outreach-dashboard',
+  label: NAV_LABELS.constituentOutreach,
+  link: '/constituent-outreach',
+  icon: <MdMessage />,
+  v2Icon: MegaphoneIcon,
+  v2Category: 'elected-office',
+  onClick: () =>
+    trackEvent(EVENTS.Navigation.Dashboard.ClickConstituentOutreach),
+}
+
+const BRIEFINGS_MENU_ITEM: MenuItem = {
+  id: 'briefings-dashboard',
+  label: 'Briefing Assistant',
+  link: '/briefings',
+  icon: <MdFactCheck />,
+  v2Icon: ClipboardList,
+  v2Category: 'elected-office',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickBriefings),
+}
+
+const COMMUNITY_ISSUES_MENU_ITEM: MenuItem = {
+  id: 'community-issues-dashboard',
+  label: 'Community Issues',
+  link: '/community-issues',
+  icon: <MdFactCheck />,
+  v2Icon: FlagIcon,
+  v2Category: 'elected-office',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunityIssues),
+}
+
+const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
+  id: 'chief-of-staff-dashboard',
+  label: 'Chief of Staff',
+  link: '/chief-of-staff',
+  icon: <MdAutoAwesome />,
+  v2Icon: Sparkles,
+  v2Category: 'elected-office',
+}
+
+const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
+  id: 'public-profile-dashboard',
+  label: NAV_LABELS.publicProfile,
+  link: '/public-profile',
+  icon: <MdFactCheck />,
+  v2Icon: NAV_HEADER_ICONS.profile,
+  v2Category: 'elected-office',
+}
+
+const PRIORITIES_MENU_ITEM: MenuItem = {
+  id: 'priorities-dashboard',
+  label: NAV_LABELS.priorities,
+  link: '/priorities',
+  icon: <MdFactCheck />,
+  v2Icon: NAV_HEADER_ICONS.target,
+  v2Category: 'elected-office',
+}
+
+const ORDINANCES_MENU_ITEM: MenuItem = {
+  id: 'ordinances-dashboard',
+  label: 'Ordinances',
+  link: '/ordinances',
+  icon: <MdFileOpen />,
+  v2Icon: ScrollTextIcon,
+  v2Category: 'elected-office',
+}
+
+const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
+  id: 'campaign-plan-dashboard',
+  label: NAV_LABELS.campaignPlan,
+  link: '/campaign-plan',
+  icon: <MdFileOpen />,
+  v2Icon: NAV_HEADER_ICONS.checklist,
+  v2Category: 'campaign',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
+}
+
+const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
+  id: 'race-opponent-dashboard',
+  label: NAV_LABELS.knowYourOpponent,
+  link: '/race-opponent',
+  icon: <MdFactCheck />,
+  v2Icon: NAV_HEADER_ICONS.flag,
+  v2Category: 'campaign',
+}
+
+export const getDashboardMenuItems = (
+  isElectedOffice: boolean,
+  isElectedOfficeLoading: boolean,
+  prioritiesEnabled = false,
+): MenuItem[] => {
+  const menuItems = [...DEFAULT_MENU_ITEMS]
+
+  // Community Issues nav mirrors page-level access (serveAccess.ts): both are
+  // elected-office existence alone.
+  const communityIssuesShown = isElectedOffice
+  const ordinancesShown = isElectedOffice
+
+  const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
+  if (isElectedOffice) {
+    menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
+  } else if (!isElectedOfficeLoading) {
+    // Hold off until the elected-office query settles — until then a Serve
+    // elected-official reads as not-elected-office, so committing here would
+    // swap the slot (placeholder → Contacts) as the query resolves. While not
+    // ready, the generic upgrade placeholder holds the slot.
+    //
+    // Pro AND non-pro Win campaigns get the unified Contacts page — a non-pro
+    // candidate sees the district aggregates and a blurred preview and is
+    // upsold there (ENG-10495).
+    menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
+  }
+  if (isElectedOffice) {
+    menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
+    menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
+    menuItems.unshift(BRIEFINGS_MENU_ITEM)
+    if (communityIssuesShown) {
+      menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
+    }
+    if (ordinancesShown) {
+      menuItems.splice(communityIssuesShown ? 2 : 1, 0, ORDINANCES_MENU_ITEM)
+    }
+    // The office holder's editable public /people profile (Serve side of §4).
+    menuItems.push(PUBLIC_PROFILE_MENU_ITEM)
+  }
+
+  // Chief of Staff is the primary Serve tab (Serve home), so it sits above
+  // Briefing Assistant. Gated on the same elected-office check as the rest of
+  // the Serve rail.
+  const chiefOfStaffShown = isElectedOffice
+  if (chiefOfStaffShown) {
+    menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
+  }
+
+  // Priorities is what the official is trying to get done, so it sits directly
+  // under Chief of Staff, above the feeds that feed it. Behind
+  // `serve-priorities` until the surface ships.
+  const prioritiesShown = isElectedOffice && prioritiesEnabled
+  if (prioritiesShown) {
+    menuItems.splice(chiefOfStaffShown ? 1 : 0, 0, PRIORITIES_MENU_ITEM)
+  }
+
+  // Home is index 0, pushed down by each item unshifted above it: BRIEFINGS and
+  // COMMUNITY_ISSUES for an elected office, then Chief of Staff when shown.
+  // Insert Campaign Plan right after Home so the campaign-category nav opens
+  // [Home, Campaign Plan, Voter Outreach, Voter Data, …].
+  const afterHome =
+    1 +
+    (isElectedOffice ? 1 : 0) +
+    (communityIssuesShown ? 1 : 0) +
+    (ordinancesShown ? 1 : 0) +
+    (chiefOfStaffShown ? 1 : 0) +
+    (prioritiesShown ? 1 : 0)
+
+  menuItems.splice(afterHome, 0, CAMPAIGN_PLAN_MENU_ITEM)
+
+  // Visible to non-Pro users too: the page renders a locked upgrade view
+  // rather than the feature — the content is gated on isPro at the route.
+  menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
+
+  // Public Profile for Win candidates (campaign-category twin of the
+  // elected-office item pushed above). The route resolves the product itself;
+  // the category filter shows exactly one of the two per org type.
+  menuItems.push({
+    ...PUBLIC_PROFILE_MENU_ITEM,
+    id: 'public-profile-campaign',
+    v2Category: 'campaign',
+  })
+
+  return menuItems
+}
+
+export default function DashboardMenu({
+  pathname,
+}: DashboardMenuProps): React.JSX.Element {
+  const { data: electedOffice, isLoading: isElectedOfficeLoading } =
+    useElectedOffice()
+  const organization = useOrganization()
+  const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
+
+  const menuItems = useMemo(
+    () =>
+      getDashboardMenuItems(
+        !!electedOffice,
+        isElectedOfficeLoading,
+        prioritiesEnabled,
+      ),
+    [electedOffice, isElectedOfficeLoading, prioritiesEnabled],
+  )
+
+  // Team accounts (ENG-10816/10827), moved from the primary nav into the
+  // account menu (ENG-11061 design correction). Win-only in Phase 1 (ENG-10816
+  // non-goal: Serve staff accounts are out of scope, so this never renders for
+  // an elected-office org — see gp-api's matching 400 on POST team/invites for
+  // an eo- org slug; delegate review, PR #1688).
+  //
+  // Gated on BOTH signals, not just useElectedOffice: that query is per-org
+  // slug and can still be mid-flight (or holding the previous org's result)
+  // right after the org picker switches the active org — organization
+  // (useOrganization) flips synchronously on that switch, so
+  // organization.electedOfficeId is what every other nav item's v2Category
+  // filter already relies on for the same distinction (bugbot review,
+  // ENG-11061). Belt-and-suspenders here only ever makes the item MORE
+  // restrictive, never less.
+  const showTeamAccountItem = !electedOffice && !organization?.electedOfficeId
+
+  return (
+    <NewNavMenu
+      menuItems={menuItems}
+      pathname={pathname}
+      showTeamAccountItem={showTeamAccountItem}
+    />
+  )
+}
+
+// The support chat has no URL to link to, so it is an action rather than an
+// AccountManagementItem. On desktop it sits at the end of the main nav, below
+// Public Profile, where it is visible without opening the account menu first.
+// On mobile the rail already carries the account items, so it stays with
+// Community Forum there rather than adding a row above the feature tabs.
+//
+// It renders in every environment, deliberately. Gating it on whether the
+// HubSpot script loads would hide it everywhere but production, including on
+// dev, while the assistants' product map goes on telling people support opens
+// from "Get help" at the bottom of this menu — pointing at an item that is not
+// there is the failure that map exists to prevent. Where the chat is not
+// loaded the click goes straight to email instead.
+// Win pages a candidate sets up once and returns to rarely. They live in the
+// account menu (Manage account) instead of the main nav, which keeps the rail
+// to the pages a candidate works in every day.
+const WIN_ACCOUNT_MENU_PAGE_IDS = new Set(['public-profile-campaign'])
+
+// Win pages reached from the Game Plan's cards (Your opponents) rather than
+// from any menu.
+const WIN_GAME_PLAN_PAGE_IDS = new Set(['race-opponent-dashboard'])
+
+const SUPPORT_MENU_ITEM = {
+  label: 'Get help',
+  icon: LifeBuoyIcon,
+  id: 'nav-dash-support',
+  onSelect: openSupportChat,
+}
+
+type AccountActionItem = typeof SUPPORT_MENU_ITEM
+
+type AccountManagementItem = {
+  label: string
+  icon: LucideIcon
+  id: string
+  href: string
+  onClick?: () => void
+  _target?: string
+}
+
+const NewNavMenu = ({
+  menuItems,
+  pathname,
+  showTeamAccountItem,
+}: {
+  menuItems: MenuItem[]
+  pathname: string | null
+  showTeamAccountItem: boolean
+}) => {
+  const [user] = useUser()
+  const { user: clerkUser, isLoaded: isClerkUserLoaded } = useClerkUser()
+  const { setOpenMobile, isMobile } = useSidebar()
+
+  const menuFirstName =
+    (isClerkUserLoaded && clerkUser?.firstName?.trim()) || user?.firstName || ''
+  const menuLastName =
+    (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
+
+  const organization = useOrganization()
+  const organizationRole = useOrganizationRole()
+  // ENG-10829: a manager (campaignAdmin) never sees billing/account-settings.
+  // Owner (including every current solo user, since role is undefined until
+  // teams exist) sees today's menu exactly.
+  const isManager = organizationRole === 'campaignAdmin'
+
+  const chat = useCampaignManagerChat()
+
+  const handleMenuItemClick = (item: MenuItem) => {
+    item?.onClick?.()
+    // On Win, Home's chat box and the Chat pill are one thing in two places:
+    // leaving Home it shrinks into the pill, and coming back it grows out.
+    if (isWin && chat && item.link !== pathname) {
+      if (pathname === '/home') morphComposerIntoPill()
+      else if (item.link === '/home') markArrivingAtHome()
+    }
+    setOpenMobile(false)
+  }
+
+  const accountManagementMenuItems = {
+    profile: {
+      label: 'Profile',
+      icon: CircleUserRound,
+      id: 'nav-dash-profile',
+      href: '/profile',
+      onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
+    },
+    account: {
+      label: 'Account Settings',
+      icon: Settings,
+      id: 'nav-dash-account',
+      href: '/account',
+    },
+    // ENG-11061 design correction: Team moves out of the primary nav and
+    // lives here instead, gated by showTeamAccountItem (not an
+    // elected-office org).
+    team: {
+      label: 'Team',
+      icon: UsersRound,
+      id: 'nav-dash-team',
+      href: '/team',
+      onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignTeam),
+    },
+    community: {
+      label: 'Community Forum',
+      icon: ExternalLink,
+      id: 'nav-dash-community',
+      href: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
+      _target: '_blank',
+    },
+    logout: {
+      label: 'Logout',
+      icon: LogOut,
+      id: 'nav-log-out',
+      href: '/logout',
+      _target: '_self',
+    },
+  } satisfies Record<string, AccountManagementItem>
+
+  const sidebarItem = (item: AccountManagementItem) => (
+    <SidebarMenuItemComponent key={item.id}>
+      <SidebarMenuButton
+        asChild
+        isActive={pathname === item.href}
+        className="px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans"
+      >
+        <Link
+          href={item.href}
+          id={item.id}
+          target={item._target}
+          onClick={() => {
+            item.onClick?.()
+            setOpenMobile(false)
+          }}
+        >
+          <item.icon size={16} />
+          <span>{item.label}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItemComponent>
+  )
+
+  const sidebarActionItem = (item: AccountActionItem) => (
+    <SidebarMenuItemComponent key={item.id}>
+      <SidebarMenuButton
+        id={item.id}
+        onClick={() => {
+          item.onSelect()
+          setOpenMobile(false)
+        }}
+        className="px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans"
+      >
+        <item.icon size={16} />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItemComponent>
+  )
+
+  const isWin = !organization?.electedOfficeId
+  const productItems = menuItems.filter((i) =>
+    isWin ? i.v2Category === 'campaign' : i.v2Category === 'elected-office',
+  )
+  const navItems = isWin
+    ? productItems.filter(
+        (i) =>
+          !WIN_ACCOUNT_MENU_PAGE_IDS.has(i.id) &&
+          !WIN_GAME_PLAN_PAGE_IDS.has(i.id),
+      )
+    : productItems
+  const accountPages = isWin
+    ? productItems.filter((i) => WIN_ACCOUNT_MENU_PAGE_IDS.has(i.id))
+    : []
+
+  const accountPageDropDownItem = (item: MenuItem) => {
+    const Icon = item.v2Icon
+    return (
+      <DropdownMenuItemComponent key={item.id} asChild className="h-10">
+        <Link
+          href={item.link}
+          id={item.id}
+          aria-current={pathname === item.link ? 'page' : undefined}
+          onClick={() => handleMenuItemClick(item)}
+        >
+          {Icon && <Icon size={16} className="text-foreground" />}
+          <span>{item.v2Name || item.label}</span>
+        </Link>
+      </DropdownMenuItemComponent>
+    )
+  }
+
+  const accountPageSidebarItem = (item: MenuItem) => {
+    const Icon = item.v2Icon
+    const isActive = pathname === item.link
+    return (
+      <SidebarMenuItemComponent key={item.id}>
+        <SidebarMenuButton
+          asChild
+          isActive={isActive}
+          className={cn(
+            'px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans',
+            WIN_ACTIVE_ITEM_CLASSES,
+          )}
+        >
+          <Link
+            href={item.link}
+            id={item.id}
+            aria-current={isActive ? 'page' : undefined}
+            onClick={() => handleMenuItemClick(item)}
+          >
+            {Icon && <Icon size={16} />}
+            <span>{item.v2Name || item.label}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItemComponent>
+    )
+  }
+
+  const dropDownItem = (item: AccountManagementItem) => (
+    <DropdownMenuItemComponent asChild className="h-10">
+      <Link
+        href={item.href}
+        id={item.id}
+        target={item._target}
+        onClick={() => {
+          item.onClick?.()
+        }}
+      >
+        <item.icon size={16} className="text-foreground" />
+        <span>{item.label}</span>
+      </Link>
+    </DropdownMenuItemComponent>
+  )
+
+  return (
+    <>
+      <SidebarHeader>
+        <OrganizationPicker />
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {navItems.map((item) => {
+                const { id, link, label, target, isNew, v2Icon: V2Icon } = item
+                // Win keeps the tab lit on its sub-pages (a phone banking
+                // list is still Voter Outreach); Serve matches exactly, as
+                // before.
+                const isActive =
+                  pathname === link ||
+                  (isWin && !!pathname?.startsWith(`${link}/`))
+                return (
+                  <SidebarMenuItemComponent key={id}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      className={cn(
+                        'px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans',
+                        isWin && WIN_ACTIVE_ITEM_CLASSES,
+                      )}
+                    >
+                      <Link
+                        href={link}
+                        id={id}
+                        target={target}
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={() => handleMenuItemClick(item)}
+                      >
+                        {V2Icon && <V2Icon size={16} />}
+                        <span>{item.v2Name || label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                    {isNew && (
+                      <SidebarMenuBadge className="bg-blue-500 text-white text-xs font-semibold rounded px-1.5 mt-1 mx-4">
+                        NEW
+                      </SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItemComponent>
+                )
+              })}
+              {isWin && chat && (
+                // The chat's place on every Win page: Home's chat box
+                // shrinks into this as the candidate leaves Home. On Home the
+                // box is the chat, so the pill keeps its place but stays
+                // hidden: the morph needs somewhere to land, and the rail
+                // must not shift as it appears.
+                <SidebarMenuItemComponent
+                  className={cn('mt-2', pathname === '/home' && 'invisible')}
+                  aria-hidden={pathname === '/home' || undefined}
+                >
+                  <SidebarMenuButton
+                    type="button"
+                    data-chat-morph="pill"
+                    className="h-10 gap-2 rounded-lg border border-grayscale-300 bg-card px-4 text-sm font-opensans hover:bg-card hover:border-primary"
+                    onClick={() => {
+                      setOpenMobile(false)
+                      chat.openManager()
+                    }}
+                  >
+                    <MessagesSquareIcon className="size-4" aria-hidden />
+                    <span>Chat</span>
+                    <ChevronRightIcon
+                      className="ml-auto size-4 text-muted-foreground"
+                      aria-hidden
+                    />
+                  </SidebarMenuButton>
+                </SidebarMenuItemComponent>
+              )}
+              {!isMobile && !isWin && sidebarActionItem(SUPPORT_MENU_ITEM)}
+              {isMobile && (
+                <>
+                  <SidebarSeparator />
+                  {sidebarActionItem(SUPPORT_MENU_ITEM)}
+                  {sidebarItem(accountManagementMenuItems.community)}
+                  <SidebarSeparator />
+                  {accountPages.map(accountPageSidebarItem)}
+                  {/* Win's profile is Your race, opened from the Game Plan. */}
+                  {!isWin && sidebarItem(accountManagementMenuItems.profile)}
+                  {showTeamAccountItem &&
+                    sidebarItem(accountManagementMenuItems.team)}
+                  {!isManager &&
+                    sidebarItem(accountManagementMenuItems.account)}
+                  <SidebarSeparator />
+                  {sidebarItem(accountManagementMenuItems.logout)}
+                  <SidebarSeparator />
+                </>
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      {!isMobile && (
+        <SidebarFooter>
+          <MembershipBanner />
+          <SidebarMenu>
+            {/* Win puts Get help right above the account menu; Serve keeps it
+                at the end of the main nav. */}
+            {isWin && sidebarActionItem(SUPPORT_MENU_ITEM)}
+            <SidebarMenuItemComponent>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton className="h-auto gap-2 p-2 font-opensans data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+                    <Avatar className="size-8 shrink-0 rounded-lg border border-border">
+                      <Avatar.Image src={user?.avatar || undefined} />
+                      <Avatar.Fallback className="rounded-lg bg-white">
+                        <UserRound className="size-5 text-muted-foreground" />
+                      </Avatar.Fallback>
+                    </Avatar>
+                    <div className="flex flex-1 flex-col gap-0.5 min-w-0 leading-none text-left">
+                      <span
+                        data-testid="user-menu-name"
+                        className="truncate text-sm font-semibold"
+                      >
+                        {menuFirstName} {menuLastName}
+                      </span>
+                      <span className="truncate text-xs">Manage account</span>
+                    </div>
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className="min-w-56 rounded-lg font-opensans"
+                  side={isMobile ? 'bottom' : 'right'}
+                  align="end"
+                  sideOffset={4}
+                >
+                  {accountPages.map(accountPageDropDownItem)}
+                  {/* Win's profile is Your race, opened from the Game Plan. */}
+                  {!isWin && dropDownItem(accountManagementMenuItems.profile)}
+                  {showTeamAccountItem &&
+                    dropDownItem(accountManagementMenuItems.team)}
+                  {!isManager &&
+                    dropDownItem(accountManagementMenuItems.account)}
+                  <DropdownMenuSeparator />
+                  {dropDownItem(accountManagementMenuItems.community)}
+                  <DropdownMenuSeparator />
+                  {dropDownItem(accountManagementMenuItems.logout)}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItemComponent>
+          </SidebarMenu>
+        </SidebarFooter>
+      )}
+    </>
+  )
+}

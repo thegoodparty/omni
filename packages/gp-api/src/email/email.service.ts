@@ -111,7 +111,7 @@ export class EmailService {
     role: TeamInviteRole,
   ) {
     const name = getUserFullName(user) || user.email
-    const link = `${APP_ROOT}/dashboard`
+    const link = `${APP_ROOT}/home`
     const subject = "You've Been Added to a Campaign - GoodParty.org"
     const message = getTeamMemberAddedEmailContent(
       name,

@@ -73,7 +73,7 @@ test('new-office follow-on: office picker shown, new active org', async ({
 
   // 1–2: reload so the picker's eligibility query refetches, then open the
   // switcher and start the new-office flow.
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await page.goto('/home', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
   await openOrgSwitcher(page)
   const newOfficeAction = page.getByRole('menuitem', {
@@ -161,7 +161,7 @@ test('new-office follow-on: office picker shown, new active org', async ({
   await expect(submit).toBeVisible({ timeout: 15_000 })
   await expect(submit).toBeEnabled()
   await submit.click()
-  await page.waitForURL(/\/dashboard/, { timeout: 30_000 })
+  await page.waitForURL(/\/home/, { timeout: 30_000 })
 
   // 6: the new campaign org exists and reads active (produced state, via API).
   const newCampaignOrg = await eventually(

@@ -1,0 +1,165 @@
+'use client'
+import type {
+  ProposalLink,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
+
+import Link from 'next/link'
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  ProBadge,
+} from '@styleguide'
+import { LockIcon } from '@styleguide/components/ui/icons'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
+import type { OutreachFlowSource } from 'app/(dashboard)/outreach/util/outreachAnalytics'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
+import DashboardLayout from 'app/(dashboard)/shared/DashboardLayout'
+import NativeDoorKnockingPage from './NativeDoorKnockingPage'
+import { Campaign } from 'helpers/types'
+
+interface DoorKnockingPageGateProps {
+  pathname: string
+  campaign: Campaign | null
+  // `?listId=` / `?recommended=` off the page — the audience the create flow's
+  // who step opens on.
+  preselectedListId?: number
+  preselectedRecommendedVariant?: RecommendedListVariant
+  // `?walkTurfId=` and `?outreachId=` — the outreach hub's "Continue
+  // knocking".
+  walkTurfId?: number
+  fromOutreachId?: number
+  // `?create=1` — the hub's tile opening the create flow on arrival.
+  openCreateFlow?: boolean
+  // `?campaignOutreachId=` — the drawer's "Add another turf" opening the
+  // flow onto an existing campaign.
+  campaignOutreachId?: number
+  // A priority chat card's link, so the walk it starts puts its check out.
+  proposalLink?: ProposalLink
+  // `?source=` — where that `?create=1` link was pressed.
+  createSource?: OutreachFlowSource
+}
+
+// Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
+// the entry for a non-Pro org — so this is the safety net that keeps a
+// non-Pro candidate off a map whose every read 400s, not a marketing surface.
+// Deliberately shorter than Know Your Opponent's locked view for that reason:
+// it says what is missing and where to fix it, in the same register as the
+// page's district-unavailable copy.
+const DoorKnockingProLockedView = ({
+  pathname,
+  campaign,
+}: {
+  pathname: string
+  campaign: Campaign | null
+}): React.JSX.Element => (
+  <DashboardLayout pathname={pathname} campaign={campaign}>
+    <div className="mx-auto flex w-full max-w-[560px] flex-col py-10">
+      <Card>
+        <CardHeader className="gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="soft" className="gap-1">
+              <ProBadge size="small" />
+              Pro feature
+            </Badge>
+            <Badge variant="outline" className="gap-1">
+              <LockIcon />
+              Locked
+            </Badge>
+          </div>
+          <CardTitle className="text-2xl font-semibold text-foreground">
+            Door knocking is a Pro feature
+          </CardTitle>
+        </CardHeader>
+
+        <CardContent className="flex flex-col gap-6">
+          <p className="text-base text-muted-foreground">
+            Pro lets you draw a turf on your district&apos;s voter map, build an
+            optimized walking route, and log what happened at every door.
+            Upgrade to turn it on for your campaign.
+          </p>
+
+          <Button asChild size="large">
+            <Link href="/pro-upgrade">Upgrade to Pro</Link>
+          </Button>
+
+          <p className="text-sm text-muted-foreground">
+            Already on Pro? Reload this page and it will open.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  </DashboardLayout>
+)
+
+export default function DoorKnockingPageGate({
+  pathname,
+  campaign,
+  preselectedListId,
+  preselectedRecommendedVariant,
+  walkTurfId,
+  fromOutreachId,
+  openCreateFlow,
+  campaignOutreachId,
+  proposalLink,
+  createSource,
+}: DoorKnockingPageGateProps) {
+  // Exposure belongs to the membership surfaces, not this page.
+  const { enabled: gatedInFlow } = useOutreachProGatingV2Flag(false)
+  const { data: electedOffice, isPending: isElectedOfficePending } =
+    useElectedOffice()
+
+  // The CRM's canUseProFeatures, which is also the predicate
+  // ContactsService.assertProAccess enforces on every /v1/door-knocking
+  // route: an `eo-` org is license-equivalent to Pro. Gate both the reads and
+  // the writes here, because the alternative is a map that draws and then
+  // fails on the first turf.
+  //
+  // Only a non-Pro campaign has to consult the elected-office query, so a Pro
+  // candidate never waits on it. And an unsettled query is not a refusal: a
+  // Serve org's access comes from exactly that query and its campaign is
+  // never `isPro`, so treating undefined as "not elected office" would flash
+  // the upgrade card at the org most entitled to the feature, on every cold
+  // load. DashboardMenu holds its own elected-office decisions the same way.
+  //
+  // Under `outreach-pro-gating-v2` this page admits a free campaign: the
+  // reads the map needs (the pack, GET turfs, the quota, audience-check)
+  // are open to one server-side, and the create flow gates Build route,
+  // the one paid write. Off the flag the lock stays.
+  if (!campaign?.isPro && !gatedInFlow) {
+    if (isElectedOfficePending) {
+      return (
+        <DashboardLayout pathname={pathname} campaign={campaign}>
+          <div className="flex w-full items-center justify-center py-20">
+            <LoadingAnimation />
+          </div>
+        </DashboardLayout>
+      )
+    }
+    if (!electedOffice) {
+      return (
+        <DoorKnockingProLockedView pathname={pathname} campaign={campaign} />
+      )
+    }
+  }
+
+  return (
+    <NativeDoorKnockingPage
+      pathname={pathname}
+      campaign={campaign}
+      preselectedListId={preselectedListId}
+      preselectedRecommendedVariant={preselectedRecommendedVariant}
+      walkTurfId={walkTurfId}
+      fromOutreachId={fromOutreachId}
+      openCreateFlow={openCreateFlow}
+      campaignOutreachId={campaignOutreachId}
+      {...(proposalLink && { proposalLink })}
+      createSource={createSource}
+    />
+  )
+}

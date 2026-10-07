@@ -97,6 +97,8 @@ describe('campaign manager conversations (integration)', () => {
     )
     expect(messages).toHaveLength(1)
     expect(messages[0]?.role).toBe(ChatMessageRole.assistant)
-    expect(messages[0]?.content.toLowerCase()).toContain('campaign manager')
+    expect(messages[0]?.content.toLowerCase()).toContain(
+      'how can i help today?',
+    )
   })
 })

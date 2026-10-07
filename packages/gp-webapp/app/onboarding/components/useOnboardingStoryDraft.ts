@@ -10,11 +10,11 @@ import {
   getUserWebsite,
   saveAboutFields,
   USER_WEBSITE_QUERY_KEY,
-} from 'app/dashboard/website/util/website.util'
+} from 'app/(dashboard)/website/util/website.util'
 import {
   CAMPAIGN_STORY_QUERY_KEY,
   useCampaignStory,
-} from 'app/dashboard/campaign-story/useCampaignStory'
+} from 'app/(dashboard)/campaign-story/useCampaignStory'
 
 export interface OnboardingStoryDraft {
   // True once both the website + story fetches have resolved (or errored) so the

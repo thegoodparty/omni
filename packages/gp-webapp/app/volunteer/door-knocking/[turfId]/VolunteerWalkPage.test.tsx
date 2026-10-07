@@ -24,7 +24,7 @@ vi.mocked(useSnackbar).mockReturnValue({
 // read. Stubbed to expose the three props, so a payload that carries a rail
 // and a candidate cannot silently arrive as the Win default with no one to
 // name. The opener those props produce is covered in useDoorScript.test.tsx.
-vi.mock('app/dashboard/door-knocking/native/doorKnockingSurface', () => ({
+vi.mock('app/(dashboard)/door-knocking/native/doorKnockingSurface', () => ({
   DoorKnockingSurface: ({
     serveMode,
     officeName,
@@ -53,7 +53,7 @@ vi.mock('app/dashboard/door-knocking/native/doorKnockingSurface', () => ({
 
 // deck.gl and maplibre don't run in jsdom — same stub shape
 // NativeDoorKnockingPage.test.tsx uses, pared to what this page reads.
-vi.mock('app/dashboard/door-knocking/native/VoterMapCanvas', () => ({
+vi.mock('app/(dashboard)/door-knocking/native/VoterMapCanvas', () => ({
   __esModule: true,
   default: ({
     pack,

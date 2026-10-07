@@ -26,12 +26,12 @@ describe('VolunteerLayout', () => {
   // A typed /volunteer URL must never render this shell for an owner/manager
   // — that collapses into the "not an active volunteer org" signal from
   // isActiveOrgVolunteer.
-  it('sends a non-volunteer visitor to /dashboard', async () => {
+  it('sends a non-volunteer visitor to /home', async () => {
     isActiveOrgVolunteer.mockResolvedValue(false)
 
     await VolunteerLayout({ children })
 
-    expect(redirect).toHaveBeenCalledWith('/dashboard')
+    expect(redirect).toHaveBeenCalledWith('/home')
   })
 
   it('renders the shell for an active volunteer org', async () => {

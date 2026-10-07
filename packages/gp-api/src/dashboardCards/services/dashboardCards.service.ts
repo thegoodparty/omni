@@ -88,7 +88,7 @@ export class DashboardCardsService extends createPrismaBase(
         title: issue.title,
         summary: issue.summary,
         ctaLabel: 'View issue',
-        ctaHref: `/dashboard/community-issues/${issue.id}`,
+        ctaHref: `/community-issues/${issue.id}`,
         dueDate: addDays(issue.createdAt, COMMUNITY_ISSUE_CARD_DUE_DAYS),
       },
     })

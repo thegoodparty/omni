@@ -27,7 +27,7 @@ not a feature name, not a description of the screen.
 | When should it go out?          | Scheduling options  |
 
 Source of truth for the pattern:
-`packages/gp-webapp/app/dashboard/outreach/v2/robocall`,
+`packages/gp-webapp/app/(dashboard)/outreach/v2/robocall`,
 `sms`, and `social` step titles, and
 `packages/gp-webapp/app/onboarding/components/onboardingConfig.ts`.
 

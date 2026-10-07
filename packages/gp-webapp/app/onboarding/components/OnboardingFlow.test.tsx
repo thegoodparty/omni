@@ -66,7 +66,7 @@ const IDLE_DICTATION = {
   stop: vi.fn(),
   toggle: vi.fn(),
 }
-vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
+vi.mock('app/(dashboard)/shared/dictation/useDictationAppend', () => ({
   useDictationAppend: (input: { analyticsLabel: string }) =>
     mockUseDictationAppend(input),
 }))
@@ -76,10 +76,10 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // the deferred save without exercising the network layer. getUserWebsite feeds
 // the draft's initial values; saveAboutFields is the persist target on the
 // final story step.
-vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
+vi.mock('app/(dashboard)/website/util/website.util', async (importOriginal) => {
   const actual =
     await importOriginal<
-      typeof import('app/dashboard/website/util/website.util')
+      typeof import('app/(dashboard)/website/util/website.util')
     >()
   return {
     ...actual,
@@ -813,7 +813,7 @@ describe('new onboarding flow shell', () => {
     ).toBeInTheDocument()
   })
 
-  it('labels the pledge button "Meet your campaign manager"', async () => {
+  it('labels the pledge button "Get started"', async () => {
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -839,7 +839,7 @@ describe('new onboarding flow shell', () => {
     // Story comes before the pledge and submit routes into the Campaign
     // Manager, so the pledge CTA is labeled to match that destination.
     expect(
-      screen.getByRole('button', { name: 'Meet your campaign manager' }),
+      screen.getByRole('button', { name: 'Get started' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Agree & Continue' }),

@@ -21,7 +21,7 @@ test.describe('Ordinances', () => {
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -29,14 +29,14 @@ test.describe('Ordinances', () => {
     const navItem = page.locator('#ordinances-dashboard')
     await expect(navItem).toBeVisible({ timeout: 30_000 })
     await navItem.click()
-    await page.waitForURL(/\/dashboard\/ordinances/, { timeout: 15_000 })
+    await page.waitForURL(/\/ordinances/, { timeout: 15_000 })
 
     await expect(
       page.getByRole('heading', { level: 1, name: 'Ordinances' }),
     ).toBeVisible()
 
     await page.getByRole('link', { name: 'New ordinance' }).click()
-    await page.waitForURL(/\/dashboard\/ordinances\/new/, { timeout: 15_000 })
+    await page.waitForURL(/\/ordinances\/new/, { timeout: 15_000 })
     await expect(
       page.getByRole('heading', { level: 1, name: 'New ordinance' }),
     ).toBeVisible()
@@ -63,7 +63,7 @@ test.describe('Ordinances', () => {
     // immediately instead of waiting on the type-out animation.
     await page.emulateMedia({ reducedMotion: 'reduce' })
 
-    await page.goto('/dashboard/ordinances/new', {
+    await page.goto('/ordinances/new', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -83,7 +83,7 @@ test.describe('Ordinances', () => {
     // The button's own handler redirects into the guided clarify flow, which
     // opens a live LLM chat — go straight to the list page instead so this
     // stops at record creation.
-    await page.goto('/dashboard/ordinances', {
+    await page.goto('/ordinances', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -115,7 +115,7 @@ test.describe('Ordinances', () => {
     // synthetic test user. Set before navigating per the SSR seed rule.
     await setFlagOverrides(page, { 'serve-ordinance-quality-loop': 'off' })
 
-    await page.goto(`/dashboard/ordinances/draft/${created.slug}`, {
+    await page.goto(`/ordinances/draft/${created.slug}`, {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)

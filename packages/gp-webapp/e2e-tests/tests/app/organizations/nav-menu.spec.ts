@@ -17,7 +17,7 @@ test.describe('Navigation Menu by Org Type', () => {
 
   test('campaign org shows campaign menu items', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Switch to campaign org
@@ -27,15 +27,15 @@ test.describe('Navigation Menu by Org Type', () => {
     expect(campaignOrgName).toBeTruthy()
 
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
     await NavigationHelper.dismissOverlays(page)
 
     const sidebar = page.locator('[data-sidebar="content"]')
 
-    await expect(sidebar.getByText('Campaign Manager')).toBeVisible({
+    await expect(sidebar.getByText('Home', { exact: true })).toBeVisible({
       timeout: 10000,
     })
-    await expect(sidebar.getByText('Voter Outreach')).toBeVisible()
+    await expect(sidebar.getByText('Outreach', { exact: true })).toBeVisible()
 
     // The Website tab was retired with the new compliance flow (ENG-10505).
     await expect(sidebar.getByText('Website')).not.toBeVisible()
@@ -45,7 +45,7 @@ test.describe('Navigation Menu by Org Type', () => {
 
   test('elected office org shows serve menu items', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     const sidebar = page.locator('[data-sidebar="content"]')
@@ -55,8 +55,10 @@ test.describe('Navigation Menu by Org Type', () => {
     })
     await expect(sidebar.getByText('Polls')).toBeVisible()
 
-    await expect(sidebar.getByText('Campaign Manager')).not.toBeVisible()
-    await expect(sidebar.getByText('Voter Outreach')).not.toBeVisible()
+    await expect(sidebar.getByText('Home', { exact: true })).not.toBeVisible()
+    await expect(
+      sidebar.getByText('Outreach', { exact: true }),
+    ).not.toBeVisible()
     await expect(sidebar.getByText('Website')).not.toBeVisible()
   })
 })

@@ -1,0 +1,54 @@
+import {
+  CircleUserRoundIcon,
+  ClipboardListIcon,
+  FlagIcon,
+  HouseIcon,
+  ListChecksIcon,
+  MegaphoneIcon,
+  ScrollTextIcon,
+  SendIcon,
+  SparklesIcon,
+  SwordsIcon,
+  TargetIcon,
+  UsersRoundIcon,
+} from '@styleguide/components/ui/icons'
+
+// One registry for the icon a sidebar tab and its page title bar share. Keyed
+// by a serializable string rather than the icon component itself: the pages
+// that set navHeader (chief-of-staff, briefings, race-opponent,
+// public-profile) are Server Components, and a component reference can't cross
+// the RSC boundary into the client DashboardLayout. DashboardMenu resolves its
+// own v2Icon from this same map, so a tab's icon and its title bar can't drift.
+export const NAV_HEADER_ICONS = {
+  sparkles: SparklesIcon,
+  clipboard: ClipboardListIcon,
+  flag: FlagIcon,
+  scroll: ScrollTextIcon,
+  send: SendIcon,
+  users: UsersRoundIcon,
+  swords: SwordsIcon,
+  house: HouseIcon,
+  checklist: ListChecksIcon,
+  profile: CircleUserRoundIcon,
+  megaphone: MegaphoneIcon,
+  target: TargetIcon,
+}
+
+export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
+
+// Tab names shared by the sidebar item, the page title bar, and the mobile top
+// bar, so what a candidate reads at the top of a page always matches the item
+// they clicked in the left rail. Same single-source rule as contactsLabels.ts.
+export const NAV_LABELS = {
+  home: 'Home',
+  campaignPlan: 'Game Plan',
+  knowYourOpponent: 'Know Your Opponent',
+  publicProfile: 'Public Profile',
+  voterOutreach: 'Outreach',
+  constituentOutreach: 'Constituent Outreach',
+  priorities: 'Priorities',
+  // The Team page's H1 (ENG-11061: the sidebar account-menu item that links
+  // here reads plain "Team", matching Profile / Account Settings — this is
+  // the page-title-only half of the pair, not shared with a nav item anymore).
+  team: 'Team Settings',
+} as const

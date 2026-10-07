@@ -664,8 +664,8 @@ export class StripeService {
   async createCheckoutSession(user: User) {
     const session = await this.stripe.checkout.sessions.create({
       ...(await this.getProSubscriptionSessionParams(user)),
-      success_url: `${WEBAPP_ROOT_URL}/dashboard/pro-upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${WEBAPP_ROOT_URL}/dashboard`,
+      success_url: `${WEBAPP_ROOT_URL}/pro-upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${WEBAPP_ROOT_URL}/home`,
     })
 
     const { url: redirectUrl, id: checkoutSessionId } = session
@@ -678,7 +678,7 @@ export class StripeService {
   //  still flipped only by the checkout.session.completed webhook.
   async createEmbeddedProSubscriptionCheckoutSession(
     user: User,
-    returnUrl: string = `${WEBAPP_ROOT_URL}/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}`,
+    returnUrl: string = `${WEBAPP_ROOT_URL}/pro-upgrade?session_id={CHECKOUT_SESSION_ID}`,
   ) {
     const session = await this.stripe.checkout.sessions.create({
       ...(await this.getProSubscriptionSessionParams(user)),

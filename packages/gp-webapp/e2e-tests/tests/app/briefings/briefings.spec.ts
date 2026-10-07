@@ -157,7 +157,7 @@ test.describe('Briefings', () => {
     const { client } = await setupElectedOfficeUser(page)
     await client.post('/v1/meetings/briefings/seed', seedBody())
 
-    await page.goto(`/dashboard/briefings/${MEETING_DATE}`, {
+    await page.goto(`/briefings/${MEETING_DATE}`, {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -211,7 +211,7 @@ test.describe('Briefings', () => {
     const { client } = await setupElectedOfficeUser(page)
     await client.post('/v1/meetings/briefings/seed', seedBody())
 
-    await page.goto(`/dashboard/briefings/${MEETING_DATE}`, {
+    await page.goto(`/briefings/${MEETING_DATE}`, {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)

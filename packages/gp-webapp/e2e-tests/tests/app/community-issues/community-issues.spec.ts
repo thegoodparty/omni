@@ -101,7 +101,7 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   expect(housingId).toBeTruthy()
 
   // --- Scenario 1: the two lists ---------------------------------------------
-  await page.goto('/dashboard/community-issues', {
+  await page.goto('/community-issues', {
     waitUntil: 'domcontentloaded',
   })
   await NavigationHelper.dismissOverlays(page)
@@ -118,7 +118,7 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   await expect(trendingRow).toBeVisible()
   await expect(
     page.getByRole('link', { name: 'View all', exact: true }),
-  ).toHaveAttribute('href', '/dashboard/community-issues/trending')
+  ).toHaveAttribute('href', '/community-issues/trending')
 
   // Top card: ranked issues numbered in rank order + a "View all issues" link.
   await expect(
@@ -133,11 +133,11 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   expect(housingY).toBeLessThan(streetY)
   await expect(
     page.getByRole('link', { name: 'View all issues' }),
-  ).toHaveAttribute('href', '/dashboard/community-issues/all')
+  ).toHaveAttribute('href', '/community-issues/all')
 
   // Full lists render at /all and /trending.
   await page.getByRole('link', { name: 'View all issues' }).click()
-  await page.waitForURL('**/dashboard/community-issues/all')
+  await page.waitForURL('**/community-issues/all')
   await expect(
     page.getByRole('heading', { level: 1, name: 'Top community issues' }),
   ).toBeVisible()
@@ -148,7 +148,7 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
     page.getByRole('link', { name: /Street lighting/ }),
   ).toBeVisible()
 
-  await page.goto('/dashboard/community-issues/trending', {
+  await page.goto('/community-issues/trending', {
     waitUntil: 'domcontentloaded',
   })
   await WaitHelper.waitForPageReady(page)
@@ -160,7 +160,7 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   ).toBeVisible()
 
   // --- Scenario 2: prioritization (+ the detail-bar must not change height) --
-  await page.goto(`/dashboard/community-issues/${housingId}`, {
+  await page.goto(`/community-issues/${housingId}`, {
     waitUntil: 'domcontentloaded',
   })
   await NavigationHelper.dismissOverlays(page)
@@ -243,38 +243,36 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   expect(chatPayload.scope).toBe('chief_of_staff')
   expect(chatPayload.anchor.resourceType).toBe('community_issue')
   expect(chatPayload.anchor.resourceId).toBe(housingId)
-  expect(chatPayload.anchor.url).toContain(
-    `/dashboard/community-issues/${housingId}`,
-  )
+  expect(chatPayload.anchor.url).toContain(`/community-issues/${housingId}`)
   expect(chatPayload.anchor.snapshot.highlightedText).toBe(OVERVIEW_PHRASE)
   await page.keyboard.press('Escape')
 
   // --- Scenario 4: next steps ------------------------------------------------
-  await page.goto(`/dashboard/community-issues/${housingId}`, {
+  await page.goto(`/community-issues/${housingId}`, {
     waitUntil: 'domcontentloaded',
   })
   await WaitHelper.waitForPageReady(page)
 
   const pollLink = page.getByRole('link', { name: 'Run a poll on this issue' })
   // The ?issue= param was intentionally dropped — assert the bare path.
-  await expect(pollLink).toHaveAttribute('href', '/dashboard/polls/create')
+  await expect(pollLink).toHaveAttribute('href', '/polls/create')
   const briefingLink = page.getByRole('link', {
     name: 'Review the related meeting briefing',
   })
   await expect(briefingLink).toHaveAttribute(
     'href',
-    `/dashboard/briefings/${MEETING_DATE}`,
+    `/briefings/${MEETING_DATE}`,
   )
 
   await pollLink.click()
-  await page.waitForURL('**/dashboard/polls/create')
+  await page.waitForURL('**/polls/create')
 
-  await page.goto(`/dashboard/community-issues/${housingId}`, {
+  await page.goto(`/community-issues/${housingId}`, {
     waitUntil: 'domcontentloaded',
   })
   await WaitHelper.waitForPageReady(page)
   await page
     .getByRole('link', { name: 'Review the related meeting briefing' })
     .click()
-  await page.waitForURL(`**/dashboard/briefings/${MEETING_DATE}`)
+  await page.waitForURL(`**/briefings/${MEETING_DATE}`)
 })

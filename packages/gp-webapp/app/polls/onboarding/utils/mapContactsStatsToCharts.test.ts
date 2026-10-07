@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
+import type { ContactsStats } from 'app/(dashboard)/polls/shared/queries'
 import { mapContactsStatsToCharts } from './mapContactsStatsToCharts'
 
 type Bucket = { label: string; count: number; percent: number }

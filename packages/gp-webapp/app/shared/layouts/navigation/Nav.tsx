@@ -5,13 +5,14 @@ import RightSide from './RightSide'
 import RightSideMobile from './RightSideMobile'
 import { HeaderLogo } from '@shared/layouts/navigation/HeaderLogo'
 import { usePathname } from 'next/navigation'
+import { isDashboardRoute } from '@shared/utils/dashboardRoutes'
 
 const Nav = (): React.JSX.Element => {
   const pathname = usePathname()
   const hideGlobalNav =
-    pathname?.startsWith('/dashboard') ||
+    isDashboardRoute(pathname) ||
     // The volunteer shell (ENG-11052) draws its own top bar — logo, org
-    // picker, profile dropdown — same reasoning as /dashboard.
+    // picker, profile dropdown — same reasoning as the dashboard.
     pathname?.startsWith('/volunteer') ||
     pathname?.startsWith('/onboarding') ||
     // The elected-official ("serve") flow is a focused, full-screen experience

@@ -95,14 +95,14 @@ test.describe('CRM assistant bar', () => {
         }),
     )
 
-    await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
+    await page.goto('/contacts', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // The bar is the persistent pill pinned to the bottom of the CRM page.
     const bar = page.getByTestId('crm-assistant-bar')
     await expect(bar).toBeVisible({ timeout: 30000 })
     await expect(
-      bar.getByRole('button', { name: 'Previous conversations' }),
+      bar.getByRole('button', { name: 'Previous chats' }),
     ).toBeVisible()
 
     const input = page.getByTestId('crm-assistant-input')

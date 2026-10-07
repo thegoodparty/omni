@@ -680,7 +680,7 @@ describe('POST /v1/community-issues/seed', () => {
     // fetches artifactBucket/artifactKey from S3 on every call — so a row
     // naming a bucket nobody had uploaded to could only ever fail, for as long
     // as the row existed. The e2e suite that drives this endpoint navigates to
-    // /dashboard/briefings/2026-07-01 at the end of its run, which is how a
+    // /briefings/2026-07-01 at the end of its run, which is how a
     // seeded row and an open browser tab found each other in the first place.
     const briefing = await service.client.get<{
       briefing_id: string

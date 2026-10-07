@@ -33,7 +33,7 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
   if (currentRes.ok) {
     const eo = currentRes.data as ElectedOffice
     if (eo.onboardingCompletedAt) {
-      redirect('/dashboard/chief-of-staff')
+      redirect('/chief-of-staff')
     }
   } else {
     // The EO org isn't the active org (e.g. a logged-in user with a campaign

@@ -479,7 +479,7 @@ Behavior:
 
 ## The voter data page
 
-`/dashboard/contacts` (Win only) lists the global universes above its saved
+`/contacts` (Win only) lists the global universes above its saved
 lists (`gp-webapp` `app/dashboard/contacts/crm/recommended/`). The section
 renders nothing when nothing qualifies, a Pro notice for a non-Pro campaign,
 and its own error node on a 502/504.

@@ -100,7 +100,7 @@ test.describe('Invite drawer', () => {
       })
     })
 
-    await page.goto('/dashboard/team', { waitUntil: 'domcontentloaded' })
+    await page.goto('/team', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Settle guard: wait for the People card's own query to resolve before
@@ -235,7 +235,7 @@ test.describe('Member management', () => {
       },
     )
 
-    await page.goto('/dashboard/team', { waitUntil: 'domcontentloaded' })
+    await page.goto('/team', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Scoped to the member's own row throughout: "Campaign Manager" and

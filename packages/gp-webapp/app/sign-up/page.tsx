@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { getPostAuthRedirectPath } from 'app/dashboard/shared/candidateAccess'
+import { getPostAuthRedirectPath } from 'app/(dashboard)/shared/candidateAccess'
 import pageMetaData from 'helpers/metadataHelper'
 import SignUpForm from './SignUpForm'
 import MarketingPanel from './MarketingPanel'

@@ -1105,7 +1105,7 @@ export class QueueConsumerService {
           EVENTS.Polls.ResultsSynthesisCompleted,
           {
             pollId,
-            path: `/dashboard/polls/${pollId}`,
+            path: `/polls/${pollId}`,
             constituencyName: district?.l2Name,
             'issue 1': issues?.at(0)?.theme || null,
             'issue 2': issues?.at(1)?.theme || null,
@@ -1170,7 +1170,7 @@ export class QueueConsumerService {
         to: user.email,
         customProperties: {
           poll_id: pollId,
-          path: `/dashboard/polls/${pollId}`,
+          path: `/polls/${pollId}`,
         },
       })
     } catch (err) {

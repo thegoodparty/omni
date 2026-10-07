@@ -3,8 +3,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Spinner } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import PendingMemoList from 'app/dashboard/issue-capture/[outreachId]/review/components/PendingMemoList'
-import { whatWeHeardCopy } from 'app/dashboard/issue-capture/copy'
+import PendingMemoList from 'app/(dashboard)/issue-capture/[outreachId]/review/components/PendingMemoList'
+import { whatWeHeardCopy } from 'app/(dashboard)/issue-capture/copy'
 
 interface VolunteerReviewPageProps {
   turfId: number

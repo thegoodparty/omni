@@ -116,8 +116,8 @@ describe('SnackbarProvider + useSnackbar', () => {
     )
   })
 
-  it('offsets the toaster above the CRM assistant bar on /dashboard/contacts', async () => {
-    mockPathname = '/dashboard/contacts'
+  it('offsets the toaster above the CRM assistant bar on /contacts', async () => {
+    mockPathname = '/contacts'
     render(
       <SnackbarProvider>
         <HarnessComponent />
@@ -135,7 +135,7 @@ describe('SnackbarProvider + useSnackbar', () => {
   })
 
   it('offsets the toaster on the other footer-chat-bar routes', async () => {
-    mockPathname = '/dashboard/chief-of-staff'
+    mockPathname = '/chief-of-staff'
     render(
       <SnackbarProvider>
         <HarnessComponent />
@@ -153,7 +153,7 @@ describe('SnackbarProvider + useSnackbar', () => {
   })
 
   it('leaves the default toaster offset on non-CRM pages', async () => {
-    mockPathname = '/dashboard'
+    mockPathname = '/home'
     render(
       <SnackbarProvider>
         <HarnessComponent />

@@ -14,11 +14,11 @@ interface SnackbarState {
 // bar on both mobile and desktop, where only the horizontal placement
 // (not the height) of the bar differs.
 const FOOTER_CHAT_BAR_PATH_PREFIXES = [
-  '/dashboard/contacts',
-  '/dashboard/chief-of-staff',
-  '/dashboard/campaign-manager',
-  '/dashboard/community-issues',
-  '/dashboard/ordinances',
+  '/contacts',
+  '/chief-of-staff',
+  '/campaign-manager',
+  '/community-issues',
+  '/ordinances',
 ]
 const CRM_ASSISTANT_BAR_CLEARANCE = '6rem'
 

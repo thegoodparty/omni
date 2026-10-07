@@ -246,6 +246,21 @@ export const EVENTS = {
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
       PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
       PlanShared: 'Dashboard - Campaign Plan: Plan Shared',
+      // The single next action, on Home and inline on the Game Plan
+      // (`surface`: 'home' | 'plan'). Viewed once per task shown, Started
+      // when its main action is taken (`via`: 'cta' | 'chat'), Completed when
+      // it is marked done there, Skipped with the candidate's `reason`.
+      NextThingViewed: 'Campaign Plan - Next Thing Viewed',
+      NextThingStarted: 'Campaign Plan - Next Thing Started',
+      NextThingCompleted: 'Campaign Plan - Next Thing Completed',
+      NextThingSkipped: 'Campaign Plan - Next Thing Skipped',
+      // A task set aside from its "…" menu on the Game Plan, with the
+      // candidate's `reason` ('later' | 'notForMe').
+      TaskSkipped: 'Campaign Plan - Task Skipped',
+      // A card at the top of the Game Plan opened (`card`: 'race' | 'story' |
+      // 'opponents'), each a way into reviewing and editing what the plan is
+      // built from.
+      OverviewCardClicked: 'Campaign Plan - Overview Card Clicked',
     },
     PathToVictory: {
       ClickUnderstand:
@@ -393,6 +408,8 @@ export const EVENTS = {
       BannerClicked: 'Pro Upgrade - Banner Clicked',
       VerificationBannerClicked: '10DLC - Verification Banner Clicked',
       PinBannerClicked: '10DLC - PIN Banner Clicked',
+      // Approved texting, nothing sent yet: the banner's Schedule press.
+      ApprovedBannerClicked: '10DLC - Approved Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).

@@ -421,7 +421,7 @@ describe('PriorityFlowHandler', () => {
       'Present it with present_outreach_proposal, whatever the channel, ' +
         'door knocking included',
     )
-    expect(prompt).not.toContain('/dashboard/door-knocking')
+    expect(prompt).not.toContain('/door-knocking')
     expect(prompt).toContain('present_outside_contact')
     expect(prompt.indexOf('HOW TO CHOOSE WHO TO HEAR FROM')).toBeLessThan(
       prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT'),

@@ -131,11 +131,12 @@ export const expectAttachmentRoundTrip = async (
   await (await popup).close()
 }
 
-// Retried because a click that lands before the footer bar hydrates is a
-// no-op, and nothing in the DOM says whether it has.
+// Retried because a click that lands before the opener hydrates is a no-op,
+// and nothing in the DOM says whether it has. The opener is Chief of Staff's
+// footer bar on Serve and the sidebar's Chat pill on Win.
 export const openFooterChat = async (
   page: Page,
-  openLabel: string,
+  openLabel: string | RegExp,
 ): Promise<void> => {
   const composer = page.getByRole('textbox', { name: 'Ask a question' })
   await expect(async () => {

@@ -1,5 +1,6 @@
 'use client'
 import { usePathname } from 'next/navigation'
+import { isDashboardRoute } from '@shared/utils/dashboardRoutes'
 import { useState } from 'react'
 import TopDashboardMenu from './TopDashboardMenu'
 import Link from 'next/link'
@@ -19,7 +20,7 @@ const RightSide = (): React.JSX.Element => {
   const [dashboardOpen, setDashboardOpen] = useState(false)
 
   const pathname = usePathname()
-  const isDashboardPath = pathname?.startsWith('/dashboard')
+  const isDashboardPath = isDashboardRoute(pathname)
   const isOnboardingPath = pathname?.startsWith('/onboarding')
   const toggleProfile = () => {
     if (profileOpen) {

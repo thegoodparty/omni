@@ -11,6 +11,10 @@ import {
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
+  TRACKER_TASK_SNOOZE_DAYS,
+  type TrackerTaskSkipReason,
+} from '@goodparty_org/contracts'
+import {
   CENTRAL_TIMEZONE,
   isDateTodayOrFuture,
   mondayOfWeekUtc,
@@ -905,6 +909,40 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           ...(updateHistoryId !== undefined && { updateHistoryId }),
         },
       })
+    })
+  }
+
+  // Sets a task aside without completing it. 'later' keeps it out of the next
+  // thing for a few days; 'notForMe' keeps it out until the candidate undoes it.
+  async skipTask(
+    { id: campaignId }: Campaign,
+    id: string,
+    reason: TrackerTaskSkipReason,
+  ) {
+    const task = await this.model.findFirst({ where: { campaignId, id } })
+    if (!task) {
+      throw new NotFoundException(`Tracker task ${id} not found`)
+    }
+    const now = new Date()
+    return this.model.update({
+      where: { id: task.id },
+      data: {
+        skipReason: reason,
+        skippedAt: now,
+        snoozedUntil:
+          reason === 'later' ? addDays(now, TRACKER_TASK_SNOOZE_DAYS) : null,
+      },
+    })
+  }
+
+  async unSkipTask({ id: campaignId }: Campaign, id: string) {
+    const task = await this.model.findFirst({ where: { campaignId, id } })
+    if (!task) {
+      throw new NotFoundException(`Tracker task ${id} not found`)
+    }
+    return this.model.update({
+      where: { id: task.id },
+      data: { skipReason: null, skippedAt: null, snoozedUntil: null },
     })
   }
 

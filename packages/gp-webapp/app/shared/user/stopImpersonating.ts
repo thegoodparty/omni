@@ -1,4 +1,4 @@
-import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
+import { clearElectionResultDismissed } from 'app/(dashboard)/election-result/dismissal'
 import { deleteCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { GP_ADMIN_URL } from 'appEnv'

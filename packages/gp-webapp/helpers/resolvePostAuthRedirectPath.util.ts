@@ -35,7 +35,7 @@ export const resolvePostAuthRedirectPath = (
   campaignStatus: CampaignStatus | null,
   hasElectedOffice = false,
   // Defaults to true so existing callers (and the win→serve dashboard path)
-  // keep landing on /dashboard. Only an elected official whose serve onboarding
+  // keep landing on /home. Only an elected official whose serve onboarding
   // hasn't completed is routed into the EO onboarding flow.
   electedOfficeOnboardingComplete = true,
   // Set by the caller only after independently validating the signed-in
@@ -63,18 +63,16 @@ export const resolvePostAuthRedirectPath = (
     return VOLUNTEER_PATH
   }
   if (campaignStatus?.status === 'candidate') {
-    return '/dashboard'
+    return '/home'
   }
   if (campaignStatus?.status === 'onboarding' && campaignStatus?.slug) {
     return `/onboarding/${campaignStatus.slug}/${campaignStatus.step ?? 1}`
   }
   if (!campaignStatus || campaignStatus.status === false) {
     if (hasElectedOffice) {
-      return electedOfficeOnboardingComplete
-        ? '/dashboard'
-        : SERVE_ONBOARDING_PATH
+      return electedOfficeOnboardingComplete ? '/home' : SERVE_ONBOARDING_PATH
     }
     return '/onboarding/office-selection'
   }
-  return '/dashboard/profile'
+  return '/profile'
 }

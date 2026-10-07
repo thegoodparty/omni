@@ -23,9 +23,11 @@ test.describe('Campaign Manager attachments', () => {
   }) => {
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    // Home's chat box sends rather than opening the chat, so start from a
+    // page whose way in is the sidebar's Chat pill.
+    await page.goto('/outreach', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
-    await openFooterChat(page, 'Open campaign manager chat')
+    await openFooterChat(page, /^Chat$/)
 
     await expectAttachmentRoundTrip(
       page,

@@ -47,11 +47,11 @@ export function briefingItemTitlePath(itemIndex: number): string {
 }
 
 export function briefingsLandingHref(): string {
-  return '/dashboard/briefings'
+  return '/briefings'
 }
 
 export function briefingOverviewHref(slug: string): string {
-  return `/dashboard/briefings/${slug}`
+  return `/briefings/${slug}`
 }
 
 export function briefingItemHref(slug: string, itemId: string): string {

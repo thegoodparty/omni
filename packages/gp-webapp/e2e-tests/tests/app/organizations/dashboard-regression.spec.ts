@@ -20,7 +20,7 @@ test.describe('Dashboard Regression with Elected Office', () => {
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     const eoOrgName = await getSelectedOrgName(page)
@@ -29,12 +29,12 @@ test.describe('Dashboard Regression with Elected Office', () => {
     expect(campaignOrgName).toBeTruthy()
 
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
     await WaitHelper.waitForPageReady(page)
 
     await expect(page.locator('main')).toBeVisible({ timeout: 10000 })
 
-    await page.goto('/dashboard/profile', { waitUntil: 'domcontentloaded' })
+    await page.goto('/profile', { waitUntil: 'domcontentloaded' })
     await WaitHelper.waitForPageReady(page)
     await expect(
       page.getByRole('heading', { name: 'Office Details' }).first(),
@@ -43,17 +43,17 @@ test.describe('Dashboard Regression with Elected Office', () => {
 
   test('polls page accessible under elected office org', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await WaitHelper.waitForPageReady(page)
     await NavigationHelper.dismissOverlays(page)
 
-    await expect(page).toHaveURL(/\/dashboard\/polls/)
+    await expect(page).toHaveURL(/\/polls/)
     await expect(page.locator('main')).toBeVisible({ timeout: 10000 })
   })
 
   test('contacts page loads under elected office org', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
+    await page.goto('/contacts', { waitUntil: 'domcontentloaded' })
     await WaitHelper.waitForPageReady(page)
     await NavigationHelper.dismissOverlays(page)
 

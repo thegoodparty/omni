@@ -21,8 +21,8 @@ import { numberFormatter } from 'helpers/numberHelper'
 import { reportErrorToSentry } from '@shared/sentry'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { FetchError } from 'ofetch'
-import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
-import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/(dashboard)/contacts/crm/shared/constants'
+import { useDistrictResolution } from 'app/(dashboard)/shared/useDistrictResolution'
 import type { Campaign } from 'helpers/types'
 import {
   resolveSeatContext,

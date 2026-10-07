@@ -15,7 +15,7 @@ test.describe('Policy priority overflow (ENG-10268)', () => {
     test.setTimeout(120000)
     await authenticateTestUser(page)
 
-    await page.goto('/dashboard/profile/texting-compliance/candidate-profile')
+    await page.goto('/profile/texting-compliance/candidate-profile')
     await page.waitForLoadState('networkidle')
 
     await page.getByRole('button', { name: 'Add a policy priority' }).click()

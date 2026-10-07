@@ -26,7 +26,7 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     test.setTimeout(3 * 60 * 1000)
 
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/chief-of-staff', {
+    await page.goto('/chief-of-staff', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -40,7 +40,7 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     })
 
     await page.locator('#constituent-outreach-dashboard').click()
-    await page.waitForURL(/\/dashboard\/constituent-outreach/, {
+    await page.waitForURL(/\/constituent-outreach/, {
       timeout: 30_000,
     })
 
@@ -57,7 +57,7 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     // get none at all (rather than a disabled one) because it had no serve
     // wiring. It now has both halves it was missing — a Serve outreach row and
     // a turf a Serve org can own — so the card is live. Unlike the two above it
-    // navigates instead of opening a flow in place (`/dashboard/door-knocking
+    // navigates instead of opening a flow in place (`/door-knocking
     // ?create=1`, the map is its own page), and that push is asserted in
     // ConstituentOutreachPage.test.tsx rather than here: following it would
     // take the district voter pack as a dependency of this spec, and the hub is
@@ -82,7 +82,7 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     test.setTimeout(3 * 60 * 1000)
 
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/constituent-outreach', {
+    await page.goto('/constituent-outreach', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -114,7 +114,7 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     test.setTimeout(3 * 60 * 1000)
 
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/constituent-outreach', {
+    await page.goto('/constituent-outreach', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
@@ -131,18 +131,18 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     // Purpose-step copy from servePhoneBankingPurposes.ts. Serve has NO Pro
     // gate on this channel — the ElectedOffice row is the entitlement — so
     // unlike Win's tile this reaches the purpose step directly, never
-    // /dashboard/pro-upgrade.
+    // /pro-upgrade.
     await expect(
       page.getByRole('button', { name: 'Introduce myself to constituents' }),
     ).toBeVisible({ timeout: 30_000 })
-    expect(page.url()).not.toMatch(/\/dashboard\/pro-upgrade/)
+    expect(page.url()).not.toMatch(/\/pro-upgrade/)
   })
 
   test('a Win candidate has no tab and is bounced off the route', async ({
     page,
   }) => {
     await authenticateTestUser(page)
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Settle guard: the Win Contacts slot only commits once the same
@@ -153,10 +153,10 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     })
     await expect(page.locator('#constituent-outreach-dashboard')).toHaveCount(0)
 
-    await page.goto('/dashboard/constituent-outreach', {
+    await page.goto('/constituent-outreach', {
       waitUntil: 'domcontentloaded',
     })
-    await page.waitForURL((url) => url.pathname === '/dashboard', {
+    await page.waitForURL((url) => url.pathname === '/home', {
       timeout: 30_000,
     })
   })

@@ -1,4 +1,5 @@
 import type {
+  TrackerTaskSkipReason,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -115,14 +116,14 @@ import type {
   PersonProfile,
   SetProfileIssuesRequest,
   UpsertPersonProfileRequest,
-} from 'app/dashboard/public-profile/shared/types'
+} from 'app/(dashboard)/public-profile/shared/types'
 import type {
   SynthesizeSpeechRequest,
   SynthesizeSpeechResponse,
   TranscribeSessionRequest,
   TranscribeSessionResponse,
-} from 'app/dashboard/briefings/shared/speech-types'
-import type { Poll } from 'app/dashboard/polls/shared/poll-types'
+} from 'app/(dashboard)/briefings/shared/speech-types'
+import type { Poll } from 'app/(dashboard)/polls/shared/poll-types'
 import {
   Campaign,
   CampaignDetails,
@@ -136,8 +137,8 @@ import type {
   OrganizationRole,
   SetChatMessageFeedbackRequest,
 } from '@goodparty_org/contracts'
-import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
-import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
+import type { ContactsStats } from 'app/(dashboard)/polls/shared/queries'
+import type { GetPollIssuesResponse } from 'app/(dashboard)/polls/shared/serverApiCalls'
 import type {
   SegmentResponse,
   Person,
@@ -155,10 +156,10 @@ import type {
   SupportStatusRollup,
   UpdateContactStatusInput,
   UpdateFollowUpInput,
-} from 'app/dashboard/contacts/crm/shared/contacts-types'
-import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
+} from 'app/(dashboard)/contacts/crm/shared/contacts-types'
+import type { ActivityConditionInput } from 'app/(dashboard)/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
-import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
+import type { Outreach } from 'app/(dashboard)/outreach/hooks/OutreachContext'
 import type {
   ChatConversationListResponse,
   ChatConversationMessagesResponse,
@@ -167,7 +168,7 @@ import type {
   DashboardCardListResponse,
   OnboardingCardsResponse,
   SupportEstimate,
-} from 'app/dashboard/chief-of-staff/data/contracts'
+} from 'app/(dashboard)/chief-of-staff/data/contracts'
 import { MeetingBriefingOutput } from './generated/agent-job-contracts'
 
 export interface MeetingsListItemDto {
@@ -232,6 +233,10 @@ export type CampaignTrackerTask = {
   // false for the dynamic tasks + events the CAP run produces. Lets the client
   // tell "still generating" (only static present) from "done".
   isDefaultTask: boolean
+  // Why the candidate set the task aside, if they did. 'later' also carries
+  // snoozedUntil; 'notForMe' holds until they undo it.
+  skipReason: TrackerTaskSkipReason | null
+  snoozedUntil: string | null
 }
 
 /** Request/response shapes for the user-agenda-upload flow. */
@@ -973,6 +978,16 @@ export type APIEndpoints = {
   }
 
   'DELETE /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
+  }
+
+  'PUT /v1/campaigns/tracker-tasks/skip/:id': {
+    Request: { id: string; reason: TrackerTaskSkipReason }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/skip/:id': {
     Request: { id: string }
     Response: CampaignTrackerTask
   }

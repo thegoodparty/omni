@@ -62,8 +62,8 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
 
   // 1. Dashboard — the non-Pro candidate sees the Get Pro banner; click into
   // the wizard.
-  await page.goto('/dashboard')
-  await page.waitForURL(/\/dashboard/)
+  await page.goto('/home')
+  await page.waitForURL(/\/home/)
   await NavigationHelper.dismissOverlays(page)
   // Closes any stray task-detail dialog (which aria-hides the whole page) and
   // waits for the campaign-gated chrome, like the sibling pro-upgrade specs.
@@ -77,12 +77,12 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // swallowed (observed in CI: click fired on the half-hydrated dashboard,
   // then no navigation for 45s), so retry the click until the URL moves.
   await expect(async () => {
-    if (!/\/dashboard\/pro-upgrade\/value-prop/.test(page.url())) {
+    if (!/\/pro-upgrade\/value-prop/.test(page.url())) {
       await page
         .getByRole('button', { name: 'Get Pro' })
         .click({ timeout: 5_000 })
     }
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
+    await page.waitForURL(/\/pro-upgrade\/value-prop/, {
       timeout: 10_000,
     })
   }).toPass({ timeout: 60_000 })
@@ -91,15 +91,15 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByRole('button', { name: 'Get Pro for $10/mo' }).click()
 
   // 3. Filing status — "Yes, I'm already filed".
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/status/)
+  await page.waitForURL(/\/pro-upgrade\/status/)
   await page.getByRole('button', { name: "Yes, I'm already filed" }).click()
 
   // 4. Guidance interstitial.
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/guidance/)
+  await page.waitForURL(/\/pro-upgrade\/guidance/)
   await page.getByRole('button', { name: "Let's go!" }).click()
 
   // 5. EIN — a shape-valid, sanity-passing EIN (47 is an IRS-issued prefix).
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/ein/)
+  await page.waitForURL(/\/pro-upgrade\/ein/)
   await page.getByRole('textbox').first().fill('47-1234567')
   await page.getByRole('button', { name: 'Continue' }).click()
 
@@ -107,7 +107,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // needs both); the filing address is optional. Fill candidate name,
   // committee, filing link, email, and phone, and skip the Google-autocomplete
   // address, which is flaky in e2e and not required for submission.
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/filing-details/)
+  await page.waitForURL(/\/pro-upgrade\/filing-details/)
   await page.getByPlaceholder('Jane Smith').fill('Jane Smith')
   await page.getByPlaceholder('Jane for Council').fill('Jane for Council')
   await page
@@ -142,12 +142,12 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // retry Continue until the wizard actually advances. Re-clicks during a real
   // submit are no-ops (the form's submittingRef/loading guard).
   await expect(async () => {
-    if (!/\/dashboard\/pro-upgrade\/candidate-profile/.test(page.url())) {
+    if (!/\/pro-upgrade\/candidate-profile/.test(page.url())) {
       await page
         .getByRole('button', { name: 'Continue' })
         .click({ timeout: 5_000 })
     }
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/, {
+    await page.waitForURL(/\/pro-upgrade\/candidate-profile/, {
       timeout: 15_000,
     })
   }).toPass({ timeout: 90_000 })
@@ -186,7 +186,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 8. Payment — embedded Stripe Payment Element.
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/payment/)
+  await page.waitForURL(/\/pro-upgrade\/payment/)
 
   const stripeFrame = page
     .frameLocator('iframe[title="Secure payment input frame"]')
@@ -237,7 +237,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await completeButton.click()
 
   // 9. Success — "Welcome to Pro!".
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/success/, {
+  await page.waitForURL(/\/pro-upgrade\/success/, {
     timeout: 60_000,
   })
   await expect(page.getByText('Welcome to Pro!')).toBeVisible()
@@ -276,8 +276,8 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // fresh submission the card shows the awaiting-PIN in-review state — the
   // "Enter your PIN" box appears only once Peerly CampaignVerify approves,
   // days later (the CV gate, ENG-10785) — never within this test's window.
-  await page.goto('/dashboard')
-  await page.waitForURL('**/dashboard', { timeout: 30_000 })
+  await page.goto('/home')
+  await page.waitForURL('**/home', { timeout: 30_000 })
 
   await expect(page.getByRole('img', { name: 'PRO' }).first()).toBeVisible({
     timeout: 30_000,

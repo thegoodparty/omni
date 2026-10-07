@@ -3,13 +3,15 @@
 import {
   Button,
   CheckIcon,
+  IconButton,
   LoaderCircleIcon,
   MicIcon,
   SquareIcon,
+  cn,
 } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
-import type { UseDictationAppendResult } from 'app/dashboard/shared/dictation/useDictationAppend'
-import type { StoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
+import type { UseDictationAppendResult } from 'app/(dashboard)/shared/dictation/useDictationAppend'
+import type { StoryRewrite } from 'app/(dashboard)/campaign-story/components/useStoryRewrite'
 
 // Optional per-field Save. Passed on the standalone "Your Story" dashboard page
 // (each card persists on its own); omitted in onboarding, where the whole story
@@ -47,11 +49,12 @@ export default function StoryFieldBar({
   const isCapturing = dictation.active && !isStopping
 
   return (
-    // Break out of the card's p-6 so the top separator spans the full card
-    // width (matching the design), then re-pad the content back into alignment.
-    <div className="-mx-6 flex flex-col gap-2 border-t border-border px-6 pt-3">
+    // The same footer as the outreach compose cards: full card width under a
+    // rule, breaking out of the card's p-4, with quiet ghost actions on the
+    // right.
+    <div className="-mx-4 -mb-4 mt-1 flex flex-col gap-2 border-t border-border p-2">
       {rewrite.rewriteError && (
-        <p className="text-sm text-destructive">
+        <p className="px-2 text-sm text-destructive">
           Couldn&apos;t generate a rewrite.{' '}
           <Button
             variant="link"
@@ -65,14 +68,14 @@ export default function StoryFieldBar({
       )}
 
       {rewrite.limitReached && (
-        <p className="text-sm text-muted-foreground">
+        <p className="px-2 text-sm text-muted-foreground">
           You&apos;ve reached your AI rewrite limit for this campaign. You can
           still edit your answer yourself.
         </p>
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 px-2">
           {save && (
             <Button
               variant="outline"
@@ -108,65 +111,67 @@ export default function StoryFieldBar({
           ) : null}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {rewrite.canUndo && !rewrite.isRewriting && (
             <Button
+              type="button"
               variant="link"
               size="small"
-              className="h-auto p-0 no-underline hover:underline"
+              className="h-auto px-2"
               onClick={rewrite.undo}
             >
               Undo
             </Button>
           )}
 
-          {rewrite.isRewriting ? (
-            <span className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted-foreground">
-              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
-              Improving…
-            </span>
-          ) : (
-            <button
+          {/* Offered once there is text to improve, as on the outreach
+              compose cards, rather than shown disabled. */}
+          {(rewrite.isRewriting || !improveDisabled) && (
+            <Button
               type="button"
+              variant="ghost"
+              size="small"
+              className="text-muted-foreground"
+              disabled={rewrite.isRewriting || rewrite.limitReached}
               onClick={() => void rewrite.requestRewrite()}
-              disabled={improveDisabled || rewrite.limitReached}
-              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-grayscale-100 disabled:pointer-events-none disabled:opacity-50 disabled:hover:bg-transparent"
             >
-              <SparklesIcon className="size-4" aria-hidden />
-              Improve with AI
-            </button>
+              {rewrite.isRewriting ? (
+                <>
+                  <LoaderCircleIcon
+                    className="size-4 animate-spin"
+                    aria-hidden
+                  />
+                  Improving…
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="size-4" aria-hidden />
+                  Improve with AI
+                </>
+              )}
+            </Button>
           )}
 
-          {dictation.active ? (
-            <button
-              type="button"
-              aria-label="Stop recording"
-              onClick={() => void dictation.toggle()}
-              // Live through requesting_mic/connecting/recording so the stop
-              // control responds immediately; only the flush window
-              // ('stopping') disables it.
-              disabled={isStopping}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-grayscale-950 disabled:opacity-70"
-            >
-              {isStopping ? (
-                <LoaderCircleIcon
-                  className="size-4 animate-spin text-white"
-                  aria-hidden
-                />
-              ) : (
-                <SquareIcon className="size-4 fill-current" aria-hidden />
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              aria-label="Record voice"
-              onClick={() => void dictation.toggle()}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-grayscale-100 disabled:pointer-events-none disabled:opacity-50"
-            >
+          <IconButton
+            type="button"
+            variant={dictation.active ? 'destructive' : 'ghost'}
+            size="small"
+            aria-label={dictation.active ? 'Stop recording' : 'Record voice'}
+            // Live through requesting_mic/connecting/recording so the stop
+            // control responds immediately; only the flush window
+            // ('stopping') disables it.
+            disabled={isStopping}
+            onClick={() => void dictation.toggle()}
+            className={cn(!dictation.active && 'text-muted-foreground')}
+          >
+            {isStopping ? (
+              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
+            ) : dictation.active ? (
+              <SquareIcon className="size-4 fill-current" aria-hidden />
+            ) : (
               <MicIcon className="size-5" aria-hidden />
-            </button>
-          )}
+            )}
+          </IconButton>
         </div>
       </div>
     </div>

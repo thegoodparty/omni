@@ -24,7 +24,7 @@ import {
   AnnotationsCtx,
   type ActiveCard,
   type Ctx as AnnotationsCtxValue,
-} from '../../../dashboard/briefings/components/annotations/AnnotationsScope'
+} from '../../../(dashboard)/briefings/components/annotations/AnnotationsScope'
 import ReviewHighlightLayer from './ReviewHighlightLayer'
 import ReviewHighlightToolbar from './ReviewHighlightToolbar'
 import { ReviewSurface } from './ReviewSurface'

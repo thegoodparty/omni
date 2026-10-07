@@ -9,7 +9,7 @@ that builds filters from plain language. Shared by Win (candidates,
 This file is the system-level doc for the whole feature — the flows span
 gp-webapp and gp-api, but every flow passes through this module, so the map
 lives here. Webapp UI detail stays in
-`packages/gp-webapp/app/dashboard/contacts/CLAUDE.md`; don't duplicate it.
+`packages/gp-webapp/app/(dashboard)/contacts/CLAUDE.md`; don't duplicate it.
 
 Design source of truth: the CRM tech design
 (https://app.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-98973)
@@ -105,7 +105,7 @@ fixes track under ENG-10744.
 | `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                          |
 | `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                            |
 | `src/peopleDb/`                              | The voter engine: filter pipeline, `id in/notIn`, name search, stats/aggregates, read from Databricks. See `src/peopleDb/CLAUDE.md`                                                |
-| `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                             |
+| `packages/gp-webapp/app/(dashboard)/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                             |
 
 Not this feature: `src/crm/` is the HubSpot **company** sync. `WebsiteContact`
 is an unrelated model.
@@ -875,7 +875,7 @@ voter_likelihood override events` describe block in
 
 ## Related docs
 
-- `packages/gp-webapp/app/dashboard/contacts/CLAUDE.md` — all UI detail +
+- `packages/gp-webapp/app/(dashboard)/contacts/CLAUDE.md` — all UI detail +
   the analytics event catalog (mode-specific event naming rules).
 - `src/contactInteraction/contactInteraction.types.ts` — the
   add-a-channel convention (authoritative checklist).

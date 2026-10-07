@@ -2036,7 +2036,7 @@ stop once the path-geometry call is counted (see § Spend visibility).
 `NEXT_PUBLIC_GEOAPIFY_TILES_KEY` is inlined into the browser bundle and buys
 map tiles at ~0.25 credits each. Because the second one ships to the client it
 must be domain-restricted in the Geoapify console or anyone can spend our
-credits: allow `app.goodparty.org` (the origin `/dashboard` is actually served
+credits: allow `app.goodparty.org` (the origin the dashboard is actually served
 from — **not** `goodparty.org`, which is the marketing deployment; see
 `APP_SHARE_BASE` in the webapp's `appEnv.ts`), the Vercel preview domains, and
 `localhost` for local dev. Prefer the narrowest preview pattern the console
@@ -2109,7 +2109,7 @@ load-bearing for us, so it should be on file rather than inferred.
 
 ## Access and eligibility
 
-`/dashboard/door-knocking` serves the native voter map, behind
+`/door-knocking` serves the native voter map, behind
 `DoorKnockingPageGate`. The sidebar entry in `DashboardMenu` mirrors that same
 gate, so the link and the landing page always agree: both require a resolvable
 district (every pack and turf read resolves one server-side and 400s without

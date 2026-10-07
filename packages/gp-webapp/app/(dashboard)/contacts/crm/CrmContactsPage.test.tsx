@@ -1,0 +1,575 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { render } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { CrmContactsPage } from './CrmContactsPage'
+import { useContactsTable } from './ContactsTableProvider'
+
+vi.mock('./ContactsTableProvider', () => ({
+  useContactsTable: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+const mockCampaign = vi.hoisted(() => ({
+  current: null as {
+    raceTargetMetrics: {
+      projectedTurnout: number
+      winNumber: number
+    } | null
+  } | null,
+}))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [mockCampaign.current],
+}))
+vi.mock('../../shared/DashboardLayout', () => ({
+  default: ({
+    children,
+    navHeader,
+    hideChatDock,
+  }: {
+    children: React.ReactNode
+    navHeader?: { icon: string; label: string }
+    hideChatDock?: boolean
+  }) => (
+    <>
+      {navHeader && <div data-testid="nav-header">{navHeader.label}</div>}
+      {!hideChatDock && <div data-testid="layout-chat-dock" />}
+      {children}
+    </>
+  ),
+}))
+vi.mock('app/(dashboard)/shared/ProUpgradeModal', () => ({
+  ProUpgradeModal: () => null,
+  VARIANTS: { Second_NonViable: 'second-nonviable' },
+}))
+vi.mock('./person/PersonOverlay', () => ({
+  default: () => <div data-testid="person-overlay" />,
+}))
+vi.mock('./ContactTypeahead', () => ({
+  ContactTypeahead: () => <div data-testid="typeahead" />,
+}))
+vi.mock('./wizard/CreateListWizard', () => ({
+  default: ({
+    open,
+    onOpenChange,
+    editingSegment,
+  }: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    editingSegment?: { id: number } | null
+  }) =>
+    open ? (
+      <div data-testid="create-list-wizard">
+        {editingSegment && (
+          <span data-testid="wizard-editing-id">{editingSegment.id}</span>
+        )}
+        <button onClick={() => onOpenChange(false)}>close wizard</button>
+      </div>
+    ) : null,
+}))
+vi.mock('./DistrictStatCard', () => ({
+  default: ({
+    label,
+    populationLabel,
+    additionalRows,
+  }: {
+    label: string
+    populationLabel?: string
+    additionalRows?: Array<{ label: string; value: number }>
+  }) => (
+    <div data-testid="district-stat">
+      {populationLabel && <div>{populationLabel}</div>}
+      <div>{label}</div>
+      {additionalRows?.map((row) => (
+        <div key={row.label}>{`${row.label}: ${row.value}`}</div>
+      ))}
+    </div>
+  ),
+}))
+vi.mock('./assistant/CrmAssistant', () => ({
+  default: () => <div data-testid="crm-assistant" />,
+}))
+vi.mock('./lists/ListsIndex', () => ({
+  default: () => <div data-testid="lists-index" />,
+}))
+vi.mock('./recommended/RecommendedListsSection', () => ({
+  default: () => <div data-testid="recommended-lists-section" />,
+}))
+vi.mock('./shared/channelPicker/ChannelPickerProvider', () => ({
+  ChannelPickerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="channel-picker-provider">{children}</div>
+  ),
+}))
+const mockOrganization = vi.hoisted(() => ({
+  current: { slug: 'campaign-1', positionName: 'Mayor of Nowhere' } as {
+    slug: string
+    positionName: string | null
+  } | null,
+}))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => mockOrganization.current,
+}))
+vi.mock('./lists/ListDetailSheet', () => ({
+  default: ({
+    listId,
+    onClose,
+  }: {
+    listId: string | null
+    onClose: () => void
+  }) =>
+    listId ? (
+      <div data-testid="list-detail-sheet">
+        <button data-testid="close-list-detail" onClick={onClose}>
+          close
+        </button>
+      </div>
+    ) : null,
+}))
+
+const mockedUseContactsTable = vi.mocked(useContactsTable)
+
+type ContextValue = ReturnType<typeof useContactsTable>
+
+const setContext = (overrides: Partial<ContextValue> = {}) => {
+  mockedUseContactsTable.mockReturnValue({
+    isWinContext: true,
+    isWinContextReady: true,
+    canUseProFeatures: true,
+    customSegments: [],
+    currentlySelectedListId: null,
+    selectList: vi.fn(),
+    editingSegment: null,
+    editList: vi.fn(),
+    closeEditList: vi.fn(),
+    ...overrides,
+  } as ContextValue)
+}
+
+beforeEach(() => {
+  setContext()
+  mockCampaign.current = null
+  mockOrganization.current = {
+    slug: 'campaign-1',
+    positionName: 'Mayor of Nowhere',
+  }
+  vi.mocked(trackEvent).mockClear()
+})
+
+// ENG-10767: this page's users had vanished from the Contacts Viewed chart,
+// so it fires the same event tagged surface: 'crm'.
+describe('CrmContactsPage — Contacts Viewed analytics', () => {
+  it('fires once on mount with the settled context and surface crm', () => {
+    const { rerender } = render(<CrmContactsPage />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'win',
+      surface: 'crm',
+    })
+
+    // A later re-render (e.g. an isWinContext revalidation flicker) must not
+    // re-fire.
+    setContext({ isWinContext: false })
+    rerender(<CrmContactsPage />)
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for the Win/Serve mode to settle before firing (Serve)', () => {
+    setContext({ isWinContext: false, isWinContextReady: false })
+    const { rerender } = render(<CrmContactsPage />)
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    setContext({ isWinContext: false, isWinContextReady: true })
+    rerender(<CrmContactsPage />)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'serve',
+      surface: 'crm',
+    })
+  })
+})
+
+describe('CrmContactsPage — mode-aware universe title', () => {
+  it('reads "Your Voter Universe" for a Win campaign and never says constituent', () => {
+    setContext({ isWinContext: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Your Voter Universe' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+
+  it('reads "Your Constituent Universe" for the Serve/elected-office path', () => {
+    setContext({ isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Your Constituent Universe',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders no title until the Win/Serve context is ready (Win never flashes "constituent")', () => {
+    setContext({ isWinContext: false, isWinContextReady: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+    // The button itself must be gated too, not just the copy below it — a
+    // click before the mode settles could open the wizard with a
+    // not-yet-resolved isWinContext (see BranchStep.tsx's own crossover fix).
+    expect(
+      screen.getByRole('button', { name: 'Create new list' }),
+    ).toBeDisabled()
+  })
+
+  it('enables "Create new list" once the Win/Serve context is ready', () => {
+    setContext({ isWinContext: true, isWinContextReady: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'Create new list' }),
+    ).toBeEnabled()
+  })
+})
+
+describe('CrmContactsPage — data-title nav header (ENG-10747)', () => {
+  it('reads "Voters" for a Win campaign', () => {
+    setContext({ isWinContext: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voters')
+  })
+
+  it('reads "Constituent Data" for the Serve/elected-office path', () => {
+    setContext({ isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('nav-header')).toHaveTextContent(
+      'Constituent Data',
+    )
+  })
+
+  it('renders no header until the Win/Serve context is ready (no mode-copy flash)', () => {
+    setContext({ isWinContext: false, isWinContextReady: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument()
+  })
+})
+
+describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
+  it('Win with raceTargetMetrics passes the turnout and win-number rows', () => {
+    setContext({ isWinContext: true })
+    mockCampaign.current = {
+      raceTargetMetrics: { projectedTurnout: 42318, winNumber: 21160 },
+    }
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByText('Voters in your district')).toBeInTheDocument()
+    expect(screen.getByText('Projected turnout: 42318')).toBeInTheDocument()
+    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+  })
+
+  it('Win without raceTargetMetrics (no P2V yet) renders only the voters row', () => {
+    setContext({ isWinContext: true })
+    mockCampaign.current = { raceTargetMetrics: null }
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByText('Voters in your district')).toBeInTheDocument()
+    expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+  })
+
+  it('drops a zero-valued metric row instead of rendering "0"', () => {
+    setContext({ isWinContext: true })
+    mockCampaign.current = {
+      raceTargetMetrics: { projectedTurnout: 0, winNumber: 21160 },
+    }
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
+    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+  })
+
+  it('Serve renders the records-available row and the census row (no raceTargetMetrics rows)', () => {
+    setContext({ isWinContext: false })
+    mockCampaign.current = {
+      raceTargetMetrics: { projectedTurnout: 42318, winNumber: 21160 },
+    }
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByText('Records available')).toBeInTheDocument()
+    expect(
+      screen.getByText('Total constituents in your district'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+  })
+
+  it('Win passes no populationLabel to the district stat card', () => {
+    setContext({ isWinContext: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByText('Total constituents in your district'),
+    ).not.toBeInTheDocument()
+  })
+})
+
+// The contacts assistant is this page's chat bar, so the layout's own dock
+// has to stand down or Win shows two bars stacked at the bottom.
+describe('CrmContactsPage — one chat bar', () => {
+  it('hides the layout dock while the contacts assistant is on the page', () => {
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('crm-assistant')).toBeInTheDocument()
+    expect(screen.queryByTestId('layout-chat-dock')).not.toBeInTheDocument()
+  })
+
+  it('keeps the layout dock when voter data is unavailable', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('crm-assistant')).not.toBeInTheDocument()
+    expect(screen.getByTestId('layout-chat-dock')).toBeInTheDocument()
+  })
+})
+
+describe('CrmContactsPage — page contents', () => {
+  it('renders the typeahead and the person overlay (selection opens the record over this page)', () => {
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('typeahead')).toBeInTheDocument()
+    expect(screen.getByTestId('person-overlay')).toBeInTheDocument()
+  })
+
+  it('renders an enabled "Create new list" button that opens the wizard for a pro user', async () => {
+    const user = userEvent.setup()
+    setContext({ canUseProFeatures: true })
+    render(<CrmContactsPage />)
+
+    const button = screen.getByRole('button', { name: 'Create new list' })
+    expect(button).toBeEnabled()
+    expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
+
+    await user.click(button)
+
+    expect(router.push).not.toHaveBeenCalled()
+    expect(screen.getByTestId('create-list-wizard')).toBeInTheDocument()
+  })
+
+  it('opens the wizard in edit mode when the provider has a segment to edit', () => {
+    const editingSegment = { id: 42, name: 'GOTV text list' }
+    setContext({ editingSegment })
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('create-list-wizard')).toBeInTheDocument()
+    expect(screen.getByTestId('wizard-editing-id')).toHaveTextContent('42')
+  })
+
+  it('clears the edit segment when the wizard closes, so create opens empty', async () => {
+    const user = userEvent.setup()
+    const closeEditList = vi.fn()
+    setContext({
+      editingSegment: { id: 42, name: 'GOTV text list' },
+      closeEditList,
+    })
+    render(<CrmContactsPage />)
+
+    await user.click(screen.getByRole('button', { name: 'close wizard' }))
+
+    expect(closeEditList).toHaveBeenCalled()
+  })
+
+  it('never opens the wizard for a non-pro user (Pro upgrade gate reused from the legacy create flow)', async () => {
+    const user = userEvent.setup()
+    setContext({ canUseProFeatures: false })
+    render(<CrmContactsPage />)
+
+    await user.click(screen.getByRole('button', { name: 'Create new list' }))
+
+    expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
+  })
+
+  it('opens the list-detail sheet from the provider list selection and closes it via selectList(null)', async () => {
+    const user = userEvent.setup()
+    const selectList = vi.fn()
+    setContext({ currentlySelectedListId: '42', selectList })
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('list-detail-sheet')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('close-list-detail'))
+
+    expect(selectList).toHaveBeenCalledWith(null)
+  })
+
+  it('renders no list-detail sheet when no list is selected', () => {
+    setContext({ currentlySelectedListId: null })
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('list-detail-sheet')).not.toBeInTheDocument()
+  })
+})
+
+// The CRM page never consumed isVoterDataUnavailable, so an org with no
+// resolvable district got a broken page where the legacy page showed a clean
+// message. Unmounting the column is also what stops GET /v1/contacts/stats:
+// DistrictStatCard and ListsIndex's AllContactsCard share the
+// ['contacts-stats'] key, and React Query fires a query when ANY mounted
+// observer is enabled, so enabled:false on one of them would change nothing.
+describe('CrmContactsPage — voter data unavailable', () => {
+  it('renders the empty state naming the office', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('heading', {
+        name: /Voter data isn't available for this office yet/,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Mayor of Nowhere/)).toBeInTheDocument()
+  })
+
+  it('unmounts every surface that queries contacts data', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('district-stat')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('lists-index')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('typeahead')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('crm-assistant')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Create new list' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The sheets open purely off the URL, and a district-gated query reports
+  // pending/idle — so isLoading (isPending && isFetching) and isError are BOTH
+  // false and neither guard branch fires. A deep link would drop a dataless sheet
+  // straight over the empty state.
+  it('mounts no person overlay on a deep link', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('person-overlay')).not.toBeInTheDocument()
+  })
+
+  it('mounts no list-detail sheet on a deep link', () => {
+    setContext({ voterDataUnavailable: true, currentlySelectedListId: '42' })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('list-detail-sheet')).not.toBeInTheDocument()
+  })
+
+  it('keeps the nav header so the page still reads as Contacts', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voters')
+  })
+
+  it('uses Serve copy for an elected-office org', () => {
+    setContext({ voterDataUnavailable: true, isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('heading', {
+        name: /Constituent data isn't available for this office yet/,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to generic copy when the org has no office name', () => {
+    setContext({ voterDataUnavailable: true })
+    mockOrganization.current = { slug: 'campaign-1', positionName: null }
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByText(/match your office to a district/),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the normal page when voter data is available', () => {
+    setContext({ voterDataUnavailable: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('district-stat')).toBeInTheDocument()
+    expect(screen.getByTestId('lists-index')).toBeInTheDocument()
+    expect(screen.getByTestId('crm-assistant')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/isn't available for this office yet/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('fires the unavailable event once, with the settled context', () => {
+    setContext({ voterDataUnavailable: true })
+
+    const { rerender } = render(<CrmContactsPage />)
+    rerender(<CrmContactsPage />)
+
+    const calls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+      )
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.[1]).toMatchObject({ context: 'win' })
+  })
+
+  it('does not fire the unavailable event when voter data is available', () => {
+    setContext({ voterDataUnavailable: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+        ),
+    ).toHaveLength(0)
+  })
+
+  it('waits for the Win/Serve mode to settle before firing', () => {
+    setContext({ voterDataUnavailable: true, isWinContextReady: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+        ),
+    ).toHaveLength(0)
+  })
+})

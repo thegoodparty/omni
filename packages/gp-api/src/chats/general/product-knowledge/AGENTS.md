@@ -41,7 +41,7 @@ A `ProductArea` is four decisions:
 
 - **`name`** — exactly what the left rail spells, character for character. The
   assistant tells a user to click this string. Pull it from
-  `gp-webapp/app/dashboard/shared/navLabels.ts` where one exists.
+  `gp-webapp/app/(dashboard)/shared/navLabels.ts` where one exists.
 - **`modes`** — `['win']`, `['serve']`, or both. A Win assistant must never
   describe a Serve tab: the user cannot see it and does not have it.
 - **`does`** — one sentence, in the user's words, on what they do there. Not

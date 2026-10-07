@@ -195,7 +195,7 @@ describe('VolunteerSidebar', () => {
       expect(router.push).toHaveBeenCalledWith('/volunteer')
     })
 
-    it('navigates to /dashboard when the picked org is one the user owns', async () => {
+    it('navigates to /home when the picked org is one the user owns', async () => {
       mockUseOrganization.mockReturnValue(orgOne)
       mockUseOrganizations.mockReturnValue([orgOne, orgOwned])
       const userEventInstance = userEvent.setup()
@@ -209,7 +209,7 @@ describe('VolunteerSidebar', () => {
       )
 
       expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-3')
-      expect(router.push).toHaveBeenCalledWith('/dashboard')
+      expect(router.push).toHaveBeenCalledWith('/home')
     })
   })
 
@@ -289,7 +289,7 @@ describe('VolunteerSidebar', () => {
       expect(router.push).toHaveBeenCalledWith('/volunteer')
     })
 
-    it('routes to /dashboard when the remaining campaign is one the user owns', async () => {
+    it('routes to /home when the remaining campaign is one the user owns', async () => {
       mockUseOrganizations.mockReturnValue([orgOne, orgOwned])
       api.mock('DELETE /v1/organizations/team/members/me', {
         status: 200,
@@ -303,7 +303,7 @@ describe('VolunteerSidebar', () => {
       await waitFor(() =>
         expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-3'),
       )
-      expect(router.push).toHaveBeenCalledWith('/dashboard')
+      expect(router.push).toHaveBeenCalledWith('/home')
     })
 
     it('stays put when the leave request fails', async () => {

@@ -64,8 +64,8 @@ describe('cookieHelper', () => {
 
   it('deleteCookie clears a path=/ cookie from a nested page', () => {
     // The real case: an admin ending an impersonation session is somewhere
-    // under /dashboard, not at the site root.
-    window.history.pushState({}, '', '/dashboard/chief-of-staff')
+    // on a nested dashboard page, not at the site root.
+    window.history.pushState({}, '', '/chief-of-staff')
     setCookie('nested', 'value')
     expect(getCookie('nested')).toBe('value')
 

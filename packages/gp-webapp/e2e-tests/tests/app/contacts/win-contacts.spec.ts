@@ -56,9 +56,9 @@ test.describe('Win Contacts', () => {
     await gotoCrmContacts(page)
 
     // --- Win chrome: mode header + universe copy (never "constituent") ---
-    await expect(page.getByRole('heading', { name: 'Voter Data' })).toBeVisible(
-      { timeout: 20_000 },
-    )
+    await expect(page.getByRole('heading', { name: 'Voters' })).toBeVisible({
+      timeout: 20_000,
+    })
     // The rebuilt page has no member table by design, and this spec sets no
     // flag override — so a zero-override Win load must land on it.
     await expect(page.locator('table')).toHaveCount(0)

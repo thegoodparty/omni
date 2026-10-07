@@ -18,7 +18,7 @@ const resolveActiveOrg = (
  * Whether the signed-in user's ACTIVE org (not any org they hold) is one
  * where they're a volunteer (ENG-11052).
  *
- * Shared by `candidateAccess.ts` (the /dashboard/* → /volunteer bounce and
+ * Shared by `candidateAccess.ts` (the dashboard → /volunteer bounce and
  * the post-auth redirect) and `app/volunteer/layout.tsx` (the shell's own
  * gate), so the three can't drift on what "active org" means.
  */

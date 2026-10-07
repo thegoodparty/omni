@@ -49,7 +49,7 @@ describe('DashboardCardsService.syncFromCommunityIssue', () => {
       title: 'Speeding on Main St',
       summary: 'Residents report frequent speeding near the school.',
       ctaLabel: 'View issue',
-      ctaHref: `/dashboard/community-issues/${issue.id}`,
+      ctaHref: `/community-issues/${issue.id}`,
       sourceExternalId: issue.id,
       sourceItemId: null,
     })

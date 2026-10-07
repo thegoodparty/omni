@@ -3,8 +3,8 @@
 import { Card, Input, Label, Textarea } from '@styleguide'
 import { XMarkIcon } from '@styleguide/components/ui/icons'
 import type { WebsiteIssue } from 'helpers/types'
-import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { useStoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
+import { useDictationAppend } from 'app/(dashboard)/shared/dictation/useDictationAppend'
+import { useStoryRewrite } from 'app/(dashboard)/campaign-story/components/useStoryRewrite'
 import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
 import { useReportDictationActive } from './useReportDictationActive'
 
@@ -56,7 +56,7 @@ export default function StoryIssueRow({
   useReportDictationActive(dictation.active, onDictationActiveChange)
 
   return (
-    <Card className="flex flex-col gap-4 p-6">
+    <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-lg font-semibold text-foreground">
           Priority {index + 1}
@@ -79,7 +79,7 @@ export default function StoryIssueRow({
             onChange({ ...issue, title: event.target.value })
           }
           placeholder={TITLE_PLACEHOLDER}
-          className="placeholder:italic placeholder:text-muted-foreground"
+          className="placeholder:text-muted-foreground"
         />
       </div>
 
@@ -90,7 +90,7 @@ export default function StoryIssueRow({
             value={issue.description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder={DESCRIPTION_PLACEHOLDER}
-            className="min-h-28 resize-none pb-9 placeholder:italic placeholder:text-muted-foreground"
+            className="min-h-28 resize-none pb-9 placeholder:text-muted-foreground"
           />
           <span className="pointer-events-none absolute bottom-2 right-3 text-sm text-muted-foreground">
             {issue.description.length} chars

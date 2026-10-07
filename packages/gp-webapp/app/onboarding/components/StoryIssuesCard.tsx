@@ -85,7 +85,7 @@ export default function StoryIssuesCard({
       <button
         type="button"
         onClick={add}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border py-4 text-base font-medium text-link transition-colors hover:border-link hover:bg-link/5"
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-link/40 bg-card py-4 text-base font-medium text-link transition-colors hover:border-link hover:bg-link/5"
       >
         <PlusIcon className="size-5" aria-hidden />
         Add a policy priority

@@ -3,7 +3,7 @@ import { render, waitFor } from '@testing-library/react'
 import ImpersonatePageContent from './ImpersonatePageContent'
 
 const mockClearElectionResultDismissed = vi.fn()
-vi.mock('app/dashboard/election-result/dismissal', () => ({
+vi.mock('app/(dashboard)/election-result/dismissal', () => ({
   clearElectionResultDismissed: () => mockClearElectionResultDismissed(),
 }))
 
@@ -91,7 +91,7 @@ describe('ImpersonatePageContent', () => {
     await waitFor(() =>
       expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'eo-9'),
     )
-    expect(window.location.href).toBe('/dashboard')
+    expect(window.location.href).toBe('/home')
   })
 
   it('ignores any org slug already in the browser', async () => {
@@ -119,7 +119,7 @@ describe('ImpersonatePageContent', () => {
 
     render(<ImpersonatePageContent />)
 
-    await waitFor(() => expect(window.location.href).toBe('/dashboard'))
+    await waitFor(() => expect(window.location.href).toBe('/home'))
     expect(mockSetCookie).not.toHaveBeenCalled()
   })
 
@@ -128,7 +128,7 @@ describe('ImpersonatePageContent', () => {
 
     render(<ImpersonatePageContent />)
 
-    await waitFor(() => expect(window.location.href).toBe('/dashboard'))
+    await waitFor(() => expect(window.location.href).toBe('/home'))
     expect(mockSetCookie).not.toHaveBeenCalled()
   })
 })

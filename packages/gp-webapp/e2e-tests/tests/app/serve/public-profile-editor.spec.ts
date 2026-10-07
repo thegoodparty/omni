@@ -5,13 +5,13 @@ import { NavigationHelper } from 'src/helpers/navigation.helper'
 import { WaitHelper } from 'src/helpers/wait.helper'
 
 /**
- * Live-stack coverage for the /dashboard/public-profile owner editor.
+ * Live-stack coverage for the /public-profile owner editor.
  *
  * What only a browser test can prove here is the *gate + SSR render chain*:
  * a real Clerk session → `publicProfileAccess()` resolving the caller's product
  * (serve vs win) from live gp-api (`elected-office.current` / `campaign.status`)
  * → the page's server-side `GET /v1/person-profiles/mine` fetch → the editor
- * shell rendering (never a bounce to /dashboard). We assert exactly that.
+ * shell rendering (never a bounce to /home). We assert exactly that.
  *
  * Publishing requires a `user.personId` (the civics-spine link the data platform
  * mints), which a synthetic @test.goodparty.org user is by construction without
@@ -29,7 +29,7 @@ import { WaitHelper } from 'src/helpers/wait.helper'
  * states) and the revalidation seam by its revalidate-person route test.
  */
 
-const EDITOR_PATH = '/dashboard/public-profile'
+const EDITOR_PATH = '/public-profile'
 
 test('serve: an elected official reaches their public-profile editor (not bounced)', async ({
   page,
@@ -43,7 +43,7 @@ test('serve: an elected official reaches their public-profile editor (not bounce
   await WaitHelper.waitForPageReady(page)
 
   // Gate passed: publicProfileAccess resolved 'serve' and did not redirect home.
-  await expect(page).toHaveURL(/\/dashboard\/public-profile(\/|\?|$)/)
+  await expect(page).toHaveURL(/\/public-profile(\/|\?|$)/)
 
   // The editor shell rendered (h1 is "Your public profile" pre-mint, or
   // "Public profile" once a profile exists — either proves the SSR fetch ran).
@@ -76,7 +76,7 @@ test('win: a candidate reaches their public-profile editor (not bounced)', async
   await NavigationHelper.dismissOverlays(page)
   await WaitHelper.waitForPageReady(page)
 
-  await expect(page).toHaveURL(/\/dashboard\/public-profile(\/|\?|$)/)
+  await expect(page).toHaveURL(/\/public-profile(\/|\?|$)/)
   await expect(
     page.getByRole('heading', { level: 1, name: /public profile/i }),
   ).toBeVisible()

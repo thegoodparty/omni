@@ -51,7 +51,7 @@ module.exports = {
   // The assistants' product map must keep describing the real dashboard. Keyed
   // on both sides of that invariant, so editing either one re-checks the pair.
   // Runs once for the whole commit, not per file, hence the ignored argument.
-  'packages/{gp-webapp/app/dashboard/shared/DashboardMenu.tsx,gp-api/src/chats/general/product-knowledge/productMap.ts}':
+  'packages/{gp-webapp/app/\\(dashboard\\)/shared/DashboardMenu.tsx,gp-api/src/chats/general/product-knowledge/productMap.ts}':
     () => 'npm run product-map:check',
   // Serve copy must not use Win-only vocabulary (docs/product-vocabulary.md).
   // Scoped to the staged files rather than the whole package: the checker

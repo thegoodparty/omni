@@ -54,12 +54,11 @@ interface PlanViewProps {
   // standalone max-w-4xl; the dashboard narrows it to match the strategy
   // cards' max-w-3xl column.
   contentClassName?: string
-  // The dashboard renders its own campaign-tracker hero above the plan, so it
-  // hides this default hero. Onboarding keeps it.
+  // The dashboard renders its own overview cards above the plan, so it hides
+  // this default hero. Onboarding keeps it.
   showHero?: boolean
-  // The dashboard's download lives in its hero (matching the Lovable
-  // prototype), so it hides the duplicate download in the bottom bar.
-  // Onboarding keeps it as its primary CTA.
+  // The download in the bottom bar. Onboarding keeps it as its primary CTA;
+  // the dashboard hides it.
   showBottomDownload?: boolean
   // The whole fixed bottom bar (download + "Campaign Manager" button). The
   // story-cohort tracker hides it: it's `fixed bottom-0` and would sit on top

@@ -1,0 +1,266 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { waitFor, screen } from '@testing-library/react'
+import { render } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
+import DashboardLayout from './DashboardLayout'
+import DashboardNavHeaderAction from './DashboardNavHeaderAction'
+
+const { mockUseCampaign, mockIsImpersonating, mockIsDismissed, mockWeeksTill } =
+  vi.hoisted(() => ({
+    mockUseCampaign: vi.fn(),
+    mockIsImpersonating: vi.fn(() => false),
+    mockIsDismissed: vi.fn(() => false),
+    mockWeeksTill: vi.fn(() => ({ weeks: -1 })),
+  }))
+
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => mockUseCampaign(),
+}))
+vi.mock('@shared/hooks/useIsImpersonating', () => ({
+  useIsImpersonating: () => mockIsImpersonating(),
+}))
+vi.mock('../election-result/dismissal', () => ({
+  isElectionResultDismissed: () => mockIsDismissed(),
+}))
+vi.mock('helpers/dateHelper', () => ({
+  weeksTill: () => mockWeeksTill(),
+}))
+
+vi.mock('@shared/hooks/useUser', () => ({ useUser: () => [null] }))
+// null reads as a Win (campaign) org; a test sets an electedOfficeId for Serve.
+let mockOrganization: { electedOfficeId: number } | null = null
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => mockOrganization,
+}))
+vi.mock('./DashboardMenu', () => ({ default: () => null }))
+vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
+vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
+vi.mock('./membership/MembershipChip', () => ({
+  MembershipChip: () => null,
+}))
+// The chat provider pulls in the chat surface's deps, which are irrelevant to
+// this file's DashboardLayout-only assertions. It stands in as a marker
+// element rather than as bare children, because whether the layout mounts the
+// wrapper AT ALL is itself under test below.
+vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
+  useCampaignManagerChat: () => null,
+  DashboardCampaignManagerChat: ({
+    children,
+  }: {
+    children: React.ReactNode
+  }) => <div data-testid="campaign-manager-chat-dock">{children}</div>,
+}))
+vi.mock('@styleguide/components/ui/icons', () => ({
+  MenuIcon: () => null,
+  MessagesSquareIcon: () => null,
+  XMarkIcon: () => null,
+  SparklesIcon: () => null,
+  ClipboardListIcon: () => null,
+  FlagIcon: () => null,
+  SendIcon: () => null,
+  UsersRoundIcon: () => null,
+  SwordsIcon: () => null,
+  ScrollTextIcon: () => null,
+  HouseIcon: () => null,
+  ListChecksIcon: () => null,
+  CircleUserRoundIcon: () => null,
+  MegaphoneIcon: () => null,
+  TargetIcon: () => null,
+}))
+vi.mock('@styleguide', () => ({
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  IconButton: () => null,
+  Sidebar: ({ children }: { children: React.ReactNode }) => children,
+  SidebarInset: ({ children }: { children: React.ReactNode }) => children,
+  SidebarProvider: ({ children }: { children: React.ReactNode }) => children,
+  useSidebar: () => ({ setOpenMobile: vi.fn(), openMobile: false }),
+}))
+
+const renderLayout = () =>
+  render(
+    <DashboardLayout>
+      <div>dashboard content</div>
+    </DashboardLayout>,
+  )
+
+describe('DashboardLayout election-result redirect', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Active campaign whose general election has passed (weeks < 0) with no
+    // recorded result — the condition that forces the election-result gate.
+    mockUseCampaign.mockReturnValue([
+      { details: { electionDate: '2020-01-01' } },
+    ])
+    mockIsImpersonating.mockReturnValue(false)
+    mockIsDismissed.mockReturnValue(false)
+    mockWeeksTill.mockReturnValue({ weeks: -1 })
+  })
+
+  it('redirects a normal user once the general election has passed', async () => {
+    renderLayout()
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/election-result'),
+    )
+  })
+
+  it('still redirects a normal user even if a stale dismissal flag is set', async () => {
+    mockIsDismissed.mockReturnValue(true)
+    renderLayout()
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/election-result'),
+    )
+    // The dismissal check must not be consulted for non-impersonating users;
+    // the `isImpersonating &&` short-circuit guarantees a stale flag can never
+    // suppress the redirect for a real candidate.
+    expect(mockIsDismissed).not.toHaveBeenCalled()
+  })
+
+  it('does not redirect an impersonating admin who dismissed the gate', async () => {
+    mockIsImpersonating.mockReturnValue(true)
+    mockIsDismissed.mockReturnValue(true)
+    renderLayout()
+    await screen.findByText('dashboard content')
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('redirects an impersonating admin who has not dismissed the gate', async () => {
+    mockIsImpersonating.mockReturnValue(true)
+    mockIsDismissed.mockReturnValue(false)
+    renderLayout()
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/election-result'),
+    )
+  })
+})
+
+// The dock is a fixed bar across the bottom of the window, so a route that
+// owns the bottom of the viewport cannot also carry it: door knocking's walk
+// ends its person sheet in the knock-log footer, and the dock painted over the
+// only controls that record a knock. Asserted on whether the wrapper is in the
+// tree rather than on anything it draws — Win/Serve is the wrapper's own
+// decision, and what the layout owes either answer is the chance to make it.
+describe('DashboardLayout chat dock', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseCampaign.mockReturnValue([null])
+    mockIsImpersonating.mockReturnValue(false)
+    mockIsDismissed.mockReturnValue(false)
+    // An election still ahead, so the election-result gate stays out of a pair
+    // of tests that are only about what the layout renders.
+    mockWeeksTill.mockReturnValue({ weeks: 4 })
+  })
+
+  const dock = () => screen.queryByTestId('campaign-manager-chat-dock')
+
+  it('mounts the dock around a page that has not opted out', async () => {
+    render(
+      <DashboardLayout>
+        <div>dashboard content</div>
+      </DashboardLayout>,
+    )
+
+    await screen.findByText('dashboard content')
+    expect(dock()).toContainElement(screen.getByText('dashboard content'))
+  })
+
+  it('drops the dock, keeping the page, for a route that owns the bottom', async () => {
+    render(
+      <DashboardLayout hideChatDock>
+        <div>dashboard content</div>
+      </DashboardLayout>,
+    )
+
+    // The page itself is untouched: this suppresses the dock, not the content
+    // it used to wrap.
+    await screen.findByText('dashboard content')
+    expect(dock()).toBeNull()
+  })
+})
+
+// The title bar's CTA slot, exercised through the real layout rather than a
+// stand-in harness — the wiring under test (ref callback -> state -> context ->
+// portal, plus the mounted-action count) lives in DashboardLayout itself.
+describe('DashboardLayout nav header CTA', () => {
+  const navHeader = { icon: 'flag', label: 'Know Your Opponent' } as const
+  const bar = () =>
+    document.querySelector('[data-slot="nav-header-action"]')?.parentElement
+
+  it('reparents a mounted action into the bar and keeps the bar on mobile', async () => {
+    render(
+      <DashboardLayout navHeader={navHeader}>
+        <div data-testid="page-body">
+          <DashboardNavHeaderAction>
+            <button>Save</button>
+          </DashboardNavHeaderAction>
+        </div>
+      </DashboardLayout>,
+    )
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-slot="nav-header-action"]'),
+      ).toContainElement(screen.getByRole('button', { name: 'Save' }))
+    })
+    expect(screen.getByTestId('page-body')).not.toContainElement(
+      screen.getByRole('button', { name: 'Save' }),
+    )
+    // The CTA has nowhere else to go on mobile, so the bar stays visible there.
+    await waitFor(() => expect(bar()).toHaveClass('flex'))
+    expect(bar()).not.toHaveClass('hidden')
+  })
+
+  it('keeps the bar desktop-only for Serve when the page state mounts no action', async () => {
+    mockOrganization = { electedOfficeId: 1 }
+    // Pairs with the two cases either side of it: mobile visibility is derived
+    // from a mounted action, never declared. A page-level flag couldn't express
+    // this — it read true for every state of a route, so states with no CTA
+    // (Know Your Opponent's processing screen, Public Profile pre-mint, the
+    // story gate, a loading story) rendered an empty 56px bar on mobile.
+    render(
+      <DashboardLayout navHeader={navHeader}>
+        <div data-testid="page-body">no CTA in this state</div>
+      </DashboardLayout>,
+    )
+
+    await waitFor(() => expect(bar()).toBeTruthy())
+    expect(bar()).toHaveClass('hidden')
+    expect(bar()).toHaveClass('lg:flex')
+    mockOrganization = null
+  })
+
+  it('drops the bar for Win when the page has no action, keeping a hidden heading', () => {
+    render(
+      <DashboardLayout navHeader={navHeader}>
+        <div data-testid="page-body">no CTA in this state</div>
+      </DashboardLayout>,
+    )
+
+    expect(bar()).toBeUndefined()
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Know Your Opponent' }),
+    ).toHaveClass('sr-only')
+  })
+
+  it('drops the action back out of the bar when it unmounts', async () => {
+    const { rerender } = render(
+      <DashboardLayout navHeader={navHeader}>
+        <DashboardNavHeaderAction>
+          <button>Save</button>
+        </DashboardNavHeaderAction>
+      </DashboardLayout>,
+    )
+    await waitFor(() => expect(bar()).toHaveClass('flex'))
+
+    rerender(
+      <DashboardLayout navHeader={navHeader}>
+        <div>state with no CTA</div>
+      </DashboardLayout>,
+    )
+
+    // Win: with its only action gone, the bar goes too.
+    await waitFor(() => expect(bar()).toBeUndefined())
+    expect(
+      screen.queryByRole('button', { name: 'Save' }),
+    ).not.toBeInTheDocument()
+  })
+})

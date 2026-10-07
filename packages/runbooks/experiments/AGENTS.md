@@ -148,7 +148,7 @@ pipeline before editing, since the names are easy to confuse:
 
 | Experiment | Pipeline | gp-api consumer | Sourcing |
 |------------|----------|-----------------|----------|
-| `race_opponent_collection` | relaxed (the live `/dashboard/race-opponent` page) | `RaceOpponentService.collect`/`collectManual` | relaxed |
+| `race_opponent_collection` | relaxed (the live `/race-opponent` page) | `RaceOpponentService.collect`/`collectManual` | relaxed |
 | `race_opponent_summary` | relaxed (chained after collection) | `RaceOpponentService.dispatchSummary` (called from `RaceOpponentPersistService`) | relaxed |
 | `race_opponent_actions` | relaxed (chained after summary; inputs are the persisted summary sections plus Haystaq district sentiment) | gp-api RaceOpponent actions chain (ENG-10646) | relaxed |
 | `self_research` | strict engine (candidate's own pass) | `SelfResearchService` | sourced-or-silent |

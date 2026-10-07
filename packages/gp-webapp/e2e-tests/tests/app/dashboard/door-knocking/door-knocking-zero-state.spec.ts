@@ -68,9 +68,8 @@ test.describe('native door-knocking zero state', () => {
     // visible text) — not "Close" — since session's chrome pass.
     await page.getByRole('button', { name: 'Exit', exact: true }).click()
 
-    await page.waitForURL(
-      (url) => !url.pathname.startsWith('/dashboard/door-knocking'),
-      { timeout: 30_000 },
-    )
+    await page.waitForURL((url) => !url.pathname.startsWith('/door-knocking'), {
+      timeout: 30_000,
+    })
   })
 })

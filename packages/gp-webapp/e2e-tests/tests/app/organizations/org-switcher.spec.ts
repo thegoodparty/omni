@@ -19,16 +19,16 @@ test.describe('Organization Switcher', () => {
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    await page.goto('/home', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     const options = await getOrgPickerOptions(page)
     expect(options).toHaveLength(2)
   })
 
-  test('switching to campaign org routes to /dashboard', async ({ page }) => {
+  test('switching to campaign org routes to /home', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // After setup, EO org is selected. Find the other (campaign) org.
@@ -38,14 +38,14 @@ test.describe('Organization Switcher', () => {
     expect(campaignOrgName).toBeTruthy()
 
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
   })
 
-  test('switching to elected office org routes to /dashboard/chief-of-staff', async ({
+  test('switching to elected office org routes to /chief-of-staff', async ({
     page,
   }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Get org names dynamically
@@ -55,19 +55,19 @@ test.describe('Organization Switcher', () => {
 
     // Switch to campaign first
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
     await NavigationHelper.dismissOverlays(page)
 
     // Switch back to EO
     await switchOrganization(page, eoOrgName)
-    await expect(page).toHaveURL(/\/dashboard\/chief-of-staff/, {
+    await expect(page).toHaveURL(/\/chief-of-staff/, {
       timeout: 15000,
     })
   })
 
   test('org selection persists across page reload', async ({ page }) => {
     await setupElectedOfficeUser(page)
-    await page.goto('/dashboard/polls', { waitUntil: 'domcontentloaded' })
+    await page.goto('/polls', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     // Get org names dynamically and switch to campaign
@@ -76,7 +76,7 @@ test.describe('Organization Switcher', () => {
     const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)!
 
     await switchOrganization(page, campaignOrgName)
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page).toHaveURL(/\/home$/, { timeout: 15000 })
     await NavigationHelper.dismissOverlays(page)
 
     const selectedBefore = await getSelectedOrgName(page)

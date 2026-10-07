@@ -17,7 +17,7 @@ vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
 }))
 
 // deck.gl and maplibre don't run in jsdom.
-vi.mock('app/dashboard/door-knocking/native/VoterMapCanvas', () => ({
+vi.mock('app/(dashboard)/door-knocking/native/VoterMapCanvas', () => ({
   __esModule: true,
   default: () => <div data-testid="voter-map" />,
 }))

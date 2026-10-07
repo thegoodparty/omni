@@ -29,7 +29,7 @@ vi.mock('next/navigation', () => ({
   },
 }))
 
-vi.mock('app/dashboard/shared/candidateAccess', () => ({
+vi.mock('app/(dashboard)/shared/candidateAccess', () => ({
   getPostAuthRedirectPath: () => mockGetPostAuthRedirectPath(),
 }))
 
@@ -73,12 +73,12 @@ describe('LoginPage', () => {
   })
 
   it('signed out with a deep link: forwards next, and the sign-up variant carries it through the phone step', async () => {
-    await renderLoginPage({ redirect_url: '/dashboard/briefings' })
+    await renderLoginPage({ redirect_url: '/briefings' })
 
     expect(mockSignIn).toHaveBeenCalledWith(
       expect.objectContaining({
-        forceRedirectUrl: '/post-auth-redirect?next=%2Fdashboard%2Fbriefings',
-        signUpForceRedirectUrl: '/sign-up/phone?next=%2Fdashboard%2Fbriefings',
+        forceRedirectUrl: '/post-auth-redirect?next=%2Fbriefings',
+        signUpForceRedirectUrl: '/sign-up/phone?next=%2Fbriefings',
       }),
     )
   })
@@ -96,21 +96,21 @@ describe('LoginPage', () => {
 
   it('already signed in, no deep link: redirects via the role-aware resolver', async () => {
     mockAuth.mockResolvedValue({ userId: 'user_123' })
-    mockGetPostAuthRedirectPath.mockResolvedValue('/dashboard')
+    mockGetPostAuthRedirectPath.mockResolvedValue('/home')
 
     await renderLoginPage()
 
-    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
+    expect(mockRedirect).toHaveBeenCalledWith('/home')
     expect(mockSignIn).not.toHaveBeenCalled()
   })
 
   it('already signed in with a deep link: redirects through post-auth-redirect with next', async () => {
     mockAuth.mockResolvedValue({ userId: 'user_123' })
 
-    await renderLoginPage({ redirect_url: '/dashboard/briefings' })
+    await renderLoginPage({ redirect_url: '/briefings' })
 
     expect(mockRedirect).toHaveBeenCalledWith(
-      '/post-auth-redirect?next=%2Fdashboard%2Fbriefings',
+      '/post-auth-redirect?next=%2Fbriefings',
     )
   })
 })

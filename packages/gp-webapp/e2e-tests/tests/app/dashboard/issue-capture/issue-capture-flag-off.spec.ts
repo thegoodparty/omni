@@ -119,7 +119,7 @@ test.describe('issue capture with its flag off', () => {
       page.getByRole('button', { name: 'Hear from voters' }),
     ).toHaveCount(0)
 
-    await page.goto('/dashboard/outreach')
+    await page.goto('/outreach')
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
       timeout: 30_000,
     })
@@ -134,11 +134,11 @@ test.describe('issue capture with its flag off', () => {
       page.getByRole('button', { name: 'Hear from voters' }),
     ).toHaveCount(0)
 
-    await page.goto(`/dashboard/issue-capture/${FIXTURE_OUTREACH_ID}`)
+    await page.goto(`/issue-capture/${FIXTURE_OUTREACH_ID}`)
     await page.waitForURL(
       (url) =>
-        url.pathname.startsWith('/dashboard') &&
-        !url.pathname.startsWith('/dashboard/issue-capture'),
+        url.pathname.startsWith('/home') &&
+        !url.pathname.startsWith('/issue-capture'),
       { timeout: 30_000 },
     )
     await expect(
@@ -146,7 +146,7 @@ test.describe('issue capture with its flag off', () => {
     ).toHaveCount(0)
 
     await stubPhoneOutreach(page)
-    await page.goto(`/dashboard/outreach?outreachId=${FIXTURE_OUTREACH_ID}`, {
+    await page.goto(`/outreach?outreachId=${FIXTURE_OUTREACH_ID}`, {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)

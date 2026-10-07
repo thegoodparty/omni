@@ -32,8 +32,8 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
     test.setTimeout(120000)
 
     await authenticateTestUser(page, { isolated: true })
-    await page.goto('/dashboard')
-    await page.waitForURL(/\/dashboard/)
+    await page.goto('/home')
+    await page.waitForURL(/\/home/)
     // Dismiss the Pro promo modal first: it aria-hides the page and ignores
     // Escape, so waitForDashboardReady's Escape-based close can't clear it —
     // only dismissOverlays (clicks the close button) can. Matches dashboard.spec.
@@ -45,14 +45,14 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
     // redirect to settle before asserting, so a cold preview's slow fetch
     // doesn't outrun the heading assertion.
     await page.getByRole('button', { name: 'Get Pro' }).click()
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop$/)
+    await page.waitForURL(/\/pro-upgrade\/value-prop$/)
     await expect(
       page.getByRole('heading', { name: /76% of candidates who use Pro win/i }),
     ).toBeVisible()
 
     // Value prop → filing-status step.
     await page.getByRole('button', { name: 'Get Pro for $10/mo' }).click()
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/status$/)
+    await page.waitForURL(/\/pro-upgrade\/status$/)
     await expect(
       page.getByRole('heading', {
         name: /Have you already filed for your race/i,
@@ -61,7 +61,7 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
 
     // "No, not yet" → the filing-instructions dead-end.
     await page.getByRole('button', { name: /No, not yet/i }).click()
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/filing-instructions$/)
+    await page.waitForURL(/\/pro-upgrade\/filing-instructions$/)
     await expect(
       page.getByRole('heading', {
         name: /You're not eligible for Pro yet/i,
@@ -117,7 +117,7 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
 
     // Exit returns to the dashboard.
     await page.getByRole('button', { name: 'Continue to dashboard' }).click()
-    await page.waitForURL(/\/dashboard$/)
-    await expect(page).toHaveURL(/\/dashboard$/)
+    await page.waitForURL(/\/home$/)
+    await expect(page).toHaveURL(/\/home$/)
   })
 })

@@ -14,7 +14,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-NAV_REGISTRY='packages/gp-webapp/app/dashboard/shared/DashboardMenu.tsx'
+NAV_REGISTRY='packages/gp-webapp/app/(dashboard)/shared/DashboardMenu.tsx'
 MAP='packages/gp-api/src/chats/general/product-knowledge/productMap.ts'
 
 payload="$(cat)"
@@ -64,7 +64,7 @@ case "$file_path" in
     fi
     exit 0
     ;;
-  *packages/gp-webapp/app/dashboard/*page.tsx)
+  *packages/gp-webapp/app/\(dashboard\)/*page.tsx)
     emit_context "You edited a dashboard route. If this change adds or renames something a user can reach, add or update its entry in $MAP so the Campaign Manager and Chief of Staff can answer questions about it. The coverage check only sees nav tabs, so a feature reached from inside another page is on you. Read the AGENTS.md beside that file. If the change is not user-visible, ignore this."
     exit 0
     ;;

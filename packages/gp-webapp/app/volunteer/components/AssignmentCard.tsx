@@ -4,7 +4,7 @@ import type { MyAssignment } from '@goodparty_org/contracts'
 import {
   ChannelBadge,
   HistoryStatusText,
-} from 'app/dashboard/outreach/v2/channelMeta'
+} from 'app/(dashboard)/outreach/v2/channelMeta'
 
 // A separate vocabulary from historyStatus.util.ts's getHistoryStatusLabel:
 // that helper resolves off a full Outreach row (projectId, phoneListId) this

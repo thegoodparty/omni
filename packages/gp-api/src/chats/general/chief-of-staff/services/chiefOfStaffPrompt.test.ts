@@ -175,7 +175,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
         'affected: put off (Owners across town, asking: Would you pay ' +
         'toward this?): Keep renters near the new line.',
     )
-    expect(prompt).toContain("[the priority's title](/dashboard/priorities/ID)")
+    expect(prompt).toContain("[the priority's title](/priorities/ID)")
     expect(prompt).toContain('Do not run its steps')
     expect(prompt).not.toContain('CHECKS THEY PUT OFF')
   })

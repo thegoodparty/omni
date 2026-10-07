@@ -75,22 +75,22 @@ const findPackageRoot = (): string => {
 export const PACKAGE_ROOT = findPackageRoot()
 
 // Routes whose every string is Serve copy. A subset of `SERVE_ROUTE_PREFIXES`
-// in `app/dashboard/shared/serveRoutes.ts` — being serve-GATED is not the same
+// in `app/(dashboard)/shared/serveRoutes.ts` — being serve-GATED is not the same
 // as being serve-ONLY, and the difference is load-bearing:
 // `SHARED_SERVE_ROUTES` below names the gated routes that Win also reads.
 export const SERVE_ONLY_DIRS: readonly string[] = [
-  'app/dashboard/chief-of-staff',
-  'app/dashboard/briefings',
-  'app/dashboard/ordinances',
-  'app/dashboard/community-issues',
-  'app/dashboard/priorities',
-  'app/dashboard/constituent-outreach',
-  'app/dashboard/admin-review/briefings',
+  'app/(dashboard)/chief-of-staff',
+  'app/(dashboard)/briefings',
+  'app/(dashboard)/ordinances',
+  'app/(dashboard)/community-issues',
+  'app/(dashboard)/priorities',
+  'app/(dashboard)/constituent-outreach',
+  'app/(dashboard)/admin-review/briefings',
   'app/serve',
   // The Serve onboarding lives under `app/polls/` for historical reasons —
   // `app/polls/onboarding/page.tsx` is titled "Serve Onboarding" and fires
   // EVENTS.ServeOnboarding — so it is Serve-only despite the path, and its
-  // sibling `/dashboard/polls` is not (see SHARED_SERVE_ROUTES). Missing it
+  // sibling `/polls` is not (see SHARED_SERVE_ROUTES). Missing it
   // is not hypothetical: five "based on your voter file" insights shipped to
   // elected officials on the first screen of onboarding, and this check ran
   // clean over them because the directory was not listed here.
@@ -103,9 +103,8 @@ export const SERVE_ONLY_DIRS: readonly string[] = [
 // SERVE_ROUTE_PREFIXES to one of the two lists: a new Serve route then has to
 // be classified by whoever adds it instead of silently going unchecked.
 export const SHARED_SERVE_ROUTES: Readonly<Record<string, string>> = {
-  '/dashboard/polls':
-    'Campaigns commission polls too, so the surface carries Win copy.',
-  '/dashboard/public-profile':
+  '/polls': 'Campaigns commission polls too, so the surface carries Win copy.',
+  '/public-profile':
     "Shared editor; publicProfileAccess.ts returns 'serve' | 'win'.",
 }
 
@@ -519,9 +518,9 @@ export const formatViolations = (
 export const VIOLATION_GUIDANCE = `Serve users are elected officials: they have constituents, an office and a term.
 Fix by giving the shared component a mode-keyed copy object or an isServe
 argument — never by renaming the Win string, which must not change. Models:
-  app/dashboard/shared/contactsLabels.ts                       (full label set)
-  app/dashboard/door-knocking/native/statusPresentation.ts      (sparse override)
-  app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx  (spread over Win)
+  app/(dashboard)/shared/contactsLabels.ts                       (full label set)
+  app/(dashboard)/door-knocking/native/statusPresentation.ts      (sparse override)
+  app/(dashboard)/outreach/v2/phone-banking/PhoneBankingFlow.tsx  (spread over Win)
 
 "campaign" is fine when it means an outreach campaign ("Campaign name",
 "Outreach campaign history") and wrong when it means a run for office

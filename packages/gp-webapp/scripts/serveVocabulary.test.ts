@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SERVE_ROUTE_PREFIXES } from '../app/dashboard/shared/serveRoutes'
+import { SERVE_ROUTE_PREFIXES } from '../app/(dashboard)/shared/serveRoutes'
+import { isDashboardRoute } from '../app/shared/utils/dashboardRoutes'
 import {
   SEEDED_ALLOWLIST,
   SERVE_ONLY_DIRS,
@@ -27,7 +28,10 @@ describe('Serve vocabulary', () => {
   // Serve route fails this until it is.
   it('classifies every serve-gated route as serve-only or shared', () => {
     const unclassified = SERVE_ROUTE_PREFIXES.filter((prefix) => {
-      const dir = `app${prefix}`
+      // Dashboard routes sit in the (dashboard) route group, which the URL omits.
+      const dir = isDashboardRoute(prefix)
+        ? `app/(dashboard)${prefix}`
+        : `app${prefix}`
       return (
         !SERVE_ONLY_DIRS.some(
           (serveOnly) => dir === serveOnly || dir.startsWith(`${serveOnly}/`),
@@ -41,7 +45,9 @@ describe('Serve vocabulary', () => {
   // hold on its own rather than by being a member of a walk's output.
   it('screens the paths it has an opinion about', () => {
     expect(isScannablePath('app/serve/onboarding/Flow.tsx')).toBe(true)
-    expect(isScannablePath('app/dashboard/shared/contactsLabels.ts')).toBe(true)
+    expect(isScannablePath('app/(dashboard)/shared/contactsLabels.ts')).toBe(
+      true,
+    )
     expect(isScannablePath('app/serve/Flow.test.tsx')).toBe(false)
     expect(isScannablePath('app/serve/Flow.stories.tsx')).toBe(false)
     expect(isScannablePath('app/types/globals.d.ts')).toBe(false)
@@ -58,8 +64,8 @@ describe('Serve vocabulary', () => {
   })
 })
 
-const SERVE_FILE = 'app/dashboard/constituent-outreach/Probe.tsx'
-const SHARED_FILE = 'app/dashboard/outreach/v2/Probe.tsx'
+const SERVE_FILE = 'app/(dashboard)/constituent-outreach/Probe.tsx'
+const SHARED_FILE = 'app/(dashboard)/outreach/v2/Probe.tsx'
 
 const words = (file: string, source: string): string[] =>
   scanSource(file, source).map((violation) => violation.word)
@@ -112,7 +118,7 @@ export const copy = 'Tell your constituents what changed'`,
         `import { VOTER_LABELS } from './voterLabels'
 export const enumValue = 'not_a_voter'
 export const route = 'POST /v1/voters/voter-file'
-export const path = '/dashboard/contacts/voter-file'
+export const path = '/contacts/voter-file'
 const El = () => <div className="voter-grid gap-2" data-testid="voter-row" />
 export const keyed = { voter: 'Someone you represent' }`,
       ),

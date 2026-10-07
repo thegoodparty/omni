@@ -13,7 +13,7 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 // E2E coverage for the Pro-upgrade wizard's step derivation, resume, and isPro
 // routing (ENG-10322 AC #3/#4). The wizard has no server-side session: every
 // entry re-derives the resume step from canonical state via
-// `deriveProUpgradeStep` (app/dashboard/pro-upgrade/proUpgradeStep.ts). The
+// `deriveProUpgradeStep` (app/(dashboard)/pro-upgrade/proUpgradeStep.ts). The
 // pure function is unit-tested; these tests prove the routing end-to-end.
 //
 // Each scenario seeds canonical state through the authed `client` (the same
@@ -22,7 +22,7 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 // each test its own user because these mutate campaign-level state (EIN,
 // filing, isPro).
 
-const PRO_UPGRADE_PATH = '/dashboard/pro-upgrade'
+const PRO_UPGRADE_PATH = '/pro-upgrade'
 
 // The slice of GET /v1/campaigns/mine the no-mutation assertion reads. The
 // authed axios `client` is untyped, so annotate the response to avoid `any`.
@@ -84,7 +84,7 @@ test.describe('pro-upgrade step derivation & resume', () => {
     )
   })
 
-  test('"Maybe later" exits to /dashboard with no state mutation', async ({
+  test('"Maybe later" exits to /home with no state mutation', async ({
     page,
   }) => {
     const { client } = await authenticateTestUser(page, { isolated: true })
@@ -101,8 +101,8 @@ test.describe('pro-upgrade step derivation & resume', () => {
 
     await page.getByRole('button', { name: 'Maybe later' }).click()
 
-    await page.waitForURL('**/dashboard', { timeout: 30_000 })
-    expect(new URL(page.url()).pathname).toBe('/dashboard')
+    await page.waitForURL('**/home', { timeout: 30_000 })
+    expect(new URL(page.url()).pathname).toBe('/home')
 
     // "Maybe later" is a pure navigation — it must not persist anything. Assert
     // the canonical wizard inputs are untouched (no EIN, no filing answer).
@@ -131,8 +131,8 @@ test.describe('pro-upgrade step derivation & resume', () => {
   //
   // Per ENG-10477's fallback guidance, this is left as a documented TODO rather
   // than faked: once the happy-path Pro-upgrade e2e exists and lands a post-Pro
-  // user, assert here that `goto('/dashboard/pro-upgrade')` for that user
-  // resolves to `/dashboard/pro-upgrade/success` and never `/payment`. The
+  // user, assert here that `goto('/pro-upgrade')` for that user
+  // resolves to `/pro-upgrade/success` and never `/payment`. The
   // routing branch itself is unit-covered in proUpgradeStep.test.ts.
   test.fixme('isPro candidate is routed to success, never to /payment', () => {
     throw new Error('deferred — see comment above')

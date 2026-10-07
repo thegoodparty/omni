@@ -65,7 +65,7 @@ export const startBriefingReview = async (
   const url = `${webappUrl}/impersonate?__clerk_ticket=${encodeURIComponent(
     token
   )}&returnTo=${encodeURIComponent(
-    '/dashboard/admin-review/briefings/' + briefing.meetingDate
+    '/admin-review/briefings/' + briefing.meetingDate
   )}&adminReturnTo=${encodeURIComponent('/dashboard/briefings')}`
 
   return { url }

@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
-import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
+import { clearElectionResultDismissed } from 'app/(dashboard)/election-result/dismissal'
 import { clientRequest } from 'gpApi/typed-request'
 import { setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { resolveOrgSlug } from '@shared/organizations/resolveOrgSlug'
+import { isDashboardRoute } from '@shared/utils/dashboardRoutes'
 
 const isSafeRelativePath = (s: string | null): s is string => {
   if (typeof s !== 'string') return false
@@ -16,12 +17,14 @@ const isSafeRelativePath = (s: string | null): s is string => {
   return !(s.startsWith('//') || s.startsWith('/\\'))
 }
 
-// returnTo is a gp-webapp path, so restrict it to the dashboard.
+// returnTo is a gp-webapp path, so restrict it to the dashboard. The legacy
+// /dashboard/ prefix stays allowed: gp-admin deploys separately and next.config
+// redirects those paths to their current home.
 const isSafeReturnTo = (s: string | null): s is string =>
-  isSafeRelativePath(s) && s.startsWith('/dashboard/')
+  isSafeRelativePath(s) && (isDashboardRoute(s) || s.startsWith('/dashboard/'))
 
 // adminReturnTo is a gp-admin portal path (handed to GP_ADMIN_URL on stop), so
-// it must NOT be held to gp-webapp's /dashboard/ allowlist — any safe relative
+// it must NOT be held to gp-webapp's dashboard allowlist — any safe relative
 // path is valid there.
 const isSafeAdminReturnTo = (s: string | null): s is string =>
   isSafeRelativePath(s)
@@ -103,9 +106,7 @@ export default function ImpersonatePageContent() {
         if (isSafeAdminReturnTo(adminReturnTo)) {
           sessionStorage.setItem('gp_admin_return_to', adminReturnTo)
         }
-        window.location.href = isSafeReturnTo(returnTo)
-          ? returnTo
-          : '/dashboard'
+        window.location.href = isSafeReturnTo(returnTo) ? returnTo : '/home'
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[impersonate] Failed:', err)

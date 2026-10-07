@@ -464,7 +464,7 @@ export default function FollowOnFlow({
         )
         return
       }
-      router.push('/dashboard')
+      router.push('/home')
       return
     }
 
@@ -496,7 +496,7 @@ export default function FollowOnFlow({
     }
     // The first step has no in-flow predecessor. Exit to the dashboard rather
     // than trapping the user — this flow is entered from the org switcher.
-    router.push('/dashboard')
+    router.push('/home')
   }
 
   if (!ready) {
@@ -599,7 +599,7 @@ export default function FollowOnFlow({
             onClick={goBack}
             // Once the campaign exists, going back can't un-create it, so block
             // back-navigation to earlier steps. Also block while a create is in
-            // flight: on the first step Back exits to /dashboard, which would
+            // flight: on the first step Back exits to /home, which would
             // otherwise abandon the session mid-creation. On the first step (no
             // previousStep) Back exits the flow, so it stays enabled there.
             disabled={liveCampaign !== null || isCreating}

@@ -1,0 +1,673 @@
+'use client'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from '@styleguide'
+import Image from 'next/image'
+import Link from 'next/link'
+import {
+  LuCircleCheck,
+  LuCircleX,
+  LuClipboardList,
+  LuContact,
+  LuFolderOpen,
+  LuFrown,
+  LuMessageSquareMore,
+  LuSmile,
+} from 'react-icons/lu'
+import { useContactsTable } from '../ContactsTableProvider'
+import {
+  ConstituentActivity,
+  OutreachConstituentActivity,
+  Person,
+  PollConstituentActivity,
+} from '../shared/contacts-types'
+import {
+  OUTREACH_CHANNEL_ICONS,
+  OUTREACH_CHANNEL_LABELS,
+} from '../shared/outreachChannelLabels'
+import { isNotNil } from 'es-toolkit'
+import { ReactNode, useEffect, useRef } from 'react'
+import Map from '@shared/utils/Map'
+import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { InfoSection } from './InfoSection'
+import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import FollowUpRow from './FollowUpRow'
+import NotesSection from './NotesSection'
+import StatusRow from './StatusRow'
+import {
+  DoorKnockActivityRow,
+  formatDateTime,
+  PhoneBankingActivityRow,
+  RobocallActivityRow,
+  StatusChangeActivityRow,
+  TextActivityRow,
+} from './ActivityFeedEntry'
+
+export const formatPersonName = (person: Person) =>
+  [person.firstName, person.lastName, person.nameSuffix]
+    .filter(Boolean)
+    .map((n) => n!.trim())
+    .join(' ')
+
+const ACTIVITY_EVENT_LABELS: Record<string, string> = {
+  SENT: 'Sent',
+  RESPONDED: 'Responded',
+  OPTED_OUT: 'Opted Out',
+}
+
+const isOutreachActivity = (
+  activity: ConstituentActivity,
+): activity is OutreachConstituentActivity => activity.type === 'OUTREACH'
+
+// ENG-10695 unioned ContactInteraction* entries into the feed response;
+// ENG-10698 (task 07) widened rendering to draw them via ActivityFeedEntry.
+// Notes were unioned in too but removed from the feed in ENG-10780 — they
+// live only in the dedicated Notes section now.
+const isPollActivity = (
+  activity: ConstituentActivity,
+): activity is PollConstituentActivity => activity.type === 'POLL_INTERACTIONS'
+
+const OutreachActivityRow: React.FC<{
+  activity: OutreachConstituentActivity
+}> = ({ activity }) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <div className="flex items-center gap-2">
+      {OUTREACH_CHANNEL_ICONS[activity.data.outreachType]}
+      <p className="text-sm font-semibold text-foreground">
+        {OUTREACH_CHANNEL_LABELS[activity.data.outreachType]}
+      </p>
+      {activity.data.attributionSource === 'segmentDerived' ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Sent to segment
+        </p>
+      ) : null}
+    </div>
+    {activity.date ? (
+      <p className="text-sm font-normal text-muted-foreground">
+        {formatDateTime(activity.date)}
+      </p>
+    ) : null}
+  </div>
+)
+
+const PollActivityRow: React.FC<{ activity: PollConstituentActivity }> = ({
+  activity,
+}) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <Link
+      className="font-medium text-info underline mb-2"
+      href={`/polls/${activity.data.pollId}`}
+      target="_blank"
+    >
+      {activity.data.pollTitle}
+    </Link>
+    {activity.data.events?.length ? (
+      <div className="mt-1 flex flex-col text-sm font-normal text-muted-foreground">
+        {activity.data.events.map((evt, i) => {
+          return (
+            <div key={i} className="flex flex-col">
+              <div className="flex items-center gap-2">
+                {evt.type === 'SENT' && (
+                  <LuCircleCheck
+                    size={16}
+                    className="shrink-0 text-foreground"
+                  />
+                )}
+                {evt.type === 'RESPONDED' && (
+                  <LuMessageSquareMore
+                    size={16}
+                    className="shrink-0 text-foreground"
+                  />
+                )}
+                {evt.type === 'OPTED_OUT' && (
+                  <LuCircleX size={16} className="shrink-0 text-foreground" />
+                )}
+
+                <p className="text-sm font-semibold text-foreground">
+                  {ACTIVITY_EVENT_LABELS[evt.type] ?? evt.type}
+                </p>
+              </div>
+
+              <div className="flex gap-2 h-7">
+                <div className="flex items-center gap-2">
+                  <div className="flex w-4 shrink-0 justify-center">
+                    {i < activity.data.events.length - 1 ? (
+                      <div className="h-5 w-px bg-border my-1" />
+                    ) : null}
+                  </div>
+                </div>
+                <p className="text-sm font-normal text-muted-foreground justify-self-start">
+                  {evt.date ? formatDateTime(evt.date) : ''}
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    ) : null}
+  </div>
+)
+
+const Field: React.FC<{ label: string; value: ReactNode | string | null }> = ({
+  label,
+  value,
+}) => (
+  <div className="flex flex-col gap-1">
+    <p className="text-sm text-muted-foreground">{label}</p>
+    <div className="text-md">{value ?? 'Unknown'}</div>
+  </div>
+)
+
+const TopIssuesContent: React.FC = () => {
+  const {
+    currentlySelectedPerson: {
+      issues,
+      isLoadingIssues: isLoading,
+      isErrorIssues: isError,
+      issuesHasNextPage: hasNextPage,
+      issuesFetchNextPage: onViewMore,
+      isFetchingNextIssues: isFetchingNextPage,
+    },
+  } = useContactsTable()
+
+  if (isError || issues.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <Image
+          src="/images/dashboard/no-documents.svg"
+          alt=""
+          width={100}
+          height={100}
+          className="h-15 w-auto"
+        />
+        <p className="text-sm text-muted-foreground">Data not available.</p>
+      </div>
+    )
+  }
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-2">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-16 bg-muted rounded animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-6">
+      {issues.map((issue, idx) => (
+        <div key={idx} className="flex flex-col gap-1">
+          <Link
+            className="font-medium text-info underline"
+            href={`/polls/${issue.pollId}`}
+            target="_blank"
+          >
+            {issue.issueTitle}
+          </Link>
+          {issue.issueSummary ? (
+            <p className="text-sm font-normal text-muted-foreground">
+              {issue.issueSummary}
+            </p>
+          ) : null}
+        </div>
+      ))}
+      {hasNextPage ? (
+        <Button
+          type="button"
+          onClick={() => onViewMore()}
+          disabled={isFetchingNextPage}
+          variant="outline"
+          className="mt-4"
+        >
+          {isFetchingNextPage ? 'Loading...' : 'View more'}
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+const ActivitiesContent: React.FC = () => {
+  const {
+    currentlySelectedPerson: {
+      activities,
+      isLoadingActivities: isLoading,
+      isErrorActivities: isError,
+      activitiesHasNextPage: hasNextPage,
+      activitiesFetchNextPage: onViewMore,
+      isFetchingNextActivities: isFetchingNextPage,
+    },
+    currentlySelectedPersonId,
+    isWinContext,
+    isWinContextReady,
+  } = useContactsTable()
+  const hasActivities = activities.length > 0
+
+  // "Did a Win user see attributed outreach" is a narrower question than
+  // "does the feed have any rows" — scoped to legacy OUTREACH rows
+  // specifically so the CRM-widened entry types (manual door knocks, texts,
+  // ...) can't inflate this pre-existing adoption metric.
+  const hasOutreachRows = activities.some(isOutreachActivity)
+
+  // Fire once per opened person when the Win outreach timeline actually
+  // renders rows (not while loading and not for an empty/error feed), so the
+  // event answers "did a Win user see attributed outreach" rather than "did
+  // the overlay open". Gate on isWinContextReady and latch on the person id
+  // (same pattern as CrmContactsPage's Viewed event) so a post-settle
+  // isWinContext toggle (focus revalidation, query re-fetch) can't duplicate
+  // the event for the same person; switching to a different person re-arms
+  // the latch.
+  const firedForPersonRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      isWinContextReady &&
+      isWinContext &&
+      currentlySelectedPersonId &&
+      hasOutreachRows &&
+      !isError &&
+      firedForPersonRef.current !== currentlySelectedPersonId
+    ) {
+      firedForPersonRef.current = currentlySelectedPersonId
+      trackEvent(EVENTS.Contacts.OutreachTimelineViewed, {
+        context: 'win',
+        personId: currentlySelectedPersonId,
+      })
+    }
+  }, [
+    isWinContextReady,
+    isWinContext,
+    currentlySelectedPersonId,
+    hasOutreachRows,
+    isError,
+  ])
+
+  // Not gated on isError: a failed background refetch (activities already
+  // loaded from a prior successful fetch) must keep showing those rows, not
+  // blank a populated feed. First-fetch failure still lands here because
+  // hasActivities is false in that case. Not gated on hasActivities alone
+  // either: a page with no rows of its own can still have a next page of
+  // real ones — hiding "View more" there would permanently strand them. Not
+  // while isLoading either — the initial fetch starts with hasActivities and
+  // hasNextPage both false, so without this the empty state would flash
+  // before the loading skeleton ever gets a chance to render.
+  if (!isLoading && !hasActivities && !hasNextPage) {
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <Image
+          src="/images/dashboard/no-search-result.svg"
+          alt=""
+          width={100}
+          height={100}
+          className="h-15 w-auto"
+        />
+        <p className="text-sm text-muted-foreground">Data not available.</p>
+      </div>
+    )
+  }
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-2">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-16 bg-muted rounded animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      {activities.map((activity, idx) => {
+        if (isOutreachActivity(activity)) {
+          return <OutreachActivityRow key={idx} activity={activity} />
+        }
+        if (isPollActivity(activity)) {
+          return <PollActivityRow key={idx} activity={activity} />
+        }
+        switch (activity.type) {
+          case 'DOOR_KNOCK':
+            return <DoorKnockActivityRow key={idx} activity={activity} />
+          case 'TEXT':
+            return <TextActivityRow key={idx} activity={activity} />
+          case 'ROBOCALL':
+            return <RobocallActivityRow key={idx} activity={activity} />
+          case 'PHONE_BANKING':
+            return <PhoneBankingActivityRow key={idx} activity={activity} />
+          case 'STATUS_CHANGE': {
+            // Belt-and-suspenders mirror of the field filter gp-api already
+            // applies: Win's editable statuses are Win facts and follow-up is
+            // Serve's, so neither surface can render the answer to a question
+            // its own canvassers never asked. Held back until the mode has
+            // settled, since the default reads Win.
+            const isServeField = activity.data.field === 'follow_up'
+            return isWinContextReady && isWinContext !== isServeField ? (
+              <StatusChangeActivityRow key={idx} activity={activity} />
+            ) : null
+          }
+          default:
+            // Exhaustiveness guard: a new ConstituentActivityType added to
+            // the contract without a render branch here fails the build
+            // instead of silently dropping rows. satisfies erases at runtime,
+            // so an unknown server type must still return null, not the raw
+            // object (React would throw on an object child).
+            void (activity satisfies never)
+            return null
+        }
+      })}
+      {hasNextPage ? (
+        <Button
+          type="button"
+          onClick={() => onViewMore()}
+          disabled={isFetchingNextPage}
+          variant="outline"
+          className="mt-2"
+        >
+          {isFetchingNextPage ? 'Loading...' : 'View more'}
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+const INCOME_BUCKETS = [
+  { label: 'Less than $1k', min: 0, max: 1000 },
+  { label: '$1k - $15k', min: 1000, max: 15000 },
+  { label: '$15k - $25k', min: 15000, max: 25000 },
+  { label: '$25k - $35k', min: 25000, max: 35000 },
+  { label: '$35k - $50k', min: 35000, max: 50000 },
+  { label: '$50k - $75k', min: 50000, max: 75000 },
+  { label: '$75k - $100k', min: 75000, max: 100000 },
+  { label: '$100k - $125k', min: 100000, max: 125000 },
+  { label: '$125k - $150k', min: 125000, max: 150000 },
+  { label: '$150k - $175k', min: 150000, max: 175000 },
+  { label: '$175k - $200k', min: 175000, max: 200000 },
+  { label: '$200k - $250k', min: 200000, max: 250000 },
+  { label: '$250k+', min: 250000, max: Infinity },
+]
+
+const getIncomeBucket = (income: number | null) => {
+  if (!income) return null
+  return (
+    INCOME_BUCKETS.find(
+      (bucket) => income >= bucket.min && income <= bucket.max,
+    ) ?? null
+  )
+}
+
+// The record itself, without the contacts table around it, so a chat card can
+// open a constituent the way this page does. The three parts that read the
+// table's own queries come in as slots; a surface without the table omits
+// them and gets the rest of the record unchanged.
+export const PersonRecord: React.FC<{
+  person: Person
+  // Named for the surface, not for one of its consequences: this flag decides
+  // party visibility AND the card's whole vocabulary, and calling it
+  // `hidePoliticalParty` is why the voter wording below survived a vocabulary
+  // pass. Serve reads constituents; Win reads voters.
+  isServe: boolean
+  showWinActivities: boolean
+  statusRow?: ReactNode
+  topIssues?: ReactNode
+  activityFeed?: ReactNode
+  showMap?: boolean
+}> = ({
+  person,
+  isServe,
+  showWinActivities,
+  statusRow,
+  topIssues,
+  activityFeed,
+  showMap = true,
+}) => {
+  const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
+  const { on: showActivitiesAndIssues } = useFlagOn(
+    'serve-contacts-activities-and-issues',
+  )
+  const { isWin, isReady: isWinContextReady } = useWinVoterContext()
+
+  // Fires once per person open (this component remounts per person via the
+  // `key={person.id}` on PersonRecord below — a fresh person always gets a
+  // fresh `firedContactViewed` ref). Distinct from `Contacts.Viewed`, which
+  // fires from the contacts page itself.
+  const firedContactViewedRef = useRef(false)
+  useEffect(() => {
+    if (isWinContextReady && !firedContactViewedRef.current) {
+      firedContactViewedRef.current = true
+      trackEvent(
+        isWin
+          ? EVENTS.VoterData.ContactViewed
+          : EVENTS.ConstituentData.ContactViewed,
+      )
+    }
+  }, [isWinContextReady, isWin])
+
+  // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
+  // Win adds the outreach timeline for campaigns (not elected officials). The
+  // Win decision (not an elected official, elected-office load settled) is
+  // computed once in the provider as isWinContext; reuse it so the feed and
+  // the provider's activities query never disagree. Top Issues stays
+  // Serve-only.
+  const showActivityFeed = showActivitiesAndIssues || showWinActivities
+  const details = [person.gender, person.age ? `${person.age} years old` : null]
+    .filter(isNotNil)
+    .join(', ')
+
+  return (
+    <div>
+      <h2 className="text-3xl font-semibold pt-4 pb-2">
+        {formatPersonName(person)}
+      </h2>
+      <p className="text-xl font-semibold mb-6">{details}</p>
+      {/* ENG-10836: Win-only status row (Voter Likelihood / Support Status
+          dropdowns + read-only Opt In Status pill) — replaces the Win branch
+          of the Support Status Field below and the OptedInChip that used to
+          render next to the name above. Self-gates on Win so Serve's
+          rendering (the Field below, no opt-in display) is untouched. */}
+      {statusRow}
+      {/* Serve's only editable per-contact status, self-gating the same way
+          StatusRow does for Win. */}
+      <FollowUpRow person={person} isServe={isServe} />
+      <div className="flex flex-col gap-6">
+        <NotesSection personId={person.id} />
+
+        {/* Flag-gated with the capture that writes it, on each product's own
+            flag. The section renders nothing until there is a memo, so a
+            contact nobody has spoken to is unchanged. */}
+        {issueCaptureEnabled && (
+          <ConstituentFeedbackSection personId={person.id} isServe={isServe} />
+        )}
+
+        {showActivitiesAndIssues && topIssues ? (
+          <InfoSection title="Top Issues" icon={<LuFrown size={24} />}>
+            {topIssues}
+          </InfoSection>
+        ) : null}
+
+        <InfoSection title="Contact Information" icon={<LuContact size={24} />}>
+          <Field
+            label="Address"
+            value={
+              <>
+                <p>{person.address.line1}</p>
+                {person.address.line2 && <p>{person.address.line2}</p>}
+                <p>
+                  {person.address.city}, {person.address.state}{' '}
+                  {person.address.zip}
+                </p>
+              </>
+            }
+          />
+          {showMap && person.address.latitude && person.address.longitude && (
+            <Map
+              places={[
+                {
+                  lat: person.address.latitude,
+                  lng: person.address.longitude,
+                  title: formatPersonName(person),
+                  description: [
+                    person.address.line1,
+                    person.address.line2,
+                    person.address.city,
+                    person.address.state,
+                    person.address.zip,
+                  ]
+                    .filter(isNotNil)
+                    .join(', '),
+                },
+              ]}
+              height="200px"
+            />
+          )}
+          <Field label="Cell Phone Number" value={person.cellPhone} />
+          <Field label="Landline" value={person.landline} />
+        </InfoSection>
+        {/* Win's voter-file card. Serve renders nothing here at all: the
+            three rows it used to carry were a support status Serve can never
+            set (gp-api rejects the write for an `eo-` org — ContactsService
+            .updateContactStatus, ENG-10833) plus registration and turnout
+            propensity, and an official does not ask whether a constituent
+            votes or how reliably. A card with no rows is not a card, so the
+            whole section is Win-only rather than an empty shell. */}
+        {!isServe && (
+          <InfoSection
+            title="Voter Demographics"
+            icon={<LuClipboardList size={24} />}
+          >
+            <Field label="Registered Voter" value={person.registeredVoter} />
+            <Field label="Voter Status" value={person.voterStatus} />
+            <Field label="Political Party" value={person.politicalParty} />
+          </InfoSection>
+        )}
+
+        <InfoSection
+          title="Demographic Information"
+          icon={<LuFolderOpen size={24} />}
+        >
+          <Field label="Marital Status" value={person.maritalStatus} />
+          <Field
+            label="Has Children Under 18"
+            value={person.hasChildrenUnder18}
+          />
+          <Field label="Veteran Status" value={person.veteranStatus} />
+          <Field label="Homeowner" value={person.homeowner} />
+          <Field label="Business Owner" value={person.businessOwner} />
+          <Field label="Level of Education" value={person.levelOfEducation} />
+          <Field
+            label="Estimated Income Range"
+            value={getIncomeBucket(person.estimatedIncomeAmount)?.label ?? null}
+          />
+          <Field label="Language" value={person.language} />
+          {/* Win-only. gp-api already strips `ethnicityGroup` for an `eo-`
+              org, so rendering the row for Serve would print "Unknown" — a
+              claim that the value exists and we do not have it, where the
+              truth is that this product does not state ethnicity to an
+              elected official (#1933). Dropped rather than left to the
+              fallback, the same way the Political Party row above is. */}
+          {!isServe && (
+            <Field label="Ethnicity Group" value={person.ethnicityGroup} />
+          )}
+        </InfoSection>
+
+        {showActivityFeed && activityFeed ? (
+          <InfoSection title="Activity Feed" icon={<LuSmile size={24} />}>
+            {activityFeed}
+          </InfoSection>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+export default function PersonOverlay(): React.JSX.Element {
+  const {
+    currentlySelectedPerson,
+    selectPerson,
+    currentlySelectedPersonId,
+    isElectedOfficial,
+    isWinContext,
+  } = useContactsTable()
+  const { person, isLoadingPerson, isErrorPerson } = currentlySelectedPerson
+
+  const handleClose = (open: boolean) => {
+    if (!open) {
+      selectPerson(null)
+    }
+  }
+  const shouldShowOverlay = !!currentlySelectedPersonId
+
+  return (
+    <Sheet open={shouldShowOverlay} onOpenChange={handleClose}>
+      <SheetTitle className="sr-only" aria-describedby="Contact Information">
+        <span id="contact-information-title">Contact Information</span>
+      </SheetTitle>
+      <SheetContent className="w-screen sm:w-[90vw] sm:max-w-xl h-full overflow-y-auto z-[1301]">
+        <div className="p-6">
+          {isErrorPerson ? (
+            <div className="flex flex-col items-center justify-center h-full">
+              <h2 className="text-2xl font-semibold mb-4">
+                Error Loading Contact
+              </h2>
+              <p className="text-muted-foreground mb-4">
+                We couldn&apos;t load this person&apos;s information. Please try
+                again.
+              </p>
+              <button
+                onClick={() => selectPerson(null)}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
+              >
+                Close
+              </button>
+            </div>
+          ) : isLoadingPerson ? (
+            <div>
+              <div className="h-10 bg-gray-200 rounded animate-pulse mb-4 w-3/4"></div>
+              <div className="h-6 bg-gray-200 rounded animate-pulse mb-4 w-1/3"></div>
+              <div className="flex flex-col gap-6">
+                {[4, 2, 10].map((fieldCount, cardIndex) => (
+                  <Card key={cardIndex}>
+                    <CardHeader>
+                      <div className="h-6 bg-gray-200 rounded animate-pulse w-1/3"></div>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-4">
+                      {Array.from({ length: fieldCount }).map(
+                        (_, fieldIndex) => (
+                          <div key={fieldIndex} className="flex flex-col gap-1">
+                            <div className="h-4 bg-gray-200 rounded animate-pulse w-1/4"></div>
+                            <div className="h-5 bg-gray-200 rounded animate-pulse w-1/2"></div>
+                          </div>
+                        ),
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ) : (
+            person && (
+              <PersonRecord
+                key={person.id}
+                person={person}
+                isServe={isElectedOfficial}
+                showWinActivities={isWinContext}
+                statusRow={
+                  <StatusRow
+                    person={person}
+                    hidePoliticalParty={isElectedOfficial}
+                  />
+                }
+                topIssues={<TopIssuesContent />}
+                activityFeed={<ActivitiesContent />}
+              />
+            )
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}

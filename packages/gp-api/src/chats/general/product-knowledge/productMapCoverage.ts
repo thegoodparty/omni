@@ -18,7 +18,7 @@ import { dirname, resolve } from 'node:path'
 import { PRODUCT_AREAS } from './productMap'
 
 export const NAV_REGISTRY_PATH =
-  'packages/gp-webapp/app/dashboard/shared/DashboardMenu.tsx'
+  'packages/gp-webapp/app/(dashboard)/shared/DashboardMenu.tsx'
 
 // Nav entries that are not product areas and never need a map entry.
 const NOT_A_PRODUCT_AREA = new Set(['nav-log-out'])

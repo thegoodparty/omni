@@ -86,7 +86,7 @@ test.describe('Team invite — new-user ticket redemption', () => {
       const ACCEPT_ATTEMPTS = 3
       for (let attempt = 1; ; attempt++) {
         const navigated = await page
-          .waitForURL((url) => url.pathname === '/dashboard', {
+          .waitForURL((url) => url.pathname === '/home', {
             timeout: 60_000,
           })
           .then(
@@ -100,12 +100,12 @@ test.describe('Team invite — new-user ticket redemption', () => {
         expect(alertText ?? '').not.toContain('already been used')
         expect(
           attempt,
-          `accept never reached /dashboard (alert: ${alertText ?? 'none'})`,
+          `accept never reached /home (alert: ${alertText ?? 'none'})`,
         ).toBeLessThan(ACCEPT_ATTEMPTS)
         // Clerk's rate windows are 10s — wait one out so the re-click isn't
         // spent inside the same exhausted budget.
         await page.waitForTimeout(12_000)
-        if (new URL(page.url()).pathname === '/dashboard') break
+        if (new URL(page.url()).pathname === '/home') break
         await expect(acceptButton).toBeEnabled({ timeout: 30_000 })
         await acceptButton.click()
       }

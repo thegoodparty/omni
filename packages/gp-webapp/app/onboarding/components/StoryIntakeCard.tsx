@@ -1,20 +1,21 @@
 'use client'
 
-import { Card, Textarea } from '@styleguide'
-import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { Card, Textarea, cn } from '@styleguide'
+import { useDictationAppend } from 'app/(dashboard)/shared/dictation/useDictationAppend'
 import {
   useStoryRewrite,
   type StoryRewriteField,
-} from 'app/dashboard/campaign-story/components/useStoryRewrite'
+} from 'app/(dashboard)/campaign-story/components/useStoryRewrite'
 import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
 import { useReportDictationActive } from './useReportDictationActive'
 
 interface StoryIntakeCardProps {
   question: string
-  // Optional sub-line under the question. The dashboard page passes it (there is
-  // no page-level per-question heading there); onboarding leaves it off since
-  // the step chrome already shows the description above the card.
-  description?: string
+  // 'step' (default) is onboarding's: the question leads the card. 'section'
+  // (Your story) sets the question above the card, as the
+  // outreach compose steps do. Either way the field is built like the
+  // outreach compose cards: seamless in the card, over the action footer.
+  variant?: 'step' | 'section'
   // Shown as the italic gray placeholder inside the empty field ("e.g. …").
   examplePlaceholder: string
   value: string
@@ -36,7 +37,7 @@ interface StoryIntakeCardProps {
 // char counter, then the shared action bar.
 export default function StoryIntakeCard({
   question,
-  description,
+  variant = 'step',
   examplePlaceholder,
   value,
   onChange,
@@ -51,27 +52,30 @@ export default function StoryIntakeCard({
   const rewrite = useStoryRewrite(rewriteField, value, onChange)
   const dictation = useDictationAppend({ analyticsLabel, value, onChange })
   useReportDictationActive(dictation.active, onDictationActiveChange)
+  const isSection = variant === 'section'
 
-  return (
-    <Card className="flex flex-col gap-4 p-6">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-bold text-foreground">{question}</h2>
-        {description && (
-          <p className="text-base text-muted-foreground">{description}</p>
-        )}
-      </div>
-
-      <div className="relative">
-        <Textarea
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={examplePlaceholder}
-          className="min-h-40 resize-none pb-9 placeholder:italic placeholder:text-muted-foreground"
-        />
-        <span className="pointer-events-none absolute bottom-2 right-3 text-sm text-muted-foreground">
-          {value.length} chars
-        </span>
-      </div>
+  const heading = (
+    <h2
+      className={cn(
+        'text-foreground',
+        isSection ? 'text-base font-semibold' : 'text-2xl font-bold',
+      )}
+    >
+      {question}
+    </h2>
+  )
+  const field = (
+    <>
+      {/* Starts about as tall as its example and grows with the answer,
+          rather than holding a fixed block of empty space. */}
+      <Textarea
+        variant="seamless"
+        autoGrow
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={examplePlaceholder}
+        className="min-h-24 resize-none placeholder:text-muted-foreground"
+      />
 
       <StoryFieldBar
         rewrite={rewrite}
@@ -79,6 +83,25 @@ export default function StoryIntakeCard({
         improveDisabled={value.trim().length === 0}
         save={save}
       />
+    </>
+  )
+
+  // A section is laid out like an outreach compose step: the question
+  // above, and a card that holds only the field and its
+  // footer. A step keeps the question in the card, under the step's own title.
+  if (isSection) {
+    return (
+      <section className="flex flex-col gap-3">
+        {heading}
+        <Card className="flex flex-col gap-3 p-4">{field}</Card>
+      </section>
+    )
+  }
+
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      {heading}
+      {field}
     </Card>
   )
 }

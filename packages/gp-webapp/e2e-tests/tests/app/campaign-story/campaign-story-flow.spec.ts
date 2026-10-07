@@ -53,9 +53,7 @@ test.describe('campaign story flow', () => {
     ).toBeVisible()
   })
 
-  test('onboarding pledge step routes to the Campaign Manager', async ({
-    page,
-  }) => {
+  test('onboarding pledge step routes to Home', async ({ page }) => {
     test.setTimeout(120000)
     await authenticateTestUser(page, {
       isolated: true,
@@ -67,24 +65,18 @@ test.describe('campaign story flow', () => {
 
     await completeOnboardingUpToPledge(page)
 
-    // The pledge CTA is "Meet your campaign manager"; submitting lands on the
-    // Campaign Manager home (/dashboard), which shows the "meet your campaign
-    // manager" card for a brand-new candidate (no ?personalize, so the chat
-    // does not auto-open here).
-    const submit = page
-      .getByRole('button', { name: /meet your campaign manager/i })
-      .first()
+    // The pledge CTA is "Get started"; submitting lands on Home (/home), whose
+    // headline renders in every state (no ?personalize, so the chat does not
+    // auto-open here).
+    const submit = page.getByRole('button', { name: /^get started$/i }).first()
     await expect(submit).toBeVisible({ timeout: 15000 })
     await expect(submit).toBeEnabled()
     await submit.click()
 
-    await page.waitForURL('**/dashboard', { timeout: 30000 })
-    await expect(
-      page.getByRole('heading', {
-        name: 'Meet your virtual Campaign Manager',
-        level: 2,
-      }),
-    ).toBeVisible({ timeout: 30000 })
+    await page.waitForURL('**/home', { timeout: 30000 })
+    await expect(page.locator('#next-thing-heading')).toBeVisible({
+      timeout: 30000,
+    })
   })
 
   test('campaign plan tab generates without asking, and invites the story alongside it', async ({
@@ -94,7 +86,7 @@ test.describe('campaign story flow', () => {
     // must not share an account another test may have filled in.
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard/campaign-plan')
+    await page.goto('/campaign-plan')
 
     // The story-pinned card is on the plan itself, so reaching it proves the
     // plan rendered rather than a gate standing in front of it.
@@ -108,42 +100,47 @@ test.describe('campaign story flow', () => {
       page.getByRole('button', { name: /generate my campaign plan/i }),
     ).toHaveCount(0)
 
-    // The story is still invited, via the same /dashboard?personalize=1 deep
-    // link, which opens the Campaign Manager chat straight into the story
-    // intake (rather than showing the meet-card home) — so assert the intake
-    // copy the chat streams, not the meet-card heading, which is hidden once
-    // the chat opens.
+    // The story is still invited, via the same /home?personalize=1 deep
+    // link, which opens chat straight into the story intake, so assert the
+    // intake copy the chat streams.
     await storyLink.click()
-    await page.waitForURL('**/dashboard**', { timeout: 30000 })
+    await page.waitForURL('**/home**', { timeout: 30000 })
     await expect(page.getByText(/get your Campaign Story down/i)).toBeVisible({
       timeout: 30000,
     })
   })
 
-  test('"Your Story" nav item is visible and the plan tab reads "Campaign Plan"', async ({
+  test('Your story opens from the Game Plan, and the plan tab reads "Game Plan"', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard')
+    await page.goto('/home')
     await NavigationHelper.dismissOverlays(page)
 
-    await expect(page.locator('#campaign-story-dashboard')).toBeVisible()
     await expect(page.locator('#campaign-plan-dashboard')).toHaveText(
-      /campaign plan/i,
+      /^game plan$/i,
     )
+    await expect(page.locator('#campaign-story-dashboard')).toHaveCount(0)
+
+    await page.goto('/campaign-plan')
+    await page.getByRole('link', { name: /Your story/ }).click()
+    await page.waitForURL('**/campaign-story')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Your story' }),
+    ).toBeVisible({ timeout: 15000 })
   })
 
-  test('/dashboard/campaign-story renders the editor and persists a saved answer', async ({
+  test('/campaign-story renders the editor and persists a saved answer', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
 
-    await page.goto('/dashboard/campaign-story')
+    await page.goto('/campaign-story')
 
-    // No guard redirect: the "Your Story" navHeader renders directly.
+    // No guard redirect: the page's own header renders directly.
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Your Story' }),
+      page.getByRole('heading', { level: 1, name: 'Your story' }),
     ).toBeVisible({ timeout: 15000 })
 
     await expect(
@@ -154,17 +151,15 @@ test.describe('campaign story flow', () => {
     const whyAnswer = `I'm running because my community deserves better — ${Date.now()}`
     await whyField.fill(whyAnswer)
 
-    // The page-level Save button is portaled into the navHeader bar via
-    // DashboardNavHeaderAction.
-    const saveButton = page.getByRole('button', { name: 'Save' })
-    await expect(saveButton).toBeEnabled()
-    await saveButton.click()
-    await expect(saveButton).toBeDisabled({ timeout: 15000 })
+    // No Save button: the answer saves itself once typing stops.
+    await expect(page.getByRole('status')).toHaveText('Saved', {
+      timeout: 15000,
+    })
 
     await page.reload()
 
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Your Story' }),
+      page.getByRole('heading', { level: 1, name: 'Your story' }),
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole('textbox').first()).toHaveValue(whyAnswer, {
       timeout: 15000,

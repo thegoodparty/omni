@@ -330,7 +330,7 @@ test.describe.serial('poll onboarding @dev-only', () => {
     sharedUser = user
     sharedClient = client
 
-    // Elected office users now land on /dashboard/chief-of-staff after winning
+    // Elected office users now land on /chief-of-staff after winning
     // their race, so navigate to the polls welcome screen before onboarding.
     await page.goto('/polls/welcome')
     // Dismiss the cookie banner AFTER landing on /polls/welcome — it re-renders
@@ -528,7 +528,7 @@ test.describe.serial('poll onboarding @dev-only', () => {
     }
 
     // Expand the poll.
-    await page.goto(`/dashboard/polls/${pollId}`)
+    await page.goto(`/polls/${pollId}`)
 
     // The low confidence modal appears again — click "Gather more feedback"
     // which dismisses the modal and navigates to the expansion flow
@@ -773,9 +773,9 @@ test.describe.serial('poll onboarding @dev-only', () => {
     )
 
     // Navigate to contacts page
-    await page.goto('/dashboard')
+    await page.goto('/home')
     await switchOrganization(page, district.office)
-    await page.goto('/dashboard/contacts')
+    await page.goto('/contacts')
     await NavigationHelper.dismissOverlays(page)
 
     // The CRM contacts page has no member table by design (ENG-10756,
@@ -820,10 +820,7 @@ test.describe.serial('poll onboarding @dev-only', () => {
       .getByRole('link', { name: 'Traffic Congestion' })
       .first()
     await expect(issueLink).toBeVisible()
-    await expect(issueLink).toHaveAttribute(
-      'href',
-      `/dashboard/polls/${sharedPollId}`,
-    )
+    await expect(issueLink).toHaveAttribute('href', `/polls/${sharedPollId}`)
 
     // Verify "Activity Feed" section is visible with expected events
     await expect(personSheet.getByText('Activity Feed')).toBeVisible({
@@ -836,9 +833,6 @@ test.describe.serial('poll onboarding @dev-only', () => {
     const activityLink = personSheet
       .getByRole('link', { name: 'Top Community Issues' })
       .first()
-    await expect(activityLink).toHaveAttribute(
-      'href',
-      `/dashboard/polls/${sharedPollId}`,
-    )
+    await expect(activityLink).toHaveAttribute('href', `/polls/${sharedPollId}`)
   })
 })

@@ -31,7 +31,7 @@ def test_is_excluded_matches_package_and_file_globs():
     assert ig.is_excluded("packages/gp-admin/app/page.tsx", globs) is True
     assert ig.is_excluded("packages/gp-webapp/components/Foo.test.tsx", globs) is True
     assert ig.is_excluded("packages/gp-webapp/app/api/health/route.ts", globs) is True
-    assert ig.is_excluded("packages/gp-webapp/app/dashboard/page.tsx", globs) is False
+    assert ig.is_excluded("packages/gp-webapp/app/(dashboard)/page.tsx", globs) is False
 
 
 def test_load_gap_config_missing_file_returns_empty(tmp_path):
@@ -45,10 +45,10 @@ def test_load_gap_config_missing_file_returns_empty(tmp_path):
 
 def test_route_pattern_from_page_path():
     f = ig.route_pattern_from_page_path
-    assert f("packages/gp-webapp/app/dashboard/page.tsx") == "/dashboard"
+    assert f("packages/gp-webapp/app/(dashboard)/page.tsx") == "/dashboard"
     assert f("packages/gp-webapp/app/page.tsx") == "/"
     assert (
-        f("packages/gp-webapp/app/dashboard/campaign/[slug]/edit/page.tsx")
+        f("packages/gp-webapp/app/(dashboard)/campaign/[slug]/edit/page.tsx")
         == "/dashboard/campaign/[slug]/edit"
     )
     # route groups (parenthesized dirs) are not URL segments
@@ -57,7 +57,7 @@ def test_route_pattern_from_page_path():
 
 def test_enumerate_route_surfaces_skips_excluded():
     pages = [
-        "packages/gp-webapp/app/dashboard/page.tsx",
+        "packages/gp-webapp/app/(dashboard)/page.tsx",
         "packages/gp-webapp/app/api/health/route.ts",  # not a page, and excluded
         "packages/gp-webapp/app/logout/page.tsx",       # excluded
     ]
@@ -65,7 +65,7 @@ def test_enumerate_route_surfaces_skips_excluded():
     out = ig.enumerate_route_surfaces(pages, globs)
     assert [s["id"] for s in out] == ["/dashboard"]
     assert out[0]["surface_type"] == "route"
-    assert out[0]["location"] == "packages/gp-webapp/app/dashboard/page.tsx"
+    assert out[0]["location"] == "packages/gp-webapp/app/(dashboard)/page.tsx"
 
 
 def test_detect_webapp_wizard_and_form_and_cta():
@@ -525,7 +525,7 @@ def test_scan_repo_finds_route_gap_and_ignores_tracked(tmp_path):
 
 
 def test_run_sweep_idempotent_same_day(tmp_path):
-    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app = tmp_path / "packages/gp-webapp/app/(dashboard)"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
     state = tmp_path / "state.json"
@@ -545,7 +545,7 @@ def test_run_sweep_idempotent_same_day(tmp_path):
 
 
 def test_main_skips_and_leaves_state_untouched_when_corrupt(tmp_path, capsys):
-    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app = tmp_path / "packages/gp-webapp/app/(dashboard)"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
     state = tmp_path / "state.json"
@@ -736,7 +736,7 @@ def test_run_seed_threads_the_gotchas_book_into_the_prompt(tmp_path, monkeypatch
     monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", book)
     rubric = tmp_path / "SKILL.md"
     rubric.write_text("RUBRIC-BODY")
-    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app = tmp_path / "packages/gp-webapp/app/(dashboard)"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
     seen = {}
@@ -1140,7 +1140,7 @@ def test_run_judgment_fails_closed_on_malformed_verdict(tmp_path):
 
 
 def test_scan_repo_enriches_snippet(tmp_path):
-    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app = tmp_path / "packages/gp-webapp/app/(dashboard)"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return <div>hi</div>}")
     surfaces, _ = ig.scan_repo(tmp_path, exclude_globs=[])
@@ -1149,7 +1149,7 @@ def test_scan_repo_enriches_snippet(tmp_path):
 
 
 def test_run_sweep_no_judge_adds_nothing_and_reports_pending(tmp_path):
-    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app = tmp_path / "packages/gp-webapp/app/(dashboard)"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
     new_state, gaps, status, pending, *_ = ig.run_sweep(
@@ -1163,7 +1163,7 @@ def test_run_sweep_no_judge_adds_nothing_and_reports_pending(tmp_path):
 
 
 def test_run_sweep_with_fake_judge_adds_confirmed(tmp_path):
-    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app = tmp_path / "packages/gp-webapp/app/(dashboard)"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
 
@@ -1185,7 +1185,7 @@ def test_run_sweep_with_fake_judge_adds_confirmed(tmp_path):
 
 
 def test_main_no_judge_writes_empty_state_with_pending_note(tmp_path):
-    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app = tmp_path / "packages/gp-webapp/app/(dashboard)"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
     state = tmp_path / "state.json"

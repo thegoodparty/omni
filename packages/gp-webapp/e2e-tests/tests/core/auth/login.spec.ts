@@ -61,11 +61,9 @@ test.describe('Login Functionality', () => {
     await getClerkContinueButton(page).click()
 
     // Login redirects through Clerk and /post-auth-redirect (often twice)
-    // before landing on /dashboard, which can exceed 5s on a cold preview.
-    await page.waitForURL('**/dashboard', { timeout: 30000 })
+    // before landing on /home, which can exceed 5s on a cold preview.
+    await page.waitForURL('**/home', { timeout: 30000 })
     await wait(500)
-    await expect(
-      page.getByText('Campaign progress', { exact: true }),
-    ).toBeVisible()
+    await expect(page.locator('#next-thing-heading')).toBeVisible()
   })
 })

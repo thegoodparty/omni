@@ -34,25 +34,27 @@ const Harness = ({ initial = '' }: { initial?: string }): React.JSX.Element => {
 }
 
 describe('StoryIntakeCard', () => {
-  it('shows the question, the example placeholder, and a live char counter', () => {
+  it('shows the question and the example placeholder', () => {
     render(<Harness initial="hello" />)
 
     expect(
       screen.getByRole('heading', { name: /why are you running/i }),
     ).toBeInTheDocument()
     expect(screen.getByPlaceholderText('e.g. a reason')).toBeInTheDocument()
-    expect(screen.getByText('5 chars')).toBeInTheDocument()
   })
 
-  it('disables Improve with AI until there is text', async () => {
+  it('offers Improve with AI only once there is text', async () => {
     const user = userEvent.setup()
     render(<Harness />)
 
-    const improve = screen.getByRole('button', { name: /Improve with AI/ })
-    expect(improve).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: /Improve with AI/ }),
+    ).not.toBeInTheDocument()
 
     await user.type(screen.getByPlaceholderText('e.g. a reason'), 'a why')
-    expect(improve).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: /Improve with AI/ }),
+    ).toBeEnabled()
   })
 
   it('drops the improved text into the field and offers Undo that restores the original', async () => {

@@ -562,7 +562,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         setCookie(ORG_SLUG_COOKIE, `eo-${electedOfficeId}`)
       }
       window.location.href = `/post-auth-redirect?next=${encodeURIComponent(
-        '/dashboard/chief-of-staff',
+        '/chief-of-staff',
       )}`
     } catch (err) {
       reportErrorToSentry(err, { context: 'serveOnboarding.persist' })

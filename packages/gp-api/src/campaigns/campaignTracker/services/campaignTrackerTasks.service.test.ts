@@ -237,7 +237,7 @@ describe('CampaignTrackerTasksService.materializeStaticTasks', () => {
       CAMPAIGN_STORY_TASK_TITLES.includes(row.title),
     )
     expect(story?.completed).toBe(false)
-    expect(story?.link).toBe('/dashboard?personalize=1')
+    expect(story?.link).toBe('/home?personalize=1')
   })
 })
 

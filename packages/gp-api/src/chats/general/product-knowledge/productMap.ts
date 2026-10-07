@@ -60,15 +60,18 @@ const SHARED_AREAS: ProductArea[] = [
     // it out, so no user has ever seen those words. What they see is this.
     navId: 'nav-dash-profile',
     name: 'Profile',
-    path: '/dashboard/profile',
+    path: '/profile',
     modes: ['win', 'serve'],
     does: 'Edit your own name, contact details, and campaign or office details.',
-    inside: ['In the account menu, at the bottom of the left-hand menu'],
+    inside: [
+      'For a candidate it is titled Your race and opens from the Your race card at the top of the Game Plan, as a full page with a back arrow; View public profile sits beside the title once their site is published',
+      'For an elected official it is in the account menu, at the bottom of the left-hand menu',
+    ],
   },
   {
     navId: 'campaign-details-dashboard',
     name: 'My Profile',
-    path: '/dashboard/profile',
+    path: '/profile',
     modes: ['win', 'serve'],
     does: 'The same profile page. This menu entry is filtered out of the nav and never renders.',
     aliasOf: 'Profile',
@@ -76,15 +79,16 @@ const SHARED_AREAS: ProductArea[] = [
   {
     navId: 'nav-dash-account',
     name: 'Account Settings',
-    path: '/dashboard/account',
+    path: '/account',
     modes: ['win', 'serve'],
     does: 'Billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
   },
   {
     navId: 'nav-dash-support',
     name: 'Get help',
-    // Not a section: it ends the main nav on desktop and sits in the account
-    // group on mobile. See SUPPORT_ROUTE in productKnowledgePrompt.ts.
+    // Not a section: on desktop Win it sits right above the account menu, on
+    // desktop Serve it ends the main nav, and on mobile it is in the account
+    // group. See SUPPORT_ROUTE in productKnowledgePrompt.ts.
     path: 'the bottom of the left-hand menu',
     modes: ['win', 'serve'],
     does: 'Opens the support chat, where a person answers billing, account, and anything that needs changing on their behalf.',
@@ -113,49 +117,60 @@ const SHARED_AREAS: ProductArea[] = [
   },
 ]
 
-// Win: the candidate product. Campaign Manager is the home tab.
+// Win: the candidate product. Home is the home tab.
 const WIN_AREAS: ProductArea[] = [
   {
     navId: 'campaign-tracker-dashboard',
-    name: 'Campaign Manager',
-    path: '/dashboard',
+    name: 'Home',
+    path: '/home',
     modes: ['win'],
-    does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
+    does: 'The home tab, and where this chat lives, alongside the one thing to do next.',
     inside: [
+      'The Do this next card shows the single most important task right now, from the campaign plan; a candidate who is not on the ballot yet sees getting on the ballot first, with how to file',
+      'The card has one main button that starts the task, a Mark done button, and a Skip menu with Later (it comes back in 3 days) and Not for me (it stays skipped until they undo it in the Game Plan)',
+      'Chat about this, under the card, opens this chat on a new conversation about that task: it starts with a short overview of the step and offers a couple of questions to start from. The chat box sits in the page below the card. On every other page the chat is the Chat button in the left-hand menu, under Voters (on a phone, the chat icon in the top bar), and anything typed on Home but not sent is waiting in it',
       'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
-      'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
+      'The clock icon in the chat box is Previous chats: it lists past conversations, and each one can be reopened or deleted there',
+      'On Home the chat box also has New chat (the plus, left) for a fresh conversation, and a paperclip beside the mic that opens the chat to attach a file',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
       'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
       'Pasting a link attaches it as a source the assistant can read',
       'A citation in a reply opens the document it points to, to the cited page when there is one',
-      'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
-      'Asking the chat to text voters gets a text outreach card, which can go to a random sample of them instead of everyone, sized the way polls are, with the cost of each. The card’s button opens Voter Outreach’s text flow with the audience and message filled in, to review and pay for before it sends',
+      'Asking to turn a reply into a social post opens Outreach’s social flow with the draft already written in, to review before you post it',
+      'Asking the chat to text voters gets a text outreach card, which can go to a random sample of them instead of everyone, sized the way polls are, with the cost of each. The card’s button opens Outreach’s text flow with the audience and message filled in, to review and pay for before it sends',
     ],
   },
   {
-    navId: 'campaign-story-dashboard',
-    name: 'Your Story',
-    path: '/dashboard/campaign-story',
+    navId: null,
+    name: 'Your story',
+    path: '/campaign-story',
     modes: ['win'],
     does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign and outreach plan is generated from.',
     inside: [
-      'One Save in the page title bar commits every field at once; nothing saves until they press it',
-      'Start over at the bottom clears the fields on screen but deletes nothing until they Save',
+      'Not in the left-hand menu: it opens from the Your story card at the top of the Game Plan, as a full page with a back arrow',
+      'There is no Save button: each answer saves itself a moment after they stop typing, and the header says Saving, Saved, or Not saved',
+      'Start over at the bottom asks first, then clears all three answers, and that is saved too',
     ],
   },
   {
     navId: 'campaign-plan-dashboard',
-    name: 'Campaign Plan',
-    path: '/dashboard/campaign-plan',
+    name: 'Game Plan',
+    path: '/campaign-plan',
     modes: ['win'],
     does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    inside: [
+      'Three cards across the top, Your race, Your story and Your opponents, open the pages where each can be reviewed and changed: race details on Your race, the story on Your story, opponents on Your opponents (Know Your Opponent)',
+      'Below them, a bar per phase (Pre-launch, Launch, Active campaign, Get out the vote) shows how far along they are, which phase they are in, and how many tasks are done',
+      'The phase they are in opens to its tasks, and the task to do next is the same card as on Home, with its button, Mark done, the Skip menu and Chat about this',
+      'Every other task has a three-dot menu with Mark done (Mark not done once it is done), Later (it comes back in 3 days) and Not for me',
+    ],
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {
     navId: 'outreach-dashboard',
-    name: 'Voter Outreach',
-    path: '/dashboard/outreach',
+    name: 'Outreach',
+    path: '/outreach',
     modes: ['win'],
     does: 'Build and send outreach to a voter audience, and see the history of what has gone out.',
     inside: [
@@ -173,8 +188,8 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: 'win-contacts-dashboard',
-    name: 'Voter Data',
-    path: '/dashboard/contacts',
+    name: 'Voters',
+    path: '/contacts',
     modes: ['win'],
     does: 'Browse the district’s voter file, filter it, and save lists to use for outreach.',
     inside: [
@@ -192,39 +207,45 @@ const WIN_AREAS: ProductArea[] = [
   {
     navId: 'race-opponent-dashboard',
     name: 'Know Your Opponent',
-    path: '/dashboard/race-opponent',
+    path: '/race-opponent',
     modes: ['win'],
     does: 'Opposition research on the other candidates in the race, starting with a pass on the candidate’s own public record.',
+    inside: [
+      'Not in any menu: it opens from the Your opponents card at the top of the Game Plan, as a full page titled Your opponents with a back arrow',
+    ],
     gate: 'Pro only. The tab is visible without Pro but shows an upgrade view instead of the research.',
   },
   {
     navId: 'public-profile-campaign',
     name: 'Public Profile',
-    path: '/dashboard/public-profile',
+    path: '/public-profile',
     modes: ['win'],
     does: 'Edit the public page voters see, including its own "Why I’m running" and priorities.',
+    inside: [
+      'Not in the main left rail: it is in the account menu, opened from Manage account at the bottom of the left-hand menu',
+    ],
   },
   {
     navId: null,
     name: 'Candidate website',
-    path: '/dashboard/website',
+    path: '/website',
     modes: ['win'],
     does: 'The build-your-own campaign website, which is being discontinued. It is no longer in the left rail and nothing on the dashboard links to it.',
     inside: [
       'Do not suggest starting a new site here. If they ask, say the feature is being discontinued',
       'A candidate who bought a domain through us is asked to transfer it to another provider, from the notice on their dashboard and the Transfer button on Profile',
-      'An existing site can still be edited at app.goodparty.org/dashboard/website',
+      'An existing site can still be edited at app.goodparty.org/website',
       'Custom domain setup and its DNS instructions are under the site’s Domain settings',
     ],
   },
   {
-    // The nav id belongs to a placeholder that holds the Voter Data slot
+    // The nav id belongs to a placeholder that holds the Voters slot
     // for the moment before we know whether the org is a campaign.
-    // Describing it as a second "Voter Data" tab would be wrong: what a
+    // Describing it as a second "Voters" tab would be wrong: what a
     // candidate can actually reach here is the upgrade flow.
     navId: 'upgrade-pro-dashboard',
     name: 'Pro upgrade',
-    path: '/dashboard/pro-upgrade',
+    path: '/pro-upgrade',
     modes: ['win'],
     does: 'Upgrade to Pro, which is what unlocks filtering the voter file and Know Your Opponent.',
     inside: [
@@ -241,7 +262,7 @@ const WIN_AREAS: ProductArea[] = [
     // end of the Pro upgrade flow.
     navId: null,
     name: 'Campaign verification',
-    path: '/dashboard/campaign-verification',
+    path: '/campaign-verification',
     modes: ['win'],
     does: 'Register a Pro campaign with the phone carriers, which is what makes texting possible.',
     inside: [
@@ -253,7 +274,7 @@ const WIN_AREAS: ProductArea[] = [
   {
     navId: 'nav-dash-team',
     name: 'Team',
-    path: '/dashboard/team',
+    path: '/team',
     modes: ['win'],
     does: 'Invite campaign staff and manage who has access. In the account menu, and candidate campaigns only.',
     inside: [
@@ -268,7 +289,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'chief-of-staff-dashboard',
     name: 'Chief of Staff',
-    path: '/dashboard/chief-of-staff',
+    path: '/chief-of-staff',
     modes: ['serve'],
     does: 'The home tab, and where this chat lives.',
     inside: [
@@ -290,7 +311,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'briefings-dashboard',
     name: 'Briefing Assistant',
-    path: '/dashboard/briefings',
+    path: '/briefings',
     modes: ['serve'],
     does: 'Prepared briefings for upcoming meetings: what is on the agenda and what is worth knowing before the room.',
     inside: [
@@ -304,7 +325,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'community-issues-dashboard',
     name: 'Community Issues',
-    path: '/dashboard/community-issues',
+    path: '/community-issues',
     modes: ['serve'],
     does: 'A researched feed of what the district is talking about, split into the top ongoing issues and what is trending now.',
     inside: [
@@ -315,7 +336,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'priorities-dashboard',
     name: 'Priorities',
-    path: '/dashboard/priorities',
+    path: '/priorities',
     modes: ['serve'],
     does: 'Hold the things you are trying to get done this term, and work one of them forward with help.',
     inside: [
@@ -330,7 +351,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'ordinances-dashboard',
     name: 'Ordinances',
-    path: '/dashboard/ordinances',
+    path: '/ordinances',
     modes: ['serve'],
     does: 'Work a policy idea up into a drafted ordinance, one step at a time.',
     inside: [
@@ -341,7 +362,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'polls-dashboard',
     name: 'Polls',
-    path: '/dashboard/polls',
+    path: '/polls',
     modes: ['serve'],
     does: 'Commission a poll of the district and read the results.',
     gate: 'Polls are paid for individually, and a poll’s reach can be extended by paying more.',
@@ -349,7 +370,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'constituent-outreach-dashboard',
     name: 'Constituent Outreach',
-    path: '/dashboard/constituent-outreach',
+    path: '/constituent-outreach',
     modes: ['serve'],
     does: 'Build and send outreach to constituents, and see what has gone out.',
     inside: [
@@ -364,7 +385,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'contacts-dashboard',
     name: 'Constituent Data',
-    path: '/dashboard/contacts',
+    path: '/contacts',
     modes: ['serve'],
     does: 'Browse the district’s people, filter them, and save lists to use for outreach.',
     inside: [
@@ -384,7 +405,7 @@ const SERVE_AREAS: ProductArea[] = [
   {
     navId: 'public-profile-dashboard',
     name: 'Public Profile',
-    path: '/dashboard/public-profile',
+    path: '/public-profile',
     modes: ['serve'],
     does: 'Edit the public page constituents see, including its own "What I’m working on" and priorities.',
   },
@@ -396,7 +417,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
   {
     navId: null,
     name: 'Door knocking',
-    path: '/dashboard/door-knocking',
+    path: '/door-knocking',
     modes: ['win', 'serve'],
     does: 'GoodParty.org’s own canvassing tool: build a walk list, get turf on a map, and log what happened at each door.',
     inside: [
@@ -457,9 +478,9 @@ export const areasForMode = (mode: ProductMode): ProductArea[] =>
 // nothing to do with it.
 export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   win: [
-    'The Campaign Story you write with me is saved to Your Story. A campaign and outreach plan does not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
+    'The Campaign Story you write with me is saved to Your story. A campaign and outreach plan does not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
     'Your Public Profile is separate. It has its own "Why I’m running" on the Public Profile page, and writing your story here does not change it. If someone wants their story on their public page, say plainly that it has to be entered there and point them at the tab.',
-    'Saved lists I create are real, and appear under Voter Data.',
+    'Saved lists I create are real, and appear under Voters.',
     'I cannot edit the campaign and outreach plan, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',
   ],
   serve: [

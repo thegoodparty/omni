@@ -76,8 +76,8 @@ const VolunteerSidebar = ({
     destination?.role === 'volunteer'
       ? '/volunteer'
       : destination?.electedOfficeId
-        ? '/dashboard/chief-of-staff'
-        : '/dashboard'
+        ? '/chief-of-staff'
+        : '/home'
 
   // The list isn't filtered to volunteer-role orgs (a volunteer can also own
   // or manage other campaigns), so picking one can leave the shell that fits

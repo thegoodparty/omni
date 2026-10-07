@@ -20,16 +20,16 @@ test.describe('Dashboard Functionality', () => {
       `🧪 Testing dashboard functionality with pre-authenticated user`,
     )
     await authenticateTestUser(page)
-    await page.goto('/dashboard')
-    await page.waitForURL(/\/dashboard/)
+    await page.goto('/home')
+    await page.waitForURL(/\/home/)
     await NavigationHelper.dismissOverlays(page)
 
-    await expect(page).toHaveURL(/\/dashboard$/)
+    await expect(page).toHaveURL(/\/home$/)
 
     await waitForDashboardReady(page)
     console.log('✅ Dashboard accessible')
 
-    await page.goto('/dashboard/profile')
+    await page.goto('/profile')
     await WaitHelper.waitForPageReady(page)
     await expect(
       page.getByRole('heading', { name: 'Office Details' }).first(),

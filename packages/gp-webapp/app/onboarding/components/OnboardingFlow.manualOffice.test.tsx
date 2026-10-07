@@ -34,10 +34,10 @@ const { mockGetUserWebsite, mockSaveAboutFields, mockTrackEvent } = vi.hoisted(
   }),
 )
 
-vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
+vi.mock('app/(dashboard)/website/util/website.util', async (importOriginal) => {
   const actual =
     await importOriginal<
-      typeof import('app/dashboard/website/util/website.util')
+      typeof import('app/(dashboard)/website/util/website.util')
     >()
   return {
     ...actual,

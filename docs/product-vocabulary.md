@@ -58,7 +58,7 @@ Four shapes, all already in the repo. Pick the smallest one that fits.
 
 | Shape                        | When                                           | Model                                                                                                        |
 | ---------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| A full mode-keyed label set  | A surface whose every noun changes             | `packages/gp-webapp/app/dashboard/shared/contactsLabels.ts` — `getContactsLabels(isWin)`. The gold standard. |
+| A full mode-keyed label set  | A surface whose every noun changes             | `packages/gp-webapp/app/(dashboard)/shared/contactsLabels.ts` — `getContactsLabels(isWin)`. The gold standard. |
 | A sparse override record     | Most labels survive the change of vocabulary   | `.../door-knocking/native/statusPresentation.ts` — `statusLabel(status, isServe)` over `SERVE_STATUS_LABELS` |
 | A spread over the Win object | A copy object gains a few Serve-framed strings | `.../outreach/v2/phone-banking/PhoneBankingFlow.tsx` — `SERVE_PHONE_BANKING_AUDIENCE_COPY`                   |
 | A function of `isServe`      | A derived list or column set                   | `.../door-knocking/print/walkFacts.ts` — `walkColumns(isServe)`                                              |

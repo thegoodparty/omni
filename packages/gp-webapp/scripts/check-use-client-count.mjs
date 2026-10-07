@@ -65,7 +65,7 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
 // dropdown holds input/debounce state and a React Query fetch, so it cannot
 // be a server component (same as the ContactSearch it flag-replaces).
-// 2026-07-16: 542 -> 543 for app/dashboard/error.tsx — error boundaries must
+// 2026-07-16: 542 -> 543 for app/(dashboard)/error.tsx — error boundaries must
 // be client components (the Next.js error-file contract requires it), so the
 // new dashboard-segment boundary adds exactly one.
 // 2026-07-16: 543 -> 540 for removing the legacy impersonation path:
@@ -129,7 +129,7 @@ import { dirname, join, relative } from 'node:path'
 // ChatInput, history, feedback, etc.) were deleted. Campaign Manager supersedes
 // it; the gp-api endpoints are left orphaned (removed from the frontend only).
 // 2026-07-27: 546 -> 549 for the Serve/Win public-profile editor
-// (app/dashboard/public-profile/): PublicProfileEditor (form + publish toggle +
+// (app/(dashboard)/public-profile/): PublicProfileEditor (form + publish toggle +
 // image-upload + save mutation), ListEditors (add/remove/controlled Recent
 // Experience & Accomplishments rows), and PrioritiesPublicationEditor
 // (per-priority visibility/status toggles + mutation) are all genuinely
@@ -240,7 +240,7 @@ import { dirname, join, relative } from 'node:path'
 // RobocallScheduleStep drawer surface owns the name/date/time inputs and their
 // selection handlers, so it's a client component. Its scheduleTimeZone.ts
 // helper is directive-free (pure date/tz functions, no JSX).
-// 2026-08-24: 600 -> 601 for app/dashboard/shared/ListCard.tsx — the saved-list
+// 2026-08-24: 600 -> 601 for app/(dashboard)/shared/ListCard.tsx — the saved-list
 // card the door-knocking rail is rebuilt on, and which voter data and campaign
 // manager reuse. It binds a click handler on its title, so a server-component
 // caller would fail at render; the directive is what makes it safe to import
@@ -329,7 +329,7 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-03: 595 -> 597 for the team accounts page (ENG-10816/10827).
 // TeamPage.tsx and InviteMemberDialog.tsx both hold interactive state
 // (mutations, dialog open/close, form fields) and can't be server components;
-// the route itself (app/dashboard/team/page.tsx) stays a server component and
+// the route itself (app/(dashboard)/team/page.tsx) stays a server component and
 // renders no directive.
 // 2026-09-04: 597 -> 598 for the volunteer shell's top bar (ENG-11052,
 // VolunteerTopBar.tsx). It holds the profile-dropdown open/close state and
@@ -507,7 +507,14 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-29: 592 -> 591. The Priorities chat's own turnBlocks.tsx, a copy of
 // the shared splicer, was deleted when every chat moved onto the shared widget
 // registry. Locked in per the policy above.
-const BASELINE = 591
+// 2026-10-05: 591 -> 567. Home became one next-thing card and a chat box, so
+// its banners, progress section, tour and story cards and their modals went.
+// 2026-10-06: 567 -> 568. shared/FocusedPage, the frame Your story, Your race
+// and Your opponents open in. It holds router and slot state, and two of its
+// three pages are server components, so it has to be its own client boundary.
+// 2026-10-07: 568 -> 572. Merging main brought in four client components of
+// its own (issue capture's pages and their links), none from this branch.
+const BASELINE = 572
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

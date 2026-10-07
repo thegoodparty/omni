@@ -17,7 +17,7 @@ import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { useSelectedOrgSlug } from '@shared/hooks/useSelectedOrgSlug'
-import { outreachDetailQueryPrefix } from 'app/dashboard/outreach/v2/useOutreachDetail'
+import { outreachDetailQueryPrefix } from 'app/(dashboard)/outreach/v2/useOutreachDetail'
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -37,12 +37,12 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useCampaign } from './hooks/useCampaign'
 
 const SHARED_PATHS = [
-  '/dashboard/profile',
-  '/dashboard/campaign-details',
-  '/dashboard/account',
+  '/profile',
+  '/campaign-details',
+  '/account',
   // Org-scoped but valid under any org: the team query keys on the org slug
-  // and refetches on switch, so stay put instead of bouncing to /dashboard.
-  '/dashboard/team',
+  // and refetches on switch, so stay put instead of bouncing to /home.
+  '/team',
 ]
 
 interface OrganizationContextValue {
@@ -262,8 +262,8 @@ export const OrganizationPicker = () => {
         org.role === 'volunteer'
           ? '/volunteer'
           : org.electedOfficeId
-            ? '/dashboard/chief-of-staff'
-            : '/dashboard',
+            ? '/chief-of-staff'
+            : '/home',
       )
     }
   }

@@ -20,7 +20,7 @@ import {
 // dimensions (party) for `eo-` orgs.
 //
 // The webapp wizard renders a parallel expression of this knowledge in
-// packages/gp-webapp/app/dashboard/contacts/ (filters.config.ts and
+// packages/gp-webapp/app/(dashboard)/contacts/ (filters.config.ts and
 // crm/shared/*), which cannot be imported across packages — keep labels
 // aligned with it by eye.
 //

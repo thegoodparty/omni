@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import pageMetaData from 'helpers/metadataHelper'
-import { issueCaptureFlagGate } from 'app/dashboard/issue-capture/issueCaptureAccess'
+import { issueCaptureFlagGate } from 'app/(dashboard)/issue-capture/issueCaptureAccess'
 import VolunteerReviewPage from './components/VolunteerReviewPage'
 
 export const metadata = pageMetaData({

@@ -35,7 +35,7 @@ donation processor).
 
 ## What the candidate sees
 
-The Campaign Plan page (`/dashboard/campaign-plan`) shows a four-phase rail:
+The Campaign Plan page (`/campaign-plan`) shows a four-phase rail:
 **Pre-launch, Launch, Active campaign, Get out the vote**. Each phase holds
 dated task cards the candidate works through and marks complete.
 
@@ -78,15 +78,14 @@ offers generation to everyone and invites the story alongside it.
 
 ### The campaign story prompt
 
-Two surfaces, deliberately:
+The prompt to write the story is:
 
-- **A pinned card** above the tracker rail (`CampaignPlanStoryCard`, between
-  the hero and `CampaignStrategySection`), shown while the story is incomplete
-  and **not dismissible**, sized like the dashboard's Pro banner: one card, one
-  CTA. It is what makes the prompt the first thing on the page.
 - **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
   entry) at the **end of pre-launch**, so the prompt flows through the same row
-  machinery as everything else rather than being a bespoke surface.
+  machinery as everything else rather than being a bespoke surface. The
+  "Your story" card at the top of the Game Plan (`CampaignPlanOverviewCards`)
+  is a plain way in to `/campaign-story`; it does not change with the story's
+  state.
 
 The task's `completed` mirrors whether the story is finished, in both
 directions, and the row is never deleted. That is what makes the tracker the
@@ -369,7 +368,7 @@ and gotchas. Read those first when working in the code:
 - `packages/gp-api/src/campaigns/campaignTracker/CLAUDE.md` (backend): bootstrap
   (atomic claim), the append/generation model, weekly dispatch, persistence,
   completion.
-- `packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CLAUDE.md`
+- `packages/gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/CLAUDE.md`
   (frontend): latest-generation rendering, phase status, the GOTV window gate,
   polling, the date-format gotcha.
 
@@ -387,7 +386,7 @@ The table below is the cross-package file index:
 | Catalog generator | `gp-api/scripts/generate-tracker-catalog.ts` |
 | CAP experiment | `packages/runbooks/experiments/campaign_tracker_tasks/` |
 | Task catalog (source of truth) | `@goodparty_org/contracts` (`CampaignTaskCatalog`) |
-| Frontend rendering | `gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
+| Frontend rendering | `gp-webapp/app/(dashboard)/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
 | Frontend data hook | `…/campaignStrategy/useTrackerTasks.ts` |
 | Frontend section | `…/campaignStrategy/CampaignStrategySection.tsx` |
 
