@@ -705,6 +705,8 @@ export const PhoneBankingFlow = ({
 
   const handleSelectPurpose = (selected: PhoneBankingFlowPurpose) => {
     setPurpose(selected)
+    // A draft that failed for the old purpose is not this one's to retry.
+    resetDraftMutation()
     // Reset tone/script/instructions state on every purpose pick (including
     // re-picks after Back), not just the first one — otherwise picking
     // 'custom' after viewing another purpose's script carries that script

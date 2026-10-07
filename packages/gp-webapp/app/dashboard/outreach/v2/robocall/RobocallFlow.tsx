@@ -290,10 +290,12 @@ export const RobocallFlow = ({
   const purposeRef = useRef(purpose)
   purposeRef.current = purpose
   const recorder = useRobocallRecorder(MAX_RECORDING_SECONDS)
-  // The script as it stood when the recording was saved. The check listens
-  // to the recording, not the script, so a later edit or polish keeps a
-  // passed recording and only says the two no longer match.
+  // The script as it stood when the candidate recorded. The check listens
+  // to the recording, not the script, so a later edit or polish keeps the
+  // recording and only says the two no longer match.
   const [recordedScript, setRecordedScript] = useState<string | null>(null)
+  const scriptRef = useRef(script)
+  scriptRef.current = script
   const { reset: resetRecorder } = recorder
   const audioUpload = useRobocallAudioUpload()
   const { reset: resetAudioUpload } = audioUpload
@@ -319,10 +321,7 @@ export const RobocallFlow = ({
     const rec = recorder.recording
     if (!rec) return
     const uploaded = await audioUpload.uploadAudio(rec.blob)
-    if (uploaded) {
-      recorder.save()
-      setRecordedScript(script)
-    }
+    if (uploaded) recorder.save()
   }
 
   // Re-recording (status back to idle) drops any prior upload + verdict.
@@ -331,6 +330,11 @@ export const RobocallFlow = ({
       resetAudioUpload()
       resetCompliance()
       setRecordedScript(null)
+    }
+    // Taken when reading starts, or when an uploaded file arrives, so a
+    // redraft before Save still counts as a change.
+    if (recorder.status === 'recording' || recorder.status === 'preview') {
+      setRecordedScript((noted) => noted ?? scriptRef.current)
     }
   }, [recorder.status, resetAudioUpload, resetCompliance])
 
@@ -1174,7 +1178,7 @@ export const RobocallFlow = ({
             maxSeconds={MAX_RECORDING_SECONDS}
             onSaveRecording={handleSaveRecording}
             scriptChangedSinceRecording={
-              recorder.status === 'saved' &&
+              (recorder.status === 'preview' || recorder.status === 'saved') &&
               recordedScript !== null &&
               script !== recordedScript
             }

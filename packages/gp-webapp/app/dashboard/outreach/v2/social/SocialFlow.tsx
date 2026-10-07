@@ -491,6 +491,8 @@ export const SocialFlow = ({
       resetDraftMutation()
       setDraft(remembered)
       setOwnWords(false)
+      // Undo belonged to the words just swapped out, not to this draft.
+      setUndoText(null)
       invalidateAssets()
       return
     }

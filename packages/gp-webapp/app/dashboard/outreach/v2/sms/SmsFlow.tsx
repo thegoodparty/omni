@@ -1139,6 +1139,8 @@ export const SmsFlow = ({
       // Not re-checked: a generated entry was identified when it arrived,
       // and any other entry is the candidate's own typing.
       loadMessage(remembered)
+      // Undo belonged to the words just swapped out, not to this draft.
+      setUndoText(null)
       return
     }
     requestDraft(purpose, nextTone, message, ownWords)
