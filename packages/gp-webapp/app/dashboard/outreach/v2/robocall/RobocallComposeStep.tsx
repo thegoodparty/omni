@@ -39,8 +39,9 @@ import { type RobocallRecorder } from './useRobocallRecorder'
 
 // Why each locked part cannot change, shown when an edit runs into it.
 const LOCK_REASONS: Record<RobocallProtectedPart['rule'], string> = {
-  candidate_name: 'Your name has to stay in the script.',
-  disclosure: 'The line saying who paid for the call has to stay as written.',
+  candidate_name:
+    "A recorded call has to say who's calling, but you can reword the rest.",
+  disclosure: 'The law requires this line, read exactly as written.',
 }
 
 const TONE_LABELS: Record<SocialTone, string> = {
