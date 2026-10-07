@@ -262,6 +262,17 @@ export const EVENTS = {
   ChiefOfStaff: {
     AttachedDocumentQueried: 'Chief Of Staff - Attached Document Queried',
   },
+  // Serve Priorities. A priority is created and archived from the Priorities
+  // page, Community Issues and the Chief of Staff, and its steps and checks
+  // are moved by the agent's tool calls and by real sends, so the browser
+  // never sees the whole picture. Attributed to the office's user.
+  Priorities: {
+    PriorityCreated: 'Priorities - Priority Created',
+    PriorityArchived: 'Priorities - Priority Archived',
+    StepStateChanged: 'Priorities - Step State Changed',
+    CheckStateChanged: 'Priorities - Check State Changed',
+    PlanCompleted: 'Priorities - Plan Completed',
+  },
 }
 
 export type UserContext = {

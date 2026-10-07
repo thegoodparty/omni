@@ -764,6 +764,13 @@ export const EVENTS = {
     AskAIStarted: 'Community Issues - Ask AI Started',
     RunPollClicked: 'Community Issues - Run Poll Clicked',
   },
+  // Serve Priorities. Creates, archives, and step and check moves are server
+  // truth and fire from gp-api under the same `Priorities -` prefix.
+  Priorities: {
+    ListViewed: 'Priorities - List Viewed',
+    PriorityViewed: 'Priorities - Priority Viewed',
+    MessageSent: 'Priorities - Message Sent',
+  },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',
     ClarifyCompleted: 'Ordinances - Clarify Completed',

@@ -60,6 +60,17 @@ it is, what to do next, and where it has got to.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
 
+## Analytics
+
+Everything fires under `Priorities -`. The browser fires what only it sees:
+`List Viewed` (with per-lane counts), `Priority Viewed` (with the step it
+opened on and whether the thread is new) and `Message Sent` (`via` composer or
+clarify; the hidden kickoff and sent markers are not counted). Creates,
+archives, step moves, check moves and `Plan Completed` are server truth and
+fire from gp-api (`EVENTS.Priorities` in `segment.types.ts`), because the Chief
+of Staff and Community Issues create and archive too, and only the agent's
+tool calls and real sends move a step or a check. Do not fire those here.
+
 ## Lane names are Serve names
 
 `PrioritySource.win_import` is a position the official carried over from when
