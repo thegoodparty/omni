@@ -79,11 +79,13 @@ export class CrmOfficeHolderService extends createPrismaBase(
    * Upserts the HubSpot Office Holder record for an elected office by
    * gp_api_elected_office_id (DATA-2623) and links it to the user's Contact
    * and the won campaign's Company. Best effort: never throws, so a HubSpot
-   * failure can't fail the elected office write that triggered it.
+   * failure can't fail the elected office write that triggered it. Pass
+   * `sendSeatFields` for a write the stored row can't identify as part of the
+   * day-one snapshot: a fresh create, or the write that completes onboarding.
    */
   async syncElectedOffice(
     electedOfficeId: string,
-    { justCreated = false }: { justCreated?: boolean } = {},
+    { sendSeatFields = false }: { sendSeatFields?: boolean } = {},
   ): Promise<void> {
     const config = getOfficeHolderConfig()
     if (!config || !this.hubspot.isConfigured) {
@@ -119,22 +121,24 @@ export class CrmOfficeHolderService extends createPrismaBase(
         office,
         user,
         config.objectTypeId,
-        justCreated,
+        sendSeatFields,
       )
-      await this.associate({
-        objectTypeId: config.objectTypeId,
-        officeHolderId,
-        toObjectType: CONTACT_OBJECT_TYPE,
-        toObjectId: user.metaData?.hubspotId,
-        associationTypeId: config.contactAssociationTypeId,
-      })
-      await this.associate({
-        objectTypeId: config.objectTypeId,
-        officeHolderId,
-        toObjectType: COMPANY_OBJECT_TYPE,
-        toObjectId: campaign?.data?.hubspotId,
-        associationTypeId: config.companyAssociationTypeId,
-      })
+      await Promise.all([
+        this.associate({
+          objectTypeId: config.objectTypeId,
+          officeHolderId,
+          toObjectType: CONTACT_OBJECT_TYPE,
+          toObjectId: user.metaData?.hubspotId,
+          associationTypeId: config.contactAssociationTypeId,
+        }),
+        this.associate({
+          objectTypeId: config.objectTypeId,
+          officeHolderId,
+          toObjectType: COMPANY_OBJECT_TYPE,
+          toObjectId: campaign?.data?.hubspotId,
+          associationTypeId: config.companyAssociationTypeId,
+        }),
+      ])
     } catch (err) {
       const message = `hubspot error - office holder sync for elected office ${electedOfficeId}`
       this.logger.error({ err, electedOfficeId }, message)
@@ -146,13 +150,14 @@ export class CrmOfficeHolderService extends createPrismaBase(
     office: ElectedOffice,
     user: User,
     objectTypeId: string,
-    justCreated: boolean,
+    forceSeatFields: boolean,
   ): Promise<string> {
     // The data platform owns the seat fields after the app's day-one
     // snapshot. Onboarding fills a net-new office over several writes, so the
     // snapshot runs until onboarding completes; after that the app sends only
     // the fields it owns and never overwrites the data platform's values.
-    const sendSeatFields = justCreated || office.onboardingCompletedAt === null
+    const sendSeatFields =
+      forceSeatFields || office.onboardingCompletedAt === null
     const properties: CRMOfficeHolderProperties = {
       ...(sendSeatFields ? await this.seatProperties(office, user) : {}),
       elected_date: toDateOnlyString(office.electedDate) ?? '',
@@ -163,7 +168,9 @@ export class CrmOfficeHolderService extends createPrismaBase(
       self_reported: office.selfReported ? 'true' : 'false',
     }
 
-    const { results } = await this.hubspot.client.crm.objects.batchApi.upsert(
+    // Batch endpoints answer a rejected input with 207 and an `errors` body,
+    // which the SDK resolves rather than throws.
+    const response = await this.hubspot.client.crm.objects.batchApi.upsert(
       objectTypeId,
       {
         inputs: [
@@ -171,9 +178,13 @@ export class CrmOfficeHolderService extends createPrismaBase(
         ],
       },
     )
-    const officeHolderId = results[0]?.id
+    const officeHolderId = response.results[0]?.id
     if (!officeHolderId) {
-      throw new Error('HubSpot returned no record for the Office Holder upsert')
+      throw new Error(
+        `HubSpot returned no Office Holder record: ${JSON.stringify(
+          'errors' in response ? response.errors : [],
+        )}`,
+      )
     }
     return officeHolderId
   }
@@ -223,24 +234,30 @@ export class CrmOfficeHolderService extends createPrismaBase(
       )
       return
     }
-    await this.hubspot.client.crm.associations.v4.batchApi.create(
-      objectTypeId,
-      toObjectType,
-      {
-        inputs: [
-          {
-            _from: { id: officeHolderId },
-            to: { id: toObjectId },
-            types: [
-              {
-                associationCategory:
-                  AssociationSpecAssociationCategoryEnum.UserDefined,
-                associationTypeId: params.associationTypeId,
-              },
-            ],
-          },
-        ],
-      },
-    )
+    const response =
+      await this.hubspot.client.crm.associations.v4.batchApi.create(
+        objectTypeId,
+        toObjectType,
+        {
+          inputs: [
+            {
+              _from: { id: officeHolderId },
+              to: { id: toObjectId },
+              types: [
+                {
+                  associationCategory:
+                    AssociationSpecAssociationCategoryEnum.UserDefined,
+                  associationTypeId: params.associationTypeId,
+                },
+              ],
+            },
+          ],
+        },
+      )
+    if ('errors' in response && response.errors?.length) {
+      throw new Error(
+        `HubSpot rejected the Office Holder link to ${toObjectType} ${toObjectId}: ${JSON.stringify(response.errors)}`,
+      )
+    }
   }
 }

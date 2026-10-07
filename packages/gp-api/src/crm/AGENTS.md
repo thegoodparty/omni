@@ -45,10 +45,10 @@ from the HubSpot card's `hs_object_id`.
   `sworn_in_date`, `pledged_at`, `onboarding_completed_at`, `self_reported`.
   The seat fields (`name`, `status`, position, state, party, term dates) are
   the data platform's; the app sends them only as a day-one snapshot — when
-  the office is created and until serve onboarding completes. Don't add a
-  seat field to post-onboarding writes, and never send the data platform's
-  keys (`gp_elected_official_term_id`, `gp_person_id`, `br_*`,
-  `source_systems`).
+  the office is created, and on every write up to and including the one that
+  completes serve onboarding. Don't add a seat field to post-onboarding
+  writes, and never send the data platform's keys
+  (`gp_elected_official_term_id`, `gp_person_id`, `br_*`, `source_systems`).
 - **Config, per portal.** `HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED` (`'true'` to
   run) plus the object type id and the two association type ids. Any unset
   value skips the sync.

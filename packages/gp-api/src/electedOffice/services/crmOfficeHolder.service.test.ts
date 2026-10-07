@@ -132,7 +132,7 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
   it('does nothing while the kill flag is off', async () => {
     vi.stubEnv('HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED', '')
 
-    await service.syncElectedOffice('eo-1', { justCreated: true })
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
 
     expect(findUnique).not.toHaveBeenCalled()
     expect(upsert).not.toHaveBeenCalled()
@@ -146,7 +146,7 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
     vi.stubEnv(name, '')
 
     await expect(
-      service.syncElectedOffice('eo-1', { justCreated: true }),
+      service.syncElectedOffice('eo-1', { sendSeatFields: true }),
     ).resolves.toBeUndefined()
 
     expect(findUnique).not.toHaveBeenCalled()
@@ -156,7 +156,7 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
   it('does nothing when HubSpot is not configured', async () => {
     hubspot.isConfigured = false
 
-    await service.syncElectedOffice('eo-1', { justCreated: true })
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
 
     expect(upsert).not.toHaveBeenCalled()
   })
@@ -168,20 +168,20 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
       }),
     )
 
-    await service.syncElectedOffice('eo-1', { justCreated: true })
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
 
     expect(upsert).not.toHaveBeenCalled()
     expect(associationsCreate).not.toHaveBeenCalled()
   })
 
-  it('upserts the day-one snapshot by the app id when the office was just created', async () => {
+  it('upserts the snapshot by the app id on a write that completes onboarding', async () => {
     findUnique.mockResolvedValue(
       makeOffice({
         onboardingCompletedAt: new Date('2026-01-06T15:31:00.000Z'),
       }),
     )
 
-    await service.syncElectedOffice('eo-1', { justCreated: true })
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
 
     expect(getCrmCompanyOrgContextByOrgSlug).toHaveBeenCalledWith('eo-eo-1')
     expect(upsert).toHaveBeenCalledWith(OBJECT_TYPE_ID, {
@@ -264,7 +264,7 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
       ballotReadyPositionId: null,
     })
 
-    await service.syncElectedOffice('eo-1', { justCreated: true })
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
 
     const properties = sentProperties()
     expect(properties.name).toBe('Jane Doe')
@@ -366,6 +366,54 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
 
     await expect(service.syncElectedOffice('eo-1')).resolves.toBeUndefined()
 
+    expect(errorMessage).toHaveBeenCalled()
+  })
+
+  it('alerts when HubSpot reports a link error in a 207 response', async () => {
+    associationsCreate.mockResolvedValue({
+      status: 'COMPLETE',
+      results: [],
+      errors: [{ category: 'VALIDATION_ERROR', message: '0-1=9 is not valid' }],
+    })
+
+    await service.syncElectedOffice('eo-1')
+
+    expect(errorMessage).toHaveBeenCalled()
+  })
+
+  it('alerts when HubSpot reports an upsert error in a 207 response', async () => {
+    upsert.mockResolvedValue({
+      status: 'COMPLETE',
+      results: [],
+      errors: [{ category: 'VALIDATION_ERROR', message: 'bad value' }],
+    })
+
+    await service.syncElectedOffice('eo-1')
+
+    expect(errorMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: expect.stringContaining('bad value'),
+        }),
+      }),
+    )
+    expect(associationsCreate).not.toHaveBeenCalled()
+  })
+
+  it('still links the Company when the Contact link fails', async () => {
+    associationsCreate.mockImplementation((_from: string, to: string) =>
+      to === '0-1'
+        ? Promise.reject(new Error('HTTP 502'))
+        : Promise.resolve({ results: [] }),
+    )
+
+    await service.syncElectedOffice('eo-1')
+
+    expect(associationsCreate).toHaveBeenCalledWith(
+      OBJECT_TYPE_ID,
+      '0-2',
+      expect.anything(),
+    )
     expect(errorMessage).toHaveBeenCalled()
   })
 })
