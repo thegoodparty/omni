@@ -5,6 +5,10 @@ import {
   LEGAL_LINE,
 } from './campaignManagerPrompt'
 import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import {
+  GUARDRAIL_DECLINE,
+  HONEST_REPORTING_BLOCK,
+} from '../services/assistantRules.prompt'
 import type { Organization } from '../../../generated/prisma'
 
 const ctx = (
@@ -85,6 +89,33 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('tells the manager when the campaign is locked out of Pro areas', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx({ isPro: false }))
     expect(prompt).toContain('Pro status: this campaign does not have Pro')
+  })
+
+  it('declines unrelated asks with its own line, not the Chief of Staff one', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('GUARDRAILS (apply before answering)')
+    expect(prompt).toContain(GUARDRAIL_DECLINE.win)
+    expect(prompt).not.toContain(GUARDRAIL_DECLINE.serve)
+    expect(prompt).toContain('plausibly connected to their campaign')
+  })
+
+  // A candidate has no office resources to keep apart from the campaign.
+  it('leaves out the office/campaign boundary', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).not.toContain('office/campaign boundary')
+  })
+
+  it('refuses outreach planned by ethnicity', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Never help decide who to consult, hear from, reach, or skip on the ' +
+        'basis of ethnicity',
+    )
+  })
+
+  it('always includes the honest reporting rules', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(HONEST_REPORTING_BLOCK)
   })
 
   it('tells the manager when the campaign has Pro', () => {

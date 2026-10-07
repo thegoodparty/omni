@@ -17,6 +17,10 @@ import {
   EXAMPLE_SAMPLE,
 } from '../chat-tools/outreachSampling.prompt'
 import { WIN_TEXT_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
+import {
+  buildGuardrailsBlock,
+  HONEST_REPORTING_BLOCK,
+} from '../services/assistantRules.prompt'
 
 export type { BallotStatus }
 
@@ -717,6 +721,8 @@ export const buildCampaignManagerSystemPrompt = (
 ): string =>
   [
     ROLE,
+    buildGuardrailsBlock('win'),
+    HONEST_REPORTING_BLOCK,
     todayLine(ctx.state, ctx.now),
     raceContext(ctx),
     ballotStatusBlock(ctx),
