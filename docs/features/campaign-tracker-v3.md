@@ -66,9 +66,8 @@ any open task past it reads as overdue.
   run completes, with no spinner to wait on; the candidate is told what was
   added.
 - Every phase shows **all** of its tasks at once, open work by date and
-  finished work after it. The **Active campaign** list spans last week
-  through next week (next week's plan lands with that Thursday's
-  generation).
+  finished work after it. The **Active campaign** list starts at last week
+  (older weeks' AI suggestions stay out) and shows everything ahead.
 - GOTV tasks stay hidden behind a window message until the election is within
   **30 days**.
 - If the candidate **loses their primary**, the outreach sends disappear and no
@@ -410,7 +409,7 @@ The table below is the cross-package file index:
   tasks; GOTV is gated to the final 30 days. The **Active** phase is built
   separately by `buildActiveWeeks`, which buckets every active task (all
   generations, not just the latest) into Monday-Sunday weeks and flags the week
-  containing today; the page lists the current week ±1 as one list. Dates are parsed at **local** midnight (matching the date
+  containing today; the page lists last week onward as one list. Dates are parsed at **local** midnight (matching the date
   chip) so a UTC-midnight task can't land in the wrong calendar week.
 - `useTrackerTasks.ts` polls fast (20s) while dynamic tasks are still
   generating, then drops to a slow background poll (so a weekly regen is picked

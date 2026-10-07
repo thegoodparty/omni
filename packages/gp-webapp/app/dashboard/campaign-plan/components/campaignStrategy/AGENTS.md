@@ -39,9 +39,8 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   `buildActiveWeeks`, which buckets every active task (all generations, not
   just `max(week)`) into Monday-Sunday weeks and flags the week containing
   today. The weeks still decide the next task and the finished week; the list
-  spans last week through next week (older generations stay out, since each
-  weekly run supersedes the one before), or every week once the election has
-  passed. GOTV is the one gated phase: hidden behind a window message until
+  starts at last week (older generations stay out, since each weekly run
+  supersedes the one before) and shows everything ahead. GOTV is the one gated phase: hidden behind a window message until
   the election is within 30 days. Both the list's span and the GOTV gate are
   deterministic here, not in the agent.
 - **The section renders only from persisted rows.** `CampaignPlanView` renders

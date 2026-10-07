@@ -331,14 +331,14 @@ export const buildTrackerStrategy = (
   if (activeKeyPhase) {
     // Weeks still decide the next task and the finished week; the page lists
     // the phase like the others, every task at once in the same order. It
-    // spans last week to next week: each weekly run supersedes the one before,
-    // so older generations' suggestions stay out rather than pile up overdue.
-    // With no week containing today (the election has passed), all of them.
-    const current = activeWeeks.findIndex((week) => week.isCurrent)
-    const listed =
-      current === -1
-        ? activeWeeks
-        : activeWeeks.slice(Math.max(0, current - 1), current + 2)
+    // starts at last week: each weekly run supersedes the one before, so older
+    // weeks' suggestions stay out rather than pile up overdue. Everything ahead
+    // shows, however far out.
+    const lastWeekStart = format(
+      addWeeks(startOfWeek(startOfDay(today), { weekStartsOn: 1 }), -1),
+      'yyyy-MM-dd',
+    )
+    const listed = activeWeeks.filter((week) => week.start >= lastWeekStart)
     activeKeyPhase.weeks = activeWeeks
     activeKeyPhase.groups = [
       {

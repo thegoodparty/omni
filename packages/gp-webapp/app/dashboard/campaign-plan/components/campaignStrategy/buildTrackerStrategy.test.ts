@@ -497,7 +497,7 @@ describe('buildTrackerStrategy order', () => {
 describe('buildTrackerStrategy active list', () => {
   const today = startOfDay(new Date('2026-01-15'))
 
-  it('lists last week through next week as one list, leaving older weeks out', () => {
+  it('lists from last week on as one list, leaving older weeks out', () => {
     const data = buildTrackerStrategy(
       [
         row({ id: 'old', phase: 'active', date: '2025-12-29' }),
@@ -511,6 +511,6 @@ describe('buildTrackerStrategy active list', () => {
     const listed = data.phases
       .find((p) => p.key === 'active')
       ?.groups.flatMap((g) => g.tasks.map((t) => t.id))
-    expect(listed).toEqual(['last', 'this', 'next'])
+    expect(listed).toEqual(['last', 'this', 'next', 'later'])
   })
 })
