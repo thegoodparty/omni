@@ -78,9 +78,9 @@ const verdictFrom = (
 const respond = (verdict: 'X' | 'Y', loc: string): JsonValue => {
   const dimension = {
     reasoning: 'the fuller answer covers more of the question',
-    evidence: [{ loc, quote: LONG, note: 'coverage' }],
     verdict,
     magnitude: 'clear',
+    needed_to_decide: '',
   }
   return {
     rubric_version: 'uj-rubric-0.2',
@@ -89,6 +89,7 @@ const respond = (verdict: 'X' | 'Y', loc: string): JsonValue => {
       DEFAULT_JUDGE_CONFIG.dimensions.map((d) => [d, dimension]),
     ),
     overall: dimension,
+    evidence: [{ dimension: 'overall', loc, quote: LONG, note: 'coverage' }],
     flags: [],
     absolute_floor: {
       X_acceptable: 'yes',

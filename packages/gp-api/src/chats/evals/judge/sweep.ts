@@ -39,6 +39,7 @@ import {
   CaseDimensionCollisionError,
   judgeAll,
   RUBRIC_VERSION,
+  toWireVerdict,
   type CaseVerdict,
 } from './judge'
 import {
@@ -339,6 +340,9 @@ export const judgeSweep = async (
 
   const scores: AgentScore[] = []
   const refusals: Refusal[] = []
+  // Agents the panel answered on no pair at all. Kept apart from refusals
+  // because it fails the sweep: see exitCode below.
+  const judgeFailures: string[] = []
   const placeholderCases: string[] = []
   const seededTranscripts: SeededTranscripts[] = []
   const identical: IdenticalOutputs[] = []
@@ -465,19 +469,41 @@ export const judgeSweep = async (
       } finally {
         judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
       }
+      const rulingsLocation = await storeRulings(deps.store, {
+        sweepId: env.sweepId,
+        agentId,
+        rubricVersion: RUBRIC_VERSION,
+        judgments,
+      })
+      rulings.push({ agentId, location: rulingsLocation })
+      // A JUDGE THAT ANSWERED NOTHING IS A BROKEN JUDGE, not a CAN'T SAY.
+      // Scored, it reads as an ordinary inconclusive verdict over zero cases
+      // and the step ends green, which is how a schema the API refused hid
+      // behind every sweep after it. The reasons were scrubbed where each
+      // judgment was made, the same text the exclusion line prints.
+      if (
+        judgments.length > 0 &&
+        judgments.every((j) => j.kind === 'ungraded')
+      ) {
+        const why = [
+          ...new Set(
+            judgments.flatMap((j) => (j.kind === 'ungraded' ? [j.reason] : [])),
+          ),
+        ]
+        judgeFailures.push(agentId)
+        refusals.push({
+          agentId,
+          reason:
+            `The judge returned no verdict on any of this agent's ` +
+            `${judgments.length} judgment(s), so there is nothing to score ` +
+            `and this sweep fails. Why: ${why.join(' | ')}`,
+        })
+        continue
+      }
       scores.push({
         ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
         ...(controls.scoredAnyway !== undefined && {
           controlsScoredAnyway: controls.scoredAnyway,
-        }),
-      })
-      rulings.push({
-        agentId,
-        location: await storeRulings(deps.store, {
-          sweepId: env.sweepId,
-          agentId,
-          rubricVersion: RUBRIC_VERSION,
-          judgments,
         }),
       })
     } catch (err) {
@@ -576,7 +602,11 @@ export const judgeSweep = async (
     // verdict this report carries and explains would make "report rather than
     // refuse" a distinction with no difference, and this exit code means "the
     // sweep could not do what it was asked", never "the answer was SAME".
-    exitCode: scores.length === 0 ? 1 : 0,
+    //
+    // A JUDGE FAILURE IS THE EXCEPTION, and fails the sweep whatever else
+    // scored: it says the judge itself is broken, which no other agent's
+    // verdict vouches for.
+    exitCode: scores.length === 0 || judgeFailures.length > 0 ? 1 : 0,
   }
 }
 
@@ -710,11 +740,15 @@ export const cannedVerdict = (
 const requiredDimensions = (
   schema: z.ZodType,
   config: JudgeConfig,
-): string[] =>
-  schema instanceof z.ZodObject &&
-  schema.shape.dimensions instanceof z.ZodObject
-    ? Object.keys(schema.shape.dimensions.shape)
+): string[] => {
+  // The panel's schema is an object piped through the transform that turns
+  // the wire reply back into a verdict; the keys are on the object.
+  const wire = schema instanceof z.ZodPipe ? schema.in : schema
+  return wire instanceof z.ZodObject &&
+    wire.shape.dimensions instanceof z.ZodObject
+    ? Object.keys(wire.shape.dimensions.shape)
     : [...config.dimensions]
+}
 
 export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   // Parsed through the caller's own schema, so a canned verdict that no
@@ -723,7 +757,7 @@ export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   // this got every case wrong while still printing a report.
   jsonCompletion: async ({ schema }) => ({
     object: schema.parse(
-      cannedVerdict(config, requiredDimensions(schema, config)),
+      toWireVerdict(cannedVerdict(config, requiredDimensions(schema, config))),
     ),
     tokens: 0,
     model: 'canned-judge',

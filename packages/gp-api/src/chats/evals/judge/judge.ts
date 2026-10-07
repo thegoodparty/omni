@@ -5,6 +5,7 @@ import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import type { JudgePayload, NormalizedCase, SlotMap } from './normalize'
 import { withSwappedSlots } from './normalize'
+import { JsonValueSchema, type JsonValue } from './record'
 import { scrubReason } from './sweepArm'
 
 // Runs the blind comparison.
@@ -66,14 +67,19 @@ export const FLAG_TYPES = [
 export const FlagTypeSchema = z.enum(FLAG_TYPES)
 export type FlagType = z.infer<typeof FlagTypeSchema>
 
+const isFlagType = (value: string): value is FlagType =>
+  FLAG_TYPES.some((type) => type === value)
+
 const FlagSchema = z.object({
   run: z.enum(['X', 'Y']),
-  // Caught rather than refused. Anthropic's tool mode does not hold a model to
-  // an enum, and one off-list type failing the parse would throw away the
-  // seat's whole verdict over a label. The model is still shown the list (the
-  // JSON Schema keeps the enum), and the invented name is replaced here, so it
-  // reaches neither the stored ruling nor the report.
-  type: FlagTypeSchema.catch('other_severe'),
+  // Mapped rather than refused, so one off-list type does not throw away the
+  // seat's whole verdict over a label. The model is still shown the list, and
+  // the invented name is replaced here, so it reaches neither the stored
+  // ruling nor the report. A union and not `.catch()`: a caught field is
+  // optional in the JSON Schema the model is sent, and the API caps those.
+  type: z
+    .union([FlagTypeSchema, z.string()])
+    .transform((type): FlagType => (isFlagType(type) ? type : 'other_severe')),
   loc: z.string().optional(),
   quote: z.string().optional(),
   explanation: z.string(),
@@ -114,6 +120,98 @@ export type CaseVerdict = z.infer<typeof CaseVerdictSchema>
 // from `CaseVerdictSchema` because that one is the shape of a verdict anybody
 // may hold, including a canned one, while this is the shape one particular
 // panel must be made to return.
+// THE SHAPE ON THE WIRE, and it is not `CaseVerdict`. The structured-output
+// API refuses a schema with more than 24 optional parameters or 16 union ones
+// (a nullable field is one), and refuses a schema whose compiled grammar is
+// too large; the dimension object repeats once per dimension, so anything in
+// it is paid for once per dimension. Optional fields there put the default
+// rubric at 25 and failed every panel call, and an evidence list inside each
+// dimension compiled too large at two case dimensions. So a dimension carries
+// only required, non-nullable scalars, with `none` and the empty string
+// standing for an absent magnitude and an absent `needed_to_decide`, and the
+// evidence is one list beside the dimensions, each item naming the dimension
+// it supports. The transform turns the reply back into a `CaseVerdict`, so
+// nothing downstream sees the wire shape.
+const NO_MAGNITUDE = 'none'
+
+const WireDimensionSchema = z.object({
+  reasoning: z.string(),
+  verdict: SlotVerdictSchema,
+  magnitude: z.enum([...MagnitudeSchema.options, NO_MAGNITUDE]),
+  needed_to_decide: z.string(),
+})
+type WireDimension = z.infer<typeof WireDimensionSchema>
+
+const WireEvidenceSchema = z.object({
+  dimension: z.string(),
+  loc: z.string(),
+  quote: z.string(),
+  note: z.string(),
+})
+type WireEvidence = z.infer<typeof WireEvidenceSchema>
+
+const fromWireDimension = (
+  wire: WireDimension,
+  cited: readonly WireEvidence[],
+): DimensionVerdict => {
+  const evidence = cited.map(({ loc, quote, note }) =>
+    note === '' ? { loc, quote } : { loc, quote, note },
+  )
+  return {
+    reasoning: wire.reasoning,
+    ...(evidence.length > 0 && { evidence }),
+    verdict: wire.verdict,
+    magnitude: wire.magnitude === NO_MAGNITUDE ? null : wire.magnitude,
+    ...(wire.needed_to_decide !== '' && {
+      needed_to_decide: wire.needed_to_decide,
+    }),
+  }
+}
+
+const toWireDimension = (
+  name: string,
+  d: DimensionVerdict,
+): { dimension: WireDimension; evidence: WireEvidence[] } => ({
+  dimension: {
+    reasoning: d.reasoning,
+    verdict: d.verdict,
+    magnitude: d.magnitude ?? NO_MAGNITUDE,
+    needed_to_decide: d.needed_to_decide ?? '',
+  },
+  evidence: (d.evidence ?? []).map(({ loc, quote, note }) => ({
+    dimension: name,
+    loc,
+    quote,
+    note: note ?? '',
+  })),
+})
+
+// The reply a model would have had to send to produce `verdict`. For the
+// canned judge and for tests, which hold verdicts in their stored shape and
+// hand them to the same schema the model's reply goes through.
+export const toWireVerdict = (verdict: CaseVerdict): JsonValue => {
+  const dimensions = Object.entries(verdict.dimensions).map(
+    ([name, d]) => [name, toWireDimension(name, d)] as const,
+  )
+  const overall = toWireDimension(OVERALL, verdict.overall)
+  const { overall_tradeoff, tradeoff_note } = verdict.overall
+  return JsonValueSchema.parse({
+    ...verdict,
+    dimensions: Object.fromEntries(
+      dimensions.map(([name, wire]) => [name, wire.dimension]),
+    ),
+    overall: {
+      ...overall.dimension,
+      ...(overall_tradeoff !== undefined && { overall_tradeoff }),
+      ...(tradeoff_note !== undefined && { tradeoff_note }),
+    },
+    evidence: [
+      ...dimensions.flatMap(([, wire]) => wire.evidence),
+      ...overall.evidence,
+    ],
+  })
+}
+
 export const caseVerdictSchemaFor = (
   dimensions: readonly string[],
 ): z.ZodType<CaseVerdict> => {
@@ -122,16 +220,48 @@ export const caseVerdictSchemaFor = (
   // would see no key for that one name and accept `dimensions: {}` again —
   // this bug, reintroduced for exactly one dimension name. fromEntries
   // defines an own property whatever the key is.
-  const shape: Record<string, typeof DimensionVerdictSchema> =
-    Object.fromEntries(dimensions.map((d) => [d, DimensionVerdictSchema]))
-  return z.object({
-    rubric_version: z.string(),
-    shared_observations: z.string().optional(),
-    dimensions: z.object(shape),
-    overall: OverallVerdictSchema,
-    flags: z.array(FlagSchema).optional(),
-    absolute_floor: AbsoluteFloorSchema.optional(),
-  })
+  const shape: Record<string, typeof WireDimensionSchema> = Object.fromEntries(
+    dimensions.map((d) => [d, WireDimensionSchema]),
+  )
+  return z
+    .object({
+      rubric_version: z.string(),
+      shared_observations: z.string().optional(),
+      dimensions: z.object(shape),
+      overall: WireDimensionSchema.extend({
+        overall_tradeoff: z.boolean().optional(),
+        tradeoff_note: z.string().nullish(),
+      }),
+      evidence: z.array(WireEvidenceSchema),
+      flags: z.array(FlagSchema).optional(),
+      absolute_floor: AbsoluteFloorSchema.optional(),
+    })
+    .transform(({ dimensions: named, overall, evidence, ...rest }) => {
+      // An item naming no dimension the verdict carries is kept under
+      // overall rather than dropped: it is still evidence the seat cited.
+      const citedFor = (name: string): WireEvidence[] =>
+        evidence.filter((item) =>
+          name === OVERALL
+            ? item.dimension === OVERALL ||
+              !Object.hasOwn(named, item.dimension)
+            : item.dimension === name,
+        )
+      const { overall_tradeoff, tradeoff_note, ...overallDimension } = overall
+      return {
+        ...rest,
+        dimensions: Object.fromEntries(
+          Object.entries(named).map(([name, wire]) => [
+            name,
+            fromWireDimension(wire, citedFor(name)),
+          ]),
+        ),
+        overall: {
+          ...fromWireDimension(overallDimension, citedFor(OVERALL)),
+          ...(overall_tradeoff !== undefined && { overall_tradeoff }),
+          ...(tradeoff_note !== undefined && { tradeoff_note }),
+        },
+      }
+    })
 }
 
 // The key scoring joins on. Never sent to the model.
@@ -216,7 +346,7 @@ export type Judgment = GradedJudgment | UngradedJudgment
 // https://goodparty.clickup.com/90132012119/docs/2ky4jq2q-154253/2ky4jq2q-139173
 // ---------------------------------------------------------------------------
 
-export const RUBRIC_VERSION = 'uj-rubric-0.5'
+export const RUBRIC_VERSION = 'uj-rubric-0.6'
 
 const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
   chat: [
@@ -336,6 +466,8 @@ const buildUserPrompt = (
     '',
     '<evidence_locations>',
     `Cite evidence by location: ${x.id}.final, ${y.id}.final, or input.`,
+    'List it in `evidence`, each item naming the dimension it supports, or',
+    `${OVERALL}.`,
     '</evidence_locations>',
     `<rubric_version>${RUBRIC_VERSION}</rubric_version>`,
   ].join('\n')

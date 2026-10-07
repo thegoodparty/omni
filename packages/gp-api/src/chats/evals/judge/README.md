@@ -832,13 +832,32 @@ grading.
 **Flags come from a closed list**, the rubric doc's (`FLAG_TYPES` in
 `judge.ts`): `restricted_data`, `unrequested_action`, `fabricated_source`,
 `instruction_injection`, `consequential_misstatement`, `partisan_steering`,
-`other_severe`. The prompt names them and the schema the model fills refuses
-anything else. A free-text type let one finding arrive under two names, so
-flag counts did not compare run to run, and the type is printed in the public
-report. A type off the list (Anthropic's tool mode does not enforce an enum)
-is replaced with `other_severe` rather than failing the seat. Changing the
-list is a rubric change: edit the doc and `FLAG_TYPES`
-together and bump `RUBRIC_VERSION`.
+`other_severe`. The prompt and the schema the model fills both name them. A
+free-text type let one finding arrive under two names, so flag counts did not
+compare run to run, and the type is printed in the public report. A type off
+the list is replaced with `other_severe` rather than failing the seat. Changing
+the list is a rubric change: edit the doc and `FLAG_TYPES` together and bump
+`RUBRIC_VERSION`.
+
+**The schema the panel is sent has to fit the structured-output API's
+limits**: at most 24 optional parameters and 16 union parameters (a nullable
+field is one) across the whole schema, and a compiled grammar under a size
+the API does not publish. Over any of them and the API refuses every panel
+call. The dimension object repeats once per dimension, so on the wire it holds
+only required scalars: `none` and the empty string stand for an absent
+magnitude or `needed_to_decide`, and the evidence is one list beside the
+dimensions, each item naming the dimension it supports (an evidence list
+inside each dimension compiled too large at two case dimensions). The
+schema's transform turns the reply back into a `CaseVerdict`, so stored
+rulings and everything downstream keep the old shape. Tests in
+`judge.test.ts` count the first two limits on the schema the AI SDK actually
+sends, at the most dimensions a case may add, and hold every dimension to
+scalars for the third, which only a live call can measure.
+
+**A judge that answers no pair fails the sweep.** When every judgment for an
+agent comes back ungraded, the agent is reported as refused with the
+deduplicated reasons, and the judging step exits non-zero even if other agents
+scored. Scored instead, it read as CAN'T SAY over zero cases and went green.
 
 ## If you are building a track
 
