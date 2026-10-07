@@ -305,6 +305,11 @@ const raceContext = (ctx: CampaignManagerContext): string => {
 // authoritative than it is: "fetched today" is true of the retrieval, and the
 // tag says where each fact came from.
 const LIVE_DATE_TAG = '(election data)'
+// A live date the feed did not return. Never "none": the service also
+// answers from a position-based fallback that carries windows and a win
+// number but no dates at all, and a block that said "none" there would read
+// as the live source affirming the race has no election.
+const NO_LIVE_DATE = 'no date on file'
 const LIVE_WINDOW_TAG = '(BallotReady)'
 const LIVE_ESTIMATE_TAG = '(model estimate)'
 
@@ -362,8 +367,8 @@ const liveRaceBlock = (ctx: CampaignManagerContext): string => {
   const primary = parseDay(data.primaryElectionDate)
   const lines = [
     'Current race data, fetched today:',
-    `General election date: ${general ? dateWithCount(general, today) : 'none'} ${LIVE_DATE_TAG}`,
-    `Primary election date: ${primary ? dateWithCount(primary, today) : 'none'} ${LIVE_DATE_TAG}`,
+    `General election date: ${general ? dateWithCount(general, today) : NO_LIVE_DATE} ${LIVE_DATE_TAG}`,
+    `Primary election date: ${primary ? dateWithCount(primary, today) : NO_LIVE_DATE} ${LIVE_DATE_TAG}`,
   ]
   if (data.milestones) {
     for (const w of LIVE_WINDOWS) {

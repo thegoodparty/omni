@@ -278,7 +278,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
         expect(prompt).toContain(
           'Current race data, fetched today:\n' +
             'General election date: Tuesday, November 3, 2026 (in 29 days) (election data)\n' +
-            'Primary election date: none (election data)\n' +
+            'Primary election date: no date on file (election data)\n' +
             'Voter registration: closed Friday, October 2, 2026 (3 days ago) (BallotReady)\n' +
             'Early voting: opens Saturday, October 24, 2026 (in 19 days), closes Sunday, November 1, 2026 (in 27 days) (BallotReady)\n' +
             'Mail ballot requests: close Saturday, October 24, 2026 (in 19 days) (BallotReady)\n' +
@@ -365,6 +365,25 @@ describe('buildCampaignManagerSystemPrompt', () => {
           'Voter registration, early voting, mail ballot windows: not available today (BallotReady)',
         )
         expect(none).not.toContain('Early voting:')
+      })
+
+      // The service's position-based fallback returns windows and a win
+      // number with no dates at all. That is not the live source saying the
+      // race has no election, so the date lines say the feed holds no date.
+      it('says no date on file, not none, when the live data carries no dates', () => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          liveCtx({ generalElectionDate: null, primaryElectionDate: null }),
+        )
+        expect(prompt).toContain(
+          'General election date: no date on file (election data)',
+        )
+        expect(prompt).toContain(
+          'Primary election date: no date on file (election data)',
+        )
+        expect(prompt).not.toContain('election date: none')
+        expect(prompt).toContain('Early voting: opens Saturday, October 24')
+        expect(prompt).toContain('Votes needed to win: about 1,234')
+        expect(prompt).not.toContain('disagree')
       })
 
       it('drops the estimates when the model has none', () => {
