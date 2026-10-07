@@ -78,9 +78,9 @@ const toRenderTask = (
   date: row.date,
   param: null,
   href: row.link,
-  // A row that carries its own CTA wins: the story task's "Add your story"
-  // has to match the card pinned above the rail, and the manager's task list
-  // already prefers `cta` the same way. Everything else falls back to "Open".
+  // A row that carries its own CTA wins: the story task's "Add your story",
+  // which the manager's task list already prefers the same way. Everything
+  // else falls back to "Open".
   hrefLabel: row.link ? row.cta?.trim() || 'Open' : null,
   priorityTier: 'P2',
   proRequired: row.proRequired ?? false,

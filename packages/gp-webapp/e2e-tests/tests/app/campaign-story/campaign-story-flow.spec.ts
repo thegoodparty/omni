@@ -95,10 +95,12 @@ test.describe('campaign story flow', () => {
 
     await page.goto('/dashboard/campaign-plan')
 
-    // The story-pinned card is on the plan itself, so reaching it proves the
+    // The story is a task on the plan itself, so reaching its row proves the
     // plan rendered rather than a gate standing in front of it.
-    const storyLink = page.getByRole('link', { name: /add your story/i })
-    await expect(storyLink).toBeVisible({ timeout: 30000 })
+    const storyRow = page.locator('li', {
+      hasText: 'Tell us your campaign story',
+    })
+    await expect(storyRow).toBeVisible({ timeout: 30000 })
 
     // Nobody generates their own plan: opening the tab is the request, so
     // there is nothing here to press. Asserted by role+name rather than by
@@ -112,7 +114,15 @@ test.describe('campaign story flow', () => {
     // intake (rather than showing the meet-card home) — so assert the intake
     // copy the chat streams, not the meet-card heading, which is hidden once
     // the chat opens.
-    await storyLink.click()
+    // The row offers "Add your story" in place when it is the next task, and
+    // in its menu otherwise; which one depends on the dates in the plan.
+    const inRow = storyRow.getByRole('link', { name: /add your story/i })
+    if (await inRow.isVisible()) {
+      await inRow.click()
+    } else {
+      await storyRow.getByRole('button', { name: 'More options' }).click()
+      await page.getByRole('menuitem', { name: /add your story/i }).click()
+    }
     await page.waitForURL('**/dashboard**', { timeout: 30000 })
     await expect(page.getByText(/get your Campaign Story down/i)).toBeVisible({
       timeout: 30000,

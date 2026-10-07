@@ -78,15 +78,10 @@ offers generation to everyone and invites the story alongside it.
 
 ### The campaign story prompt
 
-Two surfaces, deliberately:
-
-- **A pinned card** above the tracker rail (`CampaignPlanStoryCard`, between
-  the hero and `CampaignStrategySection`), shown while the story is incomplete
-  and **not dismissible**, sized like the dashboard's Pro banner: one card, one
-  CTA. It is what makes the prompt the first thing on the page.
-- **A real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static` catalog
-  entry) at the **end of pre-launch**, so the prompt flows through the same row
-  machinery as everything else rather than being a bespoke surface.
+The prompt is **a real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static`
+catalog entry) at the **end of pre-launch**, so it flows through the same row
+machinery as everything else rather than being a bespoke surface, and leads
+the next-step card when it is the candidate's next task.
 
 The task's `completed` mirrors whether the story is finished, in both
 directions, and the row is never deleted. That is what makes the tracker the
@@ -94,7 +89,7 @@ single source of truth for this work: finishing the story on any other surface
 ticks the task — `completeCampaignStoryTaskIfDone` runs on the tracker read, so
 it closes immediately rather than at the next generation — and emptying the
 story reopens it. A candidate never has to tick it by hand, and it can never
-disagree with the card.
+disagree with the story itself.
 
 Known consequence, tracked separately: an open pre-launch row dated in the
 present pulls a mid-campaign candidate's rail back to Pre-launch, because
@@ -127,8 +122,8 @@ as several messages that all hash alike once it settles, and only a hash that
 actually differs reaches the reset.
 
 `generatedWithStory`, the boolean this replaced, survives for one job: telling
-a pre-fingerprint row that was built *from* a story (adopt the current hash
-silently) apart from one built *without* one (regenerate). Without that, adding
+a pre-fingerprint row that was built _from_ a story (adopt the current hash
+silently) apart from one built _without_ one (regenerate). Without that, adding
 the column would have billed a regeneration for every campaign with a finished
 story at once. It is dead weight once every row carries a fingerprint and can
 be dropped then.
@@ -164,7 +159,7 @@ called directly because `campaignStrategy` already depends on both
 each edge, and because a story autosave should not wait on a regeneration.
 Messages are deliberately **not** deduped per campaign. The story page saves
 each field independently, and a per-campaign dedup id would collapse the burst
-inside SQS FIFO's 5-minute window and keep the *first* message — the one
+inside SQS FIFO's 5-minute window and keep the _first_ message — the one
 written while the story was still incomplete, which the handler correctly
 no-ops on. The write that actually completes the story would be the one
 discarded, so the eager path would silently never fire. Every write gets its
@@ -192,14 +187,14 @@ One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`)
 whose schema mirrors the legacy `campaign_task` plus a `phase` column, so the
 completion / CTA / update-history machinery is reused against it.
 
-| Field | Meaning |
-|-------|---------|
+| Field           | Meaning                                                                                                           |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `isDefaultTask` | `true` = deterministic row (static catalog **or** outreach send); `false` = agent-generated dynamic task or event |
-| `flowType` | channel (`text`, `robocall`, `events`, …); `events` marks event rows |
-| `phase` | `preLaunch` \| `launch` \| `active` \| `gotv` (drives the rail) |
-| `week` | **generation index** (see below), not a calendar week |
-| `date` | when the task is scheduled (drives sorting + the digest window) |
-| `completed` | per-task completion; `updateHistoryId` links voter-contact logging |
+| `flowType`      | channel (`text`, `robocall`, `events`, …); `events` marks event rows                                              |
+| `phase`         | `preLaunch` \| `launch` \| `active` \| `gotv` (drives the rail)                                                   |
+| `week`          | **generation index** (see below), not a calendar week                                                             |
+| `date`          | when the task is scheduled (drives sorting + the digest window)                                                   |
+| `completed`     | per-task completion; `updateHistoryId` links voter-contact logging                                                |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
 claim (see Bootstrap below). Both in-place plan resets release it —
@@ -375,21 +370,21 @@ and gotchas. Read those first when working in the code:
 
 The table below is the cross-package file index:
 
-| Area | Path |
-|------|------|
-| Tracker service (bootstrap, dispatch params, append-persist, completion) | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerTasks.service.ts` |
-| Weekly cron | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerDispatch.service.ts` |
-| Static row materialization | `gp-api/src/campaigns/campaignTracker/services/staticTrackerTasks.util.ts` |
-| Controller + MCP tool | `gp-api/src/campaigns/campaignTracker/campaignTracker.controller.ts` |
-| Bootstrap trigger | `gp-api/src/campaignStrategy/services/campaignStrategy.service.ts` |
-| Digest | `gp-api/src/campaigns/tasks/services/weeklyTasksDigestHandler.service.ts` |
-| Shared week-start helper | `gp-api/src/shared/util/date.util.ts` (`nextMondayUtcMidnight`) |
-| Catalog generator | `gp-api/scripts/generate-tracker-catalog.ts` |
-| CAP experiment | `packages/runbooks/experiments/campaign_tracker_tasks/` |
-| Task catalog (source of truth) | `@goodparty_org/contracts` (`CampaignTaskCatalog`) |
-| Frontend rendering | `gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
-| Frontend data hook | `…/campaignStrategy/useTrackerTasks.ts` |
-| Frontend section | `…/campaignStrategy/CampaignStrategySection.tsx` |
+| Area                                                                     | Path                                                                                        |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Tracker service (bootstrap, dispatch params, append-persist, completion) | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerTasks.service.ts`             |
+| Weekly cron                                                              | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerDispatch.service.ts`          |
+| Static row materialization                                               | `gp-api/src/campaigns/campaignTracker/services/staticTrackerTasks.util.ts`                  |
+| Controller + MCP tool                                                    | `gp-api/src/campaigns/campaignTracker/campaignTracker.controller.ts`                        |
+| Bootstrap trigger                                                        | `gp-api/src/campaignStrategy/services/campaignStrategy.service.ts`                          |
+| Digest                                                                   | `gp-api/src/campaigns/tasks/services/weeklyTasksDigestHandler.service.ts`                   |
+| Shared week-start helper                                                 | `gp-api/src/shared/util/date.util.ts` (`nextMondayUtcMidnight`)                             |
+| Catalog generator                                                        | `gp-api/scripts/generate-tracker-catalog.ts`                                                |
+| CAP experiment                                                           | `packages/runbooks/experiments/campaign_tracker_tasks/`                                     |
+| Task catalog (source of truth)                                           | `@goodparty_org/contracts` (`CampaignTaskCatalog`)                                          |
+| Frontend rendering                                                       | `gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
+| Frontend data hook                                                       | `…/campaignStrategy/useTrackerTasks.ts`                                                     |
+| Frontend section                                                         | `…/campaignStrategy/CampaignStrategySection.tsx`                                            |
 
 ## Frontend specifics
 

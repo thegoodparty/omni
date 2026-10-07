@@ -18,7 +18,6 @@ import PlanView, {
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
-import CampaignPlanStoryCard from './CampaignPlanStoryCard'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
 
@@ -134,9 +133,6 @@ const CampaignPlanView = ({
   // band and tracker intro are gone; the PDF lives inside the Summary.
   return (
     <div className="w-full">
-      <div className="mx-auto w-full max-w-3xl px-4 empty:hidden">
-        <CampaignPlanStoryCard />
-      </div>
       <CampaignStrategySection
         bodyEnd={
           /* The full plan folds into one card in the phases' style: closed,
