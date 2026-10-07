@@ -53,6 +53,13 @@ cards the candidate checks off. Feature overview + backend:
   first open task `isNext`, and the week navigator opens on it. The choice
   lives in the browser (`useHeadStartWeek`, shared by the card and the list)
   and only counts for next week, so it expires when the calendar gets there.
+- **Skipping is saved on the server.** The next-step card's × and the "Do
+  this next" row's menu put a task off or set it aside through
+  `useSetTrackerTaskAside` (optimistic, like completion); a set-aside row can
+  be brought back from its menu. `buildTrackerStrategy` never makes a task
+  that is put off or set aside the next one (`canBeNext`), so the card and the
+  list always agree. The rules (snooze length, the due-date cap, which tasks
+  are required) live in contracts' `TrackerTaskSkip.ts`, shared with gp-api.
 - **Completion is optimistic.** `useToggleTrackerTaskComplete` writes the
   row's `completed` into the cache before the request lands (rolled back on
   error), so the next-step card can bring the next task forward the moment

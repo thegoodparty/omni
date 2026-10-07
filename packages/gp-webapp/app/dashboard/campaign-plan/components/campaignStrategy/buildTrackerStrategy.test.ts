@@ -398,3 +398,59 @@ describe('buildTrackerStrategy head start', () => {
     expect(nextIds(data)).toEqual([])
   })
 })
+
+describe('buildTrackerStrategy with tasks set aside', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+  const nextIds = (data: ReturnType<typeof buildTrackerStrategy>) =>
+    data.phases
+      .flatMap((p) => [
+        ...p.groups.flatMap((g) => g.tasks),
+        ...(p.weeks ?? []).flatMap((w) => w.tasks),
+      ])
+      .filter((t) => t.isNext)
+      .map((t) => t.id)
+
+  it('passes over a task put off or set aside when picking the next one', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'snoozed',
+          phase: 'active',
+          date: '2026-01-13',
+          skipReason: 'later',
+          snoozedUntil: '2026-01-17T00:00:00.000Z',
+        }),
+        row({
+          id: 'dropped',
+          phase: 'active',
+          date: '2026-01-14',
+          skipReason: 'notForMe',
+          snoozedUntil: null,
+        }),
+        row({ id: 'open', phase: 'active', date: '2026-01-16' }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(nextIds(data)).toEqual(['open'])
+  })
+
+  it('lets a task back in once its snooze has run out', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'woke',
+          phase: 'active',
+          date: '2026-01-13',
+          skipReason: 'later',
+          snoozedUntil: '2026-01-14T00:00:00.000Z',
+        }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(nextIds(data)).toEqual(['woke'])
+    expect(
+      data.phases.flatMap((p) => p.weeks ?? []).flatMap((w) => w.tasks)[0]
+        ?.setAside,
+    ).toBeNull()
+  })
+})

@@ -5,6 +5,7 @@ import {
   startOfDay,
   startOfWeek,
 } from 'date-fns'
+import { isTrackerTaskSetAside } from '@goodparty_org/contracts'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type {
   CampaignStrategyData,
@@ -66,7 +67,10 @@ const PHASE_KEYS = new Set<string>(PHASE_META.map((p) => p.key))
 const toChannel = (flowType: string | null): TaskChannel =>
   (flowType && FLOW_TYPE_TO_CHANNEL[flowType]) || 'general'
 
-const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
+const toRenderTask = (
+  row: CampaignTrackerTask,
+  today: Date,
+): CampaignStrategyTask => ({
   id: row.id,
   title: row.title,
   description: row.description,
@@ -84,7 +88,22 @@ const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
   unlocksAfter: null,
   isNext: false,
   completed: row.completed,
+  setAside: isTrackerTaskSetAside(
+    {
+      skipReason: row.skipReason ?? null,
+      snoozedUntil: row.snoozedUntil ?? null,
+    },
+    today,
+  )
+    ? (row.skipReason ?? null)
+    : null,
+  snoozedUntil: row.snoozedUntil ?? null,
 })
+
+// Open work the candidate hasn't put off or set aside: the only kind that can
+// be the next task. A set-aside task still counts as open everywhere else.
+const canBeNext = (task: CampaignStrategyTask): boolean =>
+  !task.completed && task.setAside === null
 
 // API dates are full ISO at UTC midnight; the catalog fallback is date-only.
 // Parse both as LOCAL midnight (slice + dash->slash, matching the date chip in
@@ -192,9 +211,9 @@ const buildActiveWeeks = (
         .reduce((max, r) => Math.max(max, r.week), -Infinity)
       const tasksForWeek = rows
         .filter((r) => r.isDefaultTask || r.week === latestGen)
-        .map(toRenderTask)
+        .map((row) => toRenderTask(row, today))
         .sort(compareTasks)
-      const next = tasksForWeek.find((t) => !t.completed)
+      const next = tasksForWeek.find(canBeNext)
       if (weekMs === todayWeek && next) next.isNext = true
       return {
         start: format(new Date(weekMs), 'yyyy-MM-dd'),
@@ -242,7 +261,7 @@ export const buildTrackerStrategy = (
       row.phase && PHASE_KEYS.has(row.phase) ? row.phase : 'preLaunch'
     ) as CampaignStrategyPhaseKey
     const list = byPhase.get(phase) ?? []
-    list.push(toRenderTask(row))
+    list.push(toRenderTask(row, today))
     byPhase.set(phase, list)
   }
 
@@ -310,7 +329,7 @@ export const buildTrackerStrategy = (
   if (happeningNow && happeningNow.key !== 'active') {
     const candidates = happeningNow.groups
       .flatMap((g) => g.tasks)
-      .filter((t) => !t.completed)
+      .filter(canBeNext)
       .sort(compareTasks)
     if (candidates[0]) candidates[0].isNext = true
   }
@@ -326,7 +345,7 @@ export const buildTrackerStrategy = (
   if (!hasNext && headStartWeek === followingWeekStart(today)) {
     const first = activeWeeks
       .find((week) => week.start === headStartWeek)
-      ?.tasks.find((task) => !task.completed)
+      ?.tasks.find(canBeNext)
     if (first) first.isNext = true
   }
 

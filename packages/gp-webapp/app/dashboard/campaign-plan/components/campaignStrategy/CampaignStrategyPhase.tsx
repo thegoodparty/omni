@@ -13,6 +13,7 @@ import {
   InfoIcon,
   cn,
 } from '@styleguide'
+import type { TrackerTaskSkipReason } from '@goodparty_org/contracts'
 import type {
   CampaignStrategyPhase as CampaignStrategyPhaseModel,
   CampaignStrategyTask,
@@ -32,7 +33,10 @@ interface CampaignStrategyPhaseProps {
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
-  onSkip?: (task: CampaignStrategyTask) => void
+  onSetAside?: (
+    task: CampaignStrategyTask,
+    reason: TrackerTaskSkipReason | null,
+  ) => void
 }
 
 // `start` is the Monday (yyyy-MM-dd); show the Mon-Sun span. Parse via the same
@@ -54,7 +58,7 @@ const WeekNavigator = ({
   onStartOutreach,
   onDiscuss,
   getAction,
-  onSkip,
+  onSetAside,
 }: {
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
@@ -67,7 +71,10 @@ const WeekNavigator = ({
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
-  onSkip?: (task: CampaignStrategyTask) => void
+  onSetAside?: (
+    task: CampaignStrategyTask,
+    reason: TrackerTaskSkipReason | null,
+  ) => void
 }): React.JSX.Element => {
   const rawIndex = weeks.findIndex((w) => w.isCurrent)
   const currentIndex = rawIndex === -1 ? weeks.length - 1 : rawIndex
@@ -141,7 +148,7 @@ const WeekNavigator = ({
               onStartOutreach={onStartOutreach}
               onDiscuss={onDiscuss}
               getAction={getAction}
-              onSkip={onSkip}
+              onSetAside={onSetAside}
             />
           ))}
         </ul>
@@ -186,7 +193,7 @@ const CampaignStrategyPhase = ({
   onStartOutreach,
   onDiscuss,
   getAction,
-  onSkip,
+  onSetAside,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
   <AccordionItem
     id={`phase-${phase.key}`}
@@ -222,7 +229,7 @@ const CampaignStrategyPhase = ({
           onStartOutreach={onStartOutreach}
           onDiscuss={onDiscuss}
           getAction={getAction}
-          onSkip={onSkip}
+          onSetAside={onSetAside}
         />
       ) : (
         phase.groups.map((group) => (
@@ -244,7 +251,7 @@ const CampaignStrategyPhase = ({
                   onStartOutreach={onStartOutreach}
                   onDiscuss={onDiscuss}
                   getAction={getAction}
-                  onSkip={onSkip}
+                  onSetAside={onSetAside}
                 />
               ))}
             </ul>

@@ -7,16 +7,24 @@ overview: `docs/features/campaign-tracker-v3.md`.
 
 ## Key files
 
-| File                                          | Role                                                                                                                                                                                                                                   |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                                                   |
-| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                                            |
+| File                                          | Role                                                                                                                                                                                                           |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                           |
+| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                    |
 | `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`needsBallotAccessTasks`). |
-| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + `POST generate` (non-prod manual override).                                                                                                                |
-| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                                             |
-| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                                            |
+| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + skip/unskip + `POST generate` (non-prod manual override).                                                                          |
+| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                     |
+| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                    |
 
 ## Patterns / non-obvious logic
+
+- **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
+  a task aside: `later` sets `snoozedUntil` (`trackerTaskSnoozeUntil`: three
+  days, or the due date when that comes first), `notForMe` holds until
+  `DELETE /skip/:id`. Required tasks (`canSetTaskAsideForGood`: ballot access,
+  compliance, the final report) 400 on `notForMe`. Neither touches `completed`,
+  so a skipped task still counts as open work everywhere that reads completion;
+  only the webapp's next-task pick passes over it (`isTrackerTaskSetAside`).
 
 - **Append, never replace (the central rule).** `onExperimentRunCompleted`
   stamps each run's rows with `week = max(existing dynamic week) + 1` and never

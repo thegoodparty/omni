@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { addDays, differenceInCalendarDays, format, startOfDay } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
@@ -10,6 +14,11 @@ import {
   Prisma,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import {
+  canSetTaskAsideForGood,
+  trackerTaskSnoozeUntil,
+  type TrackerTaskSkipReason,
+} from '@goodparty_org/contracts'
 import {
   CENTRAL_TIMEZONE,
   isDateTodayOrFuture,
@@ -905,6 +914,46 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           ...(updateHistoryId !== undefined && { updateHistoryId }),
         },
       })
+    })
+  }
+
+  // Sets a task aside without completing it, so it still counts as open work
+  // everywhere that reads completion. 'later' keeps it from being the next
+  // task for a few days (never past its due date); 'notForMe' until undone.
+  async skipTask(
+    { id: campaignId }: Campaign,
+    id: string,
+    reason: TrackerTaskSkipReason,
+  ) {
+    const task = await this.model.findFirst({ where: { campaignId, id } })
+    if (!task) {
+      throw new NotFoundException(`Tracker task ${id} not found`)
+    }
+    if (reason === 'notForMe' && !canSetTaskAsideForGood(task.title)) {
+      throw new BadRequestException(
+        `Tracker task ${id} is required and can only be put off`,
+      )
+    }
+    const now = new Date()
+    return this.model.update({
+      where: { id: task.id },
+      data: {
+        skipReason: reason,
+        skippedAt: now,
+        snoozedUntil:
+          reason === 'later' ? trackerTaskSnoozeUntil(now, task.date) : null,
+      },
+    })
+  }
+
+  async unSkipTask({ id: campaignId }: Campaign, id: string) {
+    const task = await this.model.findFirst({ where: { campaignId, id } })
+    if (!task) {
+      throw new NotFoundException(`Tracker task ${id} not found`)
+    }
+    return this.model.update({
+      where: { id: task.id },
+      data: { skipReason: null, skippedAt: null, snoozedUntil: null },
     })
   }
 

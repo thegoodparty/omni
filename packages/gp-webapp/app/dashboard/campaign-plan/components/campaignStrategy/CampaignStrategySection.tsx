@@ -6,12 +6,15 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Card, Stepper, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
-import { useGenerateTrackerTasks, useTrackerTasks } from './useTrackerTasks'
+import {
+  useGenerateTrackerTasks,
+  useSetTrackerTaskAside,
+  useTrackerTasks,
+} from './useTrackerTasks'
 import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 import {
   discussTaskMessage,
-  skipNextTask,
   taskAction,
   useHeadStartWeek,
 } from './NextTaskCard'
@@ -55,6 +58,7 @@ const CampaignStrategySection = ({
   )
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
   const chat = useCampaignManagerChat()
+  const setAside = useSetTrackerTaskAside()
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -238,7 +242,9 @@ const CampaignStrategySection = ({
                       'plan',
                     )
                   }
-                  onSkip={(task) => skipNextTask(task.id)}
+                  onSetAside={(task, reason) =>
+                    setAside.mutate({ id: task.id, reason })
+                  }
                   onDiscuss={
                     chat
                       ? (task) => chat.discussTask(discussTaskMessage(task))

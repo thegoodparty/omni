@@ -8,6 +8,7 @@ import type {
   PriorityTier,
   TaskChannel,
   TaskStatus,
+  TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
 
 export type {
@@ -41,6 +42,10 @@ export interface CampaignStrategyTask {
   unlocksAfter: string | null
   isNext: boolean
   completed: boolean
+  // Put off ('later') or set aside ('notForMe') right now, so never the next
+  // task. A snooze that has run out reads as null.
+  setAside: TrackerTaskSkipReason | null
+  snoozedUntil: string | null
 }
 
 export interface CampaignStrategyGroup {

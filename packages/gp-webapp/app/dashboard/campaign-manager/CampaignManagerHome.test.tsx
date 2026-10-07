@@ -96,6 +96,7 @@ const latestSurfaceProps = (): SurfaceProps => {
 
 let mockTasks: CampaignTrackerTask[] = []
 const mockToggleMutate = vi.fn()
+const mockSetAside = vi.fn()
 
 const doorsTask: CampaignTrackerTask = {
   id: 'doors-1',
@@ -128,6 +129,7 @@ vi.mock(
       mutate: mockToggleMutate,
       isPending: false,
     }),
+    useSetTrackerTaskAside: () => ({ mutate: mockSetAside, isPending: false }),
   }),
 )
 
@@ -213,6 +215,7 @@ beforeEach(() => {
   surfacePropsMock.mockClear()
   mockTasks = []
   mockToggleMutate.mockReset()
+  mockSetAside.mockReset()
 })
 
 // Opens the manager chat onto its seeded greeting: opening the footer chat
@@ -662,5 +665,66 @@ describe('CampaignManagerHome marking a task done', () => {
       completed: true,
     })
     expect(screen.queryByText('Mark this task done?')).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignManagerHome skipping a task', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
+  const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
+    ...doorsTask,
+    flowType: null,
+    phase: 'preLaunch',
+    isDefaultTask: true,
+    proRequired: false,
+    date: '2026-10-30T00:00:00.000Z',
+    ...over,
+  })
+
+  it('offers to put it off or drop it, and saves the choice', async () => {
+    mockTasks = [task({ id: 'ein', title: 'Get your EIN' })]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Skip this task' }),
+    )
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Don’t suggest it again' }),
+    )
+
+    expect(mockSetAside).toHaveBeenCalledWith({
+      id: 'ein',
+      reason: 'notForMe',
+    })
+  })
+
+  it('only lets a required task be put off, until its due date', async () => {
+    mockTasks = [
+      task({
+        id: 'sigs',
+        title: 'Submit your Ballot Access Signatures',
+        date: '2026-10-10T00:00:00.000Z',
+      }),
+    ]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Skip this task' }),
+    )
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show on Oct 10' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: 'Don’t suggest it again' }),
+    ).not.toBeInTheDocument()
   })
 })

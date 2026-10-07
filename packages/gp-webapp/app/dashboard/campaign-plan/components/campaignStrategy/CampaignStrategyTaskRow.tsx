@@ -5,6 +5,12 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MoreMenu } from 'app/shared/utils/MoreMenu'
 import {
+  TRACKER_TASK_SNOOZE_DAYS,
+  canSetTaskAsideForGood,
+  trackerTaskSnoozeUntil,
+  type TrackerTaskSkipReason,
+} from '@goodparty_org/contracts'
+import {
   Badge,
   Button,
   CalendarDaysIcon,
@@ -43,9 +49,12 @@ interface CampaignStrategyTaskRowProps {
   getAction?: (
     task: CampaignStrategyTask,
   ) => { label: string; href: string; external: boolean } | null
-  // Skips the task in the shared next-task stack; offered on the "Do this
-  // next" row only.
-  onSkip?: (task: CampaignStrategyTask) => void
+  // Puts the task off or sets it aside (offered on the "Do this next" row),
+  // or brings a set-aside task back (null).
+  onSetAside?: (
+    task: CampaignStrategyTask,
+    reason: TrackerTaskSkipReason | null,
+  ) => void
 }
 
 const CHANNEL_ICONS: Record<
@@ -70,6 +79,15 @@ const CHANNEL_ICONS: Record<
 export const formatTaskDate = (date: string | null): string | null =>
   date ? format(new Date(date.slice(0, 10).replace(/-/g, '/')), 'MMM d') : null
 
+// "Later" never carries a task past its own due date, so the choice names the
+// day when that comes first.
+export const snoozeLabel = (date: string | null): string =>
+  date &&
+  trackerTaskSnoozeUntil(new Date(), date).getTime() ===
+    new Date(date).getTime()
+    ? `Show on ${formatTaskDate(date)}`
+    : `Show in ${TRACKER_TASK_SNOOZE_DAYS} days`
+
 // One task row: status marker, date chip, type icon, title, optional Pro and
 // "Do this next" badges, description, parameter, prerequisite hint, a chat
 // action, and a menu holding the task's own actions.
@@ -85,7 +103,7 @@ const CampaignStrategyTaskRow = ({
   onStartOutreach,
   onDiscuss,
   getAction,
-  onSkip,
+  onSetAside,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
   const formattedDate = formatTaskDate(task.date)
@@ -153,8 +171,24 @@ const CampaignStrategyTaskRow = ({
           },
         ]
       : []),
-    ...(onSkip && task.isNext && !task.completed
-      ? [{ label: 'Skip', onClick: () => onSkip(task) }]
+    ...(onSetAside && task.isNext && !task.completed
+      ? [
+          {
+            label: snoozeLabel(task.date),
+            onClick: () => onSetAside(task, 'later'),
+          },
+          ...(canSetTaskAsideForGood(task.title)
+            ? [
+                {
+                  label: 'Don’t suggest it again',
+                  onClick: () => onSetAside(task, 'notForMe'),
+                },
+              ]
+            : []),
+        ]
+      : []),
+    ...(onSetAside && task.setAside
+      ? [{ label: 'Bring it back', onClick: () => onSetAside(task, null) }]
       : []),
     ...(onToggleComplete && !completesItself
       ? [
@@ -188,6 +222,7 @@ const CampaignStrategyTaskRow = ({
             className={cn(
               'text-sm font-semibold',
               task.completed && 'text-muted-foreground line-through',
+              task.setAside && !task.completed && 'text-muted-foreground',
             )}
           >
             {task.title}
@@ -206,6 +241,13 @@ const CampaignStrategyTaskRow = ({
         <p className="text-muted-foreground text-sm">{task.description}</p>
         {task.param && (
           <p className="text-muted-foreground text-xs">{task.param}</p>
+        )}
+        {task.setAside && !task.completed && (
+          <p className="text-muted-foreground text-xs">
+            {task.setAside === 'later' && task.snoozedUntil
+              ? `Put off until ${format(new Date(task.snoozedUntil), 'MMM d')}`
+              : 'Not suggested'}
+          </p>
         )}
         {task.unlocksAfter && (
           <p className="text-muted-foreground flex items-center gap-1 text-xs">

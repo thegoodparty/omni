@@ -39,6 +39,8 @@ describe('start outreach CTA', () => {
     unlocksAfter: null,
     isNext: false,
     completed: false,
+    setAside: null,
+    snoozedUntil: null,
   } as const
 
   it('opens the outreach flow in place with the channel and due date', async () => {
@@ -98,5 +100,74 @@ describe('start outreach CTA', () => {
     expect(
       screen.queryByRole('button', { name: 'More options' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('setting a task aside from the plan', () => {
+  const task = {
+    id: 't2',
+    title: 'Knock on Doors',
+    description: 'Knock your target doors.',
+    channel: 'doorKnocking',
+    date: '2099-02-03T00:00:00.000Z',
+    param: null,
+    href: null,
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: true,
+    completed: false,
+    setAside: null,
+    snoozedUntil: null,
+  } as const
+
+  it('offers the next task’s two ways to set it aside', async () => {
+    const onSetAside = vi.fn()
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={task}
+          index={1}
+          onSetAside={onSetAside}
+        />
+      </ul>,
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Don’t suggest it again' }),
+    )
+    expect(onSetAside).toHaveBeenCalledWith(task, 'notForMe')
+  })
+
+  it('says when a put-off task comes back, and can bring it back now', async () => {
+    const onSetAside = vi.fn()
+    const putOff = {
+      ...task,
+      isNext: false,
+      setAside: 'later',
+      snoozedUntil: '2099-02-05T12:00:00.000Z',
+    } as const
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={putOff}
+          index={1}
+          onSetAside={onSetAside}
+        />
+      </ul>,
+    )
+    expect(screen.getByText('Put off until Feb 5')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Bring it back' }),
+    )
+    expect(onSetAside).toHaveBeenCalledWith(putOff, null)
   })
 })

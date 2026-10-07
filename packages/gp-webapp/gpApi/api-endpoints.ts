@@ -108,6 +108,7 @@ import type {
   RecommendedListsResponse,
   RecommendedListVariant,
   MyAssignmentsResponse,
+  TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -232,6 +233,11 @@ export type CampaignTrackerTask = {
   // false for the dynamic tasks + events the CAP run produces. Lets the client
   // tell "still generating" (only static present) from "done".
   isDefaultTask: boolean
+  // Set when the candidate put the task off ('later', until snoozedUntil) or
+  // set it aside ('notForMe'). Optional only so older fixtures still build;
+  // gp-api always sends them.
+  skipReason?: TrackerTaskSkipReason | null
+  snoozedUntil?: string | null
 }
 
 /** Request/response shapes for the user-agenda-upload flow. */
@@ -973,6 +979,16 @@ export type APIEndpoints = {
   }
 
   'DELETE /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
+  }
+
+  'PUT /v1/campaigns/tracker-tasks/skip/:id': {
+    Request: { id: string; reason: TrackerTaskSkipReason }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/skip/:id': {
     Request: { id: string }
     Response: CampaignTrackerTask
   }

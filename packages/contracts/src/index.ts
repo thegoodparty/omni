@@ -110,6 +110,9 @@ export {
   type PrioritySource,
   PRIORITY_SOURCE_VALUES,
   PrioritySourceSchema,
+  type TrackerTaskSkipReason,
+  TRACKER_TASK_SKIP_REASON_VALUES,
+  TrackerTaskSkipReasonSchema,
 } from './generated/enums'
 
 export {
@@ -409,6 +412,13 @@ export {
   CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
 } from './campaigns/CampaignTaskCatalog.data'
+
+export {
+  TRACKER_TASK_SNOOZE_DAYS,
+  canSetTaskAsideForGood,
+  isTrackerTaskSetAside,
+  trackerTaskSnoozeUntil,
+} from './campaigns/TrackerTaskSkip'
 
 export {
   VOTER_CONTACT_SCHEDULE,
