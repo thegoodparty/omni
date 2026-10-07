@@ -816,7 +816,7 @@ describe('CreateListFlow', () => {
       context: 'Fix our roads with a real maintenance plan.',
       ask: 'Ask whether we can count on them in November.',
     }
-    const bodies: Array<{ currentDraft?: string }> = []
+    const bodies: Array<{ currentDraft?: string; instructions?: string }> = []
     api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
       bodies.push(body)
       // First call is the initial draft on arrival. Second is the Improve
