@@ -171,7 +171,7 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
           margins cancel the layout wrapper's padding), holding the way back
           and the page's action, so the report below floats on the gray
           canvas. */}
-      <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-6 md:-mx-4 md:-mt-4">
+      <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-4 md:-mx-4 md:-mt-4 md:px-6">
         {/* The CRM sheet's own Back. The Win hub reopens this effort's details when it is named in the
             URL, so the way back lands on the drawer the reader came from
             rather than the top of the list. Serve's hub takes no such
@@ -203,9 +203,9 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
           />
         )}
       </div>
-      {/* Voter Data's content column, inset on a phone to the Voter Outreach
-          hub's 24px so it lines up with Back in the bar above. */}
-      <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-6 px-4 pb-8 md:px-0">
+      {/* Voter Data's content column, inset 16px from the edge on a phone,
+          the same as the bar above. */}
+      <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-6 px-2 pb-8 md:px-0">
         {report ? (
           <div className="flex flex-col gap-6">
             <header className="flex min-w-0 flex-col gap-1">

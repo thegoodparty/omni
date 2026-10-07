@@ -79,6 +79,29 @@ afterEach(() => {
 })
 
 describe('PendingMemoList', () => {
+  // The manager's page names itself in its title bar and holds the way back
+  // in its top bar, so the list leaves both to it and opens on the caption.
+  it('leaves the title and the way back to a page that has its own', async () => {
+    mockPending([row()])
+    render(
+      <PendingMemoList
+        outreachId={OUTREACH_ID}
+        isServe={false}
+        titled={false}
+      />,
+    )
+
+    expect(
+      await screen.findByText('Check what each note says, then confirm it.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Notes to review' }),
+    ).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'Back to what we heard' }),
+    ).toBeNull()
+  })
+
   it('shows each note to review with its card under what was said', async () => {
     mockPending([
       row(),

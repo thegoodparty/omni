@@ -227,7 +227,7 @@ describe('WhatWeHeardPage', () => {
         (_content, element) =>
           element?.tagName === 'P' &&
           element.textContent ===
-            '84 people answered. 61 left a note. 54 confirmed.',
+            '84 people answered. 61 left a note. 54 confirmed, 7 waiting for review.',
       ),
     ).toBeInTheDocument()
   })

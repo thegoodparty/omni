@@ -12,6 +12,8 @@ import {
 import {
   ArrowLeftIcon,
   Button,
+  Card,
+  CardContent,
   EmptyState,
   Spinner,
   Textarea,
@@ -226,6 +228,10 @@ interface PendingMemoListProps {
   // Where the back arrow goes: the report by default, the walk on the
   // volunteer's page.
   back?: { href: string; label: string }
+  // False where the page's own title bar names it and its top bar holds the
+  // way back, so the list opens on the caption alone. The volunteer's page
+  // has neither, so it keeps both.
+  titled?: boolean
 }
 
 // "Notes to review": an effort's memos nobody who was there has confirmed,
@@ -238,6 +244,7 @@ const PendingMemoList = ({
   outreachId,
   isServe,
   back,
+  titled = true,
 }: PendingMemoListProps) => {
   const copy = whatWeHeardCopy(isServe)
   const pendingQuery = useQuery(pendingQueryOptions(outreachId))
@@ -246,18 +253,20 @@ const PendingMemoList = ({
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <div className="flex items-center gap-3">
-          <Link
-            href={back?.href ?? `/dashboard/issue-capture/${outreachId}`}
-            aria-label={back?.label ?? copy.back}
-            className="text-foreground"
-          >
-            <ArrowLeftIcon size={20} />
-          </Link>
-          <h1 className="text-2xl font-semibold text-foreground">
-            {copy.reviewTitle}
-          </h1>
-        </div>
+        {titled && (
+          <div className="flex items-center gap-3">
+            <Link
+              href={back?.href ?? `/dashboard/issue-capture/${outreachId}`}
+              aria-label={back?.label ?? copy.back}
+              className="text-foreground"
+            >
+              <ArrowLeftIcon size={20} />
+            </Link>
+            <h1 className="text-2xl font-semibold text-foreground">
+              {copy.reviewTitle}
+            </h1>
+          </div>
+        )}
         <p className="text-sm text-muted-foreground">{copy.reviewCaption}</p>
       </header>
       {memos === undefined ? (
@@ -276,36 +285,42 @@ const PendingMemoList = ({
       ) : (
         <ul className="flex flex-col gap-4">
           {memos.map((memo) => (
-            <li
-              key={memo.id}
-              className="flex flex-col gap-2 rounded-lg border border-border p-4"
-            >
-              <p className="text-xs font-medium text-muted-foreground">
-                {memo.extractionStatus === 'extracted'
-                  ? copy.summaryBy(memo.actorName)
-                  : copy.recordedBy(memo.actorName)}
-              </p>
-              {memo.transcript !== null && (
-                <p className="text-sm italic text-foreground">
-                  {memo.transcript}
-                </p>
-              )}
-              {/* Polite and always there, so a note that finishes
+            // `flex flex-col` because globals.css makes every `li` under a
+            // data-slot ancestor a row flex box, which would shrink the card
+            // to its content.
+            <li key={memo.id} className="flex flex-col">
+              {/* The styleguide's Card, so a note has the radius and the
+                  padding every other card in the product has. */}
+              <Card>
+                <CardContent className="flex flex-col gap-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {memo.extractionStatus === 'extracted'
+                      ? copy.summaryBy(memo.actorName)
+                      : copy.recordedBy(memo.actorName)}
+                  </p>
+                  {memo.transcript !== null && (
+                    <p className="text-sm italic text-foreground">
+                      {memo.transcript}
+                    </p>
+                  )}
+                  {/* Polite and always there, so a note that finishes
                   transcribing while the page is open is announced as ready
                   rather than silently swapping in its card. */}
-              <p role="status" className="sr-only">
-                {memo.extractionStatus === 'pending'
-                  ? copy.stillTranscribing
-                  : memo.extractionStatus === 'extracted'
-                    ? copy.readyToReview
-                    : ''}
-              </p>
-              <PendingMemo
-                memo={memo}
-                outreachId={outreachId}
-                isServe={isServe}
-                copy={copy}
-              />
+                  <p role="status" className="sr-only">
+                    {memo.extractionStatus === 'pending'
+                      ? copy.stillTranscribing
+                      : memo.extractionStatus === 'extracted'
+                        ? copy.readyToReview
+                        : ''}
+                  </p>
+                  <PendingMemo
+                    memo={memo}
+                    outreachId={outreachId}
+                    isServe={isServe}
+                    copy={copy}
+                  />
+                </CardContent>
+              </Card>
             </li>
           ))}
         </ul>

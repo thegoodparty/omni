@@ -37,7 +37,7 @@ const ThemeDetailPage = ({
     >
       {/* The report's own top bar and way back, the same as What we heard's,
           so the theme floats on the gray canvas below. */}
-      <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center border-b border-border bg-background px-6 md:-mx-4 md:-mt-4">
+      <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center border-b border-border bg-background px-4 md:-mx-4 md:-mt-4 md:px-6">
         <Button asChild variant="ghost" size="small" className="gap-1 px-2">
           {/* Reads "Back", and names the report it returns to for a screen
               reader. */}
@@ -50,9 +50,9 @@ const ThemeDetailPage = ({
           </Link>
         </Button>
       </div>
-      {/* Voter Data's content column, as on the report, inset on a phone to
-          the Voter Outreach hub's 24px so it lines up with Back above. */}
-      <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-6 px-4 pb-8 md:px-0">
+      {/* Voter Data's content column, as on the report, inset 16px from the
+          edge on a phone, the same as the bar above. */}
+      <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-6 px-2 pb-8 md:px-0">
         {theme ? (
           <>
             <ThemeSummary theme={theme} isServe={isServe} />

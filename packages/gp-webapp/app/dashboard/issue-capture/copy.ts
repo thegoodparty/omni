@@ -22,7 +22,8 @@ export const WHAT_WE_HEARD_COPY = {
     title: 'What we heard',
     // Confirmed only, and the rest are stated rather than hidden, so the
     // numbers on the cards cannot be read as more than they are. The
-    // waiting count follows as a link to the review list, on its own line.
+    // waiting clause follows as a link to the review list, and the
+    // sentence ends after whichever comes last.
     captionCounts: (d: Denominators): string =>
       [
         `${count(d.conversations, 'person', 'people')} answered.`,
