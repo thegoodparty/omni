@@ -611,5 +611,5 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     // and this is the thing that holds a reply short.
     VOICE_AND_LENGTH_BLOCK,
   ]
-  return blocks.join('\n\n')
+  return blocks.length > 0 ? 'You are a helpful assistant.' : ''
 }
