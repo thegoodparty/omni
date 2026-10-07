@@ -36,6 +36,17 @@ const MAX_FILE_SIZE = 104857600
 const UPLOAD_MAX_ATTEMPTS = 3
 const UPLOAD_RETRY_BASE_DELAY_MS = 300
 
+// Retries are for a refusal that comes back fast, which is what INC-108's did
+// (0.7s). They must never push the handler past the point where the person is
+// still connected: the build before this upload may already have spent up to
+// MAX_INTERACTIVE_RESOLUTION_MS (90s), the gateway hangs up at ~120s, and a
+// single upload attempt can itself burn uploadTimeoutMs (60s). Three 60s
+// timeouts in a row would be 3 minutes of uploading for a request nobody is
+// waiting on, and an upload that then succeeds leaves a list the candidate
+// never sees — which is INC-101's harm, not INC-108's. So once the attempts
+// have spent this much wall clock, the failure is returned as it stands.
+const UPLOAD_RETRY_WINDOW_MS = 15_000
+
 // Peerly's wording when its own file handling failed, returned as a 400 with
 // no reference to the file's contents. It is not a statement about the
 // candidate's filter or our CSV, so it is worth another attempt — unlike a
@@ -100,6 +111,8 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
   }): Promise<string> {
     let lastError: unknown
     let attemptsMade = 0
+    let outOfTime = false
+    const startedAt = Date.now()
 
     for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
       attemptsMade = attempt
@@ -111,6 +124,10 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
           attempt === UPLOAD_MAX_ATTEMPTS ||
           !this.isRetryableUploadFailure(error)
         ) {
+          break
+        }
+        if (Date.now() - startedAt >= UPLOAD_RETRY_WINDOW_MS) {
+          outOfTime = true
           break
         }
         this.logger.warn(
@@ -134,18 +151,32 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
     this.logger.error(
       {
         attempts: attemptsMade,
+        elapsedMs: Date.now() - startedAt,
         listName: formFields.list_name,
         ...csvShape(csvBuffer),
       },
-      attemptsMade === UPLOAD_MAX_ATTEMPTS
-        ? 'Peerly refused this phone list upload on every attempt'
-        : 'Peerly rejected this phone list upload in a way not worth retrying',
+      this.finalFailureMessage({ attemptsMade, outOfTime }),
     )
 
     return this.peerlyErrorHandling.handleApiError({
       error: lastError,
       logger: this.logger,
     })
+  }
+
+  private finalFailureMessage({
+    attemptsMade,
+    outOfTime,
+  }: {
+    attemptsMade: number
+    outOfTime: boolean
+  }): string {
+    if (outOfTime) {
+      return 'Peerly refused this phone list upload and there was no time left to try again'
+    }
+    return attemptsMade === UPLOAD_MAX_ATTEMPTS
+      ? 'Peerly refused this phone list upload on every attempt'
+      : 'Peerly rejected this phone list upload in a way not worth retrying'
   }
 
   // The multipart body is built here, inside the attempt, because a form-data

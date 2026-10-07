@@ -217,6 +217,32 @@ describe('PeerlyPhoneListService', () => {
       expect(mockHttpService.post).toHaveBeenCalledTimes(2)
     })
 
+    it('does not try again once the attempts have burned the time the person is waiting', async () => {
+      const realNow = Date.now()
+      let elapsed = 0
+      vi.spyOn(Date, 'now').mockImplementation(() => realNow + elapsed)
+      // The attempt hits the 60s upload timeout. Trying twice more would be
+      // three minutes of uploading for a request the gateway killed at 120s,
+      // and a late success would leave a list the candidate never sees.
+      mockHttpService.post.mockImplementationOnce(() => {
+        elapsed = 60_000
+        return Promise.reject(createTransportError())
+      })
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error'),
+      )
+
+      await expect(service.uploadPhoneList(uploadParams)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockHttpService.post).toHaveBeenCalledTimes(1)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ attempts: 1, elapsedMs: 60_000 }),
+        expect.stringContaining('no time left'),
+      )
+      vi.mocked(Date.now).mockRestore()
+    })
+
     it('gives up after three attempts, logging the shape of the file it could not upload', async () => {
       const error = vendorRefusal()
       mockHttpService.post.mockRejectedValue(error)

@@ -694,7 +694,17 @@ file — an aborted/reset connection, 429, 5xx, and that one 400 whose message
 names Peerly's own file handling. A rejection that names the request (bad column
 map, content rejection) is not retried: it fails identically every time.
 
-Two things that path depends on:
+Three things that path depends on:
+
+- **Retries are bounded by the wall clock, not just the attempt count**
+  (`UPLOAD_RETRY_WINDOW_MS`, 15s). An attempt can itself burn the 60s
+  `PEERLY_UPLOAD_TIMEOUT_MS`, and the resolution before it up to 90s, against a
+  gateway that hangs up at ~120s. Three timed-out attempts would be three
+  minutes of uploading for a request nobody is waiting on, and one that then
+  succeeded would leave a list the candidate never sees — INC-101's harm
+  reintroduced by INC-108's fix. So once the attempts have spent 15s the
+  failure is returned as it stands, and the failure line says there was no time
+  left to try again.
 
 - **Each attempt builds its own multipart body.** A `form-data` body is
   consumed as it is sent, so re-sending the same instance posts an empty file
