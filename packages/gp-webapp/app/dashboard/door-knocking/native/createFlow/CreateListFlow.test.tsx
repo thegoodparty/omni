@@ -920,7 +920,7 @@ describe('CreateListFlow', () => {
       contextBox().editor.commands.setContent('a'.repeat(nearLimit))
     })
     expect(
-      screen.getByText(`${max - nearLimit} characters left`),
+      screen.getByText(`${(max - nearLimit).toLocaleString()} characters left`),
     ).toBeInTheDocument()
 
     // Exactly the limit: the warning is replaced by the reached message.
@@ -928,7 +928,9 @@ describe('CreateListFlow', () => {
       contextBox().editor.commands.setContent('a'.repeat(max))
     })
     expect(
-      screen.getByText(`You've reached the ${max}-character limit.`),
+      screen.getByText(
+        `You've reached the ${max.toLocaleString()}-character limit.`,
+      ),
     ).toBeInTheDocument()
   })
 

@@ -583,8 +583,7 @@ export default function CreateListFlow({
   // editable but never regenerated.
   const [points, setPoints] = useState<TalkingPointsLines>(EMPTY_POINTS)
   // Whether the boxes hold unmodified AI output or text the candidate typed.
-  // Same rule as PhoneBankingFlow's `scriptManuallyEdited`: it decides
-  // whether a regenerate is allowed to send the current text as
+  // It decides whether a regenerate is allowed to send the current text as
   // `previousDraft`. Once they have edited, their own words are not something
   // the model should be told to diverge from — an explicit Regenerate still
   // sends it, since that is the candidate asking to discard what is on
