@@ -15,7 +15,9 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { Campaign, Prisma, User } from '../../generated/prisma'
+import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { differenceInMilliseconds, formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -78,6 +80,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     @Inject(forwardRef(() => CampaignTasksService))
     private readonly campaignTasks: WrapperType<CampaignTasksService>,
     private readonly trackerTasks: CampaignTrackerTasksService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -1202,7 +1205,39 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       await this.crm.trackCampaign(id)
     }
 
+    await this.generatePlanOnLaunch(id)
+
     return true
+  }
+
+  // Every onboarding flow converges on launch, so this is the one place a
+  // plan is guaranteed to start. The webapp's pre-warm only fires from the
+  // first-time flow's story exit; the follow-on flow a returning candidate
+  // takes never called it, and that candidate finished signup with no plan,
+  // no tracker and no weekly email. Best-effort: a refusal (no race yet,
+  // election-api down) must never fail the launch that just succeeded, and
+  // the service's own dedup makes the pre-warm plus this a single run.
+  //
+  // CampaignStrategyService is resolved lazily via ModuleRef rather than
+  // injected: it depends on CampaignTrackerTasksService from this module, so
+  // importing CampaignStrategyModule here would close a cycle.
+  private async generatePlanOnLaunch(campaignId: number): Promise<void> {
+    try {
+      const strategy = this.moduleRef.get(CampaignStrategyService, {
+        strict: false,
+      })
+      const campaign = await this.model.findUnique({
+        where: { id: campaignId },
+        include: { user: true },
+      })
+      if (!campaign) return
+      await strategy.getOrGenerateStrategicLandscape(campaign)
+    } catch (err) {
+      this.logger.warn(
+        { err, campaignId },
+        'Plan generation at launch did not start',
+      )
+    }
   }
 
   async findSlug(user: User, suffix?: string) {
