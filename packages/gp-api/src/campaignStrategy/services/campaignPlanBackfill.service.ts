@@ -60,6 +60,14 @@ export class CampaignPlanBackfillService {
   // generable, and COALESCE, which prefers the general, would read that
   // campaign as expired. GREATEST ignores a NULL branch.
   //
+  // A campaign whose plan runs are still queued, running, paused or
+  // superseded by a live successor (the set sectionState calls in flight) is
+  // left out: the service would only report it as generating, and because
+  // selection is newest first a batch called while the previous one is still
+  // generating would re-select exactly that previous batch and advance
+  // nothing. A run that FAILED is not in flight, so a half-finished plan is
+  // still picked up.
+  //
   // Newest first: without the signup floor this cohort reaches back to 2023,
   // and a small first batch should hit the candidates the gate actually
   // stranded, not the oldest rows in the table.
@@ -100,6 +108,13 @@ export class CampaignPlanBackfillService {
           s.id IS NULL
           OR s.opposition_persisted_at IS NULL
           OR s.opportunities_persisted_at IS NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM experiment_run r
+          WHERE r.run_id IN (s.opposition_run_id, s.opportunities_run_id)
+            AND r.status IN (
+              'QUEUED', 'RUNNING', 'AWAITING_RESUME', 'SUPERSEDED'
+            )
         )
       ORDER BY c.id DESC
     `
