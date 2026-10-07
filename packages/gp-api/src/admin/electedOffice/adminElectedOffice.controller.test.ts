@@ -15,6 +15,7 @@ function makeController() {
       token: 'tok',
       clerkId: 'user_clerk1',
     }),
+    patchUserMetaData: vi.fn().mockResolvedValue({ id: 1 }),
   }
   const electedOfficeService = {
     create: vi.fn().mockResolvedValue({ id: 'eo_1' }),
@@ -97,6 +98,37 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
       'Onboarding - Magic Link Sent',
       expect.objectContaining({ email: 'eo@example.com', type: 'serve' }),
     )
+  })
+
+  it('stores the HubSpot contact id before the elected office is created', async () => {
+    await ctx.controller.createMagicLink(dto({ hubspotContactId: '1234567' }))
+
+    expect(ctx.usersService.patchUserMetaData).toHaveBeenCalledWith(1, {
+      hubspotId: '1234567',
+    })
+    // The office's first HubSpot sync runs inside create(), and it can only
+    // link the Contact if the id is already on the user.
+    expect(
+      ctx.usersService.patchUserMetaData.mock.invocationCallOrder[0],
+    ).toBeLessThan(ctx.electedOfficeService.create.mock.invocationCallOrder[0])
+  })
+
+  it('keeps a HubSpot contact id the user already has', async () => {
+    ctx.usersService.provisionMagicLinkUser.mockResolvedValue({
+      user: { id: 1, metaData: { hubspotId: 'already-stored' } },
+      token: 'tok',
+      clerkId: 'user_clerk1',
+    })
+
+    await ctx.controller.createMagicLink(dto({ hubspotContactId: '1234567' }))
+
+    expect(ctx.usersService.patchUserMetaData).not.toHaveBeenCalled()
+  })
+
+  it('stores no HubSpot contact id when the card sends none', async () => {
+    await ctx.controller.createMagicLink(dto({}))
+
+    expect(ctx.usersService.patchUserMetaData).not.toHaveBeenCalled()
   })
 
   it('stores election-api internal positionId, not the BallotReady id', async () => {
