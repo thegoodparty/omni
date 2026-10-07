@@ -238,7 +238,7 @@ const CampaignStrategyTaskRow = ({
                 onClick={() => onDiscuss(task)}
               >
                 <MessageSquareIcon className="size-4" aria-hidden />
-                Discuss in chat
+                Ask about this
               </Button>
             )}
           </div>
