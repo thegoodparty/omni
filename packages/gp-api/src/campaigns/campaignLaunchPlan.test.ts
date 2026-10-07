@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, MockInstance, vi } from 'vitest'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { useTestService } from '@/test-service'
 
@@ -32,11 +32,23 @@ describe('POST /v1/campaigns/launch', () => {
     })
   }
 
-  const spyGenerate = () =>
-    vi.spyOn(
+  // Restored per test rather than via vi.restoreAllMocks(): the harness
+  // stubs session verification with a spy of its own, and restoring all mocks
+  // tears that down and 401s every request that follows.
+  let generate: MockInstance<
+    CampaignStrategyService['getOrGenerateStrategicLandscape']
+  >
+  const spyGenerate = () => {
+    generate = vi.spyOn(
       service.app.get(CampaignStrategyService),
       'getOrGenerateStrategicLandscape',
     )
+    return generate
+  }
+
+  afterEach(() => {
+    generate.mockRestore()
+  })
 
   it('starts plan generation for the campaign it launched', async () => {
     const campaign = await seedCampaign()
@@ -49,12 +61,11 @@ describe('POST /v1/campaigns/launch', () => {
     const arg = generate.mock.calls[0]?.[0]
     expect(arg?.id).toBe(campaign.id)
     expect(arg?.user?.id).toBe(service.user.id)
-    generate.mockRestore()
   })
 
   it('still launches when generation is refused', async () => {
     const campaign = await seedCampaign()
-    const generate = spyGenerate().mockRejectedValue(
+    spyGenerate().mockRejectedValue(
       new BadRequestException('Campaign has no raceId'),
     )
 
@@ -65,7 +76,6 @@ describe('POST /v1/campaigns/launch', () => {
       where: { id: campaign.id },
     })
     expect(after.isActive).toBe(true)
-    generate.mockRestore()
   })
 
   it('does not trigger again for a campaign that is already launched', async () => {
@@ -76,6 +86,5 @@ describe('POST /v1/campaigns/launch', () => {
 
     expect(res.status).toBe(200)
     expect(generate).not.toHaveBeenCalled()
-    generate.mockRestore()
   })
 })
