@@ -17,9 +17,11 @@ function CollapsibleTrigger({
   return (
     <CollapsiblePrimitive.CollapsibleTrigger
       data-slot="collapsible-trigger"
-      // The same keyboard focus ring as Button, for a trigger used bare.
+      // The same keyboard focus ring as Button, for a trigger used bare. Drawn
+      // inset: a trigger often fills an overflow-hidden card, which would
+      // clip a ring drawn outside it.
       className={cn(
-        'rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        'rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50',
         className,
       )}
       {...props}
