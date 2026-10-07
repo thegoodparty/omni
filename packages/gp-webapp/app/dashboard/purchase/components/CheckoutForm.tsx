@@ -24,6 +24,9 @@ interface CheckoutFormProps {
   // happens via the Stripe webhook).
   onConfirmed?: () => void | Promise<void>
   onError?: (error: string) => void
+  // Stripe's live total in dollars, reported on mount and whenever it changes
+  // (a promo code applying or being removed).
+  onTotalChange?: (totalDollars: number) => void
   sessionId?: string
   submitLabel?: string
 }
@@ -32,6 +35,7 @@ export default function CheckoutForm({
   onSuccess,
   onConfirmed,
   onError,
+  onTotalChange,
   sessionId,
   submitLabel,
 }: CheckoutFormProps): React.JSX.Element {
@@ -79,6 +83,7 @@ export default function CheckoutForm({
       sessionId={sessionId}
       onSuccess={onSuccess}
       onConfirmed={onConfirmed}
+      onTotalChange={onTotalChange}
       submitLabel={submitLabel}
       onError={(error) => {
         let msg: string
@@ -109,6 +114,7 @@ function CheckoutFormContent({
   onConfirmed,
   submitLabel = 'Complete Purchase',
   onError,
+  onTotalChange,
 }: {
   checkout: StripeCheckoutValue
   sessionId?: string
@@ -116,6 +122,7 @@ function CheckoutFormContent({
   onConfirmed?: () => void | Promise<void>
   submitLabel?: string
   onError: (error: Error | StripeError) => void
+  onTotalChange?: (totalDollars: number) => void
 }): React.JSX.Element {
   const promo = usePromoCode(checkout)
   const [hasConfirmedPayment, setHasConfirmedPayment] = useState(false)
@@ -160,6 +167,10 @@ function CheckoutFormContent({
   const canSubmit = hasConfirmedPayment || checkout.canConfirm
   const currentTotal = checkout.total.total.minorUnitsAmount / 100
   const originalTotal = checkout.total.subtotal.minorUnitsAmount / 100
+
+  useEffect(() => {
+    onTotalChange?.(currentTotal)
+  }, [currentTotal, onTotalChange])
 
   return (
     <form onSubmit={handleSubmit}>
