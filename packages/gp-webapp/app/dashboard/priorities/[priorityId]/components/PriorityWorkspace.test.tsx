@@ -159,6 +159,41 @@ describe('PriorityWorkspace', () => {
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
   })
 
+  it('waits for the reply to a turn left mid-stream, without starting another', async () => {
+    const kickoff: ChatMessageDto = {
+      id: 'u1',
+      conversationId: CONVERSATION_ID,
+      role: 'user',
+      content:
+        "Let's begin. Tell me where this stands and what we should work on first.",
+      createdAt: '2026-09-01T00:00:00.000Z',
+    }
+    const reply: ChatMessageDto = {
+      id: 'a1',
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: 'Nothing has started on this yet.',
+      createdAt: '2026-09-01T00:00:05.000Z',
+      segments: [{ kind: 'text', text: 'Nothing has started on this yet.' }],
+    }
+    mocks.listMessages
+      .mockResolvedValueOnce([kickoff])
+      .mockResolvedValue([kickoff, reply])
+
+    renderWorkspace()
+
+    expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Nothing has started on this yet.',
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(mocks.streamMessage).not.toHaveBeenCalled()
+  })
+
   it('moves the rail while the turn is still streaming, then reconciles', async () => {
     const gate = deferred()
     mocks.streamMessage.mockImplementation(
