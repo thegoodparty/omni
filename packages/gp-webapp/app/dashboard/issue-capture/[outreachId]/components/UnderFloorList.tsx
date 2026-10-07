@@ -4,13 +4,12 @@ import MemoList, { type MemoListItem } from './MemoList'
 
 // Under the floor there are no themes, only the notes. Grouping a handful of
 // conversations would produce exactly the misleading share the report exists
-// to avoid, so the page says when themes will appear instead.
+// to avoid, so the Summarize button is off, and its tooltip says when themes
+// will appear.
 const UnderFloorList = ({
-  floor,
   memos,
   isServe,
 }: {
-  floor: number
   memos: MemoListItem[]
   isServe: boolean
 }) => {
@@ -19,12 +18,9 @@ const UnderFloorList = ({
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      <div>
-        <h2 id={headingId} className="text-lg font-semibold text-foreground">
-          {copy.soFarHeading}
-        </h2>
-        <p className="text-sm text-muted-foreground">{copy.floorLine(floor)}</p>
-      </div>
+      <h2 id={headingId} className="text-lg font-semibold text-foreground">
+        {copy.soFarHeading}
+      </h2>
       <MemoList memos={memos} isServe={isServe} />
     </section>
   )

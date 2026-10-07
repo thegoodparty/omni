@@ -7,9 +7,19 @@ import type {
   FeedbackReportMemo,
   FeedbackReportResponse,
 } from '@goodparty_org/contracts'
-import { Alert, AlertDescription, ArrowLeftIcon, Spinner } from '@styleguide'
-import Paper from '@shared/utils/Paper'
+import {
+  Alert,
+  AlertDescription,
+  ArrowLeftIcon,
+  Button,
+  Spinner,
+} from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import {
+  fetchOutreachDetail,
+  fetchServeOutreachDetail,
+  useOutreachDetail,
+} from 'app/dashboard/outreach/v2/useOutreachDetail'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ANALYTICS_CHANNEL } from '../../analytics'
@@ -78,9 +88,7 @@ const ReportBody = ({
   }
 
   if (report.denominators.confirmed < report.floor) {
-    return (
-      <UnderFloorList floor={report.floor} memos={memos} isServe={isServe} />
-    )
+    return <UnderFloorList memos={memos} isServe={isServe} />
   }
 
   return (
@@ -122,6 +130,13 @@ interface WhatWeHeardPageProps {
 const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
   const copy = whatWeHeardCopy(isServe)
   const reportQuery = useQuery(reportQueryOptions(outreachId))
+  // The bar names the outreach the report is about, read and worded the way
+  // the hub's history row and drawer name it.
+  const outreach = useOutreachDetail(
+    outreachId,
+    true,
+    isServe ? fetchServeOutreachDetail : fetchOutreachDetail,
+  ).data
   const report = reportQuery.data
   const viewed = useRef(false)
 
@@ -144,63 +159,80 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
         isServe ? '/dashboard/constituent-outreach' : '/dashboard/outreach'
       }
       showAlert={false}
+      // Empty until the outreach loads rather than a placeholder that would
+      // flash and then change.
+      navHeader={{
+        label: outreach
+          ? outreach.name || outreach.title || 'Untitled campaign'
+          : '',
+      }}
     >
-      <Paper className="min-h-full">
-        <div className="flex flex-col gap-6">
-          {/* The Win hub reopens this effort's details when it is named in
-              the URL, so the way back lands on the drawer the reader came
-              from rather than the top of the list. Serve's hub takes no such
-              parameter. */}
+      {/* The Voter Data page's full-bleed white top bar (the negative
+          margins cancel the layout wrapper's padding), holding the way back
+          and the page's action, so the report below floats on the gray
+          canvas. */}
+      <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-6 md:-mx-4 md:-mt-4">
+        {/* The CRM sheet's own Back. The Win hub reopens this effort's details when it is named in the
+            URL, so the way back lands on the drawer the reader came from
+            rather than the top of the list. Serve's hub takes no such
+            parameter. */}
+        <Button asChild variant="ghost" size="small" className="gap-1 px-2">
+          {/* Reads "Back" like the CRM sheet's, and names the hub it
+              returns to for a screen reader. */}
           <Link
+            aria-label={copy.backToOutreach}
             href={
               isServe
                 ? '/dashboard/constituent-outreach'
                 : `/dashboard/outreach?outreachId=${outreachId}`
             }
-            className="inline-flex w-fit items-center gap-2 text-sm text-foreground"
           >
-            <ArrowLeftIcon size={16} />
-            {copy.backToOutreach}
+            <ArrowLeftIcon className="size-4" aria-hidden />
+            {copy.backLabel}
           </Link>
-          {report ? (
-            <div className="flex flex-col gap-6">
-              <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div className="flex min-w-0 flex-col gap-1">
-                  <h1 className="text-2xl font-semibold text-foreground">
-                    {report.question ?? copy.title}
-                  </h1>
-                  <ReportCaption
-                    denominators={report.denominators}
-                    outreachId={outreachId}
-                    isServe={isServe}
-                  />
-                </div>
-                {report.run?.status !== 'running' && (
-                  <SummarizeButton
-                    outreachId={outreachId}
-                    report={report}
-                    reportUpdatedAt={reportQuery.dataUpdatedAt}
-                    isServe={isServe}
-                    underFloor={report.denominators.confirmed < report.floor}
-                  />
-                )}
-              </header>
-              <ReportBody
-                report={report}
+        </Button>
+        {/* The page's one action sits at the right of the bar, where Voter
+            Data's Create new list sits. */}
+        {report && report.run?.status !== 'running' && (
+          <SummarizeButton
+            outreachId={outreachId}
+            report={report}
+            reportUpdatedAt={reportQuery.dataUpdatedAt}
+            isServe={isServe}
+            underFloor={report.denominators.confirmed < report.floor}
+          />
+        )}
+      </div>
+      {/* Voter Data's content column, inset on a phone to the Voter Outreach
+          hub's 24px so it lines up with Back in the bar above. */}
+      <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-6 px-4 pb-8 md:px-0">
+        {report ? (
+          <div className="flex flex-col gap-6">
+            <header className="flex min-w-0 flex-col gap-1">
+              <h1 className="text-2xl font-semibold text-foreground">
+                {report.question ?? copy.title}
+              </h1>
+              <ReportCaption
+                denominators={report.denominators}
                 outreachId={outreachId}
                 isServe={isServe}
               />
-            </div>
-          ) : reportQuery.isError ? (
-            <p className="text-sm text-destructive">{copy.loadFailed}</p>
-          ) : (
-            <div className="flex items-center justify-center gap-3 py-20">
-              <Spinner />
-              <p className="text-base text-foreground">{copy.loading}</p>
-            </div>
-          )}
-        </div>
-      </Paper>
+            </header>
+            <ReportBody
+              report={report}
+              outreachId={outreachId}
+              isServe={isServe}
+            />
+          </div>
+        ) : reportQuery.isError ? (
+          <p className="text-sm text-destructive">{copy.loadFailed}</p>
+        ) : (
+          <div className="flex items-center justify-center gap-3 py-20">
+            <Spinner />
+            <p className="text-base text-foreground">{copy.loading}</p>
+          </div>
+        )}
+      </div>
     </DashboardLayout>
   )
 }

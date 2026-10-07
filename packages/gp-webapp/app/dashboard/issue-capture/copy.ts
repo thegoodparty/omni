@@ -22,8 +22,7 @@ export const WHAT_WE_HEARD_COPY = {
     title: 'What we heard',
     // Confirmed only, and the rest are stated rather than hidden, so the
     // numbers on the cards cannot be read as more than they are. The
-    // waiting clause follows as a link to the review list, and the
-    // sentence ends after whichever comes last.
+    // waiting count follows as a link to the review list, on its own line.
     captionCounts: (d: Denominators): string =>
       [
         `${count(d.conversations, 'person', 'people')} answered.`,
@@ -40,7 +39,7 @@ export const WHAT_WE_HEARD_COPY = {
     themesHeading: 'Top themes',
     everyNoteHeading: 'Every note',
     failed: "We couldn't summarize this time.",
-    summarize: 'Summarize what we heard',
+    summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
     noNotes: 'No notes yet. Notes from conversations with voters show up here.',
@@ -72,6 +71,7 @@ export const WHAT_WE_HEARD_COPY = {
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
     backToOutreach: 'Back to Voter Outreach',
+    backLabel: 'Back',
     details: 'Details',
     whatPeopleWant: 'What people want',
     theNotes: 'The notes',
@@ -130,7 +130,7 @@ export const WHAT_WE_HEARD_COPY = {
     themesHeading: 'Top themes',
     everyNoteHeading: 'Every note',
     failed: "We couldn't summarize this time.",
-    summarize: 'Summarize what we heard',
+    summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
     noNotes:
@@ -159,6 +159,7 @@ export const WHAT_WE_HEARD_COPY = {
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
     backToOutreach: 'Back to Constituent Outreach',
+    backLabel: 'Back',
     details: 'Details',
     whatPeopleWant: 'What people want',
     theNotes: 'The notes',

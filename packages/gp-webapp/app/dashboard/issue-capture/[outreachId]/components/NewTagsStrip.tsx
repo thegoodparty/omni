@@ -55,7 +55,7 @@ const NewTagsStrip = ({
   return (
     <section
       aria-labelledby={headingId}
-      className="rounded-lg border border-border p-4"
+      className="rounded-lg border border-border bg-card p-4"
     >
       <h2 id={headingId} className="text-base font-semibold text-foreground">
         {copy.newTags}
