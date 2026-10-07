@@ -98,7 +98,7 @@ describe('CampaignTurfList', () => {
       '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
     )
     expect(
-      screen.getByRole('button', { name: 'Mark as done' }),
+      screen.getByRole('button', { name: 'Mark done' }),
     ).toBeInTheDocument()
   })
 
@@ -110,7 +110,7 @@ describe('CampaignTurfList', () => {
 
     expect(await screen.findByText('Done')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Continue knocking' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Mark as done' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mark done' })).toBeNull()
   })
 
   it('reads Archived on a shelved turf', async () => {
@@ -131,7 +131,7 @@ describe('CampaignTurfList', () => {
     renderList()
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark as done' }),
+      await screen.findByRole('button', { name: 'Mark done' }),
     )
 
     expect(await screen.findByText('Mark this turf done?')).toBeInTheDocument()
@@ -161,7 +161,7 @@ describe('CampaignTurfList', () => {
       '[data-slot="card"]',
     ) as HTMLElement
     await userEvent.click(
-      within(oakRow).getByRole('button', { name: 'Mark as done' }),
+      within(oakRow).getByRole('button', { name: 'Mark done' }),
     )
     const dialog = await screen.findByRole('alertdialog')
     await userEvent.click(
@@ -183,7 +183,7 @@ describe('CampaignTurfList', () => {
     renderList()
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark as done' }),
+      await screen.findByRole('button', { name: 'Mark done' }),
     )
 
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -222,7 +222,7 @@ describe('CampaignTurfList', () => {
     renderList({ onOverlayOpenChange })
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark as done' }),
+      await screen.findByRole('button', { name: 'Mark done' }),
     )
     expect(onOverlayOpenChange).toHaveBeenCalledWith(true)
 

@@ -117,7 +117,7 @@ export const Surfaces: Story = {
             </span>
           }
           // One control, right-aligned by `ml-auto`. The drawer's left slot
-          // is Mark as done, which on a turf created seconds ago is an
+          // is Mark done, which on a turf created seconds ago is an
           // action with nothing behind it.
           footer={
             <Button size="small" className="ml-auto">
@@ -141,7 +141,7 @@ export const Surfaces: Story = {
           footer={
             <>
               <Button variant="ghost" size="small">
-                Mark as done
+                Mark done
               </Button>
               <Button size="small">Continue knocking</Button>
             </>

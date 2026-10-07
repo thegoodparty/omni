@@ -20,7 +20,7 @@ import { turfStage, turfStatusLabel, useTurfLifecycle } from './turfLifecycle'
 //
 // It exists because the success screen was built by passing slots to the
 // card and quietly passed the wrong ones — no assignee control, an invented
-// text label where the drawer has Mark as done. Two surfaces composing the
+// text label where the drawer has Mark done. Two surfaces composing the
 // same parts by hand is not a shared component, and a screenshot comparison
 // is a poor way to find out.
 type Props = {
@@ -114,7 +114,7 @@ export const TurfSummaryRow = ({
                   openConfirm(true)
                 }}
               >
-                Mark as done
+                Mark done
               </Button>
               {action}
             </>
