@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { differenceInCalendarDays, startOfDay } from 'date-fns'
 import Link from 'next/link'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
@@ -34,7 +33,11 @@ import {
   buildTrackerStrategy,
   followingWeekStart,
 } from './buildTrackerStrategy'
-import { formatTaskDate, snoozeLabel } from './CampaignStrategyTaskRow'
+import {
+  formatTaskDate,
+  snoozeLabel,
+  taskDueLabel,
+} from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import {
@@ -84,32 +87,6 @@ const followingTasks = (
   return siblings
     .slice(siblings.findIndex((task) => task.id === nextTask.id) + 1)
     .filter((task) => !task.completed && task.setAside === null)
-}
-
-// The card's due line. Plain and muted while the date is a while off; once it
-// is close or past it turns warning and says so in words, so it never relies
-// on color alone. Warning rather than destructive: red means an error here,
-// and a late task is something to catch up on, not a failure.
-export const taskDueLabel = (
-  date: string | null,
-  today: Date,
-): { label: string; urgent: boolean } | null => {
-  const formatted = formatTaskDate(date)
-  if (!date || !formatted) return null
-  const days = differenceInCalendarDays(
-    new Date(date.slice(0, 10).replace(/-/g, '/')),
-    startOfDay(today),
-  )
-  if (days < 0) {
-    const late = -days
-    return {
-      label: `${late} ${late === 1 ? 'day' : 'days'} overdue`,
-      urgent: true,
-    }
-  }
-  if (days === 0) return { label: 'Due today', urgent: true }
-  if (days === 1) return { label: 'Due tomorrow', urgent: true }
-  return { label: `Due ${formatted}`, urgent: false }
 }
 
 // Mark as done: the confetti bursts, then the card lifts off the top of the

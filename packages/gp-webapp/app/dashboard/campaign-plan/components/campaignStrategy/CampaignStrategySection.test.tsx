@@ -83,7 +83,8 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   ...over,
 })
 
-// The row's completion toggle lives in its "More options" menu.
+// A done row's undo lives in its "More options" menu; the next task, which
+// these tests complete, shows Mark as done as a button.
 const chooseFromMenu = async (
   user: ReturnType<typeof userEvent.setup>,
   item: string,
@@ -124,7 +125,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await chooseFromMenu(user, 'Mark as done')
+    await user.click(screen.getByRole('button', { name: 'Mark as done' }))
     expect(mockToggle).not.toHaveBeenCalled()
     expect(screen.getByText('count-modal:events')).toBeInTheDocument()
 
@@ -154,7 +155,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await chooseFromMenu(user, 'Mark as done')
+    await user.click(screen.getByRole('button', { name: 'Mark as done' }))
     // Still pending the count, so nothing is reported yet — the candidate can
     // still cancel out of the modal.
     expect(
@@ -227,7 +228,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await chooseFromMenu(user, 'Mark as done')
+    await user.click(screen.getByRole('button', { name: 'Mark as done' }))
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
   })

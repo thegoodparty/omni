@@ -128,7 +128,11 @@ describe('setting a task aside from the plan', () => {
       </ul>,
     )
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'More options' }))
+    // The next task shows its buttons, not a menu; Skip opens the choices.
+    expect(
+      screen.queryByRole('button', { name: 'More options' }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
     expect(
       await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
@@ -281,11 +285,9 @@ describe('the order of a task’s menu', () => {
   }
 
   it('leads with marking it done, then asking about it, when it has no action', async () => {
-    expect(await menuLabels({})).toEqual([
+    expect(await menuLabels({ task: { ...base, isNext: false } })).toEqual([
       'Mark as done',
       'Ask about this',
-      'Show in 3 days',
-      'Don’t suggest it again',
     ])
   })
 
@@ -301,5 +303,46 @@ describe('the order of a task’s menu', () => {
       }),
       // An in-app action closes the task itself, so there's no Mark as done.
     ).toEqual(['Plan your door knocking', 'Ask about this'])
+  })
+})
+
+describe('the next task’s row', () => {
+  it('reads title, description, date, then shows the Home card’s buttons', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't6',
+            title: 'Get your EIN',
+            description: 'Apply free on the IRS site.',
+            channel: 'general',
+            date: '2099-02-03T00:00:00.000Z',
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: false,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: true,
+            completed: false,
+            setAside: null,
+            snoozedUntil: null,
+          }}
+          onToggleComplete={vi.fn()}
+          onDiscuss={vi.fn()}
+          onSetAside={vi.fn()}
+        />
+      </ul>,
+    )
+    const row = screen.getByRole('listitem')
+    const text = row.textContent ?? ''
+    expect(text.indexOf('Get your EIN')).toBeLessThan(
+      text.indexOf('Apply free'),
+    )
+    expect(text.indexOf('Apply free')).toBeLessThan(text.indexOf('Due Feb 3'))
+    for (const name of ['Mark as done', 'Ask about this', 'Skip']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    }
   })
 })

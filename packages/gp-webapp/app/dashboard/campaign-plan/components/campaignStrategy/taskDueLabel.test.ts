@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { taskDueLabel } from './NextTaskCard'
+import { taskDueLabel } from './CampaignStrategyTaskRow'
 
 describe('taskDueLabel', () => {
   const today = new Date('2026-10-07T15:00:00')

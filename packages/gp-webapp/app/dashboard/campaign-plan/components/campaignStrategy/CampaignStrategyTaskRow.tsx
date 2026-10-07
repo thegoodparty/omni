@@ -1,6 +1,6 @@
 'use client'
 
-import { format } from 'date-fns'
+import { differenceInCalendarDays, format, startOfDay } from 'date-fns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MoreMenu } from 'app/shared/utils/MoreMenu'
@@ -13,15 +13,14 @@ import {
 import {
   Badge,
   Button,
-  CalendarDaysIcon,
   CalendarIcon,
-  ClipboardListIcon,
+  CheckIcon,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   LockIcon,
-  MailIcon,
-  MapPinIcon,
-  MegaphoneIcon,
-  MessageSquareIcon,
-  PhoneIcon,
+  MessagesSquareIcon,
   cn,
 } from '@styleguide'
 import type {
@@ -55,21 +54,6 @@ interface CampaignStrategyTaskRowProps {
   ) => void
 }
 
-const CHANNEL_ICONS: Record<
-  TaskChannel,
-  React.ComponentType<{ className?: string }>
-> = {
-  text: MessageSquareIcon,
-  robocall: PhoneIcon,
-  phoneBanking: PhoneIcon,
-  doorKnocking: MapPinIcon,
-  socialMedia: MegaphoneIcon,
-  directMail: MailIcon,
-  event: CalendarIcon,
-  awareness: CalendarDaysIcon,
-  general: ClipboardListIcon,
-}
-
 // The catalog fallback passes date-only strings ("2026-07-11"); the tracker
 // passes the API's full ISO datetime ("2026-07-11T00:00:00.000Z"). Slice to the
 // date portion before the Safari-safe dash->slash local-midnight parse so both
@@ -86,9 +70,35 @@ export const snoozeLabel = (date: string | null): string =>
     ? `Show on ${formatTaskDate(date)}`
     : `Show in ${TRACKER_TASK_SNOOZE_DAYS} days`
 
-// One task row: date chip, type icon, title, optional Pro and "Do this next"
-// badges, description, parameter, prerequisite hint, and a menu holding the
-// task's own actions.
+// A task's due line, on the next-step card and the plan's rows. Plain and muted while the date is a while off; once it
+// is close or past it turns warning and says so in words, so it never relies
+// on color alone. Warning rather than destructive: red means an error here,
+// and a late task is something to catch up on, not a failure.
+export const taskDueLabel = (
+  date: string | null,
+  today: Date,
+): { label: string; urgent: boolean } | null => {
+  const formatted = formatTaskDate(date)
+  if (!date || !formatted) return null
+  const days = differenceInCalendarDays(
+    new Date(date.slice(0, 10).replace(/-/g, '/')),
+    startOfDay(today),
+  )
+  if (days < 0) {
+    const late = -days
+    return {
+      label: `${late} ${late === 1 ? 'day' : 'days'} overdue`,
+      urgent: true,
+    }
+  }
+  if (days === 0) return { label: 'Due today', urgent: true }
+  if (days === 1) return { label: 'Due tomorrow', urgent: true }
+  return { label: `Due ${formatted}`, urgent: false }
+}
+
+// One task row, in the Home card's order: title (with its Pro, New and "Do
+// this next" badges), description, date, then any parameter or prerequisite.
+// The next task shows its buttons; every other row a menu of its actions.
 const isComposeChannel = (
   channel: TaskChannel,
 ): channel is 'text' | 'robocall' =>
@@ -103,10 +113,6 @@ const CampaignStrategyTaskRow = ({
   onSetAside,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
-  const formattedDate = formatTaskDate(
-    task.dateKnown === false ? null : task.date,
-  )
-  const Icon = CHANNEL_ICONS[task.channel]
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
 
   // Every action that does or closes the task lives in the row's menu, asking
@@ -208,23 +214,26 @@ const CampaignStrategyTaskRow = ({
       : []
     : openTaskItems
 
+  // The next task opens up like the Home card: its buttons in place of the
+  // menu. Every other row keeps its actions in the menu.
+  const showButtons = task.isNext && !task.completed
+  const due =
+    task.completed || task.setAside
+      ? null
+      : taskDueLabel(task.dateKnown === false ? null : task.date, new Date())
+
   return (
     <li
       // The plan page scrolls this row into view on arrival.
-      data-next-task={task.isNext && !task.completed ? true : undefined}
+      data-next-task={showButtons ? true : undefined}
       className={cn(
         'border-border flex gap-4 border-t px-6 py-4 first:border-t-0',
         task.isNext && 'bg-primary/5',
       )}
     >
-      <div className="flex-1 space-y-1.5">
+      {/* Title, description, then the date, in the Home card's order. */}
+      <div className="flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          {formattedDate && (
-            <Badge className="text-muted-foreground border-border rounded-full bg-transparent font-normal tabular-nums">
-              {formattedDate}
-            </Badge>
-          )}
-          <Icon className="text-muted-foreground size-4 shrink-0" />
           <span
             className={cn(
               'text-sm font-semibold',
@@ -250,6 +259,17 @@ const CampaignStrategyTaskRow = ({
         {task.param && (
           <p className="text-muted-foreground text-xs">{task.param}</p>
         )}
+        {due && (
+          <p
+            className={cn(
+              'mt-1 flex items-center gap-1.5 text-sm',
+              due.urgent ? 'text-warning-dark' : 'text-muted-foreground',
+            )}
+          >
+            <CalendarIcon className="size-4 shrink-0" aria-hidden />
+            {due.label}
+          </p>
+        )}
         {task.setAside && !task.completed && (
           <p className="text-muted-foreground text-xs">
             {task.setAside === 'later' && task.snoozedUntil
@@ -263,10 +283,10 @@ const CampaignStrategyTaskRow = ({
             Unlocks after {task.unlocksAfter}
           </p>
         )}
-        {action && actionInRow && (
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {
-              <Button asChild size="small">
+        {showButtons && (
+          <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
+            {action && (
+              <Button asChild size="medium" className="w-full sm:w-auto">
                 {action.external ? (
                   <a href={action.href} target="_blank" rel="noreferrer">
                     {action.label}
@@ -275,11 +295,61 @@ const CampaignStrategyTaskRow = ({
                   <Link href={action.href}>{action.label}</Link>
                 )}
               </Button>
-            }
+            )}
+            {onToggleComplete && !completesItself && (
+              <Button
+                type="button"
+                variant={action ? 'outline' : 'default'}
+                size="medium"
+                className="w-full sm:w-auto"
+                onClick={() => onToggleComplete(task.id, true)}
+              >
+                <CheckIcon className="size-4" aria-hidden />
+                Mark as done
+              </Button>
+            )}
+            {onDiscuss && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="medium"
+                className="w-full sm:w-auto"
+                onClick={() => onDiscuss(task)}
+              >
+                <MessagesSquareIcon className="size-4" aria-hidden />
+                Ask about this
+              </Button>
+            )}
+            {onSetAside && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="medium"
+                    className="w-full sm:ml-auto sm:w-auto"
+                  >
+                    Skip
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => onSetAside(task, 'later')}>
+                    {snoozeLabel(task.dateKnown === false ? null : task.date)}
+                  </DropdownMenuItem>
+                  {canSetTaskAsideForGood(task.title) && (
+                    <DropdownMenuItem
+                      onSelect={() => onSetAside(task, 'notForMe')}
+                    >
+                      Don’t suggest it again
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         )}
       </div>
-      {menuItems.length > 0 && (
+      {!showButtons && menuItems.length > 0 && (
         <div className="shrink-0">
           <MoreMenu menuItems={menuItems} />
         </div>
