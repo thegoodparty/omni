@@ -31,7 +31,7 @@ import {
   ConfettiBurst,
   EmptyState,
   ExternalLinkIcon,
-  MessageSquareIcon,
+  MessagesSquareIcon,
   cn,
 } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -682,13 +682,13 @@ const NextTaskCard = ({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="small"
-                          className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto sm:self-center"
+                          size="medium"
+                          className="w-full sm:ml-auto sm:w-auto"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }
                         >
-                          <MessageSquareIcon className="size-4" aria-hidden />
+                          <MessagesSquareIcon className="size-4" aria-hidden />
                           Discuss in chat
                         </Button>
                       )}
