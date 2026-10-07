@@ -73,7 +73,14 @@ const FlagSchema = z.object({
   // seat's whole verdict over a label. The model is still shown the list (the
   // JSON Schema keeps the enum), and the invented name is replaced here, so it
   // reaches neither the stored ruling nor the report.
-  type: FlagTypeSchema.catch('other_severe'),
+  //
+  // Not `.catch()`: that marks the field optional in the JSON Schema the
+  // model is sent, which put the verdict one past Anthropic's limit of 24
+  // optional parameters and failed every panel call.
+  type: z.union([FlagTypeSchema, z.string()]).transform((v): FlagType => {
+    const known = FlagTypeSchema.safeParse(v)
+    return known.success ? known.data : 'other_severe'
+  }),
   loc: z.string().optional(),
   quote: z.string().optional(),
   explanation: z.string(),
