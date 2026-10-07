@@ -298,7 +298,7 @@ export type RouteAlertGroup = {
  * the same rule gets its own group and its own `group_wait` delivery. Grouped
  * by slug alone, it joined the group the first route had already notified and
  * waited out the 5-minute `group_interval` — by which time a one-minute window
- * had resolved it, and it went out as resolved, which BugBoss discards. That
+ * had resolved it, and it went out as resolved, which pages nobody. That
  * is how `POST /v1/domains/purchase` was lost on 2026-09-30.
  *
  * WHAT IS GENUINELY LOST: the Grafana rule name no longer carries
