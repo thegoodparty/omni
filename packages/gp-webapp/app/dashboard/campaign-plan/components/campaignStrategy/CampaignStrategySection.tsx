@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion, Card, Stepper, cn } from '@styleguide'
+import { Accordion, EmptyState, Spinner, Stepper, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
@@ -165,27 +165,23 @@ const CampaignStrategySection = ({
   return (
     <section>
       {isPending ? (
-        <Card className="mx-4 mt-6 flex items-center gap-3 p-4 sm:mx-auto sm:max-w-[calc(48rem-2rem)]">
-          <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
-          <p className="text-muted-foreground text-sm">Loading your tasks…</p>
-        </Card>
+        <div className="mt-12 flex justify-center">
+          <Spinner />
+        </div>
       ) : isError ? (
-        <Card className="mx-4 mt-6 p-4 sm:mx-auto sm:max-w-[calc(48rem-2rem)]">
-          <p className="text-muted-foreground text-sm">
-            We could not load your tasks just now. Refresh the page to try
-            again.
-          </p>
-        </Card>
+        <EmptyState
+          className="mx-4 mt-6 rounded-2xl border-components-input-border sm:mx-auto sm:max-w-[calc(48rem-2rem)]"
+          message="We couldn’t load your tasks. Refresh the page to try again."
+        />
       ) : !strategy ? (
-        // Plan just completed; the tracker is bootstrapping. Static rows land
-        // first (seconds), then the dynamic tasks + events (a few minutes).
-        <Card className="mx-4 mt-6 flex items-center gap-3 p-4 sm:mx-auto sm:max-w-[calc(48rem-2rem)]">
-          <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
-          <p className="text-muted-foreground text-sm">
-            Setting up your campaign plan. Your tasks will appear here
-            automatically in a few minutes.
-          </p>
-        </Card>
+        // The plan is being made: no tasks exist yet. The first ones land in
+        // seconds to minutes, and the page polls, so they appear on their own.
+        <EmptyState
+          className="mx-4 mt-6 rounded-2xl border-components-input-border sm:mx-auto sm:max-w-[calc(48rem-2rem)]"
+          icon={<Spinner />}
+          title="Your campaign plan is being created"
+          message="This takes a few minutes. Your tasks will show up here on their own."
+        />
       ) : (
         <>
           {/* Sticky phase progress, full width under the page bar: the four
