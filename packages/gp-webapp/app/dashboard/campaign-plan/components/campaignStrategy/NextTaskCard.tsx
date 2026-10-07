@@ -90,7 +90,7 @@ const followingTasks = (
     .filter((task) => !task.completed && task.setAside === null)
 }
 
-// Mark as done: the confetti bursts, then the card lifts off the top of the
+// Mark done: the confetti bursts, then the card lifts off the top of the
 // stack while the one behind it rises into place, all on one axis. A skipped
 // card drops down and out instead, so the two never read the same.
 const CELEBRATE_MS = 500
@@ -120,7 +120,7 @@ export const discussTaskMessage = (task: DeckTask): string => {
 // channel opens that flow in the hub (with the due date and task attached,
 // like the rail's "Start outreach"). Static rows carry no channel, so the call
 // list is matched on its title. A task with nowhere to go returns null and
-// "Mark as done" leads instead.
+// "Mark done" leads instead.
 export const taskAction = (
   row: CampaignTrackerTask | undefined,
   surface: 'plan' | 'manager',
@@ -584,7 +584,7 @@ const NextTaskCard = ({
                           >
                             <CheckIcon className="size-4" aria-hidden />
                           </ConfettiBurst>
-                          Mark as done
+                          Mark done
                         </Button>
                       )}
                       {chat && (

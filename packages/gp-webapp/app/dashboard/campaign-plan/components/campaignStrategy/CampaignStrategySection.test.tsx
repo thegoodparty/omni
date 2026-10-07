@@ -84,7 +84,7 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
 })
 
 // A done row's undo lives in its "More options" menu; the next task, which
-// these tests complete, shows Mark as done as a button.
+// these tests complete, shows Mark done as a button.
 const chooseFromMenu = async (
   user: ReturnType<typeof userEvent.setup>,
   item: string,
@@ -125,7 +125,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await user.click(screen.getByRole('button', { name: 'Mark as done' }))
+    await user.click(screen.getByRole('button', { name: 'Mark done' }))
     expect(mockToggle).not.toHaveBeenCalled()
     expect(screen.getByText('count-modal:events')).toBeInTheDocument()
 
@@ -155,7 +155,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await user.click(screen.getByRole('button', { name: 'Mark as done' }))
+    await user.click(screen.getByRole('button', { name: 'Mark done' }))
     // Still pending the count, so nothing is reported yet — the candidate can
     // still cancel out of the modal.
     expect(
@@ -208,7 +208,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await chooseFromMenu(user, 'Mark as not done')
+    await chooseFromMenu(user, 'Mark not done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't3', completed: false })
     expect(
       mockTrackEvent.mock.calls.filter(
@@ -228,7 +228,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     render(<CampaignStrategySection />)
     await openLaunch(user)
 
-    await user.click(screen.getByRole('button', { name: 'Mark as done' }))
+    await user.click(screen.getByRole('button', { name: 'Mark done' }))
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
   })

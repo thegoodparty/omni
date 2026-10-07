@@ -163,7 +163,7 @@ const CampaignStrategyTaskRow = ({
     onToggleComplete && !completesItself
       ? [
           {
-            label: 'Mark as done',
+            label: 'Mark done',
             onClick: () => onToggleComplete(task.id, true),
           },
         ]
@@ -194,7 +194,7 @@ const CampaignStrategyTaskRow = ({
     ? onToggleComplete && !completesItself
       ? [
           {
-            label: 'Mark as not done',
+            label: 'Mark not done',
             onClick: () => onToggleComplete(task.id, false),
           },
         ]
@@ -289,7 +289,7 @@ const CampaignStrategyTaskRow = ({
                 onClick={() => onToggleComplete(task.id, true)}
               >
                 <CheckIcon className="size-4" aria-hidden />
-                Mark as done
+                Mark done
               </Button>
             )}
             {onDiscuss && (

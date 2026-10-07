@@ -229,7 +229,7 @@ describe('a done task’s menu', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'More options' }))
     const items = await screen.findAllByRole('menuitem')
-    expect(items.map((item) => item.textContent)).toEqual(['Mark as not done'])
+    expect(items.map((item) => item.textContent)).toEqual(['Mark not done'])
     await user.click(items[0] as HTMLElement)
     expect(onToggleComplete).toHaveBeenCalledWith('t4', false)
   })
@@ -278,7 +278,7 @@ describe('the order of a task’s menu', () => {
 
   it('leads with marking it done, then asking about it, when it has no action', async () => {
     expect(await menuLabels({ task: { ...base, isNext: false } })).toEqual([
-      'Mark as done',
+      'Mark done',
       'Ask about this',
       'Show in 3 days',
       'Not for me',
@@ -295,7 +295,7 @@ describe('the order of a task’s menu', () => {
           external: false,
         }),
       }),
-      // An in-app action closes the task itself, so there's no Mark as done.
+      // An in-app action closes the task itself, so there's no Mark done.
     ).toEqual([
       'Plan your door knocking',
       'Ask about this',
@@ -339,7 +339,7 @@ describe('the next task’s row', () => {
       text.indexOf('Apply free'),
     )
     expect(text.indexOf('Apply free')).toBeLessThan(text.indexOf('Due Feb 3'))
-    for (const name of ['Mark as done', 'Ask about this', 'Skip']) {
+    for (const name of ['Mark done', 'Ask about this', 'Skip']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument()
     }
   })

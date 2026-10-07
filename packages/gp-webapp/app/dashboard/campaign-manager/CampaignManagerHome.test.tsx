@@ -655,9 +655,7 @@ describe('CampaignManagerHome marking a task done', () => {
     const user = userEvent.setup()
     renderHome()
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Mark as done' }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Mark done' }))
 
     expect(mockToggleMutate).toHaveBeenCalledWith({
       id: 'ein',
