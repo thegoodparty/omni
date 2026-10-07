@@ -1134,8 +1134,8 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Lands on the Campaign Manager home, whose chat opens with the story
-      // intake (the plan + tracker are generated from the story later).
+      // Lands on the Campaign Manager home with the chat closed; it opens
+      // only from the home's cards or the footer chat box.
       router.push('/dashboard')
       return
     }
