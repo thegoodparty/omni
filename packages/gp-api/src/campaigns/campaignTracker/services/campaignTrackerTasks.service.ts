@@ -8,7 +8,6 @@ import {
   differenceInCalendarDays,
   differenceInCalendarWeeks,
   format,
-  startOfDay,
 } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
@@ -36,8 +35,8 @@ import {
   isDateTodayOrFuture,
   mondayOfWeekUtc,
   nextMondayUtcMidnight,
+  getMidnightForDate,
   parseIsoDateAsUTC,
-  parseIsoDateString,
 } from 'src/shared/util/date.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -397,7 +396,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       ) {
         return []
       }
-      const date = startOfDay(resolveTrackerTaskDate(entry, windows))
+      const date = getMidnightForDate(resolveTrackerTaskDate(entry, windows))
       return date.getTime() === row.date.getTime()
         ? []
         : [
@@ -665,7 +664,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         (task) => {
           let date: Date
           if (task.date) {
-            date = startOfDay(parseIsoDateString(task.date))
+            date = getMidnightForDate(parseIsoDateAsUTC(task.date))
           } else {
             date = addDays(weekStart, Math.min(datelessOffset, 6))
             datelessOffset += 1

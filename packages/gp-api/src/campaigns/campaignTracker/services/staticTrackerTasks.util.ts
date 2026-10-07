@@ -1,4 +1,4 @@
-import { differenceInCalendarWeeks, startOfDay } from 'date-fns'
+import { differenceInCalendarWeeks } from 'date-fns'
 import {
   BALLOT_ACCESS_CATEGORY,
   CAMPAIGN_STORY_CATEGORY,
@@ -9,6 +9,7 @@ import {
 import { Campaign, Prisma } from '../../../generated/prisma'
 import { CHANNEL_TO_FLOW_TYPE } from '../campaignTracker.consts'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { getMidnightForDate } from 'src/shared/util/date.util'
 
 // The only outreach the tracker ever suggests is the campaign plan's fixed
 // contact schedule: the 7 text/robocall sends (intro/persuasion/early-vote/
@@ -25,7 +26,9 @@ const toRow = (
 ): Prisma.CampaignTrackerTaskCreateManyInput => {
   // Dated on the campaign's timeline (contracts' CampaignTimeline), so a
   // task's date falls in the window of the phase it belongs to.
-  const date = startOfDay(
+  // UTC midnight, the naive calendar day every tracker date is stored as; a
+  // local startOfDay would shift it a day on a server west of UTC.
+  const date = getMidnightForDate(
     resolveTrackerTaskDate(task, campaignPhaseWindows(start, electionDate)),
   )
   return {
@@ -100,7 +103,7 @@ export const buildCampaignStoryTrackerTaskRows = (
     (task) =>
       task.type === 'static' && task.category === CAMPAIGN_STORY_CATEGORY,
   ).map((task) => ({
-    ...toRow(campaignId, startOfDay(start), electionDate, task),
+    ...toRow(campaignId, getMidnightForDate(start), electionDate, task),
     link: CAMPAIGN_STORY_LINK,
     cta: 'Add your story',
   }))
