@@ -3,9 +3,11 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import CampaignVerificationSteps from './CampaignVerificationSteps'
+import { saveVerificationDraft } from '../verificationDraft'
 
 interface MockElectionFilingFormProps {
   onSubmitted: () => void
+  persistDraft?: boolean
   onBack?: () => void
   title?: string
   caption?: string
@@ -26,8 +28,9 @@ vi.mock(
       caption,
       contactTitle,
       contactCaption,
+      persistDraft,
     }: MockElectionFilingFormProps) => (
-      <div>
+      <div data-testid="filing-form" data-persist-draft={persistDraft}>
         {title && <h2>{title}</h2>}
         {caption && <p>{caption}</p>}
         {contactTitle && <h2>{contactTitle}</h2>}
@@ -38,6 +41,10 @@ vi.mock(
     ),
   }),
 )
+
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [{ id: 7 }],
+}))
 
 const SUBMITTED_TITLE = 'Submitted for verification'
 
@@ -54,6 +61,44 @@ describe('CampaignVerificationSteps', () => {
   beforeEach(() => {
     onExit = vi.fn<() => void>()
     onComplete = vi.fn<() => void>()
+    window.localStorage.clear()
+  })
+
+  it('reopens on the form when this browser holds a draft', () => {
+    saveVerificationDraft(7, { filing: { candidateName: 'Sarah Chen' } })
+    render(
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
+    )
+
+    expect(screen.getByTestId('filing-form')).toBeInTheDocument()
+    expect(screen.queryByText(INTRO_TITLE)).not.toBeInTheDocument()
+  })
+
+  it('lets an explicit initialStep win over a draft', () => {
+    saveVerificationDraft(7, { filing: { candidateName: 'Sarah Chen' } })
+    render(
+      <CampaignVerificationSteps
+        initialStep="submitted"
+        onExit={onExit}
+        onComplete={onComplete}
+      />,
+    )
+
+    expect(screen.getByText(SUBMITTED_TITLE)).toBeInTheDocument()
+  })
+
+  it('asks the filing form to keep a draft', async () => {
+    const user = userEvent.setup()
+    render(
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getByTestId('filing-form')).toHaveAttribute(
+      'data-persist-draft',
+      'true',
+    )
   })
 
   it('opens on the intro by default', () => {

@@ -7,7 +7,9 @@ import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
 import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { VerificationIntro } from './VerificationIntro'
+import { hasVerificationDraft } from '../verificationDraft'
 
 export type VerificationStep = 'intro' | 'form' | 'submitted'
 
@@ -28,7 +30,8 @@ const PIN_NOTICE_BODY =
 
 interface CampaignVerificationStepsProps {
   // Lets a caller resume on a step other than the intro (e.g. a page wrapper
-  // mapping `?step=submitted` on refresh). Defaults to 'intro'.
+  // mapping `?step=submitted` on refresh). Defaults to the form when this
+  // browser holds an unsubmitted draft, the intro otherwise.
   initialStep?: VerificationStep
   // Fired on mount and on every step change so a caller-owned chrome (a page
   // Stepper, a URL) can track the active step without this component
@@ -44,13 +47,18 @@ interface CampaignVerificationStepsProps {
 // sheet or page wrapper owns that, and each screen pins its own footer to
 // the bottom of the caller's column.
 const CampaignVerificationSteps = ({
-  initialStep = 'intro',
+  initialStep,
   onStepChange,
   onExit,
   onComplete,
   completeLabel = 'Done',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
-  const [step, setStep] = useState<VerificationStep>(initialStep)
+  const [campaign] = useCampaign()
+  const [step, setStep] = useState<VerificationStep>(
+    () =>
+      initialStep ??
+      (campaign && hasVerificationDraft(campaign.id) ? 'form' : 'intro'),
+  )
 
   // Reset scroll to the top whenever the active step changes (dashboard
   // convention), and let the caller track the active step. Only `step`
@@ -102,6 +110,7 @@ const CampaignVerificationSteps = ({
           contactCaption={FILING_CONTACT_CAPTION}
           onBack={() => setStep('intro')}
           onSubmitted={() => setStep('submitted')}
+          persistDraft
         />
       )}
       {step === 'submitted' && (
