@@ -62,16 +62,16 @@ describe('CampaignPlanView', () => {
     mockData.mockReturnValue(planData())
   })
 
-  it('opens the whole plan in a modal from the Executive Summary card, bottom bar hidden', async () => {
+  it('opens the whole plan in a modal from the Campaign strategy card, bottom bar hidden', async () => {
     render(<CampaignPlanView initialUser={null} />)
     expect(screen.getByTestId('tracker-section')).toBeInTheDocument()
     // The plan stays closed behind its card until the card is opened.
     expect(screen.queryByTestId('plan-view')).not.toBeInTheDocument()
     await userEvent.click(
-      screen.getByRole('button', { name: /executive summary/i }),
+      screen.getByRole('button', { name: /campaign strategy/i }),
     )
     expect(
-      screen.getByRole('dialog', { name: 'Executive summary' }),
+      screen.getByRole('dialog', { name: 'Campaign strategy' }),
     ).toBeInTheDocument()
     const planView = screen.getByTestId('plan-view')
     expect(planView).toHaveAttribute('data-show-hero', 'false')

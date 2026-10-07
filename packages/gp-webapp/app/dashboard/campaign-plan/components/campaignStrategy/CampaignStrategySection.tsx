@@ -28,7 +28,7 @@ import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 const CampaignStrategySection = ({
   bodyStart,
 }: {
-  // Rendered above the timeline card (the plan's Executive Summary entry).
+  // Rendered above the timeline card (the Campaign strategy card).
   bodyStart?: React.ReactNode
 }): React.JSX.Element => {
   const [campaign] = useCampaign()

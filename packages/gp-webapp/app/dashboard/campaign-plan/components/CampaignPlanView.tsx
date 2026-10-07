@@ -115,7 +115,7 @@ const CampaignPlanView = ({
     router.push('/dashboard')
   }
 
-  // The page opens on the Executive Summary, a card that opens the whole plan
+  // The page opens on the campaign strategy, a card that opens the whole plan
   // in a modal, then the plan's timeline: one long card whose phase bar sticks
   // to the top as the phases scroll under it.
   return (
@@ -125,7 +125,7 @@ const CampaignPlanView = ({
           <Dialog>
             <DialogTrigger className="bg-card hover:bg-muted/50 mb-4 flex w-full items-center gap-4 rounded-xl border px-6 py-5 text-left transition-colors">
               <span className="flex-1 text-base font-semibold">
-                Executive Summary
+                Campaign strategy
               </span>
               <ChevronRightIcon
                 className="text-muted-foreground size-5 shrink-0"
@@ -137,7 +137,7 @@ const CampaignPlanView = ({
             <DialogContent className="flex h-[calc(100dvh-2rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
               <div className="flex items-center gap-3 pt-4 pr-14 pb-2 pl-6">
                 <DialogTitle className="flex-1 text-lg font-semibold">
-                  Executive summary
+                  Campaign strategy
                 </DialogTitle>
                 <DialogDescription className="sr-only">
                   The whole campaign plan in one view.
