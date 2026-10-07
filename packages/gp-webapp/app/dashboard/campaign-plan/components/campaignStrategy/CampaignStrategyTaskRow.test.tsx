@@ -344,3 +344,33 @@ describe('the next task’s row', () => {
     }
   })
 })
+
+describe('a Pro task’s row', () => {
+  it('carries no Pro label, since anyone can start a draft', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't7',
+            title: 'Introduction Text',
+            description: 'Introduce yourself to voters with a text.',
+            channel: 'text',
+            date: '2099-02-03T00:00:00.000Z',
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: true,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: false,
+            completed: false,
+            setAside: null,
+            snoozedUntil: null,
+          }}
+        />
+      </ul>,
+    )
+    expect(screen.queryByText('Pro')).not.toBeInTheDocument()
+  })
+})

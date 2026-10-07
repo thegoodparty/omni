@@ -96,8 +96,8 @@ export const taskDueLabel = (
   return { label: `Due ${formatted}`, urgent: false }
 }
 
-// One task row, in the Home card's order: title (with its Pro, New and "Do
-// this next" badges), description, date, then any parameter or prerequisite.
+// One task row, in the Home card's order: title (with its New and "Do this
+// next" badges), description, date, then any parameter or prerequisite.
 // The next task shows its buttons; every other row a menu of its actions.
 const isComposeChannel = (
   channel: TaskChannel,
@@ -249,11 +249,6 @@ const CampaignStrategyTaskRow = ({
             </Badge>
           )}
           {task.isNew && !task.isNext && <Badge variant="outline">New</Badge>}
-          {task.proRequired && (
-            <Badge className="border-transparent bg-secondary text-secondary-foreground">
-              Pro
-            </Badge>
-          )}
         </div>
         <p className="text-muted-foreground text-sm">{task.description}</p>
         {task.param && (
