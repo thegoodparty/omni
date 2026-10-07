@@ -49,7 +49,6 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={task}
-          index={1}
           onStartOutreach={onStartOutreach}
         />
       </ul>,
@@ -75,7 +74,6 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={{ ...task, completed: true }}
-          index={1}
           onStartOutreach={vi.fn()}
         />
       </ul>,
@@ -91,7 +89,6 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={{ ...task, channel: 'doorKnocking' }}
-          index={1}
           onStartOutreach={vi.fn()}
         />
       </ul>,
@@ -127,11 +124,7 @@ describe('setting a task aside from the plan', () => {
     const onSetAside = vi.fn()
     render(
       <ul>
-        <CampaignStrategyTaskRow
-          task={task}
-          index={1}
-          onSetAside={onSetAside}
-        />
+        <CampaignStrategyTaskRow task={task} onSetAside={onSetAside} />
       </ul>,
     )
     const user = userEvent.setup()
@@ -155,11 +148,7 @@ describe('setting a task aside from the plan', () => {
     } as const
     render(
       <ul>
-        <CampaignStrategyTaskRow
-          task={putOff}
-          index={1}
-          onSetAside={onSetAside}
-        />
+        <CampaignStrategyTaskRow task={putOff} onSetAside={onSetAside} />
       </ul>,
     )
     expect(screen.getByText('Put off until Feb 5')).toBeInTheDocument()
@@ -169,5 +158,43 @@ describe('setting a task aside from the plan', () => {
       await screen.findByRole('menuitem', { name: 'Bring it back' }),
     )
     expect(onSetAside).toHaveBeenCalledWith(putOff, null)
+  })
+})
+
+describe('asking about a task', () => {
+  it('lives in the row’s menu, not on the row', async () => {
+    const onDiscuss = vi.fn()
+    const task = {
+      id: 't3',
+      title: 'Get your EIN',
+      description: 'Apply free on the IRS site.',
+      channel: 'general',
+      date: null,
+      param: null,
+      href: null,
+      hrefLabel: null,
+      priorityTier: 'P2',
+      proRequired: false,
+      status: 'live',
+      unlocksAfter: null,
+      isNext: false,
+      completed: false,
+      setAside: null,
+      snoozedUntil: null,
+    } as const
+    render(
+      <ul>
+        <CampaignStrategyTaskRow task={task} onDiscuss={onDiscuss} />
+      </ul>,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Ask about this' }),
+    )
+    expect(onDiscuss).toHaveBeenCalledWith(task)
   })
 })

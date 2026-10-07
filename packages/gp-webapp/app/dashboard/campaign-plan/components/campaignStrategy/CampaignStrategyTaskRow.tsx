@@ -15,7 +15,6 @@ import {
   Button,
   CalendarDaysIcon,
   CalendarIcon,
-  CheckIcon,
   ClipboardListIcon,
   LockIcon,
   MailIcon,
@@ -32,7 +31,6 @@ import type {
 
 interface CampaignStrategyTaskRowProps {
   task: CampaignStrategyTask
-  index: number
   onToggleComplete?: (id: string, completed: boolean) => void
   // In-place launcher for text/robocall tasks (legacy-task behavior): opens
   // the outreach flow with the task's due date instead of navigating.
@@ -88,9 +86,9 @@ export const snoozeLabel = (date: string | null): string =>
     ? `Show on ${formatTaskDate(date)}`
     : `Show in ${TRACKER_TASK_SNOOZE_DAYS} days`
 
-// One task row: status marker, date chip, type icon, title, optional Pro and
-// "Do this next" badges, description, parameter, prerequisite hint, a chat
-// action, and a menu holding the task's own actions.
+// One task row: date chip, type icon, title, optional Pro and "Do this next"
+// badges, description, parameter, prerequisite hint, and a menu holding the
+// task's own actions.
 const isComposeChannel = (
   channel: TaskChannel,
 ): channel is 'text' | 'robocall' =>
@@ -98,7 +96,6 @@ const isComposeChannel = (
 
 const CampaignStrategyTaskRow = ({
   task,
-  index,
   onToggleComplete,
   onStartOutreach,
   onDiscuss,
@@ -110,22 +107,8 @@ const CampaignStrategyTaskRow = ({
   const Icon = CHANNEL_ICONS[task.channel]
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
 
-  const markerClassName = cn(
-    'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
-    task.completed
-      ? 'bg-success text-white'
-      : task.isNext
-        ? 'bg-primary text-white'
-        : 'bg-grayscale-200 text-muted-foreground',
-  )
-  const markerContent = task.completed ? (
-    <CheckIcon className="size-4" />
-  ) : (
-    String(index).padStart(2, '0')
-  )
-
-  // Every action that does or closes the task lives in the row's menu, so the
-  // row itself only offers chat.
+  // Every action that does or closes the task lives in the row's menu, asking
+  // about it included; only the next task also shows its action in place.
   const href = task.href
   const resolvedAction = getAction ? getAction(task) : null
   const action = task.completed ? null : resolvedAction
@@ -147,6 +130,9 @@ const CampaignStrategyTaskRow = ({
             },
           },
         ]
+      : []),
+    ...(onDiscuss
+      ? [{ label: 'Ask about this', onClick: () => onDiscuss(task) }]
       : []),
     ...(!getAction &&
     !href &&
@@ -209,7 +195,6 @@ const CampaignStrategyTaskRow = ({
         task.isNext && 'bg-primary/5',
       )}
     >
-      <span className={markerClassName}>{markerContent}</span>
       <div className="flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           {formattedDate && (
@@ -256,9 +241,9 @@ const CampaignStrategyTaskRow = ({
             Unlocks after {task.unlocksAfter}
           </p>
         )}
-        {(actionInRow || onDiscuss) && (
+        {action && actionInRow && (
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            {action && actionInRow && (
+            {
               <Button asChild size="small">
                 {action.external ? (
                   <a href={action.href} target="_blank" rel="noreferrer">
@@ -268,22 +253,7 @@ const CampaignStrategyTaskRow = ({
                   <Link href={action.href}>{action.label}</Link>
                 )}
               </Button>
-            )}
-            {onDiscuss && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="small"
-                className={cn(
-                  'text-primary hover:bg-primary/5',
-                  !actionInRow && '-ml-3',
-                )}
-                onClick={() => onDiscuss(task)}
-              >
-                <MessageSquareIcon className="size-4" aria-hidden />
-                Ask about this
-              </Button>
-            )}
+            }
           </div>
         )}
       </div>

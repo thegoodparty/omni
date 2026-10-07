@@ -139,11 +139,10 @@ const WeekNavigator = ({
       </div>
       {week.tasks.length > 0 ? (
         <ul className="border-border border-t">
-          {week.tasks.map((task, index) => (
+          {week.tasks.map((task) => (
             <CampaignStrategyTaskRow
               key={task.id}
               task={task}
-              index={index + 1}
               onToggleComplete={onToggleComplete}
               onStartOutreach={onStartOutreach}
               onDiscuss={onDiscuss}
@@ -242,11 +241,10 @@ const CampaignStrategyPhase = ({
               </div>
             )}
             <ul className={cn(!group.label && 'border-border border-t')}>
-              {group.tasks.map((task, index) => (
+              {group.tasks.map((task) => (
                 <CampaignStrategyTaskRow
                   key={task.id}
                   task={task}
-                  index={index + 1}
                   onToggleComplete={onToggleComplete}
                   onStartOutreach={onStartOutreach}
                   onDiscuss={onDiscuss}
