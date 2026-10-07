@@ -68,10 +68,7 @@ const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
 const toChannel = (flowType: string | null): TaskChannel =>
   (flowType && FLOW_TYPE_TO_CHANNEL[flowType]) || 'general'
 
-const toRenderTask = (
-  row: CampaignTrackerTask,
-  today: Date,
-): CampaignStrategyTask => ({
+const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
   id: row.id,
   title: row.title,
   description: row.description,
@@ -92,16 +89,9 @@ const toRenderTask = (
   // A catalog row whose date is only a placeholder (a state deadline,
   // per-item or recurring work) still sorts by it but never shows it.
   dateKnown: !row.isDefaultTask || hasKnownTrackerDate(row.title),
-  setAside: isTrackerTaskSetAside(
-    {
-      skipReason: row.skipReason ?? null,
-      snoozedUntil: row.snoozedUntil ?? null,
-    },
-    today,
-  )
-    ? (row.skipReason ?? null)
+  setAside: isTrackerTaskSetAside({ skipReason: row.skipReason ?? null })
+    ? 'notForMe'
     : null,
-  snoozedUntil: row.snoozedUntil ?? null,
 })
 
 // Open work the candidate hasn't put off or set aside: the only kind that can
@@ -221,7 +211,7 @@ const buildActiveWeeks = (
         .reduce((max, r) => Math.max(max, r.week), -Infinity)
       const tasksForWeek = rows
         .filter((r) => r.isDefaultTask || r.week === latestGen)
-        .map((row) => toRenderTask(row, today))
+        .map((row) => toRenderTask(row))
         .sort(compareTasks)
       const next = tasksForWeek.find(canBeNext)
       if (weekMs === todayWeek && next) next.isNext = true
@@ -279,7 +269,7 @@ export const buildTrackerStrategy = (
   for (const row of visibleTasks) {
     const phase = phaseOf(row, windows)
     const list = byPhase.get(phase) ?? []
-    list.push(toRenderTask(row, today))
+    list.push(toRenderTask(row))
     byPhase.set(phase, list)
   }
 

@@ -40,7 +40,6 @@ describe('start outreach CTA', () => {
     isNext: false,
     completed: false,
     setAside: null,
-    snoozedUntil: null,
   } as const
 
   it('opens the outreach flow in place with the channel and due date', async () => {
@@ -117,7 +116,6 @@ describe('setting a task aside from the plan', () => {
     isNext: true,
     completed: false,
     setAside: null,
-    snoozedUntil: null,
   } as const
 
   it('offers the next task’s two ways to set it aside', async () => {
@@ -140,26 +138,25 @@ describe('setting a task aside from the plan', () => {
     expect(onSetAside).toHaveBeenCalledWith(task, 'notForMe')
   })
 
-  it('says when a put-off task comes back, and can bring it back now', async () => {
+  it('says a not-for-me task is not for them, and can bring it back', async () => {
     const onSetAside = vi.fn()
-    const putOff = {
+    const setAside = {
       ...task,
       isNext: false,
-      setAside: 'later',
-      snoozedUntil: '2099-02-05T12:00:00.000Z',
+      setAside: 'notForMe',
     } as const
     render(
       <ul>
-        <CampaignStrategyTaskRow task={putOff} onSetAside={onSetAside} />
+        <CampaignStrategyTaskRow task={setAside} onSetAside={onSetAside} />
       </ul>,
     )
-    expect(screen.getByText('Put off until Feb 5')).toBeInTheDocument()
+    expect(screen.getByText('Not for me')).toBeInTheDocument()
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'More options' }))
     await user.click(
       await screen.findByRole('menuitem', { name: 'Bring it back' }),
     )
-    expect(onSetAside).toHaveBeenCalledWith(putOff, null)
+    expect(onSetAside).toHaveBeenCalledWith(setAside, null)
   })
 })
 
@@ -182,7 +179,6 @@ describe('asking about a task', () => {
       isNext: false,
       completed: false,
       setAside: null,
-      snoozedUntil: null,
     } as const
     render(
       <ul>
@@ -223,7 +219,6 @@ describe('a done task’s menu', () => {
             isNext: false,
             completed: true,
             setAside: null,
-            snoozedUntil: null,
           }}
           onToggleComplete={onToggleComplete}
           onDiscuss={vi.fn()}
@@ -257,7 +252,6 @@ describe('the order of a task’s menu', () => {
     isNext: true,
     completed: false,
     setAside: null,
-    snoozedUntil: null,
   } as const
 
   const menuLabels = async (
@@ -325,7 +319,6 @@ describe('the next task’s row', () => {
             isNext: true,
             completed: false,
             setAside: null,
-            snoozedUntil: null,
           }}
           onToggleComplete={vi.fn()}
           onDiscuss={vi.fn()}
@@ -366,11 +359,41 @@ describe('a Pro task’s row', () => {
             isNext: false,
             completed: false,
             setAside: null,
-            snoozedUntil: null,
           }}
         />
       </ul>,
     )
     expect(screen.queryByText('Pro')).not.toBeInTheDocument()
+  })
+})
+
+describe('a done task’s row', () => {
+  it('says Done where the date was, without striking the title through', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't8',
+            title: 'Get your EIN',
+            description: 'Apply free on the IRS site.',
+            channel: 'general',
+            date: '2099-02-03T00:00:00.000Z',
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: false,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: false,
+            completed: true,
+            setAside: null,
+          }}
+        />
+      </ul>,
+    )
+    expect(screen.getByText('Done')).toBeInTheDocument()
+    expect(screen.queryByText(/Due /)).not.toBeInTheDocument()
+    expect(screen.getByText('Get your EIN')).not.toHaveClass('line-through')
   })
 })

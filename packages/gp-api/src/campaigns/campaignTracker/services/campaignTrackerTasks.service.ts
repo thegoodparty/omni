@@ -22,9 +22,10 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CAMPAIGN_TASK_CATALOG,
   campaignPhaseWindows,
+  canPutOffTask,
   canSetTaskAsideForGood,
   resolveTrackerTaskDate,
-  trackerTaskSnoozeUntil,
+  trackerTaskPutOffDate,
   trackerTimelineStart,
   VOTER_CONTACT_SCHEDULE,
   type TaskTiming,
@@ -374,6 +375,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         date: true,
         completed: true,
         isDefaultTask: true,
+        skipReason: true,
       },
     })
     const start = trackerTimelineStart(rows)
@@ -383,7 +385,8 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       this.resolveElectionDate(campaign),
     )
     const moves = rows.flatMap((row) => {
-      if (row.completed) return []
+      // Done, or dated by the candidate when they put it off.
+      if (row.completed || row.skipReason === 'later') return []
       const entry = CAMPAIGN_TASK_CATALOG.find(
         (task) => task.title === row.title,
       )
@@ -1002,9 +1005,10 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     })
   }
 
-  // Sets a task aside without completing it, so it still counts as open work
-  // everywhere that reads completion. 'later' keeps it from being the next
-  // task for a few days (never past its due date); 'notForMe' until undone.
+  // Puts a task off or sets it aside, without completing it, so it still
+  // counts as open work everywhere that reads completion. 'later' moves its
+  // date a few days out (the candidate's own date from then on, which the
+  // timeline realignment leaves alone); 'notForMe' holds until undone.
   async skipTask(
     { id: campaignId }: Campaign,
     id: string,
@@ -1019,14 +1023,19 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         `Tracker task ${id} is required and can only be put off`,
       )
     }
+    if (reason === 'later' && !canPutOffTask(task.title)) {
+      throw new BadRequestException(
+        `Tracker task ${id} is dated by fact and can't be put off`,
+      )
+    }
     const now = new Date()
     return this.model.update({
       where: { id: task.id },
       data: {
         skipReason: reason,
         skippedAt: now,
-        snoozedUntil:
-          reason === 'later' ? trackerTaskSnoozeUntil(now, task.date) : null,
+        snoozedUntil: null,
+        ...(reason === 'later' ? { date: trackerTaskPutOffDate(now) } : {}),
       },
     })
   }

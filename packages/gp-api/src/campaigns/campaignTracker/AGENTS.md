@@ -33,12 +33,15 @@ overview: `docs/features/campaign-tracker-v3.md`.
   dates) are never moved.
 
 - **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
-  a task aside: `later` sets `snoozedUntil` (`trackerTaskSnoozeUntil`: three
-  days, or the due date when that comes first), `notForMe` holds until
-  `DELETE /skip/:id`. Ballot access (`canSetTaskAsideForGood`) 400s on
-  `notForMe`; finance reporting doesn't, since not every candidate must file. Neither touches `completed`,
-  so a skipped task still counts as open work everywhere that reads completion;
-  only the webapp's next-task pick passes over it (`isTrackerTaskSetAside`).
+  a task aside. `later` moves its `date` three days out
+  (`trackerTaskPutOffDate`); from then on the date is the candidate's, so
+  `alignTrackerTaskDates` leaves it alone. Tasks dated by fact (the Election
+  admin dates, Election Day) 400 on it (`canPutOffTask`). `notForMe` holds until
+  `DELETE /skip/:id`; ballot access 400s on it (`canSetTaskAsideForGood`), while
+  finance reporting doesn't, since not every candidate must file. Neither
+  touches `completed`, so a skipped task still counts as open work everywhere
+  that reads completion; only the webapp's next-task pick passes over a
+  `notForMe` task (`isTrackerTaskSetAside`). `snoozedUntil` is no longer set.
 
 - **Append, never replace (the central rule).** `onExperimentRunCompleted`
   stamps each run's rows with `week = max(existing dynamic week) + 1` and never

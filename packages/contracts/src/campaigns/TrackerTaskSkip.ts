@@ -4,11 +4,12 @@ import {
   CAMPAIGN_TASK_CATALOG,
 } from './CampaignTaskCatalog.data'
 
-// A candidate can set a task aside without completing it: "later" keeps it
-// from being their next task for a few days, "notForMe" until they bring it
-// back. Shared so gp-api and every surface agree on what is set aside.
+// A candidate can put a task off ("later"), which moves its date a few days
+// out so the plan sorts it behind what's due sooner, or set it aside
+// ("notForMe") until they bring it back. Shared so gp-api and every surface
+// agree.
 
-// How long "later" keeps a task from being the next task.
+// How far "later" moves a task.
 export const TRACKER_TASK_SNOOZE_DAYS = 3
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -22,22 +23,28 @@ export const canSetTaskAsideForGood = (title: string): boolean =>
   CAMPAIGN_TASK_CATALOG.find((task) => task.title === title)?.category !==
   BALLOT_ACCESS_CATEGORY
 
-// "Later" never carries a task past its own due date: it comes back on the
-// due date when that is sooner than the usual few days, and still ahead.
-export const trackerTaskSnoozeUntil = (now: Date, due: Date | string): Date => {
-  const usual = new Date(now.getTime() + TRACKER_TASK_SNOOZE_DAYS * DAY_MS)
-  const dueAt = new Date(due)
-  return dueAt > now && dueAt < usual ? dueAt : usual
+// A task whose date is a fact rather than a plan (a registration deadline,
+// early voting, election day) can't be put off: moving it would be untrue.
+const FIXED_DATE_CATEGORIES = new Set(['Election admin'])
+const FIXED_DATE_TITLES = new Set(['Election Day'])
+
+export const canPutOffTask = (title: string): boolean => {
+  if (FIXED_DATE_TITLES.has(title)) return false
+  const entry = CAMPAIGN_TASK_CATALOG.find((task) => task.title === title)
+  return !entry || !FIXED_DATE_CATEGORIES.has(entry.category)
 }
 
-export const isTrackerTaskSetAside = (
-  task: {
-    skipReason: TrackerTaskSkipReason | null
-    snoozedUntil: string | Date | null
-  },
-  now: Date,
-): boolean =>
-  task.skipReason === 'notForMe' ||
-  (task.skipReason === 'later' &&
-    task.snoozedUntil !== null &&
-    new Date(task.snoozedUntil) > now)
+// The date "later" moves a task to: a few days from today, at UTC midnight
+// like every tracker date.
+export const trackerTaskPutOffDate = (now: Date): Date => {
+  const later = new Date(now.getTime() + TRACKER_TASK_SNOOZE_DAYS * DAY_MS)
+  return new Date(
+    Date.UTC(later.getUTCFullYear(), later.getUTCMonth(), later.getUTCDate()),
+  )
+}
+
+// Only "Not for me" takes a task out of the running. A put-off task is
+// simply dated later.
+export const isTrackerTaskSetAside = (task: {
+  skipReason: TrackerTaskSkipReason | null
+}): boolean => task.skipReason === 'notForMe'

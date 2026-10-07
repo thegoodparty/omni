@@ -418,22 +418,14 @@ describe('buildTrackerStrategy with tasks set aside', () => {
       .filter((t) => t.isNext)
       .map((t) => t.id)
 
-  it('passes over a task put off or set aside when picking the next one', () => {
+  it('passes over a not-for-me task when picking the next one', () => {
     const data = buildTrackerStrategy(
       [
         row({
-          id: 'snoozed',
-          phase: 'active',
-          date: '2026-01-13',
-          skipReason: 'later',
-          snoozedUntil: '2026-01-17T00:00:00.000Z',
-        }),
-        row({
           id: 'dropped',
           phase: 'active',
-          date: '2026-01-14',
+          date: '2026-01-13',
           skipReason: 'notForMe',
-          snoozedUntil: null,
         }),
         row({ id: 'open', phase: 'active', date: '2026-01-16' }),
       ],
@@ -442,23 +434,25 @@ describe('buildTrackerStrategy with tasks set aside', () => {
     expect(nextIds(data)).toEqual(['open'])
   })
 
-  it('lets a task back in once its snooze has run out', () => {
+  it('treats a put-off task as its new date, behind what is due sooner', () => {
+    // Put off on Jan 15, it moved to Jan 18, after the open Jan 16 task.
     const data = buildTrackerStrategy(
       [
         row({
-          id: 'woke',
+          id: 'put-off',
           phase: 'active',
-          date: '2026-01-13',
+          date: '2026-01-18',
           skipReason: 'later',
-          snoozedUntil: '2026-01-14T00:00:00.000Z',
         }),
+        row({ id: 'open', phase: 'active', date: '2026-01-16' }),
       ],
       { electionDate: null, today },
     )
-    expect(nextIds(data)).toEqual(['woke'])
-    expect(
-      data.phases.flatMap((p) => p.weeks ?? []).flatMap((w) => w.tasks)[0]
-        ?.setAside,
-    ).toBeNull()
+    expect(nextIds(data)).toEqual(['open'])
+    const putOff = data.phases
+      .flatMap((p) => p.weeks ?? [])
+      .flatMap((w) => w.tasks)
+      .find((t) => t.id === 'put-off')
+    expect(putOff?.setAside).toBeNull()
   })
 })

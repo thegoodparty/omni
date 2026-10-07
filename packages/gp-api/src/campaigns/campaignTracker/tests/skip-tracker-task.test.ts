@@ -1,8 +1,7 @@
 import { useTestService } from '@/test-service'
 import { HttpStatus } from '@nestjs/common'
-import { differenceInHours } from 'date-fns'
 import { describe, expect, it } from 'vitest'
-import { TRACKER_TASK_SNOOZE_DAYS } from '@goodparty_org/contracts'
+import { trackerTaskPutOffDate } from '@goodparty_org/contracts'
 import { CampaignTrackerTask } from '../../../generated/prisma'
 
 const service = useTestService()
@@ -40,7 +39,7 @@ const createTask = async ({
 }
 
 describe('Campaign tracker tasks - skip', () => {
-  it('snoozes a task the candidate wants to do later', async () => {
+  it('moves a task the candidate wants to do later three days out', async () => {
     const task = await createTask()
 
     const result = await service.client.put<CampaignTrackerTask>(
@@ -52,27 +51,41 @@ describe('Campaign tracker tasks - skip', () => {
     expect(result.status).toBe(HttpStatus.OK)
     expect(result.data.skipReason).toBe('later')
     expect(result.data.completed).toBe(false)
-    const snoozedUntil = new Date(result.data.snoozedUntil as unknown as string)
-    const skippedAt = new Date(result.data.skippedAt as unknown as string)
-    expect(differenceInHours(snoozedUntil, skippedAt)).toBe(
-      TRACKER_TASK_SNOOZE_DAYS * 24,
+    expect(result.data.snoozedUntil).toBeNull()
+    expect(new Date(result.data.date as unknown as string)).toEqual(
+      trackerTaskPutOffDate(new Date()),
     )
   })
 
-  it('brings a task back on its due date when that is sooner', async () => {
-    const due = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    const task = await createTask({ date: due })
-
-    const result = await service.client.put<CampaignTrackerTask>(
+  it('keeps a put-off date when the tracker is read again', async () => {
+    const task = await createTask({ title: 'Get your EIN' })
+    await service.client.put(
       `${BASE_PATH}/skip/${task.id}`,
       { reason: 'later' },
       orgHeaders,
     )
 
-    expect(result.status).toBe(HttpStatus.OK)
-    expect(
-      new Date(result.data.snoozedUntil as unknown as string).getTime(),
-    ).toBe(due.getTime())
+    const result = await service.client.get<CampaignTrackerTask[]>(
+      BASE_PATH,
+      orgHeaders,
+    )
+
+    const date = result.data.find((row) => row.id === task.id)?.date
+    expect(new Date(date as unknown as string)).toEqual(
+      trackerTaskPutOffDate(new Date()),
+    )
+  })
+
+  it('refuses to put off a date that is a fact', async () => {
+    const task = await createTask({ title: 'Voter Registration Deadline' })
+
+    const result = await service.client.put(
+      `${BASE_PATH}/skip/${task.id}`,
+      { reason: 'later' },
+      orgHeaders,
+    )
+
+    expect(result.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
   it('sets aside a task the candidate never wants, with no snooze', async () => {

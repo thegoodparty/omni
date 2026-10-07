@@ -1,30 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canPutOffTask,
   canSetTaskAsideForGood,
   isTrackerTaskSetAside,
-  trackerTaskSnoozeUntil,
+  trackerTaskPutOffDate,
 } from './TrackerTaskSkip'
 
 const now = new Date('2026-10-07T15:00:00.000Z')
-const DAY = 24 * 60 * 60 * 1000
 
-describe('trackerTaskSnoozeUntil', () => {
-  it('puts a task off three days when it is not due before then', () => {
-    expect(trackerTaskSnoozeUntil(now, '2026-10-20T00:00:00.000Z')).toEqual(
-      new Date(now.getTime() + 3 * DAY),
+describe('trackerTaskPutOffDate', () => {
+  it('moves a task to three days from today, at UTC midnight', () => {
+    expect(trackerTaskPutOffDate(now)).toEqual(
+      new Date('2026-10-10T00:00:00.000Z'),
     )
   })
+})
 
-  it('brings it back on its due date when that comes first', () => {
-    expect(trackerTaskSnoozeUntil(now, '2026-10-09T00:00:00.000Z')).toEqual(
-      new Date('2026-10-09T00:00:00.000Z'),
-    )
+describe('canPutOffTask', () => {
+  it('never moves a date that is a fact', () => {
+    expect(canPutOffTask('Voter Registration Deadline')).toBe(false)
+    expect(canPutOffTask('Early Voting Start Date')).toBe(false)
+    expect(canPutOffTask('Election Day')).toBe(false)
   })
 
-  it('uses the three days for a task already past due', () => {
-    expect(trackerTaskSnoozeUntil(now, '2026-10-04T00:00:00.000Z')).toEqual(
-      new Date(now.getTime() + 3 * DAY),
-    )
+  it('moves anything planned, including tasks the catalog lacks', () => {
+    expect(canPutOffTask('Get your EIN')).toBe(true)
+    expect(canPutOffTask('Canvass the east side')).toBe(true)
   })
 })
 
@@ -53,30 +54,11 @@ describe('canSetTaskAsideForGood', () => {
 
 describe('isTrackerTaskSetAside', () => {
   it('holds a not-for-me task aside until it is brought back', () => {
-    expect(
-      isTrackerTaskSetAside(
-        { skipReason: 'notForMe', snoozedUntil: null },
-        now,
-      ),
-    ).toBe(true)
+    expect(isTrackerTaskSetAside({ skipReason: 'notForMe' })).toBe(true)
   })
 
-  it('holds a put-off task aside only until its snooze runs out', () => {
-    const later = (until: Date) => ({
-      skipReason: 'later' as const,
-      snoozedUntil: until,
-    })
-    expect(
-      isTrackerTaskSetAside(later(new Date(now.getTime() + DAY)), now),
-    ).toBe(true)
-    expect(
-      isTrackerTaskSetAside(later(new Date(now.getTime() - DAY)), now),
-    ).toBe(false)
-  })
-
-  it('is not set aside without a reason', () => {
-    expect(
-      isTrackerTaskSetAside({ skipReason: null, snoozedUntil: null }, now),
-    ).toBe(false)
+  it('leaves a put-off task in the running, just dated later', () => {
+    expect(isTrackerTaskSetAside({ skipReason: 'later' })).toBe(false)
+    expect(isTrackerTaskSetAside({ skipReason: null })).toBe(false)
   })
 })

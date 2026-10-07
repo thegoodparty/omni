@@ -430,9 +430,10 @@ export {
 
 export {
   TRACKER_TASK_SNOOZE_DAYS,
+  canPutOffTask,
   canSetTaskAsideForGood,
   isTrackerTaskSetAside,
-  trackerTaskSnoozeUntil,
+  trackerTaskPutOffDate,
 } from './campaigns/TrackerTaskSkip'
 
 export {

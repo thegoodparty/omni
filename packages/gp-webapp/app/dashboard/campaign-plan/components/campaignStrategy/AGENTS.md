@@ -52,13 +52,18 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   first open task `isNext`, and the week navigator opens on it. The choice
   lives in the browser (`useHeadStartWeek`, shared by the card and the list)
   and only counts for next week, so it expires when the calendar gets there.
-- **Skipping is saved on the server.** The next-step card's × and the "Do
-  this next" row's menu put a task off or set it aside through
-  `useSetTrackerTaskAside` (optimistic, like completion); a set-aside row can
-  be brought back from its menu. `buildTrackerStrategy` never makes a task
-  that is put off or set aside the next one (`canBeNext`), so the card and the
-  list always agree. The rules (snooze length, the due-date cap, which tasks
-  are required) live in contracts' `TrackerTaskSkip.ts`, shared with gp-api.
+- **Skipping is saved on the server.** The next task's Skip (on the card and
+  its row) and the API (`useSetTrackerTaskAside`, optimistic like
+  completion) offer "Show in 3 days", which moves the task's date three days
+  out so the plan sorts it behind what's due sooner, and "Not for me", which
+  sets it aside until "Bring it back" in its menu. Tasks dated by fact (the
+  Election admin dates, Election Day) can't be put off, and ballot access
+  can't be Not for me; the rules live in contracts' `TrackerTaskSkip.ts`,
+  shared with gp-api. `buildTrackerStrategy` never makes a not-for-me task
+  the next one (`canBeNext`).
+- **A row's date line is its status line.** Open tasks show when they're due
+  (orange and in words when soon or overdue); a done task says Done, a
+  set-aside one Not for me. Titles go muted, never struck through.
 - **New tasks are announced, not waited for.** Personalized tasks land in the
   background (minutes after onboarding, then weekly), so the plan shows no
   spinner for them. `useNewTrackerTasks` (on Home and the plan) remembers per

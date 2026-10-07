@@ -7,7 +7,7 @@ import { MoreMenu } from 'app/shared/utils/MoreMenu'
 import {
   TRACKER_TASK_SNOOZE_DAYS,
   canSetTaskAsideForGood,
-  trackerTaskSnoozeUntil,
+  canPutOffTask,
   type TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
 import {
@@ -61,14 +61,8 @@ interface CampaignStrategyTaskRowProps {
 export const formatTaskDate = (date: string | null): string | null =>
   date ? format(new Date(date.slice(0, 10).replace(/-/g, '/')), 'MMM d') : null
 
-// "Later" never carries a task past its own due date, so the choice names the
-// day when that comes first.
-export const snoozeLabel = (date: string | null): string =>
-  date &&
-  trackerTaskSnoozeUntil(new Date(), date).getTime() ===
-    new Date(date).getTime()
-    ? `Show on ${formatTaskDate(date)}`
-    : `Show in ${TRACKER_TASK_SNOOZE_DAYS} days`
+// "Later" moves the task's date three days out.
+export const PUT_OFF_LABEL = `Show in ${TRACKER_TASK_SNOOZE_DAYS} days`
 
 // A task's due line, on the next-step card and the plan's rows. Plain and muted while the date is a while off; once it
 // is close or past it turns warning and says so in words, so it never relies
@@ -182,22 +176,6 @@ const CampaignStrategyTaskRow = ({
       ? [{ label: 'Ask about this', onClick: () => onDiscuss(task) }]
       : []),
     ...(actionItems.length > 0 ? markDoneItems : []),
-    ...(onSetAside && task.isNext && !task.completed
-      ? [
-          {
-            label: snoozeLabel(task.dateKnown === false ? null : task.date),
-            onClick: () => onSetAside(task, 'later'),
-          },
-          ...(canSetTaskAsideForGood(task.title)
-            ? [
-                {
-                  label: 'Not for me',
-                  onClick: () => onSetAside(task, 'notForMe'),
-                },
-              ]
-            : []),
-        ]
-      : []),
     ...(onSetAside && task.setAside
       ? [{ label: 'Bring it back', onClick: () => onSetAside(task, null) }]
       : []),
@@ -217,10 +195,15 @@ const CampaignStrategyTaskRow = ({
   // The next task opens up like the Home card: its buttons in place of the
   // menu. Every other row keeps its actions in the menu.
   const showButtons = task.isNext && !task.completed
+  // One line says where the task stands, in the spot the date takes on an
+  // open task: done, not for me, or when it's due. Words and an icon, so it
+  // never rests on color alone.
   const due =
     task.completed || task.setAside
       ? null
       : taskDueLabel(task.dateKnown === false ? null : task.date, new Date())
+  const putOff = canPutOffTask(task.title)
+  const notForMe = canSetTaskAsideForGood(task.title)
 
   return (
     <li
@@ -237,8 +220,7 @@ const CampaignStrategyTaskRow = ({
           <span
             className={cn(
               'text-sm font-semibold',
-              task.completed && 'text-muted-foreground line-through',
-              task.setAside && !task.completed && 'text-muted-foreground',
+              (task.completed || task.setAside) && 'text-muted-foreground',
             )}
           >
             {task.title}
@@ -254,23 +236,25 @@ const CampaignStrategyTaskRow = ({
         {task.param && (
           <p className="text-muted-foreground text-xs">{task.param}</p>
         )}
-        {due && (
-          <p
-            className={cn(
-              'mt-1 flex items-center gap-1.5 text-sm',
-              due.urgent ? 'text-warning-dark' : 'text-muted-foreground',
-            )}
-          >
-            <CalendarIcon className="size-4 shrink-0" aria-hidden />
-            {due.label}
+        {task.completed ? (
+          <p className="text-success-dark mt-1 flex items-center gap-1.5 text-sm">
+            <CheckIcon className="size-4 shrink-0" aria-hidden />
+            Done
           </p>
-        )}
-        {task.setAside && !task.completed && (
-          <p className="text-muted-foreground text-xs">
-            {task.setAside === 'later' && task.snoozedUntil
-              ? `Put off until ${format(new Date(task.snoozedUntil), 'MMM d')}`
-              : 'Not for me'}
-          </p>
+        ) : task.setAside ? (
+          <p className="text-muted-foreground mt-1 text-sm">Not for me</p>
+        ) : (
+          due && (
+            <p
+              className={cn(
+                'mt-1 flex items-center gap-1.5 text-sm',
+                due.urgent ? 'text-warning-dark' : 'text-muted-foreground',
+              )}
+            >
+              <CalendarIcon className="size-4 shrink-0" aria-hidden />
+              {due.label}
+            </p>
+          )
         )}
         {task.unlocksAfter && (
           <p className="text-muted-foreground flex items-center gap-1 text-xs">
@@ -315,7 +299,7 @@ const CampaignStrategyTaskRow = ({
                 Ask about this
               </Button>
             )}
-            {onSetAside && (
+            {onSetAside && (putOff || notForMe) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -328,10 +312,14 @@ const CampaignStrategyTaskRow = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => onSetAside(task, 'later')}>
-                    {snoozeLabel(task.dateKnown === false ? null : task.date)}
-                  </DropdownMenuItem>
-                  {canSetTaskAsideForGood(task.title) && (
+                  {putOff && (
+                    <DropdownMenuItem
+                      onSelect={() => onSetAside(task, 'later')}
+                    >
+                      {PUT_OFF_LABEL}
+                    </DropdownMenuItem>
+                  )}
+                  {notForMe && (
                     <DropdownMenuItem
                       onSelect={() => onSetAside(task, 'notForMe')}
                     >

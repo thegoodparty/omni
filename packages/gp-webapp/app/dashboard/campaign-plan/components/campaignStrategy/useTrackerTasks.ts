@@ -10,7 +10,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import {
-  trackerTaskSnoozeUntil,
+  trackerTaskPutOffDate,
   type TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
 
@@ -218,10 +218,12 @@ export function useSetTrackerTaskAside() {
               ? {
                   ...row,
                   skipReason: reason,
-                  snoozedUntil:
-                    reason === 'later'
-                      ? trackerTaskSnoozeUntil(now, row.date).toISOString()
-                      : null,
+                  snoozedUntil: null,
+                  // Put off is a new date; the plan sorts it behind what's
+                  // due sooner.
+                  ...(reason === 'later'
+                    ? { date: trackerTaskPutOffDate(now).toISOString() }
+                    : {}),
                 }
               : row,
           ),

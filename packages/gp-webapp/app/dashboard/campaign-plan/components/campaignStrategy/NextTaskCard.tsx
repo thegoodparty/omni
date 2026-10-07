@@ -35,12 +35,13 @@ import {
 } from './buildTrackerStrategy'
 import {
   formatTaskDate,
-  snoozeLabel,
+  PUT_OFF_LABEL,
   taskDueLabel,
 } from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import {
+  canPutOffTask,
   canSetTaskAsideForGood,
   isTrackerTaskSetAside,
 } from '@goodparty_org/contracts'
@@ -341,14 +342,7 @@ const NextTaskCard = ({
       nextTask,
       ...followingTasks(strategy, nextTask),
       ...selectTopDynamicTasks(tasks).filter(
-        (row) =>
-          !isTrackerTaskSetAside(
-            {
-              skipReason: row.skipReason ?? null,
-              snoozedUntil: row.snoozedUntil ?? null,
-            },
-            new Date(),
-          ),
+        (row) => !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }),
       ),
     ]) {
       if (!deck.some((held) => held.id === task.id)) deck.push(task)
@@ -617,34 +611,38 @@ const NextTaskCard = ({
                       {/* Skip sits apart, at the end of the row: the choice
                           is the confirmation, put it off or (for a task the
                           race can do without) set it aside for good. */}
-                      {!leaving && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="medium"
-                              className="w-full sm:ml-auto sm:w-auto"
-                            >
-                              Skip
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onSelect={() => skipFront('later')}
-                            >
-                              {snoozeLabel(shownDate(frontTask))}
-                            </DropdownMenuItem>
-                            {canSetTaskAsideForGood(frontTask.title) && (
-                              <DropdownMenuItem
-                                onSelect={() => skipFront('notForMe')}
+                      {!leaving &&
+                        (canPutOffTask(frontTask.title) ||
+                          canSetTaskAsideForGood(frontTask.title)) && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="medium"
+                                className="w-full sm:ml-auto sm:w-auto"
                               >
-                                Not for me
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
+                                Skip
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {canPutOffTask(frontTask.title) && (
+                                <DropdownMenuItem
+                                  onSelect={() => skipFront('later')}
+                                >
+                                  {PUT_OFF_LABEL}
+                                </DropdownMenuItem>
+                              )}
+                              {canSetTaskAsideForGood(frontTask.title) && (
+                                <DropdownMenuItem
+                                  onSelect={() => skipFront('notForMe')}
+                                >
+                                  Not for me
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                     </>
                   </div>
                 </div>

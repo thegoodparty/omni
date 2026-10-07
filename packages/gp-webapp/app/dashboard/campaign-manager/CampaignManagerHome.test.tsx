@@ -723,11 +723,11 @@ describe('CampaignManagerHome skipping a task', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('puts a task off no later than its real due date', async () => {
+  it('never offers to put off a date that is a fact', async () => {
     mockTasks = [
       task({
-        id: 'ein',
-        title: 'Get your EIN',
+        id: 'reg',
+        title: 'Voter Registration Deadline',
         date: '2026-10-10T00:00:00.000Z',
       }),
     ]
@@ -736,7 +736,10 @@ describe('CampaignManagerHome skipping a task', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Skip' }))
     expect(
-      await screen.findByRole('menuitem', { name: 'Show on Oct 10' }),
+      await screen.findByRole('menuitem', { name: 'Not for me' }),
     ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: 'Show in 3 days' }),
+    ).not.toBeInTheDocument()
   })
 })
