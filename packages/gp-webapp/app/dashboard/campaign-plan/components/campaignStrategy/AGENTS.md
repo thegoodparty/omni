@@ -63,7 +63,12 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   the next one (`canBeNext`).
 - **A row's date line is its status line.** Open tasks show when they're due
   (orange and in words when soon or overdue); a done task says Done, a
-  set-aside one Not for me. Titles go muted, never struck through.
+  set-aside one Not for me. Titles go muted, never struck through. Every
+  task shows its date, and any open task past it reads as overdue.
+- **Open work first.** `compareTasks` sorts open tasks by date, then done and
+  not-for-me tasks by date, in every phase and week. The order comes from a
+  task's state, not its history, so marking one undone or bringing it back
+  returns it to its date's place.
 - **New tasks are announced, not waited for.** Personalized tasks land in the
   background (minutes after onboarding, then weekly), so the plan shows no
   spinner for them. `useNewTrackerTasks` (on Home and the plan) remembers per

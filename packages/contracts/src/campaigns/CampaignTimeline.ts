@@ -132,8 +132,7 @@ export const voterContactSendDate = (
 // dated from the election, as before. Setup work lands early in Launch and
 // going-public work in its last two weeks, rather than a fixed number of
 // days after signup. Work with no knowable date (a state deadline, per-item
-// or recurring work) sits at the start of its phase: it has to have a date to
-// be stored, but it isn't a due date (see hasKnownTrackerDate).
+// or recurring work) is planned for the start of its phase.
 export const resolveTrackerTaskDate = (
   task: { id?: string; timing: TaskTiming; phase: CampaignStrategyPhaseKey },
   windows: CampaignPhaseWindows,
@@ -173,21 +172,6 @@ export const resolveTrackerTaskDate = (
     case 'perItem':
       return phaseStart(windows, task.phase)
   }
-}
-
-// Timing kinds whose date is a placeholder, not something to show as due.
-const UNKNOWN_DATE_KINDS = new Set<TaskTiming['kind']>([
-  'jurisdiction',
-  'recurring',
-  'perItem',
-])
-
-// Whether a default (catalog) row's date is real. Matched by title, the way
-// gp-api matches rows to the catalog. AI-generated rows carry their own
-// dates, so callers only ask this of default rows.
-export const hasKnownTrackerDate = (title: string): boolean => {
-  const entry = CAMPAIGN_TASK_CATALOG.find((task) => task.title === title)
-  return !entry || !UNKNOWN_DATE_KINDS.has(entry.timing.kind)
 }
 
 // The day the timeline starts, read back from a campaign's default rows: the

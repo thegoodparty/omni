@@ -57,7 +57,8 @@ and one who joins inside 30 days starts in get-out-the-vote.
 A task's phase is the window its **date** falls in, not its catalog category,
 so the AI's weekly tasks dated in June are Launch work for a November race.
 Work with no knowable date (a state deadline, per-item or recurring catalog
-work) is stored at the start of its phase so it sorts, but never shown as due.
+work) is planned for the start of its phase. Every task shows its date, and
+any open task past it reads as overdue.
 
 - **Static tasks** and the **7 outreach sends** render the moment the tracker
   is bootstrapped, so there is something to do immediately.

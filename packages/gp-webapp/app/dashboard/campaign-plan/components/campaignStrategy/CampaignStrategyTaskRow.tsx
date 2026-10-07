@@ -208,9 +208,7 @@ const CampaignStrategyTaskRow = ({
   // open task: done, not for me, or when it's due. Words and an icon, so it
   // never rests on color alone.
   const due =
-    task.completed || task.setAside
-      ? null
-      : taskDueLabel(task.dateKnown === false ? null : task.date, new Date())
+    task.completed || task.setAside ? null : taskDueLabel(task.date, new Date())
 
   return (
     <li

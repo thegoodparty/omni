@@ -36,7 +36,8 @@ describe('buildTrackerStrategy', () => {
     expect(data.phases.map((p) => p.key)).toEqual(['launch', 'active', 'gotv'])
     const launch = data.phases.find((p) => p.key === 'launch')
     const tasks = launch?.groups.flatMap((g) => g.tasks) ?? []
-    expect(tasks.map((t) => t.id)).toEqual(['a', 'b'])
+    // The done task sorts after the open one.
+    expect(tasks.map((t) => t.id)).toEqual(['b', 'a'])
     expect(tasks.find((t) => t.id === 'a')?.completed).toBe(true)
   })
 
@@ -454,5 +455,44 @@ describe('buildTrackerStrategy with tasks set aside', () => {
       .flatMap((w) => w.tasks)
       .find((t) => t.id === 'put-off')
     expect(putOff?.setAside).toBeNull()
+  })
+})
+
+describe('buildTrackerStrategy order', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+  const launchIds = (rows: Parameters<typeof buildTrackerStrategy>[0]) =>
+    buildTrackerStrategy(rows, { electionDate: null, today })
+      .phases.find((p) => p.key === 'launch')
+      ?.groups.flatMap((g) => g.tasks.map((t) => t.id))
+
+  it('lists open work by date, then done and not-for-me tasks', () => {
+    expect(
+      launchIds([
+        row({
+          id: 'a-done',
+          phase: 'launch',
+          date: '2026-01-02',
+          completed: true,
+        }),
+        row({ id: 'b', phase: 'launch', date: '2026-01-03' }),
+        row({
+          id: 'c-dropped',
+          phase: 'launch',
+          date: '2026-01-04',
+          skipReason: 'notForMe',
+        }),
+        row({ id: 'd', phase: 'launch', date: '2026-01-05' }),
+      ]),
+    ).toEqual(['b', 'd', 'a-done', 'c-dropped'])
+  })
+
+  it('puts a task marked undone back in its date order', () => {
+    expect(
+      launchIds([
+        row({ id: 'a', phase: 'launch', date: '2026-01-02' }),
+        row({ id: 'b', phase: 'launch', date: '2026-01-03' }),
+        row({ id: 'd', phase: 'launch', date: '2026-01-05' }),
+      ]),
+    ).toEqual(['a', 'b', 'd'])
   })
 })

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   campaignPhaseWindows,
-  hasKnownTrackerDate,
   phaseForDate,
   resolveTrackerTaskDate,
   trackerTimelineStart,
@@ -76,19 +75,6 @@ describe('resolveTrackerTaskDate', () => {
         windows,
       ),
     ).toEqual(day('2026-08-25'))
-  })
-})
-
-describe('hasKnownTrackerDate', () => {
-  it('treats a state deadline as unknown and setup work as known', () => {
-    expect(hasKnownTrackerDate('Submit your Ballot Access Signatures')).toBe(
-      false,
-    )
-    expect(hasKnownTrackerDate('Get your EIN')).toBe(true)
-  })
-
-  it('trusts the date of a task the catalog lacks', () => {
-    expect(hasKnownTrackerDate('Canvass the east side')).toBe(true)
   })
 })
 

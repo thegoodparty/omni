@@ -7,7 +7,6 @@ import {
 } from 'date-fns'
 import {
   campaignPhaseWindows,
-  hasKnownTrackerDate,
   isTrackerTaskSetAside,
   phaseForDate,
   timelinePhase,
@@ -86,9 +85,6 @@ const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
   unlocksAfter: null,
   isNext: false,
   completed: row.completed,
-  // A catalog row whose date is only a placeholder (a state deadline,
-  // per-item or recurring work) still sorts by it but never shows it.
-  dateKnown: !row.isDefaultTask || hasKnownTrackerDate(row.title),
   setAside: isTrackerTaskSetAside({ skipReason: row.skipReason ?? null })
     ? 'notForMe'
     : null,
@@ -110,10 +106,17 @@ const localMidnight = (date: string): Date =>
 const dateValue = (task: CampaignStrategyTask): number =>
   task.date ? localMidnight(task.date).getTime() : Infinity
 
+// Open work first, by date; done and not-for-me tasks after it, also by date.
+// Ordering comes from the task's state, not its history, so marking one
+// undone (or bringing it back) returns it to its date's place.
+const isFinished = (task: CampaignStrategyTask): boolean =>
+  task.completed || task.setAside !== null
+
 const compareTasks = (
   a: CampaignStrategyTask,
   b: CampaignStrategyTask,
-): number => dateValue(a) - dateValue(b)
+): number =>
+  Number(isFinished(a)) - Number(isFinished(b)) || dateValue(a) - dateValue(b)
 
 const derivePhaseStatuses = (
   phaseLatestDate: Map<CampaignStrategyPhaseKey, number | null>,
