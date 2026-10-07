@@ -583,8 +583,7 @@ export default function CreateListFlow({
   // editable but never regenerated.
   const [points, setPoints] = useState<TalkingPointsLines>(EMPTY_POINTS)
   // Whether the boxes hold unmodified AI output or text the candidate typed.
-  // Same rule as PhoneBankingFlow's `scriptManuallyEdited`: it decides
-  // whether a regenerate is allowed to send the current text as
+  // It decides whether a regenerate is allowed to send the current text as
   // `previousDraft`. Once they have edited, their own words are not something
   // the model should be told to diverge from — an explicit Regenerate still
   // sends it, since that is the candidate asking to discard what is on
@@ -594,6 +593,10 @@ export default function CreateListFlow({
   // Discards a response that arrives after a newer request was fired, so a
   // slow first draft cannot overwrite a fast regenerate.
   const draftRequestRef = useRef(0)
+  // Whether the last draft call was an Improve, so Try again repeats the
+  // kind of call that failed (a Regenerate or an Improve) with what is on
+  // screen now, such as instructions edited since.
+  const lastDraftWasImproveRef = useRef(false)
 
   // A recommendation accepted as a brand-new list carries clauses the who
   // step's boolean pill draft has no plane for — precincts and support
@@ -1138,6 +1141,7 @@ export default function CreateListFlow({
     // writing their own, and only Improve applies.
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    lastDraftWasImproveRef.current = currentDraft !== undefined
     const trimmed = instructions.trim()
     // Read here and passed as a variable, the way `instructions` is: the
     // question is what a community-input effort exists to ask, so the card's
@@ -1791,6 +1795,10 @@ export default function CreateListFlow({
               purposes={purposes}
               selected={purpose}
               onSelect={(next) => {
+                // A draft that failed for another purpose is not this one's
+                // to retry. The same purpose keeps it, since nothing would
+                // re-draft for it on arrival.
+                if (next !== purpose) draft.reset()
                 setPurpose(next)
                 // The question step's Continue only guards emptiness, so a
                 // question typed for an earlier community-input pick would
@@ -1999,6 +2007,15 @@ export default function CreateListFlow({
               canImprove={generatedBlock().length > 0}
               isDrafting={draft.isPending}
               isDraftError={draft.isError}
+              onRetry={() =>
+                lastDraftWasImproveRef.current
+                  ? requestDraft(purpose, generatedBlock())
+                  : requestDraft(
+                      purpose,
+                      undefined,
+                      generatedBlock() || undefined,
+                    )
+              }
               isCustomPurpose={purpose === 'custom'}
             />
           )}

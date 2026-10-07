@@ -15,6 +15,7 @@ import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
+import { DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH } from '@goodparty_org/contracts'
 
 // The success screen's turf cards carry the assignee menu, which reads the
 // viewer's organization; these tests render without an OrganizationProvider,
@@ -803,6 +804,205 @@ describe('CreateListFlow', () => {
         screen.queryByText(/We couldn.t write your talking points/),
       ).not.toBeInTheDocument(),
     )
+  })
+
+  // Custom never drafts, so switching to it is the only other takeover that
+  // can clear a stale error: the candidate never types a replacement, they
+  // just say they'll write their own.
+  it('clears the draft error when switching to a custom purpose', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    // Back to the purpose step: points -> who -> purpose. The first Back
+    // leaves `filters`, which the page syncs back as a step prop; the second
+    // is a stage change inside `filters` and needs no rerender.
+    fireEvent.click(screen.getByLabelText('Back'))
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    await screen.findByRole('combobox', { name: 'All lists' })
+    fireEvent.click(screen.getByLabelText('Back'))
+    await screen.findByRole('button', { name: 'Something else' })
+
+    // Pick the write-my-own purpose and return to points. The who step's own
+    // audience pick survives the purpose change, so Continue is already live.
+    fireEvent.click(screen.getByRole('button', { name: 'Something else' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      screen.queryByText(/We couldn.t write your talking points/),
+    ).not.toBeInTheDocument()
+  })
+
+  // Picking the same purpose again re-drafts nothing on arrival, so its
+  // failed draft keeps the error card and its Try again.
+  it('keeps the draft error when the same purpose is picked again', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Back'))
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    await screen.findByRole('combobox', { name: 'All lists' })
+    fireEvent.click(screen.getByLabelText('Back'))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+  })
+
+  // Try again has to repeat the call that failed rather than guessing from
+  // the purpose. An Improve carries the candidate's own edited words as
+  // `currentDraft`, so a Try again that fell back to a fresh draft would
+  // throw those words away rather than retrying what they asked for.
+  it('Try again repeats an Improve that failed', async () => {
+    const POINTS = {
+      engagementQuestion: 'What would you fix around here first?',
+      context: 'Fix our roads with a real maintenance plan.',
+      ask: 'Ask whether we can count on them in November.',
+    }
+    const bodies: Array<{ currentDraft?: string; instructions?: string }> = []
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      bodies.push(body)
+      // First call is the initial draft on arrival. Second is the Improve
+      // the candidate presses, which fails. Third is Try again's retry.
+      if (bodies.length === 1) return { status: 200, data: POINTS }
+      if (bodies.length === 2) {
+        return {
+          status: 502,
+          data: { message: 'Door-knocking draft generation failed' },
+        }
+      }
+      return {
+        status: 200,
+        data: { ...POINTS, context: 'Edited by the retry.' },
+      }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const contextBox = () =>
+      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+        POINTS.context,
+      ),
+    )
+
+    const edited = 'Sarah Chen wants a real plan for the roads.'
+    act(() => {
+      contextBox().editor.commands.setContent(edited)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Improve with AI/ }))
+    await waitFor(() => expect(bodies).toHaveLength(2))
+    // The first draft was fresh, with no prior words to carry.
+    expect(bodies[0]).not.toHaveProperty('currentDraft')
+    // The Improve carried the candidate's edited words.
+    expect(bodies[1]?.currentDraft).toContain(edited)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    // Instructions written after the failure ride the retry.
+    fireEvent.change(screen.getByLabelText('Instructions for the AI'), {
+      target: { value: 'mention the school levy' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    // The retry is the same Improve request, not a fresh draft: the
+    // candidate's edited words ride along again rather than being dropped.
+    await waitFor(() => expect(bodies).toHaveLength(3))
+    expect(bodies[2]?.currentDraft).toBe(bodies[1]?.currentDraft)
+    expect(bodies[2]?.instructions).toBe('mention the school levy')
+    expect(bodies[2]?.currentDraft).toContain(edited)
+  })
+
+  // A field with a hard limit warns before it is reached rather than
+  // silently refusing keystrokes, and says so plainly once it is reached.
+  // Tested on one section (Context): the other three generated sections
+  // wire the same `LengthCounter` the same way.
+  it('warns as the field nears its length limit and says when it reaches it', async () => {
+    const POINTS = {
+      engagementQuestion: 'What would you fix around here first?',
+      context: 'Fix our roads with a real maintenance plan.',
+      ask: 'Ask whether we can count on them in November.',
+    }
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 200,
+      data: POINTS,
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const contextBox = () =>
+      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+        POINTS.context,
+      ),
+    )
+
+    const max = DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH
+
+    // Below 90%: neither the warning nor the limit message shows.
+    act(() => {
+      contextBox().editor.commands.setContent('a'.repeat(Math.floor(max * 0.5)))
+    })
+    expect(screen.queryByText(/characters left/)).toBeNull()
+    expect(screen.queryByText(/character limit/)).toBeNull()
+
+    // 90%+ of the limit: the warning shows, naming how many are left.
+    const nearLimit = Math.ceil(max * 0.95)
+    act(() => {
+      contextBox().editor.commands.setContent('a'.repeat(nearLimit))
+    })
+    expect(
+      screen.getByText(`${(max - nearLimit).toLocaleString()} characters left`),
+    ).toBeInTheDocument()
+
+    // Exactly the limit: the warning is replaced by the reached message.
+    act(() => {
+      contextBox().editor.commands.setContent('a'.repeat(max))
+    })
+    expect(
+      screen.getByText(
+        `You've reached the ${max.toLocaleString()}-character limit.`,
+      ),
+    ).toBeInTheDocument()
   })
 
   // The regression this line shipped with: two counts side by side, one

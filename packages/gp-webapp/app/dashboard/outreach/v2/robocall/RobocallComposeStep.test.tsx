@@ -40,6 +40,7 @@ const baseProps = {
   recorder: savedRecorder,
   maxSeconds: 60,
   onSaveRecording: vi.fn(),
+  scriptChangedSinceRecording: false,
   isUploading: false,
   uploadError: null,
   complianceChecking: true,
