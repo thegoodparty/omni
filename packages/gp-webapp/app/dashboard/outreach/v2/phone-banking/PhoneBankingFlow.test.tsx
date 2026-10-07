@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { Editor } from '@tiptap/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { PHONE_BANKING_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import type {
   PhoneBankingCreate,
   PhoneBankingScriptDraftRequest,
@@ -814,6 +815,73 @@ describe('PhoneBankingFlow', () => {
       ).not.toBeInTheDocument(),
     )
   })
+
+  it('Try again repeats an Improve that failed', async () => {
+    const draftCalls: PhoneBankingScriptDraftRequest[] = []
+    api.mock('POST /v1/outreach/phone-banking/draft', ({ body }) => {
+      draftCalls.push(body)
+      // The first call is the purpose's fresh draft; the second is the
+      // candidate's Improve with AI click, which fails once.
+      if (draftCalls.length === 2) {
+        return {
+          status: 502,
+          data: { message: 'Phone banking draft generation failed' },
+        }
+      }
+      return { status: 200, data: { draft: draftFor(body) } }
+    })
+    openFlow()
+    await advanceToScript()
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+
+    typeScript('My own words')
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+
+    expect(
+      await screen.findByText(/We couldn.t draft your script just now/),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(draftCalls).toHaveLength(3))
+    expect(draftCalls[2]).toMatchObject({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'My own words',
+    })
+  })
+
+  it('warns as the field nears its length limit and says when it reaches it', async () => {
+    mockDraft()
+    openFlow()
+    await advanceToScript()
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+
+    const nearLimitLength = Math.round(PHONE_BANKING_SCRIPT_MAX_LENGTH * 0.95)
+    typeScript('a'.repeat(nearLimitLength))
+    expect(
+      await screen.findByText(
+        `${PHONE_BANKING_SCRIPT_MAX_LENGTH - nearLimitLength} characters left`,
+      ),
+    ).toBeInTheDocument()
+
+    typeScript('a'.repeat(PHONE_BANKING_SCRIPT_MAX_LENGTH))
+    expect(
+      await screen.findByText(
+        `You've reached the ${PHONE_BANKING_SCRIPT_MAX_LENGTH.toLocaleString()}-character limit.`,
+      ),
+    ).toBeInTheDocument()
+
+    const belowWarnLength = Math.round(PHONE_BANKING_SCRIPT_MAX_LENGTH * 0.5)
+    typeScript('a'.repeat(belowWarnLength))
+    await waitFor(() =>
+      expect(screen.queryByText(/characters left/)).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/character limit/)).not.toBeInTheDocument()
+  })
+
   it('sends trimmed instructions on Regenerate and Improve with AI, omitting them when blank', async () => {
     const draftCalls = mockDraft()
     openFlow()

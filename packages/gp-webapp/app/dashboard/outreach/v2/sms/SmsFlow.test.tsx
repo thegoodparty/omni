@@ -1020,6 +1020,137 @@ describe('SmsFlow', () => {
       )
       expect(editor.getText()).toContain('Reply STOP to opt out.')
     })
+
+    it('Try again repeats an Improve that failed', async () => {
+      const calls: SmsDraftRequest[] = []
+      let improveAttempts = 0
+      api.mock('POST /v1/outreach/sms/draft', ({ body }) => {
+        calls.push(body)
+        if (!body.currentDraft) {
+          return {
+            status: 200,
+            data: { draft: `AI body (${body.tone}) for ${body.purpose}` },
+          }
+        }
+        improveAttempts += 1
+        if (improveAttempts === 1) {
+          return {
+            status: 502,
+            data: { message: 'SMS draft generation failed' },
+          }
+        }
+        return {
+          status: 200,
+          data: {
+            draft: body.currentDraft.replace('Vote soon.', 'Please vote soon!'),
+          },
+        }
+      })
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      expect(
+        await screen.findByText(/We couldn.t draft your message just now/),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+
+      expect(calls).toHaveLength(3)
+      expect(calls[2]?.currentDraft).toContain('Vote soon.')
+      expect(calls[2]?.currentDraft).toBe(calls[1]?.currentDraft)
+    })
+
+    it('clears Undo once the candidate types', async () => {
+      mockDraftAndImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'Please vote soon!'),
+          ' Thanks.',
+        )
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('button', { name: 'Undo' }),
+        ).not.toBeInTheDocument(),
+      )
+    })
+
+    it('Undo goes back one AI change at a time', async () => {
+      let step = 0
+      api.mock('POST /v1/outreach/sms/draft', ({ body }) => {
+        if (!body.currentDraft) {
+          return {
+            status: 200,
+            data: { draft: `AI body (${body.tone}) for ${body.purpose}` },
+          }
+        }
+        step += 1
+        if (step === 1) {
+          return {
+            status: 200,
+            data: {
+              draft: body.currentDraft.replace(
+                'Vote soon.',
+                'Please vote soon!',
+              ),
+            },
+          }
+        }
+        return {
+          status: 200,
+          data: {
+            draft: body.currentDraft.replace(
+              'Please vote soon!',
+              'Vote soon ASAP!',
+            ),
+          },
+        }
+      })
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Vote soon ASAP!/))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+
+      expect(box).toHaveTextContent(/Please vote soon!/)
+      expect(box).not.toHaveTextContent(/Vote soon ASAP!/)
+      expect(box).not.toHaveTextContent(/introduce_myself Vote soon\./)
+    })
   })
 
   it('falls back to normalizedOffice when positionName is empty', async () => {

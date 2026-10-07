@@ -12,6 +12,7 @@ import type {
   SocialDraftRequest,
   SocialGenerateRequest,
 } from '@goodparty_org/contracts'
+import { SOCIAL_DRAFT_MESSAGE_MAX_LENGTH } from '@goodparty_org/contracts'
 import type { UseDictationAppendInput } from 'app/dashboard/shared/dictation/useDictationAppend'
 import {
   SERVE_SOCIAL_SURFACE,
@@ -864,6 +865,134 @@ describe('SocialFlow', () => {
     expect(draftCalls).toEqual([
       { purpose: 'custom', tone: 'warm', currentDraft: 'Rough words' },
     ])
+  })
+
+  it('Try again repeats an Improve that failed', async () => {
+    const draftCalls: SocialDraftRequest[] = []
+    api.mockOrdered('POST /v1/outreach/social/draft', [
+      ({ body }) => {
+        draftCalls.push(body)
+        return { status: 200, data: { draft: draftFor(body) } }
+      },
+      ({ body }) => {
+        draftCalls.push(body)
+        return {
+          status: 502,
+          data: { message: 'Social draft generation failed' },
+        }
+      },
+      ({ body }) => {
+        draftCalls.push(body)
+        return { status: 200, data: { draft: draftFor(body) } }
+      },
+    ])
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    typeDraft('My own words')
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    expect(
+      await screen.findByText(/couldn't draft your message/),
+    ).toBeInTheDocument()
+
+    // Try again repeats the SAME call that failed (an Improve of the
+    // candidate's words) rather than guessing a fresh regenerate from the
+    // purpose.
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() =>
+      expect(draftText()).toBe('Improved (warm): My own words'),
+    )
+    expect(draftCalls[2]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'My own words',
+    })
+  })
+
+  it('warns as the field nears its length limit and says when it reaches it', async () => {
+    mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    const max = SOCIAL_DRAFT_MESSAGE_MAX_LENGTH
+    const warnAt = Math.ceil(max * 0.9)
+
+    // Below 90% of the limit: no counter at all.
+    typeDraft('x'.repeat(warnAt - 1))
+    expect(screen.queryByText(/characters left/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/character limit/)).not.toBeInTheDocument()
+
+    // At 90%: a warning naming how much room is left.
+    typeDraft('x'.repeat(warnAt))
+    expect(
+      screen.getByText(`${(max - warnAt).toLocaleString()} characters left`),
+    ).toBeInTheDocument()
+
+    // At the limit: says it's been reached, not how much is left.
+    typeDraft('x'.repeat(max))
+    expect(
+      screen.getByText(
+        `You've reached the ${max.toLocaleString()}-character limit.`,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('clears Undo once the candidate types', async () => {
+    mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    typeDraft('My own words')
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    await waitFor(() =>
+      expect(draftText()).toBe('Improved (warm): My own words'),
+    )
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+
+    typeDraft('Improved (warm): My own words, with more')
+    expect(
+      screen.queryByRole('button', { name: 'Undo' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('Undo goes back one AI change at a time', async () => {
+    api.mockOrdered('POST /v1/outreach/social/draft', [
+      ({ body }) => ({ status: 200, data: { draft: draftFor(body) } }),
+      () => ({ status: 200, data: { draft: 'Improved A' } }),
+      () => ({ status: 200, data: { draft: 'Improved B' } }),
+    ])
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    typeDraft('My own words')
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    await waitFor(() => expect(draftText()).toBe('Improved A'))
+
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    await waitFor(() => expect(draftText()).toBe('Improved B'))
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(draftText()).toBe('Improved A')
   })
 })
 
