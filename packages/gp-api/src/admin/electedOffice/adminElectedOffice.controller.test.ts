@@ -108,9 +108,11 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
     })
     // The office's first HubSpot sync runs inside create(), and it can only
     // link the Contact if the id is already on the user.
-    expect(
-      ctx.usersService.patchUserMetaData.mock.invocationCallOrder[0],
-    ).toBeLessThan(ctx.electedOfficeService.create.mock.invocationCallOrder[0])
+    const [patchedAt] =
+      ctx.usersService.patchUserMetaData.mock.invocationCallOrder
+    const [createdAt = 0] =
+      ctx.electedOfficeService.create.mock.invocationCallOrder
+    expect(patchedAt).toBeLessThan(createdAt)
   })
 
   it('keeps a HubSpot contact id the user already has', async () => {
