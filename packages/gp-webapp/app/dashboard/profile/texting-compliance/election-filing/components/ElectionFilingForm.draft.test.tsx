@@ -20,7 +20,9 @@ vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ email: 'sarah@example.com' }, vi.fn(), false],
 }))
 
-const mockCampaign = vi.fn(() => ({ id: CAMPAIGN_ID, details: {} }))
+const mockCampaign = vi.fn<() => { id: number; details: object } | null>(
+  () => ({ id: CAMPAIGN_ID, details: {} }),
+)
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign()],
 }))
@@ -198,6 +200,27 @@ describe('ElectionFilingForm — verification draft', () => {
     render(<ElectionFilingForm onSubmitted={vi.fn()} persistDraft />)
 
     expect(await screen.findByLabelText('EIN')).toHaveValue(VALID_EIN)
+  })
+
+  it('waits for a late campaign instead of saving over the draft', async () => {
+    mockCampaign.mockReturnValue(null)
+    saveVerificationDraft(CAMPAIGN_ID, {
+      filing: { candidateName: 'Sarah Chen' },
+    })
+    const { rerender } = render(
+      <ElectionFilingForm onSubmitted={vi.fn()} persistDraft />,
+    )
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
+
+    mockCampaign.mockReturnValue({ id: CAMPAIGN_ID, details: {} })
+    rerender(<ElectionFilingForm onSubmitted={vi.fn()} persistDraft />)
+
+    expect(await screen.findByLabelText('Candidate name')).toHaveValue(
+      'Sarah Chen',
+    )
+    expect(readVerificationDraft(CAMPAIGN_ID)?.filing).toMatchObject({
+      candidateName: 'Sarah Chen',
+    })
   })
 
   it('neither reads nor writes a draft without persistDraft', async () => {

@@ -59,7 +59,23 @@ interface ElectionFilingFormProps {
   persistDraft?: boolean
 }
 
-export default function ElectionFilingForm({
+// The draft is keyed by campaign and read once, on mount. A body mounted
+// before the campaign resolves would read nothing and then save the empty
+// form over the stored draft, so wait for the campaign, and remount if it
+// changes.
+const ElectionFilingForm = (
+  props: ElectionFilingFormProps,
+): React.JSX.Element => {
+  const [campaign] = useCampaign()
+  if (props.persistDraft && !campaign) {
+    return <div className="text-sm text-muted-foreground">Loading…</div>
+  }
+  return <ElectionFilingFormBody key={campaign?.id} {...props} />
+}
+
+export default ElectionFilingForm
+
+const ElectionFilingFormBody = ({
   onSubmitted,
   title,
   caption,
@@ -68,7 +84,7 @@ export default function ElectionFilingForm({
   variant,
   onBack,
   persistDraft = false,
-}: ElectionFilingFormProps): React.JSX.Element {
+}: ElectionFilingFormProps): React.JSX.Element => {
   const queryClient = useQueryClient()
   const [user, , userLoading] = useUser()
   const [campaign] = useCampaign()
