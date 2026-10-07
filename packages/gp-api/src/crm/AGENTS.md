@@ -9,15 +9,16 @@ through this module.
 
 **Test users never reach the portal.** Every contact/company write path —
 `trackContact` and `submitCrmForm` (`crmUsers.service.ts`), `syncTeamMember`
-(`crmTeamMembers.service.ts`), `trackCampaign` (`crmCampaigns.service.ts`) —
-is gated on `isTestUser` (`src/users/util/users.util.ts`). Dev, previews, and
-prod share this one portal, so the E2E suite's `@test.goodparty.org` users
-(created on every merge) were piling up as billable marketing contacts. A new
-sync path must carry the same gate. The server gates are only half of it:
-HubSpot's tracking script used to run on dev/previews too, and its
-collected-forms feature created contacts straight from the browser when E2E
-filled the Clerk sign-up form — so gp-webapp loads that script in production
-only (`app/layout.tsx`, `supportChatEnabled`).
+(`crmTeamMembers.service.ts`), `trackCampaign` (`crmCampaigns.service.ts`),
+`syncElectedOffice` (`crmOfficeHolder.service.ts`) — is gated on `isTestUser`
+(`src/users/util/users.util.ts`). Dev, previews, and prod share this one
+portal, so the E2E suite's `@test.goodparty.org` users (created on every
+merge) were piling up as billable marketing contacts. A new sync path must
+carry the same gate. The server gates are only half of it: HubSpot's tracking
+script used to run on dev/previews too, and its collected-forms feature
+created contacts straight from the browser when E2E filled the Clerk sign-up
+form — so gp-webapp loads that script in production only (`app/layout.tsx`,
+`supportChatEnabled`).
 
 ## Key files
 
@@ -29,6 +30,31 @@ only (`app/layout.tsx`, `supportChatEnabled`).
 | `crm.types.ts`                       | `CRMContactProperties` / `CRMTeamMemberContactProperties` shapes   |
 | `../users/services/crmUsers.service.ts` | User signup/profile → contact sync (`trackUserLogin`/`trackUserUpdate`) |
 | `../campaigns/services/crmCampaigns.service.ts` | Campaign → company sync                                |
+| `../electedOffice/services/crmOfficeHolder.service.ts` | Elected office → Office Holder custom object (DATA-2623) |
+
+## Office Holder custom object (DATA-2623)
+
+Every elected office write (`ElectedOfficeService.create`/`update`, the M2M
+district change) upserts one Office Holder record by
+`gp_api_elected_office_id` and links it to the user's Contact
+(`metaData.hubspotId`) and, when the office came from a won campaign, the
+campaign's Company (`data.hubspotId`). Magic-link users get their Contact id
+from the HubSpot card's `hs_object_id`.
+
+- **Field ownership is static.** The app owns `elected_date`,
+  `sworn_in_date`, `pledged_at`, `onboarding_completed_at`, `self_reported`.
+  The seat fields (`name`, `status`, position, state, party, term dates) are
+  the data platform's; the app sends them only as a day-one snapshot — when
+  the office is created and until serve onboarding completes. Don't add a
+  seat field to post-onboarding writes, and never send the data platform's
+  keys (`gp_elected_official_term_id`, `gp_person_id`, `br_*`,
+  `source_systems`).
+- **Config, per portal.** `HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED` (`'true'` to
+  run) plus the object type id and the two association type ids. Any unset
+  value skips the sync.
+- **`name` is required by the object**, so a post-onboarding write to an
+  office with no record yet fails loudly (logged + Slack) instead of creating
+  a nameless record.
 
 ## Merge-tolerant contact lookups (ENG-11029)
 
