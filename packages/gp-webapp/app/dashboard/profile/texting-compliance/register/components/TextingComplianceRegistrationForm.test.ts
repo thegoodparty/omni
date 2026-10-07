@@ -41,6 +41,26 @@ describe('validateRegistrationForm', () => {
     })
   })
 
+  describe('campaignCommitteeName (ENG-11228)', () => {
+    it.each(['N/A', 'none', ' TBD ', 'self', '---'])(
+      'rejects the placeholder %j so it never reaches the Peerly brand',
+      (campaignCommitteeName) => {
+        const result = validateRegistrationForm(
+          baseValidFormData({ campaignCommitteeName }),
+        )
+        expect(result.validations.campaignCommitteeName).toBe(false)
+        expect(result.isValid).toBe(false)
+      },
+    )
+
+    it('accepts a real committee name', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ campaignCommitteeName: 'Sykora for Council' }),
+      )
+      expect(result.validations.campaignCommitteeName).toBe(true)
+    })
+  })
+
   describe('candidateName (ENG-10964)', () => {
     it('rejects an empty candidateName', () => {
       const result = validateRegistrationForm(

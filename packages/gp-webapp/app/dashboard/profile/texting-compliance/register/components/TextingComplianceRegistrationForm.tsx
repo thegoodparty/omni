@@ -28,6 +28,7 @@ import isURL from 'validator/es/lib/isURL'
 import isMobilePhone from 'validator/es/lib/isMobilePhone'
 import isEmail from 'validator/es/lib/isEmail'
 import isFilled from '@shared/inputs/IsFilled'
+import { isPlaceholderCommitteeName } from '@goodparty_org/contracts'
 import AddressAutocomplete from '@shared/AddressAutocomplete'
 import TextingComplianceFooter from 'app/dashboard/profile/texting-compliance/shared/TextingComplianceFooter'
 import { Button } from '@styleguide'
@@ -102,7 +103,7 @@ export const getValidationMessage = (
         ? 'Must be from FEC.gov (e.g., https://fec.gov/data/committee/C00123456)'
         : 'Enter a valid URL with a path (e.g., https://example.com/candidates)',
     campaignCommitteeName:
-      'Your official committee name (e.g., "Smith for Council")',
+      'Your official committee name (e.g., "Smith for Council"). Placeholders like "N/A" are not accepted.',
     candidateName:
       "The candidate's own name, as it appears on the election filing",
     officeLevel: 'Select an option',
@@ -383,7 +384,9 @@ export const validateRegistrationForm = (
     electionFilingLink:
       isURL(electionFilingLinkValue) &&
       urlIncludesPath(electionFilingLinkValue),
-    campaignCommitteeName: isFilled(campaignCommitteeNameValue),
+    campaignCommitteeName:
+      isFilled(campaignCommitteeNameValue) &&
+      !isPlaceholderCommitteeName(campaignCommitteeNameValue),
     candidateName: isFilled(candidateNameValue.trim()),
     officeLevel: ['federal', 'state', 'local'].includes(officeLevelValue),
     ein: checkEinSanity(einValue).valid,

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { PhoneSchema } from '@goodparty_org/contracts'
+import { CommitteeNameSchema, PhoneSchema } from '@goodparty_org/contracts'
 import {
   EinSchema,
   StateSchema,
@@ -78,12 +78,12 @@ export const tcrComplianceBaseShape = {
     .min(1, 'A candidate address is required')
     .optional(),
   manualAddress: ManualFilingAddressSchema.optional(),
-  // committeeName is sent to Peerly's 10DLC brand approval and interpolated
-  // into the sample SMS messages, so a whitespace-only value produces a
-  // malformed sample that fails the paid Peerly step. Trim + min like the
-  // address fields. The submit path reads the persisted (non-empty) committee
-  // name off the TcrCompliance row rather than the request.
-  committeeName: z.string().trim().min(1, 'A committee name is required'),
+  // committeeName becomes the Peerly 10DLC brand's displayName/companyName
+  // and is interpolated into the sample SMS messages, so a whitespace-only or
+  // placeholder value ("N/A") produces a brand Peerly has to repair by hand.
+  // The submit path reads the persisted committee name off the TcrCompliance
+  // row rather than the request.
+  committeeName: CommitteeNameSchema,
   filingUrl: UrlOrDomainSchema.refine(urlIncludesPath, {
     message:
       'Filing URL must include path (e.g. https://example.com/filing, not just https://example.com)',
