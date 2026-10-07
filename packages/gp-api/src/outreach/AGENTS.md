@@ -964,8 +964,7 @@ outreach proposal can carry the same details as `event` (contracts
   check. `findByProposalKey` skips `pending_payment` and `draft`, so an
   unpaid text reads as not sent, and `GET
   /outreach/by-proposal-key/:proposalKey` is org-scoped so a Win card
-  resolves too (only its PUT, the Serve phone banking send, needs an
-  elected office). Each create (and each replay) calls
+  resolves too. Each create (and each replay) calls
   `PriorityStatusService.recordOutreachSentOrLog` after its own commit,
   which moves that side of the priority's check to out and logs rather than
   throws, since the send stands either way; the text records from the
