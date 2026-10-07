@@ -86,6 +86,12 @@ Verb plus object, in the user's frame. "Start verification", "Save and exit",
 specific and irreversible is about to happen. Never a button that requires
 the caption to explain it.
 
+A button that opens an assistant about the thing in front of the user says
+"Ask about this", not "Chat", "Chat about this" or "Discuss in chat". Ask is
+what the user wants, an answer; chat is only the place it opens, so chat
+names the panel ("Chat about this draft"), never the button. The ordinances
+selection toolbar and the next-step card are the reference implementations.
+
 ### 7. Reuse the phrase we already use
 
 The same question should read the same way in every channel. Before writing
