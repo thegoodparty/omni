@@ -6,9 +6,10 @@ import { z } from 'zod'
 // "Paid for by" footer, and Peerly can only repair it by hand once the PIN is
 // already out (identity 11541044, 2026-10-07). Compare the normalized value
 // against a list rather than pattern-matching free text, so a real name that
-// merely contains one of these words still passes.
+// merely contains one of these words still passes. Normalization collapses
+// every non-alphanumeric run to one space, so "N/A", "N / A" and "n.a." all
+// become "n a".
 const PLACEHOLDER_COMMITTEE_NAMES = new Set([
-  'n/a',
   'na',
   'n a',
   'none',
@@ -37,7 +38,7 @@ const PLACEHOLDER_COMMITTEE_NAMES = new Set([
 const normalizeCommitteeName = (value: string): string =>
   value
     .toLowerCase()
-    .replace(/[^a-z0-9/]+/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ')
 

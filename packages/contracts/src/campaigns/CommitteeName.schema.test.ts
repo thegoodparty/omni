@@ -9,7 +9,9 @@ describe('isPlaceholderCommitteeName', () => {
   it.each([
     'N/A',
     ' n/a ',
+    'N / A',
     'n.a.',
+    'N-A',
     'NA',
     'None',
     'none.',
