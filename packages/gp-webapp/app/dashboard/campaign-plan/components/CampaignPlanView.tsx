@@ -135,7 +135,7 @@ const CampaignPlanView = ({
             {/* Fills most of the screen: the title, close and the section
                 pills stay fixed at the top while the plan scrolls under them. */}
             <DialogContent className="flex h-[calc(100dvh-2rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-              <div className="border-border flex items-center gap-3 border-b py-4 pr-14 pl-6">
+              <div className="flex items-center gap-3 pt-4 pr-14 pb-2 pl-6">
                 <DialogTitle className="flex-1 text-lg font-semibold">
                   Executive summary
                 </DialogTitle>

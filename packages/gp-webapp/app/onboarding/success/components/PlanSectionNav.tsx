@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  cn,
   FilterPill,
   FilterPillGroup,
   Select,
@@ -139,10 +138,9 @@ const PlanSectionNav = ({
     return (
       <div
         ref={wrapperRef}
-        className={cn(
-          'sticky z-10 -mx-6 bg-card py-2',
-          isStuck && 'border-b border-border shadow-sm',
-        )}
+        // The divider sits under the pills, so the title above and the pills
+        // read as one fixed header over the plan.
+        className="sticky z-10 -mx-6 border-b border-border bg-card py-2"
         style={{ top: stickyTop }}
       >
         {/* One row with a hidden scrollbar, like the styleguide Tabs list. */}
