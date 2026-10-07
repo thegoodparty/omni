@@ -27,6 +27,9 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
 18. A tag or label earns its place by saying something true and specific to this
     item, like a real deadline. Labels that would show on every visit ("Start
     here", "High priority") are noise. (earned)
+28. Motivational copy encourages, it does not instruct. Cheer the candidate on
+    ("You've got this", "Every vote counts", "Let's win this") instead of
+    telling them how to run ("Run your way"). (earned)
 
 ## Content
 

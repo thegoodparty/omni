@@ -1,17 +1,37 @@
 import { useEffect, useState } from 'react'
 
-// Home's headline: a short rallying line in GoodParty's own voice
-// (independent, people first, ready to work) instead of a greeting. General on
-// purpose, so it reads right above whatever the next step is.
+// Home's headline: a short line of encouragement in GoodParty's own voice
+// (independent, people first, in it together) instead of a greeting. It
+// cheers the candidate on rather than telling them what to do, and stays
+// general so it reads right above whatever the next step is.
 export const HOME_HEADLINES = [
-  'Get into office',
-  'Run your way',
-  'No party required',
-  'People over money',
-  'Earn every vote',
-  'On the trail',
+  // You've got this
   "You've got this",
-  'Ready when you are',
+  "You're not alone",
+  "You're making a difference",
+  'This is your race',
+  'Your neighbors are with you',
+  // We're in it together
+  "Let's win this",
+  "Let's keep going",
+  "We're in this together",
+  'Momentum is building',
+  // Every vote, every voice
+  'Earn every vote',
+  'Every vote counts',
+  'Every voice matters',
+  'Every door matters',
+  'One voter at a time',
+  // People over parties
+  'People over parties',
+  'People over money',
+  'People over politics',
+  'Proudly independent',
+  // Local
+  'Change starts locally',
+  'Local voices matter',
+  'For your community',
+  'Democracy needs you',
 ] as const
 
 const LAST_KEY = 'home-headline-last'
