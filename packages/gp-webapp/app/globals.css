@@ -267,12 +267,6 @@
 
 *:focus-visible {
   outline: none !important;
-}
-
-/* Menus, popovers, selects and dialogs take focus when they open, so this
-   would strip their elevation shadow until the pointer moved focus to an item.
-   Their shadow is the layer, not a focus ring, so it stays. */
-*:focus-visible:not([data-slot$='-content']) {
   box-shadow: none !important;
 }
 
