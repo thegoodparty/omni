@@ -252,8 +252,6 @@ Today is ${today}.`
     ...(includeWebSearchRules ? [WEB_SEARCH_RULES] : []),
     ...(notesHintBlock ? [notesHintBlock] : []),
     INSTRUCTIONS_BLOCK,
-    ...(parsed ? [structuredBriefingBlock(parsed)] : []),
-    `<briefing>\n${sanitizedArtifact}\n</briefing>`,
   ]
   return blocks.join('\n\n')
 }
