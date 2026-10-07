@@ -38,7 +38,7 @@ const MemoList = ({
   if (memos.length === 0) return <EmptyState message={copy.noNotes} />
 
   return (
-    <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+    <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card">
       {memos.map((memo) => (
         <li key={memo.id} className="flex flex-col gap-1 px-4 py-3">
           <p className="text-xs font-medium text-muted-foreground">

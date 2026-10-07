@@ -25,7 +25,9 @@ const ThemeGrid = ({
       <h2 id={headingId} className="text-lg font-semibold text-foreground">
         {copy.themesHeading}
       </h2>
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      {/* One column: the page is Voter Data's 560px column, where a second
+          or third card per row would be a sliver at every viewport. */}
+      <div className="mt-4 flex flex-col gap-4">
         {ranked.map((theme, index) => (
           <ThemeCard
             key={theme.id}

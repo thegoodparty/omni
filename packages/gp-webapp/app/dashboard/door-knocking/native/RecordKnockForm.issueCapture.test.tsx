@@ -299,6 +299,41 @@ describe('RecordKnockForm issue capture', () => {
     })
   })
 
+  // Two drawers swapped for each other closed the second as it opened: the
+  // first handed focus back to the sheet behind as it unmounted, vaul read
+  // that as focus outside the second, and the dismiss skipped the memo.
+  it('opens the confirm step in the frame the questions were answered in', async () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+    const frame = screen.getByRole('dialog')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+    dictate(MEMO)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Is this right?' })).toBe(
+      frame,
+    )
+  })
+
+  it('treats closing the confirm step as a skip', async () => {
+    const onRecorded = renderForm()
+    await walkAndSave()
+
+    const confirmStep = await screen.findByRole('dialog', {
+      name: 'Is this right?',
+    })
+    fireEvent.click(within(confirmStep).getByRole('button', { name: 'Close' }))
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'doorKnocking',
+      product: 'serve',
+    })
+  })
+
   // The knock has already saved by the time capture runs. Holding a canvasser
   // at a logged door because a second request failed is the worse outcome, so
   // a capture failure advances the walk rather than trapping it.

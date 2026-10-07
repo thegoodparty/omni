@@ -5,10 +5,21 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import ThemeDetailPage from './ThemeDetailPage'
 
+// The title bar is drawn as the real DashboardNavHeader draws it, an h1, since
+// the theme's title lives there now.
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <div>
+      <h1>{navHeader?.label}</h1>
+      {children}
+    </div>
   ),
 }))
 

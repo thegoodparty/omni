@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import type { FeedbackReportResponse } from '@goodparty_org/contracts'
-import { Button, SparklesIcon } from '@styleguide'
+import {
+  Button,
+  SparklesIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
@@ -17,8 +23,7 @@ interface SummarizeButtonProps {
   // next read rather than holding until a reload.
   reportUpdatedAt: number
   isServe: boolean
-  // Under the floor the page already says why there is nothing to summarize,
-  // so the button is off without repeating it.
+  // Under the floor the button is off, and its tooltip says why.
   underFloor: boolean
 }
 
@@ -91,21 +96,45 @@ const SummarizeButton = ({
       : status === 429
         ? copy.coolingDown
         : null
-  const helper =
-    refusal ?? (start.isError && status !== 409 ? copy.summarizeFailed : null)
+  // Why the button is off, said where the reader is already looking: on
+  // the button, as the styleguide's disabled-tooltip pattern.
+  const reason = refusal ?? (underFloor ? copy.floorLine(report.floor) : null)
+  const failed = start.isError && status !== 409 && refusal === null
+  const button = (
+    // Small, so the bar it sits in stays the title bar's 56px: the button
+    // scales to the bar, the bar never grows around it.
+    <Button
+      variant="outline"
+      size="small"
+      disabled={reason !== null || start.isPending}
+      onClick={() => start.mutate()}
+      // Tooltip.stories' Disabled: a disabled button takes no pointer events,
+      // so the focusable span around it is what the tooltip hangs off.
+      className={reason !== null ? 'pointer-events-none' : undefined}
+    >
+      <SparklesIcon />
+      {copy.summarize}
+    </Button>
+  )
 
   return (
     <div className="flex flex-col items-start gap-1 md:items-end">
-      <Button
-        variant="outline"
-        disabled={underFloor || refusal !== null || start.isPending}
-        onClick={() => start.mutate()}
-      >
-        <SparklesIcon />
-        {copy.summarize}
-      </Button>
-      {helper !== null && (
-        <p className="text-sm text-muted-foreground">{helper}</p>
+      {reason !== null ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span tabIndex={0} className="inline-flex">
+              {button}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{reason}</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        button
+      )}
+      {failed && (
+        <p className="text-sm text-muted-foreground">{copy.summarizeFailed}</p>
       )}
     </div>
   )

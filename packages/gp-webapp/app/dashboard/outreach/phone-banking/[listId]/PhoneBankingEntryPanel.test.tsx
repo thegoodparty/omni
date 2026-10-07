@@ -7,6 +7,10 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
 
+// The answers open in a step drawer over the panel, and a modal hides
+// whatever is under it, so the one dialog a query can see is the one in front.
+const topDialog = () => screen.getByRole('dialog')
+
 const SCRIPT_WITH_TOKEN =
   'Hi, is this [voter name]? My name is [your name], a volunteer.'
 
@@ -70,14 +74,16 @@ describe('<PhoneBankingEntryPanel>', () => {
   it("interpolates [voter name] with the active contact's first name, set apart from the fixed script", async () => {
     renderPanel()
 
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).queryByText('[voter name]')).not.toBeInTheDocument()
-    const nameNode = within(dialog).getByText('Alex')
+    await screen.findByRole('dialog')
+    expect(
+      within(topDialog()).queryByText('[voter name]'),
+    ).not.toBeInTheDocument()
+    const nameNode = within(topDialog()).getByText('Alex')
     expect(nameNode).toHaveClass('font-semibold')
     // The rest of the script, including the untouched volunteer token,
     // still renders around the interpolated name.
     expect(
-      within(dialog).getByText(/My name is \[your name\], a volunteer\./),
+      within(topDialog()).getByText(/My name is \[your name\], a volunteer\./),
     ).toBeInTheDocument()
   })
 
@@ -136,15 +142,15 @@ describe('<PhoneBankingEntryPanel>', () => {
     }
     render(<ControlledPanel />)
 
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Casey')).toHaveClass('font-semibold')
+    await screen.findByRole('dialog')
+    expect(within(topDialog()).getByText('Casey')).toHaveClass('font-semibold')
 
     await user.click(
-      within(dialog).getByRole('tab', { name: /Robin Household/ }),
+      within(topDialog()).getByRole('tab', { name: /Robin Household/ }),
     )
 
-    expect(within(dialog).getByText('Robin')).toHaveClass('font-semibold')
-    expect(within(dialog).queryByText('Casey')).not.toBeInTheDocument()
+    expect(within(topDialog()).getByText('Robin')).toHaveClass('font-semibold')
+    expect(within(topDialog()).queryByText('Casey')).not.toBeInTheDocument()
   })
 
   it('falls back to the first word of `name` when `firstName` is null (a list frozen before ENG-10938)', async () => {
@@ -166,8 +172,8 @@ describe('<PhoneBankingEntryPanel>', () => {
 
     renderPanel({ entry })
 
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Jamie')).toHaveClass('font-semibold')
+    await screen.findByRole('dialog')
+    expect(within(topDialog()).getByText('Jamie')).toHaveClass('font-semibold')
   })
 
   it('falls back to the first word of `name` when `firstName` is empty or whitespace-only', async () => {
@@ -189,16 +195,18 @@ describe('<PhoneBankingEntryPanel>', () => {
 
     renderPanel({ entry })
 
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Jordan')).toHaveClass('font-semibold')
+    await screen.findByRole('dialog')
+    expect(within(topDialog()).getByText('Jordan')).toHaveClass('font-semibold')
   })
 
   it('leaves an unrecognized bracket token untouched', async () => {
     renderPanel({ script: 'Hi, remember to mention [event name] today.' })
 
-    const dialog = await screen.findByRole('dialog')
+    await screen.findByRole('dialog')
     expect(
-      within(dialog).getByText('Hi, remember to mention [event name] today.'),
+      within(topDialog()).getByText(
+        'Hi, remember to mention [event name] today.',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -208,12 +216,13 @@ describe('<PhoneBankingEntryPanel>', () => {
   // question a volunteer reads is the deliverable, and the saved body is what
   // proves the Win vocabulary never rides along with it.
   describe('the engaged branch asks its own surface question', () => {
-    const engage = async (
-      user: ReturnType<typeof userEvent.setup>,
-      dialog: HTMLElement,
-    ) => {
-      await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
-      await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
+    const engage = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(
+        within(topDialog()).getByRole('radio', { name: 'Answered' }),
+      )
+      await user.click(
+        within(topDialog()).getByRole('radio', { name: 'Engaged' }),
+      )
     }
 
     it('serve asks for follow-up, never support or turnout, and saves only that', async () => {
@@ -243,26 +252,28 @@ describe('<PhoneBankingEntryPanel>', () => {
       })
 
       renderPanel({ isServe: true })
-      const dialog = await screen.findByRole('dialog')
-      await engage(user, dialog)
+      await screen.findByRole('dialog')
+      await engage(user)
 
       expect(
-        within(dialog).getByText('Do they need follow-up?'),
+        within(topDialog()).getByText('Do they need follow-up?'),
       ).toBeInTheDocument()
       expect(
-        within(dialog).queryByText('Do they support you?'),
+        within(topDialog()).queryByText('Do they support you?'),
       ).not.toBeInTheDocument()
       expect(
-        within(dialog).queryByText('Will they vote this election?'),
+        within(topDialog()).queryByText('Will they vote this election?'),
       ).not.toBeInTheDocument()
       // Binary, so there is no third pill to mistake for "Unsure".
       expect(
-        within(dialog).queryByRole('radio', { name: 'Unsure' }),
+        within(topDialog()).queryByRole('radio', { name: 'Unsure' }),
       ).not.toBeInTheDocument()
 
       // One answer is terminal here, where Win needs two.
-      await user.click(within(dialog).getByRole('radio', { name: 'No' }))
-      await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+      await user.click(within(topDialog()).getByRole('radio', { name: 'No' }))
+      await user.click(
+        within(topDialog()).getByRole('button', { name: 'Save' }),
+      )
 
       await waitFor(() => expect(capturedRequest).toBeDefined())
       expect(capturedRequest).toMatchObject({
@@ -292,11 +303,15 @@ describe('<PhoneBankingEntryPanel>', () => {
       })
 
       renderPanel({ isServe: true, entry })
-      const dialog = await screen.findByRole('dialog')
+      await screen.findByRole('dialog')
 
-      expect(within(dialog).getByText(/Follow-up:/)).toBeInTheDocument()
-      expect(within(dialog).queryByText(/Support:/)).not.toBeInTheDocument()
-      expect(within(dialog).queryByText(/Will vote:/)).not.toBeInTheDocument()
+      expect(within(topDialog()).getByText(/Follow-up:/)).toBeInTheDocument()
+      expect(
+        within(topDialog()).queryByText(/Support:/),
+      ).not.toBeInTheDocument()
+      expect(
+        within(topDialog()).queryByText(/Will vote:/),
+      ).not.toBeInTheDocument()
     })
 
     it('a win summary reads back support and turnout, never follow-up', async () => {
@@ -316,33 +331,35 @@ describe('<PhoneBankingEntryPanel>', () => {
       })
 
       renderPanel({ entry })
-      const dialog = await screen.findByRole('dialog')
+      await screen.findByRole('dialog')
 
-      expect(within(dialog).getByText(/Support:/)).toBeInTheDocument()
-      expect(within(dialog).getByText(/Will vote:/)).toBeInTheDocument()
-      expect(within(dialog).queryByText(/Follow-up:/)).not.toBeInTheDocument()
+      expect(within(topDialog()).getByText(/Support:/)).toBeInTheDocument()
+      expect(within(topDialog()).getByText(/Will vote:/)).toBeInTheDocument()
+      expect(
+        within(topDialog()).queryByText(/Follow-up:/),
+      ).not.toBeInTheDocument()
     })
 
     it('win still asks support then turnout, and never follow-up', async () => {
       const user = userEvent.setup()
       renderPanel()
-      const dialog = await screen.findByRole('dialog')
-      await engage(user, dialog)
+      await screen.findByRole('dialog')
+      await engage(user)
 
       expect(
-        within(dialog).getByText('Do they support you?'),
+        within(topDialog()).getByText('Do they support you?'),
       ).toBeInTheDocument()
       expect(
-        within(dialog).queryByText('Do they need follow-up?'),
+        within(topDialog()).queryByText('Do they need follow-up?'),
       ).not.toBeInTheDocument()
 
       // Turnout only appears once support is answered, and Save waits for it.
-      await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+      await user.click(within(topDialog()).getByRole('radio', { name: 'Yes' }))
       expect(
-        await within(dialog).findByText('Will they vote this election?'),
+        await within(topDialog()).findByText('Will they vote this election?'),
       ).toBeInTheDocument()
       expect(
-        within(dialog).queryByRole('button', { name: 'Save' }),
+        within(topDialog()).queryByRole('button', { name: 'Save' }),
       ).not.toBeInTheDocument()
     })
   })

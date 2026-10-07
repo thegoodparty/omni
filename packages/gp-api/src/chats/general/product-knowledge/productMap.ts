@@ -416,7 +416,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top',
       'The line under the title counts who answered, who left a note, and how many notes are confirmed. Only confirmed notes count toward a theme',
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
-      'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
+      'The Summarize notes button groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
       'Each theme opens to its details, where people stand, what they want, and the notes behind it',
       'New tags to review lists the suggested tags of the themes shown: Accept puts one on people’s records, Dismiss drops it',
     ],

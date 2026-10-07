@@ -390,7 +390,7 @@ export default function PersonSheet({
         className="fixed inset-0 z-30 bg-foreground/20"
         onClick={onClose}
       />
-      <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[85dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
+      <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[92dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
         {/* 20px of horizontal padding through all three bands, which is
             `renderPanel`'s: the header, the scrolling body (`padding:'0 20px
             16px'`) and the sticky log bar (`'12px 20px 16px'`) all measure from

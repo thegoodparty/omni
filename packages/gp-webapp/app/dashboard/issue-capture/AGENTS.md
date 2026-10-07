@@ -15,7 +15,7 @@ flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; sh
 | `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                      |
 | `[outreachId]/queries.ts`                                | Report and review list (each polls while waiting), theme, tags |
 | `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states               |
-| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize what we heard" and its refusals                     |
+| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize notes" and its refusals                             |
 | `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                   |
 | `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members              |
 | `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                             |
@@ -45,16 +45,21 @@ entry: the page is reached from the effort.
    button. `reportQueryOptions` polls every 5 seconds while `run.status` is
    `running` and stops by itself.
 2. **Under the floor** (`confirmed < floor`): `UnderFloorList`, "What people
-   said so far" and "Themes appear after {floor} confirmed notes." `floor`
-   comes from the report; never write the number. It beats a completed run
+   said so far" over every note, and the Summarize button off with "Themes
+   appear after {floor} confirmed notes." as its tooltip. `floor` comes from
+   the report; never write the number. It beats a completed run
    because counts are read live and a memo can lose its confirmation.
 3. **Completed**: `NewTagsStrip`, then `ThemeGrid`, then "Every note".
 4. **Failed**: "We couldn't summarize this time." over the previous run's
    themes, if there are any.
 
 With no run and enough notes, it shows the button and every note. The button
-shows whenever no run is in flight. It is off under the floor (the list
-already says why), and off with the reason as helper text after a 422 or 429.
+shows whenever no run is in flight. It is off under the floor and after a
+422 or 429, and says why in a tooltip on hover or focus, through the
+styleguide's disabled-tooltip pattern (`Tooltip.stories`' `Disabled`: a
+focusable span around a `pointer-events-none` button, since a disabled button
+takes no pointer events). A failed start that is not a refusal is still a
+line under the button.
 Neither refusal outlives the report it was made against: a new run or a new
 confirmed count resets the button, and a 429, which changes nothing on the
 report and so does not re-read it, lifts on the report's next read. A 409
@@ -84,7 +89,7 @@ fires on the press, refused or not.
   representative or statistically significant.
   `WhatWeHeardPage.test.tsx` and `ThemeDetailPage.test.tsx` assert all three
   across every state.
-- **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same.
+- **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same. **The report is laid out like Voter Data**: a title bar (`navHeader`) naming the outreach the report is about sits over everything, read through the hub's own `useOutreachDetail` (Serve's fetcher on Serve) and worded the way the hub's row and drawer word it, `name || title || 'Untitled campaign'`, empty until it loads; the way back is the CRM sheet's own Back (a ghost small `Button` with `ArrowLeftIcon` reading "Back", the hub named in its aria-label) in a full-bleed white top bar (Voter Data's own, negative margins and all), with Summarize at its right where Voter Data's Create new list sits, the report sits in its 560px column on the gray canvas, and only the bordered lists (`MemoList`, `NewTagsStrip`) and the theme cards are white. The themes stack one per row, since a second card in a 560px column is a sliver. **The theme page is laid out the same way**: the theme's title is the title bar, the same top bar holds Back to the report, and every section in the 560px column is a white `Card` (`ThemeSummary`, the details, the stance split, the asks) or the white `MemoList`. **The top bar is the title bar's own size**, `h-14` and `px-6` like `DashboardNavHeader`, and what sits in it is `size="small"`, so the two bars read as one height; a medium Summarize made the second bar 64px. On a phone the column adds `px-4` to the layout's `p-2`, the Voter Outreach hub's 24px, which also lines the content up with Back; Voter Data's own column has only the 8px.
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and
   `polls/[id]/issue/[issueIndex]/components/*`. Polls' providers are

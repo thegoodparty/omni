@@ -14,7 +14,14 @@ import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicB
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
-import IssueCaptureConfirmCard, {
+import {
+  PanelDrawer,
+  PanelDrawerBody,
+  PanelDrawerFooter,
+  PanelDrawerHeader,
+} from 'app/dashboard/door-knocking/native/PanelDrawer'
+import {
+  IssueCaptureConfirmStep,
   wasCorrected,
 } from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
@@ -107,6 +114,8 @@ interface PhoneBankingOutcomeFormProps {
   entryId: number
   entrySeq: number
   personId: string
+  // Titles the step drawer the call's answers open in.
+  personName: string
   interaction: PhoneBankingInteraction | null
   householdHasOthersUnlogged: boolean
   // Serve asks one question of an engaged call where Win asks two — see
@@ -119,6 +128,13 @@ interface PhoneBankingOutcomeFormProps {
   drafts?: UnsavedDrafts<CallDraft>
 }
 
+// The caller's panel is 92dvh, the walk's height, so a step looks the same
+// on both surfaces, and every step over the panel matches it. The
+// styleguide caps a bottom drawer at 80vh through a direction-scoped variant
+// a plain `max-h-*` cannot outrank, so the cap is restated in that variant.
+const CALL_STEP_DRAWER_CLASSNAME =
+  'h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]'
+
 // Keyed by personId from the panel, so switching the active tab remounts
 // this component entirely — the cleanest way to make "tabs switch which
 // record is shown" hold, matching door-knocking's RecordKnockForm
@@ -129,6 +145,7 @@ export default function PhoneBankingOutcomeForm({
   entryId,
   entrySeq,
   personId,
+  personName,
   interaction,
   householdHasOthersUnlogged,
   isServe,
@@ -457,24 +474,6 @@ export default function PhoneBankingOutcomeForm({
     drafts?.clear(callKey)
   }
 
-  if (captured !== null) {
-    return (
-      <IssueCaptureConfirmCard
-        proposed={captured.proposed}
-        saving={confirmCapture.isPending}
-        isServe={isServe}
-        onConfirm={(issues) => confirmCapture.mutate(issues)}
-        onSkip={() => {
-          trackEvent(EVENTS.IssueCapture.MemoSkipped, {
-            channel: 'phoneBanking',
-            product,
-          })
-          setCaptured(null)
-        }}
-      />
-    )
-  }
-
   // Held on the phone with nothing the server has said back to summarize.
   if (queued !== null && !interaction) {
     return (
@@ -484,7 +483,11 @@ export default function PhoneBankingOutcomeForm({
     )
   }
 
-  if (!isEditing && interaction) {
+  // The step stays up while the call's memo is read, so Save hands straight
+  // to the confirm step instead of flashing the summary in between.
+  const busy = saveMutation.isPending || capture.isPending
+
+  if (!isEditing && interaction && !capture.isPending && captured === null) {
     return (
       <div className="flex flex-col gap-2">
         {queued !== null && (
@@ -568,227 +571,281 @@ export default function PhoneBankingOutcomeForm({
   }
 
   const showActions = isDraftComplete(draft, isServe)
+  // Only the first question sits in the panel's log bar. Answering it opens
+  // the rest over the panel at the panel's size, so on a phone the questions
+  // get the whole surface and Save stays pinned in view. Dismissing the step
+  // is a Cancel: a step back that takes its answers with it.
+  const stepOpen = draft.outcome !== undefined
+  // The confirm step follows the questions in the same frame, so Save hands
+  // straight to it.
+  const frameOpen = stepOpen || captured !== null
+  const skipConfirm = () => {
+    trackEvent(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'phoneBanking',
+      product,
+    })
+    setCaptured(null)
+  }
+
+  const outcomeRow = (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Did they answer?
+      </p>
+      <div className="mt-2">
+        <FilterPillGroup
+          type="single"
+          value={draft.outcome ?? ''}
+          onValueChange={(value) =>
+            setDraft((current) =>
+              draftWithOutcome(
+                current,
+                (value || undefined) as typeof draft.outcome,
+              ),
+            )
+          }
+        >
+          {OUTCOME_ORDER.map((outcome) => (
+            <FilterPill key={outcome} value={outcome}>
+              {OUTCOME_LABEL[outcome]}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
+      </div>
+    </div>
+  )
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Did they answer?
-        </p>
-        <div className="mt-2">
-          <FilterPillGroup
-            type="single"
-            value={draft.outcome ?? ''}
-            onValueChange={(value) =>
-              setDraft((current) =>
-                draftWithOutcome(
-                  current,
-                  (value || undefined) as typeof draft.outcome,
-                ),
-              )
-            }
-          >
-            {OUTCOME_ORDER.map((outcome) => (
-              <FilterPill key={outcome} value={outcome}>
-                {OUTCOME_LABEL[outcome]}
-              </FilterPill>
-            ))}
-          </FilterPillGroup>
-        </div>
-      </div>
-
-      {draft.outcome === 'answered' && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Did they engage?
-          </p>
-          <div className="mt-2">
-            <FilterPillGroup
-              type="single"
-              value={draft.engagement ?? ''}
-              onValueChange={(value) =>
-                setDraft((current) =>
-                  draftWithEngagement(
-                    current,
-                    (value || undefined) as typeof draft.engagement,
-                  ),
-                )
-              }
-            >
-              <FilterPill value="engaged">Engaged</FilterPill>
-              <FilterPill value="refused">Refused</FilterPill>
-              <FilterPill value="hung_up">Hung up</FilterPill>
-            </FilterPillGroup>
-          </div>
-        </div>
-      )}
-
-      {draft.outcome === 'answered' && draft.engagement === 'engaged' && (
-        <>
-          {isServe ? (
-            // Serve's whole engaged branch, and deliberately not a renaming of
-            // Win's two: an elected official's caller has no stance to ask a
-            // constituent about and no election to ask them about either, so
-            // the one thing worth writing down is what the office owes them
-            // afterwards. Same question, same answers, as a Serve door knock.
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Do they need follow-up?
-              </p>
-              <div className="mt-2">
-                <FilterPillGroup
-                  type="single"
-                  value={draft.followUp ?? ''}
-                  onValueChange={(value) =>
-                    setDraft((current) =>
-                      draftWithFollowUp(
-                        current,
-                        (value || undefined) as typeof draft.followUp,
-                      ),
-                    )
-                  }
-                >
-                  <FilterPill value="yes">Yes</FilterPill>
-                  <FilterPill value="no">No</FilterPill>
-                </FilterPillGroup>
-              </div>
-            </div>
+      {/* Moves into the step while it is open, which covers this bar, so the
+          question is never on the page twice. */}
+      {!frameOpen && outcomeRow}
+      {frameOpen && (
+        <PanelDrawer
+          sheetClassName="sm:max-w-md"
+          drawerClassName={CALL_STEP_DRAWER_CLASSNAME}
+          hasDescription={captured !== null}
+          onDismiss={captured !== null ? skipConfirm : handleCancel}
+          busy={captured !== null ? confirmCapture.isPending : busy}
+        >
+          {captured !== null ? (
+            <IssueCaptureConfirmStep
+              key={captured.id}
+              proposed={captured.proposed}
+              saving={confirmCapture.isPending}
+              isServe={isServe}
+              onConfirm={(issues) => confirmCapture.mutate(issues)}
+              onSkip={skipConfirm}
+            />
           ) : (
             <>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Do they support you?
-                </p>
-                <div className="mt-2">
-                  <FilterPillGroup
-                    type="single"
-                    value={draft.supportAnswer ?? ''}
-                    onValueChange={(value) =>
-                      setDraft((current) =>
-                        draftWithSupportAnswer(
-                          current,
-                          (value || undefined) as typeof draft.supportAnswer,
-                        ),
-                      )
-                    }
-                  >
-                    <FilterPill value="supporter">Yes</FilterPill>
-                    <FilterPill value="non_supporter">No</FilterPill>
-                    <FilterPill value="unsure">Unsure</FilterPill>
-                  </FilterPillGroup>
-                </div>
-              </div>
+              <PanelDrawerHeader title={personName} />
+              <PanelDrawerBody>
+                {outcomeRow}
 
-              {draft.supportAnswer !== undefined && (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Will they vote this election?
-                  </p>
-                  <div className="mt-2">
-                    <FilterPillGroup
-                      type="single"
-                      value={draft.willVote ?? ''}
-                      onValueChange={(value) =>
-                        setDraft((current) =>
-                          draftWithWillVote(
-                            current,
-                            (value || undefined) as typeof draft.willVote,
-                          ),
-                        )
-                      }
-                    >
-                      <FilterPill value="yes">Yes</FilterPill>
-                      <FilterPill value="no">No</FilterPill>
-                      <FilterPill value="unsure">Unsure</FilterPill>
-                    </FilterPillGroup>
+                {draft.outcome === 'answered' && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Did they engage?
+                    </p>
+                    <div className="mt-2">
+                      <FilterPillGroup
+                        type="single"
+                        value={draft.engagement ?? ''}
+                        onValueChange={(value) =>
+                          setDraft((current) =>
+                            draftWithEngagement(
+                              current,
+                              (value || undefined) as typeof draft.engagement,
+                            ),
+                          )
+                        }
+                      >
+                        <FilterPill value="engaged">Engaged</FilterPill>
+                        <FilterPill value="refused">Refused</FilterPill>
+                        <FilterPill value="hung_up">Hung up</FilterPill>
+                      </FilterPillGroup>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {draft.outcome === 'answered' &&
+                  draft.engagement === 'engaged' && (
+                    <>
+                      {isServe ? (
+                        // Serve's whole engaged branch, and deliberately not a renaming of
+                        // Win's two: an elected official's caller has no stance to ask a
+                        // constituent about and no election to ask them about either, so
+                        // the one thing worth writing down is what the office owes them
+                        // afterwards. Same question, same answers, as a Serve door knock.
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Do they need follow-up?
+                          </p>
+                          <div className="mt-2">
+                            <FilterPillGroup
+                              type="single"
+                              value={draft.followUp ?? ''}
+                              onValueChange={(value) =>
+                                setDraft((current) =>
+                                  draftWithFollowUp(
+                                    current,
+                                    (value ||
+                                      undefined) as typeof draft.followUp,
+                                  ),
+                                )
+                              }
+                            >
+                              <FilterPill value="yes">Yes</FilterPill>
+                              <FilterPill value="no">No</FilterPill>
+                            </FilterPillGroup>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Do they support you?
+                            </p>
+                            <div className="mt-2">
+                              <FilterPillGroup
+                                type="single"
+                                value={draft.supportAnswer ?? ''}
+                                onValueChange={(value) =>
+                                  setDraft((current) =>
+                                    draftWithSupportAnswer(
+                                      current,
+                                      (value ||
+                                        undefined) as typeof draft.supportAnswer,
+                                    ),
+                                  )
+                                }
+                              >
+                                <FilterPill value="supporter">Yes</FilterPill>
+                                <FilterPill value="non_supporter">
+                                  No
+                                </FilterPill>
+                                <FilterPill value="unsure">Unsure</FilterPill>
+                              </FilterPillGroup>
+                            </div>
+                          </div>
+
+                          {draft.supportAnswer !== undefined && (
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Will they vote this election?
+                              </p>
+                              <div className="mt-2">
+                                <FilterPillGroup
+                                  type="single"
+                                  value={draft.willVote ?? ''}
+                                  onValueChange={(value) =>
+                                    setDraft((current) =>
+                                      draftWithWillVote(
+                                        current,
+                                        (value ||
+                                          undefined) as typeof draft.willVote,
+                                      ),
+                                    )
+                                  }
+                                >
+                                  <FilterPill value="yes">Yes</FilterPill>
+                                  <FilterPill value="no">No</FilterPill>
+                                  <FilterPill value="unsure">Unsure</FilterPill>
+                                </FilterPillGroup>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+
+                {capturesIssues && showActions && (
+                  <div>
+                    <span className="text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground">
+                      {MEMO_LABEL[product]}
+                    </span>
+                    <div className="relative mt-2">
+                      <Textarea
+                        value={memo}
+                        maxLength={CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH}
+                        // Serve's names what to record, not just how: the extraction
+                        // reads for an issue and a position, so the prompt asks for
+                        // those rather than leaving the caller to guess what is useful.
+                        placeholder={MEMO_PLACEHOLDER[product]}
+                        rows={3}
+                        className="min-h-20 pr-12"
+                        onChange={(e) => setMemo(e.target.value)}
+                      />
+                      <DictationMicButton
+                        dictation={offline.mic}
+                        idleLabel="Dictate summary"
+                        recordingLabel="Stop dictation"
+                        disabled={busy}
+                      />
+                    </div>
+                    {offline.audio !== null && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {OFFLINE_MEMO_COPY.recorded}
+                      </p>
+                    )}
+                    <DictationFeedback dictation={offline.mic} />
+                  </div>
+                )}
+              </PanelDrawerBody>
+              {showActions && (
+                <PanelDrawerFooter>
+                  <Button
+                    className="w-full"
+                    disabled={busy}
+                    loading={
+                      (saveMutation.isPending &&
+                        saveMutation.variables?.markHouseholdDone === false) ||
+                      capture.isPending
+                    }
+                    onClick={() => save(false)}
+                  >
+                    Save
+                  </Button>
+                  {draft.outcome === 'answered' &&
+                    draft.engagement === 'engaged' &&
+                    householdHasOthersUnlogged && (
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        disabled={busy}
+                        loading={
+                          saveMutation.isPending &&
+                          saveMutation.variables?.markHouseholdDone === true
+                        }
+                        onClick={() => save(true)}
+                      >
+                        Save &amp; mark rest of household done
+                      </Button>
+                    )}
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={busy}
+                    onClick={handleCancel}
+                  >
+                    Cancel
+                  </Button>
+                  {/* A network error with capture on is being held on the phone,
+              not a failed save; `holdFailed` says so if holding fails too. */}
+                  {((saveMutation.isError &&
+                    !(captureEnabled && isNetworkError(saveMutation.error))) ||
+                    holdFailed) && (
+                    <p className="text-sm text-destructive">
+                      Couldn&apos;t save this call. Please try again.
+                    </p>
+                  )}
+                </PanelDrawerFooter>
               )}
             </>
           )}
-        </>
-      )}
-
-      {capturesIssues && showActions && (
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground">
-            {MEMO_LABEL[product]}
-          </span>
-          <div className="relative mt-2">
-            <Textarea
-              value={memo}
-              maxLength={CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH}
-              // Serve's names what to record, not just how: the extraction
-              // reads for an issue and a position, so the prompt asks for
-              // those rather than leaving the caller to guess what is useful.
-              placeholder={MEMO_PLACEHOLDER[product]}
-              rows={3}
-              className="min-h-20 pr-12"
-              onChange={(e) => setMemo(e.target.value)}
-            />
-            <DictationMicButton
-              dictation={offline.mic}
-              idleLabel="Dictate summary"
-              recordingLabel="Stop dictation"
-              disabled={saveMutation.isPending}
-            />
-          </div>
-          {offline.audio !== null && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {OFFLINE_MEMO_COPY.recorded}
-            </p>
-          )}
-          <DictationFeedback dictation={offline.mic} />
-        </div>
-      )}
-
-      {showActions && (
-        <div className="flex flex-col gap-2 pt-1">
-          <Button
-            className="w-full"
-            disabled={saveMutation.isPending}
-            loading={
-              saveMutation.isPending &&
-              saveMutation.variables?.markHouseholdDone === false
-            }
-            onClick={() => save(false)}
-          >
-            Save
-          </Button>
-          {draft.outcome === 'answered' &&
-            draft.engagement === 'engaged' &&
-            householdHasOthersUnlogged && (
-              <Button
-                variant="outline"
-                className="w-full"
-                disabled={saveMutation.isPending}
-                loading={
-                  saveMutation.isPending &&
-                  saveMutation.variables?.markHouseholdDone === true
-                }
-                onClick={() => save(true)}
-              >
-                Save &amp; mark rest of household done
-              </Button>
-            )}
-          <Button
-            variant="outline"
-            className="w-full"
-            disabled={saveMutation.isPending}
-            onClick={handleCancel}
-          >
-            Cancel
-          </Button>
-          {/* A network error with capture on is being held on the phone,
-              not a failed save; `holdFailed` says so if holding fails too. */}
-          {((saveMutation.isError &&
-            !(captureEnabled && isNetworkError(saveMutation.error))) ||
-            holdFailed) && (
-            <p className="text-sm text-destructive">
-              Couldn&apos;t save this call. Please try again.
-            </p>
-          )}
-        </div>
+        </PanelDrawer>
       )}
     </div>
   )

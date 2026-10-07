@@ -13,6 +13,10 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import PhoneBankingCallerPage from './PhoneBankingCallerPage'
 
+// The answers open in a step drawer over the panel, and a modal hides
+// whatever is under it, so the one dialog a query can see is the one in front.
+const topDialog = () => screen.getByRole('dialog')
+
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
@@ -266,24 +270,31 @@ describe('PhoneBankingCallerPage: what we heard', () => {
     expect(screen.queryByRole('link', { name: /What we heard/ })).toBeNull()
 
     await user.click(screen.getByText('Alex Solo'))
-    const dialog = await screen.findByRole('dialog')
-    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
-    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
-    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+    await screen.findByRole('dialog')
+    await user.click(
+      within(topDialog()).getByRole('radio', { name: 'Answered' }),
+    )
+    await user.click(
+      within(topDialog()).getByRole('radio', { name: 'Engaged' }),
+    )
+    await user.click(within(topDialog()).getByRole('radio', { name: 'Yes' }))
     await user.type(
-      within(dialog).getByRole('textbox'),
+      within(topDialog()).getByRole('textbox'),
       'Wants a crosswalk on Main.',
     )
-    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await user.click(within(topDialog()).getByRole('button', { name: 'Save' }))
+    const confirmStep = await screen.findByRole('dialog', {
+      name: 'Is this right?',
+    })
     await user.click(
-      await within(dialog).findByRole('button', { name: 'Looks right' }),
+      within(confirmStep).getByRole('button', { name: 'Looks right' }),
     )
     await waitFor(() =>
       expect(
-        within(dialog).queryByRole('button', { name: 'Looks right' }),
+        screen.queryByRole('dialog', { name: 'Is this right?' }),
       ).toBeNull(),
     )
-    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+    await user.click(within(topDialog()).getByRole('button', { name: 'Close' }))
 
     expect(
       await screen.findByRole('link', { name: /What we heard/ }),
