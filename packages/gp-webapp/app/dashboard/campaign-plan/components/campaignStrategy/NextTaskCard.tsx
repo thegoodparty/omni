@@ -626,7 +626,7 @@ const NextTaskCard = ({
                   {due && (
                     <p
                       className={cn(
-                        'flex items-center gap-1.5 text-sm',
+                        'mt-1 flex items-center gap-1.5 text-sm',
                         due.urgent
                           ? 'text-warning-dark'
                           : 'text-muted-foreground',
