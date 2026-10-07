@@ -1112,6 +1112,30 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
+  // An uploaded file never passes through recording, so the script is
+  // noted when the file arrives instead.
+  it('notes a script change made after a recording is uploaded', async () => {
+    await gotoCompose()
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error('no file input')
+    await userEvent.upload(
+      input,
+      new File(['x'], 'sarah-chen.webm', { type: 'audio/webm' }),
+    )
+    await screen.findByText('Preview your recording')
+    expect(
+      screen.queryByText(/Your script changed after you recorded/),
+    ).not.toBeInTheDocument()
+
+    mockDraft('A fresh take after the upload.')
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+
+    expect(
+      await screen.findByText(/Your script changed after you recorded/),
+    ).toBeInTheDocument()
+  })
+
   it('re-drafts when a different tone is chosen', async () => {
     await gotoCompose()
     expect(
