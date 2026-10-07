@@ -1204,7 +1204,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       await this.crm.trackCampaign(id)
     }
 
-    await this.generatePlanOnLaunch(id)
+    void this.generatePlanOnLaunch(id)
 
     return true
   }
@@ -1213,9 +1213,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   // plan is guaranteed to start. The webapp's pre-warm only fires from the
   // first-time flow's story exit; the follow-on flow a returning candidate
   // takes never called it, and that candidate finished signup with no plan,
-  // no tracker and no weekly email. Best-effort: a refusal (no race yet,
-  // election-api down) must never fail the launch that just succeeded, and
-  // the service's own dedup makes the pre-warm plus this a single run.
+  // no tracker and no weekly email. Best-effort and not awaited: generation
+  // reads the race from election-api before it dispatches, and a refusal
+  // (no race yet, election-api down) or a slow upstream must neither fail
+  // nor hold the launch that just succeeded. The service's own dedup makes
+  // the pre-warm plus this a single run.
   //
   // CampaignStrategyService is resolved lazily via ModuleRef rather than
   // injected: it depends on CampaignTrackerTasksService from this module, so

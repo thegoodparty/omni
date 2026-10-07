@@ -57,7 +57,7 @@ describe('POST /v1/campaigns/launch', () => {
     const res = await service.client.post(PATH, {}, ORG)
 
     expect(res.status).toBe(200)
-    expect(generate).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1))
     const arg = generate.mock.calls[0]?.[0]
     expect(arg?.id).toBe(campaign.id)
     expect(arg?.user?.id).toBe(service.user.id)
@@ -72,6 +72,9 @@ describe('POST /v1/campaigns/launch', () => {
     const res = await service.client.post(PATH, {}, ORG)
 
     expect(res.status).toBe(200)
+    // The hook runs after the response; let it reach the spy before the next
+    // test installs its own, or a late call lands on the wrong one.
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1))
     const after = await service.prisma.campaign.findUniqueOrThrow({
       where: { id: campaign.id },
     })
