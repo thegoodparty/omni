@@ -198,3 +198,42 @@ describe('asking about a task', () => {
     expect(onDiscuss).toHaveBeenCalledWith(task)
   })
 })
+
+describe('a done task’s menu', () => {
+  it('only offers to mark it not done', async () => {
+    const onToggleComplete = vi.fn()
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't4',
+            title: 'Get your EIN',
+            description: 'Apply free on the IRS site.',
+            channel: 'general',
+            date: null,
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: false,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: false,
+            completed: true,
+            setAside: null,
+            snoozedUntil: null,
+          }}
+          onToggleComplete={onToggleComplete}
+          onDiscuss={vi.fn()}
+          onSetAside={vi.fn()}
+        />
+      </ul>,
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['Mark as not done'])
+    await user.click(items[0] as HTMLElement)
+    expect(onToggleComplete).toHaveBeenCalledWith('t4', false)
+  })
+})

@@ -118,7 +118,7 @@ const CampaignStrategyTaskRow = ({
   // The "Do this next" row leads with its action as a real button, like the
   // next-task card; every other row keeps it in the menu.
   const actionInRow = Boolean(action && task.isNext)
-  const menuItems = [
+  const openTaskItems = [
     ...(action && !actionInRow
       ? [
           {
@@ -179,12 +179,23 @@ const CampaignStrategyTaskRow = ({
     ...(onToggleComplete && !completesItself
       ? [
           {
-            label: task.completed ? 'Mark as not done' : 'Mark as done',
-            onClick: () => onToggleComplete(task.id, !task.completed),
+            label: 'Mark as done',
+            onClick: () => onToggleComplete(task.id, true),
           },
         ]
       : []),
   ]
+  // A done task has nothing left to do, so its menu only undoes that.
+  const menuItems = task.completed
+    ? onToggleComplete && !completesItself
+      ? [
+          {
+            label: 'Mark as not done',
+            onClick: () => onToggleComplete(task.id, false),
+          },
+        ]
+      : []
+    : openTaskItems
 
   return (
     <li
