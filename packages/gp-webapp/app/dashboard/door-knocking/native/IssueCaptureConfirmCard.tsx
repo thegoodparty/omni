@@ -372,8 +372,11 @@ export default function IssueCaptureConfirmCard({
     isServe,
   )
 
+  // No frame of its own: it sits inside the note's Card on the review pages,
+  // its only callers, and a bordered box inside a bordered box read as a card
+  // in a card, with neither radius nor padding matching the product's.
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-components-input-border p-4">
+    <div className="flex flex-col gap-4">
       <div>
         <p className="text-sm font-semibold text-foreground">{copy.heading}</p>
         <p className="mt-1 text-sm text-muted-foreground">
