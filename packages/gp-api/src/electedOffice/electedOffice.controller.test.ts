@@ -9,6 +9,7 @@ import { Campaign, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
+import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 
 const service = useTestService()
 
@@ -1018,6 +1019,33 @@ describe('ElectedOfficeController', () => {
         where: { slug: `eo-${created.data.id}` },
       })
       expect(organization?.overrideDistrictId).toBe('resolved-district')
+    })
+
+    it('syncs the office to HubSpot after the district changes', async () => {
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+
+      vi.spyOn(
+        service.app.get(OrganizationsService),
+        'resolveOverrideDistrictId',
+      ).mockResolvedValue('resolved-district')
+      vi.spyOn(
+        service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+        'verifyM2MToken',
+      ).mockResolvedValue({ id: 'mt_test', subject: 'test-machine' })
+      const sync = vi.spyOn(
+        service.app.get(CrmOfficeHolderService),
+        'syncElectedOffice',
+      )
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}/district`,
+        { state: 'CA', L2DistrictType: 'CITY', L2DistrictName: 'OAKLAND' },
+        { headers: { Authorization: 'Bearer mt_test' } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(sync).toHaveBeenCalledWith(created.data.id)
     })
   })
 })

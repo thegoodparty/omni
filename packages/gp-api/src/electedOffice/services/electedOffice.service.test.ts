@@ -4,6 +4,7 @@ import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatc
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CrmOfficeHolderService } from './crmOfficeHolder.service'
 import {
   dateRangesOverlap,
   ElectedOfficeService,
@@ -250,6 +251,29 @@ describe('ElectedOfficeService.create', () => {
     ).toBe(1)
   })
 
+  it('syncs a freshly created office to HubSpot as just created', async () => {
+    const sync = vi.spyOn(
+      service.app.get(CrmOfficeHolderService),
+      'syncElectedOffice',
+    )
+
+    const office = await electedOffices.create({ userId: service.user.id })
+
+    expect(sync).toHaveBeenCalledWith(office.id, { justCreated: true })
+  })
+
+  it('syncs the idempotent return without marking it just created', async () => {
+    const first = await electedOffices.create({ userId: service.user.id })
+    const sync = vi.spyOn(
+      service.app.get(CrmOfficeHolderService),
+      'syncElectedOffice',
+    )
+
+    await electedOffices.create({ userId: service.user.id })
+
+    expect(sync).toHaveBeenCalledWith(first.id, { justCreated: false })
+  })
+
   it('dispatches the schedule after creating an office', async () => {
     const dispatch = vi.spyOn(
       service.app.get(MeetingBriefingsService),
@@ -395,6 +419,27 @@ describe('ElectedOfficeService.update', () => {
     })
 
     expect(updated.swornInDate).toEqual(swornInDate)
+  })
+
+  it('syncs the updated office to HubSpot', async () => {
+    const electedOffices = service.app.get(ElectedOfficeService)
+    const sync = vi.spyOn(
+      service.app.get(CrmOfficeHolderService),
+      'syncElectedOffice',
+    )
+    await service.prisma.organization.create({
+      data: { slug: 'eo-update-sync', ownerId: service.user.id },
+    })
+    const office = await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: 'eo-update-sync' },
+    })
+
+    await electedOffices.update({
+      where: { id: office.id },
+      data: { party: 'Independent' },
+    })
+
+    expect(sync).toHaveBeenCalledWith(office.id)
   })
 })
 
