@@ -5,7 +5,7 @@ Produce the Opportunities and Challenges of a candidate's campaign plan: up to 3
 ## BEFORE YOU START
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/opportunities_and_challenges.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom - validator-passing data can still be garbage.
@@ -90,7 +90,7 @@ Produce the Opportunities and Challenges of a candidate's campaign plan: up to 3
 
 ### Step 0 - Read params, identify the candidate, read the numbers
 
-Read `PARAMS_JSON` once. The candidate you write FOR is `user_full_name` (output says "you", never the name). Find the candidate's own row via `is_user`: match `user_email` to `campaign_strategy_context.candidates[].email` (case-insensitive + trimmed), falling back to a fuzzy `full_name` match (normalize case, strip middle initials / suffixes / accents). You do not list opponents here, but identifying the candidate keeps their name out of the bullets and lets you read the roster correctly. (`race_id` is a trace id - ignore it; you never call election-api.)
+Read `PARAMS_FILE` once. The candidate you write FOR is `user_full_name` (output says "you", never the name). Find the candidate's own row via `is_user`: match `user_email` to `campaign_strategy_context.candidates[].email` (case-insensitive + trimmed), falling back to a fuzzy `full_name` match (normalize case, strip middle initials / suffixes / accents). You do not list opponents here, but identifying the candidate keeps their name out of the bullets and lets you read the roster correctly. (`race_id` is a trace id - ignore it; you never call election-api.)
 
 All of this data is focused on the GENERAL election. `campaign_primary_strategy_context` carries only the PRIMARY stage's candidate roster (`candidate_count` + `candidates`), or is `null` when the race has no primary (not every election has one). This experiment is general-focused and derives its bullets from the general context's numbers, so you do not need the primary context, and you still do not base bullets on either roster (see the opponent-data rule above).
 
@@ -99,7 +99,7 @@ Read the fields the bullets are derived from:
 ```bash
 python3 - <<'EOF'
 import json, os
-p = json.loads(os.environ["PARAMS_JSON"])
+p = json.load(open(os.environ["PARAMS_FILE"]))
 c = p["campaign_strategy_context"]
 print("office:", c.get("candidate_office") or c.get("official_office_name"))
 print("state:", c.get("state"), "| partisan_type:", c.get("partisan_type"))

@@ -70,7 +70,7 @@ export default function UpcomingCountdownCard({
         </div>
       ) : (
         <div className="flex flex-col items-start gap-3 pt-1">
-          <AgendaStatusPill status={status} />
+          <AgendaStatusPill status={status} reason={summary.userAgendaReason} />
           {canUpload ? (
             <Button type="button" onClick={() => setOpen(true)}>
               <UploadIcon className="size-4" aria-hidden />

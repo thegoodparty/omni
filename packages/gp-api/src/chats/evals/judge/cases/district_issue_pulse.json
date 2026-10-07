@@ -1,0 +1,80 @@
+{
+  "agentId": "district_issue_pulse",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published district_issue_pulse manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: district population (a Minneapolis ward against a Bellefonte borough ward is two orders of magnitude of voter file rows); urban against rural; and district geometry, which is the shape that decides whether the L2 predicate is a ward string, a bare district number or a whole jurisdiction \u2014 City_Ward, City_Council_Commissioner_District, City, County_Commissioner_District and Borough_Ward each appear. How much local news exists to attach to a ranked issue tracks the same axis. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "cases": [
+    {
+      "caseId": "urban-large-ward",
+      "params": {
+        "state": "MN",
+        "city": "Minneapolis",
+        "l2DistrictType": "City_Ward",
+        "l2DistrictName": "MINNEAPOLIS WARD 3"
+      }
+    },
+    {
+      "caseId": "urban-numbered-council-district",
+      "params": {
+        "state": "AZ",
+        "city": "Phoenix",
+        "l2DistrictType": "City_Council_Commissioner_District",
+        "l2DistrictName": "8"
+      }
+    },
+    {
+      "caseId": "urban-citywide",
+      "params": {
+        "state": "CA",
+        "city": "Oakland",
+        "l2DistrictType": "City",
+        "l2DistrictName": "OAKLAND CITY"
+      }
+    },
+    {
+      "caseId": "midsize-ward",
+      "params": {
+        "state": "NC",
+        "city": "Fayetteville",
+        "l2DistrictType": "City_Ward",
+        "l2DistrictName": "FAYETTEVILLE CITY WARD 2"
+      }
+    },
+    {
+      "caseId": "midsize-citywide",
+      "params": {
+        "state": "NC",
+        "city": "Hendersonville",
+        "l2DistrictType": "City",
+        "l2DistrictName": "HENDERSONVILLE CITY"
+      }
+    },
+    {
+      "caseId": "small-city-ward",
+      "params": {
+        "state": "NH",
+        "city": "Dover",
+        "l2DistrictType": "City_Ward",
+        "l2DistrictName": "DOVER WARD 4"
+      }
+    },
+    {
+      "caseId": "rural-county-district",
+      "params": {
+        "state": "MT",
+        "city": "Kalispell",
+        "l2DistrictType": "County_Commissioner_District",
+        "l2DistrictName": "2"
+      }
+    },
+    {
+      "caseId": "rural-borough-ward",
+      "params": {
+        "state": "PA",
+        "city": "Bellefonte",
+        "l2DistrictType": "Borough_Ward",
+        "l2DistrictName": "BELLEFONTE BOROUGH WARD 2"
+      }
+    }
+  ]
+}

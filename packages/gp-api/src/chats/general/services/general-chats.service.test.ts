@@ -304,6 +304,51 @@ describe('GeneralChatsService', () => {
     },
   )
 
+  it('passes the handler scope to the chat stream', async () => {
+    for (const scope of [
+      ChatScope.chief_of_staff,
+      ChatScope.campaign_assistant,
+      ChatScope.ordinance_flow,
+    ]) {
+      const scopedHandler = buildHandler({ scope })
+      const scopedStore = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: 'existing' }),
+        ) as never,
+      })
+      const streamArgs: { value?: unknown } = {}
+      const chatStream = {
+        stream: vi.fn((args: unknown) => {
+          streamArgs.value = args
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              yield { type: 'done' } as ChatStreamChunk
+            },
+          }
+        }),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(scopedHandler),
+        scopedStore,
+        {} as never,
+        chatStream as never,
+        {} as never,
+      )
+      await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: 'hi',
+        }),
+      )
+      // The shared ChatStreamService gates attachment injection and
+      // attributes AttachedDocumentQueried on this scope.
+      expect(streamArgs.value).toMatchObject({ scope })
+    }
+  })
+
   it('passes handler.maxSteps through to the chat stream', async () => {
     handler = buildHandler({ maxSteps: 8 })
     store = buildStore({
@@ -340,6 +385,95 @@ describe('GeneralChatsService', () => {
     )
     expect(streamArgs.value).toMatchObject({ maxSteps: 8 })
   })
+
+  // Titling is on unless the handler opts out (briefing chat does).
+  it.each([
+    [undefined, true],
+    [true, true],
+    [false, false],
+  ])(
+    'with handler.setsTitle=%s, titles an untitled conversation: %s',
+    async (setsTitle, titled) => {
+      handler = buildHandler(setsTitle === undefined ? {} : { setsTitle })
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: null }),
+        ) as never,
+      })
+      const chatStream = {
+        stream: vi.fn(() => ({
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        })),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        {} as never,
+        chatStream as never,
+        {} as never,
+      )
+      await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: 'Title me',
+        }),
+      )
+      if (titled) {
+        expect(store.setTitleIfUnset).toHaveBeenCalledWith('c1', 'Title me')
+      } else {
+        expect(store.setTitleIfUnset).not.toHaveBeenCalled()
+      }
+      expect(chatStream.stream).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  // Braintrust filters key on the trace name, so a scope that predates the
+  // registry (briefing chat: `briefing-chat-stream`) keeps its own.
+  it.each([
+    [undefined, `${SCOPE}-chat-stream`],
+    ['briefing-chat-stream', 'briefing-chat-stream'],
+  ])(
+    'traces the turn as handler.traceName=%s -> %s',
+    async (traceName, expected) => {
+      handler = buildHandler(traceName === undefined ? {} : { traceName })
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: 'existing' }),
+        ) as never,
+      })
+      const chatStream = {
+        stream: vi.fn(() => ({
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        })),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        {} as never,
+        chatStream as never,
+        {} as never,
+      )
+      await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: 'hi',
+        }),
+      )
+      expect(chatStream.stream).toHaveBeenCalledWith(
+        expect.objectContaining({ traceName: expected }),
+      )
+    },
+  )
 
   it('yields conversation_not_found when streaming a missing conversation', async () => {
     store = buildStore({

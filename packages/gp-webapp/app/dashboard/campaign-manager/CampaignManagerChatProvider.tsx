@@ -116,7 +116,6 @@ export function CampaignManagerChatProvider({
   // already personalized, so the "Personalize your campaign" starter chip is
   // dropped from the chat.
   const { isComplete: storyComplete } = useCampaignStoryComplete(true)
-
   // Fetched at mount so a general open can resume the latest conversation
   // synchronously. The chat body invalidates this key when a conversation is
   // created, so [0] (the list is updatedAt-desc) tracks the one the candidate
@@ -319,6 +318,7 @@ export function CampaignManagerChatProvider({
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         openLabel="Open campaign manager chat"
+        showAttachIcon
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}

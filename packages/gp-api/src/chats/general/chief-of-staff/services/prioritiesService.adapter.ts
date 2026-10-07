@@ -1,10 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { formatISO, parseISO } from 'date-fns'
+import { formatISO } from 'date-fns'
+import {
+  PriorityStepIdSchema,
+  parsePriorityStatus,
+} from '@goodparty_org/contracts'
 import { PrioritySource } from '@/generated/prisma'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import {
   CreatePriorityInput,
   PrioritiesToolPort,
+  PriorityFlowState,
   PriorityRecord,
   UpdatePriorityInput,
 } from './prioritiesPort'
@@ -13,45 +18,50 @@ type PriorityRow = {
   id: string
   title: string
   description: string
-  targetDate: Date | null
   archivedAt: Date | null
 }
 
-// targetDate is `@db.Date`, so it round-trips as UTC midnight. Rendering it
-// through the local zone prints the previous day west of UTC, and parsing a
-// bare date to local midnight stores the previous day east of UTC, so both
-// directions are pinned to UTC. archivedAt is a real timestamp, not a date.
 const toRecord = (row: PriorityRow): PriorityRecord => ({
   id: row.id,
   title: row.title,
   description: row.description,
-  targetDate: row.targetDate ? row.targetDate.toISOString().slice(0, 10) : null,
   archivedAt: row.archivedAt ? formatISO(row.archivedAt) : null,
 })
 
-const toDate = (value?: string | null): Date | null =>
-  value ? parseISO(`${value}T00:00:00Z`) : null
+type PriorityFlowRow = {
+  status: Parameters<typeof parsePriorityStatus>[0]
+  currentStep: string | null
+  nextAction: string | null
+}
+
+const toFlowState = (row: PriorityFlowRow): PriorityFlowState => {
+  const status = parsePriorityStatus(row.status)
+  const currentStep = PriorityStepIdSchema.safeParse(row.currentStep)
+  return {
+    currentStep: currentStep.success ? currentStep.data : null,
+    nextAction: row.nextAction,
+    checks: status.steps.flatMap((step) =>
+      step.check === undefined ? [] : [{ stepId: step.id, check: step.check }],
+    ),
+  }
+}
 
 // Binds slice 3's PrioritiesToolPort to slice 1's PrioritiesService. The port
-// passes electedOfficeId in each call and exchanges ISO date strings; the
-// service uses positional args and Prisma Date values, so we map both here.
+// passes electedOfficeId in each call; the service uses positional args, so we
+// map between them here.
 @Injectable()
 export class PrioritiesServiceAdapter implements PrioritiesToolPort {
   constructor(private readonly priorities: PrioritiesService) {}
 
   async listActive(electedOfficeId: string): Promise<PriorityRecord[]> {
     const rows = await this.priorities.listActive(electedOfficeId)
-    return rows.map(toRecord)
+    return rows.map((row) => ({ ...toRecord(row), flow: toFlowState(row) }))
   }
 
   async create(input: CreatePriorityInput): Promise<PriorityRecord> {
     const row = await this.priorities.create(
       input.electedOfficeId,
-      {
-        title: input.title,
-        description: input.description,
-        targetDate: toDate(input.targetDate),
-      },
+      { title: input.title, description: input.description },
       PrioritySource.user_stated,
     )
     return toRecord(row)
@@ -62,9 +72,6 @@ export class PrioritiesServiceAdapter implements PrioritiesToolPort {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.description !== undefined
         ? { description: input.description }
-        : {}),
-      ...(input.targetDate !== undefined
-        ? { targetDate: toDate(input.targetDate) }
         : {}),
     })
     if (!row) throw new NotFoundException('Priority not found')

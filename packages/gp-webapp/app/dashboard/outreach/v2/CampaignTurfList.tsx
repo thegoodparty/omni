@@ -1,22 +1,11 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
-import { Button, Card, Progress } from '@styleguide'
+import { Button } from '@styleguide'
 import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
-import {
-  turfStage,
-  turfStatusLabel,
-  useTurfLifecycle,
-} from 'app/dashboard/door-knocking/native/turfLifecycle'
-import {
-  MarkDoneDialog,
-  type MarkDoneTarget,
-} from 'app/dashboard/door-knocking/native/MarkDoneDialog'
-import { turfCountsLabel } from 'app/dashboard/door-knocking/native/TurfRowCard'
-import { TurfAssigneeMenu } from './TurfAssigneeMenu'
+import { TurfSummaryRow } from 'app/dashboard/door-knocking/native/TurfSummaryRow'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
 import { CONTINUE_LABELS, UNROUTED_LABEL } from './listDetails/footerMode'
 
@@ -37,6 +26,8 @@ import { CONTINUE_LABELS, UNROUTED_LABEL } from './listDetails/footerMode'
 // the progress bar. Independent invalidation keeps each cache honest about
 // its own scope.
 interface CampaignTurfListProps {
+  // Which product's event names this list's lifecycle writes report under.
+  isServe: boolean
   anchorOutreachId: number
   outreachId: number
   // A row's overlays — its confirm dialog and its assignee menu — portal out
@@ -53,12 +44,8 @@ interface CampaignTurfListProps {
   onTurfCompleted?: (turfId: number) => void
 }
 
-const percentLabel = (numerator: number, denominator: number): string => {
-  if (denominator === 0) return '0%'
-  return `${Math.round((numerator / denominator) * 100)}%`
-}
-
 export const CampaignTurfList = ({
+  isServe,
   anchorOutreachId,
   outreachId,
   onOverlayOpenChange,
@@ -84,6 +71,7 @@ export const CampaignTurfList = ({
         {turfs.map((turf) => (
           <TurfRow
             key={turf.id}
+            isServe={isServe}
             turf={turf}
             outreachId={outreachId}
             onOverlayOpenChange={onOverlayOpenChange}
@@ -96,6 +84,8 @@ export const CampaignTurfList = ({
 }
 
 interface TurfRowProps {
+  // Which product's event names this row's lifecycle writes report under.
+  isServe: boolean
   turf: DoorKnockingTurf
   outreachId: number
   onOverlayOpenChange?: (open: boolean) => void
@@ -107,35 +97,13 @@ interface TurfRowProps {
 // the same handoff the drawer's own "Continue knocking" footer uses on the
 // single-turf branch above.
 const TurfRow = ({
+  isServe,
   turf,
   outreachId,
   onOverlayOpenChange,
   onTurfCompleted,
 }: TurfRowProps) => {
-  const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
-    null,
-  )
-  const lifecycle = useTurfLifecycle(turf)
   const walkHref = `/dashboard/door-knocking?walkTurfId=${turf.id}&outreachId=${outreachId}`
-  const progress =
-    turf.peopleCount > 0 ? (turf.loggedCount / turf.peopleCount) * 100 : 0
-  // The campaign read is scoped on `deletedAt` only, so a shelved OR finished
-  // sibling is still in this list. Neither offers Continue: an archived list
-  // is one the candidate put away, and what Done takes away IS Knock (the
-  // rail's rule, recorded in `walkCompletion.ts`). This used to branch on
-  // archived alone, so a finished turf still deep-linked into a walk with
-  // nothing left to knock. Widening it is also what makes this section a
-  // legible answer to "which turfs aren't done", which is the question the
-  // campaign confirm counts.
-  const active = turfStage(turf) === 'active'
-  const unlogged = Math.max(0, turf.peopleCount - turf.loggedCount)
-  const pending = lifecycle.pendingAction === 'complete'
-  const openConfirm = (open: boolean) => {
-    setMarkDoneTarget(
-      open ? { kind: 'turf', name: turf.name, unloggedCount: unlogged } : null,
-    )
-    onOverlayOpenChange?.(open)
-  }
   // Two labels, keyed on whether the turf has a route rather than on
   // whether anybody has knocked yet. `routeSeconds` is the field that says
   // which — null means no route, deliberately, rather than a second boolean
@@ -144,117 +112,20 @@ const TurfRow = ({
   // An unrouted press does something the other does not: it plans the route
   // and asks walking or driving on the way, so it reads as starting the
   // work. Once the route exists the press is the same press whether or not
-  // a door has been logged, so it reads the same — which is a deliberate
-  // departure from the zero-progress rule the drawer's own footer follows
-  // (`ZERO_PROGRESS_LABELS`, "Walk this route"). On a card that already
-  // shows a progress bar and a percentage, a second way of saying "nothing
-  // yet" is the third thing on the card saying it.
+  // a door has been logged, so it reads the same.
   const knockLabel =
     turf.routeSeconds === null ? UNROUTED_LABEL : CONTINUE_LABELS.doorKnocking
   return (
-    // The two-half card the drawing surface's own turf cards use: a header
-    // and, under a full-bleed rule, a washed half.
-    //
-    // **The turf's colour is the DOT and nothing else here.** Drawing the
-    // bar, the wash and the CTA in it as well was tried and is too much: a
-    // list of turfs became a list of differently-coloured buttons, and the
-    // one control you came for stopped looking like the same control on
-    // every card. The drawing surface can afford the full treatment because
-    // there is one open card at a time beside the shape it is about; a list
-    // cannot. Two of the palette's seven hues also cannot carry white text,
-    // so a coloured CTA needs an ink flip that the primary token never does.
-    <Card className="gap-0 overflow-clip rounded-lg p-0">
-      <div className="flex flex-col gap-2 px-3 py-3">
-        <div className="flex flex-row items-center gap-3">
-          <span
-            aria-hidden="true"
-            className={`my-auto size-3 shrink-0 rounded-full ${
-              active ? '' : 'opacity-40'
-            }`}
-            style={{ backgroundColor: turf.color }}
-          />
-          <span
-            className={`min-w-0 flex-1 truncate text-sm font-medium ${
-              active ? 'text-foreground' : 'text-muted-foreground'
-            }`}
-          >
-            {turf.name}
-          </span>
-          {/* Who walks it, as the control that changes it. On a turf nobody
-              is walking any more there is nothing to hand over, so the
-              status takes the slot instead — one thing in the top right,
-              whichever it is. */}
-          {active ? (
-            <TurfAssigneeMenu
-              outreachId={turf.outreachId}
-              onMenuOpenChange={onOverlayOpenChange}
-            />
-          ) : (
-            <span className="shrink-0 text-sm font-medium text-muted-foreground">
-              {turfStatusLabel(turf)}
-            </span>
-          )}
-        </div>
-        <Progress value={progress} />
-        {/* What the turf is worth on the left, how much of it is done on the
-            right. The percentage is of PEOPLE logged, which is the
-            population the left-hand figure ends with — the two have to name
-            the same denominator or the number reads as a share of stops. */}
-        <div className="flex flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span className="tabular-nums">{turfCountsLabel(turf)}</span>
-          <span className="shrink-0 tabular-nums">
-            {percentLabel(turf.loggedCount, turf.peopleCount)}
-          </span>
-        </div>
-      </div>
-      {/* Only while there is something to do. A done or archived turf keeps
-          its figures and loses the bar, rather than offering a dead CTA. */}
-      {active && (
-        <div className="flex flex-row items-center justify-between gap-3 border-t bg-primary/5 px-3 py-2.5">
-          {/* The first manual `markDone` caller in the product, and the
-              quieter of the two: it ends the turf, so it is a text button
-              beside the filled one rather than competing with it. */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="small"
-            disabled={pending}
-            onClick={() => {
-              // Nothing to warn about on a fully logged turf.
-              if (unlogged <= 0) {
-                return lifecycle.markDone({
-                  onSuccess: () => onTurfCompleted?.(turf.id),
-                })
-              }
-              openConfirm(true)
-            }}
-          >
-            Mark as done
-          </Button>
-          {/* Both at `size="small"` and neither restyled: the row is what
-              positions them (`justify-between`), so the quiet one keeps the
-              left edge and the one you came for keeps the right. */}
-          <Button asChild size="small">
-            <Link href={walkHref}>{knockLabel}</Link>
-          </Button>
-        </div>
-      )}
-      <MarkDoneDialog
-        target={markDoneTarget}
-        onOpenChange={openConfirm}
-        pending={pending}
-        // Held open until the write resolves: the dialog preventDefaults for
-        // us, and a failure then leaves a dialog the candidate can retry from
-        // rather than a snackbar behind a sheet they stopped looking at.
-        onConfirm={() =>
-          lifecycle.markDone({
-            onSuccess: () => {
-              openConfirm(false)
-              onTurfCompleted?.(turf.id)
-            },
-          })
-        }
-      />
-    </Card>
+    <TurfSummaryRow
+      isServe={isServe}
+      turf={turf}
+      onOverlayOpenChange={onOverlayOpenChange}
+      onTurfCompleted={onTurfCompleted}
+      action={
+        <Button asChild size="small">
+          <Link href={walkHref}>{knockLabel}</Link>
+        </Button>
+      }
+    />
   )
 }

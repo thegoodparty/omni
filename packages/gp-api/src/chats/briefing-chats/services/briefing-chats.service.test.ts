@@ -101,6 +101,7 @@ const ARTIFACT_JSON = buildArtifactJson()
 const CONVERSATION_ID = 'conv-123'
 const ANNOTATION_ID = 'anno-123'
 const USER_ID = 7
+const ORG_SLUG = 'org-oakland'
 
 const buildAnnotation = (overrides: Partial<Annotation> = {}): Annotation =>
   ({
@@ -150,6 +151,7 @@ class FakeBriefingContext {
       artifactContent: ARTIFACT_JSON,
       user: { firstName: 'Jane', lastName: 'Doe' },
       office: { title: 'Council Member', jurisdiction: null },
+      organizationSlug: ORG_SLUG,
     }),
   )
 
@@ -308,6 +310,7 @@ describe('BriefingChatsService', () => {
         artifactContent,
         user,
         office,
+        organizationSlug: ORG_SLUG,
       })
 
       const iter = svc.sendMessage({
@@ -408,7 +411,7 @@ describe('BriefingChatsService', () => {
         query: vi.fn(() => Promise.resolve({ columns: [], rows: [] })),
       }
       const districtResolver = {
-        resolveByUserId: vi.fn(() =>
+        resolveByOrgSlug: vi.fn(() =>
           Promise.resolve({
             state: 'CA',
             l2DistrictType: 'City',
@@ -436,7 +439,7 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      expect(districtResolver.resolveByUserId).toHaveBeenCalledWith(USER_ID)
+      expect(districtResolver.resolveByOrgSlug).toHaveBeenCalledWith(ORG_SLUG)
       expect(districtResolver.toMandatoryFilters).toHaveBeenCalledWith({
         state: 'CA',
         l2DistrictType: 'City',
@@ -458,7 +461,7 @@ describe('BriefingChatsService', () => {
         query: vi.fn(() => Promise.resolve({ columns: [], rows: [] })),
       }
       const districtResolver = {
-        resolveByUserId: vi.fn(() => Promise.resolve(null)),
+        resolveByOrgSlug: vi.fn(() => Promise.resolve(null)),
         toMandatoryFilters: vi.fn(),
       }
       svc = new BriefingChatsService(
@@ -477,7 +480,7 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      expect(districtResolver.resolveByUserId).toHaveBeenCalledWith(USER_ID)
+      expect(districtResolver.resolveByOrgSlug).toHaveBeenCalledWith(ORG_SLUG)
       expect(districtResolver.toMandatoryFilters).not.toHaveBeenCalled()
       const tools = chatStream.lastArgs?.tools ?? {}
       expect(Object.keys(tools).sort()).toEqual(
@@ -548,6 +551,7 @@ describe('BriefingChatsService', () => {
         artifactContent: ARTIFACT_JSON,
         user: { firstName: 'Jane', lastName: 'Doe' },
         office: { title: 'Council Member', jurisdiction: null },
+        organizationSlug: ORG_SLUG,
       })
       await expect(
         consume(
@@ -800,6 +804,7 @@ describe('BriefingChatsService', () => {
         artifactContent: ARTIFACT_JSON,
         user: { firstName: 'Jane', lastName: 'Doe' },
         office: { title: 'Council Member', jurisdiction: null },
+        organizationSlug: ORG_SLUG,
       })
       await expect(
         svc.loadConversation(ANNOTATION_ID, USER_ID),
@@ -837,6 +842,7 @@ describe('BriefingChatsService', () => {
         artifactContent: ARTIFACT_JSON,
         user: { firstName: 'Jane', lastName: 'Doe' },
         office: { title: 'Council Member', jurisdiction: null },
+        organizationSlug: ORG_SLUG,
       })
       await expect(
         svc.deleteConversation(ANNOTATION_ID, USER_ID),

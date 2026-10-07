@@ -10,8 +10,10 @@ import FollowOnFlow from './FollowOnFlow'
 // that could only 400 (and skip the Sentry report for that expected state).
 // useOrganization throws outside its provider, and these flow tests render without
 // the root layout that supplies it.
+const setSelectedOrgSlug = vi.hoisted(() => vi.fn())
 vi.mock('@shared/organization-picker', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@shared/organization-picker')>()),
+  useSetOrganizationSlug: () => setSelectedOrgSlug,
   useOrganization: () => ({
     slug: 'campaign-1',
     positionName: 'Mayor',

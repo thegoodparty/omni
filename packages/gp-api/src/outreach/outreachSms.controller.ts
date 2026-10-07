@@ -15,9 +15,13 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { User } from '../generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
-import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
+import {
+  OutreachSmsGenerationService,
+  type SmsImproveProtection,
+} from './services/outreachSmsGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
+import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 
 @Controller('outreach')
 @UseCampaign({ include: { user: true } })
@@ -27,6 +31,7 @@ export class OutreachSmsController {
     private readonly generationService: OutreachSmsGenerationService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly tcrCompliance: CampaignTcrComplianceService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachSmsController.name)
@@ -54,6 +59,12 @@ export class OutreachSmsController {
         this.logger.warn({ err }, 'position resolution failed for draft')
       }
     }
+    // Improve gets the message's locked parts from the same names and
+    // committee the scheduling compliance check reads, so what the model is
+    // kept away from is exactly what scheduling will enforce.
+    const protection = input.currentDraft
+      ? await this.improveProtection(campaign)
+      : undefined
     return {
       draft: await this.generationService.generateDraft(
         input,
@@ -66,7 +77,24 @@ export class OutreachSmsController {
             : []),
           ...(await this.composeContext.buildCampaignContext(campaign)),
         ],
+        protection,
       ),
+    }
+  }
+
+  private async improveProtection(
+    campaign: CampaignWith<'user'>,
+  ): Promise<SmsImproveProtection> {
+    const tcr = await this.tcrCompliance.findFirst({
+      where: { campaignId: campaign.id },
+    })
+    return {
+      candidateNames: [ownerCandidateName(campaign), tcr?.candidateName].filter(
+        (name): name is string => !!name,
+      ),
+      committeeName: tcr?.committeeName ?? null,
+      channel: 'peerly',
+      ignoredRules: [],
     }
   }
 }

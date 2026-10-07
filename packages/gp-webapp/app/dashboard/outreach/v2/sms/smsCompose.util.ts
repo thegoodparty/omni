@@ -3,7 +3,7 @@ import type {
   SmsPurpose,
   SocialTone,
 } from '@goodparty_org/contracts'
-import { SMS_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import { checkSmsStandards, SMS_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import { SOCIAL_PURPOSE_LABELS } from '../socialPurposes'
 
 // SMS purposes are the social slugs minus issue_update; labels shared.
@@ -21,16 +21,85 @@ export const smsPurposeLabel = (purpose: string): string =>
 
 export const OPT_OUT_FOOTER = 'Reply STOP to opt out.'
 
-// Compliance: the "Paid for by <committee>" disclaimer is system-owned, like
-// the opt-out line — appended deterministically to every message (product
-// decision 2026-09-02), never left to the candidate or the LLM.
+// Compliance: the "Paid for by <committee>" disclaimer, like the opt-out
+// line, is composed into every fresh message and then locked inside it: the
+// candidate writes around it, and Improve sends it masked so the model never
+// sees it (docs/features/message-composer.md).
 export const paidForByLine = (committeeName: string): string =>
   `Paid for by ${committeeName}.`
 
 export const composeFooter = (committeeName?: string | null): string =>
   committeeName
-    ? `${paidForByLine(committeeName)}\n${OPT_OUT_FOOTER}`
+    ? // One line: an SMS footer reads as a sign-off, not a block of lines.
+      `${paidForByLine(committeeName)} ${OPT_OUT_FOOTER}`
     : OPT_OUT_FOOTER
+
+// Brings a message's footer up to the committee it should name now. The
+// footer is system-written and locked in the field, so any trailing footer
+// of that shape is the system's own: the bare opt-out line of a draft saved
+// before the disclaimer was always shown, or a "Paid for by" line naming a
+// provisional or earlier committee. It is rewritten to the current one,
+// which is the line scheduling's server-side compliance check demands.
+// Structural, not a phrase search: matching "paid for by" anywhere would
+// also fire on body text, and the blank line before the footer is what the
+// composer always writes. A message whose footer is not the last thing in
+// it is left alone, so the standards check fails closed.
+const SYSTEM_FOOTER = new RegExp(
+  // A space or a line break before the opt-out: drafts saved before the
+  // footer was one line put them on two.
+  `\\n\\n(?:Paid for by [^\\n]*?\\.[ \\n])?${OPT_OUT_FOOTER.replace(/[.]/g, '\\.')}$`,
+)
+
+export const upgradeScriptFooter = (
+  script: string,
+  committeeName: string | null,
+): string => {
+  if (!committeeName) return script
+  const upgraded = `\n\n${composeFooter(committeeName)}`
+  if (script.endsWith(upgraded)) return script
+  const stale = SYSTEM_FOOTER.exec(script)
+  if (!stale) return script
+  return script.slice(0, stale.index) + upgraded
+}
+
+// Puts back what an Improve reply dropped of the parts the system writes:
+// the footer as the message's closing paragraph, and the greeting when the
+// merge token is gone. gp-api masks both, so a reply normally keeps them and
+// comes back unchanged; one that does not is from a gp-api that predates
+// masking (a deploy where the webapp lands first), and must never reach a
+// send without them. Judged by structure, not phrases: only a separate
+// closing paragraph that opens like a footer is replaced, so a body sentence
+// or paragraph that says "reply STOP" stays, and a reworded greeting that
+// kept the token is the candidate's to keep.
+export const restoreSmsSystemRegions = (
+  reply: string,
+  regions: { greeting: string; footer: string; token: string },
+): string => {
+  let text = reply.trim()
+  if (regions.footer) {
+    // A reply that closes on the exact footer kept it, whatever gap the
+    // model left before it; the gap goes back to the blank line it had.
+    const closes = text.endsWith(regions.footer)
+    const body = closes
+      ? text.slice(0, text.length - regions.footer.length)
+      : // Only a closing paragraph that opens the way a footer does: one that
+        // merely mentions "paid for by" or "reply STOP" is the candidate's.
+        text.replace(/\n\n(?:Paid for by |Reply STOP\b)[^\n]*$/, '')
+    text = `${body.trimEnd()}\n\n${regions.footer}`
+  }
+  if (!text.includes(regions.token)) text = `${regions.greeting} ${text}`
+  return text
+}
+
+// The committee a campaign names before verification has recorded the real
+// one, so the message always shows its "Paid for by" line. Never sent: a
+// campaign cannot schedule a text until it is verified, and verification
+// records the committee, which upgradeScriptFooter then swaps in. The name
+// alone, with no office: an office reads badly in a disclaimer ("Palm Bay
+// City Council - Seat 5"). The same fallback the robocall disclosure uses.
+export const provisionalCommitteeName = (
+  candidateName: string,
+): string | null => candidateName.trim() || null
 
 // Peerly merges {first_name} from the uploaded list CSV — the same token our
 // own 10DLC identity registration samples use ("Hello {first_name}, this is
@@ -50,16 +119,22 @@ export const SMS_GREETING = 'Hello {first_name},'
 // convert here, only an emitted token.
 export const SERVE_SMS_GREETING = 'Hello {{first_name}},'
 
-// One stand-in first name, shared by the compose step's greeting chip and
-// the review step's preview bubble, so both read as the message a
-// constituent receives rather than as a merge token. Display only: the
+// One stand-in first name, shared by the compose step's greeting chip (both
+// surfaces) and Serve's review preview bubble, so they read as the message
+// a recipient receives rather than as a merge token. Display only: the
 // script that goes to fulfilment always carries the literal token.
 export const SERVE_SMS_SAMPLE_FIRST_NAME = 'Sam'
 
 export const withSampleFirstName = (text: string): string =>
   text.replace(/\{\{first_name\}\}/g, SERVE_SMS_SAMPLE_FIRST_NAME)
 
-export const SERVE_SMS_GREETING_PREVIEW = {
+// The chip above the body shows the greeting as the words that open the
+// text, not as a variable name: a candidate who reads "Greeting First
+// Name" writes their own "Hello!" under it, and the script goes to Peerly
+// as "Hello {first_name}, Hello! …" (CAS, 2026-09-29). Both surfaces greet
+// with the same words and differ only in the merge token, so one preview
+// serves both.
+export const SMS_GREETING_PREVIEW = {
   greeting: withSampleFirstName(SERVE_SMS_GREETING),
   caption: 'Each person sees their own first name.',
 }
@@ -131,6 +206,146 @@ export const serveIdentificationIntro = (
     firstName || SERVE_SMS_IDENTIFICATION_FALLBACK.name,
     office || SERVE_SMS_IDENTIFICATION_FALLBACK.office,
   )
+
+// --- Identification guard -------------------------------------------------
+//
+// Every body the product writes or carries in for someone (a deep-link
+// preset, an agent's proposal, an AI draft, an Improve result, a remembered
+// tone draft) must already pass the candidate_name standard when it lands in
+// the composer, or the first thing the official sees is a compliance error
+// on words they did not write. Hand-typed text never goes through this.
+// Shared with the agent cards that hand a text off to the composer, so the
+// two cannot disagree about what "identified" means.
+
+// Placeholders that can only mean the sender's own name. A bare "[Name]" is
+// NOT one of them on its own: polls author "[Name]" for the RECIPIENT, so it
+// is only read as the sender when a self-introduction sits right before it
+// ("this is [Name]") or "here" right after it ("[Name] here").
+const SENDER_NAME_PLACEHOLDER =
+  /\[\s*(?:your|my|candidate(?:['’]s)?|official(?:['’]s)?|sender(?:['’]s)?)\s+(?:first\s+|full\s+)?name\s*\]/gi
+const SELF_INTRO_NAME_PLACEHOLDER =
+  /\b(this\s+is|it['’]s|it\s+is|i['’]m|i\s+am|my\s+name\s+is)\s+\[\s*(?:first\s+|full\s+)?name\s*\]/gi
+const NAME_HERE_PLACEHOLDER =
+  /\[\s*(?:first\s+|full\s+)?name\s*\](?=\s+here\b)/gi
+
+const hasSenderPlaceholder = (text: string): boolean =>
+  [
+    SENDER_NAME_PLACEHOLDER,
+    SELF_INTRO_NAME_PLACEHOLDER,
+    NAME_HERE_PLACEHOLDER,
+  ].some((pattern) => text.search(pattern) !== -1)
+
+const fillSenderPlaceholders = (text: string, firstName: string): string =>
+  firstName
+    ? text
+        .replace(SENDER_NAME_PLACEHOLDER, firstName)
+        .replace(SELF_INTRO_NAME_PLACEHOLDER, `$1 ${firstName}`)
+        .replace(NAME_HERE_PLACEHOLDER, firstName)
+    : text
+
+// The composed message already opens "Hello {first_name},", so a body's own
+// greeting would be a second one. Punctuation is required for a greeting
+// standing alone ("Hey there neighbors" may be the start of a sentence);
+// before a self-introduction it is optional ("Hi this is ...").
+const GREETING_WORDS =
+  '(?:hi|hello|hey|greetings|good\\s+(?:morning|afternoon|evening))\\b(?:\\s+(?:there|neighbou?rs?|friends?|all|everyone|\\{{1,2}first_name\\}{1,2}))?'
+const LONE_GREETING = new RegExp(`^${GREETING_WORDS}\\s*[,!.:—–-]+\\s*`, 'i')
+const GREETING_BEFORE_INTRO = new RegExp(
+  `^${GREETING_WORDS}\\s*[,!.:—–-]*\\s*`,
+  'i',
+)
+
+const SELF_INTRO =
+  /^(?:this\s+is|it['’]s|it\s+is|i['’]m|i\s+am|my\s+name\s+is)\s/i
+const NAME_HERE = /^\S+(?:\s+\S+)?\s+here\b/i
+// An opener that names an institution instead of a person ("this is the
+// Asheville City Council", "this is your city council candidate"). Only the
+// words between the article and the office noun may be capitalized names, so
+// "This is the last day to vote in our city" is not mistaken for one.
+const INSTITUTION_INTRO =
+  /^(?:[Tt]his\s+is|[Mm]y\s+name\s+is)\s+(?:the|your)\s+(?:[A-Z][\w'’.-]*\s+){0,4}(?:[Cc]ity|[Tt]own|[Cc]ounty|[Vv]illage|[Cc]ouncil|[Oo]ffice|[Bb]oard|[Cc]ommission(?:er)?|[Mm]ayor|[Dd]istrict|[Dd]epartment|[Cc]ampaign|[Cc]andidate|[Oo]fficial|[Rr]epresentative|[Tt]rustee|[Ss]upervisor)(?![\w'’])/
+
+const firstSentence = (text: string): string =>
+  text.match(/^[^\n]*?[.!?](?=\s|$)/)?.[0] ?? text.match(/^[^\n]*/)?.[0] ?? ''
+
+const capitalizeFirst = (text: string): string =>
+  text.charAt(0).toUpperCase() + text.slice(1)
+
+export interface SmsIdentificationContext {
+  // The surface's own identification sentence for the current tone: Win's
+  // identificationIntro or Serve's useServeSmsIdentification.
+  intro: string
+  firstName: string
+  // The same names the compose step's candidate_name check matches against.
+  candidateNames: string[]
+}
+
+const identify = (
+  body: string,
+  { intro, firstName, candidateNames }: SmsIdentificationContext,
+  mode: 'ensure' | 'open',
+): string => {
+  const names = candidateNames.map((name) => name.trim()).filter(Boolean)
+  if (body.trim().length === 0) return mode === 'open' ? intro : body
+  if (names.length === 0) {
+    return mode === 'open' ? `${intro} ${body}` : body
+  }
+  const namesSender = (text: string): boolean =>
+    !checkSmsStandards(text, { candidateNames: names }).failures.includes(
+      'candidate_name',
+    )
+  if (mode === 'ensure' && namesSender(body) && !hasSenderPlaceholder(body)) {
+    return body
+  }
+
+  const isOpener = (sentence: string): boolean =>
+    sentence.length <= 160 &&
+    (SELF_INTRO.test(sentence) || NAME_HERE.test(sentence)) &&
+    (hasSenderPlaceholder(sentence) ||
+      namesSender(sentence) ||
+      INSTITUTION_INTRO.test(sentence))
+
+  // Drop every self-introduction the body opens with, including one sitting
+  // under an intro an earlier pass already prepended, so the result carries
+  // exactly one.
+  let rest = body.trim()
+  let replacedOpener = false
+  for (;;) {
+    const greeting = rest.match(GREETING_BEFORE_INTRO)?.[0] ?? ''
+    const afterGreeting = rest.slice(greeting.length)
+    const sentence = firstSentence(afterGreeting)
+    if (!sentence || !isOpener(sentence)) break
+    rest = afterGreeting.slice(sentence.length).trimStart()
+    replacedOpener = true
+  }
+  const ungreeted = rest.replace(LONE_GREETING, '')
+  const trimmedStart = replacedOpener || ungreeted !== rest
+  rest = fillSenderPlaceholders(ungreeted, firstName).trim()
+
+  if (mode === 'ensure' && !replacedOpener && namesSender(rest)) return rest
+  if (!rest) return intro
+  return `${intro} ${trimmedStart ? capitalizeFirst(rest) : rest}`
+}
+
+// For a body that may already be fine: returned untouched when it names the
+// sender with no placeholder, repaired otherwise.
+export const ensureSmsIdentification = (
+  body: string,
+  context: SmsIdentificationContext,
+): string => identify(body, context, 'ensure')
+
+// For a fresh AI draft, which must open on the surface's own intro: any
+// introduction the model wrote is replaced rather than kept beneath it.
+export const openWithSmsIdentification = (
+  body: string,
+  context: SmsIdentificationContext,
+): string => identify(body, context, 'open')
+
+// Square brackets a draft left for the sender to fill in ("[Date]",
+// "[time]"). Shown on the compose step so nothing goes out with one.
+export const unfilledBrackets = (body: string): string[] => [
+  ...new Set(body.match(/\[[^\]\n]+\]/g) ?? []),
+]
 
 // The submitted script is the concatenation of the system regions around
 // the user's message (which opens with the identification) — the backend

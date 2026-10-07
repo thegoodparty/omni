@@ -5,6 +5,7 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  ChatScope,
   Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
@@ -21,11 +22,10 @@ import {
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import {
+  ATTACHMENT_SCOPES,
   ChatAttachmentsService,
-  SERVE_CHAT_ATTACHMENTS_FLAG,
 } from './chatAttachments.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -95,6 +95,10 @@ export interface StreamArgs {
   // Subset of attachment IDs the client wants injected on this turn. When
   // omitted all ready attachments for the conversation are injected.
   attachmentIds?: string[]
+  // The caller's chat scope. Attachments are injected only for a scope in
+  // ATTACHMENT_SCOPES, and the AttachedDocumentQueried analytics event needs
+  // it to attribute a citation to the right product (Win vs Serve).
+  scope?: ChatScope
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -130,10 +134,38 @@ const RETRYABLE: Record<ChatStreamErrorCode, boolean> = {
 // Tool args arrive typed as `unknown` from the AI SDK, but they are JSON by
 // construction (the model produced them against the tool's JSON schema), so
 // persisting them as the segment payload is safe.
-const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
+export const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
   if (value === null || value === undefined) return null
 
   return value as Prisma.InputJsonValue
+}
+
+// What an assistant turn persists, or nothing. Separate from the method that
+// writes it so a row can be built in this shape without the ability to write
+// one into an arbitrary conversation — this is the one write in the chat
+// stack with no ownership check on it.
+//
+// Persist the structure when the turn used a tool or citation: a pure-text
+// turn renders identically from `content`, so storing a single text segment
+// would be wasted rows. A widget-only turn (tool calls, no text) persists
+// only with `allowToolOnly`, on a clean finish, so the widget replays;
+// otherwise a zero-text turn is dropped and the caller writes the interrupted
+// sentinel instead.
+export const assistantRowToPersist = (
+  text: string,
+  segments?: PersistedSegment[],
+  allowToolOnly = false,
+): { content: string; segments?: PersistedSegment[] } | null => {
+  const usedTool = segments?.some((s) => s.kind === ChatMessageSegmentKind.tool)
+  const hasCitation = segments?.some(
+    (s) => s.kind === ChatMessageSegmentKind.citation,
+  )
+  const hasStructured = usedTool || hasCitation
+  if (text.length === 0 && !(allowToolOnly && usedTool)) return null
+  return {
+    content: text,
+    ...(hasStructured && segments ? { segments } : {}),
+  }
 }
 
 const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
@@ -382,7 +414,6 @@ export class ChatStreamService {
     @Optional() private readonly braintrust?: BraintrustService,
     @Optional() private readonly chatAttachments?: ChatAttachmentsService,
     @Optional() private readonly s3?: S3Service,
-    @Optional() private readonly features?: FeaturesService,
     @Optional() private readonly analytics?: AnalyticsService,
   ) {
     this.logger.setContext(ChatStreamService.name)
@@ -396,18 +427,14 @@ export class ChatStreamService {
 
   private async loadAttachmentBlocks(
     conversationId: string,
-    ownerUserId: number,
+    scope?: ChatScope,
     attachmentIds?: string[],
   ): Promise<{
     fileParts: LlmFilePart[]
     attachments: AttachedDocMeta[]
   } | null> {
-    if (!this.chatAttachments || !this.s3 || !this.features) return null
-    const enabled = await this.features.isFeatureEnabled({
-      user: ownerUserId,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) return null
+    if (!this.chatAttachments || !this.s3) return null
+    if (!scope || !ATTACHMENT_SCOPES.has(scope)) return null
 
     const rows = await this.chatAttachments.model.findMany({
       where: {
@@ -470,6 +497,8 @@ export class ChatStreamService {
           data: new Uint8Array(bytes),
           mediaType: row.mimeType,
           filename: row.id,
+          // Images can't carry citations; only PDF document blocks do.
+          ...(isPdf && { citationsEnabled: true }),
         })
       } else {
         const text = row.extractedText
@@ -512,7 +541,7 @@ export class ChatStreamService {
 
     const attachmentResult = await this.loadAttachmentBlocks(
       args.conversationId,
-      args.ownerUserId,
+      args.scope,
       args.attachmentIds,
     )
 
@@ -855,7 +884,11 @@ export class ChatStreamService {
               .track(
                 args.ownerUserId,
                 EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-                { documentId: firstAttachmentId, turnIndex },
+                {
+                  documentId: firstAttachmentId,
+                  turnIndex,
+                  ...(args.scope && { scope: args.scope }),
+                },
               )
               .catch((err: unknown) => {
                 this.logger.error(
@@ -947,25 +980,12 @@ export class ChatStreamService {
     segments?: PersistedSegment[],
     allowToolOnly = false,
   ): Promise<ChatMessage | null> {
-    // Persist the structure when the turn used a tool or citation — a
-    // pure-text turn renders identically from `content`, so storing a single
-    // text segment would be wasted rows.
-    const usedTool = segments?.some(
-      (s) => s.kind === ChatMessageSegmentKind.tool,
-    )
-    const hasCitation = segments?.some(
-      (s) => s.kind === ChatMessageSegmentKind.citation,
-    )
-    const hasStructured = usedTool || hasCitation
-    // A widget-only turn (tool calls, no text) still persists on a clean finish
-    // so the widget replays; without `allowToolOnly` a zero-text turn is
-    // dropped (the caller writes the interrupted sentinel instead).
-    if (text.length === 0 && !(allowToolOnly && usedTool)) return null
+    const row = assistantRowToPersist(text, segments, allowToolOnly)
+    if (!row) return null
     return this.store.appendMessage({
       conversationId,
       role: ChatMessageRole.assistant,
-      content: text,
-      ...(hasStructured && segments ? { segments } : {}),
+      ...row,
     })
   }
 }

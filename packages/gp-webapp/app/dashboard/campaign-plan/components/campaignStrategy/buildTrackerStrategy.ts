@@ -50,6 +50,7 @@ const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   robocall: 'robocall',
   doorKnocking: 'doorKnocking',
   phoneBanking: 'phoneBanking',
+  socialMedia: 'socialMedia',
   events: 'event',
   awareness: 'awareness',
 }
@@ -67,7 +68,10 @@ const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
   date: row.date,
   param: null,
   href: row.link,
-  hrefLabel: row.link ? 'Open' : null,
+  // A row that carries its own CTA wins: the story task's "Add your story"
+  // has to match the card pinned above the rail, and the manager's task list
+  // already prefers `cta` the same way. Everything else falls back to "Open".
+  hrefLabel: row.link ? row.cta?.trim() || 'Open' : null,
   priorityTier: 'P2',
   proRequired: row.proRequired ?? false,
   status: 'live',

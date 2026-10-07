@@ -19,12 +19,13 @@ const buildDeps = (over: {
   voterFileFilters?: Partial<ToolDeps['voterFileFilters']>
   countContacts?: ToolDeps['contacts']['countContacts']
   countSegment?: ToolDeps['contacts']['countSegment']
+  drawListSample?: ToolDeps['contacts']['drawListSample']
 }): ToolDeps => ({
   voterFileFilters: {
     create: vi.fn(),
     updateByIdAndOrganizationSlug: vi.fn(),
     deleteByIdAndOrganizationSlug: vi.fn(),
-    findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
+    findUsableByOrganizationSlug: vi.fn(() => Promise.resolve([])),
     findByIdAndOrganizationSlug: vi.fn(() => Promise.resolve(null)),
     filterAccessCheck: vi.fn(() => Promise.resolve()),
     ...over.voterFileFilters,
@@ -32,6 +33,7 @@ const buildDeps = (over: {
   contacts: {
     countContacts: over.countContacts ?? vi.fn(),
     countSegment: over.countSegment ?? vi.fn(),
+    drawListSample: over.drawListSample ?? vi.fn(),
   },
   organization: ORGANIZATION,
 })
@@ -91,22 +93,28 @@ describe('crud_saved_filters input schema', () => {
 })
 
 describe('crud_saved_filters execute', () => {
-  it('list returns only { id, name } pairs', async () => {
+  it('list returns { id, name, hasBoundary } and no geometry', async () => {
     const { tool } = buildTool({
       voterFileFilters: {
-        findByOrganizationSlug: vi.fn(() =>
+        findUsableByOrganizationSlug: vi.fn(() =>
           Promise.resolve([
-            { id: 1, name: 'Supporters', partyDemocrat: true },
-            { id: 2, name: null, genderFemale: true },
+            {
+              id: 1,
+              name: 'Supporters',
+              partyDemocrat: true,
+              geoPoly: { type: 'Polygon', coordinates: [[]] },
+            },
+            { id: 2, name: null, genderFemale: true, geoPoly: null },
           ]),
         ) as never,
       },
     })
     const result = await tool.execute({ action: 'list' })
+    // Whether a shape is on the list, never where it is.
     expect(result).toEqual({
       filters: [
-        { id: 1, name: 'Supporters' },
-        { id: 2, name: null },
+        { id: 1, name: 'Supporters', hasBoundary: true },
+        { id: 2, name: null, hasBoundary: false },
       ],
     })
   })
@@ -171,20 +179,97 @@ describe('crud_saved_filters execute', () => {
     expect(result).toEqual({
       id: 9,
       name: 'Persisted name',
+      hasBoundary: false,
       count: 321,
     })
     expect(countContacts).toHaveBeenCalledWith(
       { age18_25: true, supportStatus: ['supporter'] },
       ORGANIZATION,
     )
-    expect(create).toHaveBeenCalledWith(ORGANIZATION.slug, {
-      age18_25: true,
-      supportStatus: ['supporter'],
-      name: 'Young supporters',
-    })
+    expect(create).toHaveBeenCalledWith(
+      ORGANIZATION.slug,
+      {
+        age18_25: true,
+        supportStatus: ['supporter'],
+        name: 'Young supporters',
+      },
+      null,
+      null,
+    )
     expect(countContacts.mock.invocationCallOrder[0]).toBeLessThan(
       create.mock.invocationCallOrder[0] ?? 0,
     )
+  })
+
+  it('create with a sample saves the draw and returns its size', async () => {
+    const drawListSample = vi.fn(() => Promise.resolve(['p1', 'p2', 'p3']))
+    const create = vi.fn(() => Promise.resolve({ id: 9, name: 'Bike lanes' }))
+    const { tool } = buildTool({
+      countContacts: vi.fn(() => Promise.resolve({ count: 53_000 })),
+      drawListSample,
+      voterFileFilters: { create: create as never },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({
+        action: 'create',
+        name: 'Bike lanes',
+        hasCellPhone: true,
+        sample: { size: 3 },
+      }),
+    )
+    expect(result).toEqual({
+      id: 9,
+      name: 'Bike lanes',
+      hasBoundary: false,
+      count: 3,
+    })
+    expect(drawListSample).toHaveBeenCalledWith(
+      ORGANIZATION,
+      { hasCellPhone: true },
+      { size: 3 },
+    )
+    expect(create).toHaveBeenCalledWith(
+      ORGANIZATION.slug,
+      { hasCellPhone: true, name: 'Bike lanes', sample: { size: 3 } },
+      null,
+      ['p1', 'p2', 'p3'],
+    )
+  })
+
+  it('create with a sample no smaller than the audience saves it whole', async () => {
+    const create = vi.fn(() => Promise.resolve({ id: 9, name: 'Small' }))
+    const { tool } = buildTool({
+      countContacts: vi.fn(() => Promise.resolve({ count: 40 })),
+      drawListSample: vi.fn(() => Promise.resolve(null)),
+      voterFileFilters: { create: create as never },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({
+        action: 'create',
+        name: 'Small',
+        sample: { size: 2_767 },
+      }),
+    )
+    expect(result).toMatchObject({ count: 40 })
+    expect(create).toHaveBeenCalledWith(
+      ORGANIZATION.slug,
+      { name: 'Small', sample: { size: 2_767 } },
+      null,
+      null,
+    )
+  })
+
+  it('refuses a sample on anything but create', async () => {
+    const { tool } = buildTool()
+    expect(
+      await tool.execute(
+        tool.inputSchema.parse({
+          action: 'update',
+          id: 9,
+          sample: { size: 10 },
+        }),
+      ),
+    ).toEqual({ error: 'sample applies to create only' })
   })
 
   it("surfaces the route's non-Pro create rejection without persisting", async () => {

@@ -1,6 +1,6 @@
 enum OutreachType {
   text
-  // Legacy: draft/intent rows from the old CSV/eCanvasser flow (all pending).
+  // Legacy: draft/intent rows from the old CSV-import flow (all pending).
   doorKnocking
   // Native: one envelope row per generated door_knocking_route
   // (see doorKnockingRouteId) so routes appear in the unified outreach list.
@@ -42,6 +42,12 @@ model Outreach {
   // The priority this outreach belongs to, when it came out of one.
   priorityId                        String?                            @map("priority_id")
   priority                          Priority?                          @relation(fields: [priorityId], references: [id], onDelete: SetNull)
+  // The check on that priority this outreach puts out: a gate step id and
+  // 'main' | 'contrast' (contracts PriorityCheckSide), validated on write.
+  // Kept on the row because a text only goes out once it is paid for, long
+  // after the create that carried them.
+  priorityStepId                    String?                            @map("priority_step_id")
+  priorityCheckSide                 String?                            @map("priority_check_side")
   createdAt                         DateTime                           @default(now())
   updatedAt                         DateTime                           @updatedAt
   // Nullable so a Serve elected-office org (no campaign row) can persist an
@@ -105,6 +111,12 @@ model Outreach {
   // finalize. Cancel-before-send resolves its payment intent for the
   // automatic refund; free-texts redemptions never set it.
   stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
+  // The zero-amount fulfillment that funded this outreach: the synthetic
+  // free_confirmed_* marker completeFreePurchase mints. Recorded so a
+  // granted free send is a positive fact rather than the absence of a
+  // Stripe session — the approval gate cannot tell "free" from "never
+  // purchased" otherwise.
+  freePurchaseSessionId             String?                            @map("free_purchase_session_id")
   // CAS approval gate (SMS console): a scheduled p2p send stays dormant at
   // the vendor until an admin approval requests canvassers. All nullable —
   // pre-console rows and non-SMS channels never carry them.
@@ -157,6 +169,9 @@ model Outreach {
   contactInteractionRobocalls       ContactInteractionRobocall[]
   voterFileFilterActivityConditions VoterFileFilterActivityCondition[]
   assignments                       OutreachAssignment[]
+  constituentFeedback               ConstituentFeedback[]
+  feedbackSynthesisRuns             FeedbackSynthesisRun[]
+  contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
 
   @@index([campaignId])
   @@index([organizationSlug])

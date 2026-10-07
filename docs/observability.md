@@ -122,7 +122,7 @@ widening the metric query.
 Every log line gp-api and election-api write passes through `redactLine`
 (`packages/nest-common/src/observability/log-redaction.ts`), wired in as pino's
 `hooks.streamWrite`. It scrubs the literal values of the env vars named in
-`SECRET_NAMES`, sensitive query parameters, connection-string passwords, and
+`SECRETS_MANAGER_KEYS`, sensitive query parameters, connection-string passwords, and
 `Authorization` credentials for any scheme — in the raw header form
 (`Authorization: Bearer x`), in the JSON-serialized header bag pino emits for an
 Axios error (`"Authorization":"JWT x"`), and in the escaped form a caller

@@ -8,9 +8,7 @@ This module is also the server home of **Team accounts** (feature brief
 ClickUp 86ajk6225; TDD doc `2ky4jq2q-104653`, implementation notes
 `2ky4jq2q-104673`): Phase 1 (ENG-10816) shipped owner + campaignAdmin,
 Phase 1.5 (ENG-11044) the volunteer role and outreach assignments, and
-Phase 2 (ENG-11074) per-member results roll-ups — all
-behind the single `win-team-accounts` flag (no separate volunteer flag;
-ramping it is a deliberate product act, never implied by a merge). Webapp
+Phase 2 (ENG-11074) per-member results roll-ups. Webapp
 counterparts: `app/dashboard/team/` (team page — has its own `AGENTS.md`),
 `app/team-invite/` (acceptance screen), `app/volunteer/` (the reductive
 volunteer shell), `app/dashboard/outreach/` (assign UI).
@@ -67,7 +65,7 @@ via a Clerk invitation). No other code path may create one.
 | ------ | ---------------------- | ------------------------------------- |
 | GET    | `team`                 | `@UseOrganization()`                  |
 | GET    | `team/stats`           | `@UseOrganization()`                  |
-| POST   | `team/invites`         | `@UseOrganization()` + flag gate      |
+| POST   | `team/invites`         | `@UseOrganization()`                  |
 | DELETE | `team/invites/:id`     | `@UseOrganization()`                  |
 | GET    | `team/invites/mine`    | session only, NOT org-scoped          |
 | POST   | `team/invites/accept`  | session only, NOT org-scoped          |
@@ -82,13 +80,6 @@ the analytics event, and the HubSpot removal sync are all the same code
 path. Declared before `members/:userId` so `me` never reaches the
 ParseIntPipe.
 
-**Flag gate is scoped to one route.** `win-team-accounts` (via
-`FeaturesService.isFeatureEnabled`) gates only `POST team/invites` — the
-only route that can create a membership row for a brand-new team. Every
-other route is left ungated on purpose: without any membership rows the
-flag being off makes them inert, and gating `accept` would strand an
-in-flight invitee if the flag ramps back down after an invite went out.
-
 **`GET team/stats` is the Phase 2 per-member roll-up (ENG-11074).**
 `TeamStatsService` (`services/teamStats.service.ts`) returns
 `{ userId, doorsKnocked, callsMade, totalLogged, lastActivityAt }` per
@@ -97,9 +88,8 @@ CURRENT member (owner + membership rows, zero-filled) from two
 `ContactInteractionPhoneBanking` (`actorUserId: { not: null }`, both tables
 indexed on `(organizationSlug, actorUserId)`). `lastActivityAt` is max
 `occurredAt` — when the work happened, not when it synced. It never calls
-Clerk (the invite-paging 502 lesson lives on `listTeam` alone), carries no
-name/email/role (the webapp joins by `userId` against `GET team`), and is
-deliberately not flag-gated (additive read reachable only from gated UI).
+Clerk (the invite-paging 502 lesson lives on `listTeam` alone), and carries
+no name/email/role (the webapp joins by `userId` against `GET team`).
 Work logged by a since-removed member is invisible by design — their rows
 keep `actorUserId` but no membership row means no output row (open product
 question, tracked on the epic).
@@ -107,11 +97,10 @@ question, tracked on the epic).
 **Team accounts are Win-only in Phase 1.** Serve staff accounts are an
 explicit non-goal — every elected-office surface stays owner-only via
 `UseElectedOfficeGuard`. `createInvite` rejects an `eo-` organization slug
-with a 400 before the flag check, since a membership row on an eo- org
-would half-work (org-scoped routes would admit the member, but no Serve
-surface actually checks for anything but ownership). This is the only
-enforcement point because invite is the only route that can create a
-membership row.
+with a 400, since a membership row on an eo- org would half-work
+(org-scoped routes would admit the member, but no Serve surface actually
+checks for anything but ownership). This is the only enforcement point
+because invite is the only route that can create a membership row.
 
 **Invite and revoke are manager+, not owner-only.** "A manager can invite
 other managers" is a stated ENG-10816 goal, so neither `createInvite` nor
@@ -325,3 +314,24 @@ in `organizations.controller.ts`) previously 500'd the _whole list_ on a
 null external-sourced leaf under `@ResponseSchema` — keep new/changed leaves
 nullable, and remember `@ResponseSchema` silently no-ops without the
 per-controller `@UseInterceptors(ZodResponseInterceptor)`.
+
+## Who can set `overrideDistrictId`
+
+`Organization.overrideDistrictId` names a people-db district and, where it is
+set, it is the only scope every district-derived metric and contact lookup for
+that org reads from (`src/campaigns/AGENTS.md` has the metric-by-metric
+breakdown). It is therefore staff-set, never caller-supplied, and no write
+path takes the id off a user session's request body:
+
+- `PATCH /v1/organizations/admin/:slug` (`AdminOrM2MGuard`) takes a raw id via
+  `AdminPatchOrganizationDto`.
+- `PUT /v1/elected-office/:id/district` (`M2MOnly`) takes a state + L2 district
+  name and resolves the id server-side via `resolveOverrideDistrictId`.
+- `POST /v1/elected-office` (user session) does **not** accept it. When the
+  request carries an `X-Organization-Slug` the new `eo-` org inherits whatever
+  the existing org already holds; with no organization context it is created
+  null. The self-service `PATCH /v1/organizations/:slug` leaves it out of
+  `PatchOrganizationDto` for the same reason.
+
+Adding a write path means resolving the id from something the caller is already
+entitled to, not accepting one.

@@ -2,16 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { api } from 'helpers/test-utils/api-mocking'
 import {
   createP2pPhoneList,
-  getP2pPhoneListStatus,
+  getP2pPhoneListBuildStatus,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import type { TcrCompliance } from 'helpers/types'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
 } from './smsCompose.util'
 
@@ -45,8 +46,13 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // would otherwise fail for the wrong reason, and the point is to assert they
 // were never reached at all.
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 1200,
     excludedOptedOutCount: 3,
@@ -137,7 +143,9 @@ const attachImage = async () => {
   await userEvent.upload(input, file)
 }
 
-const openServeFlow = () => {
+const openServeFlow = (
+  extra: Partial<React.ComponentProps<typeof SmsFlow>> = {},
+) => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
@@ -145,6 +153,8 @@ const openServeFlow = () => {
       onClose={vi.fn()}
       onScheduled={onScheduled}
       surface={SERVE_SMS_SURFACE}
+      source="outreach_page"
+      {...extra}
     />,
   )
   return { onScheduled }
@@ -179,7 +189,7 @@ describe('SmsFlow serve send path', () => {
     createCheckoutSession.mockClear()
     uploadFileToS3.mockClear()
     vi.mocked(createP2pPhoneList).mockClear()
-    vi.mocked(getP2pPhoneListStatus).mockClear()
+    vi.mocked(getP2pPhoneListBuildStatus).mockClear()
     vi.mocked(createOutreach).mockClear()
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
@@ -270,7 +280,7 @@ describe('SmsFlow serve send path', () => {
     // identity to send under, so the phone-list derivation must never run —
     // on the audience step, on the name step, or anywhere else.
     expect(createP2pPhoneList).not.toHaveBeenCalled()
-    expect(getP2pPhoneListStatus).not.toHaveBeenCalled()
+    expect(getP2pPhoneListBuildStatus).not.toHaveBeenCalled()
     // Win's campaign-scoped draft create likewise.
     expect(createOutreach).not.toHaveBeenCalled()
   })
@@ -380,12 +390,54 @@ describe('SmsFlow serve send path', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
-    expect(
-      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
-    ).toBeInTheDocument()
+    expect(screen.getByText(SMS_GREETING_PREVIEW.caption)).toBeInTheDocument()
 
     // Display-only: nothing re-sent, and the payload above is unchanged.
     expect(bodies).toHaveLength(1)
+  })
+
+  // The tracker origin is the join key between a campaign-tracker task and
+  // the outreach it produced. Serve has no tracker deep link into SMS yet, so
+  // nothing exercises this in the app — which is exactly why it needs a test:
+  // the prop existed on SmsFlow and simply was not threaded into the Serve
+  // hook, and that is invisible until the hub wires one up.
+  it('carries a tracker origin onto the Serve campaign created event', async () => {
+    api.mock('POST /v1/outreach/serve/sms', {
+      status: 200,
+      data: {
+        outreachId: 91,
+        recipientCount: 1180,
+        excludedOptedOutCount: 0,
+        excludedDuplicateCount: 0,
+      },
+    })
+    // The module-level mock accumulates across this file's tests.
+    vi.mocked(trackEvent).mockClear()
+    openServeFlow({ tracker: { trackerTaskId: 'task_42', phase: 'gotv' } })
+    await runServeToReview()
+
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCreated,
+          ),
+      ).toHaveLength(1),
+    )
+    const [, props] = vi
+      .mocked(trackEvent)
+      .mock.calls.find(
+        ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCreated,
+      )!
+    // Both halves or neither — a phase with no task names nothing joinable.
+    expect(props).toMatchObject({
+      medium: 'text',
+      product: 'serve',
+      trackerTaskId: 'task_42',
+      phase: 'gotv',
+      audienceSource: 'savedList',
+    })
   })
 
   it('checks out as SERVE_TEXT', async () => {
@@ -448,18 +500,23 @@ describe('SmsFlow serve send path', () => {
     // "City Council - District 3" -> "City Council Member": the district
     // suffix is dropped and the noun is made a person, by polls' own
     // grammarizeOfficeName rather than by anything re-derived here.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, your City Council Member\./),
+    )
     expect(
-      await screen.findByText(/this is Jane, your City Council Member\./),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/candidate for/)).toBeNull()
-    expect(screen.queryByText(/District 3/)).toBeNull()
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).not.toHaveTextContent(/candidate for|District 3/)
 
     // A second tone, to prove the wiring is tone-keyed and not a constant.
     // (All four are pinned in smsCompose.util.test.ts.)
     await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
-    expect(
-      await screen.findByText(/Jane here, your City Council Member\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/Jane here, your City Council Member\./),
+    )
   })
 })
 
@@ -526,6 +583,7 @@ describe('SmsFlow win send path (unchanged)', () => {
   it('still derives a phone list, creates via createOutreach, and checks out as TEXT', async () => {
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -543,9 +601,11 @@ describe('SmsFlow win send path (unchanged)', () => {
     await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(/this is Jane, candidate for City Council\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+    )
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),

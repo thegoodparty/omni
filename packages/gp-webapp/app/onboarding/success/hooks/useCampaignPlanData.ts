@@ -115,6 +115,7 @@ export const useCampaignPlanData = (
   const projectedTurnoutUpper = metrics?.projectedTurnoutUpper ?? null
   const winNumberLower = metrics?.winNumberLower ?? null
   const winNumberUpper = metrics?.winNumberUpper ?? null
+  const numberOfSeats = metrics?.numberOfSeats ?? null
   const raceCandidatesRef = metrics?.candidates
   const milestonesRef = metrics?.milestones ?? null
   // 30-90s first generation, instant on cache hit. Hook returns
@@ -248,6 +249,7 @@ export const useCampaignPlanData = (
       projectedTurnoutUpper,
       winNumberLower,
       winNumberUpper,
+      numberOfSeats,
       raceCandidates: raceCandidatesRef ?? [],
       milestones: milestonesRef,
       strategicLandscape: strategy.data,
@@ -281,6 +283,7 @@ export const useCampaignPlanData = (
     projectedTurnoutUpper,
     winNumberLower,
     winNumberUpper,
+    numberOfSeats,
     raceCandidatesRef,
     milestonesRef,
     strategy.data,

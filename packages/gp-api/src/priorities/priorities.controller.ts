@@ -12,12 +12,7 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import {
-  Priority as PriorityDto,
-  PrioritySchema,
-  parsePriorityStatus,
-} from '@goodparty_org/contracts'
-import { parseISO } from 'date-fns'
+import { PrioritySchema, parsePriorityStatus } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.decorator'
@@ -25,8 +20,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { z } from 'zod'
-import { ElectedOffice, Priority, PrioritySource } from '../generated/prisma'
-import { toDateOnlyString } from 'src/shared/util/date.util'
+import { ElectedOffice, PrioritySource } from '../generated/prisma'
 import {
   CreatePriorityDto,
   PriorityIdParamDto,
@@ -34,20 +28,7 @@ import {
 } from './schemas/priority.schema'
 import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
 import { PrioritiesService } from './services/priorities.service'
-
-const toApi = (record: Priority): PriorityDto => ({
-  id: record.id,
-  electedOfficeId: record.electedOfficeId,
-  title: record.title,
-  description: record.description,
-  source: record.source,
-  sourceCampaignPositionId: record.sourceCampaignPositionId,
-  targetDate: toDateOnlyString(record.targetDate) ?? null,
-  currentStep: record.currentStep,
-  nextAction: record.nextAction,
-  createdAt: record.createdAt.toISOString(),
-  updatedAt: record.updatedAt.toISOString(),
-})
+import { priorityToApi } from './util/priority.util'
 
 @Controller('priorities')
 @UsePipes(ZodValidationPipe)
@@ -61,7 +42,7 @@ export class PrioritiesController {
   @ResponseSchema(z.array(PrioritySchema))
   async list(@ReqElectedOffice() electedOffice: ElectedOffice) {
     const priorities = await this.prioritiesService.listActive(electedOffice.id)
-    return priorities.map(toApi)
+    return priorities.map(priorityToApi)
   }
 
   @Get(':id/status')
@@ -95,7 +76,7 @@ export class PrioritiesController {
     if (!priority) {
       throw new NotFoundException('Priority not found')
     }
-    return toApi(priority)
+    return priorityToApi(priority)
   }
 
   @Post()
@@ -106,14 +87,10 @@ export class PrioritiesController {
   ) {
     const created = await this.prioritiesService.create(
       electedOffice.id,
-      {
-        title: body.title,
-        description: body.description,
-        targetDate: body.targetDate ? parseISO(body.targetDate) : null,
-      },
+      { title: body.title, description: body.description },
       PrioritySource.user_stated,
     )
-    return toApi(created)
+    return priorityToApi(created)
   }
 
   @Put(':id')
@@ -126,17 +103,11 @@ export class PrioritiesController {
     const updated = await this.prioritiesService.update(id, electedOffice.id, {
       title: body.title,
       description: body.description,
-      targetDate:
-        body.targetDate === undefined
-          ? undefined
-          : body.targetDate
-            ? parseISO(body.targetDate)
-            : null,
     })
     if (!updated) {
       throw new NotFoundException('Priority not found')
     }
-    return toApi(updated)
+    return priorityToApi(updated)
   }
 
   @Delete(':id')

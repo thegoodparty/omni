@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { CampaignStoryRewriteService } from '@/campaignStory/services/campaignStoryRewrite.service'
+import {
+  CampaignStoryStateService,
+  type StoryState,
+} from '@/campaignStory/services/campaignStoryState.service'
 import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteCampaignStory.schema'
 import type {
   StrategicLandscapeFailedReason,
@@ -10,26 +14,11 @@ import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStr
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { WebsitesService } from '@/websites/services/websites.service'
 import { isPrismaError } from '@/prisma/util/prismaErrors.util'
+import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 
 export interface StoryPosition {
   title: string
   description: string
-}
-
-export type StoryField = 'why' | 'background' | 'positions'
-
-// The three Campaign Story answers, sourced exactly as the story page sources
-// them: `why` is the website bio, `background` is the campaign_story field, and
-// `positions` are the website issues. `missing` mirrors the story page's
-// completeness gate (why + background + at least one position).
-export interface StoryState {
-  why: string | null
-  background: string | null
-  // Read from the website issues, a lenient PrismaJson shape (entries may be
-  // partial). Saves use the strict StoryPosition.
-  positions: { title?: string; description?: string }[]
-  complete: boolean
-  missing: StoryField[]
 }
 
 type WebsiteAbout = NonNullable<PrismaJson.WebsiteContent['about']>
@@ -43,10 +32,12 @@ type WebsiteAbout = NonNullable<PrismaJson.WebsiteContent['about']>
 export class CampaignStoryIntakeService {
   constructor(
     private readonly stories: CampaignStoryService,
+    private readonly storyState: CampaignStoryStateService,
     private readonly rewrites: CampaignStoryRewriteService,
     private readonly websites: WebsitesService,
     private readonly strategy: CampaignStrategyService,
     private readonly campaigns: CampaignsService,
+    private readonly storyCompleted: CampaignStoryCompletedProducer,
   ) {}
 
   // Serializes website-content writes per campaign within this process. Two
@@ -57,23 +48,8 @@ export class CampaignStoryIntakeService {
   // is enough: the second write sees the first's result.
   private readonly aboutWrites = new Map<number, Promise<void>>()
 
-  async read(campaignId: number): Promise<StoryState> {
-    const [story, why, positions] = await Promise.all([
-      this.stories.getForCampaign(campaignId),
-      this.websites.getBioForCampaign(campaignId),
-      this.websites.getIssuesForCampaign(campaignId),
-    ])
-    const missing: StoryField[] = []
-    if (!why?.trim()) missing.push('why')
-    if (!story.background?.trim()) missing.push('background')
-    if (positions.length === 0) missing.push('positions')
-    return {
-      why,
-      background: story.background,
-      positions,
-      complete: missing.length === 0,
-      missing,
-    }
+  read(campaignId: number): Promise<StoryState> {
+    return this.storyState.read(campaignId)
   }
 
   saveBackground(campaignId: number, text: string): Promise<unknown> {
@@ -152,6 +128,9 @@ export class CampaignStoryIntakeService {
       where: { campaignId },
       data: { content: nextContent },
     })
+    // The why and positions are two of the three story answers, so this write
+    // may have just completed the story and made the campaign plan stale.
+    await this.storyCompleted.announce(campaignId)
   }
 
   // The existing story page's "Help me rewrite": expand a rough answer via

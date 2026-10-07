@@ -15,6 +15,9 @@ export interface PastOutreachRow {
   recipients: number | null
   sentOn: string | null
   replies: number
+  // Replies over recipients, so a sample is sized on what this office's
+  // texts actually bring back. Null until something has gone out.
+  replyRate: number | null
 }
 
 // One resolved line per card this thread has already left. Built fresh on
@@ -48,19 +51,47 @@ export class PriorityFlowOutreachService extends createPrismaBase(
 
   async forOffice(
     organizationSlug: string,
-    priorityId: string,
+    priorityId: string | null,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
       where: {
         organizationSlug,
-        priorityId: { not: priorityId },
+        // `not` alone compiles to SQL `<>`, which drops every NULL row. Nearly
+        // all outreach has no priority, so that silently emptied the list.
+        ...(priorityId === null
+          ? {}
+          : {
+              OR: [{ priorityId: { not: priorityId } }, { priorityId: null }],
+            }),
         ...(channel === undefined ? {} : { outreachType: channel }),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
     return this.withReplyCounts(rows, 'office')
+  }
+
+  // Whether every one of these sends put out this side of this priority's
+  // check. Only then is a proposal for that side a wider sample of the same
+  // ask rather than the same people asked twice.
+  async allPutOutCheck(
+    priorityId: string,
+    stepId: string,
+    side: string,
+    outreachIds: number[],
+  ): Promise<boolean> {
+    const ids = [...new Set(outreachIds)]
+    if (ids.length === 0) return false
+    const matching = await this.count({
+      where: {
+        id: { in: ids },
+        priorityId,
+        priorityStepId: stepId,
+        priorityCheckSide: side,
+      },
+    })
+    return matching === ids.length
   }
 
   async summarizeAnchors(priorityId: string): Promise<PriorityAnchorSummary[]> {
@@ -95,15 +126,23 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     const repliesById = new Map(
       replies.map((group) => [group.outreachId, group._count._all]),
     )
-    return rows.map((row) => ({
-      outreachId: row.id,
-      scope,
-      audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
-      channel: row.outreachType,
-      status: row.status,
-      recipients: row.textCount ?? row.billableTextCount,
-      sentOn: row.date === null ? null : format(row.date, 'd MMM'),
-      replies: repliesById.get(row.id) ?? 0,
-    }))
+    return rows.map((row) => {
+      const recipients = row.textCount ?? row.billableTextCount
+      const replies = repliesById.get(row.id) ?? 0
+      return {
+        outreachId: row.id,
+        scope,
+        audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
+        channel: row.outreachType,
+        status: row.status,
+        recipients,
+        sentOn: row.date === null ? null : format(row.date, 'd MMM'),
+        replies,
+        replyRate:
+          recipients === null || recipients === 0
+            ? null
+            : Math.round((replies / recipients) * 1000) / 1000,
+      }
+    })
   }
 }

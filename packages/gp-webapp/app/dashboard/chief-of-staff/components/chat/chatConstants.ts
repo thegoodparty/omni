@@ -1,3 +1,4 @@
+import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
  * conversation exists). These are display-only — they are not persisted and
@@ -13,6 +14,13 @@ export const COS_INTRO_MESSAGES: string[] = [
 ]
 
 /**
+ * gp-api's saved-filter write tool (ENG-10736). A `tool_result` for it means
+ * the agent may have created, updated, or deleted a saved contact list, so the
+ * contacts queries need a refetch — see ChiefOfStaffChatBody's `onEvent`.
+ */
+export const SAVED_FILTERS_TOOL = 'crud_saved_filters'
+
+/**
  * Tool names map to a human status line shown while the agent runs them. The
  * server emits these tool names in `tool_call` SSE events; unknown names fall
  * back to the raw name.
@@ -20,20 +28,29 @@ export const COS_INTRO_MESSAGES: string[] = [
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: 'Searching the web',
   crud_priorities: 'Working on your priorities',
+  record_check_reminder: 'Noting that on your priority',
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   read_community_issues: 'Reading your community issues',
+  read_past_outreach: "Checking what you've sent",
   describe_filter_dimensions: 'Checking available filters',
   count_contacts: 'Counting matches',
   list_precincts: 'Looking up precincts',
-  crud_saved_filters: 'Working on your lists',
+  [SAVED_FILTERS_TOOL]: 'Working on your lists',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',
+  search_help_center: 'Searching the help center',
+  size_outreach_sample: 'Sizing a sample',
+  // Campaign Manager's own tools: this table serves both chats.
+  get_ballot_requirements: 'Checking how to get on the ballot', // serve-vocabulary-allow: Campaign Manager tool label
+  campaign_story: 'Working on your story',
 }
 
 export function toolDisplayName(toolName: string): string {
-  return TOOL_DISPLAY_NAMES[toolName] ?? toolName
+  // Humanized rather than raw: a tool that is not in the map above still has
+  // to read as words on the pill, not as its machine name.
+  return TOOL_DISPLAY_NAMES[toolName] ?? humanizeToolName(toolName)
 }
 
 /**

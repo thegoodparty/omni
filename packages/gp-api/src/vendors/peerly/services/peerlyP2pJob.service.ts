@@ -12,6 +12,7 @@ import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   P2P_ERROR_MESSAGES,
   P2P_JOB_DEFAULTS,
+  P2P_JOB_READ_TIMEOUT_MS,
 } from '../constants/p2pJob.constants'
 import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
@@ -30,20 +31,26 @@ import {
   SEND_WINDOW_END,
   resolveSendWindowStart,
 } from '../utils/sendWindowStart.util'
+import { resolveSendWindowTimeZone } from '../utils/sendWindowTimeZone.util'
 
 // The schedule name is the only place Peerly echoes a job's window back to
 // us (GET job returns schedule_details.schedule_name, not the hours), so
-// the day + start ride in the name and `realignSchedule` reads them back
-// to decide whether a job created before the window was honored needs a
-// fresh schedule at approve.
-const scheduleWindowMarker = (date: string, startTime: string) =>
-  ` - ${date} ${startTime} - `
+// the day + start + zone ride in the name and `realignSchedule` reads them
+// back to decide whether a job created before the window was honored (or
+// before it was read in the candidate's zone — a LOCAL-era name carries no
+// zone) needs a fresh schedule at approve.
+const scheduleWindowMarker = (
+  date: string,
+  startTime: string,
+  timeZone: string,
+) => ` - ${date} ${startTime} ${timeZone} - `
 const buildScheduleName = (
   campaignId: number,
   date: string,
   startTime: string,
+  timeZone: string,
 ) => {
-  const marker = scheduleWindowMarker(date, startTime)
+  const marker = scheduleWindowMarker(date, startTime, timeZone)
   return `GP P2P - Campaign ${campaignId}${marker}${formatISO(new Date())}`
 }
 
@@ -51,6 +58,10 @@ export interface JobSendWindow {
   campaignId: number
   date: string
   startTime: string
+  // The row's didState; the window's hours are read in this state's zone
+  // (sendWindowTimeZone.util) so a job sends in one wave, not one per
+  // contact zone.
+  state?: string | null
 }
 
 interface CreateP2pJobParams {
@@ -85,6 +96,7 @@ interface UpdateP2pJobParams {
   // schedule_id + start/end dates at it. Omitted, the job keeps its schedule.
   rescheduleDate?: string
   rescheduleStartTime?: string
+  didState?: string
 }
 
 @Injectable()
@@ -137,9 +149,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
       const targetDate = dateOnly || 'no-date'
       const startTime = resolveSendWindowStart(scheduledStartTime)
+      const timeZone = resolveSendWindowTimeZone(didState)
       scheduleId = await this.peerlyScheduleService.createSchedule(
-        buildScheduleName(campaignId, targetDate, startTime),
+        buildScheduleName(campaignId, targetDate, startTime, timeZone),
         startTime,
+        timeZone,
       )
 
       this.logger.info('Creating P2P job')
@@ -207,6 +221,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     name,
     rescheduleDate,
     rescheduleStartTime,
+    didState,
   }: UpdateP2pJobParams): Promise<void> {
     if (scriptText.length > P2P_SCRIPT_MAX_LENGTH) {
       throw new BadRequestException(P2P_ERROR_MESSAGES.SCRIPT_TOO_LONG)
@@ -225,9 +240,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       let scheduleId: number | undefined
       if (rescheduleDate) {
         const startTime = resolveSendWindowStart(rescheduleStartTime)
+        const timeZone = resolveSendWindowTimeZone(didState)
         scheduleId = await this.peerlyScheduleService.createSchedule(
-          buildScheduleName(campaignId, rescheduleDate, startTime),
+          buildScheduleName(campaignId, rescheduleDate, startTime, timeZone),
           startTime,
+          timeZone,
         )
       }
 
@@ -272,21 +289,6 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       }
       this.logger.error({ error }, P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED)
-    }
-  }
-
-  async getJobsByIdentityId(identityId: string): Promise<PeerlyJob[]> {
-    try {
-      this.logger.debug(`Getting P2P jobs list for ${identityId}`)
-      const response = await this.peerlyHttpService.get<PeerlyJob[]>(
-        `/1to1/jobs?account_id=${this.accountNumber}&identity_id=${identityId}`,
-      )
-      const { data: jobs } = response
-      this.logger.debug({ jobs }, 'Fetched P2P Jobs:')
-      return jobs
-    } catch (error) {
-      this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
-      throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
     }
   }
 
@@ -388,14 +390,16 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   // then never send), so it logs and the PUT keeps the existing schedule.
   private async realignSchedule(
     job: PeerlyJob,
-    { campaignId, date, startTime }: JobSendWindow,
+    { campaignId, date, startTime, state }: JobSendWindow,
   ): Promise<number | undefined> {
-    const marker = scheduleWindowMarker(date, startTime)
+    const timeZone = resolveSendWindowTimeZone(state)
+    const marker = scheduleWindowMarker(date, startTime, timeZone)
     if (job.schedule_details?.schedule_name?.includes(marker)) return undefined
     try {
       return await this.peerlyScheduleService.createSchedule(
-        buildScheduleName(campaignId, date, startTime),
+        buildScheduleName(campaignId, date, startTime, timeZone),
         startTime,
+        timeZone,
       )
     } catch (err) {
       this.logger.error(
@@ -418,12 +422,15 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     campaignId,
     date,
     startTime,
+    state,
   }: JobSendWindow & { jobId: string }): Promise<void> {
     const job = await this.getJob(jobId)
     try {
+      const timeZone = resolveSendWindowTimeZone(state)
       const scheduleId = await this.peerlyScheduleService.createSchedule(
-        buildScheduleName(campaignId, date, startTime),
+        buildScheduleName(campaignId, date, startTime, timeZone),
         startTime,
+        timeZone,
       )
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,
@@ -462,7 +469,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
   async requestCanvassers(
     jobId: string,
-    { date, startTime }: { date?: string; startTime?: string } = {},
+    {
+      date,
+      startTime,
+      state,
+    }: { date?: string; startTime?: string; state?: string | null } = {},
   ): Promise<void> {
     try {
       // Peerly validates requested_initials against the REQUESTING user —
@@ -475,16 +486,19 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase()
       // The send window opens at the candidate's chosen wall-clock time
       // (design settled 2026-09-16) and always closes at the 9pm compliance
-      // cutoff, in each recipient's local timezone. Sent explicitly as a
-      // CUSTOM window rather than relying on the vendor's ANY_TIME default
-      // semantics; callers with no stored time keep the 9am open.
+      // cutoff, read in the candidate's zone rather than Peerly's LOCAL
+      // (per-contact) mode: LOCAL made every job open in one wave per
+      // contact zone, so the canvass team had to revisit small jobs all day
+      // (vendor request 2026-09-28). Sent explicitly as a CUSTOM window
+      // rather than relying on the vendor's ANY_TIME default semantics;
+      // callers with no stored time keep the 9am open.
       await this.peerlyHttpService.post(`/v2/p2p/${jobId}/request_canvassers`, {
         requested_initials: initials,
         ...(date && { requested_date: date }),
         requested_timeframe: 'CUSTOM',
         requested_start_time: `${resolveSendWindowStart(startTime)}:00`,
         requested_end_time: `${SEND_WINDOW_END}:00`,
-        requested_timezone: 'LOCAL',
+        requested_timezone: resolveSendWindowTimeZone(state),
       })
     } catch (error) {
       // A 400 here is CAS-actionable (e.g. a request already open) — keep
@@ -564,11 +578,20 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   // Sends the test job's template to ONE explicitly supplied 10-digit
   // phone — a real text to a real handset, so the number must always be
   // operator-typed, never derived from campaign or contact data.
-  async sendTestMessage(testJobId: string, phone: string): Promise<void> {
+  //
+  // Peerly requires BOTH the number and the id of the test list that
+  // number sits on, and rejects the call outright when the list id is
+  // missing (https://api-docs.peerly.com/reference/send-test-message).
+  // PeerlyTestListService is what resolves that id.
+  async sendTestMessage(
+    testJobId: string,
+    phone: string,
+    testListId: number,
+  ): Promise<void> {
     try {
       await this.peerlyHttpService.post(
         `/1to1/jobs/${testJobId}/send_test_message`,
-        { test_contact_phone: phone },
+        { test_contact_phone: phone, test_list_id: String(testListId) },
       )
     } catch (error) {
       return this.peerlyErrorHandling.handleApiError({
@@ -641,11 +664,28 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     }
   }
 
+  /**
+   * One job's state at the vendor. Deadlined, unlike the writes around it: the
+   * status sweep reads one job per open outreach in sequence, so a vendor that
+   * accepts the connection and then says nothing would otherwise cost the whole
+   * sweep 60 seconds per attempt and up to four attempts per row — minutes per
+   * row, with the next pass starting before this one finished. The admin
+   * console's job reads share the same bound for the same reason.
+   *
+   * The signal is created once per call, so it bounds all the retries together
+   * rather than each attempt, and an aborted request surfaces as ERR_CANCELED,
+   * which the retry predicate declines: the deadline ends the read instead of
+   * starting another attempt.
+   */
   async getJob(jobId: string): Promise<PeerlyJob> {
     try {
       this.logger.debug(`Getting job ${jobId}`)
       const response = await this.peerlyHttpService.get<PeerlyJob>(
         `/1to1/jobs/${jobId}`,
+        {
+          timeout: P2P_JOB_READ_TIMEOUT_MS,
+          signal: AbortSignal.timeout(P2P_JOB_READ_TIMEOUT_MS),
+        },
       )
       const { data: job } = response
       // The schema is a deliberate subset of PeerlyJob (the sweep's fields),

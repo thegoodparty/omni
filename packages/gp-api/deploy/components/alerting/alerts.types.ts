@@ -124,9 +124,10 @@ export type RecordingRule = {
   expr: string
   /**
    * The fetch window, as an offset pair of seconds before now. `to` is
-   * deliberately non-zero on the route rules: see ROUTE_RECORDING_LAG in
-   * controller-alerts.ts for why a recording rule must not read up to the
-   * present moment.
+   * deliberately non-zero: log lines reach Loki several seconds after the
+   * request they describe, so a window ending at `now` misses the newest ones
+   * and never sees them again, because the next window starts where this one
+   * ended.
    */
   fromSeconds: number
   toSeconds: number
@@ -171,7 +172,7 @@ export type Alert = {
    * widens each line's label set. If a query groups the result, add
    * `| keep <the labels you group by>` before the range — structured metadata
    * carries `requestId` and `trace_id`, so without it the counted vector is
-   * one series per log line. See controller-alerts.ts ROUTE_RECORDING_RULES.
+   * one series per log line. See `routeErrorExpr` in route-alerts.ts.
    *
    * Metric (PromQL) examples:
    *   'avg(process_cpu_utilization{service_name="gp-api", deployment_environment_name="$ENV"}) * 100'
@@ -231,6 +232,19 @@ export type Alert = {
    * in passing.
    */
   timeRangeSeconds?: number
+
+  /**
+   * How far behind the evaluation the fetch window ends, in seconds. Defaults
+   * to 0. The window keeps its `timeRangeSeconds` width and is shifted back as
+   * a whole, so a rule whose window equals its interval still reads every log
+   * line exactly once.
+   *
+   * Set it on a rule that must count every line. Logs reach Loki a few seconds
+   * after the request, so a window ending at `now` misses the newest lines,
+   * and the next window starts after them. The cost is the same number of
+   * seconds of detection latency.
+   */
+  timeRangeOffsetSeconds?: number
 
   /**
    * How often the alerting engine evaluates this rule, in seconds. Defaults to

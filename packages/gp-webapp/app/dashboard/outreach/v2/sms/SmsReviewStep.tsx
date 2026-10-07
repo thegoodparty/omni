@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { formatInTimeZone } from 'date-fns-tz'
 import {
   Alert,
   AlertDescription,
@@ -29,10 +30,7 @@ import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
 import { Intro } from '../social/Intro'
-import {
-  SERVE_SMS_GREETING_PREVIEW,
-  withSampleFirstName,
-} from './smsCompose.util'
+import { SMS_GREETING_PREVIEW, withSampleFirstName } from './smsCompose.util'
 
 // A 400 from complete-free-purchase carries a user-fixable message (e.g.
 // Peerly rejecting a banned link in the script) worth showing verbatim.
@@ -61,6 +59,9 @@ interface SmsReviewStepProps {
   name: string
   audienceName: string
   sendAt: Date
+  // The campaign's zone for a Win send (the instant was built in it);
+  // omitted for Serve, whose fixed-hour stamp is browser-local.
+  timeZone?: string
   composedMessage: string
   imagePreviewUrl: string | null
   // Null only in build mode, where the reach count comes from the
@@ -76,6 +77,12 @@ interface SmsReviewStepProps {
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
+  // The phone-list build itself (not the draft-creation step `prepareError`
+  // covers) resolved to `failed` — distinct because the fix is different:
+  // there's a fresh build to request, not a draft to retry.
+  buildFailed?: boolean
+  retryingBuild?: boolean
+  onRetryBuild?: () => void
   // The candidate cannot send yet (milestone 2's gate), so this reads back
   // what they built with no schedule rows and no checkout — the flow's own
   // CTA saves it as a draft instead (design: flowReview's preClear branch).
@@ -90,6 +97,7 @@ export const SmsReviewStep = ({
   name,
   audienceName,
   sendAt,
+  timeZone,
   composedMessage,
   imagePreviewUrl,
   contactCount,
@@ -100,6 +108,9 @@ export const SmsReviewStep = ({
   excludedDuplicatePhoneCount,
   preparing,
   prepareError,
+  buildFailed = false,
+  retryingBuild = false,
+  onRetryBuild,
   readOnlySummary = false,
   onComplete,
 }: SmsReviewStepProps) => {
@@ -211,15 +222,21 @@ export const SmsReviewStep = ({
               <>
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Send date</dt>
-                  <dd className="text-foreground">{fmtDate(sendAt)}</dd>
+                  <dd className="text-foreground">
+                    {timeZone
+                      ? formatInTimeZone(sendAt, timeZone, 'EEE, MMM d, yyyy')
+                      : fmtDate(sendAt)}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Send time</dt>
                   <dd className="text-foreground">
-                    {sendAt.toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
+                    {timeZone
+                      ? formatInTimeZone(sendAt, timeZone, 'h:mm a')
+                      : sendAt.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
                   </dd>
                 </div>
               </>
@@ -282,7 +299,7 @@ export const SmsReviewStep = ({
               ) : (
                 'Free'
               )
-            ) : prepareError || error ? (
+            ) : prepareError || buildFailed || error ? (
               '\u2014'
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
@@ -330,11 +347,26 @@ export const SmsReviewStep = ({
 
       {preview && isServe && (
         <p className="-mt-3 text-center text-xs text-muted-foreground">
-          {SERVE_SMS_GREETING_PREVIEW.caption}
+          {SMS_GREETING_PREVIEW.caption}
         </p>
       )}
 
-      {readOnlySummary ? null : prepareError ? (
+      {readOnlySummary ? null : buildFailed ? (
+        <Card className="items-start gap-3 border-destructive p-4">
+          <p className="text-sm text-foreground">
+            We couldn&apos;t prepare this audience. Try again.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onRetryBuild}
+            disabled={retryingBuild}
+            loading={retryingBuild}
+          >
+            Try again
+          </Button>
+        </Card>
+      ) : prepareError ? (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
             We couldn&apos;t set up your purchase. Go back a step and try again.

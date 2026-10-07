@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   flowStage,
   previousStage,
+  purposeAsksQuestion,
   stageStep,
   stepperPosition,
   type CreateFlowStage,
 } from './createFlowSteps'
+import { DOOR_KNOCKING_PURPOSES } from './doorKnockingPurposes'
+import { SERVE_DOOR_KNOCKING_PURPOSES } from './serveDoorKnockingPurposes'
 
 // Every stage the stepper counts. `success` is deliberately not one of them —
 // see its own describe below.
@@ -134,5 +137,131 @@ describe('previousStage', () => {
       if (stage !== null) moves += 1
     }
     expect(moves).toBe(stepperPosition('draw').totalSteps - 1)
+  })
+})
+
+// The two optional stages are the same shape, so they get the same four
+// assertions. Neither can be in play at once, which is what the single
+// `extraStage` argument encodes — there is no `stepperPosition(s, 'details',
+// 'question')` to get wrong.
+describe('an event invite’s details stage', () => {
+  it('counts six steps with details second', () => {
+    expect(stepperPosition('purpose', 'details')).toEqual({
+      currentStep: 1,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('details', 'details')).toEqual({
+      currentStep: 2,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('who', 'details')).toEqual({
+      currentStep: 3,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('draw', 'details')).toEqual({
+      currentStep: 6,
+      totalSteps: 6,
+    })
+  })
+
+  it('walks back through details only when the flow has it', () => {
+    expect(previousStage('who', 'details')).toBe('details')
+    expect(previousStage('details', 'details')).toBe('purpose')
+    expect(previousStage('who')).toBe('purpose')
+  })
+
+  it('is a pre-draw stage the page sees as filters', () => {
+    expect(stageStep('details')).toBe('filters')
+    expect(flowStage('filters', 'details')).toBe('details')
+  })
+})
+
+describe('the community-input question stage', () => {
+  it('sits second and pushes every later stage along by one', () => {
+    expect(stepperPosition('purpose', 'question')).toEqual({
+      currentStep: 1,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('question', 'question')).toEqual({
+      currentStep: 2,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('who', 'question')).toEqual({
+      currentStep: 3,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('draw', 'question')).toEqual({
+      currentStep: 6,
+      totalSteps: 6,
+    })
+  })
+
+  // `success` sits outside the stepper whether or not a question was asked,
+  // so the extra stage must not give it a number.
+  it('leaves the success screen headerless', () => {
+    expect(stepperPosition('success', 'question')).toEqual({
+      currentStep: 0,
+      totalSteps: 0,
+    })
+  })
+
+  it('walks back through the question rather than past it', () => {
+    expect(previousStage('who', 'question')).toBe('question')
+    expect(previousStage('question', 'question')).toBe('purpose')
+    expect(previousStage('purpose', 'question')).toBeNull()
+  })
+
+  // The orchestrator must not learn about either stage: both live inside the
+  // page's single `filters` step, so the canvas's draw-session transition is
+  // untouched by their existence.
+  it('reports the filters step, like every other pre-draw stage', () => {
+    expect(stageStep('question')).toBe('filters')
+    expect(flowStage('filters', 'question')).toBe('question')
+  })
+
+  it('still walks back to the start in totalSteps - 1 moves', () => {
+    let stage: CreateFlowStage | null = 'draw'
+    let moves = 0
+    while (stage !== null && moves < 12) {
+      stage = previousStage(stage, 'question')
+      if (stage !== null) moves += 1
+    }
+    expect(moves).toBe(stepperPosition('draw', 'question').totalSteps - 1)
+  })
+})
+
+// Win's "Hear from voters" and Serve's community input are one slug, so a
+// candidate gets the same extra stage an official does.
+describe('purposeAsksQuestion', () => {
+  const winCard = DOOR_KNOCKING_PURPOSES.find(
+    (purpose) => purpose.label === 'Hear from voters',
+  )
+
+  it('asks the question for the Win hear-from-voters purpose', () => {
+    const asks = purposeAsksQuestion(winCard?.id ?? null)
+    const extraStage = asks ? 'question' : null
+
+    expect(asks).toBe(true)
+    expect(stepperPosition('question', extraStage)).toEqual({
+      currentStep: 2,
+      totalSteps: 6,
+    })
+    expect(previousStage('who', extraStage)).toBe('question')
+  })
+
+  it('asks it for the Serve community-input purpose', () => {
+    const serveCard = SERVE_DOOR_KNOCKING_PURPOSES.find(
+      (purpose) => purpose.label === 'Ask for community input',
+    )
+
+    expect(purposeAsksQuestion(serveCard?.id ?? null)).toBe(true)
+  })
+
+  it('asks nothing for any other purpose, or before one is picked', () => {
+    for (const purpose of DOOR_KNOCKING_PURPOSES) {
+      if (purpose.id === winCard?.id) continue
+      expect(purposeAsksQuestion(purpose.id)).toBe(false)
+    }
+    expect(purposeAsksQuestion(null)).toBe(false)
   })
 })

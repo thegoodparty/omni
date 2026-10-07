@@ -8,12 +8,11 @@ import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
 // accept URL redirects to /team-invite with __clerk_ticket, the signed-out
 // invitee creates their account through the ticket, and accept lands them in
 // the inviter's org. The invitation is created directly via the Clerk
-// backend API rather than POST team/invites — that route is flag-gated
-// per-user and a fresh headless owner doesn't carry the win-team-accounts
-// flag, while everything this spec exercises (/team-invite, accept) is
-// deliberately ungated. notify:false keeps Clerk from emailing the throwaway
-// address; the returned invitation.url is the same hosted link the email
-// would carry.
+// backend API rather than POST team/invites, since a fresh headless owner
+// has no browser session to call the app route through and this spec only
+// needs a valid invitation to exercise /team-invite + accept. notify:false
+// keeps Clerk from emailing the throwaway address; the returned
+// invitation.url is the same hosted link the email would carry.
 test.describe('Team invite — new-user ticket redemption', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)

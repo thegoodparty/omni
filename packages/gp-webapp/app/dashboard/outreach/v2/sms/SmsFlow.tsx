@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { format } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachDetail,
+  OutreachEventDetails,
   OutreachReceipt,
+  ProposalEvent,
   RecommendedList,
   RecommendedListVariant,
   ServeSmsDraftRequest,
@@ -13,28 +15,38 @@ import type {
   SmsPurpose,
   SmsStandardsRule,
   SocialTone,
+  ProposalLink,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import {
   checkSmsStandards,
+  deriveSmsProtectedParts,
+  mergeTagToken,
+  PRICE_PER_TEXT,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachFlowSource,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
 import {
   createP2pPhoneList,
-  getP2pPhoneListStatus,
+  getP2pPhoneListBuildStatus,
+  type PhoneListBuildStatusResult,
   type PhoneListStatusResponse,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
-  OUTREACH_OPTIONS,
   OUTREACH_TYPES,
   FREE_TEXTS_OFFER,
 } from 'app/dashboard/outreach/constants'
@@ -44,15 +56,21 @@ import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/vote
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
+  combineScheduledAt,
+  resolveCampaignTimeZone,
+} from '../robocall/scheduleTimeZone'
+import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
 import {
   intentForOutreachPurpose,
   useOutreachAudience,
+  type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
+import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
@@ -62,6 +80,12 @@ import {
   SERVE_SMS_PURPOSES,
   serveSmsPurposeNameSuggestion,
 } from '../serveSmsPurposes'
+import { EventDetailsStep } from '../EventDetailsStep'
+import {
+  EVENT_DETAILS_TITLE,
+  isEventInvite,
+  useEventDetails,
+} from '../eventDetails'
 import { SMS_PURPOSE_INTRO_BODY, SmsPurposeStep } from './SmsPurposeStep'
 import {
   NAME_ONLY_COPY,
@@ -71,12 +95,19 @@ import {
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
+import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
 import {
   composeScript,
   composeServeScript,
+  ensureSmsIdentification,
   identificationIntro,
+  provisionalCommitteeName,
+  restoreSmsSystemRegions,
+  openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
+  unfilledBrackets,
+  upgradeScriptFooter,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -85,7 +116,13 @@ import {
   type ServeSmsCreateFn,
 } from './useServeSmsSend'
 
-type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
+type StepId =
+  | 'purpose'
+  | 'details'
+  | 'audience'
+  | 'schedule'
+  | 'compose'
+  | 'review'
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
@@ -109,14 +146,14 @@ const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
+  details: EVENT_DETAILS_TITLE,
   audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
   review: 'Review & pay',
 }
 
-const PRICE_PER_MESSAGE =
-  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
+const PRICE_PER_MESSAGE = PRICE_PER_TEXT
 
 // SMS texts cell phones, so both counts use the cell dimension:
 // reachability.sms for a saved list, and a { hasCellPhone: true } overlay on
@@ -166,6 +203,7 @@ interface SmsFlowDraftInput {
   purpose: SmsFlowPurpose
   tone: SocialTone
   currentDraft?: string
+  event?: OutreachEventDetails
 }
 
 // A caller-supplied surface parametrizes the purpose cards and their intro,
@@ -268,12 +306,34 @@ interface SmsFlowProps {
   // A tracker task's due date, persisted on the outreach row and forwarded
   // into the CAS Slack notification — the flow never derives it.
   campaignPlanDueDate?: string
+  // The tracker task this flow was launched from (the hub's `?compose=` deep
+  // link), carried onto the completion event so a completed task and the
+  // outreach it produced are one funnel.
+  tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // A message the candidate is meant to send as written (Know Your
   // Opponent). It opens the flow on `custom`, the one purpose that never
   // AI-drafts, so the seeded words are what they edit rather than something
   // a draft immediately overwrites.
   initialScript?: string
+  // What an agent's proposal knows about the event it invites people to; the
+  // details step opens on it.
+  initialEvent?: ProposalEvent
   preselectedListId?: number
+  // An audience a chat card counted but did not save: the audience step
+  // opens on the list builder already filled in, and saves it when the
+  // official confirms and names it.
+  proposedAudience?: ProposedAudience
+  // The chat card proposal this flow was opened from. Rides on the create
+  // (Serve's whole link, Win's key), so the draft holds the card's key (a
+  // paid one reads as sent and cannot be paid twice) and, on a priority, the
+  // paid send puts its check out.
+  proposalLink?: ProposalLink
+  // Win's create was refused while carrying the card's key, which is how a
+  // card sent from another tab or an earlier session answers (409). The
+  // card's surface decides whether that means it already went out.
+  onProposalCreateFailed?: () => void
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -287,6 +347,8 @@ interface SmsFlowProps {
   // opens the wizard on its first step; a tile or deep-link resume shows the
   // pause screen first.
   resumeStartsOnWizard?: boolean
+  // The label of the button that resumed the draft, for the Pro gate.
+  resumeCta?: string
 }
 
 const successDate = (d: Date) =>
@@ -300,6 +362,13 @@ const successDate = (d: Date) =>
 const successTime = (d: Date) =>
   d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 
+// A Win send is an instant in the campaign's zone, so it is read back in
+// that zone; Serve's fixed-hour stamp is browser-local and takes no zone.
+const sendDateLabel = (d: Date, timeZone?: string) =>
+  timeZone ? formatInTimeZone(d, timeZone, 'EEE, MMM d, yyyy') : successDate(d)
+const sendTimeLabel = (d: Date, timeZone?: string) =>
+  timeZone ? formatInTimeZone(d, timeZone, 'h:mm a') : successTime(d)
+
 // "visa" → "Visa" — Stripe reports card brands lowercase.
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
@@ -309,12 +378,14 @@ const cardBrandLabel = (brand: string) =>
 export const SuccessScreen = ({
   contactCount,
   sendAt,
+  timeZone,
   outreachId,
   paid,
   onDone,
 }: {
   contactCount: number
   sendAt: Date | null
+  timeZone?: string
   outreachId: number | null
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
@@ -349,7 +420,7 @@ export const SuccessScreen = ({
           Your sms campaign will reach {contactCount.toLocaleString()}{' '}
           recipients
           {sendAt
-            ? ` starting ${successDate(sendAt)} at ${successTime(sendAt)}.`
+            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
             : ' soon.'}
         </p>
       </div>
@@ -429,34 +500,75 @@ export const SmsFlow = ({
   tcrCompliance,
   surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
+  tracker,
+  initialEvent,
+  source,
   initialScript,
+  proposedAudience,
+  proposalLink,
+  onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
   onDraftSaved,
   resumeStartsOnWizard = false,
+  resumeCta,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  const lockedAtOpen = useLockedAtOpen(open, gate)
+  // gp-api reads the picked wall-clock window in the campaign state's zone
+  // (Peerly `requested_timezone`), so the step captions that zone rather
+  // than the browser's.
+  const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
+  const eventDetails = useEventDetails({
+    enabled: open && isEventInvite(purpose),
+    isServe: surface.isServe,
+    proposed: initialEvent,
+  })
+  const { reset: resetEventDetails } = eventDetails
+  // The details the current body was written from: changing them on the way
+  // back through the details step makes that body stale.
+  const confirmedEventRef = useRef<string | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
-  const [body, setBody] = useState('')
+  // The whole message as sent. The greeting, disclaimer and opt-out line
+  // live in it as locked parts rather than around it as separate regions.
+  const [message, setMessage] = useState('')
+  // The message as the system last wrote it (a draft, a seed, an undo).
+  // Locks are found in this, not in what is being typed, so a name the
+  // candidate is halfway through typing never locks under their cursor.
+  const [lockSource, setLockSource] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
+  // Whether the words are the candidate's (typed, seeded or polished) rather
+  // than an untouched fresh draft. Picks the one AI action: Regenerate, or
+  // Improve with AI.
+  const [ownWords, setOwnWords] = useState(false)
   const [undoText, setUndoText] = useState<string | null>(null)
   const [toneDrafts, setToneDrafts] = useState<
     Partial<Record<SocialTone, string>>
   >({})
 
   const [phoneListToken, setPhoneListToken] = useState<string | null>(null)
+  // The build-status poll's handle — set from the same POST response as
+  // `phoneListToken`, but the poll keys off this rather than the token
+  // (gp-api resolves it before Peerly necessarily has anything to report).
+  const [phoneListBuildId, setPhoneListBuildId] = useState<string | null>(null)
   const [phoneListCreating, setPhoneListCreating] = useState(false)
   const [phoneListError, setPhoneListError] = useState(false)
   const [stopPolling, setStopPolling] = useState(false)
   const [phoneList, setPhoneList] = useState<PhoneListStatusResponse | null>(
     null,
   )
+  // A build the poll resolved to `failed` — a review-step-level state,
+  // distinct from `phoneListError` (which blocks Continue a step earlier,
+  // before a build even starts polling). Carries its own retry rather than
+  // sharing `phoneListError`'s because by review time there's a phone list
+  // build to re-request, not a list create to re-run.
+  const [phoneListBuildFailed, setPhoneListBuildFailed] = useState(false)
 
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
@@ -479,6 +591,10 @@ export const SmsFlow = ({
   const [paidSend, setPaidSend] = useState(false)
 
   const draftRequestRef = useRef(0)
+  // The body of a seed carried in from outside the flow, held until it has
+  // been checked for the sender's identification. Cleared by the check, or
+  // by the first keystroke, so hand-typed text is never rewritten.
+  const seedUncheckedRef = useRef<string | null>(null)
 
   // Every saved-draft and gate concern — the row, the resume switch, the
   // gate/explainer visibility, and the origin that says what finishing the
@@ -489,9 +605,30 @@ export const SmsFlow = ({
     gate,
     open,
     resumeDraft,
+    resumeCta,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
+    // A gated candidate's campaign is created by the draft save, not by the
+    // pending_payment row the review step writes — which they never reach.
+    onCampaignCreated: (draft) =>
+      trackEvent(
+        EVENTS.Dashboard.VoterContact.CampaignCreated,
+        outreachEventProps({
+          channel: 'text',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          recipientCount: audience.reachableCount ?? 0,
+          outreachCampaignId: draft.id,
+          ...(audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
+      ),
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
@@ -504,11 +641,16 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
-  const stepOrder = !buildMode
+  const baseStepOrder = !buildMode
     ? STEP_ORDER
     : gate.requirement === 'pro'
       ? PRO_BUILD_STEP_ORDER
       : VERIFY_BUILD_STEP_ORDER
+  const stepOrder: StepId[] = isEventInvite(purpose)
+    ? baseStepOrder.flatMap((id) =>
+        id === 'purpose' ? ['purpose', 'details'] : [id],
+      )
+    : baseStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -535,6 +677,7 @@ export const SmsFlow = ({
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
+    ...(proposedAudience && !resumeDraft && { proposedAudience }),
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -561,22 +704,36 @@ export const SmsFlow = ({
     setStepId(
       resumeDraft
         ? 'schedule'
-        : initialScript || carriedPurpose
+        : initialScript
           ? 'audience'
-          : 'purpose',
+          : carriedPurpose
+            ? isEventInvite(carriedPurpose)
+              ? 'details'
+              : 'audience'
+            : 'purpose',
     )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
+    resetEventDetails()
+    confirmedEventRef.current = null
     setTone('warm')
-    setBody(initialScript ?? '')
+    const seeded = initialScript
+      ? surface.composeMessage(initialScript, null)
+      : ''
+    setMessage(seeded)
+    setLockSource(seeded)
+    seedUncheckedRef.current = initialScript || null
     setManuallyEdited(Boolean(initialScript))
+    setOwnWords(Boolean(initialScript))
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
     setPhoneListToken(null)
+    setPhoneListBuildId(null)
     setPhoneListCreating(false)
     setPhoneListError(false)
     setStopPolling(false)
     setPhoneList(null)
+    setPhoneListBuildFailed(false)
     setName(resumeDraft?.name ?? '')
     setNameEdited(Boolean(resumeDraft?.name))
     setDate(undefined)
@@ -593,9 +750,11 @@ export const SmsFlow = ({
     open,
     resetDraftMutation,
     resetAudience,
+    resetEventDetails,
     initialScript,
     preselectedRecommendedVariant,
     resumeDraft,
+    surface,
   ])
 
   // Object URL lifecycle for the image preview.
@@ -637,6 +796,41 @@ export const SmsFlow = ({
           candidateFirstName,
           campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
+  const identificationNames = [
+    candidateFullName,
+    tcrCompliance?.candidateName,
+  ].filter((name): name is string => !!name)
+  // Every body the flow sets that the official did not type goes through
+  // this, so the compose step never opens on a candidate_name failure.
+  const identificationFor = (t: SocialTone) => ({
+    intro: introFor(t),
+    firstName: candidateFirstName,
+    candidateNames: identificationNames,
+  })
+  const withIdentification = (text: string, t: SocialTone): string =>
+    ensureSmsIdentification(text, identificationFor(t))
+  // The seed lands in the open effect, before the sender's name may be
+  // known: Win waits on the campaign (a Campaign Manager's own session name
+  // is not the candidate's), Serve on the user, and both on a name to check
+  // against, since an empty list would wave the seed through unchecked.
+  const identificationReady =
+    (surface.isServe ? Boolean(user) : campaign != null) &&
+    identificationNames.length > 0
+  useEffect(() => {
+    const seed = seedUncheckedRef.current
+    if (!open || seed === null || !identificationReady) return
+    seedUncheckedRef.current = null
+    // Repaired as a body, then composed: the identification follows the
+    // greeting. Composed without a committee; the footer effect below adds
+    // the line the message should name.
+    const repaired = surface.composeMessage(
+      withIdentification(seed, 'warm'),
+      null,
+    )
+    setMessage(repaired)
+    setLockSource(repaired)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
+  }, [open, initialScript, identificationReady])
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
   // committee, which a Serve org does not have. Nulled at the source rather
   // than only inside composeMessage so the submitted script, the preview
@@ -645,27 +839,71 @@ export const SmsFlow = ({
   const committeeName = surface.isServe
     ? null
     : (tcrCompliance?.committeeName ?? null)
+  // Until verification records the committee, the message names a
+  // provisional one, so the "Paid for by" line is always there to see. It is
+  // swapped for the real committee the moment one exists.
+  const provisionalCommittee = surface.isServe
+    ? null
+    : provisionalCommitteeName(candidateFullName)
+  const footerCommittee = committeeName ?? provisionalCommittee
+  const upgradeFooter = (script: string) =>
+    upgradeScriptFooter(script, footerCommittee)
   // A resumed row carries the script exactly as it was saved (intro, body and
   // system footer already joined), so it must not be composed a second time.
+  // Only the system footer is upgraded: a draft saved before verification has
+  // no paid-for-by line, and scheduling's server-side compliance check will
+  // demand it against the committee that exists by resume time.
   const composedMessage =
-    resumed && savedDraft?.script
-      ? savedDraft.script
-      : surface.composeMessage(body, committeeName)
+    resumed && savedDraft?.script ? upgradeFooter(savedDraft.script) : message
   const composedLength = composedMessage.length
+  const loadMessage = (next: string) => {
+    setMessage(next)
+    setLockSource(next)
+  }
+  // The committee resolves after the flow opens, so a message composed
+  // before it has the opt-out line alone. Same upgrade a resumed draft gets.
+  useEffect(() => {
+    const upgraded = upgradeFooter(message)
+    if (upgraded === message) return
+    setMessage(upgraded)
+    setLockSource(upgraded)
+    // upgradeFooter is rebuilt each render from footerCommittee.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message, footerCommittee])
+  // The message with nothing written between its locked parts.
+  const emptyMessage = surface.composeMessage('', footerCommittee)
+  const hasWrittenBody =
+    message.replace(/\s+/g, '') !== '' &&
+    message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
   const rawStandards = checkSmsStandards(composedMessage, {
-    candidateNames: [candidateFullName, tcrCompliance?.candidateName].filter(
-      (name): name is string => !!name,
-    ),
+    candidateNames: identificationNames,
     committeeName,
   })
-  // Win ignores nothing, so this is the raw verdict there.
+  // Win ignores nothing once a committee exists, so this is the raw verdict
+  // there. Without one (build mode -- the campaign is not verified yet) the
+  // line names a provisional committee the server would not accept, so the
+  // rule is dropped here; the footer upgrade above swaps in the real
+  // committee once verification records it, before anything can be sent.
+  const ignoredStandardsRules: readonly SmsStandardsRule[] =
+    !surface.isServe && committeeName === null
+      ? [...surface.ignoredStandardsRules, 'paid_for_by']
+      : surface.ignoredStandardsRules
   const standardsFailures = rawStandards.failures.filter(
-    (rule) => !surface.ignoredStandardsRules.includes(rule),
+    (rule) => !ignoredStandardsRules.includes(rule),
   )
   const standards = {
     passed: standardsFailures.length === 0,
     failures: standardsFailures,
   }
+  // Locks the provisional line too: the verdict ignores it, but the
+  // candidate still must not edit the disclaimer out.
+  const protectedParts = deriveSmsProtectedParts(lockSource, {
+    candidateNames: identificationNames,
+    committeeName: footerCommittee,
+    channel: surface.isServe ? 'serve' : 'peerly',
+    ignoredRules: surface.ignoredStandardsRules,
+  })
+  const bracketsToFill = unfilledBrackets(message)
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -680,18 +918,18 @@ export const SmsFlow = ({
   // onto the day it hands back, so the picked date IS the scheduled moment.
   const fixedMorningSchedule = surface.scheduleMode === 'serveFixedMorning'
 
+  // The picked wall-clock time is read in the campaign's zone, not the
+  // browser's: gp-api hands Peerly that same zone, so a candidate scheduling
+  // from another timezone still gets the hour they picked where their voters
+  // are. Serve stamps its fixed hour onto the day itself (browser-local).
   const scheduledAt = useMemo(() => {
     if (!date) return null
     if (fixedMorningSchedule) return date
     const slot = TIME_OPTIONS.find((t) => t.id === timeSlot)
     const timeStr = timeSlot === 'custom' ? customTime : slot?.time
-    if (!timeStr) return null
-    const [hh, mm] = timeStr.split(':').map(Number)
-    if (hh === undefined || mm === undefined || Number.isNaN(hh)) return null
-    const d = new Date(date)
-    d.setHours(hh, mm, 0, 0)
-    return d
-  }, [date, timeSlot, customTime, fixedMorningSchedule])
+    if (!timeStr || !/^\d{2}:\d{2}$/.test(timeStr)) return null
+    return combineScheduledAt(date, timeStr, timeZone)
+  }, [date, timeSlot, customTime, fixedMorningSchedule, timeZone])
 
   // Both windows are Peerly's, so both are Win-only. Serve's calendar
   // disables every date it will not accept (2 business days out, 30-day
@@ -703,11 +941,15 @@ export const SmsFlow = ({
   // 8 PM cap, not the 9 PM compliance cutoff: the chosen time opens Peerly's
   // send window and the window always closes at 9 PM, so a later start
   // would leave a zero-width window (server clamps too).
+  const scheduledHour =
+    scheduledAt && Number(formatInTimeZone(scheduledAt, timeZone, 'HH'))
+  const scheduledMinute =
+    scheduledAt && Number(formatInTimeZone(scheduledAt, timeZone, 'mm'))
   const outsideWindow =
-    !fixedMorningSchedule && scheduledAt
-      ? scheduledAt.getHours() < 9 ||
-        scheduledAt.getHours() > 20 ||
-        (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
+    !fixedMorningSchedule && scheduledHour !== null && scheduledMinute !== null
+      ? scheduledHour < 9 ||
+        scheduledHour > 20 ||
+        (scheduledHour === 20 && scheduledMinute > 0)
       : false
 
   // Serve's entire send sequence: no Peerly phone list, one org-scoped
@@ -727,6 +969,8 @@ export const SmsFlow = ({
     image,
     draftOutreachId,
     audience,
+    tracker,
+    ...(proposalLink && !resumeDraft && { proposalLink }),
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
@@ -753,38 +997,87 @@ export const SmsFlow = ({
     }
   }, [selectedList, date, name, nameEdited, surface, purpose])
 
+  // An Improve reply keeps the greeting and footer exactly as the system
+  // wrote them, because gp-api masks them. One that does not (a gp-api from
+  // before masking, mid-deploy) has them composed back around its body, so a
+  // polish can never send without the disclaimer or opt-out.
+  const keepSystemRegions = (reply: string): string => {
+    const [greeting = '', footer = ''] = surface
+      .composeMessage('', footerCommittee)
+      .split('\n\n')
+    return restoreSmsSystemRegions(reply, {
+      greeting,
+      footer,
+      token: mergeTagToken('first_name', surface.isServe ? 'serve' : 'peerly'),
+    })
+  }
+
   const requestDraft = (
     nextPurpose: SmsFlowPurpose | null,
     nextTone: SocialTone,
-    priorBody: string,
+    priorMessage: string,
     priorManuallyEdited: boolean,
     currentDraft?: string,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
+    // The polish endpoint takes a message within the limit. Every path to it
+    // (the AI button, a tone pill, Try again) stops here when it is over, and
+    // the over-limit note already says to shorten it.
+    if (
+      currentDraft !== undefined &&
+      currentDraft.length > SMS_COMPOSED_MAX_LENGTH
+    ) {
+      return
+    }
     const requestId = ++draftRequestRef.current
+    const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutation.mutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(event ? { event } : {}),
       },
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           if (priorManuallyEdited) {
-            setUndoText(priorBody)
+            setUndoText(priorMessage)
             setManuallyEdited(false)
           }
-          // Fresh drafts open with the identification (design model: it is
-          // the message's editable first sentence); improve mode polishes a
-          // message that already carries it.
+          // The model writes the body only, so a fresh draft is composed
+          // around it here: greeting, the identification (the body's
+          // editable first sentence, replacing any the model wrote),
+          // disclaimer and opt-out. Improve sends the whole message and gets
+          // the whole message back as is: gp-api locks the name, so a reply
+          // cannot drop it, and repairing the identification here would put
+          // an intro in front of the greeting.
           const full =
             currentDraft === undefined
-              ? `${introFor(nextTone)} ${generated}`
-              : generated
-          setBody(full)
-          setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
+              ? surface.composeMessage(
+                  openWithSmsIdentification(
+                    generated,
+                    identificationFor(nextTone),
+                  ),
+                  footerCommittee,
+                )
+              : keepSystemRegions(generated)
+          loadMessage(full)
+          setOwnWords(currentDraft !== undefined)
+          // Only fresh drafts are remembered per tone: a polish is of the
+          // candidate's words, which a tone switch must not swap away.
+          if (currentDraft === undefined) {
+            setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
+          }
+        },
+        // A first draft that fails leaves nothing to write into, so the
+        // field gets the message's locked parts and the candidate writes
+        // between them, as on the custom purpose.
+        onError: () => {
+          if (requestId !== draftRequestRef.current) return
+          if (priorMessage.trim().length > 0) return
+          loadMessage(surface.composeMessage('', footerCommittee))
         },
       },
     )
@@ -795,52 +1088,97 @@ export const SmsFlow = ({
     setTone('warm')
     setManuallyEdited(false)
     setUndoText(null)
-    setBody('')
+    // A custom message starts as its locked parts, written between.
+    const start =
+      selected === 'custom' ? surface.composeMessage('', footerCommittee) : ''
+    loadMessage(start)
+    setOwnWords(selected === 'custom')
     setToneDrafts({})
     resetDraftMutation()
+    confirmedEventRef.current = null
+    setStepId(isEventInvite(selected) ? 'details' : 'audience')
+  }
+
+  const handleEventDetailsContinue = () => {
+    const confirmed = JSON.stringify(eventDetails.event)
+    if (confirmedEventRef.current !== confirmed) {
+      confirmedEventRef.current = confirmed
+      draftRequestRef.current += 1
+      setMessage('')
+      setLockSource('')
+      setOwnWords(false)
+      setToneDrafts({})
+      setUndoText(null)
+      setManuallyEdited(false)
+      resetDraftMutation()
+    }
     setStepId('audience')
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
+    // The candidate's own words are polished in the new tone, never
+    // replaced by a fresh draft in it.
+    if (ownWords) {
+      setTone(nextTone)
+      if (hasWrittenBody) {
+        requestDraft(purpose, nextTone, message, manuallyEdited, message)
+      }
+      return
+    }
     if (!purpose || purpose === 'custom') {
       setTone(nextTone)
       return
     }
-    // A blank body (first generation still in flight) must neither be
+    // A blank message (first generation still in flight) must neither be
     // cached for the outgoing tone nor treated as a memory hit for the
     // incoming one — restoring '' would blank the editor and skip the fetch.
     const remembered = toneDrafts[nextTone]
-    if (body.trim().length > 0) {
-      setToneDrafts((prev) => ({ ...prev, [tone]: body }))
+    if (message.trim().length > 0) {
+      setToneDrafts((prev) => ({ ...prev, [tone]: message }))
     }
     setTone(nextTone)
     if (remembered !== undefined && remembered.trim().length > 0) {
       draftRequestRef.current += 1
       resetDraftMutation()
-      setBody(remembered)
+      // Not re-checked: a generated entry was identified when it arrived,
+      // and any other entry is the candidate's own typing.
+      loadMessage(remembered)
       setManuallyEdited(false)
       return
     }
-    requestDraft(purpose, nextTone, body, manuallyEdited)
+    requestDraft(purpose, nextTone, message, manuallyEdited)
   }
 
-  const handleBodyChange = (value: string) => {
-    setBody(value)
+  const handleMessageChange = (value: string) => {
+    seedUncheckedRef.current = null
+    setMessage(value)
     setManuallyEdited(true)
-    if (draftMutation.isError) resetDraftMutation()
+    setOwnWords(true)
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
-  const handleImprove = () => {
-    if (body.trim().length === 0) return
-    requestDraft(purpose, tone, body, manuallyEdited, body)
+  const aiAction = ownWords ? 'improve' : 'regenerate'
+  const handleAiAction = () => {
+    if (aiAction === 'regenerate') {
+      requestDraft(purpose, tone, message, manuallyEdited)
+      return
+    }
+    if (!hasWrittenBody) return
+    requestDraft(purpose, tone, message, manuallyEdited, message)
   }
 
   const handleUndo = () => {
     if (undoText === null) return
-    setBody(undoText)
+    draftRequestRef.current += 1
+    resetDraftMutation()
+    loadMessage(undoText)
     setUndoText(null)
     setManuallyEdited(true)
+    setOwnWords(true)
   }
 
   // Name-step continue: create the list through the shared audience hook
@@ -859,16 +1197,19 @@ export const SmsFlow = ({
         return
       }
       setPhoneListToken(null)
+      setPhoneListBuildId(null)
       setPhoneList(null)
       setStopPolling(false)
+      setPhoneListBuildFailed(false)
       setPhoneListCreating(true)
       const result = await createP2pPhoneList(created, created.id)
       setPhoneListCreating(false)
-      if (!result.ok || !result.token) {
+      if (!result.ok || !result.token || !result.buildId) {
         setPhoneListError(true)
         return
       }
       setPhoneListToken(result.token)
+      setPhoneListBuildId(result.buildId)
       setStepId('schedule')
     } catch {
       setPhoneListCreating(false)
@@ -899,17 +1240,20 @@ export const SmsFlow = ({
     // list would let a retry skip straight to schedule with the wrong
     // audience.
     setPhoneListToken(null)
+    setPhoneListBuildId(null)
     setPhoneList(null)
     setStopPolling(false)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     setPhoneListCreating(true)
     const result = await createP2pPhoneList(created, created.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('schedule')
   }
 
@@ -942,13 +1286,15 @@ export const SmsFlow = ({
     }
     setPhoneListCreating(true)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('schedule')
   }
 
@@ -991,20 +1337,44 @@ export const SmsFlow = ({
     if (!selectedList || phoneListCreating) return
     setPhoneListCreating(true)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('review')
+  }
+
+  // Review-step retry: a build the poll resolved to `failed` has nothing
+  // left to poll (the row stays `failed`), so this re-requests a fresh one
+  // from the same selected list rather than re-polling the dead buildId.
+  const handleRetryPhoneListBuild = async () => {
+    if (!selectedList || phoneListCreating) return
+    setPhoneListBuildFailed(false)
+    setPhoneListToken(null)
+    setPhoneListBuildId(null)
+    setPhoneList(null)
+    setStopPolling(false)
+    setPhoneListCreating(true)
+    const result = await createP2pPhoneList(selectedList, selectedList.id)
+    setPhoneListCreating(false)
+    if (!result.ok || !result.token || !result.buildId) {
+      setPhoneListBuildFailed(true)
+      return
+    }
+    setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
   }
 
   // First compose entry generates the initial draft (custom writes its own).
   useEffect(() => {
     if (stepId !== 'compose' || !open) return
-    if (purpose === 'custom' || body.trim() || draftMutation.isPending) return
+    if (purpose === 'custom' || message.trim() || draftMutation.isPending)
+      return
     requestDraft(purpose, tone, '', false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, open])
@@ -1028,6 +1398,10 @@ export const SmsFlow = ({
     const discount = campaign?.hasFreeTextsOffer
       ? Math.min(phoneList.leadsLoaded, FREE_TEXTS_OFFER.COUNT)
       : 0
+    // Never beside draftOutreachId: the server takes a card's key on a fresh
+    // draft only, since a saved one was built without it.
+    const sendsProposalKey =
+      proposalLink !== undefined && !(resumed && savedDraft)
     ;(async () => {
       try {
         const outreach = await createOutreach(
@@ -1038,14 +1412,22 @@ export const SmsFlow = ({
             message: composedMessage,
             script: composedMessage,
             title: `P2P Outreach - Campaign ${campaign.id}`,
-            // Offset-annotated local time, not toISOString(): the server
-            // slices the first 10 chars as the user's send DAY for Peerly,
-            // and the UTC rendering puts evening sends on the next day.
-            date: format(scheduledAt, "yyyy-MM-dd'T'HH:mm:ssXXX"),
-            // The wall-clock time as picked — approve opens Peerly's
-            // contact-local send window at it ("6 PM" means 6 PM wherever
-            // the contact lives).
-            scheduledLocalTime: format(scheduledAt, 'HH:mm'),
+            // Offset-annotated time in the campaign's zone, not
+            // toISOString(): the server slices the first 10 chars as the
+            // send DAY for Peerly, and the UTC rendering puts evening sends
+            // on the next day.
+            date: formatInTimeZone(
+              scheduledAt,
+              timeZone,
+              "yyyy-MM-dd'T'HH:mm:ssXXX",
+            ),
+            // The wall-clock time as picked — approve opens Peerly's send
+            // window at it, read in the same campaign zone.
+            scheduledLocalTime: formatInTimeZone(
+              scheduledAt,
+              timeZone,
+              'HH:mm',
+            ),
             ...(audience.selectedListId
               ? { voterFileFilterId: audience.selectedListId }
               : {}),
@@ -1058,6 +1440,9 @@ export const SmsFlow = ({
             ...(resumed && savedDraft
               ? { draftOutreachId: savedDraft.id }
               : {}),
+            ...(sendsProposalKey
+              ? { proposalKey: proposalLink.proposalKey }
+              : {}),
             draft: true,
           },
           resumed ? null : image,
@@ -1065,8 +1450,36 @@ export const SmsFlow = ({
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
           setDraftOutreachId(outreach.id)
+          // The draft row IS the campaign: it exists, it is scheduled, and it
+          // has an audience — everything except the payment that completes it.
+          // Fired per draft, so going Back to change the audience and coming
+          // forward again reports the second campaign it really creates.
+          //
+          // NOT on a resume: this create converts a saved `draft` row in
+          // place, and that row already reported itself created when the
+          // gate saved it.
+          if (!resumed)
+            trackEvent(
+              EVENTS.Dashboard.VoterContact.CampaignCreated,
+              outreachEventProps({
+                channel: 'text',
+                isServe: surface.isServe,
+                campaignName: name.trim(),
+                recipientCount: phoneList.leadsLoaded,
+                sendDate: scheduledAt,
+                outreachCampaignId: outreach.id,
+                ...(audience.selectedListId !== null
+                  ? { listId: audience.selectedListId }
+                  : {}),
+                audienceSource: audience.selectedRecommendation
+                  ? 'recommended'
+                  : 'savedList',
+                ...(tracker ? { tracker } : {}),
+              }),
+            )
         } else {
           setDraftCreateError(true)
+          if (sendsProposalKey) onProposalCreateFailed?.()
         }
       } finally {
         if (generation === draftGenerationRef.current) {
@@ -1089,11 +1502,44 @@ export const SmsFlow = ({
     name,
     audience.selectedListId,
     image,
+    proposalLink,
+    onProposalCreateFailed,
   ])
 
   const handleScheduled = async (paid: boolean) => {
     setPaidSend(paid)
     setScheduled(true)
+    // A text campaign completes when it is bought and scheduled, not when
+    // Peerly sends it — the send is hours or days later and nothing on the
+    // client is alive to see it. `sendDate` carries that gap: it is the
+    // scheduled day, never the event's own timestamp.
+    const discount = campaign?.hasFreeTextsOffer
+      ? Math.min(phoneList?.leadsLoaded ?? 0, FREE_TEXTS_OFFER.COUNT)
+      : 0
+    const billable = Math.max((phoneList?.leadsLoaded ?? 0) - discount, 0)
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+      ...outreachEventProps({
+        channel: 'text',
+        isServe: surface.isServe,
+        campaignName: name.trim(),
+        recipientCount: phoneList?.leadsLoaded ?? 0,
+        sendDate: scheduledAt,
+        // Always present on a paid channel, 0 included: a send fully covered
+        // by the free-texts offer is a zero-cost text campaign, not a channel
+        // without a price.
+        price: paid ? billable * PRICE_PER_MESSAGE : 0,
+        ...(draftOutreachId !== null
+          ? { outreachCampaignId: draftOutreachId }
+          : {}),
+        ...(audience.selectedListId !== null
+          ? { listId: audience.selectedListId }
+          : {}),
+        audienceSource: audience.selectedRecommendation
+          ? 'recommended'
+          : 'savedList',
+        ...(tracker ? { tracker } : {}),
+      }),
+    })
     await onScheduled()
   }
 
@@ -1121,6 +1567,19 @@ export const SmsFlow = ({
       isDraftCreatingRef.current = false
       setDraftOutreachId(null)
       setDraftCreateError(false)
+      // A build the poll resolved to `failed` is dead state, not a snapshot
+      // worth keeping — left alone, re-entering review would show the exact
+      // same failure card from before the edit instead of giving the edited
+      // campaign its own shot. Re-request it the same way the review step's
+      // own retry does, rather than only clearing the flags: nothing else
+      // triggers a build between compose and review, so clearing without
+      // rebuilding would strand review on a permanent "preparing" spinner. A
+      // build still in flight or one that already succeeded is untouched —
+      // the audience didn't change, so a completed phoneList survives
+      // Back/forward without a needless rebuild.
+      if (phoneListBuildFailed) {
+        void handleRetryPhoneListBuild()
+      }
     }
     const previous = stepOrder[stepIndex - 1]
     if (previous) setStepId(previous)
@@ -1129,7 +1588,9 @@ export const SmsFlow = ({
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = !scheduled && purpose !== null && savedDraft === null
 
-  const cta: FlowShellCta | null = scheduled
+  const reviewGateCta =
+    gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
+  const baseCta: FlowShellCta | null = scheduled
     ? null
     : // The gate screens carry their own buttons.
       gateOpen
@@ -1200,7 +1661,7 @@ export const SmsFlow = ({
                   label: 'Continue',
                   onClick: () => {
                     if (gate.requirement === 'pro') {
-                      void draftGate.saveDraft()
+                      void draftGate.saveDraft('Continue')
                       return
                     }
                     setStepId('review')
@@ -1238,8 +1699,9 @@ export const SmsFlow = ({
                       onClick: () =>
                         setStepId(buildMode ? 'schedule' : 'review'),
                       disabled:
-                        body.trim().length === 0 ||
+                        !hasWrittenBody ||
                         !standards.passed ||
+                        bracketsToFill.length > 0 ||
                         composedLength > SMS_COMPOSED_MAX_LENGTH ||
                         // Win only: Peerly rejects an imageless text/p2p send.
                         // Serve is fulfilled by the shared delivery layer, whose
@@ -1257,12 +1719,21 @@ export const SmsFlow = ({
                     ? {
                         label: REVIEW_GATE_CTA[gate.requirement],
                         onClick: () => {
-                          void draftGate.saveDraft()
+                          void draftGate.saveDraft(reviewGateCta)
                         },
                         disabled: !audience.selectedListId || image === null,
                         loading: draftGate.savingDraft,
                       }
                     : null
+
+  const cta: FlowShellCta | null =
+    stepId === 'details' && !scheduled && !gateOpen
+      ? {
+          label: 'Continue',
+          onClick: handleEventDetailsContinue,
+          disabled: eventDetails.event === null,
+        }
+      : baseCta
 
   // Mirrors the review step's isFree: a free send reads "Review and send" /
   // "Schedule campaign" instead of the pay vocabulary (design prototype).
@@ -1298,6 +1769,8 @@ export const SmsFlow = ({
         )
       }
       channel="sms"
+      source={source}
+      locked={lockedAtOpen}
       trackedStep={scheduled || showGateChrome ? null : stepId}
       settled={scheduled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
@@ -1331,19 +1804,58 @@ export const SmsFlow = ({
       }
       dirty={dirty}
     >
-      {phoneListToken && !phoneList && (
-        <LongPoll<PhoneListStatusResponse | false>
-          pollingMethod={async () => getP2pPhoneListStatus(phoneListToken)}
+      {phoneListBuildId && !phoneList && (
+        // Keyed on the buildId so a retry (a fresh buildId) remounts this
+        // rather than resuming a poll loop that already ran out its
+        // setTimeout chain after the previous build's terminal state.
+        // `limit`: gp-api's status route maps every non-2xx -- including a
+        // permanent 404 for a build row that is genuinely gone -- to "keep
+        // polling" (see getP2pPhoneListBuildStatus), so this loop is the only
+        // thing standing between a stuck/missing build and a silent,
+        // permanent spinner. PHONE_LIST_BUILD_POLL_LIMIT is sized generously
+        // (minutes, not the expected build duration) so it never cuts off a
+        // legitimately long async build.
+        <LongPoll<PhoneListBuildStatusResult>
+          key={phoneListBuildId}
+          pollingMethod={async () =>
+            getP2pPhoneListBuildStatus(phoneListBuildId)
+          }
           onSuccess={(result) => {
-            if (result === undefined || result === false) {
+            // `getP2pPhoneListBuildStatus` always resolves to a value — this
+            // guard is only here because LongPoll's signature allows `void`.
+            if (!result) return false
+            if (result.buildStatus === 'ready') {
+              const {
+                phoneListId,
+                leadsLoaded,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
+              } = result
+              setPhoneList({
+                phoneListId,
+                leadsLoaded,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
+              })
               setStopPolling(true)
-              return
+              // Terminal this tick -- told synchronously so a `ready` on the
+              // last allowed attempt doesn't also trip `onLimitReached`.
+              return true
             }
-            setPhoneList(result)
+            if (result.buildStatus === 'failed') {
+              setPhoneListBuildFailed(true)
+              setStopPolling(true)
+              return true
+            }
+            // 'building': keep polling, nothing changes yet.
+            return false
+          }}
+          limit={PHONE_LIST_BUILD_POLL_LIMIT}
+          onLimitReached={() => {
+            setPhoneListBuildFailed(true)
             setStopPolling(true)
           }}
           stopPolling={stopPolling}
-          limit={60}
         />
       )}
       <GateExplainerModal
@@ -1359,6 +1871,7 @@ export const SmsFlow = ({
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
           sendAt={scheduledAt}
+          timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
           onDone={onClose}
@@ -1375,6 +1888,9 @@ export const SmsFlow = ({
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onChromeChange={setGateChrome}
+          source={source}
+          cta={draftGate.gateCta}
+          tracker={tracker}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep
@@ -1382,6 +1898,13 @@ export const SmsFlow = ({
           onSelect={handleSelectPurpose}
           purposes={surface.purposes}
           introBody={surface.purposeIntroBody}
+        />
+      ) : stepId === 'details' ? (
+        <EventDetailsStep
+          details={eventDetails.details}
+          onChange={eventDetails.setDetails}
+          destination="message"
+          prefillNote={eventDetails.prefillNote}
         />
       ) : stepId === 'audience' ? (
         <>
@@ -1397,10 +1920,20 @@ export const SmsFlow = ({
               // A different audience needs a fresh phone list, and a stale
               // "couldn't prepare" error from the last attempt is moot.
               setPhoneListToken(null)
+              setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
+              setPhoneListBuildFailed(false)
             }}
+            universeName={audience.universeName}
+            universeListId={audience.universeListId}
+            universeCount={audience.universeCount}
+            universeLoading={audience.universeLoading}
+            onSelectUniverse={audience.selectUniverse}
+            universePending={audience.universePending}
+            universeError={audience.universeError}
+            onPickerOpenChange={audience.onPickerOpenChange}
             onStartBuilder={() => {
               setPhoneListError(false)
               audience.startBuilder()
@@ -1415,9 +1948,11 @@ export const SmsFlow = ({
             onSelectRecommendation={(recommendation) => {
               audience.selectRecommendation(recommendation)
               setPhoneListToken(null)
+              setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
+              setPhoneListBuildFailed(false)
             }}
             createRecommendedListError={audience.createRecommendedListError}
             preselectedRecommendation={audience.preselectedRecommendation}
@@ -1482,6 +2017,7 @@ export const SmsFlow = ({
               onTimeSlotChange={setTimeSlot}
               customTime={customTime}
               onCustomTimeChange={setCustomTime}
+              timeZone={timeZone}
               earliestSend={earliestSend}
               calendarFloor={earliestSend}
               violates48h={violates48h}
@@ -1511,22 +2047,21 @@ export const SmsFlow = ({
           isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
-          audienceName={selectedList?.name ?? audience.builderName}
           standardsFailures={standards.failures}
+          unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}
-          committeeName={committeeName}
-          body={body}
-          onBodyChange={handleBodyChange}
+          message={message}
+          onMessageChange={handleMessageChange}
+          protectedParts={protectedParts}
+          mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
+          hasWrittenBody={hasWrittenBody}
           composedLength={composedLength}
-          onRegenerate={() => requestDraft(purpose, tone, body, manuallyEdited)}
-          onImprove={handleImprove}
-          canImprove={manuallyEdited && body.trim().length > 0}
+          aiAction={aiAction}
+          onAiAction={handleAiAction}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           canUndo={undoText !== null}
           onUndo={handleUndo}
-          isCustomPurpose={purpose === 'custom'}
-          image={image}
           imagePreviewUrl={imagePreviewUrl}
           onImageChange={setImage}
           imageError={imageError}
@@ -1554,6 +2089,7 @@ export const SmsFlow = ({
             name={name}
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
+            timeZone={fixedMorningSchedule ? undefined : timeZone}
             composedMessage={composedMessage}
             imagePreviewUrl={previewUrl}
             contactCount={
@@ -1568,9 +2104,13 @@ export const SmsFlow = ({
             }
             preparing={
               !buildMode &&
+              !phoneListBuildFailed &&
               (!phoneList || (!draftOutreachId && !draftCreateError))
             }
             prepareError={draftCreateError}
+            buildFailed={phoneListBuildFailed}
+            retryingBuild={phoneListCreating}
+            onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}
             onComplete={handleScheduled}
           />

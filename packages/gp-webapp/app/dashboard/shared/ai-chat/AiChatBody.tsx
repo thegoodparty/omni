@@ -14,10 +14,12 @@ import {
   UserBubble,
 } from '../agent-chat/chatUI'
 import { segmentsToLive } from '../agent-chat/streaming'
+import { COMPOSE_HANDOFF_TOOL } from '../agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import type { AiChatClient, AiChatConfig } from './types'
+import { resolveToolLabel } from '../agent-chat/toolLabels'
 import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'
 import { HISTORY_QUERY_KEY } from './useAiChatHistory'
@@ -95,9 +97,14 @@ export default function AiChatBody({
   const loadRequestedRef = useRef(false)
   const lastSentRef = useRef('')
 
+  // compose_handoff is a widget this surface does not register, so it has no
+  // pill at all. Everything else resolves through resolveToolLabel, which
+  // guarantees a readable label whether or not the tool was ever listed.
   const toolLabel = useCallback(
-    (toolName: string): string =>
-      config.toolDisplayNames?.[toolName] ?? toolName,
+    (toolName: string): string | null =>
+      toolName === COMPOSE_HANDOFF_TOOL
+        ? null
+        : resolveToolLabel(toolName, config.toolDisplayNames),
     [config.toolDisplayNames],
   )
 

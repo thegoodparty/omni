@@ -8,15 +8,16 @@ import {
   type SocialAssetPlatform,
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
+import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
 import { DoorKnockingOutreachDetailSchema } from '../doorKnocking/DoorKnockingTurf.schema'
 import { OutreachRobocallDetailSchema } from './RobocallPurchase.schema'
-import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
+import { BROADCAST_OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 
-// Social shares the canonical outreach vocabulary (OutreachPurpose.schema.ts)
-// plus its own extra `issue_update` value.
+// Social shares the canonical outreach vocabulary (OutreachPurpose.schema.ts),
+// less the purpose that asks a question, plus its own extra `issue_update`.
 export const SOCIAL_PURPOSE_VALUES = [
-  ...OUTREACH_PURPOSE_VALUES,
+  ...BROADCAST_OUTREACH_PURPOSE_VALUES,
   'issue_update',
 ] as const
 export const SocialPurposeSchema = z.enum(SOCIAL_PURPOSE_VALUES)
@@ -200,12 +201,14 @@ export type ServeSocialGenerateRequest = z.infer<
   typeof ServeSocialGenerateRequestSchema
 >
 
-export const ServeSocialSaveRequestSchema = z.object({
-  name: z.string().min(1).max(60),
-  purpose: ServeSocialPurposeSchema,
-  draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
-  assets: z.array(SocialAssetSchema).min(1).max(6),
-})
+export const ServeSocialSaveRequestSchema = z
+  .object({
+    name: z.string().min(1).max(60),
+    purpose: ServeSocialPurposeSchema,
+    draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
+    assets: z.array(SocialAssetSchema).min(1).max(6),
+  })
+  .extend(ProposalLinkSchema.shape)
 export type ServeSocialSaveRequest = z.infer<
   typeof ServeSocialSaveRequestSchema
 >

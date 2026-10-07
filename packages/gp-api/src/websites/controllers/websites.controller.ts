@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   UsePipes,
+  UseGuards,
   UseInterceptors,
   ForbiddenException,
   Query,
@@ -43,6 +44,7 @@ import { WebsiteViewsService } from '../services/websiteViews.service'
 import { TrackWebsiteViewSchema } from '../schemas/TrackWebsiteView.schema'
 import { GetWebsiteViewsSchema } from '../schemas/GetWebsiteViews.schema'
 import { AnalyticsService } from 'src/analytics/analytics.service'
+import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -55,6 +57,8 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
+import { WebsiteContactFormRateLimitGuard } from '../guards/websiteContactFormRateLimit.guard'
+import { WebsiteTrackViewRateLimitGuard } from '../guards/websiteTrackViewRateLimit.guard'
 import {
   hasRenderableName,
   isBioPublishable,
@@ -159,6 +163,7 @@ export class WebsitesController {
     private readonly s3: S3Service,
     private readonly siteViews: WebsiteViewsService,
     private readonly analytics: AnalyticsService,
+    private readonly storyCompleted: CampaignStoryCompletedProducer,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(WebsitesController.name)
@@ -444,6 +449,17 @@ export class WebsitesController {
       }
     }
 
+    // The bio and issues are two of the three Campaign Story answers (the
+    // story page writes them here), so a write that touches either may have
+    // just completed the story and made the campaign plan stale.
+    //
+    // Narrower than `body.about`, which also carries `committee`: that is not
+    // a story answer, and announcing on it would wipe and regenerate a
+    // complete-story campaign's whole plan for an unrelated edit.
+    if (body.about?.bio !== undefined || body.about?.issues !== undefined) {
+      await this.storyCompleted.announce(campaignId)
+    }
+
     return serializeWebsiteWithDomain(result)
   }
 
@@ -512,6 +528,7 @@ export class WebsitesController {
 
   @Post(':vanityPath/contact-form')
   @PublicAccess()
+  @UseGuards(WebsiteContactFormRateLimitGuard)
   async contactForm(
     @Param('vanityPath') vanityPath: string,
     @Body() body: ContactFormSchema,
@@ -529,6 +546,7 @@ export class WebsitesController {
 
   @Post(':vanityPath/track-view')
   @PublicAccess()
+  @UseGuards(WebsiteTrackViewRateLimitGuard)
   async trackWebsiteView(
     @Param('vanityPath') vanityPath: string,
     @Body() { visitorId }: TrackWebsiteViewSchema,
@@ -536,6 +554,10 @@ export class WebsitesController {
     const website = await this.websites.findUniqueOrThrow({
       where: { vanityPath },
     })
+
+    if (website.status !== WebsiteStatus.published) {
+      throw new ForbiddenException()
+    }
 
     return this.siteViews.trackWebsiteView(website.id, visitorId)
   }

@@ -17,6 +17,12 @@ import {
   CONTACTS_PER_VOLUNTEER_HOUR,
   resolveWeeksRemaining,
 } from '../../components/volunteerHours'
+import {
+  planVotesCast,
+  planWinGoal,
+  resolveSeatContext,
+  winNumberPlanSource,
+} from '../../components/winNumberCopy'
 import { VOTER_DEADLINES_2026 } from '../data/voterDeadlines2026'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
@@ -86,6 +92,9 @@ export interface PlanInput {
   projectedTurnoutUpper: number | null
   winNumberLower: number | null
   winNumberUpper: number | null
+  // Seats the race fills. Null when unknown, and the win-number copy then
+  // makes no seat claim (see winNumberCopy.ts).
+  numberOfSeats: number | null
   raceCandidates: RaceCandidate[]
   // Per-category BR milestone windows. Null when election-api couldn't
   // fetch them; individual category nullable when BR has no data for it.
@@ -232,6 +241,11 @@ export interface PlanData {
   projectedTurnout: number
   registeredVoters: number
   voterContactGoal: number
+  // Seat-aware pieces of the "Projected Votes Needed to Win" summary (see
+  // winNumberCopy.ts). votesCast is null when the seat count is unknown, and
+  // the summary then states turnout instead.
+  votesCast: number | null
+  winNumberGoal: string
 
   opponentCount: number
   volunteerHourTarget: number
@@ -735,7 +749,7 @@ const FUNDRAISING_MIX: FundraisingRow[] = [
 
 const KEY_ASSUMPTIONS: string[] = [
   'Turnout behaves like recent comparable off-year municipal elections in your area, roughly 18 to 24 percent of registered voters.',
-  'Voter preferences distribute across the field without one opponent dominating. A plurality near 40 percent is often sufficient to win, but we plan to the more conservative 50% + 1 threshold.',
+  'Voter preferences distribute across the field without one opponent dominating. Candidates often win with fewer votes than our projection, but we plan to the more conservative number.',
   'You will execute the contact cadence on schedule. Any slippage materially reduces the probability of hitting the contact goal.',
 ]
 
@@ -754,7 +768,7 @@ const GLOSSARY: GlossaryRow[] = [
   {
     term: 'Projected Votes Needed to Win',
     definition:
-      'The vote total at which a candidate would win the seat with certainty given the modeled voter turnout. Calculated as 50% + 1 of the projected voter turnout.',
+      "The vote total we project you need to win, given the modeled voter turnout. With 1 seat, that's 50% of votes + 1. With more seats, it's enough to finish among the winners.",
   },
   {
     term: 'Projected Voter Turnout',
@@ -1035,6 +1049,11 @@ export const buildPlanData = (input: PlanInput): PlanData => {
 
   const winNumber = input.winNumber
   const projectedTurnout = input.projectedTurnout
+  const seatContext = resolveSeatContext({
+    numberOfSeats: input.numberOfSeats,
+    winNumber,
+    projectedTurnout,
+  })
   const voterContactGoal = resolveVoterContactGoal(
     input.voterContactGoal,
     winNumber,
@@ -1119,10 +1138,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
       target: winNumber.toLocaleString('en-US'),
     },
     {
-      metric: 'Projected Voter Turnout',
-      target: projectedTurnout.toLocaleString('en-US'),
-    },
-    {
       metric: 'Targeted Voter Contact Goal',
       target: voterContactGoal.toLocaleString('en-US'),
     },
@@ -1144,16 +1159,9 @@ export const buildPlanData = (input: PlanInput): PlanData => {
         'The total pool of voters eligible to cast a ballot in your race, pulled from the latest voter file.',
     },
     {
-      metric: 'Projected Voter Turnout',
-      target: `${projectedTurnout.toLocaleString('en-US')} voters turnout`,
-      source:
-        'The projected number of voters we expect to cast a ballot in your race, based on past voter turnout and our proprietary models.',
-    },
-    {
       metric: 'Projected Votes Needed to Win',
       target: `${winNumber.toLocaleString('en-US')} votes needed to win`,
-      source:
-        'Projecting a simple majority (50% + 1) of projected voter turnout.',
+      source: winNumberPlanSource(seatContext),
     },
     {
       metric: 'Contacts Per Likely Voter',
@@ -1189,6 +1197,8 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     projectedTurnout,
     registeredVoters,
     voterContactGoal,
+    votesCast: planVotesCast(seatContext, projectedTurnout),
+    winNumberGoal: planWinGoal(seatContext),
     opponentCount,
     volunteerHourTarget,
     totalBudget,

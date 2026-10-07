@@ -1,7 +1,9 @@
 import { z } from 'zod'
+import { OutreachEventDetailsSchema } from './OutreachEvent.schema'
 import { ServeOutreachPurposeSchema } from './OutreachPurpose.schema'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
+import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 
 // Serve SMS: texting for elected officials. Fulfilled by the shared delivery
 // layer (CSV to Slack today, a vendor later), never by Peerly — an elected
@@ -19,6 +21,7 @@ export const ServeSmsDraftRequestSchema = z.object({
   purpose: ServeOutreachPurposeSchema,
   tone: SocialToneSchema,
   currentDraft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH).optional(),
+  event: OutreachEventDetailsSchema.optional(),
 })
 export type ServeSmsDraftRequest = z.infer<typeof ServeSmsDraftRequestSchema>
 
@@ -37,16 +40,18 @@ export type ServeSmsDraftResponse = z.infer<typeof ServeSmsDraftResponseSchema>
 // No scheduledLocalTime. Serve sends at a fixed 11am local, matching what
 // polls already ships, so the time is a constant rather than a choice — see
 // docs/features/serve-sms.md, "Send timing".
-export const ServeSmsCreateRequestSchema = z.object({
-  name: z.string().trim().min(1).max(255),
-  message: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
-  imageUrl: z.string().url().optional(),
-  // The send day as a local calendar date. At least 2 business days out and
-  // no more than 30, weekends excluded; enforced server-side, not just by the
-  // picker.
-  scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  voterFileFilterId: z.number().int().positive(),
-})
+export const ServeSmsCreateRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255),
+    message: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
+    imageUrl: z.string().url().optional(),
+    // The send day as a local calendar date. At least 2 business days out and
+    // no more than 30, weekends excluded; enforced server-side, not just by the
+    // picker.
+    scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    voterFileFilterId: z.number().int().positive(),
+  })
+  .extend(ProposalLinkSchema.shape)
 export type ServeSmsCreateRequest = z.infer<typeof ServeSmsCreateRequestSchema>
 
 export const ServeSmsCreateResponseSchema = z.object({

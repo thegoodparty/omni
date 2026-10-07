@@ -14,5 +14,10 @@ declare global {
     // shape are valid `Polygon`s describing exactly what was drawn, and every
     // reader normalizes through `shapePolygons`.
     export type GeoJsonShape = GeoJsonPolygon | GeoJsonMultiPolygon
+
+    // What `voter_file_filter.geo_poly_labels` holds: one name and colour per
+    // part of `geo_poly`, in the same order. Validated by
+    // `GeoShapeLabelsSchema` in contracts at the write boundary.
+    export type GeoShapeLabels = { name: string; color: string }[]
   }
 }

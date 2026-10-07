@@ -6,6 +6,7 @@ import { PRO_UPGRADE_STEP } from 'app/dashboard/pro-upgrade/proUpgradeStep'
 import ProUpgradeFlow from 'app/dashboard/pro-upgrade/components/ProUpgradeFlow'
 import CampaignVerificationSteps from 'app/dashboard/campaign-verification/components/CampaignVerificationSteps'
 import { PinDialog } from 'app/dashboard/shared/membership/PinDialog'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { BANNER_COPY, GATE_NOTICE_COPY, GATE_NOUN } from './gateCopy'
 import type { OutreachGateState } from './useOutreachGate'
 import { OutreachGate } from './OutreachGate'
@@ -22,6 +23,10 @@ vi.mock(
 vi.mock('app/dashboard/shared/membership/PinDialog', () => ({
   PinDialog: vi.fn(() => null),
 }))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 const mockProUpgradeFlow = vi.mocked(ProUpgradeFlow)
 const mockCampaignVerificationSteps = vi.mocked(CampaignVerificationSteps)
@@ -31,6 +36,7 @@ const stateWith = (
   overrides: Partial<OutreachGateState>,
 ): OutreachGateState => ({
   enabled: true,
+  resolved: true,
   requirement: null,
   twoStep: true,
   membership: {
@@ -58,6 +64,7 @@ describe('OutreachGate', () => {
   it('renders nothing when closed', () => {
     const { container } = render(
       <OutreachGate
+        source="outreach_page"
         {...baseProps}
         state={stateWith({ requirement: 'pro' })}
         open={false}
@@ -69,7 +76,11 @@ describe('OutreachGate', () => {
 
   it('renders nothing when requirement is null', () => {
     const { container } = render(
-      <OutreachGate {...baseProps} state={stateWith({ requirement: null })} />,
+      <OutreachGate
+        source="outreach_page"
+        {...baseProps}
+        state={stateWith({ requirement: null })}
+      />,
     )
 
     expect(container).toBeEmptyDOMElement()
@@ -79,6 +90,7 @@ describe('OutreachGate', () => {
     it('mounts ProUpgradeFlow on the interstitial step for the channel', () => {
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'pro' })}
         />,
@@ -98,6 +110,7 @@ describe('OutreachGate', () => {
     it('starts on guidance when the caller skips the interstitial', () => {
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'pro' })}
           showInterstitial={false}
@@ -114,6 +127,7 @@ describe('OutreachGate', () => {
       const onExit = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'pro' })}
           onExit={onExit}
@@ -129,6 +143,7 @@ describe('OutreachGate', () => {
       const onComplete = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="robocall"
           state={stateWith({ requirement: 'pro', twoStep: false })}
@@ -145,6 +160,7 @@ describe('OutreachGate', () => {
       const onComplete = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="sms"
           state={stateWith({
@@ -181,6 +197,7 @@ describe('OutreachGate', () => {
       }
       const { rerender } = render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="sms"
           state={stateWith({ requirement: 'pro' })}
@@ -190,6 +207,7 @@ describe('OutreachGate', () => {
 
       rerender(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="sms"
           state={stateWith({
@@ -219,6 +237,7 @@ describe('OutreachGate', () => {
       const onComplete = vi.fn()
       const { rerender } = render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="sms"
           state={stateWith({ requirement: 'pro' })}
@@ -228,6 +247,7 @@ describe('OutreachGate', () => {
 
       rerender(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="sms"
           state={stateWith({
@@ -255,6 +275,7 @@ describe('OutreachGate', () => {
       const onComplete = vi.fn()
       const { rerender } = render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="robocall"
           state={stateWith({ requirement: 'pro', twoStep: false })}
@@ -264,6 +285,7 @@ describe('OutreachGate', () => {
 
       rerender(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           channel="robocall"
           state={stateWith({
@@ -294,6 +316,7 @@ describe('OutreachGate', () => {
       const onComplete = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'verify' })}
           onExit={onExit}
@@ -317,6 +340,7 @@ describe('OutreachGate', () => {
       const tcrCompliance = { status: 'submitted', peerlyIdentityId: 'p-1' }
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({
             requirement: 'pin',
@@ -341,6 +365,7 @@ describe('OutreachGate', () => {
       const onExit = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'pin' })}
           onComplete={onComplete}
@@ -358,6 +383,7 @@ describe('OutreachGate', () => {
       const onExit = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'pin' })}
           onExit={onExit}
@@ -373,6 +399,7 @@ describe('OutreachGate', () => {
       const onExit = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'pin' })}
           onExit={onExit}
@@ -391,6 +418,7 @@ describe('OutreachGate', () => {
       const onExit = vi.fn()
       render(
         <OutreachGate
+          source="outreach_page"
           {...baseProps}
           state={stateWith({ requirement: 'in_review' })}
           onExit={onExit}
@@ -410,5 +438,84 @@ describe('OutreachGate', () => {
 
       expect(onExit).toHaveBeenCalledTimes(1)
     })
+
+    it('fires In Review Viewed once with the channel', () => {
+      render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'in_review' })}
+        />,
+      )
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.Gate.InReviewViewed,
+        { channel: 'sms' },
+      )
+      expect(trackEvent).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not fire In Review Viewed on the PIN screen', () => {
+      render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'pin' })}
+        />,
+      )
+
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Outreach.Gate.InReviewViewed,
+        expect.anything(),
+      )
+    })
+  })
+})
+
+describe('OutreachGate attribution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('hands the wizard the source, channel, CTA and tracker task', () => {
+    render(
+      <OutreachGate
+        {...baseProps}
+        state={stateWith({ requirement: 'pro' })}
+        source="campaign_manager"
+        cta="Continue"
+        tracker={{ trackerTaskId: 'task-1', phase: 'launch' }}
+      />,
+    )
+
+    expect(mockProUpgradeFlow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attribution: {
+          source: 'campaign_manager',
+          channel: 'sms',
+          cta: 'Continue',
+          trackerTaskId: 'task-1',
+          phase: 'launch',
+        },
+      }),
+      undefined,
+    )
+  })
+
+  it('leaves out the CTA and task when there are none', () => {
+    render(
+      <OutreachGate
+        {...baseProps}
+        state={stateWith({ requirement: 'pro' })}
+        source="outreach_page"
+      />,
+    )
+
+    expect(mockProUpgradeFlow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attribution: { source: 'outreach_page', channel: 'sms' },
+      }),
+      undefined,
+    )
   })
 })

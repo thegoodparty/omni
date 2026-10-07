@@ -6,6 +6,7 @@ import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { OutreachModule } from '@/outreach/outreach.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
+import { PrioritiesModule } from '@/priorities/priorities.module'
 import { PhoneBankingController } from './phoneBanking.controller'
 import { PhoneBankingAccessService } from './services/phoneBankingAccess.service'
 import { PhoneBankingCallService } from './services/phoneBankingCall.service'
@@ -23,6 +24,9 @@ import { PhoneBankingListService } from './services/phoneBankingList.service'
     // here (unlike the cycles OutreachModule itself defers internally).
     OutreachModule,
     PeopleQueryModule,
+    // For PriorityStatusService: a list built from a priority's check puts
+    // that check out.
+    PrioritiesModule,
   ],
   controllers: [PhoneBankingController],
   providers: [

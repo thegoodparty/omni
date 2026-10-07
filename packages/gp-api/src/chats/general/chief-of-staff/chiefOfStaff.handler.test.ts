@@ -18,6 +18,9 @@ import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -84,7 +87,6 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
-          attachmentsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -92,7 +94,7 @@ describe('ChiefOfStaffHandler', () => {
 
   const buildResolver = (): DistrictResolverService =>
     ({
-      resolveByUserId: vi.fn(() =>
+      resolveByOrgSlug: vi.fn(() =>
         Promise.resolve({
           state: 'NC',
           l2DistrictType: 'city',
@@ -120,9 +122,12 @@ describe('ChiefOfStaffHandler', () => {
     // web_search is always present now (Anthropic native, gated at the LLM
     // layer on ANTHROPIC_API_KEY, not on an injected provider).
     expect(Object.keys(tools).sort()).toEqual([
+      'ask_clarify_question',
+      'compose_handoff',
       'crud_priorities',
       'get_briefing',
       'list_briefings',
+      'present_outside_contact',
       'web_search',
     ])
   })
@@ -189,7 +194,7 @@ describe('ChiefOfStaffHandler', () => {
 
   it('omits constituent-data tools when the district does not resolve', async () => {
     const resolver = {
-      resolveByUserId: vi.fn(() => Promise.resolve(null)),
+      resolveByOrgSlug: vi.fn(() => Promise.resolve(null)),
       toMandatoryFilters: vi.fn(),
     } as unknown as DistrictResolverService
     const handler = new ChiefOfStaffHandler(
@@ -239,7 +244,6 @@ describe('ChiefOfStaffHandler', () => {
             anchor: ANCHOR,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -283,7 +287,6 @@ describe('ChiefOfStaffHandler', () => {
             anchor: anchorWithHighlight,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -327,6 +330,68 @@ describe('ChiefOfStaffHandler', () => {
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'read_community_issues',
+      )
+    })
+  })
+
+  describe('check reminder tool', () => {
+    const priorityWith = (state: 'deferred' | 'out') => ({
+      id: 'pri-1',
+      title: 'Rents',
+      description: 'Keep renters near transit.',
+      archivedAt: null,
+      flow: {
+        currentStep: 'evidence' as const,
+        nextAction: null,
+        checks: [
+          {
+            stepId: 'define' as const,
+            check: { state, who: '', question: '', raised: 0 },
+          },
+        ],
+      },
+    })
+    const buildWithStatus = () =>
+      new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          buildCheckReminderTool: vi.fn(() => ({
+            record_check_reminder: {
+              description: 'stub',
+              inputSchema: undefined,
+              execute: () => ({}),
+            },
+          })),
+        } as unknown as PriorityStatusService,
+      )
+
+    it('registers only when a priority has a check put off', async () => {
+      const handler = buildWithStatus()
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'record_check_reminder',
+      )
+      expect(
+        Object.keys(
+          handler.buildTools({ ...ctx, priorities: [priorityWith('out')] }),
+        ),
+      ).not.toContain('record_check_reminder')
+      const withDeferral = { ...ctx, priorities: [priorityWith('deferred')] }
+      expect(Object.keys(handler.buildTools(withDeferral))).toContain(
+        'record_check_reminder',
+      )
+      expect(handler.buildSystemPrompt(withDeferral)).toContain(
+        'CHECKS THEY PUT OFF',
       )
     })
   })
@@ -482,10 +547,150 @@ describe('ChiefOfStaffHandler', () => {
       expect(toolNames).not.toContain('crud_saved_filters')
       expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
     })
+
+    // The constituents card is built and kept, but not offered: no tool hands
+    // the model a contact id, so it could only be called with invented ones.
+    it('holds constituents back and offers proposals only with saved lists', async () => {
+      const readOnly = buildCrmHandler({ contacts: buildContacts() })
+      const readOnlyTools = Object.keys(
+        readOnly.buildTools(await readOnly.loadContext('c1', USER_ID)),
+      )
+      expect(readOnlyTools).not.toContain('present_constituents')
+      expect(readOnlyTools).not.toContain('present_outreach_proposal')
+
+      const withLists = buildCrmHandler({
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const withListsTools = Object.keys(
+        withLists.buildTools(await withLists.loadContext('c1', USER_ID)),
+      )
+      expect(withListsTools).toContain('present_outreach_proposal')
+    })
+
+    it('sizes a text sample only where a proposal can be presented', async () => {
+      const readOnly = buildCrmHandler({ contacts: buildContacts() })
+      const readOnlyCtx = await readOnly.loadContext('c1', USER_ID)
+      expect(Object.keys(readOnly.buildTools(readOnlyCtx))).not.toContain(
+        'size_outreach_sample',
+      )
+      expect(readOnly.buildSystemPrompt(readOnlyCtx)).not.toContain(
+        'SAMPLING RULES',
+      )
+
+      const withLists = buildCrmHandler({
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const ctx = await withLists.loadContext('c1', USER_ID)
+      expect(Object.keys(withLists.buildTools(ctx))).toContain(
+        'size_outreach_sample',
+      )
+      const prompt = withLists.buildSystemPrompt(ctx)
+      expect(prompt).toContain('SAMPLING RULES')
+      expect(prompt).toContain('propose the sample by default')
+      expect(prompt).toContain(
+        'Texting all 58,520 is about $2,048. 2,767 picked at random is ' +
+          'about $97 and should bring back about 83 replies.',
+      )
+      expect(prompt).toContain('never work out a sample or a cost yourself')
+      expect(prompt).toContain("I'd text 2,767 of the 58,520")
+      expect(prompt).toContain('For a text to everyone, leave all three out')
+      expect(prompt).toContain('Never call it statistically proven')
+    })
+
+    it('has no earlier sample to widen outside a priority', () => {
+      expect(
+        Object.keys(buildPresentOutreachProposalTool().inputSchema.shape),
+      ).not.toContain('widensOutreachIds')
+    })
+
+    it('keeps the proposal out of the filter catalog', async () => {
+      const handler = buildCrmHandler({
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(descriptionOf(tools.describe_filter_dimensions)).not.toContain(
+        'present_outreach_proposal',
+      )
+    })
   })
 
-  describe('serve-chat-attachments flag gate (compose_handoff tool)', () => {
-    const buildCtxWith = (attachmentsEnabled: boolean) =>
+  describe('shared cards and past outreach', () => {
+    const buildPastOutreachHandler = (outreach?: PriorityFlowOutreachService) =>
+      new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        outreach,
+      )
+
+    it('reads the office-wide history with no priority behind it', async () => {
+      const forPriority = vi.fn()
+      const forOffice = vi.fn(() => Promise.resolve([]))
+      const handler = buildPastOutreachHandler({
+        forPriority,
+        forOffice,
+      } as unknown as PriorityFlowOutreachService)
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(Object.keys(tools)).toContain('present_past_outreach')
+      const read = tools.read_past_outreach
+      if (read === undefined || !('execute' in read)) {
+        throw new Error('expected an executable tool')
+      }
+      expect(await read.execute({})).toEqual({ priority: [], office: [] })
+      expect(forPriority).not.toHaveBeenCalled()
+      expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
+    })
+
+    it('omits the past-outreach tools without the service', async () => {
+      const handler = buildPastOutreachHandler(undefined)
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(Object.keys(tools)).not.toContain('read_past_outreach')
+      expect(Object.keys(tools)).not.toContain('present_past_outreach')
+    })
+
+    it('omits the outside contact when there is no web search', async () => {
+      delete process.env.ANTHROPIC_API_KEY
+      const handler = buildPastOutreachHandler(undefined)
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(Object.keys(tools)).not.toContain('present_outside_contact')
+      expect(Object.keys(tools)).toContain('ask_clarify_question')
+    })
+
+    it('never names a people card it does not offer', async () => {
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        {
+          getFilterDimensions: vi.fn(() => []),
+          countContacts: vi.fn(),
+        } as unknown as ContactsService,
+      )
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      expect(prompt).toContain('CARDS AND QUESTIONS')
+      expect(prompt).toContain('`present_outside_contact` is someone OUTSIDE')
+      expect(prompt).not.toContain('present_constituents')
+    })
+  })
+
+  describe('compose_handoff tool', () => {
+    const buildCtx = () =>
       ({
         load: vi.fn(() =>
           Promise.resolve({
@@ -507,14 +712,13 @@ describe('ChiefOfStaffHandler', () => {
             anchor: null,
             districtFilters: null,
             constituentToolEnabled: false,
-            attachmentsEnabled,
           }),
         ),
       }) as unknown as ChiefOfStaffContextService
 
-    it('registers compose_handoff when the flag is on', async () => {
+    it('registers compose_handoff', async () => {
       const handler = new ChiefOfStaffHandler(
-        buildCtxWith(true),
+        buildCtx(),
         buildBriefings(),
         port,
         [],
@@ -523,35 +727,22 @@ describe('ChiefOfStaffHandler', () => {
       expect(Object.keys(handler.buildTools(ctx))).toContain('compose_handoff')
     })
 
-    it('omits compose_handoff when the flag is off', async () => {
-      const handler = new ChiefOfStaffHandler(
-        buildCtxWith(false),
-        buildBriefings(),
-        port,
-        [],
-      )
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-        'compose_handoff',
-      )
-    })
-
     it('inputSchema converts to a top-level object json schema (Anthropic rejects anyOf roots)', async () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       const converted = await asSchema(tool.inputSchema).jsonSchema
       expect(converted.type).toBe('object')
       expect(converted.anyOf).toBeUndefined()
     })
 
     it('execute returns the validated payload verbatim on valid input', async () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       const input = { channel: 'serve_social' as const, draftText: 'Hello!' }
       const result = await tool.execute(input)
       expect(result).toEqual(input)
     })
 
     it('execute throws on invalid input (schema parse error)', () => {
-      const tool = buildComposeHandoffTool()
+      const tool = buildComposeHandoffTool('serve_social')
       type Input = Parameters<typeof tool.execute>[0]
       expect(() =>
         tool.execute({ channel: 'unknown' } as unknown as Input),

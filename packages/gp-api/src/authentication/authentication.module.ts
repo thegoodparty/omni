@@ -11,7 +11,8 @@ const JWT_EXPIRATION = '1y'
 
 if (!process.env.AUTH_SECRET) {
   const logger = new Logger('AuthenticationModule')
-  const msg = 'AUTH_SECRET is required for application startup'
+  const msg =
+    'AUTH_SECRET is required for application startup — run `npm run setup`'
   logger.error(msg)
   throw new Error(msg)
 }

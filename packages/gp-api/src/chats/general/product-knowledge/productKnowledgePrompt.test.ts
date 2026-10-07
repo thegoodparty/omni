@@ -90,7 +90,7 @@ describe('product knowledge blocks', () => {
   it('shows Win its own tabs and none of Serve’s', () => {
     const prompt = render('win')
     expect(prompt).toContain('Voter Data')
-    expect(prompt).toContain('Campaign Tracker')
+    expect(prompt).toContain('Campaign Plan')
     expect(prompt).toContain('Know Your Opponent')
     expect(prompt).not.toContain('Briefing Assistant')
     expect(prompt).not.toContain('Community Issues')
@@ -103,7 +103,7 @@ describe('product knowledge blocks', () => {
     expect(prompt).toContain('Briefing Assistant')
     expect(prompt).toContain('Ordinances')
     expect(prompt).not.toContain('Know Your Opponent')
-    expect(prompt).not.toContain('Campaign Tracker')
+    expect(prompt).not.toContain('Campaign Plan')
   })
 
   // The "where are my lists" session took six turns and ended with the
@@ -122,15 +122,35 @@ describe('product knowledge blocks', () => {
     expect(render('win')).toContain('seeing which precincts it covers')
   })
 
-  // No voter file tool is registered for a campaign without Pro, the filter
-  // catalog included, so this line is the only place the assistant learns
-  // what filtering covers.
+  // The map's own line on what filtering covers, read wherever the catalog
+  // tool is not registered.
   it('says what filters cover, in the Voter Data entry', () => {
     expect(render('win')).toContain('Filters cover voter likelihood')
   })
 
   it('says plainly that the public profile is separate from the story', () => {
     expect(render('win')).toMatch(/Public Profile is separate/)
+  })
+
+  // ENG-11220: candidates and elected officials asking "can I attach a
+  // document?" get a guess unless the map describes the paperclip, drag and
+  // drop, pasting a link, citations, and the social-post handoff.
+  it('describes chat attachments and the social-post handoff, in both products', () => {
+    for (const mode of ['win', 'serve'] as const) {
+      const prompt = render(mode)
+      expect(prompt, mode).toMatch(/paperclip/)
+      expect(prompt, mode).toMatch(/dragging a file onto the chat/)
+      expect(prompt, mode).toMatch(/Pasting a link attaches it as a source/)
+      expect(prompt, mode).toMatch(/A citation in a reply opens the document/)
+      expect(prompt, mode).toMatch(/turn a reply into a social post/)
+      expect(prompt, mode).not.toMatch(/being rolled out, so they are not/)
+    }
+    const win = render('win')
+    const serve = render('serve')
+    expect(win).toContain('Voter Outreach’s social flow')
+    expect(win).not.toContain('Constituent Outreach’s social flow')
+    expect(serve).toContain('Constituent Outreach’s social flow')
+    expect(serve).not.toContain('Voter Outreach’s social flow')
   })
 
   // The prompt must never advertise a tool that did not register, same rule

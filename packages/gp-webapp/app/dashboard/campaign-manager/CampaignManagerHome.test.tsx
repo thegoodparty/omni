@@ -30,6 +30,24 @@ const renderHome = () =>
   )
 
 // firstName now comes from useUser (read by the provider), not a prop.
+// This suite renders the real ChiefOfStaffChatBody, which reads the org slug
+// to scope the saved-list cache invalidation. In the app every chat sits under
+// PageWrapper's OrganizationProvider; the harness has to supply it.
+// The chat body's outreach flows report a failed save through the snackbar,
+// and this suite renders no provider (the app shell's PageWrapper does).
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({ slug: 'test-org' }),
+}))
+
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ firstName: 'Renee' }],
 }))

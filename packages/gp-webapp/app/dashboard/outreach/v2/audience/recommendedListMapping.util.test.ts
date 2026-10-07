@@ -44,8 +44,10 @@ describe('intentForOutreachPurpose', () => {
     expect(intentForOutreachPurpose('election_day_turnout')).toBe('electionDay')
   })
 
-  it('gives custom no intent', () => {
+  it('gives custom and hear-from-voters no intent', () => {
     expect(intentForOutreachPurpose('custom')).toBeNull()
+    // A listening effort has no audience a recommendation is cut for.
+    expect(intentForOutreachPurpose('community_input')).toBeNull()
   })
 })
 
@@ -74,6 +76,16 @@ describe('builderFiltersFromRecommendation', () => {
       ideologyConservative: true,
       hasCellPhone: true,
       hasAnyPhone: true,
+    })
+  })
+
+  it('carries the landline cut a robocall card was priced on', () => {
+    // Dropping it saves a list WIDER than the card the candidate accepted,
+    // and because the saved shape no longer matches the recommendation,
+    // `existingFilterId` never matches either — so the same card can be
+    // saved again as a second, different list.
+    expect(builderFiltersFromRecommendation({ hasLandline: true })).toEqual({
+      hasLandline: true,
     })
   })
 

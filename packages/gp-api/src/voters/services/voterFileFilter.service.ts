@@ -4,16 +4,25 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common'
+import {
+  type GeoJsonShape,
+  type GeoShapeLabels,
+  shapePartCount,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
 import {
+  Organization,
   OutreachStatus,
   OutreachType,
   Prisma,
   VoterFileFilter,
 } from '../../generated/prisma'
+import { savedFilterBlockedForElectedOffice } from '@/contacts/utils/voterFileFilter.utils'
 import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
+import { VoterFileFilterSampleService } from './voterFileFilterSample.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
 
@@ -30,6 +39,30 @@ const ACTIVITY_CONDITIONS_INCLUDE = {
 type VoterFileFilterWithConditions = Prisma.VoterFileFilterGetPayload<{
   include: typeof ACTIVITY_CONDITIONS_INCLUDE
 }>
+
+// Labels are joined to the boundary's parts by index, so a set that does not
+// line up with the shape it arrives with would name the wrong parts.
+const assertShapeLabelsMatch = (
+  geoPoly: GeoJsonShape | null | undefined,
+  geoPolyLabels: GeoShapeLabels | null | undefined,
+) => {
+  if (geoPolyLabels === undefined) return
+  // Even a null is refused without `geoPoly`: the names are only written
+  // beside it, so an update clearing them alone would be a 200 that wrote
+  // nothing.
+  if (geoPoly === undefined || (geoPolyLabels && !geoPoly)) {
+    throw new BadRequestException(
+      'Shape names can only be saved with the boundary they describe',
+    )
+  }
+  if (
+    geoPolyLabels &&
+    geoPoly &&
+    geoPolyLabels.length !== shapePartCount(geoPoly)
+  ) {
+    throw new BadRequestException('Each drawn shape needs exactly one name')
+  }
+}
 
 const toActivityConditionCreateInput = (
   conditions: ActivityCondition[],
@@ -51,7 +84,10 @@ export class VoterFileFilterService extends createPrismaBase(
   // and crashes the app at boot with "Cannot access 'ContactsService'
   // before initialization". The controller owns both and resolves the ids
   // before calling in.
-  constructor(private readonly geo: VoterFileFilterGeoService) {
+  constructor(
+    private readonly geo: VoterFileFilterGeoService,
+    private readonly sampleMembers: VoterFileFilterSampleService,
+  ) {
     super()
   }
 
@@ -150,8 +186,29 @@ export class VoterFileFilterService extends createPrismaBase(
     // Null means no boundary was submitted; every caller without one (the
     // assistant tool, recommended lists) omits it and is unchanged.
     geoMemberIds?: string[] | null,
+    // Who a sampled list drew, already drawn by the caller. Null saves the
+    // live filter, which is also what a sample asked of an audience no
+    // bigger than itself comes back as.
+    sampleMemberIds?: string[] | null,
   ): Promise<VoterFileFilterWithConditions> {
-    const { activityConditions, recommendedFilter, geoPoly, ...rest } = data
+    const {
+      activityConditions,
+      recommendedFilter,
+      geoPoly,
+      geoPolyLabels,
+      sample,
+      ...rest
+    } = data
+    assertShapeLabelsMatch(geoPoly, geoPolyLabels)
+
+    // A card pressed twice, or pressed again after a reload, is one list.
+    if (rest.proposalKey) {
+      const existing = await this.findByProposalKeyAndOrganizationSlug(
+        rest.proposalKey,
+        organizationSlug,
+      )
+      if (existing) return existing
+    }
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -170,7 +227,7 @@ export class VoterFileFilterService extends createPrismaBase(
       ? findEquivalentFilter(rest, [{ ...recommendedFilter, id: -1 }]) === null
       : null
 
-    return this.client.$transaction(async (tx) => {
+    const write = this.client.$transaction(async (tx) => {
       const created = await tx.voterFileFilter.create({
         data: {
           organizationSlug,
@@ -181,7 +238,11 @@ export class VoterFileFilterService extends createPrismaBase(
           ...(geoPoly === undefined
             ? {}
             : { geoPoly: geoPoly ?? Prisma.DbNull }),
+          ...(geoPoly && geoPolyLabels ? { geoPolyLabels } : {}),
           ...(geoMemberIds ? { geoMembersResolvedAt: new Date() } : {}),
+          ...(sample && sampleMemberIds
+            ? { sampleSize: sample.size, sampledAt: new Date() }
+            : {}),
           ...(activityConditions
             ? {
                 activityConditions: {
@@ -195,8 +256,27 @@ export class VoterFileFilterService extends createPrismaBase(
       if (geoMemberIds) {
         await this.geo.replaceMembers(tx, created.id, geoMemberIds)
       }
+      if (sample && sampleMemberIds) {
+        await this.sampleMembers.writeMembers(tx, created.id, sampleMemberIds)
+      }
       return created
     })
+    if (!rest.proposalKey) return write
+    // Two presses of one card can both miss the read above, from two tabs or
+    // a reload racing the first press. The loser trips the unique key; the
+    // winner's list exists by then, and it is the answer to both.
+    const { proposalKey } = rest
+    try {
+      return await write
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error
+      const winner = await this.findByProposalKeyAndOrganizationSlug(
+        proposalKey,
+        organizationSlug,
+      )
+      if (!winner) throw error
+      return winner
+    }
   }
 
   async update(
@@ -223,6 +303,18 @@ export class VoterFileFilterService extends createPrismaBase(
       orderBy: { name: 'asc' },
       include: ACTIVITY_CONDITIONS_INCLUDE,
     })
+  }
+
+  // The saved lists a surface may offer this org. An elected-office org can't
+  // resolve Win-only dimensions (party, ethnicity, recommended, contacts-made)
+  // — the detail/count/download paths 400 on them — so a legacy list carrying
+  // one is dropped rather than shown as a row that breaks the moment it opens.
+  async findUsableByOrganizationSlug(
+    organization: Organization,
+  ): Promise<VoterFileFilterWithConditions[]> {
+    const filters = await this.findByOrganizationSlug(organization.slug)
+    if (!organization.slug.startsWith('eo-')) return filters
+    return filters.filter((f) => !savedFilterBlockedForElectedOffice(f))
   }
 
   // Most-recently-saved lists first, capped at `limit` — the overlap-count
@@ -259,6 +351,16 @@ export class VoterFileFilterService extends createPrismaBase(
     })
   }
 
+  findByProposalKeyAndOrganizationSlug(
+    proposalKey: string,
+    organizationSlug: string,
+  ): Promise<VoterFileFilterWithConditions | null> {
+    return this.findFirst({
+      where: { proposalKey, organizationSlug },
+      include: ACTIVITY_CONDITIONS_INCLUDE,
+    })
+  }
+
   async updateByIdAndOrganizationSlug(
     id: number,
     organizationSlug: string,
@@ -267,7 +369,8 @@ export class VoterFileFilterService extends createPrismaBase(
   ): Promise<VoterFileFilterWithConditions> {
     await this.assertNotLocked(id, organizationSlug)
 
-    const { activityConditions, geoPoly, ...rest } = data
+    const { activityConditions, geoPoly, geoPolyLabels, ...rest } = data
+    assertShapeLabelsMatch(geoPoly, geoPolyLabels)
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -313,6 +416,10 @@ export class VoterFileFilterService extends createPrismaBase(
             ? {}
             : {
                 geoPoly: geoPoly ?? Prisma.DbNull,
+                // A reshaped boundary without labels drops the old ones:
+                // they were joined to parts by index, and the parts moved.
+                geoPolyLabels:
+                  geoPoly && geoPolyLabels ? geoPolyLabels : Prisma.DbNull,
                 geoMembersResolvedAt: geoPoly === null ? null : new Date(),
               }),
         },

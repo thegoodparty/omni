@@ -53,6 +53,7 @@ import { OrganizationsService } from 'src/organizations/services/organizations.s
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { VoterFileFilterGeoService } from '@/voters/services/voterFileFilterGeo.service'
+import { VoterFileFilterSampleService } from '@/voters/services/voterFileFilterSample.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
@@ -95,6 +96,7 @@ import {
   CONTACTS_MADE_BUCKET_FIELDS,
   convertVoterFileFilterToFilters,
   type FilterObject,
+  WIN_ONLY_RECOMMENDED_FILTER_KEYS,
 } from '../utils/voterFileFilter.utils'
 import {
   FILTER_DIMENSIONS,
@@ -153,23 +155,17 @@ const MAP_POINTS_MAX = MAX_RESULTS_PER_PAGE
 // The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
 // `eo-` org's download drops these columns from the projection instead
 // (ENG-10696). Only downloadVoterFilePeople (the separate outreach/task-flow
-// audience download) uses this narrow pair; the CRM download excludes the
-// wider SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830). Ethnicity
-// joins party here rather than only in the wider set because this endpoint
-// is the other way a Serve list leaves as a file, and #1933's rule is about
-// the list that reaches someone's hands, not about which route built it.
+// audience download) uses this narrow set; the CRM download excludes the
+// wider SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830). Ethnicity and
+// the L2 voter id join party here rather than only in the wider set because
+// this endpoint is the other way a Serve list leaves as a file, and the rule
+// is about the list that reaches someone's hands, not about which route
+// built it.
 const SERVE_EXCLUDED_VOTER_FILE_COLUMNS: ExcludableVoterColumn[] = [
   'Parties_Description',
   'EthnicGroups_EthnicGroup1Desc',
+  'LALVOTERID',
 ]
-
-// The recommended-list dimensions a Serve org may not filter on. Keep in
-// step with the `modes: 'win'` marks in filterDimensions.catalog.ts — the
-// catalog hides them from the assistant, this rejects them at the routes.
-const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
-  'independentAffinity',
-  'ideology',
-] as const
 
 const RECOMMENDED_FILTER_LABELS: Record<
   (typeof WIN_ONLY_RECOMMENDED_FILTER_KEYS)[number],
@@ -278,6 +274,7 @@ export class ContactsService {
   constructor(
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly voterFileFilterGeoService: VoterFileFilterGeoService,
+    private readonly voterFileFilterSampleService: VoterFileFilterSampleService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
@@ -592,6 +589,22 @@ export class ContactsService {
       : { kind: 'filter', idFilter: { in: personIds } }
   }
 
+  // A sampled list's draw, intersected the same way as a boundary and keyed
+  // the same way: on `sampleSize`, never on the rows, so a sample that drew
+  // nobody resolves to nobody rather than to the whole audience.
+  private async resolveSampleIdFilter(
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    if (filterInput.sampleSize == null) return { kind: 'none' }
+    if (typeof filterInput.id !== 'number') return { kind: 'empty' }
+    const personIds = await this.voterFileFilterSampleService.personIdsFor(
+      filterInput.id,
+    )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
   // The frozen members of a saved list's drawn boundary, for a caller
   // counting that list's criteria inline (the edit wizard). Scoped through
   // resolveCustomSegment, which 404s an id this organization does not own,
@@ -607,7 +620,10 @@ export class ContactsService {
       String(filterInput.boundaryFromSegmentId),
       organization,
     )
-    return this.resolveGeoIdFilter(segment)
+    return intersectIdFilterResolutions(
+      await this.resolveGeoIdFilter(segment),
+      await this.resolveSampleIdFilter(segment),
+    )
   }
 
   private async resolveIdFilterWithContactsMade(
@@ -630,8 +646,11 @@ export class ContactsService {
     // after it, the boundary would hold on the CSV and the counts and
     // nowhere a holder actually looks.
     const idResolution = intersectIdFilterResolutions(
-      activityResolution,
-      await this.resolveGeoIdFilter(filterInput),
+      intersectIdFilterResolutions(
+        activityResolution,
+        await this.resolveGeoIdFilter(filterInput),
+      ),
+      await this.resolveSampleIdFilter(filterInput),
     )
     if (this.hasElectedOfficeAccess(organization)) {
       // Serve's own dimension takes the Win block's place rather than sitting
@@ -1492,6 +1511,12 @@ export class ContactsService {
             savedIdResolution,
             await this.resolveGeoIdFilter(savedFilter),
           )
+          // A sampled list holds its draw, not its whole audience, for the
+          // same reason.
+          savedIdResolution = intersectIdFilterResolutions(
+            savedIdResolution,
+            await this.resolveSampleIdFilter(savedFilter),
+          )
         } catch (error) {
           this.logger.warn(
             {
@@ -1639,6 +1664,11 @@ export class ContactsService {
       filters,
       idOverrides,
       contactsMadeIdOverrides,
+      // Read straight off the row rather than through `segmentToSearch`,
+      // which would re-fetch the filter this method already holds. The
+      // universe branch above passes none, correctly: it has no saved row
+      // and so no stored search.
+      filter.search ?? undefined,
     )
     return { ...aggregates, outreachHistory }
   }
@@ -1677,6 +1707,12 @@ export class ContactsService {
       this.mergeIdFilter(baseFilters, idResolution),
       idOverrides,
       contactsMadeIdOverrides,
+      // Same reason as `getListDetail` above: an unsaved filter still
+      // carries the search the holder typed (`voterFilterBaseSchema`), and
+      // every path that materialises its people re-applies it. This is the
+      // second call site of the one bug — fixing the saved path alone would
+      // have left the detail sheet for an UNSAVED filter still over-counting.
+      filterInput.search ?? undefined,
     )
     return { ...aggregates, outreachHistory: [] }
   }
@@ -1691,6 +1727,13 @@ export class ContactsService {
     baseFilters: FilterObject,
     idOverrides?: IdOverrides,
     contactsMadeIdOverrides?: IdOverrides,
+    // The list's own stored search. Every path that MATERIALISES people
+    // applies it — `findContactsForFilter`, `countSegment`,
+    // `phoneBankingList.create` — so aggregates computed without it
+    // describe a list nobody will ever be sent to. A list saved from a CRM
+    // search priced high and sent narrow on SMS, robocall and phone banking
+    // alike, because all three read the reachability leaf below.
+    search?: string,
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
@@ -1701,6 +1744,7 @@ export class ContactsService {
           AggregatesDTO.create({
             ...districtParams,
             filters: baseFilters,
+            search,
             idOverrides,
             contactsMadeIdOverrides,
           }),
@@ -1742,6 +1786,84 @@ export class ContactsService {
       )
 
     return this.withOrgDistrictResolution(organization, fetchSample)
+  }
+
+  // Who a list saved as a sample holds: `size` people drawn at random from
+  // everyone its criteria match, resolved exactly as a count of the same
+  // criteria is. Null when the audience is no bigger than the sample, so the
+  // caller saves it whole, which is what the official was told would happen.
+  //
+  // A widened sample is the exception. When everyone not already asked fits
+  // in it, it holds all of them, frozen, and never null: a live filter has no
+  // exclusions, so saving it whole would text the earlier sample again.
+  async drawListSample(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    sample: {
+      size: number
+      seedKey?: string
+      excludeOutreachIds?: number[]
+    },
+  ): Promise<string[] | null> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution: criteria, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    if (criteria.kind === 'empty') return null
+    const excludeIds =
+      await this.voterFileFilterSampleService.personIdsForOutreaches(
+        organization.slug,
+        sample.excludeOutreachIds ?? [],
+      )
+    // The people already asked leave the scope itself, so the count below is
+    // the real pool. Subtracting their number from the audience assumed they
+    // were all still in it, and drew short when they were not.
+    const idResolution =
+      excludeIds.length === 0
+        ? criteria
+        : intersectIdFilterResolutions(criteria, {
+            kind: 'filter',
+            idFilter: { notIn: excludeIds },
+          })
+    if (idResolution.kind === 'empty') return []
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async (districtParams) => {
+        const scope = {
+          ...districtParams,
+          filters,
+          idOverrides,
+          contactsMadeIdOverrides,
+          search,
+        }
+        const { pagination } = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create({
+            ...scope,
+            resultsPerPage: 1,
+            page: 1,
+            groupByHousehold: false,
+          }),
+        )
+        const pool = pagination.totalResults
+        // Widening a sample that already reached nearly everyone takes the
+        // rest of them, never the people it already asked.
+        if (pool <= sample.size && excludeIds.length === 0) return null
+        if (pool === 0) return []
+        const people = await this.voterQueryService.samplePeople(
+          SamplePeopleDTO.create({
+            ...scope,
+            size: Math.min(sample.size, pool),
+            seedKey: sample.seedKey,
+          }),
+        )
+        return people.map((person) => person.id)
+      },
+    )
   }
 
   // Lookup a single person in the org's district by phone number.

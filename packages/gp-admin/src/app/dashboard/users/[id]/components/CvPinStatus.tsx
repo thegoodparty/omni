@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Badge, Button, Checkbox, Flex, Text } from '@radix-ui/themes'
+import * as Sentry from '@sentry/nextjs'
+import { Badge, Checkbox, Flex, Text } from '@radix-ui/themes'
 import { HiOutlineMail } from 'react-icons/hi'
 import {
   ComplianceStage,
@@ -11,12 +12,13 @@ import {
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useToast } from '@/components/Toast'
+import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import {
   getCampaignComplianceState,
   listCampaigns,
-  resendCvPin,
   setInternalTestingApproval,
 } from '@/app/dashboard/campaigns/actions'
+import { ResendCvPinButton } from '@/app/dashboard/campaigns/components/ResendCvPinButton'
 import { useUser } from '../context/UserContext'
 import { CvValidationHold } from './CvValidationHold'
 import { EditCommitteeNameAction } from './EditCommitteeNameAction'
@@ -81,8 +83,6 @@ function CvPinStatusContent() {
   const { id: userId, email } = useUser()
   const { showToast } = useToast()
   const [info, setInfo] = useState<ComplianceInfo | null>(null)
-  const [resending, setResending] = useState(false)
-  const [resent, setResent] = useState(false)
   const [savingApproval, setSavingApproval] = useState(false)
 
   useEffect(() => {
@@ -117,20 +117,6 @@ function CvPinStatusContent() {
   // or deleted from here — the endpoints refuse it, so disable the toggle.
   const hasRealComplianceRecord = state.hasComplianceRecord && !testingApproved
 
-  async function handleResend() {
-    setResending(true)
-    try {
-      await resendCvPin(campaignId)
-      setResent(true)
-      showToast('CV PIN resent')
-    } catch (error) {
-      showToast(
-        error instanceof Error ? error.message : 'Failed to resend CV PIN'
-      )
-    }
-    setResending(false)
-  }
-
   async function handleApprovalToggle(checked: boolean) {
     setSavingApproval(true)
     try {
@@ -143,10 +129,12 @@ function CvPinStatusContent() {
           : 'Internal testing approval removed'
       )
     } catch (error) {
+      Sentry.captureException(error)
       showToast(
-        error instanceof Error
-          ? error.message
-          : 'Failed to update internal testing approval'
+        describeActionFailure(
+          error,
+          'Failed to update internal testing approval'
+        )
       )
     }
     setSavingApproval(false)
@@ -238,14 +226,10 @@ function CvPinStatusContent() {
         requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
         hideWhenUnauthorized
       >
-        <Button
-          variant="outline"
-          onClick={handleResend}
-          disabled={resending || resent}
-        >
-          <HiOutlineMail className="w-4 h-4" />
-          {resent ? 'PIN resent' : resending ? 'Resending...' : 'Resend CV PIN'}
-        </Button>
+        <ResendCvPinButton
+          campaignId={campaignId}
+          icon={<HiOutlineMail className="w-4 h-4" />}
+        />
       </ProtectedContent>
       {committeeNameRow}
     </Flex>

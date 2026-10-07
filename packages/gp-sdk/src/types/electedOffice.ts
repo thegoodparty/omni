@@ -23,10 +23,11 @@ export type UpdateElectedOfficeInput = {
   onboardingStep?: string | null
 }
 
+// overrideDistrictId is not accepted on create — it is set only by
+// updateDistrict, which resolves the id server-side from a state/district pair.
 export type CreateElectedOfficeInput = UpdateElectedOfficeInput & {
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
-  overrideDistrictId?: string | null
 }
 
 export type UpdateElectedOfficeDistrictInput = {

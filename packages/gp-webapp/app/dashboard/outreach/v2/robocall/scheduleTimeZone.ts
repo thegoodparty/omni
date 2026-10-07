@@ -1,13 +1,15 @@
 import { format } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 
-// Robocall send times are entered and displayed in the candidate's local
-// timezone — the 9am-9pm delivery window is a per-contact-timezone legal rule —
-// but the instant is stored as UTC (scheduledAt). The race's own IANA timezone
-// is the eventual source of truth (wired in when the schedule persists at the
-// pay step); until then we derive the zone from the campaign's state. Split
-// states map to their predominant zone; Eastern is the fallback for anything
-// unmapped (territories, missing state).
+// Robocall and SMS send times are entered and displayed in the candidate's
+// local timezone — the 9am-9pm delivery window is a per-contact-timezone legal
+// rule — but the instant is stored as UTC (scheduledAt). The race's own IANA
+// timezone is the eventual source of truth (wired in when the schedule persists
+// at the pay step); until then we derive the zone from the campaign's state,
+// the same state→zone table gp-api applies to the Peerly window
+// (vendors/peerly/utils/sendWindowTimeZone.util.ts). Split states map to their
+// predominant zone; Eastern is the fallback for anything unmapped
+// (territories, missing state).
 const STATE_TIME_ZONES: Record<string, string> = {
   AL: 'America/Chicago',
   AK: 'America/Anchorage',
@@ -19,7 +21,7 @@ const STATE_TIME_ZONES: Record<string, string> = {
   DE: 'America/New_York',
   FL: 'America/New_York',
   GA: 'America/New_York',
-  HI: 'America/Honolulu',
+  HI: 'Pacific/Honolulu',
   ID: 'America/Denver',
   IL: 'America/Chicago',
   IN: 'America/New_York',
@@ -63,6 +65,12 @@ const STATE_TIME_ZONES: Record<string, string> = {
 }
 
 export const DEFAULT_TIME_ZONE = 'America/New_York'
+
+// Every zone the table can answer with; the test walks each through Intl,
+// which is what date-fns-tz delegates to and what threw on a bad HI entry.
+export const CAMPAIGN_TIME_ZONES: readonly string[] = [
+  ...new Set([...Object.values(STATE_TIME_ZONES), DEFAULT_TIME_ZONE]),
+]
 
 // How far ahead of now a candidate may schedule a send. Must match
 // ROBOCALL_MAX_SCHEDULE_DAYS in gp-api's shared/util/robocallHold.util.ts —

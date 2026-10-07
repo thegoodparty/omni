@@ -126,6 +126,11 @@ const WIN_AREAS: ProductArea[] = [
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+      'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
+      'Pasting a link attaches it as a source the assistant can read',
+      'A citation in a reply opens the document it points to, to the cited page when there is one',
+      'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
+      'Asking the chat to text voters gets a text outreach card, which can go to a random sample of them instead of everyone, sized the way polls are, with the cost of each. The card’s button opens Voter Outreach’s text flow with the audience and message filled in, to review and pay for before it sends',
     ],
   },
   {
@@ -133,7 +138,7 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Your Story',
     path: '/dashboard/campaign-story',
     modes: ['win'],
-    does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign plan and tracker are generated from.',
+    does: 'The three Campaign Story questions (why you are running, your background, your positions), which the campaign and outreach plan is generated from.',
     inside: [
       'One Save in the page title bar commits every field at once; nothing saves until they press it',
       'Start over at the bottom clears the fields on screen but deletes nothing until they Save',
@@ -141,11 +146,11 @@ const WIN_AREAS: ProductArea[] = [
   },
   {
     navId: 'campaign-plan-dashboard',
-    name: 'Campaign Tracker',
+    name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
-    does: 'The generated campaign plan and the week-by-week task list built from the Campaign Story.',
-    gate: 'Generated from a finished Campaign Story, so it is empty until the story is complete.',
+    does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {
     navId: 'outreach-dashboard',
@@ -157,11 +162,13 @@ const WIN_AREAS: ProductArea[] = [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
       'Each channel starts by asking who to reach, which reads from your saved lists',
+      'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
       'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
       'A saved one waits in the outreach history, labeled with what it still needs — Pro needed, Verification needed, Verification in review, PIN needed, or Ready to schedule',
       'Click that row to reopen the flow and pick up where you left off, or delete it from there',
       'One saved text and one saved robocall at a time, kept for 90 days',
       'SMS and Robocall take a promo code on their payment step, in a Promo Code box above the card details. A code that covers the whole cost schedules the send with no card',
+      'Phone banking and Door knocking offer Hear from voters as a goal. The flow asks what question to put to people, and the call script or door card is written to ask it',
     ],
   },
   {
@@ -178,6 +185,7 @@ const WIN_AREAS: ProductArea[] = [
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
+      'A voter’s record can carry What they told us: what they said at the door or on the phone, the issues they raised, where they stand on each and what they want, and any accepted tags. It is being rolled out account by account',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
   },
@@ -201,9 +209,11 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Candidate website',
     path: '/dashboard/website',
     modes: ['win'],
-    does: 'A free campaign website: pick a theme, edit it section by section, and connect a custom domain.',
+    does: 'The build-your-own campaign website, which is being discontinued. It is no longer in the left rail and nothing on the dashboard links to it.',
     inside: [
-      'Reached from the dashboard rather than the left rail',
+      'Do not suggest starting a new site here. If they ask, say the feature is being discontinued',
+      'A candidate who bought a domain through us is asked to transfer it to another provider, from the notice on their dashboard and the Transfer button on Profile',
+      'An existing site can still be edited at app.goodparty.org/dashboard/website',
       'Custom domain setup and its DNS instructions are under the site’s Domain settings',
     ],
   },
@@ -264,8 +274,17 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
-      'A list shown on a map here has Draw an area / Edit area beside Open list, which narrows that list to the shape without leaving the conversation',
+      'When the chat offers a list, it appears as a card with the list name, its size and a Create list button; pressing it saves the list and the card turns into the list on a map',
+      'A list shown on a map here has Draw shapes / Edit shapes beside Open list, which narrows that list to the shapes without leaving the conversation',
       'A list already used for outreach is locked, so its map offers no draw button',
+      'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, and someone outside your records to call, with a script',
+      'A phone banking outreach card is sent from its Send button without leaving the chat; a text or social one opens its outreach flow to finish there',
+      'A text outreach card can go to a random sample of its audience instead of everyone, sized the way polls are, and reads like "Text 2,767 of 58,520, picked at random". Asking for everyone instead gets a card for the whole audience',
+      'When there is a choice to make, the chat asks it as a multiple-choice question, with room to write your own answer',
+      'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
+      'Pasting a link attaches it as a source the assistant can read',
+      'A citation in a reply opens the document it points to, to the cited page when there is one',
+      'Asking to turn a reply into a social post opens Constituent Outreach’s social flow with the draft already written in, to review before you post it',
     ],
   },
   {
@@ -278,6 +297,8 @@ const SERVE_AREAS: ProductArea[] = [
       'Ask AI on a briefing opens a chat about that briefing',
       'Highlighting text in a briefing starts a question anchored to that passage',
       'Notes taken on a briefing stay with it',
+      'A meeting whose agenda could not be found stays marked Awaiting agenda, with a place to paste the agenda link or upload the file',
+      'A pasted agenda that turns out to be for another meeting is called out on that meeting, and the link can be tried again',
     ],
   },
   {
@@ -302,6 +323,7 @@ const SERVE_AREAS: ProductArea[] = [
       'An issue from Community Issues can be pulled in as a priority',
       'Each row shows the step it is on and the next thing to do about it',
       'Opening a priority works it forward one step at a time',
+      'Before a step is done, it offers to check it with the constituents it affects most and least, with the lists and the question ready',
     ],
     gate: 'Priorities is being rolled out, so it is not on every account yet.',
   },
@@ -334,6 +356,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Four channels: Social media, SMS, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
+      'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, filled in from your next public meeting when there is one',
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
     ],
     gate: 'Texting is being rolled out office by office, so the SMS channel is not on every account yet. It is paid for per message at checkout, with no subscription.',
@@ -349,9 +372,10 @@ const SERVE_AREAS: ProductArea[] = [
       'Create new list is in the top bar of the page',
       'Opening a list shows its filter summary and outreach history, never a table of individual people',
       'Opening a list also shows a map of where its people are',
-      'Draw an area on that map to narrow the list to one part of the district',
-      'The create-list flow asks for that area too, between the filters and the name, and it can be skipped',
-      'An area can be changed or removed until the list has been used for outreach',
+      'Draw shapes on that map to narrow the list to one or more parts of the district',
+      'Each shape has a name and a colour, set on the full-screen map where it is drawn, and the names show under the list’s map',
+      'The create-list flow asks for those shapes too, between the filters and the name, and it can be skipped',
+      'Shapes can be added, renamed, recoloured, redrawn or deleted until the list has been used for outreach',
       'A constituent’s record carries an "Asked for follow-up" toggle, and the record’s activity history shows who set it and when',
       'A finished phone banking campaign’s results show how many constituents are still owed a follow-up, and can turn them into a call list or a saved list',
       'Party is not a filter in this product',
@@ -377,12 +401,43 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     does: 'GoodParty.org’s own canvassing tool: build a walk list, get turf on a map, and log what happened at each door.',
     inside: [
       'Reached from the Door knocking card on the outreach hub, not from a tab of its own',
-      'Custom door-knocking surveys, so volunteers log answers in the field',
-      'Summaries of interactions by day and by survey answer',
       'A campaign can hold several turfs. Mark the whole campaign done, or one turf at a time, from its row in outreach history. Done does not require every door to have been knocked',
       'Creating a campaign ends at drawing the turfs. The walking route is planned the first time somebody starts knocking a turf, which is also when they are asked whether they are walking or driving',
       'Each turf can be handed to a different person, from its card in the campaign’s row in outreach history',
     ],
+  },
+  {
+    navId: null,
+    name: 'What we heard',
+    path: '/dashboard/issue-capture/[outreachId]',
+    modes: ['win', 'serve'],
+    does: 'Read what people said on one door knocking turf or phone banking list, grouped into themes ranked by how many conversations raised them.',
+    inside: [
+      'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top',
+      'The line under the title counts who answered, who left a note, and how many notes are confirmed. Only confirmed notes count toward a theme',
+      'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
+      'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
+      'Each theme opens to its details, where people stand, what they want, and the notes behind it',
+      'New tags to review lists the suggested tags of the themes shown: Accept puts one on people’s records, Dismiss drops it',
+    ],
+    gate: 'Being rolled out account by account, so not every account has it yet.',
+  },
+  {
+    // One area seen by two roles: the owner's page under the dashboard and a
+    // volunteer's own under their walk, with the same title, so one entry
+    // with the volunteer's way in rather than the same name twice.
+    navId: null,
+    name: 'Notes to review',
+    path: '/dashboard/issue-capture/[outreachId]/review',
+    modes: ['win', 'serve'],
+    does: 'Confirm what a conversation’s note says when nobody confirmed it at the door, including notes recorded with no signal.',
+    inside: [
+      'Reached from the waiting for review count under the title of What we heard, and from Notes to review on a door knocking turf’s details',
+      'A note recorded with no signal reads Still transcribing until it has been turned into text, usually within a couple of minutes',
+      'Looks right confirms a note. A note that could not be read offers Try again, or Type it instead to type what the person said',
+      'A volunteer has a Notes to review of their own, from the line at the top of the map while they walk a turf, listing only the notes they took',
+    ],
+    gate: 'Being rolled out account by account, so not every account has it yet.',
   },
 ]
 
@@ -402,10 +457,10 @@ export const areasForMode = (mode: ProductMode): ProductArea[] =>
 // nothing to do with it.
 export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   win: [
-    'The Campaign Story you write with me is saved to Your Story, and finishing it is what generates the campaign plan and tracker.',
+    'The Campaign Story you write with me is saved to Your Story. A campaign and outreach plan does not wait on it: every candidate gets one, and finishing the story is what personalizes it with your own answers.',
     'Your Public Profile is separate. It has its own "Why I’m running" on the Public Profile page, and writing your story here does not change it. If someone wants their story on their public page, say plainly that it has to be entered there and point them at the tab.',
     'Saved lists I create are real, and appear under Voter Data.',
-    'I cannot edit the campaign plan, the tracker, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',
+    'I cannot edit the campaign and outreach plan, your public page, your website, your account, or your billing. I also cannot export a list, a script, or a draft to a file.',
   ],
   serve: [
     'Priorities I record are real and appear in the product.',
@@ -420,5 +475,5 @@ export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
 export const OTHER_PRODUCT: Record<ProductMode, string> = {
   win: 'GoodParty.org has a separate product for people already in office, with a Chief of Staff, meeting briefings, and community issues. A candidate does not have it.',
   serve:
-    'GoodParty.org has a separate product for people running for office, with a campaign plan, a tracker, and voter outreach. It is a different account from this one.',
+    'GoodParty.org has a separate product for people running for office, with a campaign and outreach plan and voter outreach tools. It is a different account from this one.',
 }

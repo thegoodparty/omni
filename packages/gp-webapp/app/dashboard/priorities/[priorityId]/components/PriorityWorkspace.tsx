@@ -25,27 +25,59 @@ import {
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import { segmentsTextLength } from '../../../shared/agent-chat/streaming'
+import {
+  TurnBlocks,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  type PositionedWidget,
+} from '../../../shared/agent-chat/turnBlocks'
+import {
+  createWidgetRegistry,
+  type WidgetInstance,
+} from '../../../shared/agent-chat/widgetRegistry'
+import {
+  cardWidgetTools,
+  type CardWidgetContext,
+} from '../../../shared/agent-chat/cards/cardWidgets'
+import {
+  ProposalFlowsProvider,
+  useOnProposalSent,
+} from '../../../shared/agent-chat/cards/proposalFlows'
+import {
+  isProposalSentMessage,
+  proposalSentMessage,
+} from '../../../shared/agent-chat/cards/proposalPresentation'
+import {
+  CardDetailProvider,
+  CardDetailSheetHost,
+} from '../../../shared/agent-chat/cards/cardDetail'
+import {
+  CLARIFY_TOOL,
+  clarifyWidgetTool,
+  type ClarifyWidgetContext,
+} from '../../../shared/agent-chat/clarifyWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { priorityFlowChatApi } from '../data/chat-api'
-import { toChatCard } from '../data/cards'
 import { fetchPriorityStatus } from '../data/priority-api'
-import { replayStatusMarkers } from '../data/statusReplay'
+import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
 import {
   STATUS_TOOL,
   applyStatusUpdate,
   parseStatusToolResult,
   parseStatusUpdate,
+  type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
-import { PriorityStatusRail } from './PriorityStatusRail'
 import {
-  TurnBlocks,
-  liveTurnBlocks,
-  persistedTurnBlocks,
-  type PositionedExtra,
-} from './turnBlocks'
+  AUTHORITY_TOOL,
+  COMPARABLES_TOOL,
+  CURRENT_LAW_TOOL,
+  findingWidgetTools,
+} from '../../../ordinances/components/stepWidgets'
+import { PriorityStatusRail } from './PriorityStatusRail'
+import { StatusChangeMarker } from './StatusChangeMarker'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -53,21 +85,63 @@ import {
 const KICKOFF =
   "Let's begin. Tell me where this stands and what we should work on first."
 
+// While the model is still writing a card's arguments (tool_input_start, before
+// the call lands), name what it is working on. Contact, outreach and list work
+// can take a while, and with text already on screen the chat otherwise looks
+// stalled. Same signal the ordinance chat uses; tools that end as a pill fall
+// back to their pill label.
+const GENERATING_LABELS: Record<string, string> = {
+  [CLARIFY_TOOL]: 'Preparing your question...',
+  present_outside_contact: 'Looking up who to contact...',
+  present_outreach_proposal: 'Building the outreach...',
+  present_constituents: 'Pulling the list...',
+  present_contacts: 'Pulling the list...',
+  present_past_outreach: "Checking what you've sent...",
+  [STATUS_TOOL]: 'Updating where this stands...',
+  web_search: 'Searching the web...',
+  [COMPARABLES_TOOL]: 'Looking at what other places did...',
+  [CURRENT_LAW_TOOL]: 'Reading the current code...',
+  [AUTHORITY_TOOL]: 'Checking what you can do here...',
+}
+
+const FINDING_TOOLS = [COMPARABLES_TOOL, CURRENT_LAW_TOOL, AUTHORITY_TOOL]
+
 type Phase = 'loading' | 'ready' | 'error'
 
-export const PriorityWorkspace = ({
-  priorityId,
-  title,
-  description,
-  initialStatus,
-  initialNextAction,
-}: {
+type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
+
+const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
+  ...cardWidgetTools,
+  ...findingWidgetTools,
+  clarifyWidgetTool,
+])
+
+// A status move is not a registry widget: what it shows is the change the
+// rail went through, which lives in the surface's replay, not in the tool args.
+const statusMarker = (
+  changes: StepChange[],
+): WidgetInstance<PriorityWidgetContext> => ({
+  toolName: STATUS_TOOL,
+  render: () => <StatusChangeMarker changes={changes} />,
+})
+
+const RAIL_TITLE = 'Where this stands'
+
+type PriorityWorkspaceProps = {
   priorityId: string
   title: string
   description: string
   initialStatus: PriorityStatus
   initialNextAction: string | null
-}): React.JSX.Element => {
+}
+
+const PriorityWorkspaceBody = ({
+  priorityId,
+  title,
+  description,
+  initialStatus,
+  initialNextAction,
+}: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
@@ -88,9 +162,16 @@ export const PriorityWorkspace = ({
     },
     [],
   )
-  const [liveExtras, setLiveExtras] = useState<PositionedExtra[]>([])
+  const [liveWidgets, setLiveWidgets] = useState<
+    PositionedWidget<PriorityWidgetContext>[]
+  >([])
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [generatingTool, setGeneratingTool] = useState<string | null>(null)
+  const [streamDone, setStreamDone] = useState(false)
+  // A finding card can be the last thing in a turn, so the shimmer stays off
+  // right after one lands and comes back with the agent's next tool.
+  const [afterFinding, setAfterFinding] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -107,29 +188,41 @@ export const PriorityWorkspace = ({
     commitStatus(persisted.status, persisted.nextAction)
   }, [priorityId, commitStatus])
 
-  const conversationIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    conversationIdRef.current = conversationId
-  }, [conversationId])
-
   const {
     messages,
     setMessages,
     visibleSegments,
+    liveSegments,
     sending,
     send: sendTurn,
   } = useStreamingTurn(priorityFlowChatApi, {
     toolLabel: priorityToolLabel,
     onTurnStart: () => {
       setStreamError(null)
-      setLiveExtras([])
+      setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
+      setAfterFinding(false)
     },
     onTurnSettle: () => {
-      setLiveExtras([])
+      setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
+      setAfterFinding(false)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
-    onEvent: (event, { textLength }) => {
+    onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (event.type === 'tool_input_start') {
+        setGeneratingTool(event.toolName)
+        setAfterFinding(false)
+        return true
+      }
+      if (event.type === 'tool_call') {
+        setGeneratingTool(null)
+        setAfterFinding(FINDING_TOOLS.includes(event.toolName))
+      }
+      if (event.type === 'done') setStreamDone(true)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
         if (!update) return true
@@ -139,11 +232,11 @@ export const PriorityWorkspace = ({
         commitStatus(applied.status, applied.nextAction)
         if (applied.changes.length > 0) {
           const at = textLength()
-          setLiveExtras((prev) => [
+          setLiveWidgets((prev) => [
             ...prev,
             {
               key: `status-${event.toolCallId ?? prev.length}`,
-              extra: { kind: 'status', changes: applied.changes },
+              instance: statusMarker(applied.changes),
               appearAfter: at,
             },
           ])
@@ -155,25 +248,31 @@ export const PriorityWorkspace = ({
         if (settled) commitStatus(settled.status, settled.nextAction)
         return true
       }
-      if (event.type === 'tool_call') {
-        const card = toChatCard({
-          toolName: event.toolName,
-          args: event.args,
-          toolCallId: event.toolCallId,
-          conversationId: conversationIdRef.current ?? '',
-        })
-        if (card) {
+      if (event.type === 'tool_call' && priorityWidgets.has(event.toolName)) {
+        const instance = priorityWidgets.resolve(
+          {
+            toolName: event.toolName,
+            conversationId: turnConversationId,
+            toolCallId: event.toolCallId ?? null,
+          },
+          event.args,
+        )
+        if (instance) {
           const at = textLength()
-          setLiveExtras((prev) => [
+          setLiveWidgets((prev) => [
             ...prev,
             {
-              key: `card-${event.toolCallId ?? prev.length}`,
-              extra: { kind: 'card', card },
+              key: `${event.toolName}-${event.toolCallId ?? prev.length}`,
+              instance,
               appearAfter: at,
             },
           ])
           return true
         }
+        // read_past_outreach is only sometimes a card; unparsed, it is a pill.
+        return (
+          priorityWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
+        )
       }
       // Everything else — counts, saved lists, web search — falls through to
       // the shared pill treatment the other chats use.
@@ -189,10 +288,52 @@ export const PriorityWorkspace = ({
     },
     [conversationId, sendTurn],
   )
+  // An answer is input to the conversation, nothing more: it goes back as an
+  // ordinary user turn, and the agent decides for itself whether it settles a
+  // step and calls update_priority_status.
+  const answerClarify = useCallback(
+    (answer: string): void => send(answer),
+    [send],
+  )
   const sendRef = useRef(send)
   useEffect(() => {
     sendRef.current = send
   }, [send])
+
+  // Outreach a card opened was just sent. The server has already moved its
+  // check to out, so the rail refetches; the agent hears it through a hidden
+  // turn, sent once per proposal (the key it ends on survives a reload) and
+  // held until any turn in flight is done.
+  const pendingSent = useRef<string[]>([])
+  const toldKeys = useRef(new Set<string>())
+  const [sentTick, setSentTick] = useState(0)
+  const messagesRef = useRef(messages)
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+  useOnProposalSent(
+    useCallback(
+      (proposal) => {
+        void reconcile()
+        const content = proposalSentMessage(proposal)
+        const told =
+          toldKeys.current.has(proposal.proposalKey) ||
+          messagesRef.current.some((m) =>
+            m.content.includes(proposal.proposalKey),
+          )
+        if (told) return
+        toldKeys.current.add(proposal.proposalKey)
+        pendingSent.current.push(content)
+        setSentTick((tick) => tick + 1)
+      },
+      [reconcile],
+    ),
+  )
+  useEffect(() => {
+    if (sending || phase !== 'ready' || !conversationId) return
+    const next = pendingSent.current.shift()
+    if (next) send(next, { hidden: true })
+  }, [sending, phase, conversationId, sentTick, send])
 
   useEffect(() => {
     let cancelled = false
@@ -208,7 +349,6 @@ export const PriorityWorkspace = ({
           await priorityFlowChatApi.createConversation(anchor)
         const history = await priorityFlowChatApi.listMessages(id)
         if (cancelled) return
-        conversationIdRef.current = id
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
@@ -226,23 +366,91 @@ export const PriorityWorkspace = ({
   }, [priorityId, title, description, setMessages, retryNonce])
 
   const markers = useMemo(() => replayStatusMarkers(messages), [messages])
+  // The question still waiting on an answer: the last assistant turn that
+  // asked one, and only while nothing has been said since. An answer is an
+  // ordinary user turn, so a user turn after the question is the answer.
+  const activeClarifyId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]
+      if (!message) continue
+      if (message.role === 'user') return null
+      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return message.id
+      }
+    }
+    return null
+  }, [messages])
+  // Priorities keeps no separate answer record: an answer is the next thing the
+  // official said, so derive it from the transcript. Without this, a question
+  // answered in an earlier session reloads locked with nothing highlighted.
+  const clarifyAnswerById = useMemo(() => {
+    const answers: Record<string, string> = {}
+    messages.forEach((message, index) => {
+      if (message.role === 'user') return
+      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return
+      }
+      const reply = messages
+        .slice(index + 1)
+        .find(
+          (later) =>
+            later.role === 'user' &&
+            later.content !== KICKOFF &&
+            !isProposalSentMessage(later.content),
+        )
+      if (reply) answers[message.id] = reply.content
+    })
+    return answers
+  }, [messages])
   const visibleMessages = useMemo(
-    () => messages.filter((m) => !(m.role === 'user' && m.content === KICKOFF)),
+    () =>
+      messages.filter(
+        (m) =>
+          !(
+            m.role === 'user' &&
+            (m.content === KICKOFF || isProposalSentMessage(m.content))
+          ),
+      ),
     [messages],
   )
 
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
     visibleSegments,
-    liveExtras,
+    liveWidgets,
   ])
 
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const blocks = liveTurnBlocks(visibleSegments, liveExtras, revealedTextLength)
+  const blocks = liveTurnBlocks(
+    visibleSegments,
+    liveWidgets,
+    revealedTextLength,
+  )
   // Hold the shimmer until something has actually painted, so there is no
-  // empty flash between "Thinking..." and the first word.
-  const working = sending && blocks.length === 0
-  const railTitle = 'Where this stands'
+  // empty flash between "Thinking..." and the first word. After that it
+  // comes back whenever the agent is working with nothing moving on screen:
+  // between tool calls, and while a card's arguments stream in. Gated on the
+  // reveal catching up so it never sits under text still typing out, off
+  // while a tool's own pill is shimmering, and off once the stream is done:
+  // the turn can stay sending while it commits, and a shimmer under a
+  // finished question reads as more coming.
+  const revealDone = revealedTextLength >= segmentsTextLength(liveSegments)
+  const pillRunning = liveSegments.some(
+    (segment) => segment.kind === 'tool' && segment.running,
+  )
+  // A question card ends the turn, so nothing more is coming once it is up.
+  const clarifyLive = liveWidgets.some(
+    (widget) => widget.instance.toolName === CLARIFY_TOOL,
+  )
+  const working =
+    sending &&
+    !clarifyLive &&
+    !afterFinding &&
+    (blocks.length === 0 || (revealDone && !pillRunning && !streamDone))
+  const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
+  const workingLabel =
+    (generatingTool && GENERATING_LABELS[generatingTool]) ||
+    (pillLabel ? `${pillLabel}...` : 'Thinking...')
 
   if (phase === 'error') {
     return (
@@ -293,12 +501,12 @@ export const PriorityWorkspace = ({
                     className="shrink-0 gap-1.5 lg:hidden"
                   >
                     <ListChecksIcon className="size-4" aria-hidden />
-                    {railTitle}
+                    {RAIL_TITLE}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="bottom" className="max-h-[85dvh]">
                   <SheetHeader>
-                    <SheetTitle>{railTitle}</SheetTitle>
+                    <SheetTitle>{RAIL_TITLE}</SheetTitle>
                   </SheetHeader>
                   <SheetBody>
                     <PriorityStatusRail
@@ -331,14 +539,29 @@ export const PriorityWorkspace = ({
                     <AssistantRow key={message.id} fullWidth>
                       <TurnBlocks
                         blocks={persistedTurnBlocks({
+                          registry: priorityWidgets,
                           messageId: message.id,
                           segments: message.segments ?? [],
                           content: message.content,
                           conversationId: conversationId ?? '',
-                          markers,
+                          surfaceWidget: (segment, index) => {
+                            if (segment.toolName !== STATUS_TOOL) return null
+                            const changes = markers.get(
+                              segmentKey(message.id, index),
+                            )
+                            return changes && changes.length > 0
+                              ? statusMarker(changes)
+                              : null
+                          },
                         })}
-                        priorityId={priorityId}
-                        conversationId={conversationId ?? ''}
+                        toolLabel={priorityToolLabel}
+                        context={{
+                          priorityId,
+                          clarifyInteractive:
+                            message.id === activeClarifyId && !sending,
+                          clarifyAnswer: clarifyAnswerById[message.id],
+                          onClarifyAnswer: answerClarify,
+                        }}
                       />
                     </AssistantRow>
                   ),
@@ -348,10 +571,14 @@ export const PriorityWorkspace = ({
                   <AssistantRow fullWidth>
                     <TurnBlocks
                       blocks={blocks}
-                      priorityId={priorityId}
-                      conversationId={conversationId ?? ''}
+                      toolLabel={priorityToolLabel}
+                      context={{
+                        priorityId,
+                        clarifyInteractive: false,
+                        onClarifyAnswer: answerClarify,
+                      }}
                     />
-                    {working ? <ThinkingRow /> : null}
+                    {working ? <ThinkingRow label={workingLabel} /> : null}
                   </AssistantRow>
                 ) : null}
 
@@ -385,6 +612,17 @@ export const PriorityWorkspace = ({
       <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
         <PriorityStatusRail status={status} nextAction={nextAction} />
       </aside>
+      <CardDetailSheetHost />
     </div>
   )
 }
+
+export const PriorityWorkspace = (
+  props: PriorityWorkspaceProps,
+): React.JSX.Element => (
+  <CardDetailProvider>
+    <ProposalFlowsProvider>
+      <PriorityWorkspaceBody {...props} />
+    </ProposalFlowsProvider>
+  </CardDetailProvider>
+)

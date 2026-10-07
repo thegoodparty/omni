@@ -8,6 +8,7 @@
   "scripts": {
     "build": "npm run build:contracts && nest build",
     "build:contracts": "npx tsx ../contracts/scripts/ensure-built.cli.ts",
+    "check:env-contract": "npx tsx scripts/check-env-contract.ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

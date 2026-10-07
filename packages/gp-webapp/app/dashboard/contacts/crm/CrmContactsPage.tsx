@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, PlusIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
-import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
+import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganization } from '@shared/organization-picker'
 import {
@@ -108,6 +108,10 @@ export const CrmContactsPage = () => {
     <ContactProModalProvider value={setShowProModal}>
       <ChannelPickerProvider>
         <DashboardLayout
+          // The contacts assistant below is this page's chat entry and opens
+          // the same Campaign Manager on Win, so the layout's dock would stack
+          // a second bar on top of it.
+          hideChatDock={!voterDataUnavailable}
           // The header title is mode copy, so it rides the same
           // isWinContextReady gate as the rest of the page (ENG-10448).
           navHeader={
@@ -212,12 +216,11 @@ export const CrmContactsPage = () => {
         </DashboardLayout>
       </ChannelPickerProvider>
       {campaign && (
-        <ProUpgradeModal
-          variant={VARIANTS.Second_NonViable}
+        <ProPitchDialog
           open={showProModal}
-          onClose={() => setShowProModal(false)}
-          onUpgradeLinkClick={() => setShowProModal(false)}
-          defaultTrackingEnabled
+          onOpenChange={setShowProModal}
+          source="contacts"
+          channel="voter-data"
         />
       )}
     </ContactProModalProvider>

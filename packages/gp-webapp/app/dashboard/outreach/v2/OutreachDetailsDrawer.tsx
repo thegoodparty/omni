@@ -7,6 +7,7 @@ import type {
   PhoneBankCallOutcome,
   PhoneBankingOutreachDetail,
 } from '@goodparty_org/contracts'
+import { PRICE_PER_TEXT } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,11 +53,9 @@ import type { MembershipState } from 'app/dashboard/shared/membership/deriveMemb
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
-import {
-  OUTREACH_OPTIONS,
-  OUTREACH_TYPES,
-} from 'app/dashboard/outreach/constants'
+import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
+import { WhatWeHeardAction } from 'app/dashboard/issue-capture/WhatWeHeardAction'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import {
@@ -141,9 +140,6 @@ const answerRows = (
         ['Support: Unsure', phoneBanking.unsure],
         ['Support: No', phoneBanking.nonSupporters],
       ]
-
-const PRICE_PER_TEXT =
-  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
 
 // The status the candidate is reading, mapped onto the canvas's three
 // lifecycle positions. Derived from the displayed label rather than from
@@ -272,6 +268,12 @@ export const OutreachDetailsDrawer = ({
   // (spine status `pending`, created through the P2P flow) is cancelable —
   // the backend enforces the same set.
   const isCancelableSms = isPaidFlowSms && row?.status === 'pending'
+  // A robocall is cancelable until it dials: spine `pending` is before the
+  // send sweep flips it to `in_progress`. The backend enforces the precise
+  // not-yet-dialed settle states.
+  const isCancelableRobocall =
+    row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'pending'
+  const isCancelable = isCancelableSms || isCancelableRobocall
   // Delete is reserved for canceled campaigns — cancel already unwound the
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
@@ -392,6 +394,15 @@ export const OutreachDetailsDrawer = ({
   })
   const campaignTurfs = campaignTurfsQuery.data ?? []
   const unfinished = unfinishedTurfs(campaignTurfs)
+  // Where "What we heard" leads. A phone list's envelope is this row. A
+  // report is per turf, so a door-knocking campaign gets the drawer-level
+  // link only when it IS one turf; with several, the row's id names just
+  // the anchor's, and each turf card below carries its own link instead.
+  const reportOutreachId = isPhoneBanking
+    ? (row?.id ?? null)
+    : isDoorKnocking && campaignTurfs.length === 1
+      ? (campaignTurfs[0]?.outreachId ?? null)
+      : null
   // Archive and complete for the WHOLE campaign, one server-side transaction
   // each. This is what replaced `canArchiveFromDrawer`: the write used to
   // take a turf id, so on a campaign it shelved the anchor and left every
@@ -401,7 +412,7 @@ export const OutreachDetailsDrawer = ({
   // now, so the guard is gone and a solo campaign takes the same path — a
   // campaign of one is still a campaign, and one code path is what keeps the
   // two from drifting.
-  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId)
+  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId, isServe)
   // The CAMPAIGN's shelf, not the anchor turf's. `collapseDoorKnockingCampaigns`
   // says a campaign is archived only once every turf is, so reading the
   // anchor's own flag here would contradict the history row two inches away:
@@ -583,9 +594,13 @@ export const OutreachDetailsDrawer = ({
   // Null until the detail lands: the list id rides the detail, so a link
   // built without it could only go to the bare rail. Holding the slot
   // disabled for a moment beats a press that silently lands somewhere else.
+  //
+  // It carries the row's id as `?outreachId=` because the caller page reads
+  // its list, and a list does not know its envelope: that id is how the
+  // page links to what people said on this list.
   const continueHref =
-    isPhoneBanking && phoneBanking
-      ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
+    isPhoneBanking && phoneBanking && row
+      ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}?outreachId=${row.id}`
       : null
 
   // The SMS lifecycle actions this branch added have no mode in the canvas's
@@ -635,7 +650,7 @@ export const OutreachDetailsDrawer = ({
       </div>
     ) : null
 
-  const smsFooter = isCancelableSms ? (
+  const smsFooter = isCancelable ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
         {/* Candidate editing is gone (the campaign success team fixes
@@ -884,6 +899,13 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
+            {reportOutreachId !== null && (
+              <WhatWeHeardAction
+                outreachId={reportOutreachId}
+                isServe={isServe}
+              />
+            )}
+
             {(audienceName || audienceLabels.length > 0) && (
               // "Applied filters" describes what BUILT the audience, which is
               // the right title for a send composed out of voter-file
@@ -1040,11 +1062,10 @@ export const OutreachDetailsDrawer = ({
               </p>
             )}
 
-            {/* Manager assign/unassign for a self-run list (ENG-11056),
-                flag-gated inside the section itself so this renders nothing
-                extra when win-team-accounts is off. Volunteers never open
-                this drawer (their whole surface is /volunteer's own
-                assignments page), so there's no second gate for them.
+            {/* Manager assign/unassign for a self-run list (ENG-11056).
+                Volunteers never open this drawer (their whole surface is
+                /volunteer's own assignments page), so there's no second gate
+                for them.
                 Serve is excluded outright: team accounts are a Win feature
                 (the roles are campaign roles), so an elected official is
                 offered no assignment rather than one labelled in Win's
@@ -1227,71 +1248,24 @@ export const OutreachDetailsDrawer = ({
                 to this campaign. Rendered for every door-knocking row rather
                 than only for `turfCount > 1`, so the add-turf path is
                 reachable from a solo campaign — otherwise a candidate with
-                one turf can never grow it, chicken-and-egg. On a solo
-                campaign the section reads as one row, which duplicates some
-                of what the Progress card below shows; the two-row overlap
-                is the price of keeping the affordance reachable. */}
+                one turf can never grow it, chicken-and-egg.
+
+                **This is the only place a door-knocking campaign's progress
+                is drawn.** There was a drawer-level Progress card below,
+                shown only on a solo campaign because its figures are the
+                ANCHOR turf's and would misreport a multi-turf one. Now that
+                every turf card carries its own bar, that card was the same
+                numbers a second time on the one campaign shape it appeared
+                for. A campaign-wide rollup would need a real total rather
+                than the anchor's, and nothing computes one yet. */}
             {isDoorKnocking && row && (
               <CampaignTurfList
+                isServe={isServe}
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
                 onOverlayOpenChange={setTurfOverlay}
                 onTurfCompleted={handleTurfCompleted}
               />
-            )}
-
-            {isDoorKnocking && doorKnocking && (row?.turfCount ?? 1) === 1 && (
-              // Solo-campaign only, same argument as the Overview cells
-              // above: `doorKnocking.loggedCount` / `peopleCount` are the
-              // ANCHOR turf's, so on a multi-turf campaign this bar would
-              // report one turf's progress as if it were the whole
-              // campaign's. Per-turf progress lives on the sibling section;
-              // the drawer-level aggregate is hidden until a rollup exists.
-              <DetailsSection title="Progress">
-                <Card className="gap-3 rounded-lg p-3">
-                  <div className="flex items-center justify-between">
-                    {/* "Logged" and never "reached", the same word the walk
-                        and the list's own drawer use: not-home, inaccessible
-                        and refused all count here and none is a conversation.
-                        Both halves are the knockable people — the flagged
-                        residents are out of both — so the ratio never mixes
-                        two populations. */}
-                    <span className="text-sm text-muted-foreground">
-                      {doorKnocking.loggedCount.toLocaleString()} of{' '}
-                      {doorKnocking.peopleCount.toLocaleString()} people logged
-                    </span>
-                    <span className="text-sm font-medium text-foreground">
-                      {percentLabel(
-                        doorKnocking.loggedCount,
-                        doorKnocking.peopleCount,
-                      )}
-                    </span>
-                  </div>
-                  <Progress
-                    value={
-                      doorKnocking.peopleCount > 0
-                        ? (doorKnocking.loggedCount /
-                            doorKnocking.peopleCount) *
-                          100
-                        : 0
-                    }
-                  />
-                  <MetricGrid>
-                    <Metric
-                      icon={<CheckCircleIcon />}
-                      label="Logged"
-                      value={doorKnocking.loggedCount.toLocaleString()}
-                    />
-                    <Metric
-                      icon={<ClockIcon />}
-                      label="Remaining"
-                      value={(
-                        doorKnocking.peopleCount - doorKnocking.loggedCount
-                      ).toLocaleString()}
-                    />
-                  </MetricGrid>
-                </Card>
-              </DetailsSection>
             )}
 
             {isPhoneBanking && phoneBanking && !isCompleted && (
@@ -1427,8 +1401,9 @@ export const OutreachDetailsDrawer = ({
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel this campaign?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure? This can&apos;t be undone. Your texts won&apos;t
-              send, and any payment is refunded automatically.
+              {isCancelableRobocall
+                ? "Are you sure? This can't be undone. Your calls won't be placed, and you won't be charged."
+                : "Are you sure? This can't be undone. Your texts won't send, and any payment is refunded automatically."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -44,8 +44,16 @@ import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+} from '../../util/outreachAnalytics'
 import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
+import { parsePositiveListId } from '../../util/parsePositiveListId.util'
+import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
+import type { CallDraft } from './PhoneBankingOutcomeForm'
+import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import {
   NOT_CALLED_LABEL,
   OUTCOME_DOT_CLASS,
@@ -57,6 +65,7 @@ import {
   outcomeCounts,
   totalPeopleCount,
 } from './phoneBankingOutcome.util'
+import { useOfflineQueueDrain } from 'app/dashboard/shared/dictation/useOfflineMemo'
 
 // The role-divergent bits of this shared caller, parametrized behind an
 // optional prop the same way PhoneBankingFlow's `surface` prop splits Win
@@ -89,6 +98,19 @@ export default function PhoneBankingCallerPage({
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
+  // Calls logged with no signal wait on the phone; this sends them when it
+  // returns, whether or not a call's form is open, and re-reads the list so
+  // it shows what the server recorded.
+  useOfflineQueueDrain({
+    onSent: () =>
+      void queryClient.invalidateQueries({
+        queryKey: phoneBankingListQueryKey(listId),
+      }),
+  })
+
+  // Answers a call's form was given and not saved, kept for this session so
+  // switching to a housemate, another entry or closing the panel keeps them.
+  const callDrafts = useUnsavedDrafts<CallDraft>()
 
   const [expandedEntryIds, setExpandedEntryIds] = useState<Set<number>>(
     new Set(),
@@ -133,6 +155,13 @@ export default function PhoneBankingCallerPage({
   const hubLabel =
     surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
   const showDeleteAction = surface?.showDeleteAction ?? true
+  // The list payload carries no envelope, so the surfaces that open this
+  // page with one in hand (the outreach drawer, the create flow) pass it on
+  // `?outreachId=`. The report it links to is the manager's, so the
+  // volunteer surface never offers it.
+  const effortOutreachId = surface
+    ? null
+    : (parsePositiveListId(searchParams?.get('outreachId')) ?? null)
 
   // Removal-mid-session is an expected flow for a volunteer (a manager can
   // unassign them at any point) — gp-api 404s the now-unassigned list, and
@@ -289,7 +318,9 @@ export default function PhoneBankingCallerPage({
                 className="rounded-full"
                 aria-label="Download call sheet PDF"
                 onClick={() =>
-                  trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                  trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                    product: outreachProduct(isServe),
+                  })
                 }
               >
                 <a
@@ -320,7 +351,9 @@ export default function PhoneBankingCallerPage({
                   <DropdownMenuItem
                     asChild
                     onClick={() =>
-                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                        product: outreachProduct(isServe),
+                      })
                     }
                   >
                     <a
@@ -332,7 +365,9 @@ export default function PhoneBankingCallerPage({
                   <DropdownMenuItem
                     asChild
                     onClick={() =>
-                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                        product: outreachProduct(isServe),
+                      })
                     }
                   >
                     <a
@@ -368,6 +403,12 @@ export default function PhoneBankingCallerPage({
             )}
           </div>
         </div>
+
+        <WhatWeHeardLink
+          outreachId={effortOutreachId}
+          isServe={isServe}
+          className="border-b border-border px-4 py-2.5"
+        />
 
         {showDeleteAction && (
           <AlertDialog
@@ -678,12 +719,42 @@ export default function PhoneBankingCallerPage({
             if (!open) setActiveSelection(null)
           }}
           isServe={isServe}
+          callDrafts={callDrafts}
           onSaved={(results) => {
+            // Whether THIS call is the one that finished the list. Read inside
+            // the updater rather than off the render's `list`, because the
+            // updater is handed the freshest cache entry and a second caller
+            // working the same list may have landed a call since this render.
+            let completedNow = false
             queryClient.setQueryData(
               phoneBankingListQueryKey(listId),
-              (old: typeof list | undefined) =>
-                old && applyCallResults(old, results),
+              (old: typeof list | undefined) => {
+                if (!old) return old
+                const updated = applyCallResults(old, results)
+                const people = totalPeopleCount({ entries: updated.entries })
+                completedNow =
+                  people > 0 &&
+                  calledPeopleCount({ entries: old.entries }) < people &&
+                  calledPeopleCount({ entries: updated.entries }) >= people
+                return updated
+              },
             )
+            // Phone banking is one-to-one, so the CAMPAIGN completes when its
+            // last entry is called — not when the list was created, and not
+            // per call (each of those is `Outreach - Phone Banking: Call
+            // Logged`). See docs/features/voter-outreach-analytics.md.
+            if (completedNow) {
+              trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+                ...outreachEventProps({
+                  channel: 'phoneBanking',
+                  isServe: isServe,
+                  campaignName: list.name,
+                  recipientCount: totalPeopleCount({ entries: list.entries }),
+                  sendDate: new Date(),
+                  listId,
+                }),
+              })
+            }
             // Nothing in this flow ever writes the hub's cached
             // ['outreach-detail', id] entry, so its peopleCalled/supporters
             // sit at their create-time 0 until this invalidates them. Free in

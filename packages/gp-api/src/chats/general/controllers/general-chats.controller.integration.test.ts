@@ -1,9 +1,12 @@
 import { HttpStatus } from '@nestjs/common'
 import {
   ChatMessageRole,
+  ChatMessageSegmentKind,
   ChatScope,
   ElectedOffice,
+  OrganizationRole,
 } from '../../../generated/prisma'
+import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ChatStreamChunk,
@@ -215,6 +218,106 @@ describe('GeneralChatsController (integration)', () => {
         headers,
       )
       expect(afterDelete.status).toBe(HttpStatus.NOT_FOUND)
+    })
+  })
+
+  // Org membership gets a caller past the guard; it must not reach another
+  // member's conversation in the same org.
+  it("404s another member of the same organization on the owner's conversation", async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: COS_SCOPE },
+      headers,
+    )
+    const conversationId = created.data.conversationId as string
+
+    const clerkId = `user_cos_member_${Math.random().toString(36).slice(2, 10)}`
+    const member = await service.prisma.user.create({
+      data: {
+        email: `${clerkId}@goodparty.org`,
+        clerkId,
+        firstName: 'Member',
+        lastName: 'Other',
+      },
+    })
+    await service.prisma.organizationMembership.create({
+      data: {
+        organizationSlug: fixtures.slug,
+        userId: member.id,
+        role: OrganizationRole.campaignAdmin,
+      },
+    })
+    const asMember = {
+      headers: {
+        'X-Organization-Slug': fixtures.slug,
+        Authorization: `Bearer ${jwt.sign(
+          { sub: clerkId },
+          process.env.AUTH_SECRET!,
+          { expiresIn: '1h' },
+        )}`,
+      },
+    }
+
+    const listed = await service.client.get(
+      `/v1/chats?scope=${COS_SCOPE}`,
+      asMember,
+    )
+    expect(listed.status).toBe(HttpStatus.OK)
+
+    const got = await service.client.get(
+      `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+      asMember,
+    )
+    expect(got.status).toBe(HttpStatus.NOT_FOUND)
+    const deleted = await service.client.delete(
+      `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+      asMember,
+    )
+    expect(deleted.status).toBe(HttpStatus.NOT_FOUND)
+    const row = await service.prisma.chatConversation.findUnique({
+      where: { id: conversationId },
+    })
+    expect(row?.deletedAt).toBeNull()
+  })
+
+  // A chat card derives its identity from the tool call id: the outreach card
+  // keys its outreach on it, so a replay that dropped the id rendered no card
+  // at all. The live stream always carried it; the transcript has to as well.
+  it('replays the tool call id a segment was persisted with', async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: COS_SCOPE },
+      headers,
+    )
+    const conversationId = created.data.conversationId as string
+    const assistant = await chatStore.appendMessage({
+      conversationId,
+      role: ChatMessageRole.assistant,
+      content: 'Here is a list you could call.',
+      segments: [
+        {
+          kind: ChatMessageSegmentKind.tool,
+          toolName: 'present_outreach_proposal',
+          toolCallId: 'toolu_replay_1',
+          payload: { audience: 'Maple Avenue' },
+        },
+      ],
+    })
+
+    const replay = await service.client.get(
+      `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+      headers,
+    )
+
+    const message = (
+      replay.data.messages as Array<{
+        id: string
+        segments?: Array<{ toolName: string; toolCallId?: string }>
+      }>
+    ).find((m) => m.id === assistant.id)
+    expect(message?.segments?.[0]).toMatchObject({
+      toolName: 'present_outreach_proposal',
+      toolCallId: 'toolu_replay_1',
     })
   })
 

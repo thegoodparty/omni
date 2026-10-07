@@ -21,6 +21,7 @@ import {
 } from '@/shared/test-utils/mockData.util'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
+import { Nightly10DlcReportService } from './services/nightly10DlcReport.service'
 
 function getGuards(methodName: keyof CampaignTcrComplianceController) {
   return (
@@ -55,6 +56,7 @@ describe('CampaignTcrComplianceController', () => {
     grantInternalTestingApproval: ReturnType<typeof vi.fn>
     revokeInternalTestingApproval: ReturnType<typeof vi.fn>
     overrideCvValidation: ReturnType<typeof vi.fn>
+    updateFilingUrl: ReturnType<typeof vi.fn>
     model: { update: ReturnType<typeof vi.fn> }
   }
   let mockUserService: { findByCampaign: ReturnType<typeof vi.fn> }
@@ -64,6 +66,9 @@ describe('CampaignTcrComplianceController', () => {
   }
   let mockComplianceStateService: {
     findStateForCampaign: ReturnType<typeof vi.fn>
+  }
+  let mockNightlyReportService: {
+    getAdminStatusSnapshot: ReturnType<typeof vi.fn>
   }
   let mockSendSingleSend: ReturnType<typeof vi.fn>
 
@@ -92,6 +97,7 @@ describe('CampaignTcrComplianceController', () => {
         .mockResolvedValue(mockTcrCompliance),
       revokeInternalTestingApproval: vi.fn().mockResolvedValue(undefined),
       overrideCvValidation: vi.fn().mockResolvedValue(undefined),
+      updateFilingUrl: vi.fn().mockResolvedValue(mockTcrCompliance),
       model: { update: vi.fn().mockResolvedValue(mockTcrCompliance) },
     }
 
@@ -113,6 +119,13 @@ describe('CampaignTcrComplianceController', () => {
       }),
     }
 
+    mockNightlyReportService = {
+      getAdminStatusSnapshot: vi.fn().mockResolvedValue({
+        generatedAt: new Date().toISOString(),
+        buckets: [],
+      }),
+    }
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: UsersService, useValue: mockUserService },
@@ -131,6 +144,10 @@ describe('CampaignTcrComplianceController', () => {
         {
           provide: HubspotSingleSendService,
           useValue: { sendSingleSend: mockSendSingleSend },
+        },
+        {
+          provide: Nightly10DlcReportService,
+          useValue: mockNightlyReportService,
         },
         CampaignTcrComplianceController,
       ],
@@ -602,6 +619,30 @@ describe('CampaignTcrComplianceController', () => {
     })
   })
 
+  describe('getTenDlcStatusSnapshot (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('getTenDlcStatusSnapshot').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('delegates to the nightly report service snapshot', async () => {
+      const snapshot = { generatedAt: new Date().toISOString(), buckets: [] }
+      mockNightlyReportService.getAdminStatusSnapshot.mockResolvedValue(
+        snapshot,
+      )
+
+      const result = await controller.getTenDlcStatusSnapshot()
+
+      expect(
+        mockNightlyReportService.getAdminStatusSnapshot,
+      ).toHaveBeenCalledOnce()
+      expect(result).toEqual(snapshot)
+    })
+  })
+
   describe('resendCampaignVerifyPinForCampaign (admin)', () => {
     it('is gated by AdminOrM2MGuard', () => {
       expect(
@@ -769,6 +810,46 @@ describe('CampaignTcrComplianceController', () => {
         controller.overrideCvValidationForCampaign(12345),
       ).rejects.toThrow(NotFoundException)
       expect(mockTcrService.overrideCvValidation).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('updateFilingUrlForCampaign (admin)', () => {
+    const correctedUrl = 'https://sos.example.gov/filings/jane-doe'
+
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('updateFilingUrlForCampaign').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('delegates to the service and returns the persisted URL', async () => {
+      mockTcrService.updateFilingUrl.mockResolvedValue({
+        ...mockTcrCompliance,
+        filingUrl: correctedUrl,
+      })
+
+      const result = await controller.updateFilingUrlForCampaign(
+        mockCampaign.id,
+        { filingUrl: correctedUrl },
+      )
+
+      expect(mockTcrService.updateFilingUrl).toHaveBeenCalledWith(
+        mockCampaign.id,
+        correctedUrl,
+      )
+      expect(result).toEqual({ filingUrl: correctedUrl })
+    })
+
+    it('propagates a service rejection without masking it', async () => {
+      mockTcrService.updateFilingUrl.mockRejectedValue(new NotFoundException())
+
+      await expect(
+        controller.updateFilingUrlForCampaign(12345, {
+          filingUrl: correctedUrl,
+        }),
+      ).rejects.toThrow(NotFoundException)
     })
   })
 })

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
@@ -10,9 +11,31 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { TurfDraft } from '../turfDrafts'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
+
+// The success screen's turf cards carry the assignee menu, which reads the
+// viewer's organization; these tests render without an OrganizationProvider,
+// whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => undefined,
+  useOrganizationRole: () => undefined,
+}))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
+// The question-asking card is offered only where issue capture is on. On by
+// default so every other case here keeps the full set of cards.
+const issueCapture = vi.hoisted(() => ({ enabled: true }))
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(() => ({
+    ready: true,
+    enabled: issueCapture.enabled,
+  })),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -55,6 +78,7 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
 
 const FREE_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: 'pro',
   twoStep: false,
   membership: {
@@ -68,6 +92,7 @@ const FREE_GATE: OutreachGateState = {
 
 const PRO_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: null,
   twoStep: false,
   membership: {
@@ -122,6 +147,7 @@ const baseProps = {
   },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
+  source: 'outreach_page' as const,
   districtBounds: null as [[number, number], [number, number]] | null,
   districtHouseholds: 1500,
   districtHouseholdsPending: false,
@@ -141,7 +167,6 @@ const baseProps = {
   drawnStops: null,
   onStartKnocking: vi.fn(),
   isServeOrg: false,
-  unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
@@ -390,6 +415,7 @@ describe('CreateListFlow', () => {
     // it: nothing here chooses one any more, and a default reported as a
     // choice is worse than a silence.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
+      product: 'win',
       stops: 14,
       people: 22,
       filterCount: 1,
@@ -622,6 +648,161 @@ describe('CreateListFlow', () => {
     // is merely still in flight fails this rather than passing it.
     await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
     expect(filterPosts).toBe(0)
+  })
+
+  // A Regenerate reply can land after the candidate has started editing a
+  // different section than the one it is replacing — `onLineChange` bumps
+  // `draftRequestRef` and resets the pending draft mutation so that edit
+  // wins rather than being overwritten by the stale reply.
+  it('keeps a talking point typed while a reply is still in flight', async () => {
+    const POINTS = {
+      engagementQuestion: 'What would you fix around here first?',
+      context: 'Fix our roads with a real maintenance plan.',
+      ask: 'Ask whether we can count on them in November.',
+    }
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      if (body.previousDraft === undefined) {
+        return { status: 200, data: POINTS }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { ...POINTS, context: 'The AI reply.' } }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const contextBox = () =>
+      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+        POINTS.context,
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    act(() => {
+      const { editor } = contextBox()
+      // One short of the doc's end, which is inside the last paragraph: the
+      // doc boundary itself would open a new one.
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size - 1,
+        ' Sarah Chen said the roads need work too.',
+      )
+    })
+
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${POINTS.context} Sarah Chen said the roads need work too.`,
+    )
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).not.toContain(
+      'The AI reply.',
+    )
+  })
+
+  // A call the candidate edited past can still fail. Its error must not
+  // come back over words they already fixed.
+  it("keeps the candidate's words when a superseded call fails late", async () => {
+    const POINTS = {
+      engagementQuestion: 'What would you fix around here first?',
+      context: 'Fix our roads with a real maintenance plan.',
+      ask: 'Ask whether we can count on them in November.',
+    }
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      if (body.previousDraft === undefined) {
+        return { status: 200, data: POINTS }
+      }
+      await held
+      answered.done = true
+      return {
+        status: 502,
+        data: { message: 'Door-knocking draft generation failed' },
+      }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const contextBox = () =>
+      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+        POINTS.context,
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    // Edit only once the call is actually pending, same as the candidate
+    // editing mid-flight. The Regenerate button's own spinner is the signal.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Regenerate/ })).toBeDisabled(),
+    )
+    act(() => {
+      const { editor } = contextBox()
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size - 1,
+        ' Sarah Chen said the roads need work too.',
+      )
+    })
+
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(
+      screen.queryByText(/We couldn.t write your talking points/),
+    ).not.toBeInTheDocument()
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${POINTS.context} Sarah Chen said the roads need work too.`,
+    )
+  })
+
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes.
+  it('clears the draft error once the candidate types a talking point', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    act(() => {
+      const { editor } = screen.getByLabelText('Context') as HTMLElement & {
+        editor: Editor
+      }
+      editor.commands.insertContent('Sarah Chen wants safer streets.')
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn.t write your talking points/),
+      ).not.toBeInTheDocument(),
+    )
   })
 
   // The regression this line shipped with: two counts side by side, one
@@ -1265,67 +1446,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('option', { name: 'All contacts' })).toBeTruthy()
   })
 
-  // The reported defect, at the step it was reported from. A persuasion list
-  // is narrowed by support status, and the pack has no plane for it — so
-  // starting from a 256-person list put the whole district in the Continue
-  // button and said nothing about why. The count itself cannot be fixed here
-  // (the map genuinely cannot shade that clause), so the step has to say so:
-  // an undisclosed superset is what made this read as the list being ignored.
-  it('discloses, on the who step, a picked list’s unshadeable clauses', async () => {
-    const { rerender } = await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      unpreviewableKeys: [],
-    })
-    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
-
-    // Pick the row for real rather than posting the lifted draft in as props:
-    // the sentence names the picked list, so a test that never picks one is
-    // asserting wording the flow cannot actually reach.
-    await pickList(/Precinct 2 homeowners/)
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="filters"
-        savedLists={savedLists}
-        districtHouseholds={12_000}
-        filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
-      />,
-    )
-
-    // The CTA's count is still the whole district here, which is the thing the
-    // sentence below discloses.
-    expect(
-      screen.getByRole('button', { name: 'Continue (12,000)' }),
-    ).toBeEnabled()
-    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
-      'The map can’t yet shade by Support status, so these counts include ' +
-        'people that filter will exclude. Your saved list still applies it ' +
-        'when you knock.',
-    )
-  })
-
-  // The same sentence, one step earlier in the decision: a candidate who
-  // builds a list from scratch and picks 65+ has an unshadeable selection and
-  // no list to attribute it to. Citing "your saved list" there describes
-  // something that does not exist; dropping the promise instead would end the
-  // sentence on "that filter will exclude", which reads as the filter being
-  // ignored. Both halves are checked because fixing either one alone is a
-  // regression in the other.
-  it('does not cite a saved list on the who step when none is picked', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { age65Plus: true },
-      unpreviewableKeys: ['age65Plus'],
-    })
-
-    const disclosure = screen.getByText(/The map can’t yet shade by/)
-    expect(disclosure).toHaveTextContent('Your list still applies it when you')
-    expect(disclosure).not.toHaveTextContent('saved list')
-  })
-
   // Derek's dead end, as reported: a list cut by support status shades as the
   // whole district, so every count on the way to the boundary looked healthy
   // and the create refused at the end — with a message about widening the
@@ -1348,7 +1468,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty
       />,
     )
@@ -1359,22 +1478,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'No contacts match this list’s support status filters',
     )
-  })
-
-  // Two sentences about the same gap, one hedging the count and one saying the
-  // count is moot, read as the step arguing with itself. The stronger claim
-  // wins: there is no point explaining that a number is too big once it is
-  // established that the right number is zero.
-  it('drops the shading disclosure once the audience is proven empty', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { supportStatus: true },
-      unpreviewableKeys: ['supportStatus'],
-      audienceEmpty: true,
-    })
-
-    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
   })
 
   // The same sentence from the pill-builder face, which has no list to cite.
@@ -1407,7 +1510,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty={false}
       />,
     )
@@ -1828,6 +1930,7 @@ describe('CreateListFlow purpose step', () => {
   beforeEach(() => {
     testQueryClient.clear()
     vi.clearAllMocks()
+    issueCapture.enabled = true
   })
 
   const renderPurpose = (serveMode: boolean) =>
@@ -1857,6 +1960,111 @@ describe('CreateListFlow purpose step', () => {
     expect(screen.queryByText('Encourage early voting')).toBeNull()
     expect(screen.queryByText('Turn out my supporters')).toBeNull()
   })
+
+  // The community-input purpose is the only one that asks a question, and it
+  // is the one the door's issue capture reads as the context for every memo.
+  it('asks what the campaign wants to learn, and holds Continue until it does', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'Would you compost?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  // Win's question-asking goal is the same slug as Serve's, under the Win
+  // label, and it takes the same extra step.
+  it('asks a candidate what they want to learn after Hear from voters', async () => {
+    renderPurpose(false)
+
+    fireEvent.click(screen.getByText('Hear from voters'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'What do you want to learn?',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'How about the road bond?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  // Continue only guards emptiness, so a question left over from an earlier
+  // pick would ship as this campaign's rather than tripping the guard.
+  it('does not carry a question over to a later purpose pick', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+    fireEvent.change(await screen.findByLabelText('The question'), {
+      target: { value: 'Would you compost?' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(await screen.findByText('Ask for community input'))
+
+    expect(await screen.findByLabelText('The question')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it.each([
+    [false, 'Hear from voters'],
+    [true, 'Ask for community input'],
+  ])(
+    'offers the question-asking goal only where issue capture is on (serve: %s)',
+    (serveMode, label) => {
+      const first = renderPurpose(serveMode)
+      expect(screen.getByText(label)).toBeInTheDocument()
+      first.unmount()
+
+      issueCapture.enabled = false
+      renderPurpose(serveMode)
+      expect(screen.queryByText(label)).toBeNull()
+      expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+      // A picker render is not the treatment, so it must not log an exposure.
+      expect(useIssueCaptureFlag).toHaveBeenCalledWith(false)
+    },
+  )
+
+  // The card is the only thing the flag takes away: a campaign already on the
+  // question-asking goal when the flag goes off still asks and still saves.
+  it.each([
+    [false, 'Hear from voters'],
+    [true, 'Ask for community input'],
+  ])(
+    'keeps the question step for a goal picked before the flag went off (serve: %s)',
+    async (serveMode, label) => {
+      const view = renderPurpose(serveMode)
+      fireEvent.click(screen.getByText(label))
+      const field = await screen.findByLabelText('The question')
+
+      issueCapture.enabled = false
+      view.rerender(
+        <DoorKnockingSurfaceProvider value={serveMode}>
+          <CreateListFlow {...baseProps} step="filters" />
+        </DoorKnockingSurfaceProvider>,
+      )
+
+      expect(screen.getByLabelText('The question')).toBe(field)
+      fireEvent.change(field, { target: { value: 'Would you compost?' } })
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() =>
+        expect(screen.queryByLabelText('The question')).toBeNull(),
+      )
+    },
+  )
 
   // The per-card second line is gone with the bespoke card: no other channel
   // has one, and the step is now literally the other channels' component.
@@ -2334,5 +2542,56 @@ describe('CreateListFlow multi-turf save', () => {
     // Both are siblings, and neither renames the campaign they are joining
     // — the server reads the anchor's own name over anything on the wire.
     expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+  })
+
+  // Closing a walk started here reopens the campaign's details drawer, and
+  // that drawer is keyed on the anchor. Handing over a sibling's own envelope
+  // would open a drawer for a campaign of one, or none.
+  it('starts a walk carrying the anchor, whichever turf is pressed', async () => {
+    mockBatch()
+    const props = { ...twoTurfs }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 2')
+    const starts = screen.getAllByRole('button', { name: 'Start knocking' })
+    expect(starts).toHaveLength(2)
+    fireEvent.click(starts[1]!)
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 2', outreachId: 902 }),
+      901,
+    )
+  })
+
+  it('starts a walk carrying the campaign it joined', async () => {
+    mockBatch()
+    const props = { ...twoTurfs, campaignOutreachId: 555 }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 1')
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Start knocking' })[0]!,
+    )
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 1', outreachId: 901 }),
+      555,
+    )
   })
 })

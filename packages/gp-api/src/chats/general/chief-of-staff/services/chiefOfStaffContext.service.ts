@@ -4,9 +4,6 @@ import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
-import { FeaturesService } from '@/features/services/features.service'
-import { SERVE_CHAT_ATTACHMENTS_FLAG } from '@/chats/services/chatAttachments.service'
-import { addMilliseconds, isAfter } from 'date-fns'
 
 export interface ChiefOfStaffContext {
   conversationId: string
@@ -20,6 +17,8 @@ export interface ChiefOfStaffContext {
   userLastName: string | null
   officeTitle: string | null
   jurisdiction: string | null
+  // Two-letter state from the resolved district, for the date line's zone.
+  state?: string | null
   swornInDate: Date | null
   party: string | null
   electedDate: Date | null
@@ -41,10 +40,6 @@ export interface ChiefOfStaffContext {
   // table configured). The context service defaults it false; the handler
   // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
-  // Whether the serve-chat-attachments flag is on for this user. Cached
-  // per user for 60 s to avoid an Amplitude fetchV2 round-trip on every
-  // turn; a flag flip takes effect within that window.
-  attachmentsEnabled: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -53,38 +48,6 @@ export interface ChiefOfStaffContext {
 export class ChiefOfStaffContextService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  // Amplitude fetchV2 retries cost several seconds per call when the SDK
-  // cannot reach the edge — enough to push CI E2E tests into timeout. Cache
-  // the boolean per user for a short window so only the first turn in that
-  // window incurs the round-trip.
-  private static readonly ATTACHMENTS_CACHE_TTL_MS = 60_000
-  private readonly attachmentsCache = new Map<
-    number,
-    { enabled: boolean; expiresAt: Date }
-  >()
-
-  constructor(private readonly features: FeaturesService) {
-    super()
-  }
-
-  private async resolveAttachmentsEnabled(userId: number): Promise<boolean> {
-    const now = new Date()
-    const hit = this.attachmentsCache.get(userId)
-    if (hit !== undefined && isAfter(hit.expiresAt, now)) return hit.enabled
-    const enabled = await this.features.isFeatureEnabled({
-      user: userId,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    this.attachmentsCache.set(userId, {
-      enabled,
-      expiresAt: addMilliseconds(
-        now,
-        ChiefOfStaffContextService.ATTACHMENTS_CACHE_TTL_MS,
-      ),
-    })
-    return enabled
-  }
-
   async load(
     conversationId: string,
     userId: number,
@@ -111,8 +74,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
     }
 
     const priorities = await port.listActive(electedOffice.id)
-
-    const attachmentsEnabled = await this.resolveAttachmentsEnabled(userId)
 
     // "First conversation" means they have never actually talked to their
     // chief of staff, so this counts PRIOR conversations that hold at least
@@ -167,7 +128,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      attachmentsEnabled,
     }
   }
 }

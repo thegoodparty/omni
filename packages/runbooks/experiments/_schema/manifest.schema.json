@@ -48,7 +48,7 @@
     },
     "input_schema": {
       "type": "object",
-      "description": "JSON Schema Draft-07 for the params dict the dispatcher passes the agent (PARAMS_JSON env var). Lambda validates the SQS message's params against this before launching Fargate. Replaces the older `required_params` field — supports types + patterns + constraints, not just key names."
+      "description": "JSON Schema Draft-07 for the params dict the dispatcher passes the agent (the JSON file named by the PARAMS_FILE env var). Lambda validates the SQS message's params against this before launching Fargate. Replaces the older `required_params` field — supports types + patterns + constraints, not just key names."
     },
     "output_schema": {
       "type": "object",

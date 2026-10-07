@@ -25,9 +25,11 @@ import {
   PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
+import { TenDlcStatusSnapshotSchema } from '@goodparty_org/contracts'
 import { Nightly10DlcReportService } from './nightly10DlcReport.service'
 
 const { mockResolveNs } = vi.hoisted(() => ({ mockResolveNs: vi.fn() }))
@@ -176,10 +178,16 @@ describe('Nightly10DlcReportService', () => {
     getIdentityProfile: ReturnType<typeof vi.fn>
   }
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
+  let mockCrmCampaigns: { getCrmCompanyOwnerName: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
     mockSlack = { message: vi.fn().mockResolvedValue('ok') }
+    // The CRM helper returns '' for an ownerless company — the snapshot must
+    // normalize that to null.
+    mockCrmCampaigns = {
+      getCrmCompanyOwnerName: vi.fn().mockResolvedValue(''),
+    }
     mockModel = {
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
@@ -212,6 +220,7 @@ describe('Nightly10DlcReportService', () => {
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: SlackService, useValue: mockSlack },
         { provide: PeerlyIdentityService, useValue: mockPeerlyIdentity },
+        { provide: CrmCampaignsService, useValue: mockCrmCampaigns },
         { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
         Nightly10DlcReportService,
@@ -1013,6 +1022,14 @@ describe('Nightly10DlcReportService', () => {
             803,
             PeerlyCvVerificationStatus.IN_REVIEW,
           ),
+          // A PIN out for only 2d: listed on the admin page (floor 0,
+          // ENG-11210) but still below this report's 7d nudge floor.
+          proRecord('tcr-f', 'fresh-pin-camp', 804, {
+            peerlyIdentityId: 'ident-804',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            pinSentDetectedAt: subDays(new Date(), 2),
+            createdAt: subDays(new Date(), 3),
+          }),
         ],
         [],
         [],
@@ -1036,6 +1053,7 @@ describe('Nightly10DlcReportService', () => {
       expect(blocksText([nudge!])).toContain('PIN out 9d')
       expect(blocksText([nudge!])).not.toContain('requested-camp')
       expect(blocksText([nudge!])).not.toContain('in-review-camp')
+      expect(blocksText(blocks)).not.toContain('fresh-pin-camp')
 
       expect(blocksText([unissued!])).toContain('requested-camp (campaign 802)')
       expect(blocksText([unissued!])).toContain('in-review-camp (campaign 803)')
@@ -1797,6 +1815,369 @@ describe('Nightly10DlcReportService', () => {
       const text = blocksText(blocks)
       expect(text).toContain('waiting_to_finalize >3 business days')
       expect(text).toContain('escalation pending')
+    })
+  })
+
+  describe('getAdminStatusSnapshot', () => {
+    // The admin page's rows come from real Prisma rows, which always carry
+    // these columns (null or valued) — the shared proRecord fixture predates
+    // the snapshot and leaves them undefined, which the contract would
+    // (rightly) reject.
+    const snapshotRecord = (
+      id: string,
+      slug: string,
+      campaignId: number,
+      overrides: object = {},
+    ) =>
+      proRecord(id, slug, campaignId, {
+        filingUrl: 'https://sos.example.gov/filing',
+        cvValidationFailedAt: null,
+        campaign: { id: campaignId, slug, isPro: true, userId: campaignId + 1 },
+        ...overrides,
+      })
+
+    const snapshotDomain = (name: string, campaignId: number) => ({
+      name,
+      status: 'registered',
+      createdAt: subDays(new Date(), 5),
+      registrantVerifiedAt: null,
+      website: {
+        campaignId,
+        campaign: {
+          id: campaignId,
+          slug: `domain-camp-${campaignId}`,
+          userId: campaignId + 1,
+          details: {},
+        },
+      },
+    })
+
+    it('maps every population into its bucket and validates against the contract', async () => {
+      const kickoffSentAt = subDays(new Date(), 3)
+      const pinApprovedAt = subDays(new Date(), 10)
+      const cvSubmittedAt = subDays(new Date(), 12)
+      const escalatedAt = subDays(new Date(), 1)
+      queueFindManyResults(mockModel.findMany, [
+        [
+          snapshotRecord('tcr-stuck', 'stuck-camp', 100, {
+            kickoffSentAt,
+            agenticRunId: 'run-1',
+          }),
+        ],
+        [
+          snapshotRecord('tcr-error', 'error-camp', 200, {
+            status: TcrComplianceStatus.error,
+          }),
+        ],
+        [
+          snapshotRecord('tcr-rejected', 'rejected-camp', 300, {
+            status: TcrComplianceStatus.rejected,
+            peerlyIdentityId: 'ident-300',
+          }),
+        ],
+        [
+          snapshotRecord('tcr-billing', 'billing-camp', 400, {
+            peerlyBillingBlockedAt: subMinutes(new Date(), 10),
+          }),
+        ],
+        [
+          snapshotRecord('tcr-pin', 'pin-camp', 500, {
+            peerlyIdentityId: 'ident-500',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            peerlyCvStatusChangedAt: pinApprovedAt,
+            createdAt: subDays(new Date(), 20),
+          }),
+          snapshotRecord('tcr-unissued', 'unissued-camp', 600, {
+            peerlyIdentityId: 'ident-600',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            peerlySubmissionStartedAt: cvSubmittedAt,
+            createdAt: subDays(new Date(), 20),
+          }),
+        ],
+        [],
+        [],
+        [
+          snapshotRecord('tcr-in-review', 'in-review-camp', 700, {
+            peerlyIdentityId: 'ident-700',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            peerlyCvStatusChangedAt: subDays(new Date(), 10),
+            cvInReviewEscalatedAt: escalatedAt,
+          }),
+        ],
+        [
+          snapshotRecord('tcr-w2f', 'w2f-camp', 800, {
+            peerlyIdentityId: 'ident-800',
+            peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+            peerlyProfileStatus: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
+            peerlyProfileStatusChangedAt: subDays(new Date(), 10),
+          }),
+        ],
+        [
+          snapshotRecord('tcr-deferred', 'deferred-camp', 900, {
+            kickoffSentAt: null,
+            createdAt: subDays(new Date(), 4),
+            campaign: {
+              id: 900,
+              slug: 'deferred-camp',
+              isPro: true,
+              userId: 901,
+              user: null,
+              website: null,
+              campaignPositions: [],
+            },
+          }),
+        ],
+      ])
+      mockDomain.findMany
+        .mockResolvedValueOnce([snapshotDomain('stuck-domain.site', 1000)])
+        .mockResolvedValueOnce([snapshotDomain('held-domain.site', 1100)])
+      mockResolveNs.mockRejectedValueOnce(dnsError('ENOTFOUND'))
+      mockExperimentRun.findMany.mockResolvedValueOnce([
+        { runId: 'run-1', status: 'FAILED' },
+      ])
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      expect(() => TenDlcStatusSnapshotSchema.parse(snapshot)).not.toThrow()
+      expect(snapshot.buckets.map((bucket) => bucket.key)).toEqual([
+        'stuckSubmission',
+        'kickoffError',
+        'rejected',
+        'billingBlocked',
+        'domainPurchaseIncomplete',
+        'domainNotResolving',
+        'cvInReviewStalled',
+        'finalizeStalled',
+        'dispatchDeferred',
+        'awaitingPin',
+        'cvUnissued',
+      ])
+      const bucket = (key: string) =>
+        snapshot.buckets.find((candidate) => candidate.key === key)?.entries ??
+        []
+
+      expect(bucket('stuckSubmission')).toEqual([
+        expect.objectContaining({
+          campaignId: 100,
+          campaignSlug: 'stuck-camp',
+          userId: 101,
+          since: kickoffSentAt.toISOString(),
+          agenticRunId: 'run-1',
+          runStatus: 'FAILED',
+        }),
+      ])
+      expect(bucket('kickoffError')).toEqual([
+        expect.objectContaining({ campaignId: 200 }),
+      ])
+      // peerlyIdentityId decides which rejected-record recovery applies —
+      // the page must carry it.
+      expect(bucket('rejected')).toEqual([
+        expect.objectContaining({
+          campaignId: 300,
+          peerlyIdentityId: 'ident-300',
+        }),
+      ])
+      expect(bucket('billingBlocked')).toEqual([
+        expect.objectContaining({ campaignId: 400 }),
+      ])
+      expect(bucket('domainPurchaseIncomplete')).toEqual([
+        expect.objectContaining({
+          campaignId: 1000,
+          userId: 1001,
+          domainName: 'stuck-domain.site',
+          domainStatus: 'registered',
+        }),
+      ])
+      expect(bucket('domainNotResolving')).toEqual([
+        expect.objectContaining({
+          campaignId: 1100,
+          domainName: 'held-domain.site',
+        }),
+      ])
+      expect(bucket('cvInReviewStalled')).toEqual([
+        expect.objectContaining({
+          campaignId: 700,
+          escalatedAt: escalatedAt.toISOString(),
+        }),
+      ])
+      expect(bucket('finalizeStalled')).toEqual([
+        expect.objectContaining({ campaignId: 800, escalatedAt: null }),
+      ])
+      expect(bucket('dispatchDeferred')).toEqual([
+        expect.objectContaining({ campaignId: 900, missingUser: true }),
+      ])
+      // The bucket clocks are the report's clocks, never updatedAt: the PIN
+      // nudge ages from when CV reached APPROVED, the unissued wait from the
+      // CV submission.
+      expect(bucket('awaitingPin')).toEqual([
+        expect.objectContaining({
+          campaignId: 500,
+          since: pinApprovedAt.toISOString(),
+        }),
+      ])
+      expect(bucket('cvUnissued')).toEqual([
+        expect.objectContaining({
+          campaignId: 600,
+          since: cvSubmittedAt.toISOString(),
+        }),
+      ])
+    })
+
+    it('keeps the internal-alert populations (cases 1 and 3a) off the page and posts nothing', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          snapshotRecord('tcr-never-reached', 'never-camp', 1200, {
+            peerlyIdentityId: 'ident-1200',
+            peerlySubmissionStartedAt: subDays(new Date(), 2),
+          }),
+        ],
+        [
+          snapshotRecord('tcr-profile-stall', 'stall-camp', 1300, {
+            peerlyIdentityId: 'ident-1300',
+            peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+            peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+            peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+          }),
+        ],
+        [],
+        [],
+        [],
+      ])
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      const campaignIds = snapshot.buckets.flatMap((candidate) =>
+        candidate.entries.map((row) => row.campaignId),
+      )
+      expect(campaignIds).not.toContain(1200)
+      expect(campaignIds).not.toContain(1300)
+      expect(mockSlack.message).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('resolves Assigned to from the HubSpot owner, best-effort and deduped', async () => {
+      const ownedCampaign = (id: number, slug: string, hubspotId: string) => ({
+        id,
+        slug,
+        isPro: true,
+        userId: id + 1,
+        data: { hubspotId },
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [
+          snapshotRecord('tcr-owned', 'owned-camp', 100, {
+            kickoffSentAt: subDays(new Date(), 3),
+            campaign: ownedCampaign(100, 'owned-camp', 'hs-owned'),
+          }),
+          snapshotRecord('tcr-no-hubspot', 'no-hubspot-camp', 200, {
+            kickoffSentAt: subDays(new Date(), 3),
+          }),
+          snapshotRecord('tcr-ownerless', 'ownerless-camp', 400, {
+            kickoffSentAt: subDays(new Date(), 3),
+            campaign: ownedCampaign(400, 'ownerless-camp', 'hs-ownerless'),
+          }),
+        ],
+        [
+          snapshotRecord('tcr-same-owner', 'same-owner-camp', 500, {
+            status: TcrComplianceStatus.error,
+            campaign: ownedCampaign(500, 'same-owner-camp', 'hs-owned'),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+      ])
+      // The CRM helper never rejects: a HubSpot failure resolves '' — the
+      // same shape an ownerless company returns.
+      mockCrmCampaigns.getCrmCompanyOwnerName.mockImplementation(
+        (hubspotId: string) =>
+          Promise.resolve(hubspotId === 'hs-owned' ? ' Jane Smith ' : ''),
+      )
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      const assignedBySlug = new Map(
+        snapshot.buckets.flatMap((candidate) =>
+          candidate.entries.map((row) => [row.campaignSlug, row.assignedPa]),
+        ),
+      )
+      expect(assignedBySlug.get('owned-camp')).toBe('Jane Smith')
+      expect(assignedBySlug.get('no-hubspot-camp')).toBeNull()
+      expect(assignedBySlug.get('ownerless-camp')).toBeNull()
+      expect(assignedBySlug.get('same-owner-camp')).toBe('Jane Smith')
+      // One read per HubSpot company: the shared owner is fetched once, and
+      // the hubspotId-less campaign never reaches the CRM at all.
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledWith(
+        'hs-owned',
+      )
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledWith(
+        'hs-ownerless',
+      )
+      expect(mockCrmCampaigns.getCrmCompanyOwnerName).toHaveBeenCalledTimes(2)
+    })
+
+    // ENG-11210: close to an election candidates report missing PINs within
+    // days, so the page lists every issued PIN for find-and-resend — only
+    // the Slack report keeps the 7d nudge floor. The no-PIN bucket keeps the
+    // floor everywhere: fresh IN_REVIEW is the normal pipeline, not a stall.
+    it('lists every issued PIN while the no-PIN bucket keeps its 7d floor', async () => {
+      const freshPinSentAt = subDays(new Date(), 1)
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [
+          snapshotRecord('tcr-fresh-pin', 'fresh-pin-camp', 500, {
+            peerlyIdentityId: 'ident-500',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            pinSentDetectedAt: freshPinSentAt,
+            createdAt: subDays(new Date(), 2),
+          }),
+          snapshotRecord('tcr-fresh-unissued', 'fresh-unissued-camp', 600, {
+            peerlyIdentityId: 'ident-600',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            peerlySubmissionStartedAt: subDays(new Date(), 2),
+            createdAt: subDays(new Date(), 2),
+          }),
+          snapshotRecord('tcr-old-unissued', 'old-unissued-camp', 700, {
+            peerlyIdentityId: 'ident-700',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            peerlySubmissionStartedAt: subDays(new Date(), 12),
+            createdAt: subDays(new Date(), 20),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      const snapshot = await service.getAdminStatusSnapshot()
+
+      const bucket = (key: string) =>
+        snapshot.buckets.find((candidate) => candidate.key === key)?.entries ??
+        []
+      expect(bucket('awaitingPin')).toEqual([
+        expect.objectContaining({
+          campaignId: 500,
+          since: freshPinSentAt.toISOString(),
+        }),
+      ])
+      expect(bucket('cvUnissued').map((row) => row.campaignSlug)).toEqual([
+        'old-unissued-camp',
+      ])
     })
   })
 })

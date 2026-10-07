@@ -13,14 +13,14 @@ district is unknown or Haystaq has no coverage.
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/race_opponent_actions.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## TODO CHECKLIST
 
-1. Read `PARAMS_JSON`: `opponents[]`, `candidate_platform`, the district params (`state`, `l2_district_type`, `l2_district_name`), `race_context` (Step 1).
+1. Read `PARAMS_FILE`: `opponents[]`, `candidate_platform`, the district params (`state`, `l2_district_type`, `l2_district_name`), `race_context` (Step 1).
 2. Pick up to 5 distinct contrast angles from the summaries + platform (Step 2).
 3. When the district params are present, map each angle to one `hs_*` column from the inline catalog (Step 3).
 4. When the district params are present, run the district sentiment block: L2 value discovery, distribution check, ONE batched threshold query with coverage (Step 4).
@@ -36,7 +36,7 @@ district is unknown or Haystaq has no coverage.
 - **Up to 5 cards, never padded.** Fewer when the field or the platform supports fewer distinct angles. A thin or absent `candidate_platform` means fewer cards, not invented planks.
 - **`title` is at most 99 characters**, action-framed and naming the opponent and issue (e.g. "Stand out against Jeff Groh on housing affordability").
 - **`body` is 2 short, punchy sentences (3 only when a third is truly needed) and under 400 characters total.** Direct register, no throat-clearing: sentence one states what the district's voters believe or lean on the issue — with at most ONE Haystaq number when coverage exists — and sentence two makes the concrete contrast move against the opponent. Good: "77% of District 36's active voters lean toward government having a role in affordable housing. Challenge Noel Frame's Senate Housing Committee record with the right message." Bad: three long sentences stacking the opponent's biography, two percentages, and the candidate's plank. When coverage is missing, the body simply carries no statistic — never a made-up or borrowed one.
-- **`sms_message` is at most 320 characters**: plain, factual, first-person candidate voice, a contrast message the candidate could send as-is. No placeholders to fill in, no links required, no hype. Only facts present in the input summaries and platform.
+- **`sms_message` is at most 320 characters**: plain, factual, first-person candidate voice, a contrast message the candidate could send as-is. No placeholders to fill in (never [Your Name] or any other name in brackets), no links required, no hype. No greeting, no self-introduction and no sign-off: the app opens every text with "Hello <first name>, this is <candidate>, candidate for <office>." and appends the disclosures, so the message starts with substance. Only facts present in the input summaries and platform.
 - **Every card is distinct**: at most one card per opponent+issue pair, no repeated facts, and no statistic repeated across cards. `opponent_name` echoes an input opponent verbatim; it may be null ONLY for an issue-ownership card the field's text supports without naming one opponent.
 - **No family, health, or private life. No rumor.** Contrast on record and issues, never character.
 - **No adjective inflation and no motive-guessing** ("out of touch", "doesn't care", "only in it for..."). Sub-50 shares are leans away — state them as what they are, never dress a 39.7% up as a majority.
@@ -117,7 +117,7 @@ from pmf_runtime import milestone; milestone("read params")
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 OPPONENTS = PARAMS["opponents"]
 PLATFORM = PARAMS.get("candidate_platform") or {}
 L2_TYPE = PARAMS.get("l2_district_type")  # L2 column name, e.g. "City"

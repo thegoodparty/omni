@@ -7,6 +7,7 @@ export const PRIORITY_TOOL_LABELS: Record<string, string | undefined> = {
   read_past_outreach: "Checking what you've sent",
   describe_filter_dimensions: 'Checking available filters',
   count_contacts: 'Counting constituents',
+  list_precincts: 'Looking up precincts',
   crud_saved_filters: 'Working on your lists',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

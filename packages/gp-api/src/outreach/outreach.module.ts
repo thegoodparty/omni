@@ -3,7 +3,6 @@ import { forwardRef, Module } from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { CronModule } from '@/cron/cron.module'
-import { CrmModule } from '@/crm/crmModule'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
@@ -22,6 +21,7 @@ import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PeopleQueryModule } from '../peopleDb/peopleQuery.module'
 import { PaymentsModule } from '../payments/payments.module'
+import { PrioritiesModule } from '../priorities/priorities.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { VotersModule } from '../voters/voters.module'
@@ -80,6 +80,7 @@ import { OutreachRobocallStagingService } from './services/outreachRobocallStagi
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
 import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
+import { OutreachRobocallCancelService } from './services/outreachRobocallCancel.service'
 import { OutreachRobocallCompletionService } from './services/outreachRobocallCompletion.service'
 import { OutreachRobocallCaptureService } from './services/outreachRobocallCapture.service'
 import { OutreachRobocallFreshChargeService } from './services/outreachRobocallFreshCharge.service'
@@ -94,7 +95,6 @@ import { OutreachServeComposeContextService } from './services/outreachServeComp
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
-import { OutreachRobocallSingleSendService } from './services/outreachRobocallSingleSend.service'
 
 @Module({
   imports: [
@@ -124,15 +124,15 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
     // loops back here, the same cycle the ContactsModule edge above defers.
     forwardRef(() => DoorKnockingModule),
-    // For HubspotSingleSendService, the robocall payment/receipt single-send
-    // cutover (ENG-11035).
-    CrmModule,
     // For CronLockService, guarding the draft expiry job below.
     CronModule,
     // For QueueProducerService, which OutreachServeSmsPurchaseHandlerService
     // uses to enqueue `outreachTextSend` from its post-purchase step. The
     // producer module imports nothing, so this edge adds no cycle.
     QueueProducerModule,
+    // For PriorityStatusService: a send that came out of a priority's check
+    // puts that check out.
+    forwardRef(() => PrioritiesModule),
     // For VoterQueryService, which OutreachSmsRepliesService uses to put a
     // first name on each reply. PeopleQueryModule imports only HttpModule and
     // ClerkModule, so this edge adds no cycle and needs no forwardRef.
@@ -219,6 +219,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachRobocallSendService,
     OutreachRobocallHoldFailureService,
     OutreachRobocallWebhookService,
+    OutreachRobocallCancelService,
     OutreachRobocallCompletionService,
     OutreachRobocallCaptureService,
     OutreachRobocallFreshChargeService,
@@ -237,7 +238,6 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
     OutreachMaterializationService,
-    OutreachRobocallSingleSendService,
     OutreachAssignmentService,
   ],
   exports: [

@@ -12,7 +12,6 @@ import { UsersService } from '../../users/services/users.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { AiChatService } from '../ai/chat/aiChat.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { EcanvasserIntegrationService } from '../../vendors/ecanvasserIntegration/services/ecanvasserIntegration.service'
 
 const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -29,7 +28,6 @@ type Latency = {
   liveMetrics: number
   org: number
   tcr: number
-  ecanvasser: number
 }
 
 const noLatency: Latency = {
@@ -38,7 +36,6 @@ const noLatency: Latency = {
   liveMetrics: 0,
   org: 0,
   tcr: 0,
-  ecanvasser: 0,
 }
 
 const user = {
@@ -53,12 +50,6 @@ const orgContext = {
   ballotLevel: 'CITY',
   positionName: 'Mayor',
   ballotReadyPositionId: 'br-100',
-}
-
-const ecanvasser = {
-  contacts: [{}, {}, {}],
-  interactions: [{}, {}],
-  houses: [{}],
 }
 
 const campaign = {
@@ -158,13 +149,6 @@ const buildService = (latency: Latency) => {
     canDownload: vi.fn(() => true),
   } as unknown as VoterFileDownloadAccessService
 
-  const ecanvasserService = {
-    findByCampaignId: vi.fn(async () => {
-      await delay(latency.ecanvasser)
-      return ecanvasser
-    }),
-  } as unknown as EcanvasserIntegrationService
-
   const slack = { errorMessage: vi.fn() } as unknown as SlackService
 
   return new CrmCampaignsService(
@@ -177,7 +161,6 @@ const buildService = (latency: Latency) => {
     aiChat,
     voterFile,
     slack,
-    ecanvasserService,
     createMockLogger(),
   )
 }
@@ -194,12 +177,9 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties', () => {
       calls_made: '10',
       direct_mail_sent: '5',
       event_impressions: '2',
-      knocked_doors: '2',
       doors_knocked: '3',
       online_impressions: '4',
       yard_signs_impressions: '1',
-      ecanvasser_contacts_count: '3',
-      ecanvasser_houses_count: '1',
       candidate_district: 'District 5',
       candidate_email: 'jane@example.com',
       candidate_name: 'Jane Doe',
@@ -270,7 +250,6 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties benchmark', () => {
     liveMetrics: LEAF_MS,
     org: LEAF_MS * 2,
     tcr: LEAF_MS,
-    ecanvasser: LEAF_MS,
   }
 
   it('runs concurrently: parallel wall time is far below the sequential sum', async () => {
@@ -283,7 +262,6 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties benchmark', () => {
       await delay(LEAF_MS * 2) // getDistrictAndBallotLevelForOrgSlug
       await delay(LEAF_MS * 2) // resolvePositionContextByOrgSlug (duplicate)
       await delay(benchLatency.tcr)
-      await delay(benchLatency.ecanvasser)
     })
 
     // AFTER: the real method fetches everything concurrently and resolves the
@@ -299,8 +277,7 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties benchmark', () => {
       benchLatency.liveMetrics +
       LEAF_MS * 2 +
       LEAF_MS * 2 +
-      benchLatency.tcr +
-      benchLatency.ecanvasser
+      benchLatency.tcr
 
     console.log(
       `[benchmark] BEFORE sequential ≈ ${before.toFixed(0)}ms ` +

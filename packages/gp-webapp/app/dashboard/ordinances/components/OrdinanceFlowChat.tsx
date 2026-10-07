@@ -25,6 +25,13 @@ import {
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
 import { segmentsTextLength } from '../../shared/agent-chat/streaming'
+import {
+  TurnBlocks,
+  dropTrailingQuestion,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  type PositionedWidget,
+} from '../../shared/agent-chat/turnBlocks'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../shared/dictation/useDictationAppend'
@@ -38,16 +45,12 @@ import {
   isOrdinanceStep,
   nextOrdinanceStep,
 } from '../data/steps'
-import ClarifyQuestionWidget from './ClarifyQuestionWidget'
+import ClarifyQuestionWidget from '../../shared/agent-chat/ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
 import {
   DRAFT_TOOL,
-  TurnBlocks,
-  isStepWidgetTool,
-  liveTurnBlocks,
-  parseStepWidget,
-  persistedTurnBlocks,
-  type PositionedWidget,
+  ordinanceWidgets,
+  type OrdinanceWidgetContext,
 } from './stepWidgets'
 
 const CLARIFY_TOOL = 'ask_clarify_question'
@@ -181,7 +184,9 @@ export default function OrdinanceFlowChat({
   // Each live widget records how much turn text preceded its tool call, so it
   // appears only after that text has typed out — and, unlike a turn-global
   // revealDone gate, never unmounts when later text in the same turn streams.
-  const [liveWidgets, setLiveWidgets] = useState<PositionedWidget[]>([])
+  const [liveWidgets, setLiveWidgets] = useState<
+    PositionedWidget<OrdinanceWidgetContext>[]
+  >([])
   // The tool whose arguments the model is currently writing, if any, so the
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
@@ -241,8 +246,14 @@ export default function OrdinanceFlowChat({
           setLiveOffer(parseOffer(event.args) ?? {})
           return true
         }
-        if (isStepWidgetTool(event.toolName)) {
-          const widget = parseStepWidget(event.toolName, event.args)
+        if (ordinanceWidgets.has(event.toolName)) {
+          const widget = ordinanceWidgets.resolve(
+            {
+              toolName: event.toolName,
+              toolCallId: event.toolCallId ?? null,
+            },
+            event.args,
+          )
           if (widget) {
             // Live tool call only — a reloaded transcript re-renders the same
             // widget from its persisted segment without passing through here,
@@ -521,11 +532,13 @@ export default function OrdinanceFlowChat({
   // fired: the lead-in text types out, the card appears there and stays, and any
   // following prose types out below it.
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const turnBlocks = liveTurnBlocks(
+  const liveBlocks = liveTurnBlocks(
     visibleSegments,
     liveWidgets,
     revealedTextLength,
   )
+  const turnBlocks =
+    liveClarify && revealDone ? dropTrailingQuestion(liveBlocks) : liveBlocks
   const showWidgets = liveWidgets.some(
     (w) => revealedTextLength >= w.appearAfter,
   )
@@ -598,7 +611,7 @@ export default function OrdinanceFlowChat({
                 {turnBlocks.length > 0 ? (
                   <TurnBlocks
                     blocks={turnBlocks}
-                    slug={slug}
+                    context={{ slug }}
                     toolLabel={ordinanceToolLabel}
                   />
                 ) : null}
@@ -694,14 +707,21 @@ function AssistantMessage({
   const clarify = clarifyFromSegments(segments)
   // Same interleaved model as the live turn: text, tool pills, and step cards in
   // stream order, so a reloaded turn reads identically to how it streamed.
-  const blocks = persistedTurnBlocks(segments, message.content ?? '')
+  const turnBlocks = persistedTurnBlocks({
+    registry: ordinanceWidgets,
+    segments,
+    content: message.content ?? '',
+    messageId: message.id,
+    conversationId: message.conversationId,
+  })
+  const blocks = clarify ? dropTrailingQuestion(turnBlocks) : turnBlocks
 
   return (
     <>
       <AssistantRow>
         <TurnBlocks
           blocks={blocks}
-          slug={slug}
+          context={{ slug }}
           toolLabel={ordinanceToolLabel}
         />
         {clarify ? (

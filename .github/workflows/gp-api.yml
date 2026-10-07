@@ -66,14 +66,25 @@ jobs:
 
       - name: Lint
         env:
-          # Type-aware ESLint over the whole workspace peaks near Node's
-          # default ~4GB heap and now exceeds it (exit 134), because absorbing
-          # election-api added ~170 files to src/. Same failure mode and cap as
-          # the Build step below, which hit this first on 2026-09-18.
+          # SAME FAILURE AS THE BUILD STEP BELOW, same cap, different tool.
+          # typescript-eslint builds a full type-aware program over
+          # `{src,apps,libs,test}/**/*.ts` and peaks right at Node's default
+          # ~4GB heap, so whether a run survives is luck rather than a
+          # property of the diff: measured locally, `main` itself OOMs at
+          # 4096MB and passes at 5120MB, which means every PR has been one
+          # file away from exit 134 and the ones that hit it looked like
+          # ordinary red. First observed here on run 36821761791.
           NODE_OPTIONS: --max-old-space-size=6144
         run: npm run lint -w ${{ env.WORKSPACE }}
 
       - name: Typecheck
+        env:
+          # Same cap as Lint and Build above. `tsc --noEmit` over the whole
+          # program now peaks past Node's default ~4GB heap on the runner
+          # once the constituent-feedback modules are in the tree (exit 134,
+          # first seen on run 37340779758); locally it fits, so the margin is
+          # the runner's, not the diff's.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run types -w ${{ env.WORKSPACE }}
 
       # The Pulumi program under deploy/ is excluded from the main tsconfig and
@@ -83,6 +94,9 @@ jobs:
       - name: Typecheck deploy
         working-directory: ${{ env.WORKSPACE }}
         run: npx tsc -p tsconfig.deploy.json
+
+      - name: Check env contract
+        run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}

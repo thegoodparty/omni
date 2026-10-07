@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
   DoorKnockingTurf,
+  type ProposalLink,
   type RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import { Spinner } from '@styleguide'
@@ -42,10 +44,7 @@ import { StartKnockingDialog } from './StartKnockingDialog'
 import { DoorKnockingSurface } from './doorKnockingSurface'
 import { type CreateFlowStep } from './createFlow/CreateListFlow'
 import { HARD_STOP_LIMIT } from './createFlow/stopCap'
-import {
-  filtersToDimSelections,
-  unpreviewableFilterKeys,
-} from './createFlow/voterFilterPreview'
+import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
 import { TurfPanel } from './createFlow/TurfPanel'
 import { useTeamOptions } from './useTeamOptions'
@@ -65,6 +64,7 @@ import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { usePrecinctOptions } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useOrganization } from '@shared/organization-picker'
+import { useOfflineQueueDrain } from 'app/dashboard/shared/dictation/useOfflineMemo'
 
 // One loading vocabulary for both waits that show behind the walk drawer:
 // the pack download (4.5s p50 / 34s p95) AND the VoterMapCanvas chunk
@@ -132,6 +132,10 @@ interface NativeDoorKnockingPageProps {
   // and used to fetch the sibling turfs whose colors seed the picker's
   // default and whose count decides the "Turf N" name default.
   campaignOutreachId?: number
+  // A priority chat card's link, carried onto the walk's create.
+  proposalLink?: ProposalLink
+  // Where the `?create=1` link was pressed.
+  createSource?: OutreachFlowSource
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -173,8 +177,13 @@ export default function NativeDoorKnockingPage({
   fromOutreachId,
   openCreateFlow,
   campaignOutreachId,
+  proposalLink,
+  createSource,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
+  // Doors logged with no signal wait on the phone; this sends them when it
+  // returns, whether or not a door's form is open.
+  useOfflineQueueDrain()
   const router = useRouter()
   const organization = useOrganization()
   const isElectedOfficial = Boolean(organization?.electedOfficeId)
@@ -218,7 +227,7 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   // Owns the walk turf as well as the funnel events for the session.
-  const walk = useWalkSession()
+  const walk = useWalkSession(serveMode)
   const walkTurf = walk.turf
   const turfsQuery = useQuery({
     ...turfsQueryOptions(serveMode),
@@ -753,14 +762,14 @@ export default function NativeDoorKnockingPage({
     : null
   // Ending a FINISHED walk stamps the list Done. What "finished" means, and why
   // it isn't every exit, is in `walkCompletion.ts`.
-  const completeFinishedWalk = useWalkCompletion(walkTurfRow)
+  const completeFinishedWalk = useWalkCompletion(walkTurfRow, serveMode)
   // The walk's own `Move to archive`. Same ref-held turf as the completion
   // above and for the same reason: the write outlives the walk it shelves.
-  const walkArchive = useWalkArchive(walkTurfRow)
+  const walkArchive = useWalkArchive(walkTurfRow, serveMode)
   // The walk's manual Done. Same ref-held turf as the two above; the button
   // is withheld rather than disabled on a list already done or archived,
   // because the row itself is the authority and it refetches after the write.
-  const walkMarkDone = useWalkMarkDone(walkTurfRow)
+  const walkMarkDone = useWalkMarkDone(walkTurfRow, serveMode)
   // Whether we are on the way out to the hub. Every exit from door knocking is
   // now a client-side navigation, and the surface being left is torn down
   // before it resolves — so without this the candidate gets a frame or two of
@@ -783,6 +792,11 @@ export default function NativeDoorKnockingPage({
   // and navigating to the hub outright. Both land in the same place; `back()`
   // is the better one because it keeps the hub's scroll position.
   const tileOpened = useRef(Boolean(openCreateFlow))
+  // Where the open create flow was started from. The link's own surface for
+  // the flow `?create=1` opened; the page's own button for every one after.
+  const [createFlowSource, setCreateFlowSource] = useState<OutreachFlowSource>(
+    openCreateFlow ? (createSource ?? 'deep_link') : 'door_knocking_page',
+  )
 
   // During a walk, scope the map to just this turf's ring — the neighbors'
   // rings are noise around the route the canvasser is on. The whole saved
@@ -888,13 +902,6 @@ export default function NativeDoorKnockingPage({
   // instead of leaving the map quietly disagreeing with the filters above it.
   // Computed here rather than inside the flow because the manifest is the
   // page's — the map is what decodes it, and gates it on a resolvable district.
-  const unpreviewableKeys = useMemo(
-    () =>
-      packQuery.data
-        ? unpreviewableFilterKeys(filters, packQuery.data.manifest)
-        : [],
-    [packQuery.data, filters],
-  )
   const turfStats = useMemo(
     () =>
       packQuery.data && ring && selections
@@ -1166,6 +1173,7 @@ export default function NativeDoorKnockingPage({
     // surface's own hub instead.
     if (tileOpened.current) {
       tileOpened.current = false
+      setCreateFlowSource('door_knocking_page')
       router.back()
       return
     }
@@ -1186,6 +1194,7 @@ export default function NativeDoorKnockingPage({
   const leaveFlowForWalk = () => {
     setRing(null)
     tileOpened.current = false
+    setCreateFlowSource('door_knocking_page')
     setFlowStep(null)
     setFilters({})
     setPrecincts([])
@@ -1195,8 +1204,23 @@ export default function NativeDoorKnockingPage({
 
   // "Start knocking" on one turf of the flow's success screen. The flow is
   // on screen here and nothing else is, so it comes down first.
-  const handleStartKnocking = (turf: DoorKnockingTurf) => {
-    startKnocking(turf, { kind: 'hub' })
+  //
+  // Closing that walk lands on the campaign's DETAILS drawer, not back
+  // here: this screen is a one-time confirmation of a write that has
+  // already happened, so there is nothing to come back to, and the drawer
+  // is where the campaign's other turfs are. The hub is the fallback for a
+  // campaign whose anchor we somehow do not know — the same place every
+  // other exit from door knocking lands.
+  const handleStartKnocking = (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => {
+    startKnocking(
+      turf,
+      anchorOutreachId === null
+        ? { kind: 'hub' }
+        : { kind: 'outreach', outreachId: anchorOutreachId },
+    )
   }
 
   // The vendor has answered and the turf is routed, so the walk has
@@ -1294,8 +1318,8 @@ export default function NativeDoorKnockingPage({
         // the sidebar it would offer leads back where its own close button
         // already goes. Dropping the menu here rather than rendering outside
         // `DashboardLayout` keeps the providers this tree sits in
-        // (`EcanvasserProvider`, `SidebarProvider`, the impersonation banner)
-        // and costs the map only the chrome the design doesn't draw.
+        // (`SidebarProvider`, the impersonation banner) and costs the map only
+        // the chrome the design doesn't draw.
         hideMenu
         // The same argument one surface further down, and a worse consequence.
         // The walk owns the bottom of the window: `PersonSheet` ends in the
@@ -1503,6 +1527,7 @@ export default function NativeDoorKnockingPage({
                   precinctOptions={precinctOptions}
                   onStepChange={changeFlowStep}
                   onClose={closeFlow}
+                  source={createFlowSource}
                   districtBounds={districtBounds}
                   districtHouseholds={filterResult?.households ?? 0}
                   // The count above is derived from the pack, so it reads 0 for
@@ -1525,7 +1550,6 @@ export default function NativeDoorKnockingPage({
                   onRestartDrawing={draw.startDrawing}
                   onStartKnocking={handleStartKnocking}
                   isServeOrg={isServeOrg}
-                  unpreviewableKeys={unpreviewableKeys}
                   orgSlug={organization?.slug}
                   preselectedListId={carriedListId}
                   onPreselectApplied={() =>
@@ -1533,6 +1557,7 @@ export default function NativeDoorKnockingPage({
                   }
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
+                  {...(proposalLink && { proposalLink })}
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}
                   onSelectDraft={selectDraft}

@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import type { OutreachType } from 'gpApi/types/outreach.types'
-import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+import {
+  ComposeHandoffPayloadSchema,
+  P2P_SCRIPT_MAX_LENGTH,
+} from '@goodparty_org/contracts'
+import type { SocialFlowPrefill } from 'app/dashboard/outreach/v2/social/SocialFlow'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
@@ -12,7 +16,11 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
-import type { ComposeSource } from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import {
+  parseTrackerOrigin,
+  type ComposeSource,
+} from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import type { OutreachTrackerOrigin } from 'app/dashboard/outreach/util/outreachAnalytics'
 import type { TcrCompliance } from 'helpers/types'
 
 // What a `?compose=` deep link asks the hub to open, once the channel's gate
@@ -29,6 +37,17 @@ export interface ComposeRequest {
   // A voter data page recommendation not saved yet (`?recommended=`), which
   // the flow's audience step saves on arrival.
   recommendedVariant?: RecommendedListVariant
+  // The tracker task this compose was launched from, carried onto the
+  // outreach completion event so task completion and outreach are one funnel.
+  tracker?: OutreachTrackerOrigin
+  // Where the compose link was pressed. Absent for a link with no allowlisted
+  // `?source=`.
+  source?: ComposeSource
+  // A Campaign Manager compose_handoff (`?handoff=` alongside
+  // `?compose=social`): a draft the candidate asked the agent to write,
+  // resolved from the sessionStorage nonce before this seeds the hub. Social
+  // only — no other channel's compose_handoff lands here.
+  socialPrefill?: Pick<SocialFlowPrefill, 'draftText' | 'purpose'>
 }
 
 interface OutreachComposeDeepLinkProps {
@@ -68,6 +87,31 @@ const parseComposeSource = (value: string | null | undefined): string =>
     ? (value as string)
     : 'deep_link'
 
+// A Campaign Manager win_social handoff: the nonce rides `?handoff=` instead
+// of the URL (which would expose the draft text), so this loads it, deletes
+// it (one-shot — a reload must not reopen the same prefill), and validates
+// it. A serve_social payload under a nonce (this hub is never the serve
+// handoff's destination) and a missing/expired/malformed nonce both resolve
+// to undefined — a blank social flow, never an error.
+const consumeWinSocialHandoff = (
+  nonce: string | null | undefined,
+): Pick<SocialFlowPrefill, 'draftText' | 'purpose'> | undefined => {
+  if (!nonce) return undefined
+  try {
+    const key = `cos-handoff-${nonce}`
+    const stored = sessionStorage.getItem(key)
+    if (!stored) return undefined
+    sessionStorage.removeItem(key)
+    const result = ComposeHandoffPayloadSchema.safeParse(JSON.parse(stored))
+    if (!result.success || result.data.channel !== 'win_social') {
+      return undefined
+    }
+    return { draftText: result.data.draftText, purpose: result.data.purpose }
+  } catch {
+    return undefined
+  }
+}
+
 export const OutreachComposeDeepLink = ({
   tcrCompliance,
   onCompose,
@@ -77,6 +121,10 @@ export const OutreachComposeDeepLink = ({
   const router = useRouter()
   const [campaign] = useCampaign()
   const composeSource = parseComposeSource(searchParams?.get('source'))
+  // The same allowlist, typed, for the flow the hub opens next.
+  const requestSource = COMPOSE_SOURCES.find(
+    (source) => source === searchParams?.get('source'),
+  )
   const { runTextGate, gateModals } = useTextOutreachGate(
     tcrCompliance,
     composeSource,
@@ -142,6 +190,10 @@ export const OutreachComposeDeepLink = ({
     )
     const dueParam = searchParams?.get('due') || ''
     const due = DUE_DATE_RE.test(dueParam) ? dueParam : undefined
+    const tracker = parseTrackerOrigin(
+      searchParams?.get('trackerTaskId'),
+      searchParams?.get('phase'),
+    )
     router.replace('/dashboard/outreach', { scroll: false })
     trackEvent(EVENTS.Outreach.ClickCreate, {
       type: composeType,
@@ -156,6 +208,8 @@ export const OutreachComposeDeepLink = ({
           due,
           listId: preselectedListId,
           recommendedVariant,
+          tracker,
+          source: requestSource,
         })
       }
       return
@@ -163,7 +217,12 @@ export const OutreachComposeDeepLink = ({
     // Social has no gate and no audience: unlocked for everyone, like its
     // tile.
     if (composeType === OUTREACH_TYPES.socialMedia) {
-      onCompose({ type: composeType })
+      onCompose({
+        type: composeType,
+        tracker,
+        source: requestSource,
+        socialPrefill: consumeWinSocialHandoff(searchParams?.get('handoff')),
+      })
       return
     }
     // Phone banking's upgrade-at-entry, exactly as its tile does it: the Pro
@@ -180,6 +239,8 @@ export const OutreachComposeDeepLink = ({
         type: composeType,
         listId: preselectedListId,
         recommendedVariant,
+        tracker,
+        source: requestSource,
       })
       return
     }
@@ -196,6 +257,8 @@ export const OutreachComposeDeepLink = ({
       due,
       listId: preselectedListId,
       recommendedVariant,
+      tracker,
+      source: requestSource,
     })
   }, [
     composeType,
@@ -208,6 +271,7 @@ export const OutreachComposeDeepLink = ({
     recommendedVariant,
     onCompose,
     composeSource,
+    requestSource,
     resumesDraft,
   ])
 

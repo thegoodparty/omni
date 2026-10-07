@@ -20,7 +20,7 @@ import { CronLockService } from '@/cron/services/cronLock.service'
 import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { UserRole } from '../../generated/prisma'
-import { subDays } from 'date-fns'
+import { subDays, subHours } from 'date-fns'
 
 const service = useTestService()
 
@@ -292,6 +292,35 @@ describe('UsersService', () => {
         where: { id: user.id },
       })
       expect(persisted?.email).toBe('fresh.signup@example.com')
+    })
+
+    it('capitalizes an all-lowercase name in the row and the CRM form', async () => {
+      const crm = service.app.get(CrmUsersService)
+      const submitCrmForm = vi
+        .spyOn(crm, 'submitCrmForm')
+        .mockResolvedValue(undefined)
+      vi.spyOn(crm, 'trackUserUpdate').mockResolvedValue(undefined)
+
+      const user = await usersService.createUser({
+        email: 'lowercase.signup@example.com',
+        firstName: 'stewart',
+        lastName: 'eastman',
+      })
+
+      expect(user).toMatchObject({
+        firstName: 'Stewart',
+        lastName: 'Eastman',
+        name: 'Stewart Eastman',
+      })
+      expect(submitCrmForm).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.arrayContaining([
+          { name: 'firstName', value: 'Stewart', objectTypeId: '0-1' },
+          { name: 'lastName', value: 'Eastman', objectTypeId: '0-1' },
+        ]),
+        expect.anything(),
+        expect.anything(),
+      )
     })
   })
 
@@ -1400,6 +1429,21 @@ describe('UsersService', () => {
       expect(user?.avatar).toBe('https://assets.test/uploads/9/avatar.png')
     })
 
+    it('capitalizes an all-lowercase provider name on a new row', async () => {
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_lowercase_name',
+        email: 'lowercase-name@goodparty.org',
+        firstName: 'stewart',
+        lastName: 'McDonald',
+      })
+
+      expect(user).toMatchObject({
+        firstName: 'Stewart',
+        lastName: 'McDonald',
+        name: 'Stewart McDonald',
+      })
+    })
+
     it('creates the user without an avatar when ingestion fails', async () => {
       const avatars = service.app.get(UserAvatarService)
       vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(null)
@@ -2361,7 +2405,7 @@ describe('UsersService', () => {
       vi.restoreAllMocks()
     })
 
-    it('deletes only test-domain DB users older than the cutoff', async () => {
+    it('deletes e2e DB users after 3h and fixture DB users after 24h', async () => {
       vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
         data: [],
         totalCount: 0,
@@ -2374,10 +2418,22 @@ describe('UsersService', () => {
           createdAt: subDays(new Date(), 2),
         },
       })
+      const fourHourTest = await service.prisma.user.create({
+        data: {
+          email: `four-hour-${suffix}@test.goodparty.org`,
+          createdAt: subHours(new Date(), 4),
+        },
+      })
       const recentTest = await service.prisma.user.create({
         data: {
           email: `recent-${suffix}@test.goodparty.org`,
-          createdAt: new Date(),
+          createdAt: subHours(new Date(), 1),
+        },
+      })
+      const fourHourFixture = await service.prisma.user.create({
+        data: {
+          email: `qa-${randomUUID()}@goodparty.org`,
+          createdAt: subHours(new Date(), 4),
         },
       })
       const oldReal = await service.prisma.user.create({
@@ -2405,10 +2461,20 @@ describe('UsersService', () => {
         await service.prisma.user.findUnique({ where: { id: oldTest.id } }),
       ).toBeNull()
       expect(
+        await service.prisma.user.findUnique({
+          where: { id: fourHourTest.id },
+        }),
+      ).toBeNull()
+      expect(
         await service.prisma.user.findUnique({ where: { id: oldFixture.id } }),
       ).toBeNull()
       expect(
         await service.prisma.user.findUnique({ where: { id: recentTest.id } }),
+      ).not.toBeNull()
+      expect(
+        await service.prisma.user.findUnique({
+          where: { id: fourHourFixture.id },
+        }),
       ).not.toBeNull()
       expect(
         await service.prisma.user.findUnique({ where: { id: oldReal.id } }),
@@ -2420,56 +2486,62 @@ describe('UsersService', () => {
       ).not.toBeNull()
     })
 
-    it('pages through Clerk oldest-first, deleting test-domain users and advancing offset past the rest', async () => {
-      // All mock users are created well before the 24h cutoff so they are
-      // eligible for deletion.
-      const oldCreatedAt = 1000
-      const testUser = (i: number) =>
+    it('searches Clerk per test-user kind, oldest-first, and stops at the first user newer than its cutoff', async () => {
+      const now = new Date()
+      const fourHoursAgo = subHours(now, 4).getTime()
+      const twoDaysAgo = subDays(now, 2).getTime()
+      const oneHourAgo = subHours(now, 1).getTime()
+      const clerkUser = (id: string, email: string, createdAt: number) =>
         ({
-          id: `clerk_test_${i}`,
-          createdAt: oldCreatedAt,
-          emailAddresses: [{ emailAddress: `t${i}@test.goodparty.org` }],
+          id,
+          createdAt,
+          emailAddresses: [{ emailAddress: email }],
         }) as never
-      const realUser = (i: number) =>
-        ({
-          id: `clerk_real_${i}`,
-          createdAt: oldCreatedAt,
-          emailAddresses: [{ emailAddress: `r${i}@example.com` }],
-        }) as never
-      const fixtureUser = (i: number) =>
-        ({
-          id: `clerk_fixture_${i}`,
-          createdAt: oldCreatedAt,
-          emailAddresses: [
-            { emailAddress: `qa-${randomUUID()}@goodparty.org` },
-          ],
-        }) as never
-      const staffAlias = {
-        id: 'clerk_staff_alias',
-        createdAt: oldCreatedAt,
-        emailAddresses: [{ emailAddress: 'qa-team@goodparty.org' }],
-      } as never
 
-      // Page 1 (full): 2 test users + 1 fixture user + 497 non-test.
-      const pageOne = [
-        testUser(1),
-        fixtureUser(2),
-        testUser(3),
-        ...Array.from({ length: 497 }, (_, i) => realUser(i)),
+      // E2E search, page 1 (full): 2 stale e2e users plus 498 stale users
+      // the query matched but that are not on the test domain, so offset
+      // must advance past those 498.
+      const e2ePageOne = [
+        clerkUser('e2e_1', 't1@test.goodparty.org', fourHoursAgo),
+        clerkUser('e2e_2', 't2@test.goodparty.org', fourHoursAgo),
+        ...Array.from({ length: 498 }, (_, i) =>
+          clerkUser(
+            `lookalike_${i}`,
+            `x${i}@test.goodparty.org.example`,
+            fourHoursAgo,
+          ),
+        ),
       ]
-      // Page 2 (full): 1 test user + 499 non-test.
-      const pageTwo = [
-        testUser(4),
-        ...Array.from({ length: 499 }, (_, i) => realUser(500 + i)),
+      // E2E search, page 2: one stale user, then one inside the 3h window.
+      // The newer user ends the search.
+      const e2ePageTwo = [
+        clerkUser('e2e_last', 'last@test.goodparty.org', fourHoursAgo),
+        clerkUser('e2e_recent', 'recent@test.goodparty.org', oneHourAgo),
       ]
-      // Page 3 (short): 1 test user + 1 staff qa- alias (kept) -> loop stops.
-      const pageThree = [testUser(5), staffAlias]
+      // Fixture search: a 2-day-old fixture (deleted), an e2e address the
+      // `qa-` query also matched (skipped), a staff alias (kept), and a
+      // 4h-old fixture that is still inside its 24h window (kept, and ends
+      // the search).
+      const fixturePage = [
+        clerkUser(
+          'fixture_old',
+          `qa-${randomUUID()}@goodparty.org`,
+          twoDaysAgo,
+        ),
+        clerkUser('e2e_qa', 'test-1-xbqa-@test.goodparty.org', twoDaysAgo),
+        clerkUser('staff_alias', 'qa-team@goodparty.org', twoDaysAgo),
+        clerkUser(
+          'fixture_new',
+          `qa-${randomUUID()}@goodparty.org`,
+          fourHoursAgo,
+        ),
+      ]
 
       const getUserList = vi
         .spyOn(clerkClient.users, 'getUserList')
-        .mockResolvedValueOnce({ data: pageOne, totalCount: 1002 } as never)
-        .mockResolvedValueOnce({ data: pageTwo, totalCount: 1002 } as never)
-        .mockResolvedValueOnce({ data: pageThree, totalCount: 1002 } as never)
+        .mockResolvedValueOnce({ data: e2ePageOne, totalCount: 0 } as never)
+        .mockResolvedValueOnce({ data: e2ePageTwo, totalCount: 0 } as never)
+        .mockResolvedValueOnce({ data: fixturePage, totalCount: 0 } as never)
       const deleteUser = vi
         .spyOn(clerkClient.users, 'deleteUser')
         .mockResolvedValue(
@@ -2479,22 +2551,27 @@ describe('UsersService', () => {
       await usersService.deleteTestUsers()
 
       expect(deleteUser.mock.calls.map((c) => c[0])).toEqual([
-        'clerk_test_1',
-        'clerk_fixture_2',
-        'clerk_test_3',
-        'clerk_test_4',
-        'clerk_test_5',
+        'e2e_1',
+        'e2e_2',
+        'e2e_last',
+        'fixture_old',
       ])
       expect(getUserList).toHaveBeenCalledTimes(3)
       expect(getUserList.mock.calls[0]?.[0]).toMatchObject({
+        query: '@test.goodparty.org',
         limit: 500,
         offset: 0,
         orderBy: '+created_at',
       })
-      // offset advances past the non-deleted users left on each page:
-      // page 1 leaves 497, page 2 leaves 499 -> cumulative 996.
-      expect(getUserList.mock.calls[1]?.[0]).toMatchObject({ offset: 497 })
-      expect(getUserList.mock.calls[2]?.[0]).toMatchObject({ offset: 996 })
+      expect(getUserList.mock.calls[1]?.[0]).toMatchObject({
+        query: '@test.goodparty.org',
+        offset: 498,
+      })
+      expect(getUserList.mock.calls[2]?.[0]).toMatchObject({
+        query: 'qa-',
+        offset: 0,
+        orderBy: '+created_at',
+      })
     })
   })
 

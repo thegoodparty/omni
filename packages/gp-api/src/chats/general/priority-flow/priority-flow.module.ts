@@ -18,7 +18,11 @@ import {
   CONSTITUENT_DATA_PROVIDER,
   CONSTITUENT_TABLES_CONFIG,
 } from '../chief-of-staff/chiefOfStaff.handler'
-import { CONSTITUENT_TABLES } from '../chief-of-staff/services/constituentDataScope'
+import {
+  CONSTITUENT_CATALOG,
+  CONSTITUENT_SCHEMA,
+  CONSTITUENT_TABLES,
+} from '../chief-of-staff/services/constituentDataScope'
 import { CommunityIssueReadAdapter } from '../chief-of-staff/services/communityIssueRead.adapter'
 import { COMMUNITY_ISSUE_READ_PORT } from '../chief-of-staff/services/communityIssueRead.port'
 import {
@@ -39,8 +43,8 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
   if (!conn) return null
   return new DatabricksSqlProvider({
     ...conn,
-    catalog: 'goodparty_data_catalog',
-    schema: 'mart_serve_agents',
+    catalog: CONSTITUENT_CATALOG,
+    schema: CONSTITUENT_SCHEMA,
   })
 }
 

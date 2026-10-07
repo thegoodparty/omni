@@ -406,6 +406,184 @@ describe('saved list boundaries', () => {
     expect(await geoMemberIds(created.data.id)).toEqual([second])
   })
 
+  // A list proposed in the chat is created from its card. The card has to
+  // know whether it already was, after a reload, and a second press has to
+  // be the same list rather than a twin.
+  describe('lists created from a chat card', () => {
+    const KEY = randomUUID()
+
+    const byKey = (slug: string, key: string) =>
+      service.client.get(
+        `/v1/voters/voter-file/filter/by-proposal-key/${key}`,
+        { headers: { [ORG_SLUG_HEADER]: slug }, validateStatus: () => true },
+      )
+
+    it('404s for a card whose list has not been created', async () => {
+      const slug = await setupServeOrg('card-none')
+
+      expect((await byKey(slug, randomUUID())).status).toBe(404)
+    })
+
+    it('returns the first list when the same card creates again', async () => {
+      const slug = await setupServeOrg('card-twice')
+      const body = { name: 'Homeowners', homeownerYes: true, proposalKey: KEY }
+
+      const first = await createFilter(slug, body)
+      const second = await createFilter(slug, body)
+
+      expect(second.data.id).toBe(first.data.id)
+      expect((await byKey(slug, KEY)).data.id).toBe(first.data.id)
+      const rows = await service.prisma.voterFileFilter.findMany({
+        where: { organizationSlug: slug },
+      })
+      expect(rows).toHaveLength(1)
+    })
+
+    // Two tabs, or a reload racing the first press: both can miss the
+    // lookup, and the loser must get the winner's list, not a 500.
+    it('returns one list to two presses that race', async () => {
+      const slug = await setupServeOrg('card-race')
+      const body = {
+        name: 'Renters',
+        homeownerNo: true,
+        proposalKey: randomUUID(),
+      }
+
+      const [first, second] = await Promise.all([
+        createFilter(slug, body),
+        createFilter(slug, body),
+      ])
+
+      expect([first.status, second.status]).toEqual([201, 201])
+      expect(second.data.id).toBe(first.data.id)
+      const rows = await service.prisma.voterFileFilter.findMany({
+        where: { organizationSlug: slug },
+      })
+      expect(rows).toHaveLength(1)
+    })
+  })
+
+  describe('shape names', () => {
+    const LABELS = [
+      { name: 'Downtown', color: '#2563eb' },
+      { name: 'Riverside', color: '#16a34a' },
+    ]
+
+    const readRow = (id: number) =>
+      service.prisma.voterFileFilter.findUniqueOrThrow({ where: { id } })
+
+    it('saves one name and colour per part beside the boundary', async () => {
+      const slug = await setupServeOrg('labels-create')
+      spyOnEvaluate([])
+
+      const response = await createFilter(slug, {
+        name: 'Named parts',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      expect(response.status).toBe(201)
+      expect((await readRow(response.data.id)).geoPolyLabels).toEqual(LABELS)
+    })
+
+    it('refuses names that do not line up with the parts', async () => {
+      const slug = await setupServeOrg('labels-mismatch')
+      spyOnEvaluate([])
+
+      const response = await createFilter(slug, {
+        name: 'One name short',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: [LABELS[0]],
+      })
+
+      expect(response.status).toBe(400)
+    })
+
+    it('refuses names sent without the boundary they describe', async () => {
+      const slug = await setupServeOrg('labels-orphan')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Orphaned names',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      const response = await updateFilter(slug, created.data.id, {
+        geoPolyLabels: LABELS,
+      })
+
+      expect(response.status).toBe(400)
+    })
+
+    // A null alone would otherwise be a 200 that wrote nothing: the names
+    // are only written beside the boundary.
+    it('refuses to clear the names without the boundary', async () => {
+      const slug = await setupServeOrg('labels-null-orphan')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Null names',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      const response = await updateFilter(slug, created.data.id, {
+        geoPolyLabels: null,
+      })
+
+      expect(response.status).toBe(400)
+      expect((await readRow(created.data.id)).geoPolyLabels).toEqual(LABELS)
+    })
+
+    // The names are joined to parts by index, so a reshape that does not
+    // restate them would leave "Downtown" on whatever part moved into slot 0.
+    it('clears the names when the boundary is redrawn without them', async () => {
+      const slug = await setupServeOrg('labels-reshape')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Reshaped',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      await updateFilter(slug, created.data.id, { geoPoly: SQUARE })
+
+      expect((await readRow(created.data.id)).geoPolyLabels).toBeNull()
+    })
+
+    it('replaces the names when the boundary is redrawn with them', async () => {
+      const slug = await setupServeOrg('labels-rename')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Renamed parts',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+      const renamed = [{ name: 'Old town', color: '#d97706' }]
+
+      const response = await updateFilter(slug, created.data.id, {
+        geoPoly: SQUARE,
+        geoPolyLabels: renamed,
+      })
+
+      expect(response.status).toBe(200)
+      expect((await readRow(created.data.id)).geoPolyLabels).toEqual(renamed)
+    })
+
+    it('leaves the names alone when the update does not touch the boundary', async () => {
+      const slug = await setupServeOrg('labels-untouched')
+      spyOnEvaluate([])
+      const created = await createFilter(slug, {
+        name: 'Kept names',
+        geoPoly: DISJOINT_PAIR,
+        geoPolyLabels: LABELS,
+      })
+
+      await updateFilter(slug, created.data.id, { name: 'Renamed list' })
+
+      expect((await readRow(created.data.id)).geoPolyLabels).toEqual(LABELS)
+    })
+  })
+
   // A shape removed with its rows left behind would keep narrowing the list
   // with nothing on the map to explain why.
   it('clears the shape, its membership and its stamp together', async () => {

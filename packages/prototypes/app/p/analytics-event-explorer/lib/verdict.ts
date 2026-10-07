@@ -40,7 +40,7 @@ export const verdictFor = (e: EventRecord): Verdict => {
         tone: 'warning',
         label: 'Silent',
         sentence:
-          'The code is still there but nothing has fired for 30 days. Either nobody uses this feature or the instrument broke.',
+          'The name is still in the code but nothing has fired for 30 days. Either nobody uses this feature or the instrument broke.',
       }
     case 'deprecating':
       return {

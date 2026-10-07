@@ -90,9 +90,8 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     iconTint: 'bg-brand-halo-green-200',
     badgeTint: 'bg-brand-halo-green-200 text-foreground',
   },
-  // Same presentation as the legacy type: a candidate reading the history has
-  // no use for the distinction between an eCanvasser draft and a native walk,
-  // and a channel that renders two ways reads as two channels.
+  // Same presentation as the legacy type: a channel that renders two ways
+  // reads as two channels.
   nativeDoorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,

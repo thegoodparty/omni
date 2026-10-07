@@ -59,19 +59,23 @@ describe('PeerlyScheduleService', () => {
 
   describe('createSchedule', () => {
     it('returns schedule_id from validated response', async () => {
-      const result = await service.createSchedule('Test Schedule', '09:00')
+      const result = await service.createSchedule(
+        'Test Schedule',
+        '09:00',
+        'US/Eastern',
+      )
 
       expect(result).toBe(12345)
     })
 
     it('posts to /schedule with correct body structure', async () => {
-      await service.createSchedule('My Schedule', '09:00')
+      await service.createSchedule('My Schedule', '09:00', 'US/Central')
 
       expect(mockHttpService.post).toHaveBeenCalledWith(
         '/schedule',
         expect.objectContaining({
           schedule_name: 'My Schedule',
-          schedule_timezone: P2P_SCHEDULE_DEFAULTS.TIMEZONE,
+          schedule_timezone: 'US/Central',
           is_global: P2P_SCHEDULE_DEFAULTS.IS_GLOBAL,
           mon_start: '09:00:00',
           mon_end: '21:00:00',
@@ -92,7 +96,7 @@ describe('PeerlyScheduleService', () => {
     })
 
     it('opens every day at the given start and closes at the 9pm cutoff', async () => {
-      await service.createSchedule('Evening', '18:00')
+      await service.createSchedule('Evening', '18:00', 'US/Eastern')
 
       const [, body] = firstOrThrow(mockHttpService.post.mock.calls) as [
         string,
@@ -105,7 +109,7 @@ describe('PeerlyScheduleService', () => {
     })
 
     it('includes account number in request body', async () => {
-      await service.createSchedule('Test', '09:00')
+      await service.createSchedule('Test', '09:00', 'US/Eastern')
 
       const postCall = firstOrThrow(mockHttpService.post.mock.calls)
       expect(postCall[1].account).toBe(service.accountNumber)
@@ -114,9 +118,9 @@ describe('PeerlyScheduleService', () => {
     it('throws BadGatewayException on API failure', async () => {
       mockHttpService.post.mockRejectedValue(new Error('API down'))
 
-      await expect(service.createSchedule('Fail', '09:00')).rejects.toThrow(
-        BadGatewayException,
-      )
+      await expect(
+        service.createSchedule('Fail', '09:00', 'US/Eastern'),
+      ).rejects.toThrow(BadGatewayException)
     })
   })
 })

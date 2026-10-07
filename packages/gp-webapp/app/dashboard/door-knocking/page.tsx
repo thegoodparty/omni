@@ -4,59 +4,13 @@ import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
-import { serverFetch } from 'gpApi/serverFetch'
-import { apiRoutes } from 'gpApi/routes'
+import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { ProposalLinkSchema } from '@goodparty_org/contracts'
 
-interface EcanvasserSummary {
-  totalInteractions?: number
-  totalContactAttempts?: number
-  totalHouseholds?: number
-  lastSync?: string
-}
-
-// Both reads below are wrapped, and the reason is that they share a
-// `Promise.all`: an unguarded `fetch` rejection (DNS, ECONNREFUSED, timeout)
-// propagates out of either one and crashes the whole server render, which
-// would take the page down instead of degrading it. Undefined is the
-// "unknown" both callers already handle.
-async function fetchEcanvasserSummary(): Promise<
-  EcanvasserSummary | undefined
-> {
-  try {
-    const response = await serverFetch<EcanvasserSummary>(
-      apiRoutes.ecanvasser.mySummary,
-    )
-    return response.data
-  } catch {
-    return undefined
-  }
-}
-
-// Whether candidate success has connected this campaign to eCanvasser, which
-// is the flag-off arm's own entitlement and the only thing that can put
-// numbers on its dashboard. `GET /ecanvasser/mine` answers it three ways: a
-// connected campaign gets its record, an unconnected one gets 200 with a null
-// body (the service's `findFirst`), and a Serve org gets a 404 from the
-// campaign guard because it has no campaign to look one up for.
-//
-// **`response.ok` is load-bearing, not belt-and-braces.** `clientFetch` puts
-// the parsed body on `.data` whatever the status, and Nest's 404 body is
-// `{"statusCode":404,"message":"Not Found"}` — a truthy object. Reading
-// `.data` alone therefore reports every Serve org as CONNECTED, which the
-// client-side Serve bounce would usually mask and would stop masking on any
-// cold load where the org slug has not hydrated yet.
-//
-// Read server-side beside the summary rather than through
-// `EcanvasserProvider`, which the gate mounts BELOW itself inside
-// `DashboardLayout` and so cannot read.
-async function fetchHasEcanvasser(): Promise<boolean | undefined> {
-  try {
-    const response = await serverFetch(apiRoutes.ecanvasser.mine)
-    return response.ok && Boolean(response.data)
-  } catch {
-    return undefined
-  }
-}
+// The surfaces that link here with `?create=1` and say where they are.
+// Allowlisted so the query string cannot put an arbitrary value into
+// analytics.
+const CREATE_SOURCES: OutreachFlowSource[] = ['outreach_page', 'voter_data']
 
 const meta = pageMetaData({
   title: 'Door Knocking | GoodParty.org',
@@ -75,6 +29,11 @@ interface PageParams {
     outreachId?: string
     create?: string
     campaignOutreachId?: string
+    source?: string
+    proposalKey?: string
+    priorityId?: string
+    stepId?: string
+    side?: string
   }>
 }
 
@@ -84,16 +43,21 @@ export default async function Page({
   await candidateAccess()
 
   const [
-    { listId, recommended, walkTurfId, outreachId, create, campaignOutreachId },
+    {
+      listId,
+      recommended,
+      walkTurfId,
+      outreachId,
+      create,
+      campaignOutreachId,
+      source,
+      proposalKey,
+      priorityId,
+      stepId,
+      side,
+    },
     campaign,
-    summary,
-    hasEcanvasser,
-  ] = await Promise.all([
-    searchParams,
-    fetchUserCampaign(),
-    fetchEcanvasserSummary(),
-    fetchHasEcanvasser(),
-  ])
+  ] = await Promise.all([searchParams, fetchUserCampaign()])
 
   // Carries a saved list from the outreach hub's door-knocking tile so the
   // create flow's who step opens on it. The same parser the outreach page
@@ -106,11 +70,19 @@ export default async function Page({
   // yet. Same stance — an unknown variant is dropped, never an error.
   const preselectedRecommendedVariant = parseRecommendedListVariant(recommended)
 
+  // A priority chat card's link, so the walk it starts puts that card's check
+  // out. All or nothing: a link that does not parse is dropped, and the walk
+  // is created as any other.
+  const proposalLink = ProposalLinkSchema.safeParse({
+    proposalKey,
+    priorityId,
+    stepId,
+    side,
+  })
+
   const childProps = {
     pathname: '/dashboard/door-knocking',
     campaign,
-    summary,
-    hasEcanvasser,
     preselectedListId,
     preselectedRecommendedVariant,
     // "Continue knocking" on an outreach row. A turf rather than a list, and
@@ -126,11 +98,16 @@ export default async function Page({
     // Exactly `'1'` — anything else is somebody's stray query string, and the
     // page it would open a modal over is perfectly usable without one.
     openCreateFlow: create === '1',
+    // Where the `?create=1` link was pressed, for the flow's stage events and
+    // its Pro gate.
+    createSource: CREATE_SOURCES.find((value) => value === source),
     // "Add another turf" from the campaign drawer — the id of the anchor
     // Outreach the new turf should join. Same positive-integer rule as the
     // list/turf ids above; the drawer never sends anything else, and a
     // malformed value is dropped rather than opening a broken flow.
     campaignOutreachId: parsePositiveListId(campaignOutreachId),
+    ...(proposalLink.success &&
+      proposalLink.data.proposalKey && { proposalLink: proposalLink.data }),
   }
 
   return <DoorKnockingPageGate {...childProps} />

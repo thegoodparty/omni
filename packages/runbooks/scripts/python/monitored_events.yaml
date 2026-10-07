@@ -55,11 +55,7 @@ events:
   - {event: "Onboarding - Magic Link Sent",             product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Magic Link Clicked",          product: win, family: win_onboarding, floor: null, owner: TBD}
 
-  # ---- Win · activation: dashboard ----
-  - {event: "Dashboard - Campaign Plan Generation Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
-
   # ---- Win · activation: voter outreach (campaign sent) ----
-  - {event: "Schedule Text Campaign - Audience: Enter Audience Request", product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Schedule Text Campaign: Submit",           product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Voter Outreach - 10DLC Compliance PIN Sent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
 
@@ -73,7 +69,6 @@ events:
   - {event: "Serve Onboarding - Constituency Profile Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Meet Your Constituents Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Poll Strategy Viewed",  product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Serve Onboarding - SMS Poll Sent",         product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Success Page Viewed",   product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Sworn In Completed",    product: serve, family: serve, floor: null, owner: TBD}
   # Serve net-new onboarding (magic link + OTP, PR #198; first seen 2026-06)
@@ -99,7 +94,6 @@ events:
   - {event: "Pro Upgrade - Value Prop: Click Get Pro", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Pro Upgrade - EIN: Click continue", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Org Switcher - Run For Office Clicked", product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Dashboard - Campaign Plan: Campaign Manager Clicked", product: win, family: win_dashboard, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Agenda Not Created", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Pro Upgrade - Candidate Profile Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Onboarding V2 - Pledge Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
@@ -111,12 +105,19 @@ events:
   - {event: "Onboarding V2 - Signup Goal Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Voter Outreach - Campaign Approved", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Outreach - Recommended List Accepted", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  # ---- Promoted from the proposal queue, /triage-instrumentation-gaps 2026-09-29 ----
+  - {event: "Onboarding V2 - Manual Office Viewed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Voter Outreach - Phone Banking Call Sheet Downloaded", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Data - Contact Status Changed", product: win, family: win_voter_data, floor: null, owner: TBD}
   - {event: "Voter Data - Note Added", product: win, family: win_voter_data, floor: null, owner: TBD}
   - {event: "Voter Data - Contact Viewed", product: win, family: win_voter_data, floor: null, owner: TBD}
   - {event: "Voter Data - Contact Searched", product: win, family: win_voter_data, floor: null, owner: TBD}
   - {event: "Community Issues - Initial Issues Generated", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Robocall - Hold Failed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Flow Step Viewed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Flow Step Completed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Robocall - Receipt", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Robocall - Hold Placed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
 
 # Behaviors (DATA-2316): what we are trying to measure, and which events instrument it.
 # Absorbs the events: key above over time — a watchlist row is the degenerate case of a
@@ -230,8 +231,8 @@ behaviors:
     metric: win_activated_users
     asked_by: nate@goodparty.org
     headline: >-
-      Every channel that has a send now records one. Phone banking records nothing, on
-      purpose — nothing is ever sent through us on that channel.
+      Every channel records the moment a candidate reaches voters through us: a send
+      paid for, a door knocked, a call logged, or a walk or call list finished.
     caveats: >-
       `Voter Outreach - Campaign Scheduled` (DATA-2526) is the send terminal for the three
       channels that have one, keyed by `channel` (sms | robocall | social). It is emitted
@@ -243,11 +244,18 @@ behaviors:
       time under the same messageId, days apart and so past Segment's ~24h dedup window. That
       is one send commitment retried, and it must count once. Win only: the
       `Voter Outreach -` prefix classifies to the win_voter_outreach family, so the Serve
-      social route deliberately stays silent. Phone banking is excluded by definition, not
-      by omission (see its surface below). `win_activated_users` declares this event as a leg
-      alongside `Voter Outreach - Campaign Completed`, which since the outreach/v2 rewrite
-      survives only on a completed door-knocking walk and the manual self-report modal
-      (DATA-2343 sweep). `Robocall - Scheduled` is deliberately NOT a leg of that metric: it
+      social route deliberately stays silent. `win_activated_users` declares this event as a
+      leg alongside `Outreach - Campaign Completed` (renamed from `Voter Outreach - Campaign
+      Completed` on 2026-09-29). The client fires it when an sms, robocall or social flow
+      completes, when a door-knocking turf or a phone-banking call list is finished, and
+      from the two self-report modals; the metric excludes the self-report
+      (`method: manual`) and Serve (`product: serve`), and collapses a paid send with its
+      terminal on the shared outreach id. The other two legs fire once per person reached,
+      a door knocked (`Outreach - Door Knocking Door Logged`) and a call logged
+      (`Outreach - Phone Banking Call Logged`), so they count toward whether and when a
+      candidate activated but never toward campaigns sent. Only the door-knocking
+      completion is listed as a surface; the other call sites fire the same event.
+      `Robocall - Scheduled` is deliberately NOT a leg of that metric: it
       is a live instrument and stays on the behavior, but it fires at draft-create on an
       unpaid row, so counting it would activate a candidate who built a draft and never
       paid. That scope call is recorded as a dismissal below, not as a gap.
@@ -268,18 +276,17 @@ behaviors:
       - path: packages/gp-api/src/outreach/services/outreachSocial.service.ts
         label: social_scheduled
         instrumented_by: "Voter Outreach - Campaign Scheduled"
-      # NOT a gap — a definitional exclusion, settled 2026-09-24. Activation means an action
-      # taken through our product. Phone banking has no send: the candidate builds a call list
-      # here and then dials it himself or herself, off-platform, over days. List creation and
-      # call-sheet download are preparation and are already instrumented as such, so there is
-      # nothing further to add and nothing here to fix. Do not re-file this as missing
-      # instrumentation; changing it means changing the definition of activation first.
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx
-        label: phone_banking_no_send_terminal
-        instrumented_by: null
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+      # Phone banking has no send, so the call logged in the product is its activation
+      # moment (ruled 2026-09-30). List creation and call-sheet download stay preparation.
+      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
+        label: phone_banking_call_logged
+        instrumented_by: "Outreach - Phone Banking Call Logged"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx
+        label: door_knocked
+        instrumented_by: "Outreach - Door Knocking Door Logged"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
         label: door_knocking_walk_completed
-        instrumented_by: "Voter Outreach - Campaign Completed"
+        instrumented_by: "Outreach - Campaign Completed"
       - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
         label: door_knocking_list_created
         instrumented_by: "Door Knocking - List Created"
@@ -311,6 +318,53 @@ behaviors:
     superseded:
       - "Dashboard - Campaign Plan Viewed"
     review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: serve_constituent_outreach
+    question: "How many elected officials have reached their constituents through the product?"
+    product: serve
+    metric: activated_serve_users
+    asked_by: bryan@goodparty.org
+    headline: >-
+      An official counts once they have reached constituents through us: an SMS poll sent,
+      a text paid for, a social post shared, a door knocked, a call logged, or a walk or
+      call list finished. Polls after the first one are not counted yet.
+    caveats: >-
+      Redefined 2026-10-01 (DATA-2609) to follow the Win activation rule with Serve's
+      channels. The shared outreach events carry `product: win | serve` from 2026-09-29, and
+      the metric keeps only Serve; earlier non-poll outreach cannot be told apart from Win
+      and is not counted. `Outreach - Campaign Completed` fires from every Serve channel's
+      completion, so each channel's call site is listed as its own surface. Door and call
+      logs fire once per person reached, so they count toward whether and when an official
+      activated, never toward campaigns sent. A poll sent from the Polls tab after
+      onboarding fires only the generic `Payment - Completed` with `type: 'New Serve Poll'`,
+      which no leg can read, so those officials are missed until the poll send fires the
+      shared outreach event (DATA-2611). Robocall is not offered to Serve.
+    surfaces:
+      - path: packages/gp-webapp/app/polls/onboarding/components/OnboardingPage.tsx
+        label: onboarding_poll_sent
+        instrumented_by: "Serve Onboarding - SMS Poll Sent"
+      - path: packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx
+        label: poll_sent
+        instrumented_by: null          # DATA-2611
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx
+        label: serve_sms_paid
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx
+        label: serve_social_shared
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingCallerPage.tsx
+        label: serve_call_list_completed
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
+        label: serve_walk_completed
+        instrumented_by: "Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/RecordKnockForm.tsx
+        label: serve_door_knocked
+        instrumented_by: "Outreach - Door Knocking Door Logged"
+      - path: packages/gp-webapp/app/dashboard/outreach/phone-banking/[listId]/PhoneBankingOutcomeForm.tsx
+        label: serve_call_logged
+        instrumented_by: "Outreach - Phone Banking Call Logged"
+    review: {interval_days: 90, last_reviewed: 2026-10-01, reviewed_by: tristan@goodparty.org}
 
   # ---- DATA-2343 walkthrough, 2026-09-15/16 ----
   # Fifteen questions the coverage audit walked on production and then checked against the
@@ -386,9 +440,9 @@ behaviors:
       - path: packages/gp-api/src/outreach/services/outreachRobocall.service.ts
         label: first_value_robocall
         instrumented_by: "Robocall - Scheduled"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
         label: first_value_door_knocking
-        instrumented_by: "Voter Outreach - Campaign Completed"
+        instrumented_by: "Outreach - Campaign Completed"
       - path: packages/gp-webapp/app/dashboard/website
         label: first_value_website
         instrumented_by: "Candidate Website - Published"
@@ -493,9 +547,9 @@ behaviors:
       - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
         label: retention_activity_export
         instrumented_by: "Voter Data - List Exported"
-      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/turfLifecycle.ts
         label: retention_activity_outreach
-        instrumented_by: "Voter Outreach - Campaign Completed"
+        instrumented_by: "Outreach - Campaign Completed"
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
 
   - id: weekly_active_candidates
@@ -581,19 +635,20 @@ behaviors:
     product: win
     asked_by: bryan@goodparty.org
     headline: >-
-      Do not read this as revenue. Staff-granted Pro fires the same event as a real purchase and
-      only Stripe tells them apart.
+      This covers paid upgrades only. Candidates given Pro by staff are not in it, because nothing
+      records that any more.
     caveats: >-
       Answerable today, both halves. First-week behaviour is a self-join on amplitude_events off the
       webhook-fired upgrade timestamp; retention needs Stripe subscription state, confirmed present
-      2026-09-16 and joinable on gp_api_db_user.meta_data.customerId. The caveat that matters:
-      `Account - Pro Subscription Confirmed` is NOT a purchase event — it also fires on staff-granted
-      Pro (paymentMethod 'admin') and on a degraded webhook payload, both at price 0. Comped Pro is
-      separable on paymentMethod, never on price. Prefer the Stripe row for anything revenue-shaped.
+      2026-09-16 and joinable on gp_api_db_user.meta_data.customerId. The upgrade timestamp is
+      `pro_upgrade_complete`, fired from the Stripe checkout webhook. It used to be
+      `Account - Pro Subscription Confirmed`, which only ever fired for staff-granted Pro (all 225
+      events, paymentMethod 'admin', price 0) and has been silent since the admin form was removed
+      in April 2026; its Stripe branch never fired. Prefer the Stripe row for anything revenue-shaped.
     surfaces:
       - path: packages/gp-api/src/payments/services/paymentEventsService.ts
         label: upgrade_timestamp
-        instrumented_by: "Account - Pro Subscription Confirmed"
+        instrumented_by: "pro_upgrade_complete"
       - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
         label: post_upgrade_activity
         instrumented_by: "Voter Data - List Exported"
@@ -717,7 +772,7 @@ behaviors:
 # on recovery or on an upstream anchored_on change, and a counter blind spot is our own
 # tooling. A row naming either is ignored and reported in the digest.
 dismissed:
-  - {metric: win_activated_users, event: "Door Knocking - List Created", reason: "building a walk list is preparation to reach voters, not outreach; the completed walk fires Voter Outreach - Campaign Completed with method native, which is the leg", date: "2026-09-24"}
+  - {metric: win_activated_users, event: "Door Knocking - List Created", reason: "building a walk list is preparation to reach voters, not outreach; the finished turf fires Outreach - Campaign Completed and each knocked door fires Outreach - Door Knocking Door Logged, which are the legs", date: "2026-09-24"}
   - {metric: win_activated_users, event: "Robocall - Scheduled", reason: "fires at robocall draft-create on an unpaid row; activation counts the pay commit, which the shared Voter Outreach - Campaign Scheduled terminal emits", date: "2026-09-24"}
   - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
   - {event: "Pro Upgrade - Texting Setup Banner Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
@@ -809,3 +864,54 @@ dismissed:
   - {event: "Pro Upgrade - Candidate Profile Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Briefing Assistant - TOC Item Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
   - {event: "Briefing Assistant - List Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+
+# Intent rows (DATA-2432). The pre-merge guard blocks a change that removes, moves or
+# unmounts a call site of an event an OKR counts. A row here, added in the same PR, says
+# what is happening to that activity and clears the block. One line per metric:
+#   - {metric: <sem metric>, event: "<event>", intent: <kind>, reason: "<why>", date: "YYYY-MM-DD"}
+# kind: retire_activity (stop counting it) | successor (+ successor: "<event>") |
+#       relocated (+ route: "/path") | not_a_change (the guard was wrong; say why)
+# A not_a_change row with no metric: reports a dead listing the guard got wrong (the
+# event still fires in a way it cannot see) and clears that block; triage treats it as a guard bug.
+# A call moved into another file is one line, no metric, checked against the code (the file
+# must gain a call site in that change and be imported); Queue C skips it:
+#   - {event: "<event>", intent: moved, to: "<file>", reason: "<why>", date: "YYYY-MM-DD"}
+# Queue C turns each row into the gp-data-platform anchored_on change, then deletes it.
+# Empty most of the time. Leave the key bare (not `intents: []`) so a row can be appended.
+#
+# Surface drift (DATA-2531):
+#   flow_prefixes: name prefixes that name a flow, not a place. The surface drift
+#     detector and the guard's surface_moved warning skip these events. Owner: Tristan.
+#   prefix_areas: a prefix the detector cannot match to an area by itself, mapped to the
+#     area slug it means (the nav label, or the page title for a page not in the nav).
+#     This ADDS an area the prefix may match; the prefix still matches by its own name
+#     too, so one prefix can span pages with different area names (Serve Onboarding
+#     maps to onboarding on one page and still matches its own name on another).
+#   relabels: an approved relabel, written in the PR that moves an event (the guard's
+#     surface_moved fix) or by hand. Row: {event, surface, display_name, reason, date}.
+#     Add a row directly under the `relabels:` line below, which is mid-file, not at
+#     the end of this file. Triage applies it to Govern through event-metadata. Rows
+#     stay after they are applied: with git history this list is the record of every
+#     relabel.
+flow_prefixes:
+  - Pro Upgrade
+  - P2P Upgrade
+  - Payment
+  - 10DLC
+  - 10 DLC Compliance
+  - Navigation
+  - Navigation Top
+  - Org Switcher
+prefix_areas:
+  Serve Onboarding: onboarding
+  Onboarding V2: candidate-onboarding
+  Candidacy: election-result
+relabels:
+  - {event: "Win - Opponent Activity Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Activity Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Profile Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Profile Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Research Started", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Research Started", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Standout Action Clicked", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Standout Action Clicked", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Standout Actions Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Standout Actions Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Upgrade Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Upgrade Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponents Manually Added", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponents Manually Added", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+intents:

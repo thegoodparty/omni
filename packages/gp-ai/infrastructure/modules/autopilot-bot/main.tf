@@ -129,23 +129,8 @@ variable "no_deliveries_alarm_enabled" {
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
-# Lambda env vars sourced from Secrets Manager. Unlike clickup-bot, this
-# Lambda's code never calls secretsmanager at runtime by design (see
-# handler.py's and supervisor.py's module docstrings — "no secrets-outage
-# degrade mode to reproduce"), so there is no equivalent of ECS task
-# definitions' `secrets` block with `valueFrom` for Lambda to resolve at
-# container start. Terraform is the only thing that can source these values
-# from Secrets Manager; the values still never appear in git (only in this
-# state file and the Lambda's env, same posture as shared-infra's
-# local.api_key). The Lambda's own execution role therefore does NOT get a
-# secretsmanager:GetSecretValue grant — it would be an unused permission, since
-# nothing in autopilot/lambda/ ever calls that API.
-data "aws_secretsmanager_secret_version" "ai_secrets" {
-  secret_id = "AI_SECRETS_${upper(var.environment)}"
-}
-
 locals {
-  ai_secrets = jsondecode(data.aws_secretsmanager_secret_version.ai_secrets.secret_string)
+  ai_secrets_name = "AI_SECRETS_${upper(var.environment)}"
 }
 
 resource "aws_cloudwatch_log_group" "autopilot_bot" {
@@ -288,6 +273,26 @@ resource "aws_iam_role_policy" "autopilot_bot_ecs" {
   })
 }
 
+# The Lambda reads its credentials (ClickUp, Slack, GitHub App, Amplitude)
+# from this bundle at runtime (autopilot/lambda/ai_secrets.py), so they are
+# not in the function's configuration or in this state. The -?????? matches
+# the random suffix Secrets Manager appends to a secret's ARN.
+resource "aws_iam_role_policy" "autopilot_bot_secrets" {
+  name = "secrets-manager-access"
+  role = aws_iam_role.autopilot_bot.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${local.ai_secrets_name}-??????"
+      }
+    ]
+  })
+}
+
 # Self-invoke for the fast-ack flow (see handler.py's module docstring): the
 # webhook-facing call answers ClickUp in milliseconds and re-invokes this same
 # function asynchronously to do the ClickUp/ECS work off the critical path.
@@ -317,8 +322,7 @@ resource "aws_iam_role_policy" "autopilot_bot_self_invoke" {
 # (already in the Lambda runtime) and stdlib live in autopilot/lambda/ — the
 # conductor is deliberately dependency-light (see handler.py's module
 # docstring) — so a plain recursive zip of the source directory is sufficient;
-# no build step (pip install into a staging dir, a la campaign_plan_lambda's
-# build.sh) is needed.
+# no build step (pip install into a staging dir) is needed.
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../../../autopilot/lambda"
@@ -348,56 +352,28 @@ resource "aws_lambda_function" "autopilot_bot" {
       AUTOPILOT_BOT_USER_ID = var.autopilot_bot_user_id
       AUTOPILOT_DEDUP_TABLE = aws_dynamodb_table.dedup.name
 
-      # Sourced from Secrets Manager at apply time — see the data source's
-      # comment above for why this Lambda cannot use ECS's valueFrom
-      # equivalent. try(..., "") because AI_SECRETS_PROD does not carry
-      # AUTOPILOT_CLICKUP_WEBHOOK_SECRET or AUTOPILOT_CLICKUP_API_KEY yet
-      # (dev carries both as of 2026-09-14) — a bare index would fail
-      # PLAN, not just apply, on every root until someone adds them. An
-      # empty value degrades safely: verify_webhook_signature rejects every
-      # request (missing secret -> always-401) and clickup_request sends an
-      # empty Authorization header (ClickUp 401s it) — both fail closed, per
-      # ticket ENG-11104's manual pre-launch step. SLACK_BOT_TOKEN already
-      # exists in both secrets; wrapped the same way for consistency and so
-      # a future rotation that drops the key can't break plan either.
-      AUTOPILOT_CLICKUP_WEBHOOK_SECRET = try(local.ai_secrets["AUTOPILOT_CLICKUP_WEBHOOK_SECRET"], "")
-      AUTOPILOT_CLICKUP_API_KEY        = try(local.ai_secrets["AUTOPILOT_CLICKUP_API_KEY"], "")
-      # Autopilot posts as its OWN Slack app ("GP Autopilot",
-      # AUTOPILOT_SLACK_BOT_TOKEN), never the shared gp_ai_bot token the
-      # other gp-ai bots use — so rotating or breaking one app can't take
-      # down the other's posting. The runtime env name stays SLACK_BOT_TOKEN
-      # (what supervisor.py reads); only the SOURCE key differs. Fallback to
-      # the shared token keeps autopilot working until the dedicated key
-      # lands in AI_SECRETS_<ENV>; drop the middle try() arm after both envs
-      # carry it.
-      SLACK_BOT_TOKEN = try(local.ai_secrets["AUTOPILOT_SLACK_BOT_TOKEN"], local.ai_secrets["SLACK_BOT_TOKEN"], "")
-      # Same Delegate App key the autopilot-agent-fargate task definitions
-      # already carry (see that module's agent_secrets local) — the sweep's
-      # merge-pending resolution pass (lambda/github_auth.py) mints its own
-      # short-lived installation token from it to read PR merge state. The
-      # two ids are REQUIRED by that module (no in-code fallback): a missing
-      # value fails soft to "no PR read this tick", never a stale identity.
-      GITHUB_APP_PRIVATE_KEY     = try(local.ai_secrets["GITHUB_APP_PRIVATE_KEY"], "")
+      # Every credential (AUTOPILOT_CLICKUP_WEBHOOK_SECRET,
+      # AUTOPILOT_CLICKUP_API_KEY, SLACK_BOT_TOKEN, GITHUB_APP_PRIVATE_KEY,
+      # AUTOPILOT_SLACK_SIGNING_SECRET, AMPLITUDE_MANAGEMENT_API_KEY) is read
+      # from this bundle at runtime by lambda/ai_secrets.py, which also maps
+      # SLACK_BOT_TOKEN onto autopilot's own Slack app key. A key the bundle
+      # doesn't carry reads as empty and fails closed in the code that uses it.
+      AI_SECRETS_NAME = local.ai_secrets_name
+
+      # The Delegate App identity the sweep's merge-pending resolution pass
+      # (lambda/github_auth.py) mints its short-lived installation token as;
+      # the private key comes from AI_SECRETS_NAME. The two ids are REQUIRED
+      # by that module (no in-code fallback): a missing value fails soft to
+      # "no PR read this tick", never a stale identity.
       GITHUB_APP_ID              = var.github_app_id
       GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
-      # ENG-11150: verifies the Slack Events API POSTs to /autopilot/slack
-      # (v0 HMAC over the raw body, same try(...) degrade-safe posture as the
-      # ClickUp secret above — an empty value makes verify_slack_signature
-      # reject every request rather than fail plan/apply on a key AI_SECRETS
-      # doesn't carry yet). Value is added to AI_SECRETS_<ENV> out-of-band
-      # (see docs/secrets.md); this only wires the reference.
-      AUTOPILOT_SLACK_SIGNING_SECRET = try(local.ai_secrets["AUTOPILOT_SLACK_SIGNING_SECRET"], "")
-      # ENG-11152: the sweep's flag-cleanup ramp pass reads a flag's prod
-      # rollout to decide when to promote its cleanup ticket. Same
-      # degrade-safe try(...) posture as every other AI_SECRETS entry above —
-      # an empty value makes _read_prod_flag_rollout skip the check (logged),
-      # never a stale credential. The project id is a plain value, not a
-      # secret: same hardcoded "694490" the autopilot-agent-fargate module's
+      # ENG-11152: the prod Amplitude project the sweep's flag-cleanup ramp
+      # pass reads a flag's rollout from. A plain value, not a secret: same
+      # hardcoded "694490" the autopilot-agent-fargate module's
       # agent_environment carries for AMPLITUDE_PROD_PROJECT_ID (resolved
       # live from the Experiment management API on 2026-09-17; see that
       # module for the canonical source).
-      AMPLITUDE_MANAGEMENT_API_KEY = try(local.ai_secrets["AMPLITUDE_MANAGEMENT_API_KEY"], "")
-      AMPLITUDE_PROD_PROJECT_ID    = "694490"
+      AMPLITUDE_PROD_PROJECT_ID = "694490"
 
       AUTOPILOT_SLACK_CHANNEL = var.autopilot_slack_channel
       SWEEP_LOOKBACK_MINUTES  = var.sweep_lookback_minutes

@@ -668,7 +668,12 @@ describe('POST /v1/outreach/social', () => {
     expect(scheduled[0]).toEqual([
       service.user.id,
       EVENTS.Outreach.CampaignScheduled,
-      { channel: 'social', outreachId: res.data.id, platformCount: 2 },
+      {
+        channel: 'social',
+        medium: 'socialMedia',
+        outreachId: res.data.id,
+        platformCount: 2,
+      },
       undefined,
       `${res.data.id}:campaign_scheduled`,
     ])

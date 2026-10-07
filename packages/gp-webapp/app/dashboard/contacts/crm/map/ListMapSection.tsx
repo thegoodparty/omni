@@ -1,10 +1,7 @@
 import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Button, CropIcon } from '@styleguide'
-import {
-  drawnRings,
-  ringsFromGeoJsonShape,
-} from 'app/dashboard/shared/ringGeometry'
+import { shapesFromSaved } from 'app/dashboard/shared/listShapes'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
 import { SectionLabel } from '../lists/ListDetailSection'
@@ -12,6 +9,7 @@ import type { SegmentResponse } from '../shared/contacts-types'
 import { useListPeople } from './useListPeople'
 import { useSaveListBoundary } from './useSaveListBoundary'
 import ListBoundaryOverlay from './ListBoundaryOverlay'
+import ShapeLegend from './ShapeLegend'
 
 // maplibre-gl touches `window` at module scope, so the canvas cannot be part
 // of the server bundle. The sheet this sits in is client-rendered either way;
@@ -39,15 +37,24 @@ export default function ListMapSection({
   const [drawing, setDrawing] = useState(false)
 
   const labels = getContactsLabels(isWinContext)
+  const savedShapes = useMemo(
+    () => shapesFromSaved(segment.geoPoly, segment.geoPolyLabels),
+    [segment.geoPoly, segment.geoPolyLabels],
+  )
+  // Stable for the map's layer effect, which lists both among its deps.
   const savedRings = useMemo(
-    () => ringsFromGeoJsonShape(segment.geoPoly),
-    [segment.geoPoly],
+    () => savedShapes.map((shape) => shape.ring),
+    [savedShapes],
+  )
+  const savedColors = useMemo(
+    () => savedShapes.map((shape) => shape.color),
+    [savedShapes],
   )
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
 
-  const saveMutation = useSaveListBoundary(listId, 'listDetail', () =>
-    setDrawing(false),
-  )
+  const saveMutation = useSaveListBoundary(listId, 'listDetail', {
+    onClose: () => setDrawing(false),
+  })
 
   return (
     <div className="flex flex-col gap-2">
@@ -76,8 +83,10 @@ export default function ListMapSection({
               // `otherRings`, which is the read-only layer — `drawRing` is
               // the part a gesture edits, and nothing here edits.
               otherRings={savedRings}
+              otherRingColors={savedColors}
             />
           </div>
+          <ShapeLegend shapes={savedShapes} />
           {truncated ? (
             <p className="text-xs text-muted-foreground">
               Showing the first {people.length.toLocaleString()} of{' '}
@@ -93,20 +102,19 @@ export default function ListMapSection({
               onClick={() => setDrawing(true)}
             >
               <CropIcon className="size-4" aria-hidden />
-              {drawnRings(savedRings).length > 0
+              {savedShapes.length > 0
                 ? labels.boundaryEditCta
                 : labels.boundaryDrawCta}
             </Button>
           )}
           {drawing && (
             <ListBoundaryOverlay
-              people={people}
-              truncated={truncated}
-              initialRings={savedRings}
+              segment={segment}
+              initialShapes={savedShapes}
               labels={labels}
               isSaving={saveMutation.isPending}
               onCancel={() => setDrawing(false)}
-              onSave={(rings) => saveMutation.mutate(rings)}
+              onSave={(shapes) => saveMutation.mutate(shapes)}
             />
           )}
         </>

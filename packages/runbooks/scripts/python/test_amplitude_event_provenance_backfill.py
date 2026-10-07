@@ -334,8 +334,8 @@ def test_make_call_site_retired_lookup_none_when_never_removed(monkeypatch):
 
 
 def test_make_call_site_retired_lookup_ignores_comment_removal(monkeypatch):
-    # Removing a comment that merely names the key-path is NOT a call-site removal: the
-    # call-context anchor excludes prose, so no spurious retirement date is stamped.
+    # Removing a comment that merely names the key-path is NOT a call-site removal: comments
+    # are stripped before matching, so no spurious retirement date is stamped.
     lines = [
         _header("a" * 40, "aaaaaaa", "2026-06-20", "tidy comments (#99)"),
         "-  // drop EVENTS.Dashboard.Viewed soon",
@@ -343,6 +343,87 @@ def test_make_call_site_retired_lookup_ignores_comment_removal(monkeypatch):
     monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
     lookup = bf.make_call_site_retired_lookup("/root", "origin/develop", bf.INSTRUMENTATION_PATHS)
     assert lookup("EVENTS.Dashboard.Viewed") is None
+
+
+def test_make_call_site_retired_lookup_ignores_block_comment_removal(monkeypatch):
+    # A JSDoc continuation line reaches the diff without its ``/*`` opener when only part of
+    # the comment is removed. Still prose, still not a call site.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-06-20", "tidy docs (#99)"),
+        "-   * fires EVENTS.Dashboard.Viewed on mount",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/develop", bf.INSTRUMENTATION_PATHS)
+    assert lookup("EVENTS.Dashboard.Viewed") is None
+
+
+def test_make_call_site_retired_lookup_resolves_prettier_wrapped_key_path(monkeypatch):
+    # DATA-2577: Prettier breaks a long key-path across lines, so NO diff line carries the
+    # dotted path. Matching the commit's removed block as one text sees it; a per-line
+    # match (and the pickaxe that used to bound the walk) cannot.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-09-08", "delete the legacy flow (#2100)"),
+        "-    checkGender:",
+        "-      EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience",
+        "-        .CheckGender,",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    path = "EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience.CheckGender"
+    assert lookup(path) == "2026-09-08"
+
+
+def test_make_call_site_retired_lookup_resolves_map_value_position(monkeypatch):
+    # The other half of the blank-date population (DATA-2577): an unwrapped key-path in a
+    # map-value position, which the old call-argument anchor did not admit.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-07-16", "drop demographics step (#1990)"),
+        "-      'voter-demographics': EVENTS.OnboardingV2.VoterInsightsViewed,",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    assert lookup("EVENTS.OnboardingV2.VoterInsightsViewed") == "2026-07-16"
+
+
+def test_make_call_site_retired_lookup_ignores_a_rewrap(monkeypatch):
+    # Prettier re-wrapping a live call site is a move, not a removal: the key-path is on both
+    # sides of the diff, nets to zero, and stamps no date.
+    path = "EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience.CheckGender"
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-09-08", "reformat (#2101)"),
+        f"-  trackEvent({path})",
+        "+  trackEvent(",
+        "+    EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience",
+        "+      .CheckGender,",
+        "+  )",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    assert lookup(path) is None
+
+
+def test_make_call_site_retired_lookup_walks_git_once_for_every_key_path(monkeypatch):
+    # One un-pickaxed walk resolves every key-path, so N zero-count events cost one pass --
+    # and it stays lazy, so a run with no zero-count event still does no git work.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-06-11", "remove both calls (#95)"),
+        "-  trackEvent(EVENTS.Dashboard.Viewed)",
+        "-  trackEvent(EVENTS.Pro.Submitted)",
+    ]
+    walks = []
+
+    def fake_walk(*args, **kwargs):
+        walks.append((args, kwargs))
+        return iter(lines)
+
+    monkeypatch.setattr(bf, "run_git_log", fake_walk)
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/main", bf.INSTRUMENTATION_PATHS)
+    assert walks == []
+    assert lookup("EVENTS.Dashboard.Viewed") == "2026-06-11"
+    assert lookup("EVENTS.Pro.Submitted") == "2026-06-11"
+    assert lookup("EVENTS.Never.Removed") is None
+    assert len(walks) == 1
+    assert "pickaxe" not in walks[0][1]
 
 
 def test_augment_call_site_columns_populates_rows(monkeypatch):
@@ -852,20 +933,8 @@ def test_run_backfill_writes_csv_and_state(monkeypatch, tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_pick_introducing_merge_takes_oldest_merge_on_ancestry_path():
-    # rev-list emits newest-first; the merge that *introduced* a commit is the oldest
-    # on the ancestry path to the deploy ref, i.e. the last line.
-    rev_list = "newmerge111\noldmerge222\n"
-    assert bf._pick_introducing_merge(rev_list) == "oldmerge222"
-
-
-def test_pick_introducing_merge_none_when_no_merge():
-    assert bf._pick_introducing_merge("") is None
-    assert bf._pick_introducing_merge("\n") is None
-
-
 def test_make_merge_walk_resolver_delegates_to_git_merge_pr(monkeypatch):
-    monkeypatch.setattr(bf, "git_merge_pr", lambda root, sha, ref: f"{root}:{sha}:{ref}")
+    monkeypatch.setattr(bf, "git_merge_pr", lambda root, sha, ref, grafted=False: f"{root}:{sha}:{ref}")
     resolver = bf.make_merge_walk_resolver("/omni", "origin/develop")
     assert resolver("abc123") == "/omni:abc123:origin/develop"
 
@@ -1621,6 +1690,144 @@ def test_write_provenance_renders_pr_as_full_url(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Grafted history: which repo a PR number belongs to (DATA-2576)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_sync_repo_names_the_predecessor_repo():
+    assert bf.parse_sync_repo("sync(gp-webapp): merge develop into develop") == "gp-webapp"
+    assert bf.parse_sync_repo("sync(gp-sdk): merge master into cutover-phase") == "gp-sdk"
+
+
+def test_parse_sync_repo_none_for_an_ordinary_merge():
+    assert bf.parse_sync_repo("Merge pull request #1892 from thegoodparty/feat/briefings") is None
+    assert bf.parse_sync_repo("feat: add events (#1234)") is None
+    assert bf.parse_sync_repo(None) is None
+
+
+def test_pr_url_renders_number_under_the_named_repo():
+    assert bf.pr_url("708", "gp-webapp") == "https://github.com/thegoodparty/gp-webapp/pull/708"
+
+
+def test_pr_url_rerenders_our_own_link_under_the_named_repo():
+    # The repair path: a row written before the graft was accounted for carries an omni link
+    # whose number is really the source repo's, so a write that knows better must move it.
+    assert (
+        bf.pr_url("https://github.com/thegoodparty/omni/pull/708", "gp-webapp")
+        == "https://github.com/thegoodparty/gp-webapp/pull/708"
+    )
+    assert (
+        bf.pr_url("https://github.com/thegoodparty/gp-webapp/pull/708/", "gp-webapp")
+        == "https://github.com/thegoodparty/gp-webapp/pull/708"
+    )
+
+
+def test_pr_url_leaves_an_existing_link_alone_when_the_repo_is_unknown():
+    # repo=None is "I don't know", not "it's omni" -- reassigning on a don't-know would undo
+    # a correct cross-repo link every time the skill rewrites the file.
+    link = "https://github.com/thegoodparty/gp-webapp/pull/708"
+    assert bf.pr_url(link) == link
+
+
+def test_pr_url_passes_a_foreign_url_through_untouched():
+    link = "https://example.com/some/other/place"
+    assert bf.pr_url(link, "gp-webapp") == link
+
+
+def test_write_provenance_points_a_grafted_row_at_its_source_repo(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [_row("E", instrumented_commit="abc", instrumented_pr="708")],
+        csv,
+        {"abc": "gp-webapp"},
+    )
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == (
+        "https://github.com/thegoodparty/gp-webapp/pull/708"
+    )
+
+
+def test_write_provenance_repairs_a_grafted_link_stored_under_omni(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [
+            _row(
+                "E",
+                instrumented_commit="abc",
+                instrumented_pr="https://github.com/thegoodparty/omni/pull/708",
+                retired_commit="def",
+                retired_pr="https://github.com/thegoodparty/omni/pull/1970",
+            )
+        ],
+        csv,
+        {"abc": "gp-webapp", "def": "gp-webapp"},
+    )
+    row = bf.read_provenance_rows(csv)["E"]
+    assert row["instrumented_pr"] == "https://github.com/thegoodparty/gp-webapp/pull/708"
+    assert row["retired_pr"] == "https://github.com/thegoodparty/gp-webapp/pull/1970"
+
+
+def test_write_provenance_leaves_an_omni_native_row_under_omni(tmp_path):
+    # A sha absent from the map is omni's own history; the map must not drag it anywhere.
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [_row("E", instrumented_commit="zzz", instrumented_pr="2110")],
+        csv,
+        {"abc": "gp-webapp"},
+    )
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == (
+        "https://github.com/thegoodparty/omni/pull/2110"
+    )
+
+
+def test_write_provenance_without_a_map_keeps_cross_repo_links(tmp_path):
+    # The skill's upsert rewrites the whole file with no git history to consult. It must not
+    # flatten every repaired link back onto omni on its way past.
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [_row("E", instrumented_commit="abc", instrumented_pr="https://github.com/thegoodparty/gp-api/pull/1774")],
+        csv,
+    )
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == (
+        "https://github.com/thegoodparty/gp-api/pull/1774"
+    )
+
+
+def test_build_pr_origin_map_partitions_grafted_commits_by_repo(monkeypatch):
+    sep = bf._FIELD_SEP
+    log = "\n".join(
+        [
+            # omni's own merges carry no sync() subject and contribute nothing.
+            f"m1 p1{sep}Merge pull request #2110 from thegoodparty/feat/okr",
+            f"m2 w1{sep}sync(gp-webapp): merge develop into develop",
+            f"m3 a1{sep}sync(gp-api): merge develop into develop",
+        ]
+    )
+    rev_lists = {("w1",): "w1 w2 w3", ("a1",): "a1 a2"}
+
+    def fake_run(argv, **kwargs):
+        if argv[3] == "log":
+            return subprocess.CompletedProcess(argv, 0, stdout=log, stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout=rev_lists[tuple(argv[4:])], stderr="")
+
+    monkeypatch.setattr(bf.subprocess, "run", fake_run)
+    assert bf.build_pr_origin_map("/root", "origin/main") == {
+        "w1": "gp-webapp",
+        "w2": "gp-webapp",
+        "w3": "gp-webapp",
+        "a1": "gp-api",
+        "a2": "gp-api",
+    }
+
+
+def test_build_pr_origin_map_empty_when_git_errors(monkeypatch):
+    # Degrade to the everything-is-omni rendering rather than failing the whole walk.
+    monkeypatch.setattr(
+        bf.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 128, stdout="", stderr="boom")
+    )
+    assert bf.build_pr_origin_map("/root", "origin/main") == {}
+
+
+# --------------------------------------------------------------------------- #
 # upsert_provenance_row (skill write path)
 # --------------------------------------------------------------------------- #
 
@@ -2061,3 +2268,134 @@ def test_augment_call_site_columns_warns_only_when_every_registry_is_empty(monke
     bf.augment_call_site_columns(rows, "/root", "origin/main")
     assert rows[0]["call_site_count"] == "5"  # untouched
     assert "returned empty" in capsys.readouterr().err
+
+
+def test_compute_call_site_fields_names_the_removing_commit():
+    events_map = {"Dash Viewed": ["EVENTS.Dashboard.Viewed"]}
+    commit = {"commit": "abc123", "date": "2026-09-01", "pr": "1640"}
+    fields = compute_call_site_fields(events_map, [], lambda p: "2026-09-01", lambda p: commit)
+    assert fields["Dash Viewed"]["call_site_retired_commit"] == "abc123"
+    assert fields["Dash Viewed"]["call_site_retired_pr"] == "1640"
+
+
+def test_compute_call_site_fields_live_event_names_no_removing_commit():
+    events_map = {"Dash Viewed": ["EVENTS.Dashboard.Viewed"]}
+    file_texts = ["trackEvent(EVENTS.Dashboard.Viewed)"]
+    fields = compute_call_site_fields(
+        events_map, file_texts, lambda p: "2026-09-01", lambda p: {"commit": "x", "pr": "1"}
+    )
+    assert fields["Dash Viewed"]["call_site_retired_pr"] is None
+
+
+def test_call_site_removal_pr_is_a_graft_aware_pr_field():
+    assert ("call_site_retired_commit", "call_site_retired_pr") in bf._PR_FIELDS
+    assert "call_site_retired_pr" in bf.PROVENANCE_COLUMNS
+
+
+def test_introducing_pr_skips_a_branch_merging_main_into_itself():
+    subjects = "\n".join([
+        "Merge pull request #1638 from thegoodparty/worktree-eng-11018",
+        "Merge pull request #1636 from thegoodparty/eng-11007-outreach-flags",
+        "Merge remote-tracking branch 'origin/main' into eng-11007-outreach-flags",
+    ])
+    assert bf._pick_introducing_pr(subjects) == "1636"
+    assert bf._pick_introducing_pr("Merge branch 'main' into x") is None
+    assert bf._pick_introducing_pr("") is None
+    # Grafted history keeps the strict rule: the oldest merge or nothing.
+    assert bf._pick_introducing_pr(subjects, oldest_only=True) is None
+
+
+# --------------------------------------------------------------------------- #
+# Expiring blank rows whose name left the taxonomy (DATA-2587)
+# --------------------------------------------------------------------------- #
+
+
+def test_has_code_provenance_ignores_identity_and_stamp_columns():
+    assert not bf.has_code_provenance(_row("Declared Only"))
+    assert bf.has_code_provenance(_row("Counted", call_site_count="0"))
+    assert bf.has_code_provenance(_row("Dated", last_code_change_date="2026-01-01"))
+
+
+def test_expire_drops_only_blank_rows_whose_name_left_the_taxonomy():
+    rows = {
+        "Deleted Blank": _row("Deleted Blank"),
+        "Deleted With History": _row("Deleted With History", instrumented_commit="c1", instrumented_date="2025-01-01"),
+        "Page": _row("Page"),  # auto-tracked: blank by nature, still declared
+        "Just Shipped": _row("Just Shipped", instrumented_date="2026-09-29"),
+    }
+    universe = {"Page", "Just Shipped"}
+
+    expired = bf.expire_undeclared_blank_rows(rows, universe)
+
+    assert expired == ["Deleted Blank"]
+    assert set(rows) == {"Deleted With History", "Page", "Just Shipped"}
+
+
+def test_expire_skips_when_the_taxonomy_read_is_empty(capsys):
+    rows = {"Page": _row("Page"), "Scroll Depth": _row("Scroll Depth")}
+
+    assert bf.expire_undeclared_blank_rows(rows, set()) == []
+    assert set(rows) == {"Page", "Scroll Depth"}
+    assert "WARNING" in capsys.readouterr().err
+
+
+def test_expire_skips_when_more_rows_would_go_than_the_cap(capsys):
+    rows = {f"E{i}": _row(f"E{i}") for i in range(4)}
+
+    assert bf.expire_undeclared_blank_rows(rows, {"Other"}, max_expire=3) == []
+    assert len(rows) == 4
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "4" in err
+
+
+def test_run_refresh_expires_blank_row_whose_name_left_the_taxonomy(monkeypatch, tmp_path):
+    # Live shape from 2026-09-29: 31 names deleted from Govern had all-blank rows and kept
+    # flagging as never observed, because a refresh only ever added rows.
+    csv_path = tmp_path / "prov.csv"
+    bf.write_provenance(
+        [
+            _row("Event A", instrumented_commit="aaaa", instrumented_date="2025-02-01"),
+            _row("Voter Outreach - Campaign Created"),
+            _row("Old With History", instrumented_commit="oooo", instrumented_date="2024-01-01"),
+        ],
+        str(csv_path),
+    )
+    state_path = tmp_path / "state.json"
+    bf.write_watermark(str(state_path), "oldsha", "origin/develop", 10, "2025-04-01T00:00:00")
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: "")
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
+    cur = FakeCursor(["Event A"])
+
+    rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
+
+    assert {r["event_type"] for r in rows} == {"Event A", "Old With History"}
+    assert set(bf.read_provenance_rows(str(csv_path))) == {"Event A", "Old With History"}
+
+
+def test_run_refresh_keeps_a_departed_name_the_registry_still_counts(monkeypatch, tmp_path):
+    # The call-site pass runs before expiry: a name still in an EVENTS registry gets a count,
+    # which is history, so the row survives even though Govern no longer lists it.
+    csv_path = tmp_path / "prov.csv"
+    bf.write_provenance([_row("Event A", instrumented_date="2025-02-01"), _row("Still In Registry")], str(csv_path))
+    state_path = tmp_path / "state.json"
+    bf.write_watermark(str(state_path), "oldsha", "origin/develop", 10, "2025-04-01T00:00:00")
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: "")
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+
+    def fake_augment(rows, *a, **k):
+        for row in rows:
+            row["call_site_count"] = "2" if row["event_type"] == "Still In Registry" else None
+
+    monkeypatch.setattr(bf, "augment_call_site_columns", fake_augment)
+    cur = FakeCursor(["Event A"])
+
+    rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
+
+    assert {r["event_type"] for r in rows} == {"Event A", "Still In Registry"}

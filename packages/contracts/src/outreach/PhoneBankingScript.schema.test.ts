@@ -82,6 +82,36 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
     const request = { purpose: 'explain_decision', tone: 'warm' }
     expect(() => PhoneBankingScriptDraftRequestSchema.parse(request)).toThrow()
   })
+
+  it('carries the question for community_input', () => {
+    const parsed = PhoneBankingScriptDraftRequestSchema.parse({
+      purpose: 'community_input',
+      tone: 'warm',
+      communityInputQuestion: 'How do you feel about the road bond?',
+    })
+    expect(parsed.communityInputQuestion).toBe(
+      'How do you feel about the road bond?',
+    )
+  })
+
+  it('refuses a question on a purpose that does not ask one', () => {
+    expect(() =>
+      PhoneBankingScriptDraftRequestSchema.parse({
+        purpose: 'introduce_myself',
+        tone: 'warm',
+        communityInputQuestion: 'How do you feel about the road bond?',
+      }),
+    ).toThrow(/only valid with the community_input purpose/)
+  })
+
+  it('treats a blank question as absent', () => {
+    const parsed = PhoneBankingScriptDraftRequestSchema.parse({
+      purpose: 'community_input',
+      tone: 'warm',
+      communityInputQuestion: '   ',
+    })
+    expect(parsed.communityInputQuestion).toBeUndefined()
+  })
 })
 
 describe('ServePhoneBankingScriptDraftRequestSchema', () => {

@@ -4,7 +4,10 @@ A browsable surface over the analytics event governance data that otherwise only
 exists in the event-state Google Sheet. Answers three questions: do we have an event
 for that, is it working, and how are we measuring X.
 
-Tickets: DATA-2506 (the explorer), DATA-2509 (consumer links, intake, usage trial).
+Tickets: DATA-2506 (the explorer), DATA-2509 (consumer links, intake, usage trial), under
+the DATA-2580 epic with the product map and the event health console. The bar at the top
+is the same three buttons on all three pages (`surfaces/shared/nav.js`); the console
+button shows for the page's owner only. The What's next section also offers the map.
 Design doc: `docs/superpowers/specs/2026-09-22-analytics-event-explorer-design.md`
 (gitignored, local only).
 
@@ -18,19 +21,48 @@ Design doc: `docs/superpowers/specs/2026-09-22-analytics-event-explorer-design.m
 Declaring `db` makes the published artifact organization-internal, so every viewer is
 a signed-in GoodParty account — which is what lets a visit be attributed at all.
 
-**Every page change has to land in both.** They render the same snapshot but share no
-code: the prototype is React against the styleguide, the standalone is vanilla JS with
-its own CSS. That duplication is deliberate and temporary — it goes away when the page
-moves into gp-admin (DATA-2506 phase 3) and the standalone copy is retired.
+**Every page change has to land in both** (`lib/copy-parity.test.ts` holds the
+sentences to it). They render the same snapshot but share no code: the prototype is React
+against the styleguide, the standalone is vanilla JS. That duplication is deliberate and
+temporary — it goes away when the page moves into gp-admin (DATA-2506 phase 3).
+
+The standalone is the canonical copy. Its palette, event card, nav bar and usage script are the
+shared partials in `packages/runbooks/surfaces/shared/`, inlined by `standalone/build.py`,
+so they are the same on the product map and the event health console; the React copy
+cannot inline them and keeps its own. A change to the card or the theme goes in the
+partials, not here. The standalone's `detail()` calls `EventCard.render` with what only
+this page knows (caveats, resolved lineage, browser-or-server, product) through the card's
+`opts`; the row badges take their words from `EventCard.verdictFor` too, so a row and its
+card cannot disagree.
+
+**OKR tags come from the semantic layer.** `okr_metrics` on each event lists every
+governed metric it feeds, read from the `anchored_on` legs in gp-data-platform's
+`sem_analytics__users_*.yml`, with the leg's qualifier and whether it is historical;
+`okr_labels` carries each metric's label. It is deliberately not the assembler's `okr`
+column, which serves the dormancy watch and so keeps one current, unqualified metric per
+event.
+
+**`standalone/template.html` is also the product map's template.** The map build
+(`packages/runbooks/surfaces/product-map/build.py`) renders it with `DATA.page = 'map'`,
+which puts the map's tree (`ProductMap`, from `map.js` there) where the events table sits
+here. Everything above that section is shared: search, filters, question and area cards,
+What's next. So a search or filter change here ships on the map too; rebuild both pages,
+and branch on `MAP` only where the map genuinely differs.
 
 ## How it stays current (nothing here is manual)
 
 ```
 analytics-governance.yml, Mon + Thu 11:00 UTC        run ends ~11:19, state PR merges ~11:40
-  └─ event_explorer_snapshot.py  ->  data/event-explorer.json, committed in the state PR
-        └─ routine "Republish the analytics events explorer", Mon + Thu 12:00 and 13:00 UTC
-              └─ standalone/build.py  ->  publish to the same artifact URL
+  ├─ event_explorer_snapshot.py  ->  data/event-explorer.json, committed in the state PR
+  └─ governance_console_snapshot.py  ->  the console's data file, same PR
+        └─ routine "Republish the analytics surfaces", Mon + Thu 12:00 and 13:00 UTC
+              ├─ standalone/build.py  ->  publish to the explorer's artifact URL
+              ├─ surfaces/product-map/build.py  ->  publish to the map's artifact URL
+              └─ surfaces/governance-console/build.py  ->  publish to the console's URL
 ```
+
+Each page is checked and published on its own, so a page that is already current never
+stops the others.
 
 It fires twice because the merge is reliable but not guaranteed: across the eight runs
 measured, the state PR was created 11:12-11:19 and merged 19-26 minutes later. When the
@@ -52,6 +84,9 @@ uv run event_explorer_snapshot.py --series \
 
 cd ../../../prototypes/app/p/analytics-event-explorer/standalone && python3 build.py
 ```
+
+`build.py` inlines the shared partials from `packages/runbooks/surfaces/shared/` and
+fails if any placeholder is left unfilled.
 
 `--series` adds the 9-week sparkline data; without it the rest still builds and the
 sparklines read "no data". The builder reads `event_state_assembler.assemble()`, the

@@ -23,6 +23,8 @@ from typing import Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, Field
 
+import governance_gotchas
+
 HERE = Path(__file__).resolve().parent
 DEFAULT_RUBRIC_PATH = HERE / "digest_triage_rubric.md"
 DEFAULT_MODEL = os.environ.get("DIGEST_TRIAGE_MODEL", "claude-sonnet-5")
@@ -43,12 +45,18 @@ def _sanitize(text: str | None, cap: int = _HEADLINE_CAP) -> str:
     return cleaned[:cap]
 
 
+def is_okr_break(item: Mapping[str, Any]) -> bool:
+    """An OKR-anchored event in a breaking state: red in the digest every run until it
+    clears, and first in the event health console's flag queue for the same reason."""
+    return bool(item.get("okr")) and item.get("rank", 99) in _BREAKING_RANKS
+
+
 def rules_tier(item: Mapping[str, Any]) -> str:
     """Deterministic tier — the auditable baseline the judge adjusts around."""
     if item.get("change") == "resolved":
         return "fyi"
     rank = item.get("rank", 99)
-    if item.get("okr") and rank in _BREAKING_RANKS:
+    if is_okr_break(item):
         return "red"
     if rank <= 2:
         return "red" if item.get("on_watchlist") else "yellow"
@@ -164,8 +172,20 @@ _TRIAGE_INSTRUCTIONS = (
 )
 
 
-def triage_system_prompt(rubric: str) -> str:
-    return f"{rubric}\n\n---\n\n{_TRIAGE_INSTRUCTIONS}"
+def triage_system_prompt(rubric: str, gotchas: str = "") -> str:
+    """Tier rubric, the known-gotchas book, then the fixed triage instructions.
+
+    The book is pasted in rather than referenced because this judge is one
+    forced-tool-call request with no filesystem — see ``governance_gotchas``. It rules
+    before any human reads the digest, so a trap it does not know about becomes a tier
+    nobody has a reason to question. Omitted entirely when unavailable (DATA-2575).
+    """
+    parts = [rubric]
+    section = governance_gotchas.gotchas_prompt_section(gotchas)
+    if section:
+        parts.append(section)
+    parts.append(_TRIAGE_INSTRUCTIONS)
+    return "\n\n---\n\n".join(parts)
 
 
 def build_triage_messages(items: Sequence[Mapping[str, Any]]) -> list[dict]:
@@ -220,11 +240,12 @@ def triage_max_tokens(item_count: int) -> int:
 
 
 def _judge_items(items: Sequence[dict], rubric: str, *, client, model: str,
+                 gotchas: str = "",
                  max_tokens: int | None = None) -> dict[str, dict]:
     resp = client.messages.create(
         model=model,
         max_tokens=max_tokens or triage_max_tokens(len(items)),
-        system=triage_system_prompt(rubric),
+        system=triage_system_prompt(rubric, gotchas),
         tools=[TRIAGE_TOOL],
         tool_choice={"type": "tool", "name": TRIAGE_TOOL["name"]},
         messages=build_triage_messages(items),
@@ -243,7 +264,8 @@ def _judge_items(items: Sequence[dict], rubric: str, *, client, model: str,
 
 
 def judge_all(
-    items: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25
+    items: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25,
+    gotchas: str = "",
 ) -> dict[str, dict]:
     """Judge items in bounded chunks, merging verdicts. Mirrors instrumentation_gaps.py's
     judge_all: one call per chunk keeps each request within the response max_tokens budget
@@ -251,7 +273,8 @@ def judge_all(
     out: dict[str, dict] = {}
     for i in range(0, len(items), chunk_size):
         chunk = items[i : i + chunk_size]
-        out.update(_judge_items(chunk, rubric, client=client, model=model))
+        out.update(_judge_items(chunk, rubric, client=client, model=model,
+                                gotchas=gotchas))
     return out
 
 
@@ -283,7 +306,8 @@ def run_triage(
         return {"status": "skipped: rubric unavailable", "items": items}
     try:
         client = client_factory(api_key)
-        verdicts = judge_all(items, rubric, client=client, model=model)
+        verdicts = judge_all(items, rubric, client=client, model=model,
+                             gotchas=governance_gotchas.load_gotchas())
     except Exception as exc:  # noqa: BLE001 — triage must never break the governance run
         return {"status": f"failed: {exc}", "items": items}
     for item in items:

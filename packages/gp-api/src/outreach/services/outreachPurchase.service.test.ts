@@ -1,10 +1,8 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { FREE_TEXTS_OFFER } from '@/shared/constants/freeTextsOffer'
-import {
-  calcTextAmountInCents,
-  PRICE_PER_TEXT_TENTH_CENTS,
-} from '@/shared/util/textPricing.util'
+import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { PeerlyPhoneList } from 'src/generated/prisma'
 import { PhoneListState } from 'src/vendors/peerly/peerly.types'
@@ -25,6 +23,7 @@ const mockOutreachService = {
   finalizeOutreachPurchase: vi.fn(),
   failOutreachPurchase: vi.fn(),
   recordCheckoutSession: vi.fn(),
+  recordFreePurchase: vi.fn(),
   markFreeTextsConsumed: vi.fn(),
 } as unknown as OutreachService
 
@@ -58,11 +57,17 @@ const baseMetadata: OutreachPurchaseMetadata = {
 const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   id: 'list-1',
   createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
   organizationSlug: 'org-1',
   campaignId: 1,
   token: 'token-abc',
   peerlyListId: 42,
   voterFileFilterId: null,
+  buildStatus: 'ready',
+  buildError: null,
+  requestSnapshot: null,
+  lastSeenLeadsLoaded: null,
+  buildAttempts: 0,
   excludedOptedOutCount: 0,
   excludedDuplicatePhoneCount: 0,
 }
@@ -722,7 +727,7 @@ describe('OutreachPurchaseHandlerService', () => {
       )
     })
 
-    it('never records the zero-amount synthetic marker as a session', async () => {
+    it('records the zero-amount marker as a free purchase, not a session', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(undefined)
@@ -736,6 +741,11 @@ describe('OutreachPurchaseHandlerService', () => {
       })
 
       expect(mockOutreachService.recordCheckoutSession).not.toHaveBeenCalled()
+      expect(mockOutreachService.recordFreePurchase).toHaveBeenCalledWith(
+        123,
+        111,
+        'free_confirmed_abc',
+      )
     })
 
     it('finalizes a string outreachId before redeeming free texts', async () => {
@@ -754,9 +764,12 @@ describe('OutreachPurchaseHandlerService', () => {
         outreachId: '123',
       })
 
+      // The third argument is what paid for the send, carried so a finalize
+      // failure line names the charge somebody may have to refund.
       expect(mockOutreachService.finalizeOutreachPurchase).toHaveBeenCalledWith(
         123,
         111,
+        'pi_draft',
       )
       expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
 

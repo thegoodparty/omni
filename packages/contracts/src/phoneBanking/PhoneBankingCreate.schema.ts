@@ -1,8 +1,11 @@
 import { z } from 'zod'
 import {
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   OUTREACH_PURPOSE_VALUES,
   SERVE_OUTREACH_PURPOSE_VALUES,
 } from '../outreach/OutreachPurpose.schema'
+import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 
 // Phone banking shares the canonical outreach vocabulary
 // (OutreachPurpose.schema.ts) — its storage enum used to be the one
@@ -35,6 +38,27 @@ export const PHONE_BANKING_MAX_SHEET_COUNT = 20
 // gp-api (entry cap + freeze) and the webapp (sheets-step coverage copy).
 export const PHONE_BANKING_SHEET_SIZE = 60
 
+// What this effort is asking, when the purpose is `community_input` (Win's
+// "Hear from voters", Serve's community input). Same field and same rule as
+// the door-knocking turf's — the question a caller reads is the same question
+// a canvasser reads, and issue capture hands both to the same extraction.
+const communityInputQuestionSchema = z
+  .string()
+  .min(1)
+  .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
+  .optional()
+
+const questionMatchesPurpose = {
+  check: (input: { purpose: string; communityInputQuestion?: string }) =>
+    (input.purpose === COMMUNITY_INPUT_PURPOSE) ===
+    (input.communityInputQuestion !== undefined),
+  params: {
+    message:
+      'communityInputQuestion is required for community_input and refused otherwise',
+    path: ['communityInputQuestion'],
+  },
+}
+
 // The audience is always a saved VoterFileFilter — the webapp's shared
 // outreach audience step (useOutreachAudience) persists a built list via
 // POST /v1/voters/voter-file/filter before ever reaching this endpoint,
@@ -48,13 +72,15 @@ export const PhoneBankingCreateSchema = z
     sheetCount: z.number().int().min(1).max(PHONE_BANKING_MAX_SHEET_COUNT),
     voterFileFilterId: z.number().int().positive(),
     purpose: PhoneBankingPurposeSchema,
+    communityInputQuestion: communityInputQuestionSchema,
   })
   .strict()
+  .refine(questionMatchesPurpose.check, questionMatchesPurpose.params)
 
 export type PhoneBankingCreate = z.infer<typeof PhoneBankingCreateSchema>
 
-// Identical shape to PhoneBankingCreateSchema with the purpose field swapped
-// to the serve vocabulary.
+// PhoneBankingCreateSchema with the purpose field swapped to the serve
+// vocabulary, plus the proposal link a Serve chat card hands the flow.
 export const ServePhoneBankingCreateSchema = z
   .object({
     name: z.string().min(1).max(PHONE_BANKING_NAME_MAX_LENGTH),
@@ -62,8 +88,11 @@ export const ServePhoneBankingCreateSchema = z
     sheetCount: z.number().int().min(1).max(PHONE_BANKING_MAX_SHEET_COUNT),
     voterFileFilterId: z.number().int().positive(),
     purpose: ServePhoneBankingPurposeSchema,
+    communityInputQuestion: communityInputQuestionSchema,
   })
+  .extend(ProposalLinkSchema.shape)
   .strict()
+  .refine(questionMatchesPurpose.check, questionMatchesPurpose.params)
 
 export type ServePhoneBankingCreate = z.infer<
   typeof ServePhoneBankingCreateSchema

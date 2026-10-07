@@ -725,6 +725,167 @@ def test_judge_system_prompt_includes_rubric():
     assert "RUBRIC-BODY-MARKER" in sp
 
 
+def test_run_seed_threads_the_gotchas_book_into_the_prompt(tmp_path, monkeypatch):
+    """The seed CALL SITE, not just judge_all's parameter. Testing the helper with an
+    explicit ``gotchas=`` proves nothing about whether run_seed passes one — deleting the
+    argument at the call site left every other test green, twice."""
+    import governance_gotchas as gg
+
+    book = tmp_path / "book.md"
+    book.write_text("GOTCHAS-BODY-MARKER")
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", book)
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("RUBRIC-BODY")
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    ig.run_seed(
+        tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
+        api_key="sk-ant-x", model="m", rubric_path=rubric,
+        client_factory=lambda _k: _Client(),
+    )
+    assert "system" in seen, "run_seed never reached the API call"
+    assert "RUBRIC-BODY" in seen["system"]
+    assert "GOTCHAS-BODY-MARKER" in seen["system"]
+
+
+def test_every_judge_prompt_call_site_passes_gotchas():
+    """Structural guard for the whole class of bug this PR kept reproducing.
+
+    Four times running, the substance was right and one call site silently defaulted
+    ``gotchas`` to "" — the read step only, then the weekly path only, then the weekly
+    happy path, then the seed call site. Each fix was a new one-off test. This asserts the
+    invariant instead: any call that builds a judge system prompt, or hands candidates to
+    the batching helpers, must pass a gotchas argument. A new judgment path added later
+    fails here rather than shipping blind.
+    """
+    import ast
+    import inspect
+
+    watched = {"judge_system_prompt", "triage_system_prompt", "judge_all",
+               "judge_candidates", "_judge_items"}
+    offenders = []
+    for module in (ig, __import__("digest_triage")):
+        tree = ast.parse(inspect.getsource(module))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "attr", getattr(node.func, "id", None))
+            if name not in watched:
+                continue
+            passes_gotchas = (
+                any(k.arg == "gotchas" for k in node.keywords)
+                or len(node.args) >= 2 and name in {"judge_system_prompt",
+                                                    "triage_system_prompt"}
+            )
+            if not passes_gotchas:
+                offenders.append(f"{module.__name__}: {name}() at line {node.lineno}")
+    assert not offenders, (
+        "judge prompt built without the gotchas book:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_judge_candidates_passes_gotchas_into_the_prompt():
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    try:
+        ig.judge_candidates([{"id": "/a", "surface_type": "route", "location": "a.tsx"}],
+                            "RUBRIC-BODY", client=_Client(), model="m",
+                            gotchas="GOTCHAS-BODY-MARKER")
+    except RuntimeError:
+        pass
+    assert "RUBRIC-BODY" in seen["system"]
+    assert "GOTCHAS-BODY-MARKER" in seen["system"]
+
+
+def test_judge_system_prompt_includes_gotchas_when_given(tmp_path):
+    sp = ig.judge_system_prompt("RUBRIC-BODY", gotchas="GOTCHAS-BODY-MARKER")
+    assert "RUBRIC-BODY" in sp
+    assert "GOTCHAS-BODY-MARKER" in sp
+
+
+def test_judge_system_prompt_omits_gotchas_header_when_book_is_missing():
+    sp = ig.judge_system_prompt("RUBRIC-BODY", gotchas="")
+    assert "RUBRIC-BODY" in sp
+    assert "Known gotchas" not in sp
+
+
+def test_run_judgment_sends_the_gotchas_book_to_the_judge(tmp_path, monkeypatch):
+    """The weekly path's happy case. Without this, dropping ``load_gotchas()`` from
+    ``run_judgment``'s system_factory leaves every test green — the degraded-path test
+    below passes precisely when the book is absent."""
+    import governance_gotchas as gg
+
+    book = tmp_path / "book.md"
+    book.write_text("GOTCHAS-BODY-MARKER")
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", book)
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("RUBRIC-BODY")
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    verdicts, status = ig.run_judgment(
+        [{"id": "/a", "surface_type": "route", "location": "a.tsx"}],
+        api_key="k", model="m", rubric_path=rubric, client_factory=lambda _k: _Client(),
+    )
+    assert verdicts == {}
+    assert status.startswith("failed:")
+    assert "RUBRIC-BODY" in seen["system"]
+    assert "GOTCHAS-BODY-MARKER" in seen["system"]
+
+
+def test_run_judgment_still_judges_when_the_gotchas_book_is_unreadable(tmp_path, monkeypatch):
+    """The book is documentation; a missing one must never cost us the judgment pass."""
+    import governance_gotchas as gg
+
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", tmp_path / "nope.md")
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("# rubric\n")
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    verdicts, status = ig.run_judgment(
+        [{"id": "/a", "surface_type": "route", "location": "a.tsx"}],
+        api_key="k", model="m", rubric_path=rubric, client_factory=lambda _k: _Client(),
+    )
+    assert verdicts == {}
+    assert status.startswith("failed:")
+    assert "# rubric" in seen["system"]
+    assert "Known gotchas" not in seen["system"]
+
+
 def test_parse_judge_response_validates_and_filters_unknown_ids():
     payload = {
         "results": [
@@ -872,6 +1033,42 @@ def test_judge_all_chunks_and_merges():
     out = ig.judge_all(cands, "RUBRIC", client=client, model="m", chunk_size=2)
     assert set(out) == {f"/x{i}" for i in range(5)}
     assert client.calls == 3  # 2 + 2 + 1
+
+
+class _SystemRecordingPerChunkClient(_PerChunkClient):
+    """_PerChunkClient, but keeps every system prompt it was called with.
+
+    Succeeding on each call is the point. A fake that raises on the first one stops
+    judge_all after chunk 1, and then "every chunk carries the book" is asserted over a
+    single element and holds vacuously — which is what the first version of the test
+    below did.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.systems = []
+
+    def create(self, **kwargs):
+        self.systems.append(kwargs["system"])
+        return super().create(**kwargs)
+
+
+def test_judge_all_threads_gotchas_to_every_chunk():
+    """The seed path judges the whole repo in chunks; a chunk without the book is a
+    judgement made blind to the traps this book exists to surface."""
+    candidates = [{"id": f"/c{i}", "surface_type": "route", "location": f"c{i}.tsx",
+                   "snippet": ""} for i in range(5)]
+    client = _SystemRecordingPerChunkClient()
+
+    ig.judge_all(candidates, "RUBRIC-BODY", client=client, model="m",
+                 chunk_size=2, gotchas="GOTCHAS-BODY-MARKER")
+
+    # 5 candidates at chunk_size 2 is three calls. Asserting the count first is what
+    # keeps the "every chunk" assertions below from passing vacuously.
+    assert client.calls == 3
+    assert len(client.systems) == 3
+    assert all("GOTCHAS-BODY-MARKER" in s for s in client.systems)
+    assert all("RUBRIC-BODY" in s for s in client.systems)
 
 
 def test_select_candidates_limit_none_returns_all():

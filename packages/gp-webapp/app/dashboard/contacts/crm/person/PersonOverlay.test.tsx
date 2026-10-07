@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
@@ -1048,6 +1049,172 @@ describe('<PersonOverlay>', () => {
       expect(
         screen.queryByText('Support Status updated'),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // What a voter told a Win canvasser shows on their record, behind Win's
+  // own capture flag, the way a constituent's does behind Serve's.
+  describe('what they told us, on Win', () => {
+    beforeEach(() => {
+      testQueryClient.clear()
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'She wants the bond spent on the roads.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [],
+            },
+          ],
+        },
+      })
+      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_1',
+      })
+    })
+
+    it('shows the section when issue-capture is on', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'issue-capture',
+      }))
+
+      render(<PersonOverlay />)
+
+      expect(await screen.findByText('What they told us')).toBeInTheDocument()
+      expect(screen.getByText('Road bond')).toBeInTheDocument()
+    })
+
+    // One conversation can name several issues, each with where the person
+    // stands on it and what they want.
+    it('lists each issue a conversation named', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'issue-capture',
+      }))
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'Wants the bond spent on roads, and the park lit.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+                {
+                  id: 'issue-park-lighting',
+                  position: 1,
+                  issueLabel: 'Park lighting',
+                  stance: 'opposes',
+                  desiredOutcome: null,
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [],
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      const issues = await screen.findByRole('list', { name: 'Issues' })
+      const items = within(issues).getAllByRole('listitem')
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Road bond· For itWants: Spend it on the roads',
+        'Park lighting· Against it',
+      ])
+    })
+
+    it('lists the tags a memo carries', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'issue-capture',
+      }))
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'She wants the bond spent on the roads.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [
+                { id: 'tag-1', name: 'Road repair', status: 'accepted' },
+                { id: 'tag-2', name: 'Taxes', status: 'accepted' },
+              ],
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      const tags = await screen.findByRole('list', { name: 'Tags' })
+      expect(
+        within(tags)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Road repair', 'Taxes'])
+    })
+
+    it('shows nothing when issue-capture is off', async () => {
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+
+      render(<PersonOverlay />)
+
+      // Long enough for the memo request to land had the section mounted.
+      await expect(
+        screen.findByText('What they told us', {}, { timeout: 500 }),
+      ).rejects.toThrow()
+      expect(screen.queryByText('Road bond')).not.toBeInTheDocument()
     })
   })
 })

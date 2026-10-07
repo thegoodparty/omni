@@ -37,6 +37,13 @@ Before opening a PR, run the full gate locally. From the repo root:
 npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
 ```
 
+**If you added or renamed a controller, run `npm run generate` first.**
+`src/generated/route-types.ts` is gitignored and built by
+`scripts/generate-route-types.ts`, and the alerting ownership tests read
+`CONTROLLER_NAMES` from it. CI always generates fresh, so a stale local copy
+makes those tests pass here and fail there — a new controller with no entry in
+`CONTROLLER_OWNERS` is invisible until the PR is already open.
+
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
 against a shadow DB; a `Test` job fans the vitest suite across 2 shards
@@ -44,6 +51,10 @@ against a shadow DB; a `Test` job fans the vitest suite across 2 shards
 about 4-5 min of wall clock; and an empty `Validate` gate `needs` both so the
 branch-protection-required `Validate` check is green only when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
+
+`lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
+the whole package peaks right at Node's default ~4 GB, so without it lint dies
+with a heap-out-of-memory crash (exit 134) on a laptop just as it did in CI.
 
 The unit-test DB is provisioned by cloning a schema template, not by replaying
 every migration per suite. `vitest.config.ts` runs `src/test-global-setup.ts`
@@ -103,7 +114,7 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Writing or fixing a test                     | `docs/writing-tests.md`                                          |
 | Adding/debugging an alert                    | `docs/observability.md`                                          |
 | Reproducing a reported bug                   | `docs/debugging.md`                                              |
-| First-time setup                             | `docs/getting-started.md` + `docs/team-setup.md`                 |
+| First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
 | Why a thing is the way it is                 | `docs/adr/`                                                      |
 | AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
 
@@ -172,20 +183,21 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |
+| Speech: dictation, text to speech, recordings            | `src/speech/AGENTS.md`                               |
 | Schema / migrations                                      | `prisma/AGENTS.md`                                   |
 | `@goodparty_org/contracts`                               | `contracts/AGENTS.md` + `docs/contracts.md`          |
 | Pulumi / Docker / Grafana                                | `deploy/AGENTS.md`                                   |
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
+| Local `.env` vending (dev only, GitHub-gated)            | `src/devEnv/AGENTS.md`                               |
 
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
 target the `ContactInteraction*` models via `ContactInteractionModule` (see
 `src/contactInteraction/contactInteraction.types.ts` for the add-a-channel
 convention). Segment-derived send-attribution writes were retired in feature 5
-of the CRM epic (ENG-10731) — the model is read-only now except for the
-deprecated eCanvasser door-knock writer (`EcanvasserAttributionService.recordActivityIdempotent`),
-which is its own removal workstream. Reads (the person activity feed's
+of the CRM epic (ENG-10731) and the last remaining write path has since been
+deleted, so the model is read-only. Reads (the person activity feed's
 legacy-row branch) keep working until the sunset ends and the table/model are
 dropped.
 

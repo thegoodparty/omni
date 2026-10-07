@@ -509,19 +509,30 @@ const PlanSections = ({
 
           <Subsection title="Projected Votes Needed to Win">
             <p>
-              Our modeling projects voter turnout of{' '}
-              <span className="font-semibold text-foreground">
-                {plan.projectedTurnout.toLocaleString('en-US')} voters
-              </span>{' '}
-              (we were within 1.5 percentage points on average), putting the
-              threshold for a win at{' '}
+              {plan.votesCast !== null ? (
+                <>
+                  Our modeling projects{' '}
+                  <span className="font-semibold text-foreground">
+                    {plan.votesCast.toLocaleString('en-US')} votes
+                  </span>{' '}
+                  will be cast for {plan.race} candidates in the election,
+                </>
+              ) : (
+                <>
+                  Our modeling projects voter turnout of{' '}
+                  <span className="font-semibold text-foreground">
+                    {plan.projectedTurnout.toLocaleString('en-US')} voters
+                  </span>
+                  ,
+                </>
+              )}{' '}
+              putting the threshold for victory at{' '}
               <span className="font-semibold text-foreground">
                 {plan.winNumber.toLocaleString('en-US')} votes
               </span>
-              , a simple majority of voters (50% + 1) who actually cast a
-              ballot. This is the lowest amount of votes we project you need to
-              win your election; our campaign plan below will guide you toward
-              surpassing that number. Hitting that target requires{' '}
+              . This is the lowest amount of votes we project{' '}
+              {plan.winNumberGoal}; our campaign plan below will guide you
+              toward surpassing that number. Hitting that target requires{' '}
               <span className="font-semibold text-foreground">
                 {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
               </span>{' '}

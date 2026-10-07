@@ -8,9 +8,12 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { CHANNEL_META } from 'app/dashboard/outreach/v2/channelMeta'
+import {
+  formatOutreachCost,
+  outreachCostCents,
+} from 'app/dashboard/outreach/util/outreachPricing'
 import { getContactsLabels } from '../../../../shared/contactsLabels'
 import { useContactsTable } from '../../ContactsTableProvider'
-import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { recommendedListDetailQueryOptions } from '../../recommended/recommendedListDetail.query'
 import CrmSheet from '../CrmSheet'
 import { ALL_SEGMENTS } from '../constants'
@@ -52,16 +55,8 @@ const pricePerContact = (channel: ChannelPickerChannel): number =>
   OUTREACH_OPTIONS.find((option) => option.type === OUTREACH_TYPES[channel])
     ?.cost ?? 0
 
-// Integer tenth-cents, rounded to the cent, so the figure here is the figure
-// gp-api's pricing utils produce for the flow's own card — float math on
-// 16,449 x 0.035 lands a cent short of what checkout charges.
-const costLabel = (reach: number, price: number): string => {
-  const cents = Math.round((reach * Math.round(price * 1000)) / 10)
-  return `$${(cents / 100).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
-}
+const costLabel = (reach: number, price: number): string =>
+  formatOutreachCost(outreachCostCents(reach, price))
 
 // The prototype's "Choose a channel" drawer: the list name and size in the
 // header, one row per channel with how many of the list it can reach and
@@ -74,15 +69,6 @@ export default function ChannelPickerSheet({
   const orgSlug = useOrganization()?.slug
   const { canUseProFeatures, isWinContext, voterDataUnavailable } =
     useContactsTable()
-  // Door knocking's row is the only one that links out of the hub's `?compose=`
-  // vocabulary, into `/dashboard/door-knocking?create=1` — a param only the
-  // native page reads. With the flag off that link lands on the eCanvasser
-  // dashboard, which has no audience step to hand this list to, so the row
-  // would promise a hand-off it cannot make. Read without exposure: the
-  // door-knocking page gate is the treatment surface.
-  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
-  const showDoorKnocking =
-    nativeDoorKnocking.ready && nativeDoorKnocking.enabled
   const labels = getContactsLabels(isWinContext)
   const enabled = target !== null && canUseProFeatures && !voterDataUnavailable
 
@@ -141,12 +127,9 @@ export default function ChannelPickerSheet({
   // The prototype orders rows by how many of the list each channel reaches;
   // social has no audience and always sits last. Left in channel order until
   // the counts land, so the rows do not reshuffle under the pointer.
-  const offered = CHANNELS.filter(
-    (channel) => channel !== 'doorKnocking' || showDoorKnocking,
-  )
   const rows = reachability
-    ? [...offered].sort((a, b) => (reachOf(b) ?? -1) - (reachOf(a) ?? -1))
-    : offered
+    ? [...CHANNELS].sort((a, b) => (reachOf(b) ?? -1) - (reachOf(a) ?? -1))
+    : CHANNELS
 
   return (
     <CrmSheet

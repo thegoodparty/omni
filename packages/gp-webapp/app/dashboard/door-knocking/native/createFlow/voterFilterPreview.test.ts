@@ -3,12 +3,7 @@ import {
   DoorKnockingPackManifest,
   PACK_AGE_BUCKETS,
 } from '@goodparty_org/contracts'
-import {
-  filtersToDimSelections,
-  unpreviewableDisclosureLabels,
-  unpreviewableDisclosureSentence,
-  unpreviewableFilterKeys,
-} from './voterFilterPreview'
+import { filtersToDimSelections } from './voterFilterPreview'
 
 const manifest = {
   version: 1,
@@ -90,7 +85,6 @@ describe('filtersToDimSelections', () => {
     it('separates 50-64 from 65+', () => {
       expect(ageBuckets({ age50_64: true })).not.toContain('65_plus')
       expect(ageBuckets({ age65Plus: true })).toEqual(['65_plus'])
-      expect(unpreviewableFilterKeys({ age65Plus: true }, manifest)).toEqual([])
     })
 
     it('unions overlapping selections without double-counting', () => {
@@ -114,58 +108,9 @@ describe('filtersToDimSelections', () => {
       // is `50_plus` — which shades 65+ people a 50-64 list will not knock.
       // Disclosing beats over-shading; `age50_64 -> 50_plus` was the previous
       // behavior and it was a silent superset.
-      it.each(['age50_64', 'age65Plus'])('discloses %s instead', (key) => {
+      it.each(['age50_64', 'age65Plus'])('narrows nothing for %s', (key) => {
         expect(ageBuckets({ [key]: true }, legacyManifest)).toEqual([])
-        expect(
-          unpreviewableFilterKeys({ [key]: true }, legacyManifest),
-        ).toEqual([key])
       })
-    })
-  })
-
-  // Silently previewing a superset is the bug, so the keys that can't narrow
-  // are reportable rather than just dropped.
-  describe('unpreviewableFilterKeys', () => {
-    it('reports selections the pack has no bucket for', () => {
-      expect(
-        unpreviewableFilterKeys(
-          { partyDemocrat: true, veteranYes: true },
-          manifest,
-        ),
-      ).toEqual(['veteranYes'])
-    })
-
-    it('ignores unselected options and reports nothing when all map', () => {
-      expect(
-        unpreviewableFilterKeys(
-          { partyDemocrat: true, age65Plus: true, genderFemale: true },
-          manifest,
-        ),
-      ).toEqual([])
-    })
-
-    // A dim missing from the manifest entirely, not just a missing bucket.
-    it('reports a selection whose whole dim is absent from the pack', () => {
-      expect(unpreviewableFilterKeys({ veteranYes: true }, manifest)).toEqual([
-        'veteranYes',
-      ])
-    })
-
-    // The marks `savedListFilterKeys` leaves for a list's non-boolean
-    // criteria. They are ordinary keys here on purpose — the pack has no plane
-    // for any of them, which is exactly what this function reports.
-    it('reports a list’s support-status, activity and precinct clauses', () => {
-      expect(
-        unpreviewableFilterKeys(
-          {
-            partyDemocrat: true,
-            supportStatus: true,
-            activityConditions: true,
-            precincts: true,
-          },
-          manifest,
-        ),
-      ).toEqual(['supportStatus', 'activityConditions', 'precincts'])
     })
   })
 
@@ -210,22 +155,16 @@ describe('filtersToDimSelections', () => {
         withPlane,
       )
       expect(selections.get('contactsMade')).toEqual(new Set([0, 5]))
-      expect(
-        unpreviewableFilterKeys({ contactsMade0: true }, withPlane),
-      ).toEqual([])
     })
 
     // The plane is omitted for an organization with more contacted people
-    // than one pack can describe (PACK_CONTACTS_MADE_MAX). That org's pills
-    // fall back to the disclosure — which is why the group's fallback label
-    // survives the plane shipping.
-    it('falls back to the disclosure when the pack has no plane', () => {
+    // than one pack can describe (PACK_CONTACTS_MADE_MAX). Without it the
+    // selection narrows nothing, which is the honest answer: an empty
+    // allowed set would shade an empty map instead.
+    it('narrows nothing when the pack has no plane', () => {
       expect(
         filtersToDimSelections({ contactsMade0: true }, manifest).size,
       ).toBe(0)
-      expect(
-        unpreviewableFilterKeys({ contactsMade0: true }, manifest),
-      ).toEqual(['contactsMade0'])
     })
   })
 
@@ -240,107 +179,6 @@ describe('filtersToDimSelections', () => {
     for (const allowed of selections.values()) {
       expect(allowed.size).toBeGreaterThan(0)
     }
-  })
-})
-
-describe('unpreviewableDisclosureLabels', () => {
-  it('names the option for a group whose labels stand on their own', () => {
-    expect(unpreviewableDisclosureLabels(['age65Plus'])).toEqual(['65+'])
-  })
-
-  // A list's non-boolean criteria have no row in filters.config to take a
-  // label from, so they carried none — which silently dropped them back out
-  // of the sentence they had just been added to.
-  it('names a list’s own criteria, which no pill group covers', () => {
-    expect(
-      unpreviewableDisclosureLabels([
-        'supportStatus',
-        'activityConditions',
-        'precincts',
-      ]),
-    ).toEqual(['Support status', 'Past outreach activity', 'Precinct'])
-  })
-
-  it('still says nothing for a key that names no filter at all', () => {
-    expect(unpreviewableDisclosureLabels(['notARealFilterKey'])).toEqual([])
-  })
-})
-
-// The sentence was written for exactly one filter and then had a
-// `labels.join(', ')` dropped into it, so a second selection produced "shade
-// by 65+, Prior contacts made yet, so these counts include people that filter
-// will exclude" — a comma list that reads as a typo, a "yet" that attaches
-// itself to the last label, and a singular pronoun for a plural subject.
-describe('unpreviewableDisclosureSentence', () => {
-  // The whole sentence, once, so the wording the three surfaces share is
-  // pinned somewhere: it must name the MAP as the limitation and say the list
-  // still applies the filter (AGENTS.md, ADR 0010). Phrased as the filter not
-  // being applied, it reads as targeting silently failing.
-  it('keeps the singular sentence for one filter', () => {
-    expect(unpreviewableDisclosureSentence(['65+'])).toBe(
-      'The map can’t yet shade by 65+, so these counts include people that ' +
-        'filter will exclude. Your saved list still applies it when you knock.',
-    )
-  })
-
-  it('joins two with or, with no comma to read as a typo', () => {
-    expect(
-      unpreviewableDisclosureSentence(['65+', 'Prior contacts made']),
-    ).toBe(
-      'The map can’t yet shade by 65+ or Prior contacts made, so these ' +
-        'counts include people those filters will exclude. Your saved list ' +
-        'still applies them when you knock.',
-    )
-  })
-
-  // Three or more keeps the serial comma: without it the last two labels run
-  // together into something that reads as one filter name.
-  it('joins three or more with commas and a final or', () => {
-    expect(
-      unpreviewableDisclosureSentence(['65+', 'Renter', 'Prior contacts made']),
-    ).toBe(
-      'The map can’t yet shade by 65+, Renter, or Prior contacts made, so ' +
-        'these counts include people those filters will exclude. Your saved ' +
-        'list still applies them when you knock.',
-    )
-
-    expect(
-      unpreviewableDisclosureSentence(['65+', 'Renter', 'Veteran', 'Married']),
-    ).toContain('shade by 65+, Renter, Veteran, or Married,')
-  })
-
-  // Not an empty paragraph: the callers render nothing rather than a hedge
-  // about no filters.
-  it('has nothing to say when every filter shades', () => {
-    expect(unpreviewableDisclosureSentence([])).toBeNull()
-  })
-
-  // The create flow reaches this sentence before any list exists, so the
-  // closing clause must not cite one. It still has to promise the filter gets
-  // applied — ending on "that filter will exclude" is the reading ADR 0010
-  // exists to prevent — so the subject changes and the reassurance stays.
-  it('does not claim a saved list when none is picked', () => {
-    const sentence = unpreviewableDisclosureSentence(['65+'], false)
-    expect(sentence).toBe(
-      'The map can’t yet shade by 65+, so these counts include people that ' +
-        'filter will exclude. Your list still applies it when you knock.',
-    )
-    expect(sentence).not.toContain('saved list')
-    expect(sentence).toContain('still applies it when you knock')
-  })
-
-  it('keeps the plural pronoun when no list is picked', () => {
-    expect(
-      unpreviewableDisclosureSentence(['65+', 'Prior contacts made'], false),
-    ).toContain('Your list still applies them when you knock.')
-  })
-
-  // The details sheet and the landing rail describe a list that exists and
-  // never pass the flag, so the saved wording has to be what omitting it means.
-  it('defaults to the saved-list wording for the surfaces that omit the flag', () => {
-    expect(unpreviewableDisclosureSentence(['65+'])).toContain(
-      'Your saved list still applies it when you knock.',
-    )
   })
 })
 
@@ -375,17 +213,5 @@ describe('precinct', () => {
     const selections = filtersToDimSelections({}, manifest, ['Brevard|300'])
 
     expect(selections.has('precinct')).toBe(false)
-  })
-
-  it('stops disclosing precinct once the pack can shade it', () => {
-    // The disclosure is a property of the pack in hand, not a fixed list:
-    // the same selection is honest on a pack with the plane and misleading
-    // on one without.
-    expect(unpreviewableFilterKeys({ precincts: true }, manifest)).toContain(
-      'precincts',
-    )
-    expect(
-      unpreviewableFilterKeys({ precincts: true }, withPrecinct),
-    ).not.toContain('precincts')
   })
 })

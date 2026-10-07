@@ -3,6 +3,14 @@
 The Fargate runner cannot reach S3 directly (egress-only-to-broker security
 group). This endpoint is the runner's window into the metadata bucket. The
 ticket's experiment_id is the only experiment a given run is allowed to see.
+
+One exception, for the Universal Judge: a ticket may allowlist a single
+`_judge/<agentId>/<configDigest>/` key pair, and a run carrying one reads the
+candidate branch's manifest + instruction from there instead of the published
+pair. That widens the run by exactly those two objects — the experiment id
+stays real, the index registration check still applies to it, attachments and
+qa still come from its published prefix, and the scope ticket is unaffected
+because it was derived at dispatch from the published manifest.
 """
 
 import json
@@ -51,6 +59,17 @@ MAX_FETCH_WORKERS = 16
 # MAX_ATTACHMENTS_PER_EXPERIMENT: a well-behaved qa folder ships
 # manifest.json + main.py + eval.md (3 files), far under 32.
 MAX_QA_BYTES = 1 * 1024 * 1024
+
+# Universal Judge. `_judge/*` is the one prefix in the metadata bucket the
+# publish pipeline does not produce, so it is the one whose object size nothing
+# upstream bounds — and this is a shared service, so an unbounded read here
+# OOMs every concurrent run, not one. The published pair is left uncapped
+# because the publisher is what bounds it. 1 MiB is generous: the dispatch
+# Lambda already refuses an override manifest over 256 KiB, and the largest
+# published instruction today is ~120 KiB. Override reads also bypass
+# `_OBJECT_CACHE` (see `_fetch_object_cached`), so this cap bounds one
+# in-flight read rather than 512 resident cache entries.
+MAX_JUDGE_OVERRIDE_BYTES = 1 * 1024 * 1024
 
 # Module-level shared executor. Bound to MAX_FETCH_WORKERS so concurrent
 # requests share a fixed thread budget instead of each request spawning its
@@ -416,6 +435,7 @@ def _fetch_object_cached(
     version_id: str | None,
     label: str = "object",
     size_cap_bytes: int | None = None,
+    cache: bool = True,
 ) -> tuple[bytes, str | None]:
     """Cache wrapper around _fetch_object.
 
@@ -423,8 +443,15 @@ def _fetch_object_cached(
     are immutable per S3 contract, so the cache hit is correctness-safe and
     we can use ttl=None. Skip cache when version_id is None (dev/local
     "latest"), since latest can change under us.
+
+    `cache=False` opts a read out entirely. The judge override pair uses it:
+    those keys are content-addressed, so a sweep mints a fresh digest per
+    candidate config and the entries are never read twice — they would only
+    occupy the shared LRU and evict the published objects that DO get reused.
+    Same reasoning as the dispatch Lambda's `fetch_judge_override`, which is
+    deliberately uncached for the same reason.
     """
-    if version_id is not None:
+    if cache and version_id is not None:
         cached = _OBJECT_CACHE.get((bucket, key, version_id), ttl=None)
         if cached is not None:
             return cached
@@ -437,7 +464,7 @@ def _fetch_object_cached(
         label=label,
         size_cap_bytes=size_cap_bytes,
     )
-    if version_id is not None:
+    if cache and version_id is not None:
         _OBJECT_CACHE.put((bucket, key, version_id), body, resolved_version)
     return body, resolved_version
 
@@ -667,8 +694,81 @@ def experiment_manifest(
         )
         raise HTTPException(status_code=404, detail="experiment not currently registered")
 
-    manifest_key = f"{req.experiment_id}/manifest.json"
-    instruction_key = f"{req.experiment_id}/instruction.md"
+    # Universal Judge: when the ticket allowlists a `_judge/` key pair, this
+    # run reads the candidate branch's bytes from there instead of the
+    # published `<experiment_id>/*` pair. The key pair comes off the TICKET,
+    # never off the request — the runner is quarantined but not trusted, and
+    # the ticket is already the authorization object for the run (same shape
+    # as `input_files` + /inputs/read). The widening is exactly those two keys:
+    # the experiment id stays real, the index lookup above still ran against
+    # it, and attachments + qa below still resolve under the real prefix.
+    #
+    # The scope ticket is NOT derived from these bytes — it was minted at
+    # dispatch from the published manifest's scope block — so an override can
+    # change what the agent is told to do and can never change what it is
+    # allowed to touch.
+    override = ticket.experiment_override
+    if override is not None:
+        manifest_key = override.manifest_key
+        instruction_key = override.instruction_key
+        # The pins come off the ticket too, not the request. Dispatch vetted
+        # the bytes at those exact versions, so anything else is either drift
+        # or a runner reaching for a version of the key it was not vetted on;
+        # the request's own pins are then only allowed to agree. Falling back
+        # to "latest" is not an option here — the whole point of the pin is
+        # that the broker serves the bytes the behavior allowlist was derived
+        # from.
+        manifest_version_id: str | None = override.manifest_version_id
+        instruction_version_id: str | None = override.instruction_version_id
+        manifest_cap: int | None = MAX_JUDGE_OVERRIDE_BYTES
+        instruction_cap: int | None = MAX_JUDGE_OVERRIDE_BYTES
+        mismatched = [
+            name
+            for name, requested, pinned in (
+                ("manifest_version_id", req.manifest_version_id, override.manifest_version_id),
+                ("instruction_version_id", req.instruction_version_id, override.instruction_version_id),
+            )
+            if requested is not None and requested != pinned
+        ]
+        if mismatched:
+            logger.error(
+                "scope_violation_attempt errorType=override_version_mismatch run_id=%s experiment_id=%s fields=%s",
+                ticket.run_id,
+                ticket.experiment_id,
+                ",".join(mismatched),
+            )
+            _emit_metric(
+                "broker_scope_violation_attempt",
+                [
+                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                    {"Name": "endpoint", "Value": "experiment_manifest"},
+                ],
+            )
+            raise HTTPException(status_code=403, detail="manifest access denied for this run's scope")
+        # Loud on purpose: an override read is the one path that serves a run
+        # bytes nobody published, so it should be visible in an audit rather
+        # than inferred from the absence of a normal read.
+        logger.warning(
+            "experiment_override_served experiment_id=%s run_id=%s manifest_key=%s instruction_key=%s",
+            ticket.experiment_id,
+            ticket.run_id,
+            manifest_key,
+            instruction_key,
+        )
+        _emit_metric(
+            "broker_experiment_override_served",
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "experiment_id", "Value": ticket.experiment_id},
+            ],
+        )
+    else:
+        manifest_key = f"{req.experiment_id}/manifest.json"
+        instruction_key = f"{req.experiment_id}/instruction.md"
+        manifest_version_id = req.manifest_version_id
+        instruction_version_id = req.instruction_version_id
+        manifest_cap = None
+        instruction_cap = None
 
     # The index entry lists every attachment key the publisher uploaded. Fetch
     # only those — never trust a runner-supplied basename to map into an S3
@@ -781,9 +881,10 @@ def experiment_manifest(
         bucket,
         manifest_key,
         ticket.run_id,
-        req.manifest_version_id,
+        manifest_version_id,
         "manifest",
-        None,
+        manifest_cap,
+        cache=override is None,
     )
     fut_i = ex.submit(
         _fetch_object_cached,
@@ -791,9 +892,10 @@ def experiment_manifest(
         bucket,
         instruction_key,
         ticket.run_id,
-        req.instruction_version_id,
+        instruction_version_id,
         "instruction",
-        None,
+        instruction_cap,
+        cache=override is None,
     )
     attachment_futures = [
         (
@@ -843,7 +945,7 @@ def experiment_manifest(
             ticket.run_id,
             manifest_key,
             bucket,
-            req.manifest_version_id,
+            manifest_version_id,
             exc_info=True,
         )
         _emit_metric(
@@ -863,7 +965,7 @@ def experiment_manifest(
             req.experiment_id,
             ticket.run_id,
             instruction_key,
-            req.instruction_version_id,
+            instruction_version_id,
             exc_info=True,
         )
         _emit_metric(

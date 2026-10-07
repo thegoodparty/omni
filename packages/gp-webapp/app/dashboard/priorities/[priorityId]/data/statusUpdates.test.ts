@@ -35,6 +35,75 @@ describe('applyStatusUpdate', () => {
     })
   })
 
+  it('keeps a stored check on a patch that does not carry one', () => {
+    const current = {
+      ...emptyPriorityStatus(),
+      steps: emptyPriorityStatus().steps.map((s) =>
+        s.id === 'define'
+          ? {
+              ...s,
+              state: 'settled' as const,
+              check: {
+                state: 'out' as const,
+                who: 'Renters on Maple',
+                question: 'Is this it?',
+                raised: 0,
+              },
+            }
+          : s,
+      ),
+    }
+    const { status } = applyStatusUpdate(current, {
+      steps: [{ id: 'define', state: 'settled', summary: 'Potholes' }],
+    })
+    expect(status.steps.find((s) => s.id === 'define')?.check?.state).toBe(
+      'out',
+    )
+  })
+
+  it('counts a deferral recorded over a deferral, as the server does', () => {
+    const deferred = parseStatusUpdate({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          check: { state: 'deferred', when: 'after the hearing' },
+        },
+      ],
+    })
+    if (deferred === null) throw new Error('expected a parsed update')
+    const once = applyStatusUpdate(emptyPriorityStatus(), deferred).status
+    const twice = applyStatusUpdate(once, deferred).status
+    expect(twice.steps.find((s) => s.id === 'define')?.check).toMatchObject({
+      state: 'deferred',
+      when: 'after the hearing',
+      raised: 1,
+    })
+  })
+
+  it('never shows a check on a step that is not a gate', () => {
+    const { status } = applyStatusUpdate(emptyPriorityStatus(), {
+      steps: [
+        {
+          id: 'listen_problem',
+          state: 'settled',
+          check: { state: 'confirmed' },
+        },
+      ],
+    })
+    const listen = status.steps.find((s) => s.id === 'listen_problem')
+    expect(listen?.state).toBe('settled')
+    expect(listen?.check).toBeUndefined()
+  })
+
+  it('still moves the step when the check is malformed', () => {
+    expect(
+      parseStatusUpdate({
+        steps: [{ id: 'define', state: 'settled', check: { state: 'maybe' } }],
+      }),
+    ).toEqual({ steps: [{ id: 'define', state: 'settled' }] })
+  })
+
   it('keeps a stored summary when the patch omits one', () => {
     const current = {
       ...emptyPriorityStatus(),
@@ -110,6 +179,63 @@ describe('applyStatusUpdate', () => {
     })
     expect(changes).toEqual([])
   })
+
+  // The server's applyUpdate enforces one active step. The client mirror has
+  // to agree, or the live rail and the replayed markers drift from it.
+  it('demotes the previously active step when another opens', () => {
+    const base = emptyPriorityStatus()
+    const defining = {
+      ...base,
+      steps: base.steps.map((s) =>
+        s.id === 'define'
+          ? { ...s, state: 'active' as const, summary: 'The bridge' }
+          : s,
+      ),
+    }
+    const { status, changes } = applyStatusUpdate(defining, {
+      steps: [{ id: 'evidence', state: 'active' }],
+    })
+    expect(status.steps.filter((s) => s.state === 'active')).toHaveLength(1)
+    expect(status.steps.find((s) => s.id === 'define')).toMatchObject({
+      state: 'open',
+      summary: 'The bridge',
+    })
+    expect(changes).toEqual([
+      { id: 'evidence', from: 'open', to: 'active', backwards: false },
+      { id: 'define', from: 'active', to: 'open', backwards: false },
+    ])
+  })
+
+  it('keeps the last active step when one call opens two', () => {
+    const { status, changes } = applyStatusUpdate(emptyPriorityStatus(), {
+      steps: [
+        { id: 'define', state: 'active' },
+        { id: 'evidence', state: 'active' },
+      ],
+    })
+    expect(
+      status.steps.filter((s) => s.state === 'active').map((s) => s.id),
+    ).toEqual(['evidence'])
+    // define went open -> active -> open inside one call: no net move, so no
+    // marker for it.
+    expect(changes).toEqual([
+      { id: 'evidence', from: 'open', to: 'active', backwards: false },
+    ])
+  })
+
+  it('does not demote when a call only settles a step', () => {
+    const base = emptyPriorityStatus()
+    const defining = {
+      ...base,
+      steps: base.steps.map((s) =>
+        s.id === 'define' ? { ...s, state: 'active' as const } : s,
+      ),
+    }
+    const { status } = applyStatusUpdate(defining, {
+      steps: [{ id: 'evidence', state: 'settled' }],
+    })
+    expect(status.steps.find((s) => s.id === 'define')?.state).toBe('active')
+  })
 })
 
 describe('describeStepChange', () => {
@@ -121,7 +247,7 @@ describe('describeStepChange', () => {
         to: 'settled',
         backwards: false,
       }),
-    ).toBe('Settled what we know')
+    ).toBe('Done with what we know')
   })
 
   it('says a step went back when it did', () => {

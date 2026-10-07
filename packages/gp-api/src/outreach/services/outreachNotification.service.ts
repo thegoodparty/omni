@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { parseISO } from 'date-fns'
 import { Campaign, OutreachType, User } from '../../generated/prisma'
 import { ZodValidationException } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
@@ -19,6 +20,8 @@ import {
   SlackMessageType,
 } from 'src/vendors/slack/slackService.types'
 import { getPeerlyJobUrl } from 'src/vendors/peerly/utils/peerlyJobUrl.util'
+import { resolveSendWindowTimeZone } from 'src/vendors/peerly/utils/sendWindowTimeZone.util'
+import { formatScheduledSend } from '../util/scheduledSendLabel.util'
 import {
   AudienceSlackBlock,
   buildSlackBlocks,
@@ -221,6 +224,22 @@ export class OutreachNotificationService {
     )
   }
 
+  /**
+   * Alert CAS when a robocall could not send because the CallHub account is
+   * out of credit. Actionable (top up the account) where the generic failure
+   * log is not, and fires in the channel CAS already watches. Best-effort.
+   */
+  async notifyRobocallLowCredit(
+    campaignSlug: string,
+    outreachId: number,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `⚠️ Robocall could not send — the CallHub account is out of credit. ` +
+        `Top up CallHub to resume. ${campaignSlug} · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
   private async postRobocallLine(
     text: string,
     outreachId: number,
@@ -302,6 +321,17 @@ export class OutreachNotificationService {
       )
     }
 
+    // The same zone Peerly books the send in: the row's didState for a text,
+    // the campaign's state otherwise (a robocall has no didState).
+    const scheduledSend = formatScheduledSend({
+      date: outreach.date,
+      scheduledLocalDate: outreach.scheduledLocalDate,
+      scheduledLocalTime: outreach.scheduledLocalTime,
+      timeZone: resolveSendWindowTimeZone(
+        outreach.didState ?? campaign.details?.state,
+      ),
+    })
+
     return buildSlackBlocks({
       name: `${(user.firstName || '').trim()} ${(user.lastName || '').trim()}`,
       email: user.email,
@@ -310,7 +340,7 @@ export class OutreachNotificationService {
       crmCompanyId,
       voterFileUrl,
       type: outreach.outreachType,
-      date: outreach.date ?? undefined,
+      scheduledSend,
       script,
       ...(outreach.imageUrl ? { imageUrl: outreach.imageUrl } : {}),
       message: outreach.message ? sanitizeHtml(outreach.message) : '',
@@ -380,9 +410,20 @@ export class OutreachNotificationService {
         ? createOutreachDto.script.slice(0, 200)
         : 'None'
 
-    const dateText = createOutreachDto?.date
-      ? String(createOutreachDto.date)
-      : 'Not provided'
+    // The failure notice renders the same local label as the request
+    // notice. The DTO here may be the raw body of a rejected request, so an
+    // unparseable date falls back to the string as sent.
+    const dateText =
+      typeof createOutreachDto?.date === 'string'
+        ? (formatScheduledSend({
+            date: parseISO(createOutreachDto.date),
+            scheduledLocalDate: createOutreachDto.date.slice(0, 10),
+            scheduledLocalTime: createOutreachDto.scheduledLocalTime,
+            timeZone: resolveSendWindowTimeZone(
+              createOutreachDto.didState ?? campaign?.details?.state,
+            ),
+          }) ?? createOutreachDto.date)
+        : 'Not provided'
     const outreachTypeText = createOutreachDto?.outreachType
       ? String(createOutreachDto.outreachType)
       : 'Unknown'

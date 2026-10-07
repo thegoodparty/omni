@@ -4,6 +4,7 @@ import { createClerkClient } from '@clerk/backend'
 import { SingleBar, Presets } from 'cli-progress'
 import pmap from 'p-map'
 import { clerkThrottle } from '../src/vendors/clerk/util/clerkThrottle.util'
+import { isPrismaError } from '../src/prisma/util/prismaErrors.util'
 import { FIXED_EMAILS } from '../seed/users'
 
 const PRESERVE_FIXED = process.argv.includes('--preserve-fixed')
@@ -60,12 +61,24 @@ const fetchAllClerkUserIds = async (): Promise<string[]> => {
 }
 
 const fetchLocalClerkIds = async (): Promise<string[]> => {
-  const localUsers = await prisma.user.findMany({
-    where: { clerkId: { not: null } },
-    select: { clerkId: true, email: true },
-  })
+  try {
+    const localUsers = await prisma.user.findMany({
+      where: { clerkId: { not: null } },
+      select: { clerkId: true, email: true },
+    })
 
-  return localUsers.filter((u) => !isPreserved(u.email)).map((u) => u.clerkId!)
+    return localUsers
+      .filter((u) => !isPreserved(u.email))
+      .map((u) => u.clerkId!)
+  } catch (err) {
+    // First-ever run against a freshly created Postgres database: no
+    // migrations have been applied yet, so `user` doesn't exist. That
+    // structurally means there are no local Clerk-linked users to clean up —
+    // `prisma migrate reset --force`, which runs right after this script,
+    // creates the table from scratch anyway.
+    if (isPrismaError(err, 'P2021')) return []
+    throw err
+  }
 }
 
 const deleteClerkUsers = async (userIds: string[]) => {
@@ -118,8 +131,15 @@ const main = async () => {
 
   if (!SKIP_DB) {
     console.log('Deleting all local DB users...')
-    const { count } = await prisma.user.deleteMany()
-    console.log(`Deleted ${count} local DB user(s)`)
+    try {
+      const { count } = await prisma.user.deleteMany()
+      console.log(`Deleted ${count} local DB user(s)`)
+    } catch (err) {
+      // Same fresh-database case as the findMany guard above: before the
+      // first migration there is no User table to clean (P2021).
+      if (!isPrismaError(err, 'P2021')) throw err
+      console.log('No User table yet (fresh database) - nothing to delete')
+    }
   }
 
   console.log('Done.')

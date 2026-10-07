@@ -34,7 +34,6 @@ import {
   useSeedOutreachDetail,
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
-import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { clientRequest } from 'gpApi/typed-request'
 
@@ -116,9 +115,6 @@ const ConstituentOutreachContent = () => {
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
   const seedOutreachDetail = useSeedOutreachDetail()
-  // Whether this rail offers door knocking at all. The door-knocking page gate
-  // is the treatment surface, so no exposure is tracked here.
-  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
 
   // Mirrors OutreachHubPage's cache seeding: the save response is the
   // created row, so the drawer and the "N platforms" metric never refetch
@@ -188,6 +184,51 @@ const ConstituentOutreachContent = () => {
     }
   }
 
+  // The list is SEEDED from `page.tsx` into `useState`, so it is only as
+  // fresh as the last time this route's RSC ran — and returning here from
+  // another route can be served from the client router cache without
+  // re-running it. Door knocking is what exposed this: it leaves to whichever
+  // hub the org belongs to, so a campaign the flow just created was missing
+  // from this table exactly as it was from Win's.
+  //
+  // One GET on mount settles it, and costs the same whoever arrives. Fixed
+  // here rather than at each departure for the reason `OutreachHubPage` gives
+  // beside its own copy of this: a `router.refresh()` per exit is the same
+  // fix written once per exit and forgotten on the next one.
+  //
+  // No settle flag, unlike Win's: the `?outreachId=` effect below resolves
+  // against whatever rows are loaded and simply runs again when the refetch
+  // lands. And no `.catch()`: `refetchOutreaches` already swallows both
+  // failure levels.
+  useEffect(() => {
+    void refetchOutreaches()
+    // Mount only: a refetch keyed on anything else would fire under the
+    // drawer while the official is reading it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A chat card's send opens here on its own row's drawer. The seeded rows
+  // are tried first and the mount refetch after, so a send made since this
+  // route's RSC last ran still finds its row.
+  const outreachIdParam = searchParams?.get('outreachId')
+  const outreachDeepLinkRef = useRef<string | null>(null)
+  useEffect(() => {
+    // Cleared once the param is gone, so a later link to the same send (the
+    // same chip pressed again from the chat dock) opens it again.
+    if (!outreachIdParam) {
+      outreachDeepLinkRef.current = null
+      return
+    }
+    if (outreachDeepLinkRef.current === outreachIdParam) return
+    const row = (outreaches ?? []).find(
+      (candidate) => String(candidate.id) === outreachIdParam,
+    )
+    if (!row) return
+    outreachDeepLinkRef.current = outreachIdParam
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (isDrawerRow(row)) setDetailsRow(row)
+  }, [outreachIdParam, outreaches, router])
+
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
       <ServeChannelCards
@@ -202,10 +243,7 @@ const ConstituentOutreachContent = () => {
         // the wizard like the other two cards open theirs, rather than landing
         // on the rail and asking for one more press.
         onDoorKnockingClick={() =>
-          router.push('/dashboard/door-knocking?create=1')
-        }
-        showDoorKnocking={
-          nativeDoorKnocking.ready && nativeDoorKnocking.enabled
+          router.push('/dashboard/door-knocking?create=1&source=outreach_page')
         }
       />
       <SocialFlow
@@ -217,6 +255,7 @@ const ConstituentOutreachContent = () => {
         onSaved={handleSocialSaved}
         surface={SERVE_SOCIAL_SURFACE}
         prefill={socialPrefill ?? undefined}
+        source="outreach_page"
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
@@ -229,6 +268,7 @@ const ConstituentOutreachContent = () => {
         onSaved={handlePhoneBankingSaved}
         surface={SERVE_PHONE_BANKING_SURFACE}
         preselectedListId={followUpListId}
+        source="outreach_page"
       />
       {/* Mounted only behind the flag, not merely rendered closed: with the
           flag off there is no flow in the tree at all, so no Serve SMS
@@ -242,6 +282,7 @@ const ConstituentOutreachContent = () => {
           onClose={() => setSmsFlowOpen(false)}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
+          source="outreach_page"
         />
       )}
       <OutreachHistoryTable

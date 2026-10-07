@@ -13,13 +13,20 @@ import {
 } from '@/contacts/services/contacts.service'
 import {
   MAX_AUDIENCE_RECIPIENTS,
+  MAX_INTERACTIVE_RESOLUTION_MS,
   resolveFilterAudience,
 } from '@/contacts/utils/audienceResolution.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ISO_DATE_ONLY_RE } from '@/shared/util/date.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import {
+  resolveProposalLink,
+  type ProposalOutreachLink,
+} from '@/priorities/util/proposalLink.util'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { OutreachStatus, OutreachType } from '../../generated/prisma'
+import type { ProposalLink } from '@goodparty_org/contracts'
+import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
+import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 
 /**
  * The Serve SMS draft-first create: `POST /v1/outreach/serve/sms`.
@@ -179,9 +186,14 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
    * than repricing an existing one behind a checkout session that may already
    * be open against it.
    */
+  resolveProposalLink(link: ProposalLink, electedOfficeId: string) {
+    return resolveProposalLink(this.client, link, electedOfficeId)
+  }
+
   async createDraft(
     organizationSlug: string,
     input: ServeSmsCreateRequest,
+    link: ProposalOutreachLink = {},
   ): Promise<ServeSmsCreateResponse> {
     // Cheapest rejection first: no point resolving an audience for a date
     // fulfilment cannot work.
@@ -230,6 +242,15 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       limitExceededMessage:
         `This list reaches over the ${MAX_AUDIENCE_RECIPIENTS} constituent ` +
         'limit — narrow the list and try again.',
+      // Same clock as the phone-list upload, and for the same reason: this runs
+      // on a request, nothing has been paid for yet, and a draft the gateway
+      // killed at ~120s is a pay step the official never reaches. A refusal
+      // naming the count is something they can act on.
+      timeBudgetMs: MAX_INTERACTIVE_RESOLUTION_MS,
+      budgetExceededMessage: ({ matchedCount, affordableCount }) =>
+        `This list reaches ${matchedCount} constituents — too many to quote ` +
+        `while you wait (about ${affordableCount} right now). Narrow the list ` +
+        `and try again.`,
     })
 
     // A generator's RETURN value carries the duplicate count, and
@@ -252,31 +273,42 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       )
     }
 
-    const outreach = await this.model.create({
-      data: {
-        // Serve scope: org only, never a campaign. The Outreach CHECK
-        // enforces exactly one scoping path.
-        campaignId: null,
-        organizationSlug,
-        outreachType: OutreachType.text,
-        // The payment handler's CAS moves this to `pending`. Nothing else
-        // may: the create schema refuses a client-sent status.
-        status: OutreachStatus.pending_payment,
-        name: input.name,
-        message: input.message,
-        imageUrl: input.imageUrl ?? null,
-        // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
-        // null: Serve sends at a fixed 11am local, so there is no chosen
-        // time to store, and completion is derived as
-        // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
-        scheduledLocalDate: input.scheduledLocalDate,
-        voterFileFilterId: input.voterFileFilterId,
-        // Server-derived, and the only number the purchase handler prices
-        // from.
-        textCount: recipientCount,
-      },
-      select: { id: true },
-    })
+    const data = {
+      // Serve scope: org only, never a campaign. The Outreach CHECK
+      // enforces exactly one scoping path.
+      campaignId: null,
+      organizationSlug,
+      outreachType: OutreachType.text,
+      // The payment handler's CAS moves this to `pending`. Nothing else
+      // may: the create schema refuses a client-sent status.
+      status: OutreachStatus.pending_payment,
+      name: input.name,
+      message: input.message,
+      imageUrl: input.imageUrl ?? null,
+      // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
+      // null: Serve sends at a fixed 11am local, so there is no chosen
+      // time to store, and completion is derived as
+      // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
+      scheduledLocalDate: input.scheduledLocalDate,
+      voterFileFilterId: input.voterFileFilterId,
+      // Server-derived, and the only number the purchase handler prices
+      // from.
+      textCount: recipientCount,
+      ...link,
+    } satisfies Prisma.OutreachUncheckedCreateInput
+    const outreach =
+      link.proposalKey === undefined
+        ? await this.model.create({ data, select: { id: true } })
+        : await createUnderProposalKey(
+            this.client,
+            {
+              proposalKey: link.proposalKey,
+              organizationSlug,
+              outreachType: OutreachType.text,
+            },
+            (tx) => tx.outreach.create({ data, select: { id: true } }),
+            async (id) => ({ id }),
+          )
 
     this.logger.info(
       {

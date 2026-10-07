@@ -87,7 +87,7 @@ test.describe('campaign story flow', () => {
     ).toBeVisible({ timeout: 30000 })
   })
 
-  test('campaign plan tab gates an incomplete story behind a link to the campaign manager', async ({
+  test('campaign plan tab generates without asking, and invites the story alongside it', async ({
     page,
   }) => {
     // Dedicated user: this scenario depends on the story being empty, so it
@@ -96,27 +96,31 @@ test.describe('campaign story flow', () => {
 
     await page.goto('/dashboard/campaign-plan')
 
-    // No plan + incomplete story -> the gate, not a redirect to /dashboard.
-    await expect(
-      page.getByRole('heading', {
-        name: /your campaign plan starts with your story/i,
-      }),
-    ).toBeVisible({ timeout: 30000 })
+    // The story-pinned card is on the plan itself, so reaching it proves the
+    // plan rendered rather than a gate standing in front of it.
+    const storyLink = page.getByRole('link', { name: /add your story/i })
+    await expect(storyLink).toBeVisible({ timeout: 30000 })
 
-    // The gate's incomplete-state CTA links to /dashboard?personalize=1, which
-    // opens the Campaign Manager chat straight into the story intake (rather
-    // than showing the meet-card home), so assert the intake copy the chat
-    // streams, not the meet-card heading (which is hidden once the chat opens).
-    await page
-      .getByRole('link', { name: /open your campaign manager/i })
-      .click()
+    // Nobody generates their own plan: opening the tab is the request, so
+    // there is nothing here to press. Asserted by role+name rather than by
+    // the old gate's heading, which would pass simply by having been deleted.
+    await expect(
+      page.getByRole('button', { name: /generate my campaign plan/i }),
+    ).toHaveCount(0)
+
+    // The story is still invited, via the same /dashboard?personalize=1 deep
+    // link, which opens the Campaign Manager chat straight into the story
+    // intake (rather than showing the meet-card home) — so assert the intake
+    // copy the chat streams, not the meet-card heading, which is hidden once
+    // the chat opens.
+    await storyLink.click()
     await page.waitForURL('**/dashboard**', { timeout: 30000 })
     await expect(page.getByText(/get your Campaign Story down/i)).toBeVisible({
       timeout: 30000,
     })
   })
 
-  test('"Your Story" nav item is visible and the plan tab reads "Campaign Tracker"', async ({
+  test('"Your Story" nav item is visible and the plan tab reads "Campaign Plan"', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
@@ -126,7 +130,7 @@ test.describe('campaign story flow', () => {
 
     await expect(page.locator('#campaign-story-dashboard')).toBeVisible()
     await expect(page.locator('#campaign-plan-dashboard')).toHaveText(
-      /campaign tracker/i,
+      /campaign plan/i,
     )
   })
 

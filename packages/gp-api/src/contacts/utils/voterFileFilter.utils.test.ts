@@ -5,7 +5,23 @@ import {
   PACK_AGE_BUCKETS,
   encodeAgeBucket,
 } from '@goodparty_org/contracts'
-import { convertVoterFileFilterToFilters } from './voterFileFilter.utils'
+import {
+  convertVoterFileFilterToFilters,
+  savedFilterBlockedForElectedOffice,
+} from './voterFileFilter.utils'
+
+describe('convertVoterFileFilterToFilters shape names', () => {
+  // The one array column that is not criteria. Through the generic branch
+  // it would become an `in` filter on a voter column that does not exist.
+  it('never turns a boundary part name into a filter', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        genderFemale: true,
+        geoPolyLabels: [{ name: 'Downtown', color: '#2563eb' }],
+      }),
+    ).toEqual(convertVoterFileFilterToFilters({ genderFemale: true }))
+  })
+})
 
 // ENG-10752: the wizard offers mutually exclusive ranges; rows saved before
 // the change keep the exact (overlapping) bounds they were created with.
@@ -259,5 +275,40 @@ describe('excludes recommendation provenance from the payload', () => {
         recommendedIntent: 'persuade',
       }),
     ).toEqual({ politicalParty: { eq: 'Democratic' } })
+  })
+})
+
+describe('savedFilterBlockedForElectedOffice', () => {
+  it('blocks a saved list carrying a party filter', () => {
+    expect(savedFilterBlockedForElectedOffice({ partyDemocrat: true })).toBe(
+      true,
+    )
+  })
+
+  it('blocks ethnicity, ideology, affinity, and contacts-made filters', () => {
+    expect(savedFilterBlockedForElectedOffice({ ethnicityAsian: true })).toBe(
+      true,
+    )
+    expect(
+      savedFilterBlockedForElectedOffice({ ideologyConservative: true }),
+    ).toBe(true)
+    expect(
+      savedFilterBlockedForElectedOffice({ independentAffinity: true }),
+    ).toBe(true)
+    // contacts-made never reaches the converted FilterObject, so this proves
+    // the predicate's raw-input branch.
+    expect(savedFilterBlockedForElectedOffice({ contactsMade0: true })).toBe(
+      true,
+    )
+  })
+
+  it('allows a list built only from Serve-safe dimensions', () => {
+    expect(
+      savedFilterBlockedForElectedOffice({
+        genderFemale: true,
+        hasLandline: true,
+        audienceSuperVoters: true,
+      }),
+    ).toBe(false)
   })
 })

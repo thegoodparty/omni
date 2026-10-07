@@ -3,12 +3,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   EXPECTED_PROD_RECEIVERS,
+  groupFor,
   misroutedAlerts,
   PolicyTree,
   receiverFor,
   samePolicyTree,
 } from './alert-routing'
 import { provisionedAlertSlugs } from './provisioned-alerts'
+import { routeErrorAlerts } from './route-alerts'
 
 const POLICY: PolicyTree = JSON.parse(
   readFileSync(join(__dirname, 'alert-routing.policy.json'), 'utf8'),
@@ -67,6 +69,67 @@ describe('routing every provisioned alert', () => {
   // modelled as an empty string.
   it('treats an alert with no environment label as non-prod', () => {
     expect(receiverFor(POLICY, { alert_slug: 'gp-api-5xx' })).toBe('nowhere')
+  })
+})
+
+// The lost alert of 2026-09-30. POST /v1/domains/search fired at 18:16:40 UTC
+// and was delivered. POST /v1/domains/purchase fired on the same rule at
+// 18:17:07, joined the group search had already notified, waited out the
+// 5-minute group_interval, resolved inside it, and was delivered only as
+// resolved, which pages nobody. A group per endpoint gives the second
+// route its own group_wait delivery.
+describe('grouping route alerts', () => {
+  const SLUG = 'route-errors-win'
+  const SEARCH = 'POST /v1/domains/search'
+  const PURCHASE = 'POST /v1/domains/purchase'
+  const labelsFor = (endpoint: string) => ({
+    environment: 'prod',
+    alert_slug: SLUG,
+    request_endpoint: endpoint,
+  })
+
+  it('checks a slug the route rules really provision', () => {
+    expect(routeErrorAlerts().map((alert) => alert.slug)).toContain(SLUG)
+  })
+
+  it('puts two endpoints firing on one rule in different groups', () => {
+    expect(groupFor(POLICY, labelsFor(SEARCH))).toEqual({
+      alert_slug: SLUG,
+      request_endpoint: SEARCH,
+    })
+    expect(groupFor(POLICY, labelsFor(SEARCH))).not.toEqual(
+      groupFor(POLICY, labelsFor(PURCHASE)),
+    )
+  })
+
+  it('would have put them in one group under the old policy', () => {
+    const old: PolicyTree = { ...POLICY, group_by: ['alert_slug'] }
+
+    expect(groupFor(old, labelsFor(SEARCH))).toEqual(
+      groupFor(old, labelsFor(PURCHASE)),
+    )
+  })
+
+  it('still groups an alert with no endpoint by slug alone', () => {
+    expect(
+      groupFor(POLICY, { environment: 'prod', alert_slug: 'gp-api-5xx' }),
+    ).toEqual({ alert_slug: 'gp-api-5xx' })
+  })
+
+  it('lets a nested route override the inherited grouping', () => {
+    const tree: PolicyTree = {
+      receiver: 'root',
+      group_by: ['alert_slug', 'request_endpoint'],
+      routes: [
+        {
+          receiver: 'child',
+          group_by: ['alert_slug'],
+          object_matchers: [['environment', '=', 'prod']],
+        },
+      ],
+    }
+
+    expect(groupFor(tree, labelsFor(SEARCH))).toEqual({ alert_slug: SLUG })
   })
 })
 

@@ -51,9 +51,9 @@ describe('channelPickerHref', () => {
         kind: 'list',
         segment: { id: 42, name: 'GOTV' },
       }),
-    ).toBe('/dashboard/door-knocking?create=1&listId=42')
+    ).toBe('/dashboard/door-knocking?create=1&source=voter_data&listId=42')
     expect(channelPickerHref('doorKnocking', { kind: 'universe' })).toBe(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=voter_data',
     )
   })
 
@@ -71,7 +71,9 @@ describe('channelPickerHref', () => {
         kind: 'recommended',
         recommendation: RECOMMENDATION,
       }),
-    ).toBe('/dashboard/door-knocking?create=1&recommended=persuadeAffinity')
+    ).toBe(
+      '/dashboard/door-knocking?create=1&source=voter_data&recommended=persuadeAffinity',
+    )
   })
 
   it('carries a recommendation the candidate already saved as that list', () => {

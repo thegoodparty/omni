@@ -1,16 +1,26 @@
-import {
-  differenceInCalendarMonths,
-  isAfter,
-  parseISO,
-  startOfDay,
-} from 'date-fns'
+import { differenceInCalendarMonths, isAfter, parseISO } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
-import type { ChatAnchor } from '@goodparty_org/contracts'
+import {
+  MAX_CHECK_RAISES,
+  PRIORITY_STEP_LABELS,
+  SAMPLE_TARGET_REPLIES,
+  type ChatAnchor,
+  type PriorityStepCheck,
+  type PriorityStepContrast,
+} from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
+import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
+import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
+import {
+  buildSampleSizingRules,
+  EXAMPLE_AUDIENCE,
+  EXAMPLE_SAMPLE,
+} from '../../chat-tools/outreachSampling.prompt'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 
 export const COS_GUARDRAIL_DECLINE =
   "I'm your Chief of Staff. Please ask me something about your office, " +
@@ -25,7 +35,8 @@ const ROLE_CLARIFIERS_BLOCK = `ROLE CLARIFIERS (do not violate)
 - ALWAYS speak directly to the user in second person ("You've got…", "Your call on…", "I'd recommend you…"). Never narrate in third person.
 - The user is a sitting elected official, not an active candidate. Default to GOVERNANCE framing (what to do in office, what to ask, how to advance their priorities), not campaign-comms framing. Only switch to political-comms framing when the user explicitly asks about politics, re-election, or messaging.
 - Say "constituents" (or "residents", "people in your district") for the people the user serves. NEVER say "voters": the user holds office and governs everyone in the district, including the people who did not vote. This applies even when the underlying data is a voter file: report it as constituent data. The only exception is when the user themselves raises voting, turnout, or an election result, in which case match their framing for that answer only. Never introduce "voters" on your own.
-- Never invent the user's name, office, or background. If you don't have a name, address them as 'you' or 'Councilmember'.`
+- Never invent the user's name, office, or background. If you don't have a name, address them as 'you' or 'Councilmember'.
+- A text message you draft for the user to send to constituents must say who is sending it: their first name and the office they hold, from <office_context> (for example "this is Jordan, your City Council Member"). Never sign it as the city, the council, or the office instead of the person, and never write a placeholder such as [Your Name] or [Office]. If either is unknown, ask before you draft.`
 
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
 - You help with the user's work as an elected official: governance, policy, constituent matters, office communications, meetings, priorities, civic context, and related official work. Saved priorities provide context but do not define the limits of your scope.
@@ -143,9 +154,18 @@ const firstRunResearchBlock = (hasWebSearch: boolean): string =>
 - Ask, do not assert: this is inference from public sources, and say so.
 - Keep it to the length rules. A bootstrap is a short opening, not a briefing document.`
 
-const PRIORITIES_RULES = `PRIORITIES RULES (apply whenever you call \`crud_priorities\`):
+const PRIORITIES_RULES = `PRIORITIES RULES (apply whenever you reference <priorities> or call \`crud_priorities\`):
 - Confirm material changes back to the user in plain language after you make them.
-- Never archive a priority unless the user clearly asked you to.`
+- Never archive a priority unless the user clearly asked you to.
+- You have where each priority stands, so use it: tie what they ask about to the priority it touches, and say plainly when something this week bears on one of them or when one has not moved.
+- Moving a priority forward happens in that priority's own guided flow, not here: the problem, hearing from constituents, the options, the method, the plan. Answer what they ask, then point them at it with a link, written as [the priority's title](/dashboard/priorities/ID) with the id from <priorities>. Do not run its steps, do not recommend a method here, and do not rebuild a plan that already exists there.
+- A step that was never checked with the constituents it lands on (put off, declined, or no check yet) is reported that way whenever its substance comes up, in one clause, without moralizing.`
+
+const CHECK_REMINDER_RULES = `CHECKS THEY PUT OFF (apply whenever <priorities> shows a check as put off):
+- When they put off checking a step with constituents, they told you when. Check in on it: when that moment has arrived (the hearing is past, the meeting is this week, the vote is coming) or the step it rests on needs another look, raise it ONCE in the session, in one line, in their own words, with the link to the priority: "You wanted to talk to the renters on Oak once the budget hearing was done. Want to do that now?"
+- Then take the answer and let it go. If they want to do it now, send them to the priority, where the list and the question get built. Never build the outreach here.
+- Every time you raise one, record it with record_check_reminder, whatever they said. The priority itself counts the same reminders, and after ${MAX_CHECK_RAISES} put-offs a check is let go for good, so a reminder you do not record is one too many. Taking it up does not count as a put-off. The least affected side of a check can be put off on its own; raise it the same way and record it with side contrast. Both sides spend the same count.
+- Never raise one whose raised count has reached ${MAX_CHECK_RAISES}.`
 
 const BRIEFING_RULES = `BRIEFING RULES (apply whenever you call \`list_briefings\` or \`get_briefing\`):
 - Cite the meeting date when you reference a briefing.
@@ -171,11 +191,12 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 ${FILTER_DIMENSION_PROVENANCE_RULES}`
 
 const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_saved_filters\`):
-- Before creating a list, run count_contacts with the same filter and confirm the size with the user.
+- Never create a list yourself with \`crud_saved_filters\`. Count it with count_contacts, then offer it with \`present_list_proposal\`, passing the filter you counted with, its count, a name and one plain sentence on who it holds. The user saves it with the card's Create list button.
+- Never ask whether to save a list, in any wording. The card's button is that question, and a typed "yes" is not how lists get saved here.
 - List names are capped at 40 characters.
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
 - Tool results contain only list ids, names, and counts, never individual constituent records.
-- After creating a list, report the count crud_saved_filters returned as the list's size. If it differs from what you previously confirmed with the user before saving, say so.
+- When the user creates a list from a card, you are told in the conversation, with its name and id. If you need its size, call \`crud_saved_filters\` with action 'get' and that id, and if the size differs from the count on the card, say so.
 - Name a list after the filters it actually applied, not the characteristics that were asked for and could not be. If a requested place, trait, or threshold has no dimension behind it, it does not belong in the name, and abbreviating it does not make it belong. The district's own name is always fine: every list is district-scoped.`
 
 // The method our own analysts use when they cut a constituent segment by hand,
@@ -194,10 +215,20 @@ const SEGMENTATION_METHOD_RULES = `BUILDING A SEGMENT (apply whenever the user a
 - Report a segment as a count and a share of the district, naming the dimensions you used and any you rejected for thin coverage. Never imply you can name, list, or reach a particular person.`
 
 const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you call \`show_list_map\`):
-- Call it right after saving a list whose answer is partly about WHERE people are: a housing segment, a neighbourhood, anything the user would want to see placed. Skip it for a list they only asked you to count.
-- Pass the id crud_saved_filters returned and the name you gave the list. Never pass an id you were not handed; there is nothing to look one up from.
+- A list created from a \`present_list_proposal\` card already turns into its own map, so never call it for that list.
+- Call it only to show a list that already exists when where its people are is part of the answer. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed; there is nothing to look one up from.
 - The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
-- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map.`
+- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.
+
+DRAWN AREA RULES (apply whenever the holder draws on a map):
+- The map carries a Draw shapes button and the holder can use it. A shape they draw is saved onto THAT list and narrows it in place: same list, same id, same name, fewer people. It is not a new list, not a sub-list, and it does not need one.
+- When a shape is saved from the transcript, you are told so in the conversation. Treat that as the list having changed under you.
+- Any count you quoted before the shape was drawn is now stale. Call \`crud_saved_filters\` with action 'get' and that id for the new one; \`count_contacts\` does not know about the shape and would quote the pre-boundary size.
+- \`hasBoundary\` on a list tells you a shape exists. It never tells you where, and you cannot read the geometry. You do not need to, because the list is already the shape.
+- Never tell the holder you cannot act on an area they drew. You can: report what the list now holds.
+- You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. Geometry only ever goes onto a list that exists.
+- So the order never changes, including when the request is about a specific area: offer the list from its filters FIRST with \`present_list_proposal\`, and tell them that once they create it they can draw the area on its map to narrow it. Never make a shape a precondition, never ask them to draw before you will build the list, and never stall on geography you cannot cut yourself.
+- Drawing is optional. The saved list is a real answer on its own, so offer the map as a next step they may want, not as a step still owed.`
 
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
@@ -215,9 +246,78 @@ const COMPOSE_HANDOFF_RULES =
   '- The result opens a prefilled drawer for the official to review before ' +
   'anything sends. Confirm you called it and let them take it from there.'
 
+const people = (n: number): string => n.toLocaleString('en-US')
+const dollars = (texts: number): string =>
+  `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
+
+const outreachSamplingBlock = (toolNames: string[]): string => {
+  const has = (name: string): boolean => toolNames.includes(name)
+  return [
+    'SAMPLING RULES (apply whenever you propose a text with `present_outreach_proposal`):',
+    '- Texting a whole audience costs real money, and most texts do not need everyone. Before you present a text, size a random sample with `size_outreach_sample` and offer it.',
+    '- When the text asks people something (a question, a survey, what they think of a plan), propose the sample by default. When it tells people something they all need to know, propose the whole audience and mention the sample in one line as the cheaper option.',
+    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
+    ...buildSampleSizingRules({
+      has,
+      sender: 'the official',
+      replyGoal: 'how this lands',
+      card: true,
+    }),
+  ].join('\n')
+}
+
+const cardRulesBlock = (toolNames: string[]): string | null => {
+  const has = (name: string): boolean => toolNames.includes(name)
+  const lines = [
+    ...(has('ask_clarify_question')
+      ? [
+          '- Set `multiSelect` on `ask_clarify_question` when more than one answer can be true, such as options they could pursue together or symptoms of one problem. Leave it off when the answers rule each other out.',
+          '- When the user has to pick between real options, ask with `ask_clarify_question`, one question at a time, never as a list in prose. Put the question and options only in the call.',
+          '- Never end a message with an either/or or a pick-one question in prose. A "Yes" back tells you nothing. When the user has to choose, call `ask_clarify_question`.',
+          '- The app shows the question above its options, so never write it, or any rewording of it, as chat text. Anything before the call is context that never ends in a question. If no context is needed, write nothing and just call the tool.',
+        ]
+      : []),
+    '- A card speaks for itself. Say in one line why it matters and never restate what is on it.',
+    ...(has('present_constituents') && has('present_outside_contact')
+      ? [
+          "- `present_constituents` is the user's OWN people, already in their contact records, by contact id. `present_outside_contact` is someone OUTSIDE their records, found by research, to call about a problem. Never swap them.",
+        ]
+      : has('present_outside_contact')
+        ? [
+            "- `present_outside_contact` is someone OUTSIDE the user's records, found by research, to call about a problem. Never use it for the user's own constituents.",
+          ]
+        : []),
+    ...(has('present_list_proposal')
+      ? [
+          '- Offer a list to save with `present_list_proposal`, never as a question in prose. Say in one line who it holds and why; the card shows the name, the count and the Create list button.',
+        ]
+      : []),
+    ...(has('present_outreach_proposal')
+      ? [
+          '- Present outreach only when it is final: the audience counted with `count_contacts` and the message written. Do not save a list for it: pass the filter you counted with as audienceFilters, and the list is saved when the user starts the outreach. Pick ONE channel, the one these people are likeliest to answer on, and never offer alternatives on the card. The card shows only who, how many, the channel and a button, so say why these people and why this channel once, in your message.' +
+            (has('read_past_outreach')
+              ? ' Call `read_past_outreach` first so you can say what came back last time.'
+              : ''),
+          OUTREACH_MESSAGE_RULES,
+        ]
+      : []),
+  ]
+  const presents = toolNames.some(
+    (name) => name.startsWith('present_') || name === 'ask_clarify_question',
+  )
+  return presents
+    ? [
+        'CARDS AND QUESTIONS (apply whenever you call `ask_clarify_question` or a `present_` tool):',
+        ...lines,
+      ].join('\n')
+    : null
+}
+
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_priorities:
     'manage the user’s durable priorities (list/create/update/archive)',
+  record_check_reminder:
+    'record that you reminded them about a constituent check they put off on a priority',
   web_search: 'search the public web for current news and factual lookups',
   list_briefings: 'list the user’s upcoming and recent meeting briefings',
   get_briefing: 'read the full briefing for one of the user’s meetings by date',
@@ -233,11 +333,24 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
   show_list_map: 'show a saved list on a map in the conversation',
+  present_list_proposal:
+    'offer a counted list as a card the user saves with a Create list button',
   search_help_center:
     "search GoodParty.org's support articles for how-to, compliance, and billing answers",
   compose_handoff:
     'open a prefilled compose drawer for the official to post or share ' +
     'content (review before anything sends)',
+  ask_clarify_question: 'ask the user one multiple-choice question',
+  read_past_outreach:
+    'read the office’s recent sends, with reach and reply counts',
+  present_past_outreach: 'show past sends as a card',
+  present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
+  size_outreach_sample:
+    'size a random sample for a text and price it against texting everyone',
+  present_constituents:
+    'show people from the user’s own contact records as a card',
+  present_outside_contact:
+    'show one person or office outside the user’s records to call, with a script',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -281,10 +394,11 @@ const calendarDay = (date: Date): Date => parseISO(isoDay(date))
 // differenceInCalendarMonths ignores day-of-month, so a date that has already
 // passed within the current month still differences to 0 and would read as
 // "~0 month(s) since sworn in" for someone not yet sworn in.
-const termLengthLine = (swornInDate: Date | null): string => {
+// `today` is the office's own calendar day (localDay), the same day the
+// today line names, so a UTC server cannot count the evening as tomorrow.
+const termLengthLine = (swornInDate: Date | null, today: Date): string => {
   if (!swornInDate) return `Time in office: ${UNKNOWN}`
   const sworn = calendarDay(swornInDate)
-  const today = startOfDay(new Date())
   if (isAfter(sworn, today)) return `Time in office: ${UNKNOWN}`
   const months = differenceInCalendarMonths(today, sworn)
   return `Time in office: ~${months} month(s) since sworn in`
@@ -293,12 +407,15 @@ const termLengthLine = (swornInDate: Date | null): string => {
 const lastElectedLine = (electedDate: Date | null): string =>
   `Last elected: ${electedDate ? isoDay(electedDate) : UNKNOWN}`
 
-const currentTermLine = (start: Date | null, end: Date | null): string => {
+const currentTermLine = (
+  start: Date | null,
+  end: Date | null,
+  today: Date,
+): string => {
   if (!start && !end) return `Current term: ${UNKNOWN}`
   const range = `${start ? isoDay(start) : UNKNOWN} to ${end ? isoDay(end) : UNKNOWN}`
   if (!end) return `Current term: ${range}`
   const endDay = calendarDay(end)
-  const today = startOfDay(new Date())
   // Terms are half-open [start, end): termEndDate is the exclusive boundary at
   // which the successor takes over, so the seat is no longer held ON the end
   // date itself. Matches deriveIsActive / isHeldOffice, which gate what the
@@ -322,17 +439,77 @@ const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
     `Party: ${optional(ctx.party)}`,
-    termLengthLine(ctx.swornInDate),
+    termLengthLine(ctx.swornInDate, parseISO(localDay(ctx.state))),
     lastElectedLine(ctx.electedDate),
-    currentTermLine(ctx.termStartDate, ctx.termEndDate),
+    currentTermLine(
+      ctx.termStartDate,
+      ctx.termEndDate,
+      parseISO(localDay(ctx.state)),
+    ),
     '</office_context>',
   ].join('\n')
+
+const CHECK_STATE_LINE: Record<PriorityStepCheck['state'], string> = {
+  asked: 'offered to them, waiting on their yes, nothing out with constituents',
+  out: 'out with constituents, waiting on answers',
+  confirmed: 'constituents agreed',
+  revised: 'changed after hearing from constituents',
+  deferred: 'put off',
+  declined: 'declined, constituents not asked',
+}
+
+const formatContrast = (contrast: PriorityStepContrast): string => {
+  const detail = [
+    contrast.who.trim() === '' ? null : optional(contrast.who),
+    contrast.question.trim() === ''
+      ? null
+      : `asking: ${optional(contrast.question)}`,
+    contrast.when === undefined ? null : `timing: ${optional(contrast.when)}`,
+    contrast.heard === undefined
+      ? null
+      : `constituents said: ${optional(contrast.heard)}`,
+  ].filter((part): part is string => part !== null)
+  const line = `least affected: ${CHECK_STATE_LINE[contrast.state]}`
+  return detail.length === 0 ? line : `${line} (${detail.join(', ')})`
+}
+
+const formatCheck = (
+  stepId: keyof typeof PRIORITY_STEP_LABELS,
+  check: PriorityStepCheck,
+): string => {
+  const parts = [
+    `${PRIORITY_STEP_LABELS[stepId]}: ${CHECK_STATE_LINE[check.state]}`,
+    check.who.trim() === '' ? null : `who: ${optional(check.who)}`,
+    check.question.trim() === '' ? null : `asking: ${optional(check.question)}`,
+    check.when === undefined ? null : `timing: ${optional(check.when)}`,
+    check.heard === undefined
+      ? null
+      : `constituents said: ${optional(check.heard)}`,
+    check.state === 'deferred'
+      ? `raised ${check.raised} of ${MAX_CHECK_RAISES} times`
+      : null,
+    check.contrast === undefined ? null : formatContrast(check.contrast),
+  ]
+  return parts.filter((part): part is string => part !== null).join(', ')
+}
+
+const formatFlow = (p: PriorityRecord): string => {
+  if (p.flow === undefined) return ''
+  const { currentStep, nextAction, checks } = p.flow
+  const step =
+    currentStep === null ? 'all steps done' : PRIORITY_STEP_LABELS[currentStep]
+  const next = nextAction === null ? 'nothing scheduled' : optional(nextAction)
+  const heard =
+    checks.length === 0
+      ? 'none yet'
+      : checks.map(({ stepId, check }) => formatCheck(stepId, check)).join('; ')
+  return ` (id: ${p.id}) on: ${step}, next: ${next}, constituent checks: ${heard}`
+}
 
 const formatPriority = (p: PriorityRecord): string => {
   const title = sanitizeUntrustedContent(p.title)
   const description = optional(p.description)
-  const target = p.targetDate ? ` (target: ${optional(p.targetDate)})` : ''
-  return `- ${title}${target}: ${description}`
+  return `- ${title}${formatFlow(p)}: ${description}`
 }
 
 const prioritiesBlock = (priorities: PriorityRecord[]): string => {
@@ -369,11 +546,17 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     relationshipBlock(ctx.isFirstConversation),
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
+    todayLine(ctx.state),
     officeContextBlock(ctx),
     prioritiesBlock(ctx.priorities),
     ...(ctx.anchor ? [anchoredIssueBlock(ctx.anchor)] : []),
     toolBlock(toolNames),
-    ...(toolNames.includes('crud_priorities') ? [PRIORITIES_RULES] : []),
+    ...(toolNames.includes('crud_priorities') || ctx.priorities.length > 0
+      ? [PRIORITIES_RULES]
+      : []),
+    ...(toolNames.includes('record_check_reminder')
+      ? [CHECK_REMINDER_RULES]
+      : []),
     ...(hasWebSearch ? [WEB_SEARCH_RULES] : []),
     officeStructureBlock(hasWebSearch),
     ...(toolNames.includes('list_briefings') ||
@@ -390,6 +573,13 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
     ...(toolNames.includes('compose_handoff') ? [COMPOSE_HANDOFF_RULES] : []),
+    ...[cardRulesBlock(toolNames)].filter(
+      (block): block is string => block !== null,
+    ),
+    ...(toolNames.includes('present_outreach_proposal') &&
+    toolNames.includes('size_outreach_sample')
+      ? [outreachSamplingBlock(toolNames)]
+      : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
     //

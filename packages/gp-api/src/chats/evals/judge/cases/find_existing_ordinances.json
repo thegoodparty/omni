@@ -1,0 +1,74 @@
+{
+  "agentId": "find_existing_ordinances",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published find_existing_ordinances manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly. Whether to grow every list to 20 or to lower the floor is still open — do not read the shortfall as a decision. {judgeOrgSlug} is not a value: they are substituted at dispatch time from the identifiers judgeIdentifiers.ts resolves once per sweep, and assertNoPlaceholders refuses the whole list before the first dispatch if a sweep did not supply one. They are not literals because the slug is derived from the sweep and the race id is read live from BallotReady's data. The organization is therefore the one axis this list cannot vary. It is also the one the agent barely reads: the manifest says the slug is echoed into the artifact, and the place the agent actually goes looking for a code is derived from `office`. So `office` is the axis that matters here, and it is the one that moves most below. Varied along: the governing-body phrase the place name has to be stripped out of — city council, township trustee, borough council, county commission and a mayoralty each strip differently, and a New England 'Board of Selectmen' carries no place at all, which is the case the instruction says to WebSearch first; whether a disambiguating county is supplied, which matters because Ramsey is both a Minnesota city and a Minnesota county; and whether the official pasted a code URL at intake, the highest-trust source when it verifies and the one input that can make the whole search unnecessary. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named and every URL is under example.org. States, cities, office titles and L2 voter file column names are real. THE ORG SLUG IS AN ECHO, NOT A LOOKUP, and the geography is carried by the other params. {judgeOrgSlug} resolves to the same judge- slug, naming no organization, for every case, while each case's own state/office/district_descriptor names somewhere else. That is not a mismatch to fix in this file: under the judge harness the dispatch message's organization_slug is pinned to judge-* (see JUDGE_ORG_SLUG_PREFIX in runners/background.ts), and that pin — not this param — is what scopes any gp-api read the agent makes, so no lookup resolves against the value here. Both arms receive the identical value, so the comparison is unaffected.",
+  "cases": [
+    {
+      "caseId": "baseline-city-council",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "MN",
+        "office": "Ramsey City Council"
+      }
+    },
+    {
+      "caseId": "county-disambiguator",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "MN",
+        "office": "Ramsey City Council",
+        "county": "Anoka"
+      }
+    },
+    {
+      "caseId": "code-url-supplied",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "MN",
+        "office": "Ramsey City Council",
+        "user_provided_code_url": "https://example.org/ramsey-mn/city-code"
+      }
+    },
+    {
+      "caseId": "township-trustee",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "OH",
+        "office": "Perry Township Trustee"
+      }
+    },
+    {
+      "caseId": "borough-council",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "PA",
+        "office": "Bellefonte Borough Council"
+      }
+    },
+    {
+      "caseId": "selectboard-no-place-in-office",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "NH",
+        "office": "Board of Selectmen"
+      }
+    },
+    {
+      "caseId": "county-commission",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "MT",
+        "office": "Flathead County Commission"
+      }
+    },
+    {
+      "caseId": "mayor",
+      "params": {
+        "organization_slug": "{judgeOrgSlug}",
+        "state": "AZ",
+        "office": "Mayor of Phoenix"
+      }
+    }
+  ]
+}

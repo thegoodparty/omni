@@ -403,82 +403,6 @@ export const apiRoutes = {
     path: '/error-logger',
     method: 'POST',
   },
-  ecanvasser: {
-    list: {
-      path: '/ecanvasser/list',
-      method: 'GET',
-    },
-    create: {
-      path: '/ecanvasser',
-      method: 'POST',
-    },
-    sync: {
-      path: '/ecanvasser/:campaignId/sync',
-      method: 'POST',
-    },
-    syncAll: {
-      path: '/ecanvasser/sync-all',
-      method: 'GET',
-    },
-    delete: {
-      path: '/ecanvasser/:campaignId',
-      method: 'DELETE',
-    },
-    mine: {
-      path: '/ecanvasser/mine',
-      method: 'GET',
-    },
-    mySummary: {
-      path: '/ecanvasser/mine/summary',
-      method: 'GET',
-    },
-    surveys: {
-      list: {
-        path: '/ecanvasser/surveys',
-        method: 'GET',
-      },
-      find: {
-        path: '/ecanvasser/survey/:id',
-        method: 'GET',
-      },
-      create: {
-        path: '/ecanvasser/survey',
-        method: 'POST',
-      },
-      update: {
-        path: '/ecanvasser/survey/:id',
-        method: 'PUT',
-      },
-      delete: {
-        path: '/ecanvasser/survey/:id',
-        method: 'DELETE',
-      },
-      questions: {
-        create: {
-          path: '/ecanvasser/survey/:id/question',
-          method: 'POST',
-        },
-        delete: {
-          path: '/ecanvasser/survey/question/:questionId',
-          method: 'DELETE',
-        },
-        update: {
-          path: '/ecanvasser/survey/question/:questionId',
-          method: 'PUT',
-        },
-        find: {
-          path: '/ecanvasser/survey/question/:questionId',
-          method: 'GET',
-        },
-      },
-    },
-    teams: {
-      list: {
-        path: '/ecanvasser/teams',
-        method: 'GET',
-      },
-    },
-  },
   textMessaging: {
     list: {
       path: '/text-campaigns',
@@ -504,8 +428,8 @@ export const apiRoutes = {
       path: '/p2p/phone-list',
       method: 'POST',
     },
-    phoneListStatus: {
-      path: '/p2p/phone-list/:phoneListToken/status',
+    phoneListBuildStatus: {
+      path: '/p2p/phone-list/build/:buildId/status',
       method: 'GET',
     },
   },

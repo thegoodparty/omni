@@ -39,10 +39,19 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
+import { buildPresentListProposalTool } from '../crm-tools/presentListProposal.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
+import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -66,6 +75,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   readonly scope = ChatScope.chief_of_staff
   readonly isSensitive = true
   readonly models = [...CHIEF_OF_STAFF_MODELS]
+  // The default 5 steps ran out mid-outreach: describe, count, size, then
+  // save or present is already four tool calls before any retry or search,
+  // and a turn that runs out of steps ends without presenting anything.
+  readonly maxSteps = 15
 
   constructor(
     private readonly contextService: ChiefOfStaffContextService,
@@ -88,6 +101,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly voterFileFilters?: VoterFileFilterService,
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
+    @Optional()
+    private readonly pastOutreach?: PriorityFlowOutreachService,
+    @Optional()
+    private readonly priorityStatus?: PriorityStatusService,
   ) {}
 
   async loadContext(
@@ -99,7 +116,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       userId,
       this.priorities,
     )
-    const resolved = await this.districtResolver?.resolveByUserId(userId)
+    // Resolve by the conversation's org slug, not the user: an official with
+    // offices in multiple orgs would otherwise get whichever ElectedOffice row
+    // came back first, scoping constituent data to another org's district.
+    // ctx.organizationSlug is never a guess: load() matches the office on the
+    // conversation's own slug and throws when a conversation has none.
+    const resolved = await this.districtResolver?.resolveByOrgSlug(
+      ctx.organizationSlug,
+    )
     if (!resolved) return ctx
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
@@ -109,6 +133,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       districtFilters,
       constituentToolEnabled,
     }
@@ -140,6 +165,21 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       electedOfficeId: ctx.electedOfficeId,
     })
 
+    // Registered only when a priority has a check the official put off, so
+    // the prompt never offers a write with nothing to write to.
+    const hasDeferredCheck = ctx.priorities.some((priority) =>
+      priority.flow?.checks.some(
+        ({ check }) =>
+          check.state === 'deferred' || check.contrast?.state === 'deferred',
+      ),
+    )
+    if (this.priorityStatus && hasDeferredCheck) {
+      Object.assign(
+        tools,
+        this.priorityStatus.buildCheckReminderTool(ctx.electedOfficeId),
+      )
+    }
+
     const briefingProvider = this.briefings.forElectedOffice(
       ctx.electedOfficeId,
     )
@@ -148,12 +188,18 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     })
     tools.get_briefing = buildGetBriefingTool({ provider: briefingProvider })
 
+    tools.ask_clarify_question = buildAskClarifyQuestionTool()
+
     // Web search runs through Anthropic's native tool (the chat is Claude-only)
     // so queries stay within the enterprise agreement rather than going to a
     // third party. Gated on the key here too (not just in the LLM layer) so the
     // system prompt never advertises a tool that wasn't registered.
     if (process.env.ANTHROPIC_API_KEY) {
       tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+      // An outside contact is built only from what research found, and the
+      // tool forbids inventing a route, so it has nothing to stand on without
+      // the search.
+      tools.present_outside_contact = buildPresentOutsideContactTool()
     }
 
     // Aggregate-only constituent data. Registers ONLY when all of: the provider
@@ -186,6 +232,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       tools.search_help_center = buildSearchHelpCenterTool({
         helpCenter: this.helpCenter,
       })
+    }
+
+    // No priority here, so the read returns the office's recent sends only.
+    if (this.pastOutreach) {
+      tools.read_past_outreach = buildReadPastOutreachTool({
+        outreach: this.pastOutreach,
+        priorityId: null,
+        organizationSlug: ctx.organizationSlug,
+      })
+      tools.present_past_outreach = buildPresentPastOutreachTool()
     }
 
     if (this.communityIssueRead) {
@@ -229,6 +285,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         // crud_saved_filters just returned, so advertising it in a session
         // that cannot create a list would be offering a map of nothing.
         crmTools.show_list_map = buildShowListMapTool()
+        // How a list gets saved from here: as a card the official presses,
+        // not a write the model makes after a typed "yes".
+        crmTools.present_list_proposal = buildPresentListProposalTool()
       }
       // The catalog is built over the other CRM tools so its description
       // names only the filter tools registered beside it, and is still
@@ -239,11 +298,15 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         filterConsumers: registeredFilterConsumers(crmTools),
       })
       Object.assign(tools, crmTools)
+      // A proposal is sent against a saved list, so it is offered only where
+      // the list behind it can be built.
+      if (this.voterFileFilters) {
+        tools.present_outreach_proposal = buildPresentOutreachProposalTool()
+        tools.size_outreach_sample = buildSizeOutreachSampleTool()
+      }
     }
 
-    if (ctx.attachmentsEnabled) {
-      tools.compose_handoff = buildComposeHandoffTool()
-    }
+    tools.compose_handoff = buildComposeHandoffTool('serve_social')
 
     return tools
   }

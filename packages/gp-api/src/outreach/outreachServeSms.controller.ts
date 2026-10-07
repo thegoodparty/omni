@@ -68,8 +68,8 @@ const clampOffset = (raw?: string): number => {
 // handler and the two results readers at the bottom of this file are
 // deliberately NOT gated — none is reachable without an `Outreach` row, and
 // the create route below is the only thing that writes one, so gating the
-// writer makes the rest inert. Same reasoning `win-team-accounts` records
-// for gating only its create route (outreachAssignment.controller.ts).
+// writer makes the rest inert. Same reasoning as gating only the create
+// route on an assignment/invite flow (outreachAssignment.controller.ts).
 //
 // This gates ROLLOUT, not authorization. @UseElectedOffice() is the real
 // access check on every route here and stays that way whatever the flag says.
@@ -169,6 +169,17 @@ export class OutreachServeSmsController {
         String(user.id),
         context,
         SERVE_SMS_VOICE,
+        // Serve locks what its surface checks: the official's name, the
+        // double-brace merge tag and the opt-out line. It has no committee,
+        // so paid_for_by is ignored, as the Serve SMS surface ignores it.
+        input.currentDraft
+          ? {
+              candidateNames: [electedOfficialName(user)].filter(Boolean),
+              committeeName: null,
+              channel: 'serve',
+              ignoredRules: ['paid_for_by'],
+            }
+          : undefined,
       ),
     }
   }
@@ -192,7 +203,16 @@ export class OutreachServeSmsController {
     await this.assertFeatureEnabled(user)
     // The org comes from the ElectedOffice row the guard resolved, never from
     // the body — the same posture every route on this controller takes.
-    return this.createService.createDraft(electedOffice.organizationSlug, input)
+    const { proposalKey, priorityId, stepId, side, ...draft } = input
+    const link = await this.createService.resolveProposalLink(
+      { proposalKey, priorityId, stepId, side },
+      electedOffice.id,
+    )
+    return this.createService.createDraft(
+      electedOffice.organizationSlug,
+      draft,
+      link,
+    )
   }
 
   // The Statistics card, org-scoped. Deliberately NOT behind

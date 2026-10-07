@@ -7,13 +7,13 @@ import { dateUsHelper } from 'helpers/dateHelper'
 import type { User } from 'helpers/types'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import PlanView, {
-  type PlanContinueSource,
   type PlanDownloadSource,
 } from 'app/onboarding/success/components/PlanView'
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
 import CampaignTrackerHero from './CampaignTrackerHero'
+import CampaignPlanStoryCard from './CampaignPlanStoryCard'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
 
@@ -120,8 +120,7 @@ const CampaignPlanView = ({
     trackEvent(planEvents.PlanShared, { campaignId, method })
   }
 
-  const handleContinue = (source: PlanContinueSource) => {
-    trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
+  const handleContinue = () => {
     router.push('/dashboard')
   }
 
@@ -162,6 +161,7 @@ const CampaignPlanView = ({
           downloading={heroDownloading}
           canDownload={data.planReady}
         />
+        <CampaignPlanStoryCard />
         <CampaignStrategySection />
       </div>
       <PlanView

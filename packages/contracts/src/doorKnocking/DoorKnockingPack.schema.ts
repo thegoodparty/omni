@@ -33,6 +33,24 @@ export const PACK_CONTACTS_MADE_MAX = 100_000
 // is the no-data slot every other dim uses; a voter with no precinct on file
 // is NOT that, they are a real selectable bucket whose precinct side is
 // empty, exactly as the picker offers it.
+// Whether this door is one the campaign may knock at all. NOT a filter the
+// candidate picks: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) are
+// suppression, applied unconditionally by every server-side evaluation, and
+// the map was the only surface still drawing the people they remove. So the
+// plane is consumed as a mask in `runFilter`/`polygonStats` rather than
+// through a dim selection, and it needs no entry in the filter catalog —
+// which is the review ADR 0007 deferred and this deliberately does not open.
+export const KNOCKABLE_DIM_KEY = 'knockable'
+export const KNOCKABLE_VALUES = ['No', 'Yes'] as const
+
+// The most suppressed people gp-api will describe on the wire. Same number as
+// PACK_CONTACTS_MADE_MAX and for the same reason: it is
+// MAX_RESOLVED_ID_SET_SIZE, the point at which resolving an id set for a real
+// query gives up. These sets are far smaller in practice — a do-not-knock row
+// needs a canvasser at a door pressing a button — so the cap is a ceiling
+// rather than a working limit.
+export const PACK_EXCLUDED_PEOPLE_MAX = 100_000
+
 export const PRECINCT_DIM_KEY = 'precinct'
 
 // The most precincts the pack will shade. Deliberately MAX_PRECINCT_FILTER_VALUES,
@@ -89,6 +107,20 @@ export const DoorKnockingPackRequestSchema = z
     // gp-api could not answer — see PACK_CONTACTS_MADE_MAX — and the plane is
     // then left out of the pack entirely, which the client reads through the
     // same unpreviewable-filter disclosure that names any other dim it lacks.
+    // The people every server-side evaluation removes before it counts
+    // anything: do-not-knock and not-a-voter, deduped, exactly as
+    // `doorKnockingPreview` and `doorKnockingCreate` build them.
+    //
+    // ABSENT AND EMPTY MEAN DIFFERENT THINGS, as they do for contactsMade.
+    // Empty is an organization that has flagged nobody, which is a fact the
+    // map can shade. Absent means gp-api did not answer, and the plane is
+    // left out rather than filled with "knockable" — a plane of yeses
+    // claims every door is open, which is the wrong way to be wrong about
+    // somebody who said don't come back.
+    excludedPersonIds: z
+      .array(z.guid())
+      .max(PACK_EXCLUDED_PEOPLE_MAX)
+      .optional(),
     contactsMade: z
       .array(
         z

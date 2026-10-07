@@ -8,6 +8,7 @@ import {
 } from 'date-fns'
 import {
   BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
   TaskTiming,
 } from '@goodparty_org/contracts'
@@ -103,8 +104,40 @@ export const buildStaticTrackerTaskRows = (
   CAMPAIGN_TASK_CATALOG.filter(
     (task) =>
       task.type === 'static' &&
-      (includeBallotAccess || task.category !== BALLOT_ACCESS_CATEGORY),
+      (includeBallotAccess || task.category !== BALLOT_ACCESS_CATEGORY) &&
+      // The story row is built separately: it is dated to today rather than
+      // the shared Monday anchor, and it carries a link and CTA the catalog
+      // schema has no fields for.
+      task.category !== CAMPAIGN_STORY_CATEGORY,
   ).map((task) => toRow(campaignId, start, electionDate, task))
+
+// Same handle-by-title arrangement as ballot access, for the one story row.
+export const CAMPAIGN_STORY_TASK_TITLES = CAMPAIGN_TASK_CATALOG.filter(
+  (task) => task.category === CAMPAIGN_STORY_CATEGORY,
+).map((task) => task.title)
+
+// Where the story task sends the candidate. The manager auto-launches the
+// story intake chat flow on this param, the same deep link the manager's own
+// story card uses.
+const CAMPAIGN_STORY_LINK = '/dashboard?personalize=1'
+
+// The campaign-story row. Built separately from the rest of the static catalog
+// only because it carries the link/CTA columns, which the catalog schema does
+// not model; its date comes from the same anchor its pre-launch siblings use,
+// so it lands at the end of that block rather than off on its own.
+export const buildCampaignStoryTrackerTaskRows = (
+  campaignId: number,
+  start: Date,
+  electionDate: Date | null,
+): Prisma.CampaignTrackerTaskCreateManyInput[] =>
+  CAMPAIGN_TASK_CATALOG.filter(
+    (task) =>
+      task.type === 'static' && task.category === CAMPAIGN_STORY_CATEGORY,
+  ).map((task) => ({
+    ...toRow(campaignId, startOfDay(start), electionDate, task),
+    link: CAMPAIGN_STORY_LINK,
+    cta: 'Add your story',
+  }))
 
 // Just the ballot-access rows, for adding them back when a candidate's ballot
 // status changes after the one-shot static materialization.

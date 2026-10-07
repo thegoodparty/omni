@@ -6,7 +6,7 @@ import {
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
@@ -721,6 +721,28 @@ describe('PaymentEventsService', () => {
       ).toHaveBeenCalledOnce()
     })
 
+    it('tracks Pro past due once, when a renewal charge first fails', async () => {
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent(
+          { status: 'past_due', canceled_at: null },
+          { status: 'active' },
+        ),
+      )
+
+      expect(analytics.track).toHaveBeenCalledExactlyOnceWith(
+        mockUser.id,
+        EVENTS.Account.ProSubscriptionPastDue,
+        { subscriptionId: 'sub_test_unmatched' },
+      )
+
+      analytics.track.mockClear()
+      await service.customerSubscriptionUpdatedHandler(
+        updatedEvent({ status: 'past_due', canceled_at: null }),
+      )
+
+      expect(analytics.track).not.toHaveBeenCalled()
+    })
+
     // The id this lookup reads is written by our own fulfillment, seconds after
     // checkout, and Stripe delivers a subscription's sibling events
     // concurrently with that write. Acknowledging a miss this young would drop
@@ -859,6 +881,30 @@ describe('PaymentEventsService', () => {
       )
 
       campaignsService.findBySubscriptionId.mockResolvedValue(null)
+      await service.customerSubscriptionDeletedHandler(deletedEvent())
+
+      expect(
+        campaignsService.persistCampaignProCancellation,
+      ).toHaveBeenCalledOnce()
+      expect(slackService.message).toHaveBeenCalledOnce()
+    })
+
+    it('tracks the Pro cancellation with the reason Stripe gave', async () => {
+      await service.customerSubscriptionDeletedHandler(deletedEvent())
+
+      expect(analytics.track).toHaveBeenCalledExactlyOnceWith(
+        mockUser.id,
+        EVENTS.Account.ProSubscriptionEnded,
+        {
+          subscriptionId: 'sub_test_unmatched',
+          cancellationReason: 'payment_failed',
+        },
+      )
+    })
+
+    it('still un-Pros and posts to Slack when tracking the cancellation fails', async () => {
+      analytics.track.mockRejectedValueOnce(new Error('segment down'))
+
       await service.customerSubscriptionDeletedHandler(deletedEvent())
 
       expect(
@@ -1139,5 +1185,57 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('no payment_intent'),
       )
     })
+  })
+})
+
+describe('PaymentEventsService when Stripe webhooks are not configured', () => {
+  afterEach(() => {
+    vi.resetModules()
+    vi.doUnmock('../../shared/env/env')
+  })
+
+  it('logs once on construction and handleEvent throws instead of processing', async () => {
+    // Mock the resolution helper rather than unsetting the real env var:
+    // stripe.service.ts's own (out-of-scope) module-level requireEnv() call
+    // on the same var would otherwise crash this fresh import.
+    vi.doMock('../../shared/env/env', async (importOriginal) => {
+      const actual =
+        await importOriginal<typeof import('../../shared/env/env')>()
+      return {
+        ...actual,
+        resolveEnvVar: (name: string) =>
+          name === 'STRIPE_WEBSOCKET_SECRET'
+            ? { configured: false }
+            : actual.resolveEnvVar(name),
+      }
+    })
+    vi.resetModules()
+    const { PaymentEventsService: PES } =
+      await import('./paymentEventsService.js')
+    const disabledLogger = createMockLogger()
+    const service = new PES(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      disabledLogger,
+    )
+
+    expect(disabledLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Stripe webhooks are disabled'),
+    )
+    await expect(
+      service.handleEvent({
+        type: WebhookEventType.CheckoutSessionCompleted,
+      } as Stripe.Event),
+    ).rejects.toBeInstanceOf(BadRequestException)
   })
 })

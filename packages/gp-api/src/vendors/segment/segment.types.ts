@@ -15,8 +15,9 @@
  */
 export const EVENTS = {
   Account: {
-    PasswordResetRequested: 'Account - Password Reset Requested',
     ProSubscriptionConfirmed: 'Account - Pro Subscription Confirmed',
+    ProSubscriptionPastDue: 'Account - Pro Subscription Past Due',
+    ProSubscriptionEnded: 'Account - Pro Subscription Ended',
     ProUpgradeComplete: 'pro_upgrade_complete',
     UserDeleted: 'Account - User Deleted',
   },
@@ -132,14 +133,10 @@ export const EVENTS = {
   // Server-side generation for the V2 onboarding campaign plan. The strategic
   // landscape (CAP/PMF engine) fans out into two independent agent jobs, so it
   // gets four events. The webapp's view of these is tracked separately under
-  // `Onboarding V2 -` in gp-webapp.
+  // `Dashboard - Campaign Plan:` in gp-webapp.
   CampaignPlanV2: {
     MediaGenerationStarted: 'Campaign Plan V2 - Media Generation Started',
     MediaGenerationCompleted: 'Campaign Plan V2 - Media Generation Completed',
-    CommunityEventsGenerationStarted:
-      'Campaign Plan V2 - Community Events Generation Started',
-    CommunityEventsGenerationCompleted:
-      'Campaign Plan V2 - Community Events Generation Completed',
     OppositionResearchGenerationStarted:
       'Campaign Plan V2 - Opposition Research Generation Started',
     OppositionResearchGenerationCompleted:
@@ -244,6 +241,13 @@ export const EVENTS = {
   //  copy the nine canvassing totals onto the contact and its company
   DoorKnocking: {
     CanvassingTotalsUpdated: 'Door Knocking - Canvassing Totals Updated',
+  },
+  // Issue capture (Win and Serve). Fires from the synthesis ingest when a run
+  // completes, whichever engine produced it: completion is server truth, the
+  // report page only polls for it. Counts and ids only, never what anyone
+  // said.
+  IssueCapture: {
+    SynthesisCompleted: 'Issue Capture - Synthesis Completed',
   },
   // A visitor on a public /people page asking an unclaimed person to complete
   // their profile. Distinct from gp-marketing's browser-side 'Person Profile

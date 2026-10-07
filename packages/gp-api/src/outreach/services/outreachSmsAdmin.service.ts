@@ -17,6 +17,7 @@ import {
   type SmsApprovalStatus,
   type SmsTestMessageRequest,
   type SmsTestMessageResponse,
+  type SmsVendorAccount,
 } from '@goodparty_org/contracts'
 import { addDays, format, isAfter, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -25,6 +26,8 @@ import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
+import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
 import { OutreachService } from './outreach.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
@@ -74,6 +77,12 @@ const REVIEWABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.in_progress,
 ]
 
+// The Sent tab is an after-the-fact record (CAS request, 2026-09-30), not
+// an archive: every queue row costs a registration and HubSpot owner read,
+// so completed sends fall off after this window rather than accumulating
+// forever behind the tab nobody works from.
+const SMS_ADMIN_SENT_LOOKBACK_DAYS = 90
+
 // Peerly flagged (2026-09-04) that our detail reads were rapidly piling
 // duplicate long-running requests — a slow read gets abandoned client-side
 // by the timebox above, but the request keeps computing at Peerly, and the
@@ -98,6 +107,10 @@ const STATS_CACHE_TTL_MS = 10 * 60 * 1000
 // like the cool-offs so tests can cross the TTL without waiting it out.
 const queueJobsCacheTtlMs = () =>
   Number(process.env.QUEUE_JOBS_CACHE_TTL_MS ?? 60_000)
+// The vendor balance moves per send, not per second; a minute keeps the
+// header near-live while a refresh after an approve serves the last read.
+const balanceCacheTtlMs = () =>
+  Number(process.env.BALANCE_CACHE_TTL_MS ?? 60_000)
 // HubSpot company-owner assignments change on human timescales.
 const ownerCacheTtlMs = () =>
   Number(process.env.OWNER_CACHE_TTL_MS ?? 10 * 60 * 1000)
@@ -112,7 +125,7 @@ const detailOutstandingRetryCooldownMs = () =>
 const testSendCooldownMs = () =>
   Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
 
-// The whole account's job list is one cache entry.
+// The whole account's job list is one cache entry; so is its balance.
 const ACCOUNT_JOBS_KEY = 'account'
 
 // HubSpot owner reads distinguish "unassigned" (ok) from "read failed"
@@ -156,6 +169,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<PeerlyJob[] | null>
   >()
+  private readonly balanceCache = new Map<
+    string,
+    DetailCacheEntry<SmsVendorAccount | null>
+  >()
+  private readonly balanceInFlight = new Map<
+    string,
+    DetailInFlightEntry<SmsVendorAccount | null>
+  >()
   // Keyed by HubSpot company id.
   private readonly ownerCache = new Map<string, DetailCacheEntry<OwnerRead>>()
   private readonly ownerInFlight = new Map<
@@ -169,6 +190,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly peerlyAccountService: PeerlyAccountService,
+    private readonly peerlyTestListService: PeerlyTestListService,
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
@@ -178,18 +201,59 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     super()
   }
 
+  // Null on a failed or stalled vendor read: the console header degrades
+  // to "unavailable" the way the queue's readiness column does.
+  getVendorBalance(): Promise<SmsVendorAccount | null> {
+    return this.boundedRead(
+      this.singleFlightCached(
+        this.balanceCache,
+        this.balanceInFlight,
+        ACCOUNT_JOBS_KEY,
+        (value) => value === null,
+        async () => {
+          const read = await this.loggedVendorRead(
+            'account_balance',
+            {},
+            this.peerlyAccountService.getBalance(),
+          )
+          return read ? { ...read, readAt: new Date() } : null
+        },
+        balanceCacheTtlMs(),
+      ),
+    )
+  }
+
   private queueWhere(): Prisma.OutreachWhereInput {
     return {
       outreachType: OutreachType.p2p,
-      // Canceled rows stay visible (the Canceled tab's audit trail); only
-      // reviewable rows are actionable.
-      status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },
       projectId: { not: null },
-      // The pre-console backlog is noise, not work: rows stranded pending
-      // from before the console existed are hidden behind a fixed cutoff
-      // (CAS request, 2026-09-09). Dateless rows stay visible — a pending
-      // row with no send date is an anomaly worth seeing, not backlog.
-      OR: [{ date: null }, { date: { gte: SMS_ADMIN_QUEUE_CUTOFF } }],
+      AND: [
+        {
+          // Canceled rows stay visible (the Canceled tab's audit trail);
+          // only reviewable rows are actionable. A completed row is the
+          // Sent tab's record — but only a BOOKED one: before the sweep
+          // learned to hold unbooked rows at in_progress it completed them
+          // on their send day, and those rows sent nothing.
+          OR: [
+            {
+              status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },
+            },
+            {
+              status: OutreachStatus.completed,
+              canvassRequestedAt: { not: null },
+              date: { gte: subDays(new Date(), SMS_ADMIN_SENT_LOOKBACK_DAYS) },
+            },
+          ],
+        },
+        {
+          // The pre-console backlog is noise, not work: rows stranded
+          // pending from before the console existed are hidden behind a
+          // fixed cutoff (CAS request, 2026-09-09). Dateless rows stay
+          // visible — a pending row with no send date is an anomaly worth
+          // seeing, not backlog.
+          OR: [{ date: null }, { date: { gte: SMS_ADMIN_QUEUE_CUTOFF } }],
+        },
+      ],
     }
   }
 
@@ -373,6 +437,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         'Only scheduled SMS campaigns can be approved',
       )
     }
+    // Approval is what books canvassers, which is the vendor spend. A
+    // scheduled p2p row reaches this console only through a settled
+    // purchase: a paid checkout stamps stripeCheckoutSessionId, a
+    // zero-amount redemption stamps freePurchaseSessionId. Neither present
+    // means nothing funded the send, so it is refused rather than read as
+    // "free" — which is what the absence of a Stripe session used to mean
+    // on its own.
+    if (!row.stripeCheckoutSessionId && !row.freePurchaseSessionId) {
+      throw new BadRequestException(
+        'This campaign has no completed purchase on record',
+      )
+    }
 
     const claimed = await this.model.updateMany({
       where: {
@@ -392,6 +468,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
         date: row.scheduledLocalDate ?? undefined,
         startTime,
+        state: row.didState,
       })
     } catch (error) {
       await this.model.update({
@@ -419,6 +496,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
             campaignId: row.campaignId,
             date: row.scheduledLocalDate,
             startTime,
+            state: row.didState,
           }
         : null
     try {
@@ -467,7 +545,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       await this.tryTrack(
         updated.campaign.user.id,
         EVENTS.Outreach.CampaignApproved,
-        { channel: 'sms' },
+        { channel: 'sms', medium: 'text' },
       )
     }
     return this.toQueueItem(
@@ -541,6 +619,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.canceled) {
       throw new BadRequestException('Only scheduled campaigns can be edited')
     }
+    // A sent row is in scope for the Sent tab's record; its texts are gone.
+    if (row.status === OutreachStatus.completed) {
+      throw new BadRequestException('This campaign has already sent')
+    }
     // Once the send day has begun AND canvassers are booked, Peerly may be
     // mid-send: a template overwrite would change copy under live agents.
     if (
@@ -554,6 +636,19 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (!row.identityId || row.campaignId === null) {
       throw new BadRequestException(
         'This campaign is missing its sending identity and cannot be edited',
+      )
+    }
+
+    // The vendor refuses a shortened link outright, and the template update is
+    // a destructive overwrite — so an edit carrying one fails at the vendor
+    // with the vendor's wording, after we have already started writing to a
+    // live job. Refuse it here instead. Only this rule is enforced: the rest of
+    // the standards check stays advisory in the console, where the human
+    // approval is the gate.
+    if (checkSmsStandards(input.script).failures.includes('link_shortener')) {
+      throw new BadRequestException(
+        'Links must not use a shortener like bit.ly — paste the full web ' +
+          'address instead',
       )
     }
 
@@ -648,6 +743,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.canceled) {
       throw new ConflictException('A canceled campaign cannot be rescheduled')
     }
+    // A sent row is in scope for the Sent tab's record; its texts are gone.
+    if (row.status === OutreachStatus.completed) {
+      throw new ConflictException('A sent campaign cannot be rescheduled')
+    }
     // Once the send day has begun AND canvassers are booked, Peerly may be
     // mid-send: moving the window under live agents is not recoverable.
     if (
@@ -686,6 +785,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       campaignId: row.campaignId,
       date: input.scheduledLocalDate,
       startTime,
+      state: row.didState,
     })
 
     // Re-read the booking flag after the vendor window write: a concurrent
@@ -719,6 +819,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
           date: input.scheduledLocalDate,
           startTime,
+          state: row.didState,
         })
       } catch (error) {
         // The old booking is already cleared at the vendor and the DB is
@@ -776,10 +877,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
    * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object), then fire the test text to
-   * ONLY the explicitly typed phone — never a number derived from
-   * campaign or contact data. Nothing we cache changes, so no
-   * invalidateVendorReads.
+   * every test job is a real vendor object) AND the identity's Peerly test
+   * list holding the typed number (Peerly only texts a number that sits on
+   * one, and names the list in the send), then fire the test text to ONLY
+   * the explicitly typed phone — never a number derived from campaign or
+   * contact data. Nothing we cache changes, so no invalidateVendorReads.
    */
   async sendTestMessage(
     outreachId: number,
@@ -797,6 +899,19 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.canceled) {
       throw new BadRequestException(
         'This campaign was canceled and its vendor job deleted',
+      )
+    }
+    // A sent row is in scope for the Sent tab's record; there is nothing
+    // left to preview.
+    if (row.status === OutreachStatus.completed) {
+      throw new BadRequestException('This campaign has already sent')
+    }
+    // The test list Peerly sends to lives inside the campaign's identity,
+    // so a row whose job predates identity capture cannot be tested.
+    if (!row.identityId) {
+      throw new BadRequestException(
+        'This campaign has no Peerly identity recorded, so a test cannot ' +
+          'be sent',
       )
     }
 
@@ -819,13 +934,21 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     this.testSendClaims.set(outreachId, now)
 
     try {
+      const testListId = await this.peerlyTestListService.resolveTestListId({
+        identityId: row.identityId,
+        phone,
+      })
       const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
         row.projectId,
       )
       const testJobId =
         existingTestJobIds[0] ??
         (await this.peerlyP2pJobService.createTestJob(row.projectId))
-      await this.peerlyP2pJobService.sendTestMessage(testJobId, phone)
+      await this.peerlyP2pJobService.sendTestMessage(
+        testJobId,
+        phone,
+        testListId,
+      )
     } catch (error) {
       this.testSendClaims.delete(outreachId)
       throw error
@@ -1160,6 +1283,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     job: PeerlyJob | null,
   ): SmsApprovalStatus {
     if (row.status === OutreachStatus.canceled) return 'canceled'
+    if (row.status === OutreachStatus.completed) return 'sent'
     if (row.deniedAt) return 'denied'
     if (job?.canvassers_schedule?.approved) return 'peerly_approved'
     if (row.canvassRequestedAt) return 'canvass_requested'

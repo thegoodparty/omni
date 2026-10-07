@@ -9,10 +9,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
-import {
-  ringsToGeoJsonShape,
-  type PolygonRing,
-} from 'app/dashboard/shared/ringGeometry'
+import { shapesToSave, type ListShape } from 'app/dashboard/shared/listShapes'
 import { listPeopleQueryKey } from '../map/useListPeople'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
@@ -128,10 +125,11 @@ export default function CreateListWizard({
     WizardActivityCondition[]
   >(() => [blankActivityCondition()])
   const [name, setName] = useState('')
-  // Held as the open ring the map draws, not as the GeoJSON it is saved as,
-  // so Back onto the boundary step restores the shape with its handles
-  // rather than a closed polygon that has to be reopened to be edited.
-  const [boundaryRings, setBoundaryRings] = useState<PolygonRing[]>([])
+  // Held as the open rings the map draws, with their names and colours, not
+  // as the GeoJSON they are saved as, so Back onto the boundary step
+  // restores each shape with its handles rather than a closed polygon that
+  // has to be reopened to be edited.
+  const [boundaryShapes, setBoundaryShapes] = useState<ListShape[]>([])
 
   // Serve never renders the branch chooser, so its branch is a constant —
   // derived, not set on open, so no frame can render the activity branch
@@ -175,7 +173,7 @@ export default function CreateListWizard({
         : [blankActivityCondition()],
     )
     setName(editingSegment?.name ?? '')
-    setBoundaryRings([])
+    setBoundaryShapes([])
     setOpenSession((session) => session + 1)
     // Keyed on the edited list's ID, not on `open` alone: `open` is a derived
     // OR of two independent sources (the page's create button and the
@@ -316,9 +314,9 @@ export default function CreateListWizard({
   // isLoading/isStale both false — an errored count is unknown, not zero.
   const isZeroMatch = !isLoading && !isStale && !isError && count === 0
 
-  const geoPoly = useMemo(
-    () => ringsToGeoJsonShape(boundaryRings),
-    [boundaryRings],
+  const { geoPoly, geoPolyLabels } = useMemo(
+    () => shapesToSave(boundaryShapes),
+    [boundaryShapes],
   )
 
   // The shape's own count. It supersedes the live count from the boundary
@@ -626,7 +624,7 @@ export default function CreateListWizard({
     createMutation.mutate({
       name: trimmedName,
       ...backendPayload,
-      ...(geoPoly ? { geoPoly } : {}),
+      ...(geoPoly ? { geoPoly, geoPolyLabels } : {}),
     })
   }
 
@@ -829,8 +827,8 @@ export default function CreateListWizard({
       )}
       {stepName === 'boundary' && (
         <BoundaryStep
-          rings={boundaryRings}
-          onRingsChange={setBoundaryRings}
+          shapes={boundaryShapes}
+          onShapesChange={setBoundaryShapes}
           labels={labels}
           filters={backendPayload}
           count={polygonCount}

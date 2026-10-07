@@ -39,6 +39,29 @@ model CampaignStrategy {
   // first. Appended on each race-change reset; length = office-change count.
   previousRaceIds String[] @default([]) @map("previous_race_ids")
 
+  // Whether this row's content was generated with a complete campaign story.
+  // The story is optional, so a plan can be generated without one; when the
+  // candidate later finishes their story the plan is stale in a way no raceId
+  // comparison would catch. Compared against current story completeness on
+  // every read, and a false->true transition resets the content in place and
+  // regenerates (see alignPlanWithStory). One-shot: it is the claim, so
+  // concurrent polls can't both regenerate.
+  //
+  // SUPERSEDED by storyFingerprint below, and kept only to tell two legacy
+  // rows apart: a plan generated from a story (true) must adopt the current
+  // fingerprint silently, while a plan generated without one (false) must
+  // regenerate. Once every row carries a fingerprint this column is dead and
+  // can be dropped.
+  generatedWithStory Boolean @default(false) @map("generated_with_story")
+
+  // Digest of the story content this plan was last generated from, and the
+  // compare-and-swap claim that replaces the boolean above. Null means never
+  // generated from a story. Regeneration fires whenever the current story
+  // hashes to something else, so editing an answer re-runs the plan while
+  // saving the same answer twice does not — which the boolean could not
+  // express, because once true it was true forever.
+  storyFingerprint String? @map("story_fingerprint")
+
   // One-shot claim that guards the initial campaign-tracker bootstrap. Both
   // plan sections complete on independent SQS messages (possibly different
   // pods); the first to flip this false->true in a single conditional update

@@ -7,6 +7,23 @@
     "dist",
     "e2e-tests",
     "scripts",
+    // Eval harnesses, not product code. The judge's runners patch a Nest
+    // singleton and a live Databricks provider by assignment, and
+    // assertTestProcess is the only thing standing between that and a real
+    // request — it passes on NODE_ENV=test in ANY process. Nothing outside
+    // src/chats/evals imports them, so leaving them out of the build costs
+    // nothing — verified: the only importers of envOverride and runEval are
+    // `*.eval.test.ts` files, which never ship.
+    //
+    // THIS GLOB AND .swcrc.build.json'S HAVE TO MATCH. They did not: this one
+    // dropped all of src/chats/evals from the type-check program while the
+    // emit pass dropped only src/chats/evals/judge, so envOverride.js and
+    // runEval.js reached dist WITHOUT having been type-checked by
+    // `nest build`. CI never missed it, because `npm run types` runs against
+    // tsconfig.json, which excludes neither — but a build whose emit and
+    // type-check disagree on scope is one edit away from shipping something
+    // nothing checked.
+    "src/chats/evals/**",
     "**/*spec.ts",
     "**/*.e2e.ts"
   ]

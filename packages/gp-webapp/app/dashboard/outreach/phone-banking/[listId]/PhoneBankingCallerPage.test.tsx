@@ -24,9 +24,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-// DashboardLayout pulls in EcanvasserProvider/useUser/useCampaign/etc., none
-// of which are wired up in this component test — same stub door-knocking's
-// own full-page test uses (NativeDoorKnockingPage.test.tsx).
+// DashboardLayout pulls in useUser/useCampaign/etc., none of which are wired
+// up in this component test — same stub door-knocking's own full-page test
+// uses (NativeDoorKnockingPage.test.tsx).
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
   default: ({ children }: { children: React.ReactNode }) => (
@@ -312,7 +312,7 @@ describe('<PhoneBankingCallerPage>', () => {
     // needed to select them) fires Contact Viewed with the entry's rank.
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.ContactViewed,
-      { listId: LIST_ID, contactId: 'house-a', listRank: 2 },
+      { product: 'win', listId: LIST_ID, contactId: 'house-a', listRank: 2 },
     )
 
     await user.click(
@@ -342,6 +342,9 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.CallLogged,
       {
+        medium: 'phoneBanking',
+        fanout: 'one-to-one',
+        product: 'win',
         listId: LIST_ID,
         contactId: 'house-a',
         listRank: 2,
@@ -361,8 +364,129 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(within(dialog).getByText('Did they answer?')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.ContactViewed,
-      { listId: LIST_ID, contactId: 'house-b', listRank: 2 },
+      { product: 'win', listId: LIST_ID, contactId: 'house-b', listRank: 2 },
     )
+  })
+
+  // The form is keyed on the person, so a tab switch remounts it. Answers
+  // not yet saved are kept for the session and come back with the tab.
+  it('keeps unsaved answers across a switch to a housemate and back', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    api.mock('POST /v1/phone-banking/lists/:id/calls', () => {
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 2,
+        results: [
+          {
+            personId: 'house-a',
+            interaction: {
+              outcome: 'no_answer',
+              supportAnswer: null,
+              willVote: null,
+              followUp: null,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+    await user.click(screen.getByText('Casey Household, Robin Household'))
+    await user.click(await screen.findByText('Casey Household'))
+    const dialog = await screen.findByRole('dialog')
+    const tab = (name: RegExp) => within(dialog).getByRole('tab', { name })
+    const radio = (name: string) => within(dialog).getByRole('radio', { name })
+
+    await user.click(radio('Answered'))
+    await user.click(radio('Engaged'))
+    await user.click(radio('Yes'))
+    await user.click(tab(/Robin Household/))
+    expect(radio('Answered')).not.toBeChecked()
+    await user.click(tab(/Casey Household/))
+
+    expect(radio('Answered')).toBeChecked()
+    expect(radio('Engaged')).toBeChecked()
+    // Support's Yes, and the will-vote row it opened, unanswered.
+    const [supportYes, willVoteYes] = within(dialog).getAllByRole('radio', {
+      name: 'Yes',
+    })
+    expect(supportYes).toBeChecked()
+    expect(willVoteYes).not.toBeChecked()
+
+    // Saved answers are the server's from then on, not the stash's.
+    await user.click(radio('No answer'))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await within(dialog).findByRole('button', {
+      name: "Edit this call's outcome",
+    })
+    await user.click(tab(/Robin Household/))
+    await user.click(tab(/Casey Household/))
+    expect(
+      within(dialog).getByRole('button', { name: "Edit this call's outcome" }),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText('Did they answer?')).toBeNull()
+  })
+
+  // Save on a slow connection, then a tap on the housemate before the
+  // answer lands: the form has already unmounted with its answers, and the
+  // save that lands afterwards is what has to drop them.
+  it('drops the unsaved answers of a call whose save lands after a switch', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    let land: () => void = () => undefined
+    const landed = new Promise<void>((resolve) => {
+      land = resolve
+    })
+    api.mock('POST /v1/phone-banking/lists/:id/calls', async () => {
+      await landed
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 2,
+        results: [
+          {
+            personId: 'house-a',
+            interaction: {
+              outcome: 'no_answer',
+              supportAnswer: null,
+              willVote: null,
+              followUp: null,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+    await user.click(screen.getByText('Casey Household, Robin Household'))
+    await user.click(await screen.findByText('Casey Household'))
+    const dialog = await screen.findByRole('dialog')
+    const tab = (name: RegExp) => within(dialog).getByRole('tab', { name })
+
+    await user.click(within(dialog).getByRole('radio', { name: 'No answer' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await user.click(tab(/Robin Household/))
+    land()
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.PhoneBanking.CallLogged,
+        expect.objectContaining({ contactId: 'house-a' }),
+      ),
+    )
+    await user.click(tab(/Casey Household/))
+
+    expect(
+      await within(dialog).findByRole('button', {
+        name: "Edit this call's outcome",
+      }),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText('Did they answer?')).toBeNull()
   })
 
   it('fires Call Sheet Downloaded from the header PDF button', async () => {
@@ -384,6 +508,7 @@ describe('<PhoneBankingCallerPage>', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      { product: 'win' },
     )
   })
 
@@ -539,6 +664,9 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.CallLogged,
       {
+        medium: 'phoneBanking',
+        fanout: 'one-to-one',
+        product: 'win',
         listId: LIST_ID,
         contactId: 'solo-1',
         listRank: 1,
@@ -889,6 +1017,7 @@ describe('<PhoneBankingCallerPage>', () => {
     await user.click(sheetLink)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      { product: 'win' },
     )
   })
 

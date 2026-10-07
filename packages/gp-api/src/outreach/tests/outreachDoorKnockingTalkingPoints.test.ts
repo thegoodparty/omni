@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { Campaign } from '../../generated/prisma'
+import { WIN_DOOR_KNOCKING_VOICE } from '../services/outreachDoorKnockingGeneration.service'
 
 const service = useTestService()
 
@@ -74,7 +75,85 @@ const draftBody = (overrides: object = {}) => ({
   ...overrides,
 })
 
+// The lines `withField` adds to `without`, asserting that adding them is the
+// ONLY difference — so a request without the field is byte-identical to one
+// that never knew the field existed.
+const addedLines = (without: string, withField: string): string[] => {
+  const before = without.split('\n')
+  const after = withField.split('\n')
+  let start = 0
+  while (start < before.length && before[start] === after[start]) start++
+  const count = after.length - before.length
+  expect(after.slice(start + count)).toEqual(before.slice(start))
+  return after.slice(start, start + count)
+}
+
 describe('POST /v1/outreach/door-knocking/draft', () => {
+  // "Hear from voters" asks one question, and the card's ask is written from
+  // it the way Serve's community-input card is.
+  describe('the hear-from-voters question', () => {
+    const question = 'How do you feel about the road bond?'
+
+    it('adds the fenced question and its precedence, and nothing else', async () => {
+      mockPoints()
+      await postDraft(draftBody({ purpose: 'community_input' }))
+      const baseline = { system: promptOf('system'), user: promptOf('user') }
+
+      jsonCompletion.mockClear()
+      mockPoints()
+      const res = await postDraft(
+        draftBody({
+          purpose: 'community_input',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(promptOf('system')).toBe(baseline.system)
+      expect(addedLines(baseline.user, promptOf('user'))).toEqual([
+        'The question this effort is trying to answer:',
+        '"""',
+        question,
+        '"""',
+        expect.stringContaining(
+          'in place of the general question described above',
+        ),
+      ])
+    })
+
+    it('drafts the purpose in Win’s own voice', async () => {
+      mockPoints()
+
+      await postDraft(
+        draftBody({
+          purpose: 'community_input',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(promptOf('user')).toContain(
+        WIN_DOOR_KNOCKING_VOICE.purposePrompts.community_input,
+      )
+      expect(`${promptOf('system')}${promptOf('user')}`).not.toMatch(
+        /constituent/i,
+      )
+    })
+
+    // One-way, as on Serve: a question folded into any other purpose's ask
+    // writes a card about something the effort is not about.
+    it('refuses a question on a purpose that asks none', async () => {
+      const res = await postDraft(
+        draftBody({
+          purpose: 'persuade_voters',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
+    })
+  })
+
   it('returns the three generated lines, named', async () => {
     mockPoints()
 
@@ -309,17 +388,56 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(promptOf('system')).toContain('ONE request and no more')
     })
 
-    // The one line allowed to carry brackets, and only because event
-    // logistics are not modelled anywhere in this product.
-    it('permits logistics brackets only for an event invite', async () => {
+    it('writes an event invite from the details the flow sent', async () => {
+      mockPoints()
+
+      await postDraft(
+        draftBody({
+          purpose: 'event_invite',
+          event: {
+            date: '2026-10-17',
+            time: '18:30',
+            location: 'Georgetown Public Library',
+          },
+        }),
+      )
+
+      const user = promptOf('user')
+      expect(user).toContain('Date: Saturday, October 17')
+      expect(user).toContain('Time: 6:30 PM')
+      expect(user).toContain('Location: Georgetown Public Library')
+      expect(`${promptOf('system')}\n${user}`).not.toMatch(
+        /\[(date|time|location)\]/i,
+      )
+    })
+
+    it('leaves the logistics out of an event invite sent without details', async () => {
       mockPoints()
 
       await postDraft(draftBody({ purpose: 'event_invite' }))
 
-      expect(promptOf('user')).toContain('[date]')
+      const user = promptOf('user')
+      expect(user).toContain('No event date, time or place was given.')
       expect(promptOf('system')).toContain(
-        'Use a bracketed placeholder ONLY in the ask',
+        'Never write a bracketed placeholder.',
       )
+      expect(`${promptOf('system')}\n${user}`).not.toMatch(
+        /\[(date|time|location)\]/i,
+      )
+    })
+
+    it('rejects event details it cannot write in', async () => {
+      const res = await service.client.post(
+        '/v1/outreach/door-knocking/draft',
+        draftBody({
+          purpose: 'event_invite',
+          event: { date: 'Saturday', time: '6pm', location: 'Library' },
+        }),
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
     })
 
     // Fresh generation only. Improve mode polishes the author's own words, so

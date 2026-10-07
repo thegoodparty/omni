@@ -16,6 +16,8 @@ import type {
 import { clientRequest } from 'gpApi/typed-request'
 import { FetchError } from 'ofetch'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import { RouteStep } from './createFlow/RouteStep'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
@@ -44,6 +46,7 @@ export const StartKnockingDialog = ({
   onOpenChange,
   onRouteBuilt,
 }: Props) => {
+  const serveMode = useDoorKnockingServeMode()
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<DoorKnockingMode>('walk')
   const [loop, setLoop] = useState(true)
@@ -69,6 +72,7 @@ export const StartKnockingDialog = ({
       // one. Status separates what the candidate can act on (400 empty
       // turf or over the cap) from the vendor being down (502).
       trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
+        product: outreachProduct(serveMode),
         mode,
         loop,
         status: error instanceof FetchError ? error.status : undefined,

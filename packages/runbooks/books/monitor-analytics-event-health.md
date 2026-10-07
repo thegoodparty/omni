@@ -25,7 +25,11 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
   alignment check) disables itself for the run, and the digest says so with a red "OKR
   dormancy checks degraded" line rather than failing. A laptop run without the token
   now reads the sem files through the reviewer's own `gh` auth first, so it degrades
-  only when that also has no access.
+  only when that also has no access. `sem_anchors.py refresh-vendored` writes a committed
+  copy to `instrumentation_data/sem/` on every Monday/Thursday run; the pre-merge
+  **Analytics guard** (`governance_guard.py`, DATA-2432) reads only that copy, as it stands
+  at the PR's merge base, never the network, so a PR check stays fast and a PR cannot edit
+  away the leg it breaks.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be
@@ -57,15 +61,15 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | deprecating | set | last fire on/before `retired_date`, within 30d holding window | informational (fresh retirees land here even while pre-retirement traffic still sits in the 30d count) |
 | orphaned_firing | set | last fire *after* `retired_date` (+ small grace for deploy/pipeline lag) | highest severity, escalate |
 | retired | set | quiet 30d+ | none |
-| code_unknown | no provenance row | any | auto-tracked or brand-new; anomaly-watched only |
-| instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
+| code_unknown | no provenance row, or a blank one | any | auto-tracked, fired from outside this repo, or never built; anomaly-watched only |
+| instrumented_never_observed | found in code, not retired | never in catalog | possible broken instrumentation; flag once 30 days past `instrumented_date` (`NEVER_OBSERVED_GRACE_DAYS`). Before that it is counted in the digest as "too new to judge", not flagged. An undated row, or an elevated event (watchlist, onboarding, activation, compliance), gets no grace |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
 Severity ranks (0 = loudest): 0 OKR anchor dormant (latched), see DATA-2421, or counter
 blind spot — zero call sites but firing normally, a tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
 removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
 anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
-instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
+instrumented-never-observed, past its 30-day grace · 8 dormant (collapsed to a single tail line in the digest).
 
 ## Stage 1 — run the monitor
 
@@ -98,6 +102,12 @@ For a rank-1/2 flag, confirm what the firing axis is telling you by reading the 
 This is not part of the scheduled run (the code axis is the provenance CSV); it is the
 follow-up when a flag needs a verdict.
 
+**Known gotchas, pitfalls, traps, false positives and false negatives** in this process are
+indexed as a symptom table in [analytics-governance-gotchas.md](analytics-governance-gotchas.md) —
+scan it before ruling on any flag. The plain words are spelled out here on purpose: the
+rank-0 and rank-2 sections below are two of the entries, and a search for "gotcha" or
+"pitfall" does not find a section headed "Rank 0 — counter blind spot".
+
 1. **Find the instrumentation.** `rg -F "<event_type>" packages/` in the omni repo. Note where
    it fires (gp-webapp `trackEvent` or gp-api `AnalyticsService.track`).
 2. **Look for a change in the window.** `git log -S"<event_type>" -- packages/` and inspect the
@@ -119,8 +129,12 @@ not a silent break.
 
 This flag's propose-and-confirm flow (never auto-decide):
 
-1. Confirm in git: `git log -S'EVENTS.<KeyPath>' -- packages/gp-webapp` and read the removing
-   diff. The key-path is the one resolved from the `EVENTS` map for this event name.
+1. Confirm in git. The row's `call_site_retired_date` already names the day and
+   `call_site_retired_pr` the PR (the event health console pre-fills it as the proof); the CSV's
+   walk is wrap-tolerant, so trust it over your own search. To read the removing diff,
+   pickaxe the **leaf key** (`git log -S'CheckGender' -- packages/gp-webapp`) rather than
+   the dotted key-path: Prettier wraps a long path across lines, so `-S'EVENTS.<KeyPath>'`
+   finds no commit even though the removal is there.
 2. Decide the verdict to propose:
    - **Retired** — the call site was deleted and nothing replaced it.
    - **Superseded by <event>** — a new event took its place (cite it). Never guess; if a
@@ -149,11 +163,7 @@ blind to how the reference is written — not the event dead. Fix the counter, n
    e.g. `MediaRequested`, not the full key-path — the full path is exactly what the counter
    failed to see).
 2. Identify the shape. Aliased (`const x = EVENTS.<prefix>`) and Prettier-wrapped key-paths
-   are counted since DATA-2106, so a rank-0 flag usually means a NEW shape. One exception,
-   and check it first: `call_site_retired_date` is resolved by a single-line `git log -S`,
-   so a Prettier-wrapped key-path gets a true `0` count with NO removal date, and the
-   straddle gate cannot suppress it. An event whose siblings carry a removal date is almost
-   certainly this, not a new shape (DATA-2427).
+   are counted since DATA-2106, so a rank-0 flag means a NEW shape.
 3. Extend `count_call_sites` in `scripts/python/amplitude_event_provenance_backfill.py`
    (tests first), re-run the walk, and confirm the count is non-zero.
 4. Never route a rank-0 event into the rank-2 retirement propose-and-confirm flow.
@@ -286,7 +296,20 @@ informational** rollup, plus a threaded reply with the full detail (per-event an
 numbers, watchlist proposals, informational transitions, and the status breakdown). Each
 item's tier comes from `digest_triage.py`: a deterministic rules pass (OKR flag, watchlist
 membership, health rank) that a rubric-guided Claude judge may then move by one tier —
-never demoting an OKR-anchored red item. The judge needs `ANTHROPIC_API_KEY` and reads its
+never demoting an OKR-anchored red item.
+
+That judge, and the gap judge in `instrumentation_gaps.py`, are each **one forced-tool-call
+request with a fixed system prompt** — no tools, no filesystem. So they cannot follow a
+pointer to a doc; the text has to be in the prompt. `governance_gotchas.py` pastes the
+**Judgment traps** table of
+[analytics-governance-gotchas.md](analytics-governance-gotchas.md) into both, because both
+rule before any human reads the digest and a trap the judge does not know about becomes a
+tier or a confirmed gap nobody has reason to question (DATA-2575). Only that table: the
+book's other half is tooling defects awaiting a Python fix and process rules about git
+archaeology, none of which a judge can act on, so it stays out of the prompt (62% of the
+file, and it would be paid twice a week). A missing or corrupt book degrades to the rubric
+alone rather than failing the run. The judges only read it — the book is written in the
+`/triage-instrumentation-gaps` review, with a human approving each row. The judge needs `ANTHROPIC_API_KEY` and reads its
 model from `DIGEST_TRIAGE_MODEL` (default `claude-sonnet-5`); when the key is unset or the
 judge call fails, the digest posts anyway on the deterministic rules tier, with a
 `⚙️ triage judgment unavailable this run` line in the parent.
@@ -328,6 +351,88 @@ inline **before** the state file is advanced (the diff is consumed once state is
 and is **non-fatal**: a Slack error prints a warning and never changes the monitor's exit
 code. Needs `SLACK_APP_BOT_TOKEN` + `SLACK_EVENT_LIFECYCLE_CHANNEL_ID` in `scripts/.env`;
 without them, `--slack` warns and skips while the monitor runs normally.
+
+## Surface drift (DATA-2531)
+
+A separate weekly detector, `surface_drift.py`, flags analytics events whose label (a
+`surface:` tag, or the name prefix before `" - "`) no longer matches where the code can
+fire them. It runs in the same `analytics-governance` job, right after the explorer
+snapshot (`event_explorer_snapshot.py`), because it reads that snapshot's `surface:` tags
+and `okr_metrics` and walks webapp routes through `event_reach.py`, the same module the
+PR-time guard's `surface_moved` warning uses. It writes
+`instrumentation_data/surface_drift.json`, which the event health console's surface queue
+and the triage skill's Queue D read. Nothing here writes to Amplitude; an accepted row is
+applied through the `event-metadata` skill's Mode: RELABEL.
+
+### Verdicts
+
+| Verdict | Condition | Goes to |
+| --- | --- | --- |
+| `moved` | Reachable areas exclude the area the label claims | Relabel proposal |
+| `stale_area_name` | Same area by route, but the label uses a name the nav no longer shows, or a `surface:` tag names an area that no longer exists while the code resolves to one area | Relabel proposal, batched per prefix, lower priority |
+| `dashboard_wide` | The event's code reaches 5 or more areas, or is mounted from the root or `/dashboard` layout | Reported, nothing proposed |
+| `moved_then_quiet` | `moved`, and zero fires in the last 30 days | A relabel proposal too, proposed confidence only; see below |
+| `unclear` | Walk has gaps or no call site | A human |
+| `consistent` | Otherwise | Nothing |
+
+`moved_then_quiet` is a relabel proposal, never a flag: a quiet event still reachable on a
+live page is usually a rare action, not a break, the same read as a dormant event
+elsewhere in this book.
+
+### Confidence
+
+`high` (arrives pre-checked in the console) requires all of:
+
+- a `moved` verdict, no walk gaps, exactly one reachable area;
+- the label's claimed area provably dead for this event, with the removal commit named;
+- the event is not counted by any semantic-layer metric (`okr_metrics` is empty);
+- the page-path signal agrees: at least 0.8 agreement, at least 10 attributed fires, at
+  least 0.5 attribution coverage, and at least 5 distinct users (`MIN_USERS`, added in
+  calibration: a signal can clear every other floor on two people).
+
+An area with more than one name (Win and Serve vocabulary for the same page) is never
+`high`: the row lists the names as `surface_options`, and the human picks one.
+
+The removal commit is the newest commit that net-removed an import of any component on
+the walk, not necessarily one under the label's area; the page-path and user gates are
+what keep that from pre-checking a wrong row.
+
+Everything else that is `moved` or `stale_area_name` is `proposed`: shown in the console,
+not pre-checked, with the options laid out.
+
+The page-path signal attributes each fire to the user's last `Viewed` event within 30
+minutes. A page that emits few `Viewed` events of its own (Account Settings is the
+measured case) reads low agreement and low coverage, which costs a missed `high` grade,
+never a false one, because attribution inherits the page the user came from and it never
+invents the reached area.
+
+### `meta.backend_not_examined` and `meta.unmapped_prefixes`
+
+Backend (gp-api) events are out of scope; `meta.backend_not_examined` is how many were
+skipped, so a clean run can be told from one that silently covered less.
+
+`meta.unmapped_prefixes` lists name prefixes the detector could not match to any area and
+that are not already a flow prefix (never guessed). For each, add a row in
+`monitored_events.yaml`: to `flow_prefixes:` if it names a flow rather than a place (Pro
+Upgrade, 10DLC, Navigation, …), or to `prefix_areas:` if it is a real surface the
+detector's own name matching misses. A `prefix_areas:` alias **adds** the area it names to
+the prefix's own name match, rather than replacing it, because one prefix can span pages
+with different area names: `Serve Onboarding` fires from both `/serve/onboarding`, whose
+area is named only `onboarding`, and `/polls/onboarding`, named
+`welcome-to-goodparty-org-serve-onboarding`; the alias covers the first without breaking
+the second.
+
+### Calibration (2026-10-02)
+
+Calibrated against 14 known positives (the 5 DATA-2525 stale-area-name events, the 8
+Running Against events, and the Settings upload event) and a 30-event sample of
+`consistent` events across 14 areas. All 14 positives landed on the expected verdict and
+zero negatives reached `high`. Two positives reached `high`: Settings - Personal Info:
+Click Upload (96 fires, 73 users) and Profile - Running Against: Click Save (33 fires, 33
+users). Median page-path coverage was 0.96 for positives and 0.94 for negatives;
+coverage was not the binding constraint, agreement was. The user floor (`MIN_USERS = 5`)
+was added during this pass: two Running Against events cleared every other floor on 14
+fires from 2 users.
 
 ## Troubleshooting
 

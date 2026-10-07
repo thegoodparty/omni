@@ -20,6 +20,7 @@ import { ElectionPersonsController } from './controllers/electionPersons.control
 import { ElectionPlacesController } from './controllers/electionPlaces.controller'
 import { ElectionPositionsController } from './controllers/electionPositions.controller'
 import { ElectionRacesController } from './controllers/electionRaces.controller'
+import { ElectionsRateLimitGuard } from './guards/electionsRateLimit.guard'
 import { BallotReadyService } from './services/ballotReady.service'
 import { CensusEntitiesService } from './services/censusEntities.service'
 import { ElectionsService } from './services/elections.service'
@@ -40,6 +41,7 @@ import { RacesService } from './services/races.service'
     CensusEntitiesService,
     BallotReadyService,
     ElectionsService,
+    ElectionsRateLimitGuard,
   ],
   exports: [RacesService, ElectionsService, BallotReadyService],
   imports: [

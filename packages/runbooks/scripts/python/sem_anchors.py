@@ -15,10 +15,15 @@ from __future__ import annotations
 
 import http.client
 import os
+import re
 import subprocess
+import sys
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
 
 import yaml
 
@@ -31,6 +36,8 @@ SEM_PATHS = (
 )
 _API = "https://api.github.com/repos/{repo}/contents/{path}"
 _TIMEOUT = 20
+VENDORED_DIR = Path(__file__).resolve().parent / "instrumentation_data" / "sem"
+_REFRESHED = re.compile(r"^# Refreshed from \S+ on (\d{4}-\d{2}-\d{2})", re.M)
 
 
 def _freeze_excluding(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -235,3 +242,95 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
             "dormancy check is DISABLED this run."
         )
     return anchors, problems
+
+
+def refresh_vendored(directory: Path = VENDORED_DIR, token: str | None = None,
+                     today: str | None = None) -> list[str]:
+    """Rewrite the committed copy of each governed sem file from gp-data-platform main.
+
+    The pre-merge guard reads only this copy, so a network failure can never stop a merge.
+    A file that fails to read, fails to parse, or declares no anchors keeps its previous
+    copy: a stale definition still guards, an empty one would silently guard nothing.
+    """
+    token = token if token is not None else os.environ.get(TOKEN_ENV)
+    today = today or date.today().isoformat()
+    directory.mkdir(parents=True, exist_ok=True)
+    problems: list[str] = []
+    for path in SEM_PATHS:
+        name = path.rsplit("/", 1)[-1]
+        try:
+            text = _fetch(path, token) if token else _fetch_via_gh(path)
+        except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead,
+                http.client.RemoteDisconnected, RuntimeError, OSError,
+                subprocess.TimeoutExpired) as exc:
+            problems.append(f"could not read {path}: {exc}; kept the previous copy of {name}")
+            continue
+        try:
+            anchors = parse_anchors(text)
+        except (ValueError, TypeError, AttributeError, yaml.YAMLError) as exc:
+            problems.append(f"{path} is malformed ({exc}); kept the previous copy of {name}")
+            continue
+        if not anchors:
+            problems.append(f"{path} has no anchored_on declarations; kept the previous copy of {name}")
+            continue
+        header = (f"# Refreshed from {REPO} on {today} by sem_anchors.py refresh-vendored.\n"
+                  "# Do not edit by hand: the analytics-governance run rewrites it every Monday and Thursday.\n")
+        (directory / name).write_text(header + text)
+    return problems
+
+
+VENDORED_NAMES = tuple(path.rsplit("/", 1)[-1] for path in SEM_PATHS)
+
+
+def parse_vendored_texts(texts: Iterable[str]) -> tuple[dict[str, list[Leg]], str | None]:
+    """Anchors across vendored copies, plus the oldest refresh date among them."""
+    anchors: dict[str, list[Leg]] = {}
+    dates: list[str] = []
+    for text in texts:
+        anchors.update(parse_anchors(text))
+        if m := _REFRESHED.search(text):
+            dates.append(m.group(1))
+    return anchors, (min(dates) if dates else None)
+
+
+def load_vendored_anchors(directory: Path = VENDORED_DIR) -> tuple[dict[str, list[Leg]], str | None]:
+    files = [directory / name for name in VENDORED_NAMES]
+    return parse_vendored_texts(f.read_text() for f in files if f.exists())
+
+
+def load_metric_labels(token: str | None = None) -> dict[str, str]:
+    """``{metric_name: label}`` across the governed sem files, for display only.
+
+    Best effort, unlike ``load_anchors``: a missing label costs a page its readable name
+    and nothing else, so a failed read returns what it has and the page shows the id.
+    """
+    token = token if token is not None else os.environ.get(TOKEN_ENV)
+    use_gh = not token and not os.environ.get(GH_FALLBACK_ENV)
+    if not token and not use_gh:
+        return {}
+    labels: dict[str, str] = {}
+    for path in SEM_PATHS:
+        try:
+            text = _fetch_via_gh(path) if use_gh else _fetch(path, token)
+            for metric in (yaml.safe_load(text) or {}).get("metrics") or []:
+                if metric.get("name") and metric.get("label"):
+                    labels[metric["name"]] = str(metric["label"])
+        except Exception:  # noqa: BLE001 - display-only; see docstring
+            continue
+    return labels
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("command", choices=["refresh-vendored"])
+    parser.parse_args(argv)
+    problems = refresh_vendored()
+    for p in problems:
+        print(p, file=sys.stderr)
+    return 1 if len(problems) == len(SEM_PATHS) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

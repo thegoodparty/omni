@@ -9,7 +9,7 @@ import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
   OPT_OUT_FOOTER,
   SERVE_SMS_GREETING,
-  SERVE_SMS_GREETING_PREVIEW,
+  SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
   SMS_GREETING,
   withSampleFirstName,
@@ -37,8 +37,13 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // has no Peerly phone list of its own yet — replacing this derivation with
 // the org-scoped create is the hub-wiring ticket's job, not the surface's.
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 1200,
     excludedOptedOutCount: 0,
@@ -73,6 +78,7 @@ const openServeFlow = () => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
     <SmsFlow
+      source="outreach_page"
       open
       onClose={onClose}
       onScheduled={onScheduled}
@@ -309,12 +315,12 @@ describe('SmsFlow (Serve surface)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/^Hello First name,/),
+    )
+    expect(screen.queryByText(SMS_GREETING_PREVIEW.caption)).toBeNull()
     expect(screen.queryByText('Greeting First Name')).toBeNull()
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
   })
@@ -409,7 +415,7 @@ describe('SERVE_SMS_SURFACE', () => {
     expect(shown).toContain(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`)
     expect(shown).not.toContain('{{first_name}}')
     expect(shown).not.toContain('{first_name}')
-    expect(SERVE_SMS_GREETING_PREVIEW.greeting).toBe(
+    expect(SMS_GREETING_PREVIEW.greeting).toBe(
       `Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`,
     )
   })

@@ -1,13 +1,15 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over three queues — instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), and registry-vs-semantic-layer alignment findings (anchor_alignment.py) — entered from the Slack governance digest, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest.
+description: Run the weekly instrumentation-governance review over five queues, flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), and surface relabels (surface_drift.py), entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
 ---
 
 # Triage instrumentation gaps
 
-Weekly governance review over **three re-nagging queues** that share one reviewer, one
+Weekly governance review over **five re-nagging queues** that share one reviewer, one
 session, and one PR:
 
+- **Queue 0 — flagged causes** (`analytics_event_health.py`): the flagged set grouped by
+  the reason it fired, so a deploy that stranded twenty-two name constants is one ruling.
 - **Queue A — instrumentation gaps** (`instrumentation_gaps.py`): candidate product
   surfaces the weekly sweep thinks are missing an analytics event.
 - **Queue B — watchlist proposals** (`analytics_event_health.py`): catalog events in a
@@ -15,6 +17,8 @@ session, and one PR:
 - **Queue C — registry vs semantic layer** (`anchor_alignment.py`): a behavior in
   `monitored_events.yaml` and the governed metric it points at disagree about which
   events count.
+- **Queue D, surface relabels** (`surface_drift.py`): an event whose label (its
+  `surface:` tag, or its name prefix) no longer matches where the code fires it.
 
 This skill orchestrates existing Python modules and three other skills. It never
 re-implements enumeration, judgment, or proposal detection, and it never edits product
@@ -35,6 +39,10 @@ on any queue used to be hand-editing raw JSON/YAML on GitHub.
   "diagnose the red item", "why did these flatline") — run the Diagnose section, in
   the same session as the queues or standalone.
 - Weekly cadence: this is the human review step that closes the loop the digest opens.
+- **Standalone drift.** A product change renamed, moved or retired an event that a
+  governed metric's `anchored_on` names, or the business group ruled that a governed
+  metric should count something different. There may be no finding in any queue yet.
+  Go straight to **Resolve a drift end to end** under Queue C.
 
 ## Resolve the runbooks dir
 
@@ -90,10 +98,129 @@ The reviewer never has to pre-load anything — this skill finds the run itself.
   and message timestamp out of the URL (`p1234567890123456` → `1234567890.123456`),
   `slack_read_thread` on that, then extract `run_date` the same way as step 4 above.
 
+**With a pasted console handoff** — the event health console (DATA-2546) is a page over
+the same snapshot, where the reviewer reads the evidence and picks a verb per row. It
+emits a plain-text batch:
+
+```
+DATA-2546 triage handoff
+run: 2026-09-28
+judgments: 12
+
+## flags
+- govern: call_site_removed@2026-09-01
+  reason: <why>
+  proof: <the commit or PR that deleted the call site>
+- dismiss: orphaned_firing  [overridden]
+  reason: <why>
+  - ticket (34 events): <why these ones>
+      <event name>
+      <event name>
+
+## gaps
+- accept: packages/gp-webapp/app/…#form
+  reason: <why>
+
+## surface
+- accept: Profile - Running Against: Click Save
+  reason: <why>
+```
+
+Take `run_date` from the `run:` line and skip the Slack read. Everything downstream is
+unchanged: each block names a queue, an item id the queue already keys on, and that
+queue's own verb.
+
+**The console replaces the elicitation half of this skill, not the application half.**
+The reviewer has already looked at the evidence and chosen. Do not re-ask. What is still
+yours is everything after the verb — the per-queue write rules, `is_actioned`, the
+accepted-gap routing between a ClickUp ticket and `instrument-analytics-event`, and
+`ship-pr`.
+
+Reading the blocks:
+
+- `[overridden]` means the reviewer did not take the suggestion. It is informational;
+  the verb is the verb either way.
+- An indented `- <verb> (N events):` block under an item is a ruling on **part** of a
+  cause, with its member events listed beneath. A cause-level verb and a per-event verb
+  can both be present: "retire the cluster, except these four".
+- `proof:` appears only on `govern`, and only because the console refuses to record a
+  Govern write without it. Carry it into the `event-metadata` handoff — it is the
+  code-removal evidence the status write is supposed to embed. A `proof:` beginning
+  `no removal:` is the reviewer declaring this write is **not** a retirement; honour
+  that and do not write a retirement status.
+- A per-event `reviewed` verdict has nowhere to land yet
+  (`analytics_event_health_dispositions.json` is not built). Report it in the PR body
+  and tell the reviewer the digest will raise it again.
+- **Judgments are stamped with a run date.** If a newer run has landed since, a cause's
+  membership may have moved. Re-check membership before applying and report what
+  changed rather than applying a stale ruling silently.
+
 Never post to Slack during this self-load — it's read-only (`slack_read_channel` /
 `slack_read_thread` / `slack_search_public`), never `slack_send_message`.
 
-With `run_date` in hand, load all three queues scoped to that run.
+With `run_date` in hand, load all five queues scoped to that run.
+
+**Read the gotchas book before ruling on anything.** `books/analytics-governance-gotchas.md`
+is a symptom table of the traps that have produced confident, wrong verdicts in this
+process — blank vs zero call-site counts, the rank-0 counter blind spot, a 30-day window
+straddling a retirement, the rolling baseline absorbing a sustained break. Scanning it
+first is cheaper than re-deriving one of them from scratch, which is what DATA-2575 was
+filed for.
+
+## Queue 0 — flagged causes
+
+**Get the batch:** the digest's **Flagged (by cause)** section, or the console's flags
+queue. `cluster_flagged` groups the flagged set by the reason it fired, so one deploy
+that stranded twenty-two name constants is one ruling rather than twenty-two.
+
+The unit is the **cause key** — the string the digest prints for that line, qualifier
+included (`call_site_removed@2026-09-01`), or the bare key where there is none
+(`orphaned_firing`, `never_observed`, `intent_divergence`, `dormant_elevated`,
+`anomaly_drop`, `counter_blind_spot`, `okr_anchor_dormant`). Get it exactly right: a
+dismissal carrying a mangled qualifier silently matches nothing.
+
+**Verb → action:**
+
+| Verb          | What it means                                  | What you do                                                                                                                                                             |
+| ------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `govern`      | Write the event's status in Amplitude Govern   | Hand each member event to the **`event-metadata`** skill, carrying the handoff's `proof:` as the code-removal evidence the status write embeds. **Not a repo change** — see the PR section. |
+| `dismiss`     | Silence this cause in every future digest      | Append a `cause:` row to `dismissed:` in `monitored_events.yaml` (below).                                                                                               |
+| `ticket`      | Hand it to the backlog                         | File a ClickUp ticket in the Data backlog. See the note below about re-nagging.                                                                                          |
+| `investigate` | Nothing is written yet                         | Drop into **Diagnose** with that cause's member events.                                                                                                                  |
+
+**Dismissing a cause:**
+
+```yaml
+- {cause: "<cause key>", reason: "<reason>", date: "<run_date>"}
+```
+
+- **Check membership first** — skip if the same `cause` is already in `dismissed:`.
+- **`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed.** The loader
+  refuses both and the digest prints "Dismissal refused" naming the row, so a dismissal
+  written anyway does nothing except tell on itself. A latched OKR anchor clears on
+  recovery or when the metric's `anchored_on` changes upstream; a counter blind spot is
+  fixed in `count_call_sites` in the provenance backfill. The console does not offer a
+  dismiss button on those two rows, so a handoff should never contain one — if it does,
+  say so rather than writing it.
+- A dismissed cause stays in the digest struck through, with its current member count, and
+  stays whole in the JSON report. It is silenced, not deleted, so a cluster that keeps
+  growing after it was settled is still visible.
+
+**`ticket` does not stop the nagging, today.** The only silencing mechanism for a cause
+is the `cause:` dismissal above, and a `reviewed` disposition per event has no home yet
+(`analytics_event_health_dispositions.json` is not built). So a ticketed cause comes
+back next run. Say that out loud and ask whether the reviewer also wants it dismissed
+with the ticket URL as the reason — don't decide it for them, and don't write a
+dismissal they did not ask for.
+
+**A ruling on part of a cause.** A handoff can carry an indented per-event block under a
+cause. Apply the cause-level verb first, then the per-event ones, so "retire the cluster
+except these four" lands in that order. Per-event `govern` goes to `event-metadata` the
+same way. Per-event `reviewed`, `dismiss` and `ticket` have nowhere to land as a silence:
+never turn them into a `cause:` row, which would quiet every event under that cause, and
+never into an `event:` row, which is a watchlist-proposal rejection and silences no flag.
+Record them in the PR body, file the ticket if one was asked for, and tell the reviewer the
+digest will raise them again until the cause stops applying.
 
 ## Queue A — instrumentation gaps
 
@@ -121,8 +248,9 @@ usually the same call, made in seconds.
 
 - **Empty batch** → say so ("no new instrumentation gaps this run") and skip straight
   to Queue B.
-- **Otherwise**, offer **interactive** or **batch**; suggest **batch** once the batch
-  has more than 5 items (walking >5 one-by-one in chat is worse than an editor pass).
+- **Otherwise**, offer **interactive**, **batch**, or — when the reviewer arrived with a
+  console handoff — **apply the handoff**. Suggest **batch** once the batch has more
+  than 5 items (walking >5 one-by-one in chat is worse than an editor pass).
 
 Both modes write dispositions back through the **same path**: a filled review
 artifact loaded via `--load-review`. There is exactly one write path into
@@ -153,6 +281,19 @@ of asking the reviewer to open an editor.
    `- reason:` for each block in their editor, then confirm when done.
 3. Same `--load-review` step as above.
 
+**Apply the handoff** (the reviewer already ruled, in the console):
+
+1. Same `--review-artifact` step as above.
+2. Fill each block from the handoff's `## gaps` section, mapping the verb through the
+   table below. Ids match: the console keys a gap on the same `location#surface_type`
+   this artifact does.
+3. A gap in the artifact that the handoff does not mention stays blank, which the parser
+   reads as "still new" — correct, and what the reviewer meant by not ruling on it.
+4. Same `--load-review` step as above.
+
+The write path does not change in any of the three modes. There is exactly one way into
+`instrumentation_gaps.json`, and it is `--load-review`.
+
 **Verb → disposition mapping** (write the literal value into the artifact's
 `- disposition:` line):
 
@@ -164,6 +305,14 @@ of asking the reviewer to open an editor.
 
 `apply_seed_dispositions` validates against `{new, open, accepted, dismissed}` and
 skips (with a stderr warning) anything else, so don't invent other values.
+
+**This mapping is not optional, and skipping it fails silently.** The verbs above are
+the reviewer's words; the values in the middle column are the storage format. They do
+not overlap — a console handoff says `accept`, `dismiss`, `defer`, and every one of
+those is invalid to the parser. Writing a handoff's verbs straight into the artifact
+drops every Queue A ruling with nothing but a stderr line to show for it, and the next
+digest re-nags the whole batch as though the review never happened. Translate, then
+check the `--load-review` applied count against the number of blocks you filled.
 
 ### Act on accepted gaps
 
@@ -309,6 +458,14 @@ newer information about the product, and fix that side only:
 | 2 | the semantic layer | Draft the `anchored_on` change and, on accept, open a gp-data-platform PR. Never an omni edit that hides it. |
 | 3 | unknown, they disagree on scope | Ask the reviewer which side is wrong. Then follow that case's row. |
 
+These cases are the drift types in gp-data-platform's semantic-layer SOP
+(`analytics/diagnostics/semantic_catalog/templates/sop.md`, "When the product and a
+metric drift apart"): case 2 is **drift B** (the product moved, the meaning did not),
+case 3 is **drift C** (the product changed what could be counted), and case 1 is the
+last step of either. **Drift A** (the business group changed the meaning) has no case,
+because it starts from a ruling rather than a finding. The SOP owns who decides and which
+review lane applies; this skill owns the procedure and restates none of that policy.
+
 An old caveat in the yaml saying re-anchoring is "deliberately not done" or waits for
 DATA-2421 is history, not an instruction. DATA-2421 shipped. Rewrite the caveat as part of
 the edit.
@@ -386,16 +543,10 @@ Show the reviewer the draft, the `evidence` block, and the call site: read the s
 then grep for it. `call_site_count` is blind for many events (DATA-2427), so read the
 site, do not trust the count.
 
-- **accept** → open the gp-data-platform PR:
-  1. `cd` to a gp-data-platform checkout (ask where if unknown), `git fetch origin main`,
-     branch `data-2513/<metric-slug>-anchor` from `origin/main`.
-  2. Apply the draft to the sem file. No ticket ids in the YAML; the `era: historical`
-     date comment is enough.
-  3. Invoke that repo's `pull-request` skill. Title `[DATA-2513] Re-anchor <metric> on
-     <successor>`. Body: the evidence block, the omni behavior that surfaced it, and a
-     link to this session's omni PR once it exists. CODEOWNERS routes it to both
-     semantic-layer teams; you do not merge it.
-  4. Record the PR URL for the omni write-back body.
+- **accept** → run **Resolve a drift end to end** below. The draft above is only the
+  sem-file half. A successor usually needs a preparation PR first, and adding the leg
+  without one can double count or miss rows. Record every gp-data-platform PR URL for
+  the omni write-back body.
 - **dismiss** → the reviewer says the successor is not part of the metric. Append to
   `dismissed:` in `monitored_events.yaml`:
   `- {event: "<suggested>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
@@ -405,8 +556,13 @@ site, do not trust the count.
 **Case 3, `live_instrument_not_declared`.** One question to the reviewer, verbatim:
 "Should `<metric>` count `<event_key>`?"
 
-- **yes** → it becomes a case 2 recommendation: draft an `anchored_on` addition (no
-  `era`, just the new leg) and follow the case 2 accept path.
+- **yes** → draft an `anchored_on` addition (no `era`, just the new leg). Then ask
+  whether the metric's `business_rule` already covers it. If it does, this is drift B
+  and follows the case 2 accept path. If counting it changes what the rule says, it is
+  drift A: stop, and tell the reviewer the business group has to rule on the new scope
+  before any PR is drafted. Once they have, the `business_rule` change rides in the
+  same sem PR as the leg, through **Resolve a drift end to end**. Never add the leg and
+  leave a rule that contradicts it.
 - **no** → the behavior answers a broader question than the metric. Append to
   `dismissed:` in `monitored_events.yaml`, keyed on the finding's `event_key`:
   `- {event: "<event_key>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
@@ -421,32 +577,275 @@ site, do not trust the count.
 
 Never decide a case 3 yourself.
 
-## Settle a whole cause (digest queue)
+Rows of kind `declared_leg_changed_by_pr` come from `intents:` rows a PR wrote to clear
+an analytics guard block. Draft the `anchored_on` change the headline names, exactly like
+any case 2. `intent_row_resolved` means the upstream change landed: delete that `intents:`
+row in this triage PR. Every `not_a_change` row is a possible guard false positive: check
+the PR, and if the guard was wrong, file the fix. An `intents:` row with no `metric:` is a
+PR reporting a dead listing the guard got wrong; it is not a metric change, so Queue C
+never shows it. Whenever this PR touches `monitored_events.yaml`, look for such rows: file
+the guard fix, then delete the row. A `moved` row is a refactor the guard already checked
+against the code (the call went into another file that runs); Queue C never shows it and
+it needs no review, so delete it on sight. An `intent_row_resolved` also appears when the metric
+keeps the event only as a historical leg, since the guard no longer watches it either.
 
-The digest's **Flagged (by cause)** section groups flags by the reason they fired, so one
-deploy that stranded twenty-two name constants is one ruling rather than twenty-two. When
-the reviewer settles a cause rather than an event, append a `cause:` row to `dismissed:`
-in `monitored_events.yaml`:
+### Resolve a drift end to end
 
-```yaml
-- {cause: "<cause key>", reason: "<reason>", date: "<run_date>"}
-```
+The procedure behind every case 2 accept, every case 3 yes, and every standalone drift.
+Steps 1 to 6 are read-only and come before any plan is shown to the reviewer. Bring the
+reviewer the findings of steps 3 to 6 and the drift type **before** building anything:
+a specified change still leaves decisions that are theirs.
 
-The cause key is the string the digest prints for that line, qualifier included
-(`call_site_removed@2026-09-01`), or the bare key where there is none (`orphaned_firing`,
-`never_observed`, `intent_divergence`, `dormant_elevated`, `anomaly_drop`).
+Queries below run from `<runbooks>/scripts/python` as
+`PYTHONPATH=. uv run python -c "import databricks_oauth as dbc; print(dbc.run_query('''<sql>''').to_string())"`.
+Keep `.to_string()`: pandas otherwise elides columns, and the elided column is usually
+the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api_events`;
+`:` property paths are case-insensitive.
 
-Rules:
+1. **Name the drift** (A, B or C, per the SOP), or confirm the type the case above
+   already gave it (a case 2 accept is B, and so is a case 3 yes whose `business_rule`
+   already covers the event). For A or C, continue only once the business
+   group's ruling is in hand: stop and wait if it is not, and carry on if it is. A rename can hold a C inside a
+   B; step 5 is where that surfaces, and it stops there.
 
-- **Check membership first** — skip if the same `cause` is already in `dismissed:`.
-- **`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed.** The loader
-  refuses both and the digest prints "Dismissal refused" naming the row, so a dismissal
-  written anyway does nothing except tell on itself. A latched OKR anchor clears on
-  recovery or when the metric's `anchored_on` changes upstream; a counter blind spot is
-  fixed in `count_call_sites` in the provenance backfill.
-- A dismissed cause stays in the digest struck through, with its current member count, and
-  stays whole in the JSON report. It is silenced, not deleted, so a cluster that keeps
-  growing after it was settled is still visible.
+   **For drift A there is no old-to-new name map**, so steps 3 to 6 read differently.
+   Step 3 pins the dates of the cliff that prompted the ruling and cross-checks them
+   against the product DB, so "the event broke" and "usage stopped" are told apart.
+   Step 4 is skipped unless a leg is being retired. Steps 5 and 6 become an inventory:
+   every event that fires for each channel the ruling names, its call sites, the
+   property that separates the products (`product`), and every reader of the
+   metric's flag. A flag can feed a second metric that nobody asked to change (on
+   DATA-2609, `is_active_serve_user` also gated the People Served cohort), so name
+   each one and let the reviewer decide whether it follows.
+2. **Read every gotchas book** in full: `books/analytics-governance-gotchas.md` here,
+   and **both** of gp-data-platform's product books,
+   `.claude/skills/win-analytics-knowledge/references/gotchas.md` and
+   `serve-analytics-knowledge/references/gotchas.md`. The outreach events are shared
+   across products, so a trap recorded under one applies to the other: read both,
+   whichever product the metric is for. A shared cross-product book is being split
+   out of the two (path TBD).
+   After drafting the plan, check it against them row by row and say which rows
+   applied. On DATA-2584 this check found four defects in a plan drafted without it.
+3. **Pin the dates** from the warehouse, and the prod release from `release.yml`, not
+   from a ticket:
+   ```sql
+   select event_type, min(event_time) first_t, max(event_time) last_t, count(*) n
+   from dbt.stg_airbyte_source__amplitude_api_events
+   where event_type in ('<old>', '<new>') and event_time >= '<cutover minus 14 days>'
+   group by 1
+   ```
+   Read `max(event_time)` over the whole table as the freshness edge; the warehouse lags
+   Amplitude, and Amplitude's taxonomy (descriptions, merges) is read live.
+4. **Prove removal, three ways, before any `era: historical`:**
+   ```bash
+   git show <change-sha>^:<registry file> | grep -n '<old>'          # present before
+   git grep -n '<old>' origin/main -- packages/gp-webapp packages/gp-api   # absent now
+   grep '<old>' instrumentation_data/amplitude_event_provenance.csv    # retired_commit / retired_pr
+   ```
+   The registry file is `packages/gp-webapp/helpers/analyticsHelper.ts` (client) or
+   `packages/gp-api/src/vendors/segment/segment.types.ts` (backend). Also search for a
+   composed name (`'<prefix> - ' +`, a template literal). If the three disagree, the
+   event is not retired; the leg stays live.
+5. **Diff the properties, in code and in data.** Keys first, then the values of every
+   property an `excluding` qualifier or a de-duplication key reads:
+   ```sql
+   select event_type, event_time >= '<cutover>' as post, k as property_key, count(*) n
+   from dbt.stg_airbyte_source__amplitude_api_events
+   lateral view explode(json_object_keys(event_properties)) as k
+   where event_type in ('<old>', '<new>') and event_time >= '<cutover minus 14 days>'
+   group by all order by 1, 2, 3
+   ```
+   ```sql
+   select event_type, event_time >= '<cutover>' as post,
+     event_properties:<qualifier>::string q, event_properties:<channel property>::string ch,
+     count(*) n, count(distinct user_id) users
+   from dbt.stg_airbyte_source__amplitude_api_events
+   where event_type in ('<old>', '<new>') and event_time >= '<cutover minus 14 days>'
+   group by all order by 1, 2, 3, 4
+   ```
+   Then read every call site of the new event and note the qualifier value each sends,
+   including paths with no rows yet. Two questions: does each `excluding` still exclude
+   exactly what it did, and does every key a model de-duplicates on still exist? A path
+   that now passes a qualifier it used to fail (or the reverse) and is not named by the
+   rule is **drift C**: stop and take it to the reviewer. So is a **new key that splits
+   the population** (`product: win|serve`, `fanout`) where the old event could not tell
+   the groups apart: counting it as before is the status quo, but it is now a choice,
+   and the reviewer makes it. Once the business group has ruled, carry on from step 6
+   with the ruling as part of the plan. The macros compile only `method` and `product`
+   exclusions (`is_outreach_activation_event`, `product_output_predicate`), so a group
+   separable only by another property cannot be excluded without a macro change.
+6. **Find every reader, more than one way**, in both repos:
+   ```bash
+   # gp-data-platform
+   git grep -n -e '<old>' origin/main
+   git grep -n -e metric_anchored_events -e is_outreach_activation_event \
+     -e is_product_output_event -e is_dashboard_view_event -e amplitude_event_is_recurrent \
+     origin/main -- dbt
+   git grep -n "like '<old prefix>" origin/main -- dbt/project/macros   # pattern classifiers
+   # omni
+   git grep -n -e '<old>' origin/main -- packages/runbooks packages/prototypes
+   ```
+   Macro-derived readers pick up a new leg on their own. Anything that names the event
+   literally, keys on one of its properties, or pins the leg list in a test does not.
+   **Tests that assert something about the metric are readers too**: an
+   `expression_is_true` on `is_activated` encodes the old definition as surely as a
+   literal does, and only fails in the CI build. Grep the yaml for the metric's flag
+   and its columns (`git grep -n -e 'is_activated' -e 'total_campaigns_sent' -- '*.yml' '*.yaml'`)
+   and read each test against the new rule.
+   Then **measure the gap**: users whose only qualifying event since the cutover is the
+   new name, split into headcount lost (never qualified otherwise) and activity lost.
+
+   **Then put the reviewer's decisions to them as one batch**, before any plan. These
+   four come up on every drift, and asked one at a time they cost a round each:
+   - **Does the rule have more than one condition** (an AND, such as "sent a poll AND
+     pledged")? Say which condition the change touches, and whether the others stay.
+   - **Does the metric's flag feed anything else?** Name every other metric or cohort
+     that reads it (a column, a gold view, a resolver). Changing it moves them too.
+   - **Is any channel the rule names uninstrumented?** For each, say whether it is a
+     definitional exclusion (nothing happens in the product) or a gap to ticket.
+   - **Is the metric compiled from its declaration, or hard-coded in SQL?** If the leg
+     list is only documentation, moving it onto a macro is part of the plan.
+
+   Add anything specific to this drift to the same message, and stop until it is
+   answered.
+7. **Plan the PRs in the SOP's order** and show the plan. gp-data-platform branches are
+   lowercase `data-<number>/<slug>` from `origin/main`, opened through that repo's `pull-request`
+   skill, titled `[<TICKET>] …`:
+   1. **Preparation PR (no `sem_*.yml`).** Literal readers, de-duplication and property
+      fixes, `assert_*` tests. Intermediate yaml docs may ride here; a mart yaml
+      (`m_*.yaml`) may not, because CI runs
+      `dbt build --full-refresh --select state:modified+` and one mart description
+      pulled 1,720 nodes. Merges first: the sem PR changes what these models count.
+
+      Before opening it, from `dbt/project`:
+      - **Size the rebuild:** `dbt ls --quiet --output name --resource-type model -s <each changed model>+`.
+      - **Compare old and new against prod.** `dbt compile -s <model> --output json`
+        on `main` and on the branch, pull `compiled` out of the JSON, and run both.
+        Report total rows, users, and the post-cutover slice by channel. Any
+        difference must be explained row by row.
+      - **Repoint dev schemas first.** Compiled SQL resolves a `ref` to your
+        `private_*` schema whenever an object of that name exists there, even a
+        stale hand-made one, and says nothing. Grep the compiled SQL for `private_`
+        and point each hit at `dbt` before running it.
+      - **Know what prod cannot show you.** A model that reads a column the sem
+        change itself recomputes upstream (the win_activity rollups read
+        `is_recurrent` from the event catalog) runs against a stale prod copy of
+        that column. Validate it in the CI build, and say so in the PR.
+      - **A model whose SQL comes from the declaration is not "modified".** A model
+        that compiles its legs from `anchored_on` through a macro changes what it
+        computes when only the sem file changes, but `state:modified+` does not
+        select it. Neither the PR's CI nor the merge-time job rebuilds it; prod
+        picks up the new legs only on the next scheduled full build, while its
+        downstream models rebuild at merge against the stale copy. Select it
+        explicitly in the dev build, say so in the sem PR, and in step 8 check its
+        `last_altered` before reading the value. DATA-2614 makes the merge job select
+        these models; delete this note when it ships.
+   2. **Sem PR.** Before editing any `sem_*.yml`, ask the reviewer, as its own question
+      and nothing else: "This will change the semantic layer and notify people. Are you
+      sure?" Then add the new leg, keep the old one with
+      `era: historical   # <last fired>, removed in #<PR>`, update the pin tests in
+      `analytics/tests/test_semantic_catalog_anchors.py`, and put
+      `<!-- semantic-value: <metric> = <count> -->` in the body for each metric whose
+      build moved, computed by query under the new legs. `description` and `known_gaps`
+      change only if the rule's wording is now wrong; the rename itself belongs in the
+      leg comment. Then, from `analytics/diagnostics`, run
+      `uv run python -m semantic_catalog.cli --write` and commit the regenerated
+      `canonical_metrics.md` projections, or the blocking catalog-freshness gate
+      fails. Open it as a **draft**: a draft posts nothing, and the review groups
+      are only notified when it is marked ready. **Never mark it ready yourself.**
+      Ask the reviewer, as its own question, whether to mark it ready, and stop until
+      they answer. Once it is marked ready, check `requested_reviewers`. While DATA-2593 is open
+      the `routing` job cannot request teams (it fails with a 404), so add by hand
+      exactly the teams its lane summary names, and no others:
+      `gh pr edit <n> --add-reviewer thegoodparty/semantic-layer-data` and/or
+      `thegoodparty/semantic-layer-business`.
+
+      **Merged before review? Record the sign-off; never revert.** A revert is a second
+      layer change and re-notifies both groups. Open a gp-data-platform PR that
+      hand-authors the entries in
+      `analytics/diagnostics/semantic_catalog/config/ratifications.yml`: each half's
+      `approved:` is the date that group's first human approval lands, `approved_by_pr`
+      is the ratification PR you are opening (never the sem PR that merged early), `rule_sha`/`build_sha`/`value_at_signing` come from the merged
+      change, and a comment says why it is hand-authored. Request both teams. Merge only
+      when each group has a human approval from a current member
+      (`gh pr view <n> --json reviews` against
+      `gh api orgs/thegoodparty/teams/<team>/members`); delegate-reviewer does not
+      count. If an approval lands on a later date than the file says, correct that half
+      first. After merge the publish run should print "nothing recorded; no PR to open",
+      because the hand-authored entry already holds the sign-off. gp-data-platform #1123 (DATA-2584) is
+      the worked example.
+   3. **Mart docs PR**, only when an `m_*.yaml` description is now wrong (it names
+      the old event, or describes the old rule). Open it after the sem PR merges, so
+      the descriptions match what shipped, and keep it to `m_*.yaml` descriptions:
+      it is alone because CI full-refreshes everything downstream of a changed mart
+      (the 1,720 nodes above). It does not gate the omni PR.
+   4. **omni PR**, from a fresh worktree off `origin/main`, after the sem PR merges:
+      - **Refresh the OKR copy first:** `uv run python sem_anchors.py refresh-vendored`
+        writes the merged sem files into `instrumentation_data/sem/` (the scheduled run
+        does the same twice a week). Then
+        `test_committed_registry_has_no_case_1_drift_against_the_okr_copy` lists every
+        case 1 finding the next scheduled run would raise, offline. Edit until it passes.
+        The parser fixture under `scripts/python/fixtures/` needs refreshing only when a
+        test reads a leg from it.
+      - **Case 1 edits** in `monitored_events.yaml`, per the kinds above. A rename can
+        move the call site as well as the name, so read each new event's call sites at
+        HEAD and repoint `path`, not just `instrumented_by`.
+      - **Then grep the whole yaml for every old name.** Queue C only compares
+        behaviors that carry a `metric:` pointer, so a behavior without one keeps
+        pointing at the old event and the old file, and nothing reports it. Repoint
+        those too; they are the same edit.
+      - **Rewrite any caveat or surface the ruling overturned.** A surface with
+        `instrumented_by: null` and a comment saying a channel is excluded by
+        definition is exactly what a definition change makes false.
+      - **Tests naming the old leg stay** while the leg is declared `era: historical`;
+        they are still true. Add one for any new qualifier the parser has to keep.
+      - **Anchors:** keep the old names' rows, and draft the new names with
+        `event_anchors.py --only "<new names>"` (`ANTHROPIC_API_KEY`), then
+        `--review-artifact`. They land queued, not accepted. For an event with several
+        call sites, check the judge's `evidence` against the metric's exclusions: it can
+        pick the one call site the metric excludes (the self-report modal, on
+        DATA-2584).
+   5. **Watching CI.** Read the dbt Cloud run itself
+      (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
+      `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes
+      and names no failing node. Write the watch so a GitHub API error retries rather
+      than ending the loop, or a blip reads as silence. **Read delegate's latest verdict
+      on every poll, never the first one you see.** Delegate can post a second review on
+      the same commit that contradicts the first ("approve", then "request changes"), and
+      as a COMMENTED review it does not clear GitHub's approved state, so a watch that
+      latches on the first verdict merges over open findings. Re-read it immediately
+      before merging.
+8. **After merge, verify:** the ratification follow-up PR opened, the catalog
+   regenerated, the prod value matches the `semantic-value` line, the digest's
+   `okr_anchor_dormant` latch for the old leg cleared, and anything predicted during
+   planning (no step at the cutover, no double count) re-measured. Read the latch from
+   `latches` in the committed `analytics_event_health_state.json` before and after the
+   first scheduled run past the merge, not from the digest text alone. Compare each
+   table's `last_altered` against the merge time first: a mart can rebuild before an
+   upstream it reads, and then it still shows the old value. Confirm the mart docs PR
+   (step 7.3) merged, or say why no `m_*.yaml` description needed it. Then update the
+   docs that describe the metric, and move the ticket to done with a resolution comment.
+
+## Queue D: surface relabels
+
+**Get the batch:** the console's surface queue, or `instrumentation_data/surface_drift.json`
+rows with disposition `new`/`open`. Rows already `accepted` (a console accept from an
+earlier session, or a `relabels:` row a PR merged) need no ruling: go straight to
+"Apply accepted relabels".
+
+| Verb      | What you do |
+| --------- | ----------- |
+| `accept`  | `uv run surface_drift.py dispose "<event>" --as accepted`, then apply it below. |
+| `dismiss` | `uv run surface_drift.py dispose "<event>" --as dismissed --reason "<why>"`. It stays quiet until the event's areas change. |
+| `defer`   | `uv run surface_drift.py dispose "<event>" --as open`. |
+
+**Apply accepted relabels.** For each `accepted` row, hand the row to `event-metadata`
+in Mode: RELABEL. On a confirmed write, `uv run surface_drift.py dispose "<event>" --as applied`.
+A row that event-metadata refused (an OKR event, or one needing a status change) stays
+`accepted`; say why in the PR body.
+
+`surface_drift.json` is state, so these dispositions ride the one triage PR like the gap
+dispositions do. Never hand-edit the JSON.
 
 ## Diagnose — red/yellow health items
 
@@ -538,23 +937,94 @@ ticket, or the reviewer's own follow-up message.
 
 ## Write back — one PR
 
-Once all three queues are dispositioned:
+Once all five queues are dispositioned:
 
-1. `git status` should show at most `instrumentation_gaps.json` and (if Queue B had any
-   accept/dismiss, or Queue C had any case 1 edit or dismissal) `monitored_events.yaml`
-   under `packages/runbooks/scripts/python/instrumentation_data/` /
-   `packages/runbooks/scripts/python/`.
-2. Stage exactly those files.
-3. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the run,
+1. **Propose gotchas-book updates for sign-off.** Same shape as Queue B's watchlist
+   proposals: you propose, the reviewer picks, you apply. Never edit the book
+   unilaterally.
+
+   Run through this session's rulings and collect anything that turned out to be a
+   **tooling artifact rather than a product finding** — our counter blind, a window
+   straddling a dated change, a provenance column that meant something other than its
+   name, a judge that ruled on a premise the data does not support. Also collect any
+   **existing row this session contradicted**: a `state · as-of` row whose numbers have
+   moved, or one whose fix has since shipped.
+
+   Present them as **"Proposed updates to the gotchas book, from this session"** — one
+   block each, ready to paste:
+
+   ```
+   ADD     | <symptom, in the words a searcher would type>
+   Mitigation: <one line, linking the owning book rather than restating it>
+   Status:     invariant | state · as-of YYYY-MM
+   Evidence:   <the queue item / event / measurement this came from>
+
+   UPDATE  | <existing row>
+   Change:     <what is now wrong, and the re-measured value>
+   ```
+
+   Then: list them with a one-line why each, and let the reviewer say yes / no / edit —
+   **do not add unilaterally.** Apply only the approved ones to
+   `books/analytics-governance-gotchas.md`, and skip any symptom already covered by a row.
+
+   Two things to get right, because both are the point of the book:
+
+   - **Name the row by the symptom, not by our vocabulary.** A row headed by a rank or a
+     cause key is a row the next person cannot find — see the book's own maintenance rules.
+   - **Re-measure before writing a number.** A figure carried over from a ticket or an
+     earlier session is exactly the stale fact the Status column exists to flag.
+   - **Check the fix has not already shipped, before proposing any row.** For every row you
+     add or update, fetch the live status of each ticket it cites, and run
+     `git log origin/main --since="$as_of" -- $row_paths`. Set `$as_of` to the first day of
+     the row's `state · as-of YYYY-MM` month (`2026-09-01`) and `$row_paths` to the files
+     the row names (e.g. `packages/runbooks/scripts/python/analytics_event_health.py`);
+     confirm with `ls $row_paths` that they exist, because a path that matches nothing also
+     returns an empty log and reads as "no fix". A
+     row whose ticket is closed, or whose problem a merged PR already fixed, is a warning
+     about something that is fine, and that is worse than no row: delete or correct it
+     instead. A handoff is built from a snapshot, so the console you ruled in can predate
+     the fix. 2026-09-30: two rows were added for problems fixed the day before, and two
+     more still cited a ticket that had closed unbuilt.
+
+   If nothing came up, say so in one line and move on. A session with no new traps is the
+   normal case.
+
+   **Updates to this book happen only here, with a human in the loop.** The scheduled
+   Monday/Thursday runs read the book (it is pasted into both judges' prompts — see
+   `governance_gotchas.py`) and never write to it.
+2. `git status` should show at most `instrumentation_gaps.json` and
+   `instrumentation_data/surface_drift.json` (if Queue D disposed any row) and (if Queue 0
+   had any cause dismissal, Queue B had any accept/dismiss, or Queue C had any case 1 edit
+   or dismissal) `monitored_events.yaml` under
+   `packages/runbooks/scripts/python/instrumentation_data/` /
+   `packages/runbooks/scripts/python/`, plus `books/analytics-governance-gotchas.md` if
+   step 1 added a row.
+
+   **A Queue 0 `govern` produces no file change**, so an empty diff after a session of
+   Govern writes is correct, not a sign the work was skipped. Do not go looking for
+   something to commit.
+3. Stage exactly those files.
+4. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the run,
    e.g. `chore(governance): triage <run_date> — gap + watchlist + alignment review`. In
    the body, list:
-   - Queue A: which gap ids were ticketed (with ClickUp links), which were handed to
+   - Queue 0: which causes were dismissed (with reason), which were ticketed (with
+     ClickUp links), which were sent to Diagnose. **List the Govern writes separately
+     and name the events.** A Govern write changes Amplitude, not this repo, so it
+     appears in no diff — a reader who only reads the diff will conclude it did not
+     happen. Record what was written, to which events, and the code-removal proof each
+     one carried. Same for any per-event `reviewed`, which has nowhere to land yet and
+     will be raised again next run. which gap ids were ticketed (with ClickUp links), which were handed to
      `instrument-analytics-event` (with the resulting event name/PR if different from
      this one), which were dismissed (with reason), which were deferred.
    - Queue B: which events were added to the watchlist, which were dismissed (with
      reason), which were deferred.
    - Queue C: which findings were edited in omni (behavior and surface), which produced a
      gp-data-platform PR (link), which were dismissed (with reason), which were deferred.
+   - Queue D: which events were relabeled through `event-metadata` (old surface/display
+     name -> new), which were dismissed (with reason), which were deferred.
+5. For each finding cleared this session, record in the PR body which analytics guard rule
+   would have caught it at PR time, or `escaped`. A cause that escapes twice becomes a
+   proposed guard rule in the same PR.
 
 `ship-pr` handles branch creation, pre-flight, delegate convergence, and the check
 gate — this skill's job ends at "stage the right files and describe the run."

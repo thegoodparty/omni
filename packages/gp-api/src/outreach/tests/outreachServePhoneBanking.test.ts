@@ -107,6 +107,53 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     expect(systemPrompt).not.toContain(VOTER_NAME_TOKEN)
   })
 
+  // The community-input question is what the effort exists to ask, so the
+  // script has to close on it rather than on a generic issue question.
+  it('builds the script around the community-input question', async () => {
+    mockDraft('You: Hi.')
+    const question = 'Would you take part in a compost pilot?'
+
+    const res = await postDraft({
+      purpose: 'community_input',
+      tone: 'warm',
+      communityInputQuestion: question,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).toContain(question)
+    // Fenced, so a typed question reads as quoted material and not as
+    // further instructions to the prompt.
+    expect(userPrompt).toContain(`"""\n${question}\n"""`)
+    // The purpose copy bans a yes/no question and a real one often is partly
+    // yes/no, so the rule resolves that rather than leaving them to conflict.
+    expect(userPrompt).toContain('inviting them to say more')
+  })
+
+  // Same leak the door had: the field was accepted on every purpose, so an
+  // event-invite script could be written around a community-input question.
+  it('refuses a question on a purpose that asks none', async () => {
+    mockDraft('You: Hi.')
+
+    const res = await postDraft({
+      purpose: 'event_invite',
+      tone: 'warm',
+      communityInputQuestion: 'Would you take part in a compost pilot?',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('asks nothing extra when no question is given', async () => {
+    mockDraft('You: Hi.')
+
+    await postDraft({ purpose: 'community_input', tone: 'warm' })
+
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).not.toContain('The question this effort')
+  })
+
   // The dialogue speaker label is the one part of the script format a human
   // reads, so it is Serve vocabulary too — an official's volunteer must not be
   // handed a script with "Voter:" lines in it.

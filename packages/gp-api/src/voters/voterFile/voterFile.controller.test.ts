@@ -28,7 +28,7 @@ describe('VoterFileController', () => {
     create: ReturnType<typeof vi.fn>
     filterAccessCheck: ReturnType<typeof vi.fn>
     findByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
-    findByOrganizationSlug: ReturnType<typeof vi.fn>
+    findUsableByOrganizationSlug: ReturnType<typeof vi.fn>
     updateByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
     deleteByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
   }
@@ -55,7 +55,7 @@ describe('VoterFileController', () => {
       create: vi.fn().mockResolvedValue(mockFilter),
       filterAccessCheck: vi.fn().mockResolvedValue(undefined),
       findByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
-      findByOrganizationSlug: vi.fn().mockResolvedValue([mockFilter]),
+      findUsableByOrganizationSlug: vi.fn().mockResolvedValue([mockFilter]),
       updateByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
       deleteByIdAndOrganizationSlug: vi.fn().mockResolvedValue(mockFilter),
     }
@@ -174,10 +174,12 @@ describe('VoterFileController', () => {
         mockVoterFileFilterService.filterAccessCheck,
       ).not.toHaveBeenCalled()
       // The third argument is the people a drawn boundary enclosed, resolved
-      // by the controller. A body with no geoPoly resolves nothing.
+      // by the controller, and the fourth who a sample drew. A body with no
+      // geoPoly and no sample resolves neither.
       expect(mockVoterFileFilterService.create).toHaveBeenCalledWith(
         baseOrg.slug,
         body,
+        null,
         null,
       )
       expect(result).toEqual(mockFilter)
@@ -189,8 +191,8 @@ describe('VoterFileController', () => {
       const result = controller.listVoterFileFilters(baseOrg)
 
       expect(
-        mockVoterFileFilterService.findByOrganizationSlug,
-      ).toHaveBeenCalledWith(baseOrg.slug)
+        mockVoterFileFilterService.findUsableByOrganizationSlug,
+      ).toHaveBeenCalledWith(baseOrg)
       await expect(result).resolves.toEqual([mockFilter])
     })
   })

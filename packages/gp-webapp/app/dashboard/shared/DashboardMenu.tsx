@@ -25,13 +25,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useEcanvasser } from '@shared/hooks/useEcanvasser'
-import { useEffect, useMemo } from 'react'
-import { syncEcanvasser } from '@shared/utils/syncEcanvasser'
+import { useMemo } from 'react'
 import Image from 'next/image'
 import { useUser } from '@shared/hooks/useUser'
 import { useUser as useClerkUser } from '@clerk/nextjs'
-import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
@@ -68,7 +65,6 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
-import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import { openSupportChat } from '@shared/utils/supportWidget'
 import { MembershipBanner } from './membership/MembershipBanner'
@@ -260,7 +256,7 @@ const ORDINANCES_MENU_ITEM: MenuItem = {
 
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
-  label: NAV_LABELS.campaignTracker,
+  label: NAV_LABELS.campaignPlan,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
   v2Icon: NAV_HEADER_ICONS.scroll,
@@ -379,14 +375,9 @@ export const getDashboardMenuItems = (
 export default function DashboardMenu({
   pathname,
 }: DashboardMenuProps): React.JSX.Element {
-  const [campaign] = useCampaign()
-  const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
   const organization = useOrganization()
-  // trackExposure=false: this is a render-decision read, not the experiment's
-  // treatment surface (the team page itself tracks exposure).
-  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
   const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
 
   const menuItems = useMemo(
@@ -399,13 +390,7 @@ export default function DashboardMenu({
     [electedOffice, isElectedOfficeLoading, prioritiesEnabled],
   )
 
-  useEffect(() => {
-    if (campaign && ecanvasser) {
-      syncEcanvasser(campaign?.id)
-    }
-  }, [campaign, ecanvasser])
-
-  // win-team-accounts (ENG-10816/10827), moved from the primary nav into the
+  // Team accounts (ENG-10816/10827), moved from the primary nav into the
   // account menu (ENG-11061 design correction). Win-only in Phase 1 (ENG-10816
   // non-goal: Serve staff accounts are out of scope, so this never renders for
   // an elected-office org — see gp-api's matching 400 on POST team/invites for
@@ -419,8 +404,7 @@ export default function DashboardMenu({
   // filter already relies on for the same distinction (bugbot review,
   // ENG-11061). Belt-and-suspenders here only ever makes the item MORE
   // restrictive, never less.
-  const showTeamAccountItem =
-    teamAccountsEnabled && !electedOffice && !organization?.electedOfficeId
+  const showTeamAccountItem = !electedOffice && !organization?.electedOfficeId
 
   return (
     <NewNavMenu
@@ -506,8 +490,8 @@ const NewNavMenu = ({
       href: '/dashboard/account',
     },
     // ENG-11061 design correction: Team moves out of the primary nav and
-    // lives here instead, gated by showTeamAccountItem (win-team-accounts
-    // flag on, not an elected-office org).
+    // lives here instead, gated by showTeamAccountItem (not an
+    // elected-office org).
     team: {
       label: 'Team',
       icon: UsersRound,

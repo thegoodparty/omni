@@ -13,8 +13,13 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 }))
 
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 19000,
     excludedOptedOutCount: 0,
@@ -89,7 +94,14 @@ const acceptedCalls = () =>
 const openToAudience = async () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
-  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
+  render(
+    <SmsFlow
+      source="outreach_page"
+      open
+      onClose={onClose}
+      onScheduled={onScheduled}
+    />,
+  )
   await userEvent.click(screen.getByText('Introduce myself to voters'))
   expect(
     (await screen.findAllByText('Who do you want to reach?')).length,
@@ -134,6 +146,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -248,6 +261,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -286,6 +300,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -363,6 +378,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'sms',
+      medium: 'text',
       intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
@@ -419,6 +435,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeUndecided',
       channel: 'sms',
+      medium: 'text',
       intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
@@ -558,7 +575,11 @@ describe('SmsFlow — recommended lists', () => {
       return { status: 200, data: row }
     })
     vi.mocked(createP2pPhoneList)
-      .mockResolvedValueOnce({ ok: true, token: 'tok-list-a' })
+      .mockResolvedValueOnce({
+        ok: true,
+        token: 'tok-list-a',
+        buildId: 'build-list-a',
+      })
       .mockResolvedValueOnce({ ok: false, status: 400 })
     await openToAudience()
 

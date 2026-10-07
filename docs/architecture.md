@@ -44,7 +44,6 @@ nothing boring would work.
 - **gp-api -> the PMF Engine:** SQS dispatch to the background-agent runtime in
   `packages/gp-ai`, results back on gp-api's result queue. The whole path is
   documented in `docs/cap-background-agents.md`.
-- **gp-api -> gp-ai:** HTTP for AI campaign-plan generation (`packages/gp-ai`).
 
 ## Auth flows
 

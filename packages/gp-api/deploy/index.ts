@@ -10,6 +10,7 @@ import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucke
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
+import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
 
 export = async () => {
@@ -46,6 +47,10 @@ export = async () => {
   // Production deploy manages the VPC. The actual VPC details are hard-coded above as individual variables.
   if (environment === 'prod') {
     createVpc()
+    // One global bucket serving prod sitemaps, so only the prod stack
+    // creates it (same single-owner pattern as the preview shared cluster
+    // on the dev stack).
+    createSitemapsBucket()
   }
 
   const secretName = select({
@@ -401,6 +406,15 @@ export = async () => {
   // but not write/delete. The agent-artifacts bucket is written by the agent
   // runner (gp-ai); gp-api only reads results in
   // onExperimentRunCompleted.
+  //
+  // The Universal Judge also uses this bucket, under its own reserved
+  // top-level prefix, to cache baseline agent outputs between runs. No write
+  // is granted here on purpose: a judge run is a CI job that checks out the PR
+  // head and its base side by side, so whatever writes those objects
+  // authenticates as the shared CI OIDC role (`vars.AWS_ROLE_ARN`), never as
+  // this ECS task. The bucket is not Pulumi-owned either — gp-ai Terraform
+  // creates it in `modules/pmf-engine-control-plane` — and the read below is
+  // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
   ]
@@ -411,20 +425,16 @@ export = async () => {
     (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
   )
 
-  const campaignPlanInputQueueName = select({
-    preview: '',
-    dev: 'campaign-plan-input-dev.fifo',
-    // IAM grant provisioned ahead of the (currently disabled) prod
-    // CAMPAIGN_PLAN_INPUT_QUEUE_URL env var so enabling prod later doesn't
-    // 403 on SQS. An Allow on an unused queue ARN is harmless.
-    prod: 'campaign-plan-input-prod.fifo',
-  })
+  // The Universal Judge's background runner also sends to this queue, but as a
+  // GitHub Actions job under the CI OIDC role rather than as a task, so it is
+  // out of this role's scope. The sqs:SendMessage grant below already covers
+  // every message gp-api itself sends here; it needs no judge-specific copy.
   const agentDispatchQueueName = select({
     preview: '',
     dev: 'agent-dispatch-dev.fifo',
     prod: 'agent-dispatch-prod.fifo',
   })
-  const staticQueueArns = [campaignPlanInputQueueName, agentDispatchQueueName]
+  const staticQueueArns = [agentDispatchQueueName]
     .filter((name): name is string => name !== '')
     .map((name) => `arn:aws:sqs:${region}:${accountId}:${name}`)
   const taskRoleQueueArns: pulumi.Input<string>[] = [
@@ -432,6 +442,62 @@ export = async () => {
     dlq.arn,
     ...staticQueueArns,
   ]
+
+  // The curated local-dev bundle POST /v1/dev-env/bundle vends. Dev only:
+  // preview and prod never get the id, so the endpoint stays dark there even
+  // though preview passes the IS_NON_PROD_DEPLOY gate. The ARN is built by
+  // hand rather than looked up (`-*` covers the suffix Secrets Manager adds)
+  // so the stack still deploys before the secret is created.
+  const localDevEnvSecretId = select({
+    preview: '',
+    dev: 'LOCAL_DEV_ENV',
+    prod: '',
+  })
+  const localDevEnvSecretArns =
+    localDevEnvSecretId === ''
+      ? []
+      : [
+          `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
+        ]
+
+  // Preview stacks seed the E2E test accounts from these and the preview E2E
+  // suite signs in with them. They sit in the shared GP_API_DEV blob under
+  // E2E_ names so dev tasks, which share that blob, never receive them.
+  const e2eCredentialKeys: Record<string, string> = {
+    ADMIN_EMAIL: 'E2E_ADMIN_EMAIL',
+    ADMIN_PASSWORD: 'E2E_ADMIN_PASSWORD',
+    CANDIDATE_EMAIL: 'E2E_CANDIDATE_EMAIL',
+    CANDIDATE_PASSWORD: 'E2E_CANDIDATE_PASSWORD',
+  }
+  const e2eCredentialSecretKeys = Object.values(e2eCredentialKeys)
+  const e2eCredentialsInSecret = e2eCredentialSecretKeys.every(
+    (key) => key in secret,
+  )
+  // Keeps preview deploys working until the four keys are added to the blob.
+  if (environment === 'preview' && !e2eCredentialsInSecret) {
+    console.warn(
+      `WARNING: ${secretName} is missing ${e2eCredentialSecretKeys.join(', ')}. ` +
+        'Preview E2E credentials fall back to plain environment values from ' +
+        'the deploy runner. Add those keys to the secret to reference them ' +
+        'via valueFrom instead.',
+    )
+  }
+
+  const containerSecrets: Record<string, pulumi.Output<string>> = {
+    ...Object.fromEntries(
+      Object.keys(secret)
+        .filter((key) => !e2eCredentialSecretKeys.includes(key))
+        .map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
+    ),
+    ...(environment === 'preview' && e2eCredentialsInSecret
+      ? Object.fromEntries(
+          Object.entries(e2eCredentialKeys).map(([name, key]) => [
+            name,
+            pulumi.interpolate`${secretInfo.arn}:${key}::`,
+          ]),
+        )
+      : {}),
+  }
 
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
@@ -450,12 +516,7 @@ export = async () => {
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
-    secrets: Object.fromEntries(
-      Object.keys(secret).map((key) => [
-        key,
-        pulumi.interpolate`${secretInfo.arn}:${key}::`,
-      ]),
-    ),
+    secrets: containerSecrets,
     environmentVariables: {
       PORT: '80',
       HOST: '0.0.0.0',
@@ -489,13 +550,6 @@ export = async () => {
       // and prod all send staff to the same console.
       GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
-      CAMPAIGN_PLAN_INPUT_QUEUE_URL: select({
-        preview: '',
-        dev: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-dev.fifo',
-        // prod disabled until we're ready to generate events in prod
-        // prod: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-prod.fifo',
-        prod: '',
-      }),
       CAMPAIGN_PLAN_RESULTS_BUCKET: select({
         preview: '',
         dev: 'campaign-plan-results-dev',
@@ -532,6 +586,7 @@ export = async () => {
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
+      LOCAL_DEV_ENV_SECRET_ID: localDevEnvSecretId,
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -541,10 +596,15 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      SECRET_NAMES: Object.keys(secret).join(','),
-      ...(environment === 'preview'
+      SECRETS_MANAGER_KEYS: [
+        ...Object.keys(containerSecrets),
+        ...(environment === 'preview' && !e2eCredentialsInSecret
+          ? Object.keys(e2eCredentialKeys)
+          : []),
+      ].join(','),
+      ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
+      ...(environment === 'preview' && !e2eCredentialsInSecret
         ? {
-            IS_PREVIEW: 'true',
             ADMIN_EMAIL: process.env.ADMIN_EMAIL,
             ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
             CANDIDATE_EMAIL: process.env.CANDIDATE_EMAIL,
@@ -643,6 +703,15 @@ export = async () => {
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      ...(localDevEnvSecretArns.length > 0
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['secretsmanager:GetSecretValue'],
+              Resource: localDevEnvSecretArns,
+            },
+          ]
+        : []),
     ],
   })
 

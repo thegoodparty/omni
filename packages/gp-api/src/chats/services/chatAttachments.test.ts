@@ -4,14 +4,10 @@ import {
   ChatAttachmentStatus,
   ChatScope,
 } from '../../generated/prisma'
-import { FeaturesService } from '@/features/services/features.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { useTestService } from '@/test-service'
-import {
-  SERVE_CHAT_ATTACHMENTS_FLAG,
-  ChatAttachmentsService,
-} from './chatAttachments.service'
+import { ChatAttachmentsService } from './chatAttachments.service'
 
 const service = useTestService()
 
@@ -68,7 +64,7 @@ const mockS3 = () => {
   }
 }
 
-describe('serve-chat-attachments flag gate', () => {
+describe('attachment scope gating', () => {
   let orgSlug: string
   let header: ReturnType<typeof orgHeader>
 
@@ -77,57 +73,102 @@ describe('serve-chat-attachments flag gate', () => {
     header = orgHeader(orgSlug)
   })
 
-  const conversationId = 'conv-stub-123'
+  const presignBody = {
+    fileName: 'test.pdf',
+    mimeType: 'application/pdf',
+    sizeBytes: 1024,
+  }
 
-  const routes = [
+  const routesFor = (conversationId: string) =>
     [
-      'POST',
-      `/v1/chats/${conversationId}/attachments/presign`,
-      {
-        fileName: 'test.pdf',
-        mimeType: 'application/pdf',
-        sizeBytes: 1024,
-      },
-    ],
-    [
-      'POST',
-      `/v1/chats/${conversationId}/attachments`,
-      { storageKey: 'chat-attachments/123/att-stub' },
-    ],
-    ['POST', `/v1/chats/${conversationId}/attachments/link`, {}],
-  ] as const
+      ['POST', `/v1/chats/${conversationId}/attachments/presign`, presignBody],
+      [
+        'POST',
+        `/v1/chats/${conversationId}/attachments`,
+        { storageKey: 'chat-attachments/123/att-stub' },
+      ],
+      ['POST', `/v1/chats/${conversationId}/attachments/link`, {}],
+    ] as const
 
-  describe('flag off → 404', () => {
-    let flagSpy: ReturnType<typeof vi.spyOn>
-
-    beforeEach(() => {
-      flagSpy = vi
-        .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-        .mockImplementation(
-          async ({ feature }) => feature !== SERVE_CHAT_ATTACHMENTS_FLAG,
-        )
-    })
-
-    afterEach(() => {
-      flagSpy.mockRestore()
-    })
-
-    for (const [method, path, body] of routes) {
-      it(`${method} ${path} → 404`, async () => {
-        const res = await service.client.post(path, body, header)
-        expect(res.status).toBe(404)
-      })
-    }
-  })
-
-  describe('flag on → validates link url', () => {
-    it('POST .../attachments/link → 400 when url missing', async () => {
+  describe('chief_of_staff conversation', () => {
+    it('validates link url (400 when missing)', async () => {
+      const conv = await seedConversation(orgSlug)
       const res = await service.client.post(
-        `/v1/chats/${conversationId}/attachments/link`,
+        `/v1/chats/${conv.id}/attachments/link`,
         {},
         header,
       )
       expect(res.status).toBe(400)
+    })
+  })
+
+  describe('campaign_assistant conversation', () => {
+    it('presign succeeds', async () => {
+      const conv = await seedConversation(orgSlug, ChatScope.campaign_assistant)
+      const presignSpy = vi
+        .spyOn(service.app.get(S3Service), 'createPresignedUpload')
+        .mockResolvedValue({
+          url: 'https://s3.example.com/upload',
+          fields: { 'Content-Type': 'image/jpeg' },
+        })
+
+      const res = await service.client.post(
+        `/v1/chats/${conv.id}/attachments/presign`,
+        { fileName: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 1024 },
+        header,
+      )
+      expect(res.status).toBe(201)
+      presignSpy.mockRestore()
+    })
+
+    it('finalize produces a ready attachment, which the next turn can inject', async () => {
+      const conv = await seedConversation(orgSlug, ChatScope.campaign_assistant)
+      const key = `chat-attachments/${service.user.id}/att-win-jpeg`
+      await service.prisma.chatAttachment.create({
+        data: {
+          conversationId: conv.id,
+          ownerUserId: service.user.id,
+          source: ChatAttachmentSource.UPLOAD,
+          storageKey: key,
+          fileName: 'photo.jpg',
+          mimeType: 'image/jpeg',
+          sizeBytes: 1024,
+          status: ChatAttachmentStatus.pending,
+        },
+      })
+      const s3 = service.app.get(S3Service)
+      vi.spyOn(s3, 'headObject').mockResolvedValue({ contentLength: 1024 })
+      vi.spyOn(s3, 'getRangeBytes').mockResolvedValue(
+        Buffer.from([0xff, 0xd8, 0xff]),
+      )
+
+      const res = await service.client.post(
+        `/v1/chats/${conv.id}/attachments`,
+        { storageKey: key },
+        header,
+      )
+      expect(res.status).toBe(201)
+      expect(res.data.status).toBe(ChatAttachmentStatus.ready)
+    })
+  })
+
+  describe('unmapped scope (briefing_annotation)', () => {
+    it('presign/finalize/link all 404', async () => {
+      const conv = await seedConversation(
+        orgSlug,
+        ChatScope.briefing_annotation,
+      )
+      // A valid body for each route, so the 404 comes from the scope check
+      // rather than request validation.
+      const validBodies = routesFor(conv.id).map(([, path, body]) =>
+        path.endsWith('/link')
+          ? ([path, { url: 'https://example.com/doc' }] as const)
+          : ([path, body] as const),
+      )
+      for (const [path, body] of validBodies) {
+        const res = await service.client.post(path, body, header)
+        expect(res.status, path).toBe(404)
+      }
     })
   })
 })
@@ -366,6 +407,38 @@ describe('finalize endpoint', () => {
     })
     expect(row?.status).toBe(ChatAttachmentStatus.failed)
     expect(row?.failureReason).toBe('content_type_mismatch')
+  })
+
+  it('returns 400 unreadable_pdf when a %PDF- file fails to parse', async () => {
+    const conv = await seedConversation(orgSlug)
+    const key = `chat-attachments/${service.user.id}/att-corrupt-pdf`
+    await service.prisma.chatAttachment.create({
+      data: {
+        conversationId: conv.id,
+        ownerUserId: service.user.id,
+        source: ChatAttachmentSource.UPLOAD,
+        storageKey: key,
+        fileName: 'corrupt.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 1024,
+        status: ChatAttachmentStatus.pending,
+      },
+    })
+    fileBytesSpy.mockResolvedValue(Buffer.from('%PDF-1.4 not really a pdf'))
+
+    const res = await service.client.post(
+      `/v1/chats/${conv.id}/attachments`,
+      { storageKey: key },
+      header,
+    )
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(res.data)).toContain('unreadable_pdf')
+
+    const row = await service.prisma.chatAttachment.findFirst({
+      where: { storageKey: key },
+    })
+    expect(row?.status).toBe(ChatAttachmentStatus.failed)
+    expect(row?.failureReason).toBe('unreadable_pdf')
   })
 
   it('sets status ready for JPEG with matching magic bytes', async () => {
@@ -615,8 +688,21 @@ describe('GET /v1/chats/:conversationId/attachments', () => {
     expect(att).not.toHaveProperty('extractedText')
   })
 
-  it('returns 404 for a non-chief_of_staff conversation', async () => {
+  it('lists attachments on a campaign_assistant conversation', async () => {
     const conv = await seedConversation(orgSlug, ChatScope.campaign_assistant)
+    await seedAttachment(conv.id, service.user.id)
+
+    const res = await service.client.get(
+      `/v1/chats/${conv.id}/attachments`,
+      header,
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data.attachments).toHaveLength(1)
+  })
+
+  it('returns 404 for an unmapped scope (briefing_annotation)', async () => {
+    const conv = await seedConversation(orgSlug, ChatScope.briefing_annotation)
 
     const res = await service.client.get(
       `/v1/chats/${conv.id}/attachments`,

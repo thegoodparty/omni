@@ -46,7 +46,10 @@ import { canCompleteTurf, useTurfLifecycle } from './turfLifecycle'
 // sets `status: completed` on the outreach envelope that IS this list's
 // lifecycle, and it invalidates the rail before its snackbar fires — so the
 // candidate lands back on a map whose card already reads Done.
-export const useWalkCompletion = (turf: DoorKnockingTurf | null) => {
+export const useWalkCompletion = (
+  turf: DoorKnockingTurf | null,
+  isServe: boolean,
+) => {
   // The turf the mutation was started against has to outlive the walk by a
   // beat. `useTurfLifecycle` reads its turf out of the render it was called in,
   // and a mutation observer pushes each new render's options onto the request
@@ -56,7 +59,10 @@ export const useWalkCompletion = (turf: DoorKnockingTurf | null) => {
   // has every reason to clear the walk immediately; this is the hook's problem.
   const startedAgainst = useRef<DoorKnockingTurf | null>(null)
   if (turf) startedAgainst.current = turf
-  const lifecycle = useTurfLifecycle(startedAgainst.current ?? NO_WALK_TURF)
+  const lifecycle = useTurfLifecycle(
+    startedAgainst.current ?? NO_WALK_TURF,
+    isServe,
+  )
   const routeQuery = useQuery({
     // The same key the walk's map session and `WalkView` read, so this asks for
     // nothing of its own — it reads the payload the walk was already running
@@ -85,10 +91,16 @@ export const useWalkCompletion = (turf: DoorKnockingTurf | null) => {
 // to stamp one that isn't; this is the canvasser pressing a button that says
 // what it does, on a route they have decided they are done with. Nothing about
 // how much of it they walked is this button's business.
-export const useWalkArchive = (turf: DoorKnockingTurf | null) => {
+export const useWalkArchive = (
+  turf: DoorKnockingTurf | null,
+  isServe: boolean,
+) => {
   const startedAgainst = useRef<DoorKnockingTurf | null>(null)
   if (turf) startedAgainst.current = turf
-  const lifecycle = useTurfLifecycle(startedAgainst.current ?? NO_WALK_TURF)
+  const lifecycle = useTurfLifecycle(
+    startedAgainst.current ?? NO_WALK_TURF,
+    isServe,
+  )
   return {
     moveToArchive: (onSettled: () => void) =>
       lifecycle.finishAndArchive({ onSettled }),
@@ -111,10 +123,16 @@ export const useWalkArchive = (turf: DoorKnockingTurf | null) => {
 //
 // Unconditional here, like the archive. The confirm in front of it is
 // `WalkView`'s, because only the view knows how much of the route is logged.
-export const useWalkMarkDone = (turf: DoorKnockingTurf | null) => {
+export const useWalkMarkDone = (
+  turf: DoorKnockingTurf | null,
+  isServe: boolean,
+) => {
   const startedAgainst = useRef<DoorKnockingTurf | null>(null)
   if (turf) startedAgainst.current = turf
-  const lifecycle = useTurfLifecycle(startedAgainst.current ?? NO_WALK_TURF)
+  const lifecycle = useTurfLifecycle(
+    startedAgainst.current ?? NO_WALK_TURF,
+    isServe,
+  )
   return {
     markDone: () => lifecycle.markDone(),
     pending: lifecycle.pendingAction === 'complete',

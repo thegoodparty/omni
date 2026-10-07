@@ -41,10 +41,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     }
 
     // Every PeerlyPhoneList row is written with a real campaignId
-    // (recordUpload requires one), so a p2p purchase with a phoneListToken
-    // but no campaignId is a client-supplied contradiction, not a legacy
-    // no-campaign case — reject it rather than looking the token up
-    // unscoped.
+    // (createQueuedBuild requires one, at accept time — before recordUpload
+    // ever runs), so a p2p purchase with a phoneListToken but no campaignId
+    // is a client-supplied contradiction, not a legacy no-campaign case —
+    // reject it rather than looking the token up unscoped.
     if (!campaignId) {
       throw new BadRequestException(
         'A campaign is required to bill a p2p purchase',
@@ -298,17 +298,27 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       await this.outreachService.finalizeOutreachPurchase(
         outreachId,
         campaignId,
+        paymentIntentId,
       )
       this.logger.info(
         `Outreach ${outreachId} finalized after payment ${paymentIntentId}`,
       )
-      // Durable payment link for cancel-before-send refunds. The first arg is
-      // the checkout session id on the paid path and a synthetic
-      // free_confirmed_* marker on the zero-amount path, so only real
-      // sessions are persisted. Additive: a failure here must not undo the
+      // Durable record of what funded this send. The first arg is the
+      // checkout session id on the paid path and a synthetic
+      // free_confirmed_* marker on the zero-amount path, so each lands in
+      // its own column: the Stripe session is what cancel-before-send
+      // resolves a refund from, and the free marker is what tells the CAS
+      // approval gate a zero-amount send was actually granted rather than
+      // never purchased. Additive: a failure here must not undo the
       // finalize above, and the webhook retry re-runs this write.
       if (paymentIntentId.startsWith('cs_')) {
         await this.outreachService.recordCheckoutSession(
+          outreachId,
+          campaignId,
+          paymentIntentId,
+        )
+      } else {
+        await this.outreachService.recordFreePurchase(
           outreachId,
           campaignId,
           paymentIntentId,

@@ -95,6 +95,11 @@ export class StatsDTO extends createZodDto(withDistrictInput({})) {}
 // unfiltered DistrictStats row (see StatsService).
 export const aggregatesSchema = withDistrictInput({
   filters: filtersSchema,
+  // A saved list's own stored search narrows it on every read that
+  // materialises people (ENG-10518), so aggregates computed without it
+  // describe a larger list than the one the holder sees — and than the one
+  // every send path will actually reach.
+  search: z.string().optional(),
   // See listPeopleSchema's idOverrides comment (ENG-10838).
   idOverrides: IdOverridesSchema.optional(),
   // See listPeopleSchema's contactsMadeIdOverrides comment (ENG-10839).
@@ -128,6 +133,15 @@ export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),
   excludeIds: z.array(z.guid()).optional(),
+  // A sample drawn within an audience rather than the whole district: the
+  // same scope a count or a list of these filters reads.
+  filters: filtersSchema.optional(),
+  idOverrides: IdOverridesSchema.optional(),
+  contactsMadeIdOverrides: IdOverridesSchema.optional(),
+  search: z.string().optional(),
+  // Names the draw, so asking again with the same key takes the same slice.
+  // Without one the slice rotates every minute.
+  seedKey: z.string().min(1).optional(),
 })
 
 export class SamplePeopleDTO extends createZodDto(samplePeopleSchema) {}

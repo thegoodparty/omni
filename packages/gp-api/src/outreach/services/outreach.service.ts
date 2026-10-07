@@ -21,7 +21,7 @@ import {
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { isBefore } from 'date-fns'
+import { isBefore, parseISO } from 'date-fns'
 import {
   checkSmsStandards,
   type SmsOutreachResults,
@@ -37,7 +37,6 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
-import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import {
@@ -46,8 +45,13 @@ import {
 } from '../util/campaignGeography.util'
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
+import {
+  createUnderProposalKey,
+  UNSENT_PROPOSAL_STATUSES,
+} from '../util/createUnderProposalKey.util'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
 import { collapseDoorKnockingCampaigns } from '../util/collapseDoorKnockingCampaigns.util'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
@@ -65,13 +69,6 @@ export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
 export type OutreachScope =
   | { campaignId: number }
   | { organizationSlug: string; campaignId: null }
-
-/** Image payload for P2P outreach (decoupled from HTTP FileUpload). */
-export interface P2pOutreachImageInput {
-  stream: Buffer | Readable
-  filename: string
-  mimetype: string
-}
 
 const paymentFailedEmailBody = (user: User, sendDate: Date | null) => {
   const greeting = user.firstName ? `Hi ${user.firstName},` : 'Hi,'
@@ -97,6 +94,9 @@ const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   candidate_name: "include the candidate's name",
   paid_for_by: 'include "Paid for by <your committee name>"',
   length: 'shorten the message to fit the length limit',
+  link_shortener:
+    'use the full link instead of a shortener like bit.ly — our texting ' +
+    'provider rejects shortened links',
 }
 
 @Injectable()
@@ -113,6 +113,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly stripeService: StripeService,
     private readonly emailService: EmailService,
     private readonly analytics: AnalyticsService,
+    private readonly robocallCancel: OutreachRobocallCancelService,
   ) {
     super()
   }
@@ -178,9 +179,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   ) {
     const peerlyIdentityId = await this.requirePeerlyIdentityId(campaign)
 
+    // The name carries the candidate's calendar day (the payload's offset-
+    // annotated datetime starts with it). Formatting the instant would use
+    // the server's UTC and name the next day for an evening US send — the
+    // Peerly job title read 10/06 for an Oct 5 7 PM Pacific text.
     const name = `${campaign.slug}${
       createOutreachDto.date
-        ? ` - ${formatDate(createOutreachDto.date, DateFormats.usIsoSlashes)}`
+        ? ` - ${formatDate(
+            parseISO(createOutreachDto.date.slice(0, 10)),
+            DateFormats.usIsoSlashes,
+          )}`
         : ''
     }`
 
@@ -327,64 +335,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     })
   }
 
-  private async createP2pOutreach(
-    campaign: Campaign,
-    createOutreachDto: CreateOutreachSchema,
-    p2pImage: P2pOutreachImageInput,
-    imageUrl: string,
-    script: string,
-    phoneListId: number,
-  ) {
-    const {
-      peerlyIdentityId,
-      name,
-      resolvedScriptText,
-      didState,
-      didNpaSubset,
-    } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
-
-    let jobId: string
-    try {
-      jobId = await this.peerlyP2pJobService.createPeerlyP2pJob({
-        campaignId: campaign.id,
-        listId: phoneListId,
-        imageInfo: {
-          fileStream: p2pImage.stream,
-          fileName: p2pImage.filename,
-          mimeType: p2pImage.mimetype,
-          title: createOutreachDto.title,
-        },
-        scriptText: resolvedScriptText,
-        identityId: peerlyIdentityId,
-        name,
-        didState,
-        didNpaSubset,
-        scheduledDate: createOutreachDto.date,
-        scheduledStartTime: createOutreachDto.scheduledLocalTime,
-      })
-    } catch (err) {
-      // Peerly content rejections (400) are the user's to fix — propagate
-      // as their natural HttpException per outreachStepError.ts.
-      if (err instanceof BadRequestException) {
-        throw err
-      }
-      throw new OutreachStepError('peerlyJobCreation', err)
-    }
-
-    return await this.createRecord(
-      campaign,
-      {
-        ...createOutreachDto,
-        script: resolvedScriptText,
-        projectId: jobId,
-        status: OutreachStatus.pending,
-        didState,
-        didNpaSubset,
-      },
-      imageUrl,
-    )
-  }
-
   /**
    * Single entry point for creating outreach (text or P2P).
    * On success, fires the CAS Slack notification inline (awaited, with
@@ -395,7 +345,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
-    p2pImage?: P2pOutreachImageInput,
   ) {
     if (createOutreachDto.voterFileFilterId) {
       await this.voterFileFilterService.filterAccessCheck(
@@ -447,11 +396,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       if (!imageUrl) {
         throw new BadRequestException('imageUrl is required for P2P outreach')
       }
-      if (!p2pImage) {
-        throw new BadRequestException(
-          'P2P outreach requires an image with filename and MIME type; cannot create P2P outreach without Peerly job setup',
-        )
-      }
       if (!createOutreachDto.script) {
         throw new BadRequestException('Script is required for P2P outreach')
       }
@@ -461,26 +405,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         )
       }
 
-      if (createOutreachDto.draft) {
-        return await this.createP2pDraft(
-          campaign,
-          createOutreachDto,
-          imageUrl,
-          createOutreachDto.script,
-        )
-      }
-
-      const outreach = await this.createP2pOutreach(
+      return await this.createP2pDraft(
         campaign,
         createOutreachDto,
-        p2pImage,
         imageUrl,
         createOutreachDto.script,
-        createOutreachDto.phoneListId,
       )
-      await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
-      await this.tryMaterializeOutreach(campaign, outreach)
-      return outreach
     }
 
     const outreach = await this.createRecord(
@@ -496,29 +426,30 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   /**
    * Submits a paid draft to Peerly. Invoked by the TEXT post-purchase handler,
    * which runs from BOTH the client's complete-checkout-session call and the
-   * Stripe webhook — the status claim below is the DB lock that makes the race
-   * harmless. Throwing here is deliberate: completeCheckoutSession only stamps
-   * its idempotency marker after handler success, so a throw makes Stripe
-   * retry, and the revert re-arms the claim for that retry. campaignId scopes
-   * the claim to the paying campaign — outreachId arrives via client-influenced
-   * checkout metadata and must not finalize another campaign's draft.
+   * Stripe webhook — the status claim in claimDraftForFinalize is the DB lock
+   * that makes the race harmless. Throwing here is deliberate:
+   * completeCheckoutSession only stamps its idempotency marker after handler
+   * success, so a throw makes Stripe retry, and the revert re-arms the claim
+   * for that retry. campaignId scopes the claim to the paying campaign —
+   * outreachId arrives via client-influenced checkout metadata and must not
+   * finalize another campaign's draft.
    */
   async finalizeOutreachPurchase(
     outreachId: number,
     campaignId: number,
+    // What paid for this send: the Stripe checkout session on the paid path, a
+    // free-purchase marker on the zero-amount one. Carried only so the failure
+    // line below names it. Whoever answers the paid-but-not-scheduled alert has
+    // to decide whether to refund, and the draft row does not record a charge
+    // that never produced a send.
+    chargeRef?: string,
   ): Promise<void> {
-    const claimed = await this.model.updateMany({
-      where: {
-        id: outreachId,
-        campaignId,
-        status: OutreachStatus.pending_payment,
-      },
-      data: { status: OutreachStatus.pending },
-    })
-    if (claimed.count === 0) {
-      await this.confirmFinalized(outreachId, campaignId)
-      return
-    }
+    const claimed = await this.claimDraftForFinalize(
+      outreachId,
+      campaignId,
+      chargeRef,
+    )
+    if (!claimed) return
 
     const outreach = await this.model.findUniqueOrThrow({
       where: { id: outreachId },
@@ -545,7 +476,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         data: { status: OutreachStatus.pending_payment },
       })
       this.logger.error(
-        { err, outreachId, campaignId: campaign.id },
+        { err, outreachId, campaignId: campaign.id, chargeRef },
         'P2P outreach finalize failed after payment',
       )
       if (user) {
@@ -654,17 +585,79 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
-   * A lost claim does NOT mean the work happened: the winner may still be
-   * mid-Peerly, may have failed and reverted the row, or the id may not match
-   * any draft of this campaign at all. Only a stamped projectId proves
-   * fulfillment — everything else throws, so the payment layer never marks
-   * the purchase processed on the strength of a lost race and Stripe keeps
-   * retrying.
+   * Takes the draft, or explains why this call has no work to do.
+   *
+   * True means this call owns the draft and must submit it. False means a
+   * concurrent finalize already stamped a Peerly job, so the purchase is
+   * fulfilled. Anything else throws, because a lost claim is not evidence the
+   * work happened and the payment layer must not mark the purchase processed
+   * on the strength of a lost race.
+   *
+   * The takeover is the case that used to be reported as a bare retryable
+   * failure. A draft handed back to pending_payment means the winner failed
+   * and released it, and the release is indistinguishable from a winner that
+   * died mid-submission — so the old code threw an error naming neither, the
+   * webhook answered Stripe 502, and the redelivery a few seconds later took
+   * the draft and produced the real answer. Taking it here instead gets that
+   * real answer in the same request: a vendor refusing the candidate's script
+   * is permanent and acknowledges the webhook, while a genuinely transient
+   * failure still throws and is still redelivered (ENG incident 94).
    */
-  private async confirmFinalized(
+  private async claimDraftForFinalize(
     outreachId: number,
     campaignId: number,
-  ): Promise<void> {
+    chargeRef?: string,
+  ): Promise<boolean> {
+    // One takeover only. A second lost claim means something else is racing
+    // us, and a redelivery is a better place to resolve that than a loop.
+    for (let takeovers = 0; ; takeovers++) {
+      const claimed = await this.model.updateMany({
+        where: {
+          id: outreachId,
+          campaignId,
+          status: OutreachStatus.pending_payment,
+        },
+        data: { status: OutreachStatus.pending },
+      })
+      if (claimed.count > 0) return true
+
+      const observed = await this.awaitConcurrentFinalize(
+        outreachId,
+        campaignId,
+      )
+      if (observed === 'finalized') return false
+      if (observed === 'rearmed' && takeovers === 0) continue
+
+      this.logger.error(
+        { outreachId, campaignId, observed, chargeRef },
+        'P2P outreach finalize failed after payment',
+      )
+      throw new OutreachStepError(
+        'peerlyJobCreation',
+        new Error(
+          `Outreach ${outreachId} was not finalized (${observed}): ` +
+            (observed === 'missing'
+              ? `no draft with this id belongs to campaign ${campaignId}`
+              : observed === 'rearmed'
+                ? 'a concurrent finalize failed and the retake lost the claim too'
+                : 'a concurrent finalize is still in flight'),
+        ),
+      )
+    }
+  }
+
+  /**
+   * Watches the draft while whoever won the claim works on it.
+   *
+   * `finalized` — a stamped projectId, the only proof of fulfillment.
+   * `rearmed`   — back at pending_payment: the winner failed and released it.
+   * `missing`   — no such draft for this campaign (a client-supplied id).
+   * `inFlight`  — still held after the poll window.
+   */
+  private async awaitConcurrentFinalize(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<'finalized' | 'rearmed' | 'missing' | 'inFlight'> {
     // Covers the winner's inline Peerly submission (~10s worst case observed).
     const POLL_ATTEMPTS = 30
     const POLL_INTERVAL_MS = 1000
@@ -674,26 +667,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         where: { id: outreachId, campaignId },
         select: { status: true, projectId: true },
       })
-      if (!row || row.status === OutreachStatus.pending_payment) {
-        break
-      }
-      if (row.projectId) {
-        return
-      }
+      if (!row) return 'missing'
+      if (row.projectId) return 'finalized'
+      if (row.status === OutreachStatus.pending_payment) return 'rearmed'
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     }
 
-    this.logger.error(
-      { outreachId, campaignId },
-      'P2P outreach finalize failed after payment',
-    )
-    throw new OutreachStepError(
-      'peerlyJobCreation',
-      new Error(
-        `Outreach ${outreachId} was not finalized: missing, not owned by ` +
-          `campaign ${campaignId}, or a concurrent finalize failed`,
-      ),
-    )
+    return 'inFlight'
   }
 
   private async submitDraftToPeerly(
@@ -779,6 +759,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         EVENTS.Outreach.CampaignScheduled,
         {
           channel: 'sms',
+          // `medium` is the cross-event channel vocabulary (contracts'
+          // TaskChannel). `channel` stays for the charts already on it.
+          medium: 'text',
           outreachId,
           recipientCount: textCount ?? undefined,
         },
@@ -860,17 +843,25 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // draftOutreachId likewise: the resume path consumes it, and Prisma would
     // reject it as an unknown column.
     delete outreachData.draftOutreachId
-    return await this.model.create({
-      data: {
-        ...outreachData,
-        organizationSlug: campaign.organizationSlug,
-        ...(imageUrl ? { imageUrl } : {}),
-        ...(identityId ? { identityId } : {}),
-      },
-      include: {
-        voterFileFilter: true,
-      },
-    })
+    const data = {
+      ...outreachData,
+      organizationSlug: campaign.organizationSlug,
+      ...(imageUrl ? { imageUrl } : {}),
+      ...(identityId ? { identityId } : {}),
+    }
+    const include = { voterFileFilter: true }
+    return outreachData.proposalKey === undefined
+      ? await this.model.create({ data, include })
+      : await createUnderProposalKey(
+          this.client,
+          {
+            proposalKey: outreachData.proposalKey,
+            organizationSlug: campaign.organizationSlug,
+            outreachType: outreachData.outreachType,
+          },
+          (tx) => tx.outreach.create({ data, include }),
+          (id) => this.model.findUniqueOrThrow({ where: { id }, include }),
+        )
   }
 
   // Scoped by organizationSlug, not campaignId: archiving is an
@@ -1001,6 +992,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
+   * The zero-amount counterpart of recordCheckoutSession: a send the
+   * free-texts offer covered has no Stripe session, so nothing on the row
+   * would otherwise distinguish it from a draft nobody ever purchased. The
+   * CAS approval gate reads this, so it has to be a written fact.
+   */
+  async recordFreePurchase(
+    outreachId: number,
+    campaignId: number,
+    freeSessionId: string,
+  ): Promise<void> {
+    await this.model.updateMany({
+      where: { id: outreachId, campaignId },
+      data: { freePurchaseSessionId: freeSessionId },
+    })
+  }
+
+  /**
    * Cancel-before-send (product decision: permanent, vendor job deleted,
    * automatic refund). Cancelable = status `pending` only: that is the
    * scheduled-not-started state finalize leaves a paid campaign in;
@@ -1030,14 +1038,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       throw new NotFoundException('Outreach not found')
     }
     // A robocall's send/capture lifecycle runs off its satellite settleState,
-    // not the spine status, so canceling here would flip the spine to canceled
-    // without voiding the hold or stopping the dial. Robocall has no cancel path
-    // yet; refuse rather than desync. (The spine reads `pending` once the pay
-    // step commits — see OutreachRobocallHoldService.markSpineScheduled.)
+    // not the spine status, so canceling means unwinding the hold and marking
+    // the satellite, not just flipping the spine — delegated to
+    // OutreachRobocallCancelService, which voids the hold, restores the promo
+    // and refuses a run that has already dialed.
     if (outreach.outreachType === OutreachType.robocall) {
-      throw new BadRequestException(
-        'Robocall campaigns cannot be canceled here',
-      )
+      return this.robocallCancel.cancel(outreachId, campaignId, attribution)
     }
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }
@@ -1373,9 +1379,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // out of either product's chat, and a Serve row carries no campaign at all.
   // No legacy null-slug branch the way setArchived needs one — proposalKey
   // only exists on rows written after the column did.
+  // A text holds its key from the draft on, and is not sent until it is
+  // paid for, so an unpaid draft reads as nothing sent yet. Win's build-mode
+  // `draft` is unpaid too.
   async findByProposalKey(proposalKey: string, organizationSlug: string) {
     return this.model.findFirst({
-      where: { proposalKey, organizationSlug },
+      where: {
+        proposalKey,
+        organizationSlug,
+        status: { notIn: UNSENT_PROPOSAL_STATUSES },
+      },
       include: { voterFileFilter: true },
     })
   }

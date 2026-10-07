@@ -8,7 +8,7 @@ any script that needs a dev user in a known product state.
 | Route                                 | Purpose                                                                 |
 | ------------------------------------- | ----------------------------------------------------------------------- |
 | `POST /v1/test-fixtures/users`        | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `serve`, `serve-won-race` |
-| `DELETE /v1/test-fixtures/users`      | On-demand cleanup (DB + Clerk); the 6-hourly `sweepTestUsers` cron is the safety net |
+| `DELETE /v1/test-fixtures/users`      | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net |
 | `POST /v1/test-fixtures/users/:id/session` | Re-mint the 1h session token for runs longer than an hour          |
 
 The create/session responses carry credentials by contract (password, session

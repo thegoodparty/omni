@@ -5,11 +5,8 @@ import {
   type Organization,
 } from '../../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import {
-  ChatAnchorSchema,
-  parsePriorityStatus,
-  type PriorityStatus,
-} from '@goodparty_org/contracts'
+import { ChatAnchorSchema, type PriorityStatus } from '@goodparty_org/contracts'
+import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import {
   PriorityFlowOutreachService,
@@ -23,11 +20,13 @@ export interface PriorityFlowContext {
   organizationSlug: string
   organization: Organization
   officeTitle: string | null
+  officialFirstName: string | null
   jurisdiction: string | null
+  // Two-letter state from the resolved district, for the date line's zone.
+  state?: string | null
   title: string
   description: string
   source: PrioritySource
-  targetDate: Date | null
   status: PriorityStatus
   anchorSummaries: PriorityAnchorSummary[]
   districtFilters: MandatoryFilter[] | null
@@ -41,7 +40,10 @@ export interface PriorityFlowContext {
 export class PriorityFlowContextService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  constructor(private readonly outreach: PriorityFlowOutreachService) {
+  constructor(
+    private readonly outreach: PriorityFlowOutreachService,
+    private readonly priorityStatus: PriorityStatusService,
+  ) {
     super()
   }
 
@@ -75,6 +77,16 @@ export class PriorityFlowContextService extends createPrismaBase(
       conversation.organizationSlug ?? '',
     )
 
+    // A send whose status write failed after it committed is put out now,
+    // before the agent reads the status.
+    await this.priorityStatus.healSends(priority.id)
+    const status = await this.priorityStatus.read(priority.id)
+
+    const official = await this.client.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true },
+    })
+
     return {
       conversationId,
       priorityId: priority.id,
@@ -82,14 +94,14 @@ export class PriorityFlowContextService extends createPrismaBase(
       organizationSlug: electedOffice.organizationSlug,
       organization: electedOffice.organization,
       officeTitle: electedOffice.organization.customPositionName,
+      officialFirstName: official?.firstName?.trim() || null,
       // Only the district resolver knows the jurisdiction; the handler fills
       // it in loadContext when the org's position resolves.
       jurisdiction: null,
       title: priority.title,
       description: priority.description,
       source: priority.source,
-      targetDate: priority.targetDate,
-      status: parsePriorityStatus(priority.status),
+      status,
       anchorSummaries: await this.outreach.summarizeAnchors(priority.id),
       districtFilters: null,
       constituentToolEnabled: false,

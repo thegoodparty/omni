@@ -735,6 +735,40 @@ describe('aggregate and page queries', () => {
     expect(sql).not.toContain('pmod')
   })
 
+  it('draws within an audience: its filters, its frozen ids, the same slice', () => {
+    const member = '0ac8551e-b5ab-2ef0-a941-94e8b43b1e1e'
+    const { sql, params } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: parseFilters({
+        hasCellPhone: true,
+        homeowner: { in: ['No'] },
+        id: { in: [member] },
+      }),
+      columns: ['id'],
+      size: 4000,
+      seed: 7,
+      hashDivisor: 4,
+    })
+
+    const where = sql.slice(sql.indexOf('WHERE'), sql.indexOf('pmod'))
+    expect(where).toContain(
+      'v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL',
+    )
+    expect(where).toContain('v.`Homeowner_Probability_Model`')
+    expect(where).toContain(member)
+    // The audience narrows the population; the seeded slice still cuts it,
+    // so the same seed over the same audience takes the same people.
+    expect(sql).toMatch(/AND pmod\(xxhash64\(v\.`id`, :p\d+\), :p\d+\) = 0/)
+    expect(params).toEqual(
+      expect.arrayContaining([
+        { name: expect.any(String), value: '7', type: 'INT' },
+        { name: expect.any(String), value: '4', type: 'INT' },
+        { name: expect.any(String), value: '4000', type: 'INT' },
+      ]),
+    )
+    expect(sql).not.toContain('ORDER BY')
+  })
+
   it('excludes the requested ids and negates hasCellPhone', () => {
     const id = '0ac8551e-b5ab-2ef0-a941-94e8b43b1e1e'
     const { sql } = buildSampleSql({
@@ -815,6 +849,20 @@ describe('buildCsvSql', () => {
 
     expect(sql).not.toContain('`Registered Party`')
     expect(sql).toContain('`First Name`')
+  })
+
+  // The exclusion is the only thing keeping the L2 id out of a Serve CSV, and
+  // the header is a prefix of `State Voter ID` — so assert the delimited form,
+  // or a projection still carrying the id would read as absent.
+  it('omits the L2 voter id column when excluded', () => {
+    const { sql } = buildCsvSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      excludeColumns: ['LALVOTERID'],
+    })
+
+    expect(sql).not.toContain('`Voter ID`')
+    expect(sql).toContain('`State Voter ID`')
   })
 })
 

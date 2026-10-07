@@ -99,6 +99,7 @@ export const RecommendedListFilterSchema = z
     ideologyModerate: z.boolean().optional(),
     ideologyConservative: z.boolean().optional(),
     hasCellPhone: z.boolean().optional(),
+    hasLandline: z.boolean().optional(),
     hasAnyPhone: z.boolean().optional(),
     // `county|precinct` pairs (encodePrecinctPair), set only for a
     // door-knocking variant that survived on its precinct-restricted count.

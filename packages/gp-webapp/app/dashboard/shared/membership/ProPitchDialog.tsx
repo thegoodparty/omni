@@ -18,7 +18,11 @@ import {
   UsersIcon,
 } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { PRO_UPGRADE_ENTRY_PATH } from 'app/shared/experiments/proUpgrade3Flag'
+import {
+  proUpgradeHref,
+  type ProUpgradeChannel,
+  type ProUpgradeSource,
+} from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { MEMBERSHIP_COPY } from './membershipCopy'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
@@ -35,6 +39,9 @@ const TILE_TINTS = [
 interface ProPitchDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  // Which wall opened the pitch, for its events and the wizard's Flow Started.
+  source: ProUpgradeSource
+  channel: ProUpgradeChannel
 }
 
 // The membership surface's Pro pitch (design: renderProPitch): what Pro costs
@@ -43,23 +50,37 @@ interface ProPitchDialogProps {
 export const ProPitchDialog = ({
   open,
   onOpenChange,
+  source,
+  channel,
 }: ProPitchDialogProps): React.JSX.Element => {
   const router = useRouter()
 
   useEffect(() => {
-    if (open) trackEvent(EVENTS.ProUpgrade.Membership.PitchViewed)
-  }, [open])
+    if (open) {
+      trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, { channel })
+    }
+  }, [open, channel])
 
   const handleJoin = () => {
-    trackEvent(EVENTS.ProUpgrade.Membership.PitchJoin)
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, { channel })
     onOpenChange(false)
-    router.push(PRO_UPGRADE_ENTRY_PATH)
+    router.push(
+      proUpgradeHref({
+        source,
+        channel,
+        cta: MEMBERSHIP_COPY.pitch.join,
+      }),
+    )
   }
 
   // Every other way out of the dialog — the X, escape, the overlay — is a
   // dismissal, and there is no dismiss button left to report it.
   const handleOpenChange = (next: boolean) => {
-    if (!next) trackEvent(EVENTS.ProUpgrade.Membership.PitchDismiss)
+    if (!next) {
+      trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialDismissed, {
+        channel,
+      })
+    }
     onOpenChange(next)
   }
 

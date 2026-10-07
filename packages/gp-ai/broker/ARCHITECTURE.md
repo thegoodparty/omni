@@ -132,12 +132,12 @@ All routes require `X-Broker-Token` (per-run UUIDv4) except `/health` and `/inte
 | Path | Used by | Purpose |
 |---|---|---|
 | `GET /health` | ECS health check | liveness only |
-| `POST /internal/mint-run-token` | Dispatch Lambda | Validates SERVICE_TOKEN, creates a scope ticket in DynamoDB, returns a per-run broker token (UUIDv4) the runner uses for auth |
+| `POST /internal/mint-run-token` | Dispatch Lambda | Validates SERVICE_TOKEN, creates a scope ticket in DynamoDB, returns a per-run broker token (UUIDv4) the runner uses for auth. Rejects unknown body fields (`extra="forbid"`) so a field nothing here consumes can't be silently dropped. Optionally carries `is_eval` and a version-pinned `experiment_override` key pair onto the ticket |
 | `POST /anthropic/v1/messages` | Runner (via Claude SDK) | Proxies to `api.anthropic.com`, injects broker's `ANTHROPIC_API_KEY`; streams response back |
 | `POST /databricks/query` | Runner (via `pmf_runtime.databricks`) | Scope-aware SQL execution — broker rewrites WHERE clauses to inject `state`/`city` filters per scope ticket; rejects cross-scope queries |
-| `POST /artifact/publish` | Runner (via `pmf_runtime.publish`) | Validates artifact against contract schema, uploads to S3, sends callback to results queue |
+| `POST /artifact/publish` | Runner (via `pmf_runtime.publish`) | Validates artifact against contract schema, uploads to S3, sends callback to results queue. A ticket with `is_eval` skips both the callback (a judge run has no gp-api run row to reconcile) and the mutable `latest.json` pointer (it is the org's current product artifact) — the immutable per-run archive is still written |
 | `GET /artifact/read` | Runner (via `pmf_runtime.priors`) | Reads a prior experiment's artifact (for dependency chaining, e.g. one experiment reading a prior experiment's artifact — the dependency relation is encoded in gp-api, not the broker) |
-| `POST /run-status` | Runner | Update run status (RUNNING/CONTRACT_VIOLATION/etc.); broker sends callback to results queue |
+| `POST /run-status` | Runner | Update run status (RUNNING/CONTRACT_VIOLATION/etc.); broker sends callback to results queue (same `is_eval` suppression as publish) |
 | `POST /internal/upload-logs` | Runner | Forward runner logs to S3 for debugging |
 
 Full spec: see `broker/endpoints/*.py`.
@@ -168,6 +168,9 @@ Full spec: see `broker/endpoints/*.py`.
   3. Runner Fargate task:
      - Pulls image via ECR endpoints + S3 prefix list
      - If PARAMS_VIA_BROKER is set: GET /params/read (token auth) → ticket params
+     - Writes the params (either path) to /workspace/params.json, read-only, and
+       sets PARAMS_FILE to that path in the agent's env; agent tools read params
+       there, since PARAMS_JSON exists only on the inline path
      - Starts Claude Agent SDK (passes ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY as env)
      - Every API call: Claude SDK → broker /anthropic/v1/messages (token auth)
      - Every DB query: pmf_runtime.databricks → broker /databricks/query

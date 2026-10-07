@@ -129,6 +129,7 @@ const appendMessageIdempotent = async (
                   kind: s.kind,
                   text: s.text ?? null,
                   toolName: s.toolName ?? null,
+                  toolCallId: s.toolCallId ?? null,
                   ...(s.payload != null && { payload: s.payload }),
                 })),
               },

@@ -100,6 +100,52 @@ def load_dismissals(path: Path) -> list[dict]:
     ]
 
 
+_INTENT_ACTIONS = {
+    "retire_activity": "remove this leg from anchored_on",
+    "successor": "replace this leg with {successor}",
+    "relocated": "keep the leg; check any path: qualifier against {route}",
+    "not_a_change": "no anchored_on change; review it as a possible guard false positive",
+}
+
+
+def intent_findings(watchlist_path: Path, anchors: Mapping[str, Sequence[Any]]) -> list[dict]:
+    """Intent rows written to clear a pre-merge guard block (DATA-2432). Each is a decision
+    already taken in omni that the semantic layer has not caught up with, which is case 2.
+    Once the metric stops watching the event (no leg, or only a historical one, which the
+    guard does not watch either), the row has done its job.
+
+    A row with no metric is a dead-listing false positive a PR reported, not a metric
+    change, so it is skipped here; the triage skill reviews those as guard bugs. A moved row
+    is a refactor the guard already checked against the code, so it is skipped too."""
+    if not anchors:
+        # Same as align(): without the declaration nothing can be compared, and the
+        # monitor already reports the read failure in red.
+        return []
+    path = Path(watchlist_path)
+    if not path.exists():
+        return []
+    doc = yaml.safe_load(path.read_text()) or {}
+    out = []
+    for row in doc.get("intents") or []:
+        if not isinstance(row, Mapping) or not row.get("metric") or row.get("intent") == "moved":
+            continue
+        metric, event = str(row.get("metric")), str(row.get("event"))
+        watched = {leg.event for leg in anchors.get(metric, []) if leg.watched}
+        if anchors and event not in watched:
+            out.append(_finding(1, "intent_row_resolved", metric=metric, event_key=event,
+                                headline=f"'{metric}' no longer watches {event}, so its intent row in "
+                                         "monitored_events.yaml has done its job. Delete the row."))
+            continue
+        action = _INTENT_ACTIONS.get(str(row.get("intent")), "review").format(
+            successor=row.get("successor"), route=row.get("route"))
+        out.append(_finding(2, "declared_leg_changed_by_pr", metric=metric, event_key=event,
+                            suggested=str(row.get("successor") or ""), evidence=dict(row),
+                            headline=f"A PR changed {event}, which '{metric}' counts: "
+                                     f"{row.get('intent')}, \"{row.get('reason')}\" ({row.get('date')}). "
+                                     f"Draft the anchored_on change: {action}."))
+    return out
+
+
 def align(
     behaviors: Sequence[Mapping[str, Any]],
     anchors: Mapping[str, Sequence[Any]],

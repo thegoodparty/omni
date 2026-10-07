@@ -52,6 +52,7 @@ import {
   type DbxDistrict,
   type DbxEvaluateRow,
   type DbxResidentRow,
+  type DbxScopeArgs,
 } from './databricksVoterSql.util'
 import type { FilterData } from '../schemas/filters.schema'
 import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
@@ -88,8 +89,11 @@ const EMPTY_FILTERS = filtersSchema.parse({})
 // what the sample is for; stable within a minute so a retry is idempotent.
 // `| 0` because hash32 returns unsigned 32-bit and the parameter binds as INT:
 // a district whose hash lands above 2^31-1 is otherwise rejected outright.
-const sampleSeed = (districtId: string): number =>
-  hash32(`${districtId}:${Math.floor(Date.now() / 60_000)}`) | 0
+//
+// A caller that names the draw (`seedKey`) gets the same slice whenever it
+// asks, so a list's sample can be drawn again the same way.
+const sampleSeed = (districtId: string, seedKey?: string): number =>
+  hash32(`${districtId}:${seedKey ?? Math.floor(Date.now() / 60_000)}`) | 0
 
 const TIMEOUT_MESSAGE =
   'The voter query took too long to run. Narrow the audience and try again.'
@@ -219,6 +223,7 @@ export class DatabricksVoterService {
       buildListDetailAggregatesSql({
         district,
         filters: dto.filters,
+        search: dto.search,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
       }),
@@ -438,23 +443,27 @@ export class DatabricksVoterService {
   // know how big the population is, and the two rejections below are product
   // behavior the Postgres path enforced (a missing-stats district unmounts the
   // surface rather than showing zero).
+  //
+  // Drawn within an audience (`filters`), the pool is that audience's own
+  // count instead, and the cell-phone cut is left to the filters: an audience
+  // already says how it is reached (has cell for a text, any phone for a
+  // call), and the count has to read the same rows the draw does.
   async samplePeople(dto: SamplePeopleDTO) {
     const district = await this.resolveDistrict(dto.districtId)
     const size = dto.size ?? DEFAULT_SAMPLE_SIZE
-    const hasCellPhone = dto.hasCellPhone ?? true
+    const hasCellPhone = dto.filters ? undefined : (dto.hasCellPhone ?? true)
     const excludeIds = dto.excludeIds ?? []
-
-    const stats = await this.findStats(dto.districtId)
-    if (!stats) {
-      throw new BadRequestException({
-        message: `District stats not available for districtId=${dto.districtId}`,
-        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
-      })
+    const scope: DbxScopeArgs = {
+      district,
+      filters: dto.filters ?? EMPTY_FILTERS,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      search: dto.search,
     }
 
-    const pool = hasCellPhone
-      ? stats.totalConstituentsWithCellPhone
-      : stats.totalConstituents
+    const pool = dto.filters
+      ? Number((await this.run(buildCountSql(scope))).rows[0]?.[0] ?? 0)
+      : await this.districtSamplePool(dto.districtId, hasCellPhone !== false)
     const remaining = pool - Math.min(excludeIds.length, pool)
     if (remaining < size) {
       throw new BadRequestException(
@@ -471,11 +480,10 @@ export class DatabricksVoterService {
     const { columnNames } = buildVoterSelectSql()
     const { rows } = await this.run(
       buildSampleSql({
-        district,
-        filters: EMPTY_FILTERS,
+        ...scope,
         columns: columnNames,
         size,
-        seed: sampleSeed(dto.districtId),
+        seed: sampleSeed(dto.districtId, dto.seedKey),
         hashDivisor,
         hasCellPhone,
         excludeIds,
@@ -484,6 +492,22 @@ export class DatabricksVoterService {
     return rows
       .map((row) => toDbPerson(columnNames, row))
       .map(transformToPersonOutput)
+  }
+
+  private async districtSamplePool(
+    districtId: string,
+    cellOnly: boolean,
+  ): Promise<number> {
+    const stats = await this.findStats(districtId)
+    if (!stats) {
+      throw new BadRequestException({
+        message: `District stats not available for districtId=${districtId}`,
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
+    return cellOnly
+      ? stats.totalConstituentsWithCellPhone
+      : stats.totalConstituents
   }
 
   // Both door-knocking reads return ROWS, not a finished response. The cap

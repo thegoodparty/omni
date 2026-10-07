@@ -6,6 +6,7 @@ import {
 import {
   DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
   type DoorKnockingTalkingPointsDraftResponse,
+  type OutreachEventDetails,
   type DoorKnockingTalkingPointsPurpose,
   type ServeDoorKnockingTalkingPointsPurpose,
 } from '@goodparty_org/contracts'
@@ -14,6 +15,7 @@ import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
+import { eventDetailsContext } from '../util/eventDetails.util'
 
 // Door-knocking talking points: the five-section card a canvasser reads at a
 // door, of which this service writes three lines.
@@ -99,15 +101,12 @@ const audienceUseRule = ({ possessive }: SubjectNouns): string =>
   'canvasser does not know who is behind the door, and a resident told what ' +
   'a list says about them hears surveillance, not outreach.'
 
-// Lower severity than the channels this comes from — a bracket in a NOTE
-// reads as a blank the candidate fills before the walk, not as a stumble
-// mid-sentence — but the wizard still highlights unfilled brackets, so the
-// rule keeps them scarce and confined to the one line that needs them.
+// An event invite's date, time and place arrive as event details from the
+// flow, so nothing on this card is ever a blank to fill.
 const BRACKETS_RULE =
-  'Use a bracketed placeholder ONLY in the ask, and only for event ' +
-  'logistics this product does not model: [date], [time], [location]. ' +
-  'Never bracket anything else, and never invent a specific date, time or ' +
-  'place to avoid one.'
+  'Never write a bracketed placeholder. An event date, time or place ' +
+  'comes only from the event details given below; without them, leave the ' +
+  'logistics out, and never invent a specific date, time or place.'
 
 const noLinksRule = ({ record }: SubjectNouns): string =>
   'Never write a URL, a web address, a phone number, or a QR code. The ' +
@@ -182,10 +181,10 @@ const WIN_PURPOSE_PROMPTS: Record<DoorKnockingTalkingPointsPurpose, string> = {
     'open-ended and about what matters most to them, so the canvasser ' +
     'listens before connecting anything to it.',
   event_invite:
-    'Purpose: an event invitation. The ask carries the logistics and asks ' +
-    'the resident to come — this is the one line that may use [date], ' +
-    '[time] and [location] brackets. The engagement question is a light ' +
-    'opener about the neighborhood, not about the event.',
+    'Purpose: an event invitation. The ask carries the date, time and ' +
+    'place from the event details below, as given, and asks the resident ' +
+    'to come. The engagement question is a light opener about the ' +
+    'neighborhood, not about the event.',
   early_voting:
     'Purpose: early voting. The ask is a commitment to vote early — better ' +
     'as a specific day than as "sometime during early voting", since a ' +
@@ -199,6 +198,11 @@ const WIN_PURPOSE_PROMPTS: Record<DoorKnockingTalkingPointsPurpose, string> = {
     'engagement question asks whether they have a plan for getting there — ' +
     'when in the day, or how — because a plan is what turns a yes into a ' +
     'vote.',
+  community_input:
+    'Purpose: listening. There is no commitment to seek: the ask is one ' +
+    'question about what the candidate should be working on, and the whole ' +
+    'card reads as an invitation to talk rather than a pitch. The ' +
+    'engagement question is the most open one on this list.',
   // Never freshly generated — see the guard in generateDraft.
   custom:
     'Purpose: the candidate wrote these points themselves. Adapt what they ' +
@@ -221,10 +225,10 @@ const SERVE_PURPOSE_PROMPTS: Record<
     'whether they have heard about it — never assert what they know or ' +
     'think of it.',
   event_invite:
-    'Purpose: an event invitation. The ask carries the logistics and asks ' +
-    'the constituent to come — this is the one line that may use [date], ' +
-    '[time] and [location] brackets. The engagement question is a light ' +
-    'opener about the neighborhood, not about the event.',
+    'Purpose: an event invitation. The ask carries the date, time and ' +
+    'place from the event details below, as given, and asks the ' +
+    'constituent to come. The engagement question is a light opener ' +
+    'about the neighborhood, not about the event.',
   community_input:
     'Purpose: listening. There is no commitment to seek: the ask is one ' +
     'question about what the office should be working on, and the whole ' +
@@ -330,7 +334,7 @@ const improveSystemPrompt = (
     `- ${audienceUseRule(nouns)}`,
     `- ${ASK_RULE} If the original stacks two, keep the one the`,
     '  purpose below names and drop the other.',
-    `- ${BRACKETS_RULE} Strip any other bracket the original contains and`,
+    `- ${BRACKETS_RULE} Strip any bracket the original contains and`,
     '  write around the gap in plain language.',
     `- ${noLinksRule(nouns)} Remove any that appear in the original.`,
     `- ${LENGTH_RULE}`,
@@ -385,6 +389,11 @@ export interface DoorKnockingDraftInput<TPurpose extends string> {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  // The community-input purpose only, on either product. Absent everywhere
+  // else, which is why the block it produces is conditional rather than a
+  // fixed line.
+  communityInputQuestion?: string
+  event?: OutreachEventDetails
 }
 
 // No .max() on the three lines, deliberately: an instructions-driven result
@@ -451,6 +460,29 @@ export class OutreachDoorKnockingGenerationService {
     this.logger.setContext(OutreachDoorKnockingGenerationService.name)
   }
 
+  // The question this effort exists to ask, when there is one.
+  //
+  // Fenced for the reason every other piece of user text here is: it is
+  // typed by a person and must read as quoted material, not as further
+  // instructions to the prompt. The ask is the field it governs — the whole
+  // point of the community-input purpose is that the door closes on this
+  // question rather than on a generic one — so the rule sits beside it.
+  private buildQuestionContext(question?: string): string[] {
+    if (!question) return []
+    return [
+      ...fenced('The question this effort is trying to answer:', question),
+      // "In place of" is load-bearing: the listening purpose above tells the
+      // model the ask is one general question about what the office or the
+      // candidate should work on, which is the ask this field exists to
+      // replace. Without a stated precedence the two instructions simply
+      // conflict.
+      'This is what "ask" must put to the resident, in place of the general ' +
+        'question described above. Keep what it asks exactly. You may word ' +
+        'it to invite them to say more, but do not widen it into a general ' +
+        'what-matters-to-you question and do not answer it yourself.',
+    ]
+  }
+
   // The audience block, restated beside the description it governs rather than
   // left to the system prompt alone — the constraint travels with the data.
   // Both come from `audienceUseRule`, so the two cannot drift.
@@ -501,6 +533,7 @@ export class OutreachDoorKnockingGenerationService {
       `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
       voice.purposePrompts[input.purpose],
+      ...this.buildQuestionContext(input.communityInputQuestion),
       ...extraContext,
       ...this.buildAudienceContext(audienceDescription, voice),
     ]
@@ -529,6 +562,7 @@ export class OutreachDoorKnockingGenerationService {
             role: 'user',
             content: [
               ...context,
+              ...eventDetailsContext(input.purpose, input.event),
               ...(input.previousDraft
                 ? [
                     ...fenced(

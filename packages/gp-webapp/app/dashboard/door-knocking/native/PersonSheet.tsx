@@ -29,7 +29,8 @@ import {
   demographicFacts,
   voterDemographicFacts,
 } from './demographicFacts'
-import RecordKnockForm from './RecordKnockForm'
+import RecordKnockForm, { type KnockDraft } from './RecordKnockForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import {
   FOLLOW_UP_OPTIONS,
   FOLLOW_UP_QUESTION,
@@ -199,6 +200,9 @@ const FollowUpCard = ({ status }: { status: DoorKnockStatus }) => {
 
 interface PersonSheetProps {
   stop: RoutePayloadStop
+  // Passed straight through to RecordKnockForm's analytics — the sheet itself
+  // has no use for it.
+  turfId: number
   // Controlled by WalkView rather than held here, because auto-advance moves
   // between residents of one household without the sheet closing — internal
   // state would keep showing the person who was just logged.
@@ -206,6 +210,9 @@ interface PersonSheetProps {
   onSelectTarget: (targetId: number) => void
   statusFor: (target: RoutePayloadTarget) => DoorKnockStatus
   clientKeyFor: (targetId: number) => string
+  // Owned above this sheet, which closes between doors and goes with the
+  // walk list at `peek`, so neither can hold what a door left unsaved.
+  knockDrafts?: UnsavedDrafts<KnockDraft>
   onRecorded: (
     targetId: number,
     personId: string,
@@ -304,10 +311,12 @@ const PhoneRow = ({
 
 export default function PersonSheet({
   stop,
+  turfId,
   selectedTargetId,
   onSelectTarget,
   statusFor,
   clientKeyFor,
+  knockDrafts,
   onRecorded,
   onNoteCreated,
   onNoteUpdated,
@@ -784,10 +793,12 @@ export default function PersonSheet({
               <RecordKnockForm
                 key={target.stopTargetId}
                 target={target}
+                turfId={turfId}
                 clientKey={clientKeyFor(target.stopTargetId)}
                 onRecorded={(personId, knockStatus) =>
                   onRecorded(target.stopTargetId, personId, knockStatus)
                 }
+                drafts={knockDrafts}
               />
               {/* Below the form, because it is a follow-up to what the form
                   just recorded — it renders nothing until this door is logged

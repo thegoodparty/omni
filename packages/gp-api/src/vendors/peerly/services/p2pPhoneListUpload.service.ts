@@ -4,7 +4,10 @@ import {
   HttpException,
   Injectable,
 } from '@nestjs/common'
+import { Cron } from '@nestjs/schedule'
+import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
+import { z } from 'zod'
 import { Campaign, Organization } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
@@ -14,12 +17,19 @@ import {
   ContactsService,
 } from '@/contacts/services/contacts.service'
 import {
+  MAX_INTERACTIVE_RESOLUTION_MS,
   PhoneAudiencePerson,
   resolveFilterAudience,
 } from '@/contacts/utils/audienceResolution.util'
 import { csvEscape } from '@/shared/util/csv.util'
+import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { MessageGroup, QueueType } from '@/queue/queue.types'
+import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { OrganizationsService } from '../../../organizations/services/organizations.service'
-import { P2pPhoneListRequestSchema } from '../schemas/p2pPhoneListRequest.schema'
+import {
+  P2pPhoneListRequestSchema,
+  p2pPhoneListRequestSchema,
+} from '../schemas/p2pPhoneListRequest.schema'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
@@ -33,6 +43,41 @@ const MAX_PHONE_LIST_RECIPIENTS = 100_000
 const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
 
 type PhoneListRecipient = { personId: string; phone: string }
+
+// The validated request minus the list name — what both resolveFilterInput
+// call sites (the live HTTP body, and a snapshot re-parsed off the build row)
+// actually have in hand. Derived from the same schema both use, so a
+// snapshot round-trip can never drift from the live request's shape.
+type P2pPhoneListFilterInput = Omit<
+  z.infer<typeof p2pPhoneListRequestSchema>,
+  'name'
+>
+
+// Kill switch for Voter Outreach 2.0's async build (S3b). Read live, never
+// cached at module load, so a test can `vi.stubEnv` it and so a prod
+// cutover needs no redeploy. Defaults OFF: this slice ships inert, and the
+// synchronous build below is unchanged until someone flips it.
+const isAsyncBuildEnabled = (): boolean =>
+  process.env.P2P_PHONE_LIST_ASYNC_BUILD === 'true'
+
+// A `building` row whose updatedAt is older than this is assumed abandoned
+// (the handler crashed, was OOM-killed, or lost its SQS message before
+// finishing) and is reclaimed by the sweep below. Comfortably exceeds a
+// healthy-but-slow run: filter resolution over a 100k-recipient audience
+// plus a ~100MB Peerly upload, against a 60s Peerly upload timeout
+// (peerlyBaseConfig's PEERLY_UPLOAD_TIMEOUT_MS) — this has no request
+// deadline (see buildPhoneList's isInteractive branch), so it can
+// legitimately run for several minutes.
+const P2P_PHONE_LIST_BUILD_STALE_MINUTES = 20
+// How many times the reaper will re-queue a stuck build before giving up and
+// marking it permanently failed. Bounds a build that fails the same way on
+// every retry (e.g. a persistently broken filter) rather than re-queuing it
+// forever.
+const P2P_PHONE_LIST_BUILD_MAX_ATTEMPTS = 3
+// Every 15 minutes, offset off the top of the hour. grep -rn '@Cron(' before
+// changing this — see docs/scheduled-jobs.md.
+const P2P_PHONE_LIST_BUILD_SWEEP_CRON = '14,29,44,59 * * * *'
+const P2P_PHONE_LIST_BUILD_SWEEP_JOB = 'p2pPhoneListBuildStaleSweep'
 
 // Peerly needs state, city, and zip for geo-targeting; null fields
 // produce blank CSV cells it counts as malformed leads. The people
@@ -55,6 +100,7 @@ export class P2pPhoneListUploadService {
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
+    private readonly queueProducer: QueueProducerService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pPhoneListUploadService.name)
@@ -63,13 +109,39 @@ export class P2pPhoneListUploadService {
   async uploadPhoneList(
     campaign: Campaign,
     request: P2pPhoneListRequestSchema,
-  ): Promise<{ token: string; listName: string }> {
+  ): Promise<{ token: string | null; listName: string; buildId: string }> {
     const { name: listName, ...filterInput } = request
 
+    if (isAsyncBuildEnabled()) {
+      // Nothing is validated beyond the request's own shape (already done by
+      // the controller's ZodValidationPipe) before the row exists — TCR
+      // compliance, organization, filter resolution, opt-out scrub, CSV
+      // generation, and the Peerly upload all move onto the queue, so a
+      // setup problem (no TCR identity, a deleted filter) surfaces as a
+      // `failed` build status rather than a synchronous 400. See
+      // handleQueuedBuild.
+      const build = await this.peerlyPhoneListCapture.createQueuedBuild({
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        voterFileFilterId: filterInput.voterFileFilterId ?? null,
+        requestSnapshot: { ...request },
+      })
+
+      // AFTER the row commits (queue outbox rule: never enqueue before the
+      // thing the handler will look up exists), and `throwOnError` because a
+      // producer failure swallowed here would accept a request nothing will
+      // ever build (queue/AGENTS.md "Failure modes").
+      await this.enqueueBuild(build.id, 0)
+      this.logger.debug(
+        `P2P phone list build ${build.id} enqueued for campaign ${campaign.id}`,
+      )
+      return { token: null, listName, buildId: build.id }
+    }
+
+    // --- Synchronous (switch off) path — unchanged S2 behavior. ---
     const tcrCompliance = await this.tcrComplianceService.fetchByCampaignId(
       campaign.id,
     )
-
     if (!tcrCompliance || !tcrCompliance.peerlyIdentityId) {
       throw new BadRequestException(
         'TCR compliance record does not have a Peerly identity ID',
@@ -86,27 +158,294 @@ export class P2pPhoneListUploadService {
     // Texting is a Pro feature — PII exposure stays bounded by the Pro gate
     // (isProAccess, enforced inside findContactsForFilter below).
     // Product decision (Tomer, 2026-07-18): ENG-10741.
-
-    let resolvedFilterInput: ContactsFilterResolutionInput = filterInput
-    if (filterInput.voterFileFilterId) {
-      const filter =
-        await this.voterFileFilterService.findByIdAndOrganizationSlug(
-          filterInput.voterFileFilterId,
-          campaign.organizationSlug,
-        )
-      if (!filter) {
-        throw new BadRequestException('Voter file filter not found')
-      }
-      // The saved segment's persisted criteria are the base and explicit
-      // inline fields override — mirroring how getListDetail resolves a
-      // persisted filter. Without this the id would be captured while the
-      // list silently ran against the whole district.
-      resolvedFilterInput = { ...filter, ...filterInput }
+    const resolvedFilterInput = await this.resolveFilterInput(
+      filterInput,
+      campaign.organizationSlug,
+    )
+    if (resolvedFilterInput === null) {
+      throw new BadRequestException('Voter file filter not found')
     }
 
     const excludePersonIds = await this.resolveOptOutScrub(
       campaign.organizationSlug,
     )
+
+    // Created BEFORE the build so a build-status poller has a row to find
+    // from the moment the request is accepted (`queued`, the schema
+    // default) — everything above this line is request validation (bad
+    // input 400s before any row exists); everything below is "the build",
+    // and any throw in it must park this same row `failed` rather than
+    // leave it orphaned.
+    const build = await this.peerlyPhoneListCapture.createQueuedBuild({
+      organizationSlug: campaign.organizationSlug,
+      campaignId: campaign.id,
+      voterFileFilterId: filterInput.voterFileFilterId ?? null,
+      requestSnapshot: { ...request },
+    })
+
+    const token = await this.runBuild({
+      buildId: build.id,
+      campaignId: campaign.id,
+      organization,
+      peerlyIdentityId: tcrCompliance.peerlyIdentityId,
+      listName,
+      resolvedFilterInput,
+      excludePersonIds,
+      isInteractive: true,
+    })
+
+    return { token, listName, buildId: build.id }
+  }
+
+  // Queue handler for QueueType.P2P_PHONE_LIST_BUILD (dispatched from
+  // queueConsumer.service.ts — no business logic there, it only dispatches).
+  // Returns true to ack. Throws to let SQS redeliver; the claim CAS below
+  // (queued-only) makes a redelivery or a reaper-driven retry safe either
+  // way — see queue/AGENTS.md "Failure modes".
+  async handleQueuedBuild(buildId: string): Promise<boolean> {
+    const claimed = await this.peerlyPhoneListCapture.claimForBuild(buildId)
+    if (!claimed) {
+      // A concurrent delivery already owns this build, or it has already
+      // advanced past `queued` (processing/ready/failed) — idempotent no-op.
+      this.logger.info(
+        { buildId },
+        'p2pPhoneListBuild: claim missed (already owned or advanced); acking',
+      )
+      return true
+    }
+
+    const build = await this.peerlyPhoneListCapture.findFirst({
+      where: { id: buildId },
+    })
+    if (!build) {
+      // Can't happen in the normal flow (the claim above just matched this
+      // row by id) — but a redelivery racing a hard-delete elsewhere must
+      // not crash the consumer.
+      this.logger.error(
+        { buildId },
+        'p2pPhoneListBuild: claimed row vanished; acking',
+      )
+      return true
+    }
+
+    const snapshot = p2pPhoneListRequestSchema.safeParse(build.requestSnapshot)
+    if (!snapshot.success) {
+      this.logger.error(
+        { buildId, error: snapshot.error },
+        'p2pPhoneListBuild: stored request snapshot missing or invalid',
+      )
+      await this.markBuildFailed(
+        buildId,
+        new BadRequestException('Missing or invalid build request'),
+      )
+      return true
+    }
+    const { name: listName, ...filterInput } = snapshot.data
+
+    const tcrCompliance = await this.tcrComplianceService.fetchByCampaignId(
+      build.campaignId,
+    )
+    if (!tcrCompliance?.peerlyIdentityId) {
+      await this.markBuildFailed(
+        buildId,
+        new BadRequestException(
+          'TCR compliance record does not have a Peerly identity ID',
+        ),
+      )
+      return true
+    }
+
+    const organization = await this.organizationsService.findFirst({
+      where: { slug: build.organizationSlug },
+    })
+    if (!organization) {
+      await this.markBuildFailed(
+        buildId,
+        new BadRequestException('Organization not found for campaign'),
+      )
+      return true
+    }
+
+    const resolvedFilterInput = await this.resolveFilterInput(
+      filterInput,
+      build.organizationSlug,
+    )
+    if (resolvedFilterInput === null) {
+      await this.markBuildFailed(
+        buildId,
+        new BadRequestException('Voter file filter not found'),
+      )
+      return true
+    }
+
+    const excludePersonIds = await this.resolveOptOutScrub(
+      build.organizationSlug,
+    )
+
+    try {
+      await this.runBuild({
+        buildId,
+        campaignId: build.campaignId,
+        organization,
+        peerlyIdentityId: tcrCompliance.peerlyIdentityId,
+        listName,
+        resolvedFilterInput,
+        excludePersonIds,
+        isInteractive: false,
+        existingToken: build.token ?? undefined,
+      })
+      return true
+    } catch (error) {
+      if (error instanceof HttpException) {
+        // runBuild already called markBuildFailed before throwing — a
+        // permanent, client-input-shaped failure. Ack; retrying can't help.
+        return true
+      }
+      // Transient (people-db, S3, a Peerly 5xx/network, or anything
+      // unclassified): rethrow so SQS redelivers. The claim is single-owner
+      // and queued-only, so the actual retry is driven by the stale-building
+      // reaper resetting this row back to `queued`, not by SQS's own
+      // redelivery of this exact message landing on a `building` row.
+      throw error
+    }
+  }
+
+  // Stale-building reaper: a row claimed (queued -> building) by some
+  // handler invocation that never finished gets re-queued, or parked
+  // `failed` once it has used up its retry budget. Per-record CAS
+  // (reclaimStaleBuilding/failStaleBuilding), idempotent across replicas and
+  // across overlapping sweeps — mirrors
+  // OutreachRobocallStagingService.sweepRobocallStaging's reasoning for
+  // omitting a whole-job CronLockService: two replicas can both SELECT the
+  // same stale candidate, but only one's CAS matches (the other's `updatedAt
+  // < staleCutoff` predicate loses once the winner bumps it), so a build is
+  // never re-queued twice from one sweep.
+  @Cron(P2P_PHONE_LIST_BUILD_SWEEP_CRON, {
+    name: P2P_PHONE_LIST_BUILD_SWEEP_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepStaleBuilding(): Promise<void> {
+    const staleCutoff = subMinutes(
+      new Date(),
+      P2P_PHONE_LIST_BUILD_STALE_MINUTES,
+    )
+    const candidates =
+      await this.peerlyPhoneListCapture.findStaleBuilding(staleCutoff)
+
+    for (const { id: buildId } of candidates) {
+      try {
+        await this.reclaimStaleBuild(buildId, staleCutoff)
+      } catch (err) {
+        // Per-record isolation: one build's failure must not abort
+        // reclaiming the rest. The next sweep retries it.
+        this.logger.error(
+          { err, buildId },
+          'p2pPhoneListBuild stale-building reclaim failed; continuing sweep',
+        )
+      }
+    }
+  }
+
+  private async reclaimStaleBuild(
+    buildId: string,
+    staleCutoff: Date,
+  ): Promise<void> {
+    const row = await this.peerlyPhoneListCapture.findFirst({
+      where: { id: buildId },
+      select: { buildAttempts: true },
+    })
+    if (!row) return
+
+    if (row.buildAttempts >= P2P_PHONE_LIST_BUILD_MAX_ATTEMPTS) {
+      await this.peerlyPhoneListCapture.failStaleBuilding(
+        buildId,
+        staleCutoff,
+        'Phone list build exceeded its retry limit',
+      )
+      return
+    }
+
+    const reclaimed = await this.peerlyPhoneListCapture.reclaimStaleBuilding(
+      buildId,
+      staleCutoff,
+    )
+    // count 0: another replica already reclaimed/failed it, or it advanced
+    // (a healthy run finished between the SELECT and here) — not ours.
+    if (!reclaimed) return
+
+    try {
+      await this.enqueueBuild(buildId, row.buildAttempts)
+    } catch (err) {
+      // Undo the reclaim so the row doesn't strand at `queued` with nothing
+      // ever claiming it — the reaper only looks at `building` rows, so a
+      // `queued` row with a dead enqueue would otherwise sit forever.
+      await this.peerlyPhoneListCapture.revertReclaimedBuilding(buildId)
+      throw err
+    }
+  }
+
+  // FIFO group per build, so a build's own redeliveries/retries serialize
+  // rather than racing each other through the claim CAS. `attempt` only
+  // varies the deduplicationId — SQS's dedup window would otherwise collapse
+  // a genuine retry (after a prior one failed) with the original message.
+  private async enqueueBuild(buildId: string, attempt: number): Promise<void> {
+    await this.queueProducer.sendMessage(
+      { type: QueueType.P2P_PHONE_LIST_BUILD, data: { buildId } },
+      `${MessageGroup.p2pPhoneListBuild}-${buildId}`,
+      {
+        throwOnError: true,
+        deduplicationId: `${QueueType.P2P_PHONE_LIST_BUILD}-${buildId}-attempt-${attempt}`,
+      },
+    )
+  }
+
+  // Resolves a persisted voterFileFilterId into the full saved-segment
+  // criteria, inline fields overriding — mirroring how getListDetail resolves
+  // a persisted filter. Without this the id would be captured while the list
+  // silently ran against the whole district. Returns null (never throws) so
+  // each caller decides how to surface "not found": a synchronous 400 before
+  // any row exists on the sync path, a `failed` build after the row exists
+  // on the async path.
+  private async resolveFilterInput(
+    filterInput: P2pPhoneListFilterInput,
+    organizationSlug: string,
+  ): Promise<ContactsFilterResolutionInput | null> {
+    if (!filterInput.voterFileFilterId) return filterInput
+    const filter =
+      await this.voterFileFilterService.findByIdAndOrganizationSlug(
+        filterInput.voterFileFilterId,
+        organizationSlug,
+      )
+    if (!filter) return null
+    return { ...filter, ...filterInput }
+  }
+
+  // The shared build+upload tail: resolve → CSV → Peerly upload → record.
+  // Called from the synchronous request path (isInteractive: true) and from
+  // the queued build handler (isInteractive: false, and possibly carrying
+  // existingToken from a prior incomplete attempt).
+  private async runBuild(params: {
+    buildId: string
+    campaignId: number
+    organization: Organization
+    peerlyIdentityId: string
+    listName: string
+    resolvedFilterInput: ContactsFilterResolutionInput
+    excludePersonIds: Set<string>
+    isInteractive: boolean
+    existingToken?: string
+  }): Promise<string> {
+    const {
+      buildId,
+      campaignId,
+      organization,
+      peerlyIdentityId,
+      listName,
+      resolvedFilterInput,
+      excludePersonIds,
+      isInteractive,
+      existingToken,
+    } = params
 
     let phoneList: {
       csvBuffer: Buffer
@@ -118,51 +457,91 @@ export class P2pPhoneListUploadService {
         resolvedFilterInput,
         organization,
         excludePersonIds,
+        isInteractive,
       )
     } catch (error) {
+      // The row's buildError mirrors whatever is ABOUT TO BE thrown to the
+      // caller, never the raw caught `error` — that raw error can carry
+      // vendor/internal detail (a people-api message, a stack-bearing
+      // Error) this endpoint has never put in a client-facing response,
+      // and a future poller reading buildError is still a client.
       if (error instanceof HttpException) {
         this.logger.warn(
           { error },
-          `CSV generation rejected for campaign ${campaign.id} (HttpException passthrough)`,
+          `CSV generation rejected for campaign ${campaignId} (HttpException passthrough)`,
         )
+        await this.markBuildFailed(buildId, error)
         throw error
       }
       this.logger.error(
         { error },
-        `Failed to generate voter data for phone list, campaign ${campaign.id}:`,
+        `Failed to generate voter data for phone list, campaign ${campaignId}:`,
       )
-      throw new BadRequestException(
+      if (!isInteractive) {
+        // Async path: an unclassified error here (people-db, network) is
+        // TRANSIENT — rethrow raw so the queue handler redelivers rather
+        // than parking a build that would have succeeded on retry. The
+        // synchronous path below keeps wrapping this as a 400 (unchanged).
+        throw error
+      }
+      const buildError = new BadRequestException(
         'Failed to generate voter data for phone list',
       )
+      await this.markBuildFailed(buildId, buildError)
+      throw buildError
     }
     const { csvBuffer, recipients, excludedDuplicatePhoneCount } = phoneList
     if (recipients.length === 0) {
-      throw new BadRequestException(
+      const emptyAudienceError = new BadRequestException(
         'No contacts matched the filter with a valid phone number and ' +
           'complete address — narrow the filter or check your contact data.',
       )
+      await this.markBuildFailed(buildId, emptyAudienceError)
+      throw emptyAudienceError
     }
 
     let token: string
-    try {
-      token = await this.peerlyPhoneListService.uploadPhoneList({
-        listName,
-        csvBuffer,
-        identityId: tcrCompliance.peerlyIdentityId,
-      })
-    } catch (error) {
-      this.logger.error(
-        { error },
-        `Failed to upload phone list to Peerly for campaign ${campaign.id}:`,
-      )
-      throw new BadGatewayException(
-        'Failed to upload phone list to Peerly platform',
-      )
+    if (existingToken) {
+      // A redelivery after Peerly already accepted this exact list (stamped
+      // by a prior attempt that didn't finish recordUpload) — never upload
+      // it twice.
+      token = existingToken
+    } else {
+      try {
+        token = await this.peerlyPhoneListService.uploadPhoneList({
+          listName,
+          csvBuffer,
+          identityId: peerlyIdentityId,
+        })
+      } catch (error) {
+        this.logger.error(
+          { error },
+          `Failed to upload phone list to Peerly for campaign ${campaignId}:`,
+        )
+        if (!isInteractive && !(error instanceof BadRequestException)) {
+          // Transient: a Peerly 5xx/network error, or anything the vendor
+          // layer didn't classify as a 4xx/validation rejection. The sync
+          // path below always wraps this as a 502 (unchanged).
+          throw error
+        }
+        const buildError =
+          error instanceof BadRequestException
+            ? error
+            : new BadGatewayException(
+                'Failed to upload phone list to Peerly platform',
+              )
+        await this.markBuildFailed(buildId, buildError)
+        throw buildError
+      }
+
+      // Stamped BEFORE the (slower) recipients write, so a crash between the
+      // two leaves a `building` row that still carries proof Peerly already
+      // has this exact list — the existingToken branch above is what reads
+      // this back.
+      await this.peerlyPhoneListCapture.stampBuildToken(buildId, token)
     }
 
-    // Capture rows are only written once Peerly confirms it has the list —
-    // both throws above happen before this line, so a list Peerly never
-    // received can never gain capture rows.
+    // Capture rows are only written once Peerly confirms it has the list.
     //
     // The reported count is the candidate opt-out set size, not a
     // post-composition truth: if this org's support-status "unknown"
@@ -172,26 +551,46 @@ export class P2pPhoneListUploadService {
     // count won't reflect it. Rare (both sets have to be near-cap at
     // once) and acceptable for the observability this column exists for.
     await this.peerlyPhoneListCapture.recordUpload({
-      organizationSlug: campaign.organizationSlug,
-      campaignId: campaign.id,
+      buildId,
       token,
-      voterFileFilterId: filterInput.voterFileFilterId ?? null,
       recipients,
       excludedOptedOutCount: excludePersonIds.size,
       excludedDuplicatePhoneCount,
     })
 
     this.logger.debug(
-      `P2P phone list uploaded successfully for campaign ${campaign.id}, token: ${token}`,
+      `P2P phone list uploaded successfully for campaign ${campaignId}, token: ${token}, buildId: ${buildId}`,
     )
 
-    return { token, listName }
+    return token
+  }
+
+  // Best-effort: a DB write failing here must not mask the build/upload
+  // error the caller is about to see (that's the one that matters), so this
+  // only logs on failure. Callers pass the exact error being thrown to the
+  // HTTP caller — never a raw internal one — so `buildError` never carries
+  // more detail than the response a client already gets today; truncated
+  // regardless, since it's a status field a poller reads, not a log sink.
+  private async markBuildFailed(
+    buildId: string,
+    error: unknown,
+  ): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error)
+    await this.peerlyPhoneListCapture
+      .markBuildFailed(buildId, message.slice(0, 500))
+      .catch((markError: Error) =>
+        this.logger.error(
+          { markError, buildId },
+          'Failed to mark phone list build as failed; row left in a prior build state',
+        ),
+      )
   }
 
   private async buildPhoneList(
     filterInput: ContactsFilterResolutionInput,
     organization: Organization,
     excludePersonIds: Set<string>,
+    isInteractive: boolean,
   ): Promise<{
     csvBuffer: Buffer
     recipients: PhoneListRecipient[]
@@ -210,6 +609,36 @@ export class P2pPhoneListUploadService {
       limitExceededMessage:
         `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
         `phone-list limit — narrow the filter and try again.`,
+      // Only the interactive (synchronous) path has an official sat in
+      // front of it waiting for a token, so only it gets a clock. The
+      // queued build has no deadline — it genuinely completes however long
+      // it takes — and must skip the page-1 preflight cap too: that cap
+      // refuses a filter it projects won't finish inside an HTTP gateway's
+      // timeout, which is a regression (not a safety net) for a caller with
+      // no gateway in front of it (see audienceResolution.util.ts's
+      // `skipPreflightCap` doc).
+      ...(isInteractive
+        ? {
+            // The cap alone did not bound one: 100,000 recipients is 100
+            // pages and the gateway hangs up at ~120s, so a filter matching
+            // ~82,000 passed every guard, died with no response, and then
+            // finished anyway — uploading a phone list to Peerly 45.9s
+            // after the browser had already shown a failure (INC-101).
+            // Nothing deletes that list, and the retry it invites makes a
+            // second one.
+            timeBudgetMs: MAX_INTERACTIVE_RESOLUTION_MS,
+            budgetExceededMessage: ({
+              matchedCount,
+              affordableCount,
+            }: {
+              matchedCount: number
+              affordableCount: number
+            }) =>
+              `This filter matches ${matchedCount} contacts — too many to ` +
+              `build a phone list while you wait (about ${affordableCount} ` +
+              `right now). Narrow the filter and try again.`,
+          }
+        : { skipPreflightCap: true }),
     })
 
     let next = await audience.next()
