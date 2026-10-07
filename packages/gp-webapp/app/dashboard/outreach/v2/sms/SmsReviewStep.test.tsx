@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
+import { mswServer } from 'helpers/test-utils/api-mocking'
 import { SmsReviewStep } from './SmsReviewStep'
 
 // What the mocked Stripe form reports as its live total once mounted; null
@@ -15,18 +17,32 @@ vi.mock('app/dashboard/purchase/components/CheckoutPayment', async () => {
   const { useEffect } = await import('react')
   const CheckoutPaymentStub = ({
     onTotalChange,
+    onPaymentSuccess,
     onPaymentError,
   }: {
     onTotalChange?: (dollars: number) => void
+    onPaymentSuccess?: (sessionId: string) => void | Promise<void>
     onPaymentError?: (message: string) => void
   }) => {
     useEffect(() => {
       if (live.dollars !== null) onTotalChange?.(live.dollars)
     }, [onTotalChange])
+    // Mirrors CheckoutForm: the card is confirmed, then onSuccess runs, and
+    // anything it throws reaches the same onError a decline does.
+    const complete = async () => {
+      try {
+        await onPaymentSuccess?.('cs_test')
+      } catch (err) {
+        onPaymentError?.(err instanceof Error ? err.message : String(err))
+      }
+    }
     return (
       <div data-testid="checkout-payment">
         <button type="button" onClick={() => onPaymentError?.(DECLINE)}>
           Decline the card
+        </button>
+        <button type="button" onClick={() => void complete()}>
+          Complete purchase
         </button>
       </div>
     )
@@ -104,5 +120,28 @@ describe('SmsReviewStep card declines', () => {
       screen.queryByText('Failed to initialize purchase'),
     ).not.toBeInTheDocument()
     expect(screen.getByText('$1197.42')).toBeInTheDocument()
+  })
+
+  it('shows the purchase error, not the card decline, when completion fails after the charge', async () => {
+    mswServer.use(
+      http.post('/api/v1/payments/purchase/complete-checkout-session', () =>
+        HttpResponse.json(
+          { statusCode: 500, message: 'Internal server error' },
+          { status: 500 },
+        ),
+      ),
+    )
+    renderStep()
+    await screen.findByTestId('checkout-payment')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete purchase' }))
+
+    expect(
+      await screen.findByText('Failed to initialize purchase'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Your payment didn't go through"),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('checkout-payment')).not.toBeInTheDocument()
   })
 })
