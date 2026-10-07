@@ -693,9 +693,7 @@ describe('CampaignManagerHome skipping a task', () => {
     expect(
       await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
-    await user.click(
-      screen.getByRole('menuitem', { name: 'Don’t suggest it again' }),
-    )
+    await user.click(screen.getByRole('menuitem', { name: 'Not for me' }))
 
     expect(mockSetAside).toHaveBeenCalledWith({
       id: 'ein',
@@ -721,7 +719,7 @@ describe('CampaignManagerHome skipping a task', () => {
       await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('menuitem', { name: 'Don’t suggest it again' }),
+      screen.queryByRole('menuitem', { name: 'Not for me' }),
     ).not.toBeInTheDocument()
   })
 

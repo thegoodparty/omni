@@ -639,7 +639,7 @@ const NextTaskCard = ({
                               <DropdownMenuItem
                                 onSelect={() => skipFront('notForMe')}
                               >
-                                Don’t suggest it again
+                                Not for me
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>

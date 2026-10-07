@@ -191,7 +191,7 @@ const CampaignStrategyTaskRow = ({
           ...(canSetTaskAsideForGood(task.title)
             ? [
                 {
-                  label: 'Don’t suggest it again',
+                  label: 'Not for me',
                   onClick: () => onSetAside(task, 'notForMe'),
                 },
               ]
@@ -274,7 +274,7 @@ const CampaignStrategyTaskRow = ({
           <p className="text-muted-foreground text-xs">
             {task.setAside === 'later' && task.snoozedUntil
               ? `Put off until ${format(new Date(task.snoozedUntil), 'MMM d')}`
-              : 'Not suggested'}
+              : 'Not for me'}
           </p>
         )}
         {task.unlocksAfter && (
@@ -340,7 +340,7 @@ const CampaignStrategyTaskRow = ({
                     <DropdownMenuItem
                       onSelect={() => onSetAside(task, 'notForMe')}
                     >
-                      Don’t suggest it again
+                      Not for me
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>

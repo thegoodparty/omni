@@ -136,9 +136,7 @@ describe('setting a task aside from the plan', () => {
     expect(
       await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
-    await user.click(
-      screen.getByRole('menuitem', { name: 'Don’t suggest it again' }),
-    )
+    await user.click(screen.getByRole('menuitem', { name: 'Not for me' }))
     expect(onSetAside).toHaveBeenCalledWith(task, 'notForMe')
   })
 
