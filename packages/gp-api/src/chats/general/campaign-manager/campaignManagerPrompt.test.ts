@@ -94,6 +94,8 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('declines unrelated asks with its own line, not the Chief of Staff one', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain('GUARDRAILS (apply before answering)')
+    expect(prompt).toContain('CAMPAIGN RULES (apply to every reply)')
+    expect(prompt).not.toContain('\nRules:')
     expect(prompt).toContain(GUARDRAIL_DECLINE.win)
     expect(prompt).not.toContain(GUARDRAIL_DECLINE.serve)
     expect(prompt).toContain('plausibly connected to their campaign')
