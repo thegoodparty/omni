@@ -13,19 +13,14 @@ export const TRACKER_TASK_SNOOZE_DAYS = 3
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// Tasks a campaign can't drop without risk to the race or the law, so they
-// can only be put off, never set aside for good.
-const REQUIRED_CATEGORIES = new Set([
-  BALLOT_ACCESS_CATEGORY,
-  'Compliance & Admin',
-])
-const REQUIRED_TITLES = new Set(['File your final report'])
-
-export const canSetTaskAsideForGood = (title: string): boolean => {
-  if (REQUIRED_TITLES.has(title)) return false
-  const entry = CAMPAIGN_TASK_CATALOG.find((task) => task.title === title)
-  return !entry || !REQUIRED_CATEGORIES.has(entry.category)
-}
+// Ballot access can only be put off, never set aside for good: it only shows
+// for a candidate who hasn't told us they're on the ballot, and missing it
+// ends the race. Finance reporting is not on this list, because whether a
+// candidate has to file depends on the state and often on how much they
+// raise, and we don't know either.
+export const canSetTaskAsideForGood = (title: string): boolean =>
+  CAMPAIGN_TASK_CATALOG.find((task) => task.title === title)?.category !==
+  BALLOT_ACCESS_CATEGORY
 
 // "Later" never carries a task past its own due date: it comes back on the
 // due date when that is sooner than the usual few days, and still ahead.

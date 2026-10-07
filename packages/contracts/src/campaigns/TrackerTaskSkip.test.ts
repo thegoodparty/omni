@@ -29,16 +29,20 @@ describe('trackerTaskSnoozeUntil', () => {
 })
 
 describe('canSetTaskAsideForGood', () => {
-  it('keeps ballot access, compliance and the final report from being dropped', () => {
+  it('keeps ballot access from being dropped', () => {
     expect(canSetTaskAsideForGood('Submit your Ballot Access Signatures')).toBe(
       false,
     )
+    expect(canSetTaskAsideForGood('Begin Ballot Access Period')).toBe(false)
+  })
+
+  it('lets finance reporting be dropped, since not every candidate must file', () => {
     expect(
       canSetTaskAsideForGood(
         'Add your campaign finance deadlines to your calendar',
       ),
-    ).toBe(false)
-    expect(canSetTaskAsideForGood('File your final report')).toBe(false)
+    ).toBe(true)
+    expect(canSetTaskAsideForGood('File your final report')).toBe(true)
   })
 
   it('lets anything else be set aside, including tasks the catalog lacks', () => {

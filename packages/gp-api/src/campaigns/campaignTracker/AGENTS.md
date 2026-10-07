@@ -35,8 +35,8 @@ overview: `docs/features/campaign-tracker-v3.md`.
 - **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
   a task aside: `later` sets `snoozedUntil` (`trackerTaskSnoozeUntil`: three
   days, or the due date when that comes first), `notForMe` holds until
-  `DELETE /skip/:id`. Required tasks (`canSetTaskAsideForGood`: ballot access,
-  compliance, the final report) 400 on `notForMe`. Neither touches `completed`,
+  `DELETE /skip/:id`. Ballot access (`canSetTaskAsideForGood`) 400s on
+  `notForMe`; finance reporting doesn't, since not every candidate must file. Neither touches `completed`,
   so a skipped task still counts as open work everywhere that reads completion;
   only the webapp's next-task pick passes over it (`isTrackerTaskSetAside`).
 
