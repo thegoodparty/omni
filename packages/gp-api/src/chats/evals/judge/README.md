@@ -148,6 +148,44 @@ Step 3 will **refuse**, because one checkout gives both arms the same
 qualifier saying the arms were configured alike — which is what the workflow
 does for a request that named its agents.
 
+**A background agent needs two more steps first**, the ones judge.yml runs
+before either arm: the budget (`armBudget.ts`) and the identifiers
+(`judgeIdentifiers.ts`). Each appends `key=value` lines to a file, and the arms
+read them as env:
+
+```bash
+export JUDGE_SWEEP_ID=local-bg-1 JUDGE_AGENTS=race_opponent_summary
+BASE_DIR=$(git rev-parse --show-toplevel) \
+  npx tsx src/chats/evals/judge/armBudget.ts /tmp/judge-budget
+JUDGE_FIXTURE_API_URL=https://gp-api-dev.goodparty.org \
+  npx tsx src/chats/evals/judge/judgeIdentifiers.ts /tmp/judge-ids
+while IFS='=' read -r key value; do
+  case $key in
+    attempts)   export JUDGE_BACKGROUND_ATTEMPTS=$value ;;
+    max_cases)  export JUDGE_BACKGROUND_MAX_CASES=$value ;;
+    admitted)   export JUDGE_BACKGROUND_ADMITTED=$value ;;
+    refused)    export JUDGE_BACKGROUND_REFUSED=$value ;;
+    org_slug)   export JUDGE_FIXTURE_ORG_SLUG=$value ;;
+    race_id)    export JUDGE_FIXTURE_RACE_ID=$value ;;
+    user_email) export JUDGE_FIXTURE_USER_EMAIL=$value ;;
+  esac
+done < <(cat /tmp/judge-budget /tmp/judge-ids)
+```
+
+`BASE_DIR` is the base checkout's repo root; in one checkout it is this one.
+Then run the three steps above with `JUDGE_SPEND=true`, the Anthropic key and
+the `JUDGE_AWS_*` credentials, since a background agent dispatches for real.
+
+**Vitest exiting 0 does not mean the agent ran.** An arm that is missing any of
+these skips the agent and records why in its manifest,
+`$JUDGE_RECORDS_DIR/_judge/<sweepId>/manifests/<arm>.json` under `skipped`.
+Read that before reading step 3's report.
+
+The arm log often ends in a Peerly stack trace. It is the test app's Peerly
+client trying to log in at boot (`@Timeout(0)` on
+`PeerlyHttpService.authenticate`) with `.env.test`'s stub credentials, and no
+judged agent calls Peerly. It is noise, not the failure.
+
 ## The arms are sequential, and the TDD says otherwise
 
 The TDD claims the orchestrator alternates arms in time — "base, candidate,
