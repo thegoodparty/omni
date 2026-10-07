@@ -30,6 +30,9 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
 28. Motivational copy encourages, it does not instruct. Cheer the candidate on
     ("You've got this", "Every vote counts", "Let's win this") instead of
     telling them how to run ("Run your way"). (earned)
+29. Never tell users something we cannot know is true. Encouragement about
+    their own effort is fine; claims about their race ("Your neighbors are with
+    you", "Momentum is building") are not, unless the data says so. (earned)
 
 ## Content
 
