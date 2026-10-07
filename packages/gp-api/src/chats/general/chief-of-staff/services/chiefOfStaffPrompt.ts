@@ -540,9 +540,6 @@ export const buildChiefOfStaffSystemPrompt = (args: {
   const hasWebSearch = toolNames.includes('web_search')
   const blocks = [
     ROLE_CLARIFIERS_BLOCK,
-    GUARDRAILS_BLOCK,
-    HONEST_REPORTING_BLOCK,
-    PROFESSIONAL_ADVICE_BLOCK,
     relationshipBlock(ctx.isFirstConversation),
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
