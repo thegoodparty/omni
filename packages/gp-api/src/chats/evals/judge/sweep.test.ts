@@ -1576,6 +1576,36 @@ describe('what a sweep actually spent', () => {
     expect(cost?.unselected?.candidate.runs).toBe(1)
   })
 
+  // Refused after both arms ran, so billed, and the refusal is the only
+  // section the agent gets. Without its own line the per-agent lines would
+  // stop adding up to the total.
+  it("puts a refused agent's spend under its refusal", async () => {
+    const result = await judgeSweep(
+      { store: await seeded(cases(3)), llm: priced, registry: [] },
+      env,
+    )
+    const cost = result.report.actualCost
+    expect(result.report.agents).toEqual([])
+    expect(result.report.refusals?.[0]?.agentId).toBe('chief_of_staff')
+    expect(cost?.base.runs).toBe(3)
+    const refused = result.markdown.slice(
+      result.markdown.indexOf('### chief_of_staff — refused'),
+    )
+    expect(refused).toMatch(
+      /^### chief_of_staff — refused[^#]*- spent on this agent: \$0\.58 /,
+    )
+    const perAgent = (cost?.agents ?? []).reduce(
+      (sum, a) => sum + a.base.usd + a.candidate.usd + a.judge.usd,
+      0,
+    )
+    expect(perAgent).toBeCloseTo(
+      (cost?.base.usd ?? 0) +
+        (cost?.candidate.usd ?? 0) +
+        (cost?.judge.usd ?? 0),
+      6,
+    )
+  })
+
   it('is absent from a sweep that could not spend', async () => {
     const store = await seeded(cases(3), [
       manifest('base', { spent: false }),
