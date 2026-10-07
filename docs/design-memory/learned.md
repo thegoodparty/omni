@@ -79,7 +79,8 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
 23. Text areas look the same everywhere. The outreach compose card is the
     reference: the field sits seamless inside the card, with a full-width footer
     under a rule holding quiet ghost actions (Improve with AI, the mic). (earned)
-24. Every icon-only button gets a tooltip that says what it does. (earned)
+24. Every icon-only button gets a tooltip that says what it does, except a
+    close ×, which everyone already reads. (earned)
 25. A dashed "add" control is a button, so it gets a white fill and a link-blue
     dashed border, not a gray one that reads as an empty slot. (earned)
 26. Leave about 128px of space after the last element on a long page, so the end

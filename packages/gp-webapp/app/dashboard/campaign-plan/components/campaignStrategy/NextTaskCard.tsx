@@ -20,9 +20,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   Button,
   CalendarIcon,
   Card,
@@ -562,22 +559,17 @@ const NextTaskCard = ({
                         task the race can do without) set it aside for good. */}
                     {!leaving && (
                       <DropdownMenu>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <DropdownMenuTrigger asChild>
-                              <IconButton
-                                type="button"
-                                variant="ghost"
-                                size="small"
-                                aria-label="Skip this task"
-                                className="-mt-1 -mr-2 shrink-0"
-                              >
-                                <XMarkIcon className="size-5" aria-hidden />
-                              </IconButton>
-                            </DropdownMenuTrigger>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Skip</TooltipContent>
-                        </Tooltip>
+                        <DropdownMenuTrigger asChild>
+                          <IconButton
+                            type="button"
+                            variant="ghost"
+                            size="small"
+                            aria-label="Skip this task"
+                            className="-mt-1 -mr-2 shrink-0"
+                          >
+                            <XMarkIcon className="size-5" aria-hidden />
+                          </IconButton>
+                        </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onSelect={() => skipFront('later')}>
                             {snoozeLabel(frontTask.date)}
