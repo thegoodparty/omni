@@ -190,6 +190,7 @@ describe('POST /v1/campaignStrategy/backfill', () => {
     [ExperimentRunStatus.QUEUED],
     [ExperimentRunStatus.RUNNING],
     [ExperimentRunStatus.AWAITING_RESUME],
+    [ExperimentRunStatus.SUPERSEDED],
   ])('skips a campaign whose plan run is %s', async (status) => {
     const campaign = await seedCampaign()
     const run = await service.prisma.experimentRun.create({
