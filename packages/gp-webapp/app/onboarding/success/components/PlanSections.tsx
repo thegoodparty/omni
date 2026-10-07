@@ -60,7 +60,12 @@ const Section = ({
   children,
   transition,
 }: SectionProps): React.JSX.Element => (
-  <section id={id} className="scroll-mt-24">
+  // Lands just under whatever is pinned above the plan (see
+  // --plan-section-offset on the root); the page's header by default.
+  <section
+    id={id}
+    style={{ scrollMarginTop: 'var(--plan-section-offset, 6rem)' }}
+  >
     <header className="mb-2 space-y-2">
       <p className="text-xs font-semibold tracking-widest text-components-input-active uppercase">
         Section {number}
@@ -487,7 +492,19 @@ const PlanSections = ({
     // and match how the same content renders on the onboarding success page.
     // The section nav's Select portals out of this subtree, so it is
     // unaffected, and no styleguide component renders a ul in this tree.
-    <div className="text-left [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5">
+    <div
+      className="text-left [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5"
+      // With the pills pinned at navStickyTop, a jump to a section should
+      // land right under them (the pill row is about 52px tall), not under
+      // the page header's larger default.
+      style={
+        navVariant === 'pills' && navStickyTop !== undefined
+          ? ({
+              '--plan-section-offset': `${navStickyTop + 56}px`,
+            } as React.CSSProperties)
+          : undefined
+      }
+    >
       <PlanSectionNav
         sections={navSections}
         onStuckChange={onStuckChange}

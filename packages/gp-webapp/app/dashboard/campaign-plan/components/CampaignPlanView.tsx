@@ -1,18 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { User } from 'helpers/types'
 import {
-  Button,
   ChevronRightIcon,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
   DialogTrigger,
-  DownloadIcon,
 } from '@styleguide'
 import PlanView, {
   type PlanDownloadSource,
@@ -49,7 +47,6 @@ const CampaignPlanView = ({
     trackerTimelineStart(tasks)?.toISOString() ?? null,
   )
   const { campaignId, strategy, media } = data
-  const [heroDownloading, setHeroDownloading] = useState(false)
 
   // Per-resource lifecycle events fire exactly once per campaign visit. The
   // hooks poll on an interval, so an effect that runs on every status change
@@ -110,24 +107,6 @@ const CampaignPlanView = ({
     trackEvent(planEvents.PlanDownloaded, { campaignId, source })
   }
 
-  const handleHeroDownload = async () => {
-    if (heroDownloading || !data.planReady) return
-    handleDownload('download-button')
-    setHeroDownloading(true)
-    try {
-      // Defer the @react-pdf/renderer chain — only loaded on an actual
-      // download, keeping it out of the page bundle for everyone else.
-      const { downloadCampaignPlanPdf } =
-        await import('app/onboarding/success/pdf/downloadCampaignPlanPdf')
-      await downloadCampaignPlanPdf(data.plan, {
-        liveUrl:
-          typeof window !== 'undefined' ? window.location.href : undefined,
-      })
-    } finally {
-      setHeroDownloading(false)
-    }
-  }
-
   const handleShared = (method: 'copy' | 'email') => {
     trackEvent(planEvents.PlanShared, { campaignId, method })
   }
@@ -145,14 +124,8 @@ const CampaignPlanView = ({
         bodyStart={
           <Dialog>
             <DialogTrigger className="bg-card hover:bg-muted/50 mb-4 flex w-full items-center gap-4 rounded-xl border px-6 py-5 text-left transition-colors">
-              <span className="flex flex-1 flex-col gap-1">
-                <span className="text-base font-semibold">
-                  Executive Summary
-                </span>
-                <span className="text-muted-foreground text-sm">
-                  This is the whole plan in one view. If you read nothing else,
-                  read this.
-                </span>
+              <span className="flex-1 text-base font-semibold">
+                Executive Summary
               </span>
               <ChevronRightIcon
                 className="text-muted-foreground size-5 shrink-0"
@@ -169,17 +142,6 @@ const CampaignPlanView = ({
                 <DialogDescription className="sr-only">
                   The whole campaign plan in one view.
                 </DialogDescription>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="small"
-                  onClick={handleHeroDownload}
-                  loading={heroDownloading}
-                  disabled={!data.planReady}
-                >
-                  <DownloadIcon className="size-4" aria-hidden />
-                  Download PDF
-                </Button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <PlanView
