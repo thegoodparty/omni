@@ -49,7 +49,6 @@ import type {
   CreatePriorityInput,
   UpdatePriorityInput,
   PriorityStatus,
-  OutreachProposal,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -1217,15 +1216,9 @@ export type APIEndpoints = {
   }
 
   // A proposal key names the outreach a chat card WOULD create. A 404 is the
-  // normal "not sent yet" answer, and the PUT is an idempotent create, so a
-  // double click cannot send twice.
+  // normal "not sent yet" answer.
   'GET /v1/outreach/by-proposal-key/:proposalKey': {
     Request: {}
-    Response: OutreachDetail
-  }
-
-  'PUT /v1/outreach/by-proposal-key/:proposalKey': {
-    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId?: string }
     Response: OutreachDetail
   }
 
