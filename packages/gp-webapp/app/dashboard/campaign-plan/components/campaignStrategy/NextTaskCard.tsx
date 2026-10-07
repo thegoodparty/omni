@@ -233,13 +233,11 @@ const subscribeCollapsed = (listener: () => void): (() => void) => {
 // rail uses, so a task completed on either surface leaves both.
 const NextTaskCard = ({
   heading,
-  subheading,
   surface,
   tone = 'default',
   className,
 }: {
   heading: string
-  subheading?: string
   // Both surfaces hold the same stack (the next task, then this week's top
   // priorities) and the same skips, so they always show the same front card.
   // Only the manager draws the cards behind it; the plan has the full list
@@ -401,7 +399,7 @@ const NextTaskCard = ({
       <section
         className={cn(
           'flex w-full flex-col',
-          surface === 'manager' ? 'gap-8' : 'gap-4',
+          surface === 'manager' ? 'gap-6' : 'gap-4',
           className,
         )}
       >
@@ -433,18 +431,6 @@ const NextTaskCard = ({
             >
               {heading}
             </h2>
-            {subheading && (
-              <p
-                className={cn(
-                  'text-base',
-                  tone === 'inverse'
-                    ? 'text-primary-foreground/80'
-                    : 'text-muted-foreground',
-                )}
-              >
-                {subheading}
-              </p>
-            )}
           </div>
           {collapsible && (
             <CollapsibleTrigger asChild>

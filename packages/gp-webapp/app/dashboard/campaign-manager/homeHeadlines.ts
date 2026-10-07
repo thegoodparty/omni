@@ -1,31 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
 
-// Home's headline: a short line of encouragement in GoodParty's own voice
-// (independent, people first, in it together) instead of a greeting. It
-// cheers the candidate on rather than telling them what to do, never claims
-// something we cannot know about their race, and stays general so it reads
-// right above whatever the next step is.
+// Home's headline, the one line above the next-step card. Half the set leads
+// straight into the card (the card is what's next, so nothing else needs to
+// say so); half cheers the candidate on in GoodParty's own voice. Either kind
+// can be an instruction. None claims something we cannot know about their race.
 export const HOME_HEADLINES = [
-  // You've got this
-  "You've got this",
-  "You're not alone",
-  'This is your race',
-  // We're in it together
-  "Let's win this",
-  "Let's keep going",
-  "We're in this together",
-  // Every vote, every voice
+  // Leads into the card
+  'Here’s your next move',
+  'Up next',
+  'Let’s knock this one out',
+  'One step closer',
+  'Next on your list',
+  'Keep it moving',
+  'Let’s get this done',
   'Earn every vote',
+  'Get into office',
+  // Cheers them on
+  'You’ve got this',
+  'You’re not alone',
+  'This is your race',
+  'Let’s win this',
+  'Let’s keep going',
+  'We’re in this together',
   'Every vote counts',
   'Every voice matters',
-  'Every door matters',
   'One voter at a time',
-  // People over parties
   'People over parties',
   'People over money',
   'People over politics',
   'Proudly independent',
-  // Local
   'Change starts locally',
   'Local voices matter',
   'For your community',

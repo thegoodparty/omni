@@ -34,11 +34,7 @@ export default function CampaignManagerHome({
     // grey doesn't show through above it.
     <div className="flex min-h-screen flex-col bg-muted lg:-mb-24 lg:min-h-[calc(100dvh-3.5rem)] lg:pb-24">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
-        <NextTaskCard
-          surface="manager"
-          heading={headline ?? '\u00a0'}
-          subheading="Here’s what to do next"
-        />
+        <NextTaskCard surface="manager" heading={headline ?? '\u00a0'} />
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
       </div>
