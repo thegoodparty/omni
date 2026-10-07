@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderToString } from 'react-dom/server'
 import { render } from 'helpers/test-utils/render'
 import CampaignVerificationSteps from './CampaignVerificationSteps'
 import { saveVerificationDraft } from '../verificationDraft'
@@ -72,6 +73,16 @@ describe('CampaignVerificationSteps', () => {
 
     expect(screen.getByTestId('filing-form')).toBeInTheDocument()
     expect(screen.queryByText(INTRO_TITLE)).not.toBeInTheDocument()
+  })
+
+  it('renders the same server markup whether or not a draft exists', () => {
+    const steps = (
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />
+    )
+    const withoutDraft = renderToString(steps)
+    saveVerificationDraft(7, { filing: { candidateName: 'Sarah Chen' } })
+
+    expect(renderToString(steps)).toBe(withoutDraft)
   })
 
   it('lets an explicit initialStep win over a draft', () => {

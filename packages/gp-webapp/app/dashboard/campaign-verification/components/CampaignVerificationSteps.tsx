@@ -54,11 +54,15 @@ const CampaignVerificationSteps = ({
   completeLabel = 'Done',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
   const [campaign] = useCampaign()
-  const [step, setStep] = useState<VerificationStep>(
-    () =>
-      initialStep ??
-      (campaign && hasVerificationDraft(campaign.id) ? 'form' : 'intro'),
-  )
+  // `null` until mounted when the caller gives no step: the draft lives in
+  // localStorage, which the server render cannot read, so choosing during
+  // render would hydrate the intro over a client that wants the form.
+  const [step, setStep] = useState<VerificationStep | null>(initialStep ?? null)
+  useEffect(() => {
+    if (step !== null) return
+    setStep(campaign && hasVerificationDraft(campaign.id) ? 'form' : 'intro')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Reset scroll to the top whenever the active step changes (dashboard
   // convention), and let the caller track the active step. Only `step`
@@ -66,6 +70,7 @@ const CampaignVerificationSteps = ({
   // callback on every caller render, and this must fire on step transitions
   // only, not on every caller re-render.
   useEffect(() => {
+    if (step === null) return
     window.scrollTo(0, 0)
     onStepChange?.(step)
     // eslint-disable-next-line react-hooks/exhaustive-deps
