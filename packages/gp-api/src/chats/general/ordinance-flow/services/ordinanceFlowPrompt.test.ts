@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildOrdinanceFlowSystemPrompt,
   ORDINANCE_FLOW_GUARDRAIL_DECLINE,
@@ -29,6 +29,22 @@ const baseCtx = (
 })
 
 describe('buildOrdinanceFlowSystemPrompt', () => {
+  it("tells the assistant what day it is, in the office state's zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    try {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: baseCtx({ state: 'CO' }),
+        toolNames: [],
+      })
+      expect(prompt).toContain(
+        'Today is Monday, October 5, 2026 (Mountain Time).',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('frames the assistant as a legislative drafting assistant', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx(),
@@ -61,6 +77,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       expect(prompt).toContain('SPECIFIC LEGAL VALUES')
       expect(prompt).toContain('came from a source you consulted in THIS')
       expect(prompt).toContain('say so and POINT')
+      expect(prompt).toContain('HOW SURE TO SOUND')
+      expect(prompt).toContain('Match the verb to the evidence')
     }
   })
 

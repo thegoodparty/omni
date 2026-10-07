@@ -41,10 +41,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     }
 
     // Every PeerlyPhoneList row is written with a real campaignId
-    // (recordUpload requires one), so a p2p purchase with a phoneListToken
-    // but no campaignId is a client-supplied contradiction, not a legacy
-    // no-campaign case — reject it rather than looking the token up
-    // unscoped.
+    // (createQueuedBuild requires one, at accept time — before recordUpload
+    // ever runs), so a p2p purchase with a phoneListToken but no campaignId
+    // is a client-supplied contradiction, not a legacy no-campaign case —
+    // reject it rather than looking the token up unscoped.
     if (!campaignId) {
       throw new BadRequestException(
         'A campaign is required to bill a p2p purchase',

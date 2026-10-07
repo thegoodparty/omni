@@ -12,7 +12,14 @@ import { segmentToVoterFileFilters } from 'app/(dashboard)/contacts/crm/shared/v
 import type { ProposedAudience } from 'app/(dashboard)/outreach/v2/audience/useOutreachAudience'
 import { MAX_SEGMENT_NAME_LENGTH } from 'app/(dashboard)/contacts/crm/shared/segments.util'
 
-const SERVE_OUTREACH_HUB = '/constituent-outreach'
+// Which product a card renders in. Campaign Manager is Win, Chief of Staff
+// and the priority workspace are Serve.
+export type CardMode = 'win' | 'serve'
+
+const OUTREACH_HUB: Record<CardMode, string> = {
+  win: '/outreach',
+  serve: '/constituent-outreach',
+}
 
 // The proposal vocabulary is the chat's, the badge vocabulary is outreach's.
 // One map rather than a second copy of the channel labels, so a card and a
@@ -30,6 +37,18 @@ export const SERVE_PROPOSAL_CTA: Record<ProposalChannel, string> = {
   phoneBanking: 'Start the calls',
   social: 'Start the post',
   doorKnocking: 'Start the walk',
+}
+
+export const WIN_PROPOSAL_CTA: Record<ProposalChannel, string> = {
+  text: 'Start the text',
+  phoneBanking: 'Start the calls',
+  social: 'Start the post',
+  doorKnocking: 'Start the walk',
+}
+
+export const PROPOSAL_CTA: Record<CardMode, Record<ProposalChannel, string>> = {
+  win: WIN_PROPOSAL_CTA,
+  serve: SERVE_PROPOSAL_CTA,
 }
 
 const SENT_CHANNEL: Record<ProposalChannel, string> = {
@@ -98,11 +117,20 @@ export const proposedAudienceOf = (
   }
 }
 
-export const outreachDetailHref = (outreachId: number): string =>
-  `${SERVE_OUTREACH_HUB}?outreachId=${outreachId}`
+export const outreachDetailHref = (
+  outreachId: number,
+  mode: CardMode = 'serve',
+): string => `${OUTREACH_HUB[mode]}?outreachId=${outreachId}`
 
-export const peopleCount = (count: number): string =>
-  count === 1 ? '1 constituent' : `${count.toLocaleString()} constituents`
+const PEOPLE: Record<CardMode, { one: string; many: string }> = {
+  win: { one: 'voter', many: 'voters' },
+  serve: { one: 'constituent', many: 'constituents' },
+}
+
+export const peopleCount = (count: number, mode: CardMode = 'serve'): string =>
+  count === 1
+    ? `1 ${PEOPLE[mode].one}`
+    : `${count.toLocaleString()} ${PEOPLE[mode].many}`
 
 // A sample smaller than its audience is the only kind that changes who gets
 // it: the list and the server both read anything bigger as the whole thing.

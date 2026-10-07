@@ -295,15 +295,17 @@ export const PRIORITY_LISTEN_GATES: Partial<
 }
 
 /**
- * Whether a check has an answer a listening step can close on: constituents
- * replied (confirmed or revised), or the official chose not to ask them.
+ * Whether a listening step has nothing left to wait on: no check was needed,
+ * constituents replied (confirmed or revised), or the official chose not to
+ * ask them.
  */
 export const isCheckAnswered = (
   check: PriorityStepCheck | undefined,
 ): boolean =>
-  check?.state === 'confirmed' ||
-  check?.state === 'revised' ||
-  check?.state === 'declined'
+  check === undefined ||
+  check.state === 'confirmed' ||
+  check.state === 'revised' ||
+  check.state === 'declined'
 
 /**
  * The first listening step before `id` that is still open, if any. Work can

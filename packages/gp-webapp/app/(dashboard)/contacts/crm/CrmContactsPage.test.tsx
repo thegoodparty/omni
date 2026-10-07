@@ -29,12 +29,15 @@ vi.mock('../../shared/DashboardLayout', () => ({
   default: ({
     children,
     navHeader,
+    hideChatDock,
   }: {
     children: React.ReactNode
     navHeader?: { icon: string; label: string }
+    hideChatDock?: boolean
   }) => (
     <>
       {navHeader && <div data-testid="nav-header">{navHeader.label}</div>}
+      {!hideChatDock && <div data-testid="layout-chat-dock" />}
       {children}
     </>
   ),
@@ -329,6 +332,26 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
     expect(
       screen.queryByText('Total constituents in your district'),
     ).not.toBeInTheDocument()
+  })
+})
+
+// The contacts assistant is this page's chat bar, so the layout's own dock
+// has to stand down or Win shows two bars stacked at the bottom.
+describe('CrmContactsPage — one chat bar', () => {
+  it('hides the layout dock while the contacts assistant is on the page', () => {
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('crm-assistant')).toBeInTheDocument()
+    expect(screen.queryByTestId('layout-chat-dock')).not.toBeInTheDocument()
+  })
+
+  it('keeps the layout dock when voter data is unavailable', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('crm-assistant')).not.toBeInTheDocument()
+    expect(screen.getByTestId('layout-chat-dock')).toBeInTheDocument()
   })
 })
 

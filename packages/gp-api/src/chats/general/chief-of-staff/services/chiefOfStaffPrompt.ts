@@ -1,9 +1,4 @@
-import {
-  differenceInCalendarMonths,
-  isAfter,
-  parseISO,
-  startOfDay,
-} from 'date-fns'
+import { differenceInCalendarMonths, isAfter, parseISO } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
@@ -11,13 +6,21 @@ import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnow
 import {
   MAX_CHECK_RAISES,
   PRIORITY_STEP_LABELS,
+  SAMPLE_TARGET_REPLIES,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
 } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
+import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
+import {
+  buildSampleSizingRules,
+  EXAMPLE_AUDIENCE,
+  EXAMPLE_SAMPLE,
+} from '../../chat-tools/outreachSampling.prompt'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 
 export const COS_GUARDRAIL_DECLINE =
   "I'm your Chief of Staff. Please ask me something about your office, " +
@@ -188,11 +191,12 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 ${FILTER_DIMENSION_PROVENANCE_RULES}`
 
 const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_saved_filters\`):
-- Before creating a list, run count_contacts with the same filter and confirm the size with the user.
+- Never create a list yourself with \`crud_saved_filters\`. Count it with count_contacts, then offer it with \`present_list_proposal\`, passing the filter you counted with, its count, a name and one plain sentence on who it holds. The user saves it with the card's Create list button.
+- Never ask whether to save a list, in any wording. The card's button is that question, and a typed "yes" is not how lists get saved here.
 - List names are capped at 40 characters.
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
 - Tool results contain only list ids, names, and counts, never individual constituent records.
-- After creating a list, report the count crud_saved_filters returned as the list's size. If it differs from what you previously confirmed with the user before saving, say so.
+- When the user creates a list from a card, you are told in the conversation, with its name and id. If you need its size, call \`crud_saved_filters\` with action 'get' and that id, and if the size differs from the count on the card, say so.
 - Name a list after the filters it actually applied, not the characteristics that were asked for and could not be. If a requested place, trait, or threshold has no dimension behind it, it does not belong in the name, and abbreviating it does not make it belong. The district's own name is always fine: every list is district-scoped.`
 
 // The method our own analysts use when they cut a constituent segment by hand,
@@ -211,19 +215,19 @@ const SEGMENTATION_METHOD_RULES = `BUILDING A SEGMENT (apply whenever the user a
 - Report a segment as a count and a share of the district, naming the dimensions you used and any you rejected for thin coverage. Never imply you can name, list, or reach a particular person.`
 
 const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you call \`show_list_map\`):
-- Call it right after saving a list whose answer is partly about WHERE people are: a housing segment, a neighbourhood, anything the user would want to see placed. Skip it for a list they only asked you to count.
-- Pass the id crud_saved_filters returned and the name you gave the list. Never pass an id you were not handed; there is nothing to look one up from.
+- A list created from a \`present_list_proposal\` card already turns into its own map, so never call it for that list.
+- Call it only to show a list that already exists when where its people are is part of the answer. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed; there is nothing to look one up from.
 - The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
 - The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.
 
 DRAWN AREA RULES (apply whenever the holder draws on a map):
-- The card carries a Draw area button and the holder can use it. A shape they draw is saved onto THAT list and narrows it in place: same list, same id, same name, fewer people. It is not a new list, not a sub-list, and it does not need one.
+- The map carries a Draw shapes button and the holder can use it. A shape they draw is saved onto THAT list and narrows it in place: same list, same id, same name, fewer people. It is not a new list, not a sub-list, and it does not need one.
 - When a shape is saved from the transcript, you are told so in the conversation. Treat that as the list having changed under you.
 - Any count you quoted before the shape was drawn is now stale. Call \`crud_saved_filters\` with action 'get' and that id for the new one; \`count_contacts\` does not know about the shape and would quote the pre-boundary size.
 - \`hasBoundary\` on a list tells you a shape exists. It never tells you where, and you cannot read the geometry. You do not need to, because the list is already the shape.
 - Never tell the holder you cannot act on an area they drew. You can: report what the list now holds.
 - You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. Geometry only ever goes onto a list that exists.
-- So the order never changes, including when the request is about a specific area: build and save the list from its filters FIRST, then tell them they can draw the area on its map to narrow it. Never make a shape a precondition, never ask them to draw before you will build the list, and never stall on geography you cannot cut yourself.
+- So the order never changes, including when the request is about a specific area: offer the list from its filters FIRST with \`present_list_proposal\`, and tell them that once they create it they can draw the area on its map to narrow it. Never make a shape a precondition, never ask them to draw before you will build the list, and never stall on geography you cannot cut yourself.
 - Drawing is optional. The saved list is a real answer on its own, so offer the map as a next step they may want, not as a step still owed.`
 
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
@@ -241,6 +245,26 @@ const COMPOSE_HANDOFF_RULES =
   'know.\n' +
   '- The result opens a prefilled drawer for the official to review before ' +
   'anything sends. Confirm you called it and let them take it from there.'
+
+const people = (n: number): string => n.toLocaleString('en-US')
+const dollars = (texts: number): string =>
+  `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
+
+const outreachSamplingBlock = (toolNames: string[]): string => {
+  const has = (name: string): boolean => toolNames.includes(name)
+  return [
+    'SAMPLING RULES (apply whenever you propose a text with `present_outreach_proposal`):',
+    '- Texting a whole audience costs real money, and most texts do not need everyone. Before you present a text, size a random sample with `size_outreach_sample` and offer it.',
+    '- When the text asks people something (a question, a survey, what they think of a plan), propose the sample by default. When it tells people something they all need to know, propose the whole audience and mention the sample in one line as the cheaper option.',
+    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
+    ...buildSampleSizingRules({
+      has,
+      sender: 'the official',
+      replyGoal: 'how this lands',
+      card: true,
+    }),
+  ].join('\n')
+}
 
 const cardRulesBlock = (toolNames: string[]): string | null => {
   const has = (name: string): boolean => toolNames.includes(name)
@@ -263,6 +287,11 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
             "- `present_outside_contact` is someone OUTSIDE the user's records, found by research, to call about a problem. Never use it for the user's own constituents.",
           ]
         : []),
+    ...(has('present_list_proposal')
+      ? [
+          '- Offer a list to save with `present_list_proposal`, never as a question in prose. Say in one line who it holds and why; the card shows the name, the count and the Create list button.',
+        ]
+      : []),
     ...(has('present_outreach_proposal')
       ? [
           '- Present outreach only when it is final: the audience counted with `count_contacts` and the message written. Do not save a list for it: pass the filter you counted with as audienceFilters, and the list is saved when the user starts the outreach. Pick ONE channel, the one these people are likeliest to answer on, and never offer alternatives on the card. The card shows only who, how many, the channel and a button, so say why these people and why this channel once, in your message.' +
@@ -304,6 +333,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
   show_list_map: 'show a saved list on a map in the conversation',
+  present_list_proposal:
+    'offer a counted list as a card the user saves with a Create list button',
   search_help_center:
     "search GoodParty.org's support articles for how-to, compliance, and billing answers",
   compose_handoff:
@@ -314,6 +345,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'read the office’s recent sends, with reach and reply counts',
   present_past_outreach: 'show past sends as a card',
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
+  size_outreach_sample:
+    'size a random sample for a text and price it against texting everyone',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:
@@ -361,10 +394,11 @@ const calendarDay = (date: Date): Date => parseISO(isoDay(date))
 // differenceInCalendarMonths ignores day-of-month, so a date that has already
 // passed within the current month still differences to 0 and would read as
 // "~0 month(s) since sworn in" for someone not yet sworn in.
-const termLengthLine = (swornInDate: Date | null): string => {
+// `today` is the office's own calendar day (localDay), the same day the
+// today line names, so a UTC server cannot count the evening as tomorrow.
+const termLengthLine = (swornInDate: Date | null, today: Date): string => {
   if (!swornInDate) return `Time in office: ${UNKNOWN}`
   const sworn = calendarDay(swornInDate)
-  const today = startOfDay(new Date())
   if (isAfter(sworn, today)) return `Time in office: ${UNKNOWN}`
   const months = differenceInCalendarMonths(today, sworn)
   return `Time in office: ~${months} month(s) since sworn in`
@@ -373,12 +407,15 @@ const termLengthLine = (swornInDate: Date | null): string => {
 const lastElectedLine = (electedDate: Date | null): string =>
   `Last elected: ${electedDate ? isoDay(electedDate) : UNKNOWN}`
 
-const currentTermLine = (start: Date | null, end: Date | null): string => {
+const currentTermLine = (
+  start: Date | null,
+  end: Date | null,
+  today: Date,
+): string => {
   if (!start && !end) return `Current term: ${UNKNOWN}`
   const range = `${start ? isoDay(start) : UNKNOWN} to ${end ? isoDay(end) : UNKNOWN}`
   if (!end) return `Current term: ${range}`
   const endDay = calendarDay(end)
-  const today = startOfDay(new Date())
   // Terms are half-open [start, end): termEndDate is the exclusive boundary at
   // which the successor takes over, so the seat is no longer held ON the end
   // date itself. Matches deriveIsActive / isHeldOffice, which gate what the
@@ -402,9 +439,13 @@ const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
     `Party: ${optional(ctx.party)}`,
-    termLengthLine(ctx.swornInDate),
+    termLengthLine(ctx.swornInDate, parseISO(localDay(ctx.state))),
     lastElectedLine(ctx.electedDate),
-    currentTermLine(ctx.termStartDate, ctx.termEndDate),
+    currentTermLine(
+      ctx.termStartDate,
+      ctx.termEndDate,
+      parseISO(localDay(ctx.state)),
+    ),
     '</office_context>',
   ].join('\n')
 
@@ -505,6 +546,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     relationshipBlock(ctx.isFirstConversation),
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
+    todayLine(ctx.state),
     officeContextBlock(ctx),
     prioritiesBlock(ctx.priorities),
     ...(ctx.anchor ? [anchoredIssueBlock(ctx.anchor)] : []),
@@ -534,6 +576,10 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...[cardRulesBlock(toolNames)].filter(
       (block): block is string => block !== null,
     ),
+    ...(toolNames.includes('present_outreach_proposal') &&
+    toolNames.includes('size_outreach_sample')
+      ? [outreachSamplingBlock(toolNames)]
+      : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
     //

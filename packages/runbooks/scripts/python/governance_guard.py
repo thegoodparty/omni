@@ -3,7 +3,8 @@
 Compares the repo at the merge base with the PR head (or the working tree) and stops a
 change that silently breaks an OKR instrument or leaves a dead event listing behind.
 
-Blocks: any file losing a call site of a watched OKR leg; the page behind a path-qualified
+Blocks: any file losing a call site of a watched OKR leg (a moved row clears it when the
+call went into another file that runs); the page behind a path-qualified
 leg removed; an OKR call-site file no longer imported; an event's last call site removed
 while its registry key survives; a monitored_events.yaml surface path this change made
 stale; a monitored_events.yaml this change made unparseable. Warns: a HubSpot-used backend
@@ -43,6 +44,7 @@ from typing import Protocol
 import yaml
 
 import amplitude_event_provenance_backfill as prov
+import event_reach as er
 import guard_refs as gr
 import sem_anchors as sa
 
@@ -52,6 +54,7 @@ API_REGISTRY = "packages/gp-api/src/vendors/segment/segment.types.ts"
 WATCHLIST = "packages/runbooks/scripts/python/monitored_events.yaml"
 PROVENANCE = "packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv"
 SEM_DIR = "packages/runbooks/scripts/python/instrumentation_data/sem"
+PRODUCT_MAP = er.PRODUCT_MAP
 # GitHub rejects an issue comment over 65,536 characters; leave room for the shadow-mode
 # rewrite and the truncation note.
 COMMENT_LIMIT = 60_000
@@ -215,6 +218,8 @@ class Snapshot:
     provenance_events: set[str]
     page_routes: set[str]
     watchlist_error: str | None = None
+    route_texts: dict[str, str] = field(default_factory=dict)
+    product_map: str = ""
     _by_literal: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
     _by_key: dict[tuple[str, str], dict[str, int]] = field(default_factory=dict, repr=False)
 
@@ -266,7 +271,7 @@ def build_snapshot(tree: Tree) -> Snapshot:
     paths = tree.paths()
     scan = sorted(p for p in paths if _in_scope(p) and not _is_test(p)
                   and p not in (WEB_REGISTRY, API_REGISTRY))
-    texts = tree.read_many([*scan, WEB_REGISTRY, API_REGISTRY, WATCHLIST, PROVENANCE])
+    texts = tree.read_many([*scan, WEB_REGISTRY, API_REGISTRY, WATCHLIST, PROVENANCE, PRODUCT_MAP])
     api_text = texts.get(API_REGISTRY, "")
     provenance = {row["event_type"] for row in csv.DictReader(io.StringIO(texts.get(PROVENANCE, "")))
                   if row.get("event_type")}
@@ -296,6 +301,8 @@ def build_snapshot(tree: Tree) -> Snapshot:
         provenance_events=provenance,
         page_routes={r for p in paths if (r := page_route(p))},
         watchlist_error=watchlist_error,
+        route_texts={p: texts[p] for p in scan if p in texts and er.route_kind(p)},
+        product_map=texts.get(PRODUCT_MAP, ""),
     )
 
 
@@ -361,23 +368,45 @@ def watched_legs(anchors: Mapping[str, Sequence[sa.Leg]]
 _CHOOSE_INTENT = "<relocated|not_a_change|successor|retire_activity>"
 
 
-def intent_fix(event: str, metrics: Sequence[str], head_count: int) -> str:
+def intent_fix(event: str, metrics: Sequence[str], head_count: int,
+               gained: Sequence[str] = ()) -> str:
     """Suggests retire_activity only when nothing sends the event any more. While it still
     fires elsewhere the right kind is a judgment, so the row carries a placeholder that
-    validation refuses until someone picks one."""
+    validation refuses until someone picks one. When another file gained a call site, the
+    likeliest story is a refactor, so the one-line moved row is offered first."""
     kind = "retire_activity" if head_count == 0 else _CHOOSE_INTENT
     rows = "\n".join(
         f'  - {{metric: {m}, event: "{event}", intent: {kind}, reason: "<why>", date: "YYYY-MM-DD"}}'
         for m in metrics
     )
+    if gained:
+        to = gained[0] if len(gained) == 1 else "<one of: " + ", ".join(gained) + ">"
+        lead = (
+            "Moved the call into another file (a hook, a shared component) and it still fires "
+            "the same way? Add this one line to the intents: block of packages/runbooks/scripts/"
+            f'python/monitored_events.yaml:\n```yaml\n  - {{event: "{event}", intent: moved, '
+            f'to: "{to}", reason: "<why>", date: "YYYY-MM-DD"}}\n```\n'
+            "Otherwise, say what is happening to the activity with one line per metric:\n"
+        )
+    else:
+        lead = (
+            "This event counts toward an OKR, so say what is happening to the activity. Add one "
+            "line per metric to the intents: block of packages/runbooks/scripts/python/"
+            "monitored_events.yaml:\n"
+        )
     return (
-        "This event counts toward an OKR, so say what is happening to the activity. Add one "
-        "line per metric to the intents: block of packages/runbooks/scripts/python/"
-        f"monitored_events.yaml:\n```yaml\n{rows}\n```\n"
+        f"{lead}```yaml\n{rows}\n```\n"
         "intent is one of: retire_activity (stop counting it), successor (add successor: "
-        '"<event>"), relocated (add route: "/path"), not_a_change (the guard is wrong; '
-        "say why). If you removed it by mistake, restoring it clears this."
+        '"<event>"), relocated (the page moved; add route: "/path"), not_a_change (the guard '
+        "is wrong; say why). If you removed it by mistake, restoring it clears this."
     )
+
+
+def _gained_files(before: Mapping[str, int], after: Mapping[str, int],
+                  renames: Mapping[str, str]) -> list[str]:
+    """Files holding more call sites of an event than they did at the base, renames followed."""
+    was = {renames.get(p, p): n for p, n in before.items()}
+    return sorted(p for p, n in after.items() if n > was.get(p, 0))
 
 
 def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[str, ...]],
@@ -387,6 +416,7 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
     for event, metrics in sorted(event_legs.items()):
         before, after = base.files_for(event), head.files_for(event)
         fix = intent_fix(event, metrics, head.count(event))
+        lost_fix = intent_fix(event, metrics, head.count(event), _gained_files(before, after, renames))
         for path, n in sorted(before.items()):
             new = renames.get(path, path)
             now = after.get(new, 0)
@@ -394,7 +424,7 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
                 out.append(Finding(
                     "okr_call_site_lost", "block", event,
                     f"{path} had {n} call site(s) of this OKR event and now has {now}.",
-                    fix, metrics))
+                    lost_fix, metrics))
             elif not _is_route_file(path) and new in head.files \
                     and base.importers(path) and not head.importers(new):
                 moved = f" (renamed from {path})" if new != path else ""
@@ -462,7 +492,7 @@ def watchlist_findings(base: Snapshot, head: Snapshot) -> list[Finding]:
                     "`  - {...}`, and the block must not still read `intents: []`.")]
 
 
-INTENT_KINDS = frozenset({"retire_activity", "successor", "relocated", "not_a_change"})
+INTENT_KINDS = frozenset({"retire_activity", "successor", "relocated", "not_a_change", "moved"})
 _INTENT_REQUIRED = ("metric", "event", "intent", "reason", "date")
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -478,15 +508,15 @@ def _iso_date(value: object) -> bool:
 
 
 def intent_problems(row: Mapping) -> list[str]:
-    """metric is optional only for not_a_change: that row reports a dead listing the guard
-    got wrong, which no metric owns."""
+    """metric is optional for not_a_change, which reports a dead listing the guard got wrong,
+    and for moved, which changes no metric: the activity still fires, from another file."""
     if not isinstance(row, Mapping):
         return [f"intent row is not a mapping: {row!r}"]
     kind = row.get("intent")
-    required = [k for k in _INTENT_REQUIRED if not (k == "metric" and kind == "not_a_change")]
+    required = [k for k in _INTENT_REQUIRED if not (k == "metric" and kind in ("not_a_change", "moved"))]
     problems = [f"intent row for {row.get('event')!r} is missing {k}"
                 for k in required if not str(row.get(k) or "").strip()]
-    for k in ("metric", "event", "reason", "date", "successor", "route"):
+    for k in ("metric", "event", "reason", "date", "successor", "route", "to"):
         value = str(row.get(k) or "")
         if "<" in value or value == "YYYY-MM-DD":
             problems.append(f"intent row for {row.get('event')!r} still has the placeholder "
@@ -501,6 +531,8 @@ def intent_problems(row: Mapping) -> list[str]:
         problems.append(f"successor intent for {row.get('event')!r} needs successor:")
     if kind == "relocated" and not row.get("route"):
         problems.append(f"relocated intent for {row.get('event')!r} needs route:")
+    if kind == "moved" and not row.get("to"):
+        problems.append(f"moved intent for {row.get('event')!r} needs to: (the file the call moved into)")
     return problems
 
 
@@ -510,10 +542,25 @@ def _intent_rows(snap: Snapshot) -> list[Mapping]:
 
 def _row_key(row: Mapping) -> tuple:
     """Identity only. Rewording an old row's reason or date on main is not a new decision."""
-    return tuple(str(row.get(k)) for k in ("metric", "event", "intent", "successor", "route"))
+    return tuple(str(row.get(k)) for k in ("metric", "event", "intent", "successor", "route", "to"))
 
 
-def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
+def _moved_problems(row: Mapping, base: Snapshot, head: Snapshot,
+                    renames: Mapping[str, str]) -> list[str]:
+    """A moved row is checked against the code, not taken on trust: the named file must have
+    gained a call site in this change, and something must still run it. Pointing at a file
+    that already sent the event would let a real removal through."""
+    event, to = str(row.get("event")), str(row["to"])
+    if to not in _gained_files(base.files_for(event), head.files_for(event), renames):
+        return [f"moved intent for {event!r} names {to}, which gained no call site of it in "
+                "this change; name the file the call moved into"]
+    if not _is_route_file(to) and not head.importers(to):
+        return [f"moved intent for {event!r} names {to}, but nothing imports it, so it never runs"]
+    return []
+
+
+def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot,
+                  renames: Mapping[str, str] | None = None
                   ) -> tuple[list[Finding], list[Finding]]:
     """Only rows this change adds can clear a finding. A row left on main from an earlier
     retirement would otherwise pre-approve every later break of the same event."""
@@ -524,6 +571,8 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
     usable = []
     for row in added:
         problems = intent_problems(row)
+        if row.get("intent") == "moved" and row.get("to") and not problems:
+            problems.extend(_moved_problems(row, base, head, renames or {}))
         if row.get("intent") == "successor" and row.get("successor") and head.count(str(row["successor"])) == 0:
             problems.append(f"successor {row['successor']!r} has no call site in this change, so nothing "
                             "would carry the activity forward")
@@ -534,6 +583,12 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
             usable.append(row)
     used: set[int] = set()
     for f in findings:
+        if f.rule == "okr_call_site_lost":
+            rows = [i for i, r in enumerate(usable) if r["intent"] == "moved" and r["event"] == f.event]
+            if rows:
+                used.update(rows)
+                cleared.append(f)
+                continue
         if f.rule.startswith("okr_"):
             rows = [i for i, r in enumerate(usable)
                     if r.get("metric") and r["event"] == f.event and str(r["metric"]) in f.metrics]
@@ -558,6 +613,102 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
     return remaining, cleared
 
 
+def _areas_text(reach: er.Reach) -> str:
+    return ", ".join(a.label for a in reach.areas) or "nowhere live"
+
+
+def _relabel_fix(event: str, after: er.Reach) -> str:
+    target = er.slug(after.areas[0].label) if len(after.areas) == 1 else "<area-slug>"
+    label = after.areas[0].label if len(after.areas) == 1 else "<Area>"
+    rest = event.split(" - ", 1)[1] if " - " in event else event
+    return (
+        "Relabel, do not rename: the raw event name stays, so charts and OKR legs keep "
+        "working. Add a row to relabels: in packages/runbooks/scripts/python/"
+        f"monitored_events.yaml:\n```yaml\n  - {{event: \"{event}\", surface: \"{target}\", "
+        f"display_name: \"{label} - {rest}\", reason: \"<why>\", date: \"YYYY-MM-DD\"}}\n```\n"
+        "The surface is the nav label, or the page title for a page not in the nav, in "
+        "lower-kebab. Triage writes it to Amplitude Govern after merge. This warning never "
+        "blocks."
+    )
+
+
+def surface_findings(base: Snapshot, head: Snapshot, b_idx: er.ReachIndex,
+                     h_idx: er.ReachIndex) -> list[Finding]:
+    """Warn when a change stops an event firing from an area it fired from, or brings a
+    dead one back somewhere new. `revived` also fires when the base side had only a gap
+    (no live area), since that reads the same as dead. A change that leaves an event with
+    no live page is not warned here. A component mounted on one more page does not warn:
+    the label may still be right, and the weekly detector reads labels, which this cannot."""
+    flows = set(head.watchlist.get("flow_prefixes") or [])
+    out = []
+    for name in sorted(set(base.registries["web"]) & set(head.registries["web"])):
+        if " - " in name and name.split(" - ", 1)[0].strip() in flows:
+            continue
+        before, after = b_idx.reach(name), h_idx.reach(name)
+        if not before or not after or not after.areas:
+            continue
+        if before.dashboard_wide and after.dashboard_wide:
+            continue
+        dropped = before.area_keys - after.area_keys
+        revived = not before.areas
+        if dropped or revived:
+            out.append(Finding(
+                "surface_moved", "warn", name,
+                f"It fired from {_areas_text(before)}; after this change it fires only from "
+                f"{_areas_text(after)}.",
+                _relabel_fix(name, after)))
+    return out
+
+
+_RELABEL_REQUIRED = ("event", "surface", "display_name", "reason", "date")
+
+
+def relabel_problems(row: Mapping, head: Snapshot, h_idx: er.ReachIndex) -> list[str]:
+    if not isinstance(row, Mapping):
+        return [f"relabel row is not a mapping: {row!r}"]
+    event = row.get("event")
+    problems = [f"relabel row for {event!r} is missing {k}"
+                for k in _RELABEL_REQUIRED if not str(row.get(k) or "").strip()]
+    for k in _RELABEL_REQUIRED:
+        value = str(row.get(k) or "")
+        if "<" in value or value == "YYYY-MM-DD":
+            problems.append(f"relabel row for {event!r} still has the placeholder {k}: {value!r}")
+    if str(row.get("date") or "").strip() and "<" not in str(row["date"]) \
+            and str(row["date"]) != "YYYY-MM-DD" and not _iso_date(row["date"]):
+        problems.append(f"relabel row for {event!r} has date {row['date']!r}; use YYYY-MM-DD")
+    if event and not head.has_key(str(event)):
+        problems.append(f"relabel row names {event!r}, which is not in the EVENTS registry")
+    surface = str(row.get("surface") or "")
+    known = {n for a in h_idx.areas.all_areas() for n in a.names}
+    if surface and "<" not in surface and surface not in known:
+        problems.append(f"relabel row for {event!r} has surface {surface!r}, which is not a "
+                        "nav label or page title slug this repo has")
+    return problems
+
+
+def _relabel_rows(snap: Snapshot) -> list[Mapping]:
+    return [r for r in snap.watchlist.get("relabels") or [] if isinstance(r, Mapping)]
+
+
+def apply_relabels(findings: list[Finding], base: Snapshot, head: Snapshot,
+                   h_idx: er.ReachIndex) -> tuple[list[Finding], list[Finding]]:
+    on_base = {(str(r.get("event")), str(r.get("surface"))) for r in _relabel_rows(base)}
+    added = [r for r in _relabel_rows(head) if (str(r.get("event")), str(r.get("surface"))) not in on_base]
+    invalid: list[Finding] = []
+    valid_events: set[str] = set()
+    for row in added:
+        problems = relabel_problems(row, head, h_idx)
+        if problems:
+            invalid.extend(Finding("invalid_relabel", "warn", str(row.get("event")), p,
+                                   "Fix the row in monitored_events.yaml relabels:.") for p in problems)
+        else:
+            valid_events.add(str(row["event"]))
+    remaining, cleared = [], []
+    for f in findings:
+        (cleared if f.rule == "surface_moved" and f.event in valid_events else remaining).append(f)
+    return remaining + invalid, cleared
+
+
 @dataclass
 class Report:
     blocks: list[Finding]
@@ -574,7 +725,21 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
     found = (okr_findings(base, head, event_legs, path_legs, renames) + dead_listings(base, head)
              + stale_surface_paths(base, head) + watchlist_findings(base, head)
              + hubspot_warnings(base, head) + new_key_warnings(base, head))
-    remaining, cleared = apply_intents(found, base, head)
+    try:
+        b_idx, h_idx = er.ReachIndex(base, _resolve), er.ReachIndex(head, _resolve)
+        with_surface, relabel_cleared = apply_relabels(
+            found + surface_findings(base, head, b_idx, h_idx), base, head, h_idx)
+        traced = len(h_idx.reach_all())
+    except Exception as exc:  # noqa: BLE001
+        # The surface rule only ever warns, so a bug in it must not cost the PR its OKR
+        # blocks the way a GUARD ERROR exit would.
+        with_surface = found + [Finding(
+            "surface_check_failed", "warn", "surface drift",
+            f"The surface check did not run: {type(exc).__name__}: {exc}",
+            "Nothing to do in this PR; report it so the guard can be fixed.")]
+        relabel_cleared, traced = [], 0
+    remaining, cleared = apply_intents(with_surface, base, head, renames)
+    cleared = cleared + relabel_cleared
     # A path leg whose route matches no page is silently unguarded by okr_findings (which only
     # reacts to a route disappearing between base and head), so surface it explicitly: a
     # disabled check must not look like a passing one.
@@ -586,7 +751,8 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
         examined={"events_compared": len(base.registered() | head.registered()),
                   "okr_legs": len(event_legs) + len(path_legs),
                   "files_scanned": len(head.files), "sem_copy_date": sem_date,
-                  "unmatched_path_legs": unmatched},
+                  "unmatched_path_legs": unmatched,
+                  "surface_traced": traced},
     )
 
 
@@ -602,6 +768,9 @@ _TITLES = {
     "hubspot_event_removed": "HubSpot event removed",
     "naming": "Event name",
     "no_provenance_row": "No provenance row",
+    "surface_moved": "Event now fires from a different place",
+    "invalid_relabel": "Relabel row is not valid",
+    "surface_check_failed": "Surface check did not run",
 }
 
 
@@ -633,11 +802,13 @@ def render_markdown(report: Report, limit: int | None = None) -> str:
             continue
         lines += [f"**{heading}**", ""] + _grouped(items)
     if report.cleared:
-        lines += ["**Cleared by an intent row in this change**", ""]
-        lines += [f"- `{f.event}` ({', '.join(f.metrics) or 'not_a_change'})" for f in report.cleared] + [""]
+        lines += ["**Cleared by a row in this change**", ""]
+        lines += [f"- `{f.event}` ({', '.join(f.metrics) or ('relabel' if f.rule == 'surface_moved' else 'not_a_change')})"
+                  for f in report.cleared] + [""]
     e = report.examined
     footer = [f"_Examined {e['events_compared']} events, {e['okr_legs']} OKR legs, "
-              f"{e['files_scanned']} files. OKR definitions as of {e['sem_copy_date']}._"]
+              f"{e['files_scanned']} files; traced {e.get('surface_traced', 0)} webapp events to "
+              f"their pages. OKR definitions as of {e['sem_copy_date']}._"]
     if e["unmatched_path_legs"]:
         footer.append("_Path legs with no matching page (not guarded): "
                       f"{', '.join(e['unmatched_path_legs'])}._")

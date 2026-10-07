@@ -328,6 +328,23 @@ describe('parseSweepEnv', () => {
     expect(env.agentIds).toEqual(['chief_of_staff'])
   })
 
+  // Blank is how GitHub hands over the output of a step that never ran, and
+  // it has to read as "no base worktree", which scores every case.
+  it.each([
+    ['/tmp/judge-base', '/tmp/judge-base'],
+    ['', undefined],
+    [undefined, undefined],
+  ])('reads JUDGE_BASE_DIR=%o as %o', (value, expected) => {
+    expect(
+      parseSweepEnv({
+        JUDGE_SWEEP_ID: 'swp_1',
+        JUDGE_AGENTS: 'chief_of_staff',
+        JUDGE_RECORDS_DIR: '/tmp/judge',
+        ...(value === undefined ? {} : { JUDGE_BASE_DIR: value }),
+      }).baseDir,
+    ).toBe(expected)
+  })
+
   // THE ENTRY THAT ACTS ON IT. The arms parse the same value through the
   // shared schema, but it is this step that turns a refusal into a qualifier,
   // so a parser that carried it only to the arms would carry it nowhere.

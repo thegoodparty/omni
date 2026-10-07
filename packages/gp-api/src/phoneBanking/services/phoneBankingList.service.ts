@@ -561,6 +561,10 @@ export class PhoneBankingListService extends createPrismaBase(
             script: input.script,
             sheetCount: input.sheetCount,
             purpose: input.purpose,
+            // `community_input` lists only, on either product; the contract
+            // refuses it on every other purpose. Gives issue capture's
+            // extraction the question each call was placed to ask.
+            communityInputQuestion: input.communityInputQuestion,
             entries: { create: entriesData },
           },
         })

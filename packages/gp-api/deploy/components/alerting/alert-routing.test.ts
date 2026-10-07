@@ -76,7 +76,7 @@ describe('routing every provisioned alert', () => {
 // and was delivered. POST /v1/domains/purchase fired on the same rule at
 // 18:17:07, joined the group search had already notified, waited out the
 // 5-minute group_interval, resolved inside it, and was delivered only as
-// resolved, which BugBoss discards. A group per endpoint gives the second
+// resolved, which pages nobody. A group per endpoint gives the second
 // route its own group_wait delivery.
 describe('grouping route alerts', () => {
   const SLUG = 'route-errors-win'

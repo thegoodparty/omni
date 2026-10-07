@@ -512,7 +512,9 @@ import { dirname, join, relative } from 'node:path'
 // 2026-10-06: 567 -> 568. shared/FocusedPage, the frame Your story, Your race
 // and Your opponents open in. It holds router and slot state, and two of its
 // three pages are server components, so it has to be its own client boundary.
-const BASELINE = 568
+// 2026-10-07: 568 -> 572. Merging main brought in four client components of
+// its own (issue capture's pages and their links), none from this branch.
+const BASELINE = 572
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

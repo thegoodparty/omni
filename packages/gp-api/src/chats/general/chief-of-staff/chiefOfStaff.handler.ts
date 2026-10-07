@@ -39,6 +39,7 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
+import { buildPresentListProposalTool } from '../crm-tools/presentListProposal.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
@@ -48,6 +49,7 @@ import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideCont
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 
@@ -73,6 +75,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   readonly scope = ChatScope.chief_of_staff
   readonly isSensitive = true
   readonly models = [...CHIEF_OF_STAFF_MODELS]
+  // The default 5 steps ran out mid-outreach: describe, count, size, then
+  // save or present is already four tool calls before any retry or search,
+  // and a turn that runs out of steps ends without presenting anything.
+  readonly maxSteps = 15
 
   constructor(
     private readonly contextService: ChiefOfStaffContextService,
@@ -110,7 +116,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       userId,
       this.priorities,
     )
-    const resolved = await this.districtResolver?.resolveByUserId(userId)
+    // Resolve by the conversation's org slug, not the user: an official with
+    // offices in multiple orgs would otherwise get whichever ElectedOffice row
+    // came back first, scoping constituent data to another org's district.
+    // ctx.organizationSlug is never a guess: load() matches the office on the
+    // conversation's own slug and throws when a conversation has none.
+    const resolved = await this.districtResolver?.resolveByOrgSlug(
+      ctx.organizationSlug,
+    )
     if (!resolved) return ctx
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
@@ -120,6 +133,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       districtFilters,
       constituentToolEnabled,
     }
@@ -271,6 +285,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         // crud_saved_filters just returned, so advertising it in a session
         // that cannot create a list would be offering a map of nothing.
         crmTools.show_list_map = buildShowListMapTool()
+        // How a list gets saved from here: as a card the official presses,
+        // not a write the model makes after a typed "yes".
+        crmTools.present_list_proposal = buildPresentListProposalTool()
       }
       // The catalog is built over the other CRM tools so its description
       // names only the filter tools registered beside it, and is still
@@ -285,6 +302,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // the list behind it can be built.
       if (this.voterFileFilters) {
         tools.present_outreach_proposal = buildPresentOutreachProposalTool()
+        tools.size_outreach_sample = buildSizeOutreachSampleTool()
       }
     }
 

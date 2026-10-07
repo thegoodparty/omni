@@ -28,7 +28,11 @@ import {
 } from 'src/shared/types/utility.types'
 import { AnalyticsService } from '../../analytics/analytics.service'
 import { MarketingRevalidationService } from '../../personProfiles/services/marketing-revalidation.service'
-import { toLowerAndTrim, trimMany } from '../../shared/util/strings.util'
+import {
+  normalizePersonName,
+  toLowerAndTrim,
+  trimMany,
+} from '../../shared/util/strings.util'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import {
   CreateUserInputDto,
@@ -181,13 +185,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       throw new ConflictException('User with this email already exists')
     }
 
-    const {
-      firstName: firstNameTrimmed,
-      lastName: lastNameTrimmed,
-      ...trimmed
-    } = trimMany({
-      firstName,
-      lastName,
+    const trimmed = trimMany({
       ...(phone ? { phone } : {}),
       ...(zip ? { zip } : {}),
     })
@@ -196,13 +194,20 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       textNotifications: allowTexts,
     }
 
+    const normalizedFirstName = normalizePersonName(firstName.trim())
+    const normalizedLastName = normalizePersonName(lastName.trim())
+
     const userDataToPersist = {
       ...restUserData,
       ...trimmed,
       email,
+      firstName: normalizedFirstName,
+      lastName: normalizedLastName,
       ...(hashedPassword ? { password: hashedPassword } : {}),
       hasPassword: !!hashedPassword,
-      name: name?.trim() || `${firstNameTrimmed} ${lastNameTrimmed}`,
+      name: normalizePersonName(
+        name?.trim() || `${normalizedFirstName} ${normalizedLastName}`,
+      ),
       metaData,
     }
 
@@ -215,8 +220,16 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     await this.crm.submitCrmForm(
       REGISTER_USER_CRM_FORM_ID,
       [
-        { name: 'firstName', value: firstName, objectTypeId: '0-1' },
-        { name: 'lastName', value: lastName, objectTypeId: '0-1' },
+        {
+          name: 'firstName',
+          value: normalizedFirstName,
+          objectTypeId: '0-1',
+        },
+        {
+          name: 'lastName',
+          value: normalizedLastName,
+          objectTypeId: '0-1',
+        },
         { name: 'email', value: email, objectTypeId: '0-1' },
         ...(phone
           ? [{ name: 'phone', value: phone, objectTypeId: '0-1' }]
@@ -313,14 +326,17 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       return this.maybeIngestAvatar(backfilled, data.avatarUrl)
     }
 
+    const firstName = normalizePersonName(data.firstName)
+    const lastName = normalizePersonName(data.lastName)
+
     try {
       const user = await this.model.create({
         data: {
           clerkId: data.clerkId,
           email: toLowerAndTrim(data.email),
-          firstName: data.firstName,
-          lastName: data.lastName,
-          name: `${data.firstName} ${data.lastName}`.trim(),
+          firstName,
+          lastName,
+          name: `${firstName} ${lastName}`.trim(),
           ...(data.phone ? { phone: data.phone } : {}),
         },
       })
@@ -471,7 +487,19 @@ export class UsersService extends createPrismaBase(MODELS.User) {
 
   async updateUser(where: Prisma.UserWhereUniqueInput, data: Partial<User>) {
     return this.optimisticLockingUpdate({ where }, (existing) => {
-      const { metaData: incomingMetaData, ...fields } = data
+      const { metaData: incomingMetaData, ...rawFields } = data
+      const fields = {
+        ...rawFields,
+        ...(rawFields.firstName
+          ? { firstName: normalizePersonName(rawFields.firstName) }
+          : {}),
+        ...(rawFields.lastName
+          ? { lastName: normalizePersonName(rawFields.lastName) }
+          : {}),
+        ...(rawFields.name
+          ? { name: normalizePersonName(rawFields.name) }
+          : {}),
+      }
       if (incomingMetaData === undefined) {
         return fields
       }

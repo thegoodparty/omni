@@ -2,8 +2,9 @@ import { z } from 'zod'
 
 // Packages the local-setup bootstrap can be handed a `.env` for. election-api
 // is deliberately absent: it is never run locally, gp-webapp points at the
-// deployed dev instance it already defaults to.
-export const DEV_ENV_PACKAGE_VALUES = ['gp-api', 'gp-webapp'] as const
+// deployed dev instance it already defaults to. `mcp` is not a package but
+// the repo's MCP servers (.mcp.json), written to the root .env.mcp.local.
+export const DEV_ENV_PACKAGE_VALUES = ['gp-api', 'gp-webapp', 'mcp'] as const
 export type DevEnvPackage = (typeof DEV_ENV_PACKAGE_VALUES)[number]
 export const DevEnvPackageSchema = z.enum(DEV_ENV_PACKAGE_VALUES)
 

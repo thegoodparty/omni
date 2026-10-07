@@ -7,6 +7,7 @@ import type {
   PhoneBankCallOutcome,
   PhoneBankingOutreachDetail,
 } from '@goodparty_org/contracts'
+import { PRICE_PER_TEXT } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,11 +53,9 @@ import type { MembershipState } from 'app/(dashboard)/shared/membership/deriveMe
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/(dashboard)/outreach/util/formatAudienceLabels.util'
-import {
-  OUTREACH_OPTIONS,
-  OUTREACH_TYPES,
-} from 'app/(dashboard)/outreach/constants'
+import { OUTREACH_TYPES } from 'app/(dashboard)/outreach/constants'
 import { useOutreach } from 'app/(dashboard)/outreach/hooks/OutreachContext'
+import { WhatWeHeardAction } from 'app/(dashboard)/issue-capture/WhatWeHeardAction'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { campaignTurfsQueryOptions } from 'app/(dashboard)/door-knocking/native/turfQueries'
 import {
@@ -141,9 +140,6 @@ const answerRows = (
         ['Support: Unsure', phoneBanking.unsure],
         ['Support: No', phoneBanking.nonSupporters],
       ]
-
-const PRICE_PER_TEXT =
-  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
 
 // The status the candidate is reading, mapped onto the canvas's three
 // lifecycle positions. Derived from the displayed label rather than from
@@ -398,6 +394,15 @@ export const OutreachDetailsDrawer = ({
   })
   const campaignTurfs = campaignTurfsQuery.data ?? []
   const unfinished = unfinishedTurfs(campaignTurfs)
+  // Where "What we heard" leads. A phone list's envelope is this row. A
+  // report is per turf, so a door-knocking campaign gets the drawer-level
+  // link only when it IS one turf; with several, the row's id names just
+  // the anchor's, and each turf card below carries its own link instead.
+  const reportOutreachId = isPhoneBanking
+    ? (row?.id ?? null)
+    : isDoorKnocking && campaignTurfs.length === 1
+      ? (campaignTurfs[0]?.outreachId ?? null)
+      : null
   // Archive and complete for the WHOLE campaign, one server-side transaction
   // each. This is what replaced `canArchiveFromDrawer`: the write used to
   // take a turf id, so on a campaign it shelved the anchor and left every
@@ -589,9 +594,13 @@ export const OutreachDetailsDrawer = ({
   // Null until the detail lands: the list id rides the detail, so a link
   // built without it could only go to the bare rail. Holding the slot
   // disabled for a moment beats a press that silently lands somewhere else.
+  //
+  // It carries the row's id as `?outreachId=` because the caller page reads
+  // its list, and a list does not know its envelope: that id is how the
+  // page links to what people said on this list.
   const continueHref =
-    isPhoneBanking && phoneBanking
-      ? `/outreach/phone-banking/${phoneBanking.listId}`
+    isPhoneBanking && phoneBanking && row
+      ? `/outreach/phone-banking/${phoneBanking.listId}?outreachId=${row.id}`
       : null
 
   // The SMS lifecycle actions this branch added have no mode in the canvas's
@@ -890,6 +899,13 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
+            {reportOutreachId !== null && (
+              <WhatWeHeardAction
+                outreachId={reportOutreachId}
+                isServe={isServe}
+              />
+            )}
+
             {(audienceName || audienceLabels.length > 0) && (
               // "Applied filters" describes what BUILT the audience, which is
               // the right title for a send composed out of voter-file

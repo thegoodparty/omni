@@ -1,3 +1,9 @@
+import {
+  actualCostLines,
+  formatTotal,
+  type ActualCost,
+  type AgentSpend,
+} from './actualCost'
 import { AGENTS, coverage, type AgentEntry } from './agents'
 import { formatGap, type ArmGap } from './armGap'
 import type { IdenticalOutputs } from './identicalOutputs'
@@ -6,7 +12,12 @@ import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
-import type { AgentScore, DimensionScore } from './score'
+import type {
+  AgentScore,
+  ControlReading,
+  DimensionScore,
+  ToolErrorCause,
+} from './score'
 import type { CiContext, RunRecord } from './record'
 
 // The PR comment.
@@ -42,6 +53,9 @@ export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
   // averaged against a briefing score would have no referent.
   agents: readonly AgentScore[]
+  // What the sweep spent. Absent on a sweep that could not spend, and on a
+  // report rendered straight from fixture records.
+  actualCost?: ActualCost
   // Comparisons the judge declined to make at all, such as two arms that
   // hashed to the same config.
   refusals?: readonly Refusal[]
@@ -80,7 +94,26 @@ export interface SweepReport {
   // cannot carry: a conformance regression usually reads BETTER as prose, so
   // the judge prefers it and the delta points the wrong way.
   invariantViolations?: readonly InvariantViolation[]
+  // Where each agent's per-case rulings were stored. Only the location, never
+  // a ruling: a ruling quotes the agent's output and this page is public.
+  rulings?: readonly StoredRulings[]
 }
+
+// `location` is null when the write failed. The verdict above it still
+// stands, since it was scored from the same judgments in memory.
+export interface StoredRulings {
+  agentId: string
+  location: string | null
+}
+
+const rulingsLines = (rulings: readonly StoredRulings[]): string[] => [
+  'Per-case rulings, kept off this page because they quote agent output:',
+  ...rulings.map((r) =>
+    r.location === null
+      ? `- ${r.agentId}: not stored, the write failed`
+      : `- ${r.agentId}: \`${r.location}\``,
+  ),
+]
 
 const signed = (value: number, digits: number): string =>
   `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`
@@ -101,6 +134,43 @@ const percentOf = (value: number | null): string =>
 const dimensionRow = (name: string, score: DimensionScore): string =>
   `| ${name} | ${formatDelta(score)} | ${score.cases} | ` +
   `${score.wins}/${score.ties}/${score.losses} | ${score.cannotDetermine} |`
+
+// A case dimension is usually asked by one or two cases, so its interval is a
+// resample of almost nothing and reads tighter than it is. Below the floor
+// the label logic applies to the overall verdict, the row says so in place of
+// an interval, and the W/T/L beside it is the evidence.
+const caseDimensionDelta = (
+  score: DimensionScore,
+  config: JudgeConfig,
+): string =>
+  score.delta === null || score.cases >= config.gates.minCases
+    ? formatDelta(score)
+    : `${signed(score.delta, 2)}, too few cases for an interval ` +
+      `(${score.cases} of ${config.gates.minCases})`
+
+const caseDimensionLines = (
+  score: AgentScore,
+  config: JudgeConfig,
+): string[] => {
+  const rows = score.caseDimensions ?? []
+  if (rows.length === 0) return []
+  return [
+    'Case dimensions, each judged only on the cases that ask it and never ' +
+      'part of the verdict above:',
+    '',
+    '| case dimension | Δ | cases | W/T/L (pairs) | ' +
+      "can't tell (pairs) | asked by |",
+    '| --- | --- | --- | --- | --- | --- |',
+    ...rows.map(
+      (row) =>
+        `| ${row.name} | ${caseDimensionDelta(row.score, config)} | ` +
+        `${row.score.cases} | ` +
+        `${row.score.wins}/${row.score.ties}/${row.score.losses} | ` +
+        `${row.score.cannotDetermine} | ${row.caseIds.join(', ')} |`,
+    ),
+    '',
+  ]
+}
 
 // Reported as a distribution and never folded into the score: magnitude
 // calibration across judge families does not exist yet, so weighting by it
@@ -128,6 +198,55 @@ const flagLine = (score: AgentScore): string | null => {
     .join(', ')}.`
 }
 
+const CONTROL_OUTCOMES: Readonly<Record<ControlReading['outcome'], string>> = {
+  candidate: 'preferred the candidate',
+  base: 'preferred the base',
+  tie: 'called it a tie',
+  cannot_determine: 'could not tell',
+  ungraded: 'returned no verdict',
+  not_judged: 'never saw the pair',
+}
+
+// Its own block, after the verdict and outside every number in it. A control
+// is the zero reading: on an input built to show no difference, how often and
+// how strongly the judge calls one anyway. Read every other line against it.
+const SCORED_ANYWAY: Readonly<
+  Record<NonNullable<AgentScore['controlsScoredAnyway']>['why'], string>
+> = {
+  baseDisagrees:
+    'marked scored: false on this branch but not on the base ref, so ' +
+    'scored as ordinary cases',
+  baseUnread:
+    "marked scored: false, but the base ref's case list could not be read, " +
+    'so scored as ordinary cases',
+}
+
+const controlLines = (score: AgentScore): string[] => {
+  const anyway =
+    score.controlsScoredAnyway === undefined
+      ? []
+      : [
+          `${score.controlsScoredAnyway.caseIds.join(', ')}: ` +
+            `${SCORED_ANYWAY[score.controlsScoredAnyway.why]}.`,
+          '',
+        ]
+  if (score.controls.length === 0) return anyway
+  const called = score.controls.filter(
+    (c) => c.outcome === 'candidate' || c.outcome === 'base',
+  ).length
+  return [
+    ...anyway,
+    `Controls (not scored): the judge called a difference on ${called} ` +
+      `of ${score.controls.length} control pair(s).`,
+    ...score.controls.map(
+      (c) =>
+        `- ${c.caseId} attempt ${c.attempt}: ${CONTROL_OUTCOMES[c.outcome]}` +
+        (c.magnitude === null ? '' : ` (${c.magnitude})`),
+    ),
+    '',
+  ]
+}
+
 const changeLine = (ci: CiContext | null): string =>
   ci === null
     ? '_No CI context on these records, so this verdict cannot be traced ' +
@@ -139,12 +258,25 @@ const changeLine = (ci: CiContext | null): string =>
       ` — [workflow run ${ci.workflowRunId}](${ci.workflowRunUrl})` +
       (ci.workflowRunAttempt > 1 ? ` (attempt ${ci.workflowRunAttempt})` : '')
 
-const evidenceLines = (score: AgentScore): string[] => {
+// The agent's bill, as opposed to the per-pair difference below it. A
+// reader who sees "+0.0002 USD" alone cannot tell whether the agent cost a
+// cent or forty dollars.
+const spentLine = (spend: AgentSpend): string =>
+  `- spent on this agent: ${formatTotal(spend)} (agent runs ` +
+  `$${(spend.base.usd + spend.candidate.usd).toFixed(2)}, judge ` +
+  `$${spend.judge.usd.toFixed(2)})`
+
+const evidenceLines = (
+  score: AgentScore,
+  spend: AgentSpend | undefined,
+): string[] => {
   const { evidence } = score
+  const spent = spend === undefined ? [] : [spentLine(spend)]
   if (evidence.pairs === 0) {
     return [
       'Measured: nothing to measure \u2014 no pair had a result on ' +
         'both arms.',
+      ...spent,
     ]
   }
   const cost = evidence.costUsd
@@ -153,10 +285,12 @@ const evidenceLines = (score: AgentScore): string[] => {
       `(re-derived at pricing ${PRICING_VERSION}, not read from the ` +
       'records stored dollars):',
     '',
+    ...spent,
     cost === null
-      ? `- cost: not derivable — ${evidence.unpriceableReason}`
-      : `- cost: ${signed(cost.delta, 4)} USD per run pair ` +
-        `(base ${cost.base.toFixed(4)}, candidate ` +
+      ? `- cost difference per run pair: not derivable — ` +
+        `${evidence.unpriceableReason}`
+      : `- cost difference per run pair: ${signed(cost.delta, 4)} USD ` +
+        `(mean per run: base ${cost.base.toFixed(4)}, candidate ` +
         `${cost.candidate.toFixed(4)})`,
     `- latency: ${signed(evidence.latencyMs.delta, 0)} ms per run pair`,
     `- tool errors: ${signed(evidence.toolErrors.delta, 2)} per run pair`,
@@ -224,20 +358,39 @@ const MAX_CAUSE_LINES = 5
 // Tool name and error class only, both allowlisted upstream. The error text
 // itself is never printed: this page is public and the text can carry voter
 // data that no redaction can recognise.
-const toolErrorCauseLines = (score: AgentScore): string[] => {
-  const causes = score.exclusions.toolErrorCauses
+const causeLines = (
+  agentId: string,
+  causes: readonly ToolErrorCause[],
+): string[] => {
   const lines = causes
     .slice(0, MAX_CAUSE_LINES)
     .map(
       (cause) =>
-        `- ${score.agentId}: \`${cause.tool}\` — ${cause.errorClass} ` +
+        `- ${agentId}: \`${cause.tool}\` — ${cause.errorClass} ` +
         `(×${cause.pairs}, ${cause.arms.join(' and ')})`,
     )
   const more = causes.length - MAX_CAUSE_LINES
   return more > 0 ? [...lines, `- and ${more} more`] : lines
 }
 
-const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
+// Under the "Excluded pairs" line, the causes of the tool-error exclusions
+// (chat only). Then, for a background agent, the causes on pairs that were
+// scored anyway, under their own heading so a reader never takes them for
+// exclusions: the pairs are in the verdict, and the list is evidence beside it.
+const toolErrorCauseLines = (score: AgentScore): string[] => {
+  const excluded = causeLines(score.agentId, score.exclusions.toolErrorCauses)
+  const scored = causeLines(score.agentId, score.scoredToolErrorCauses)
+  if (scored.length === 0) return excluded
+  // The blank line is load-bearing: without it Markdown folds the heading
+  // into the "Excluded pairs" paragraph or the last cause above it.
+  return [...excluded, '', 'Tool errors (scored, not excluded):', ...scored]
+}
+
+const agentSection = (
+  score: AgentScore,
+  config: JudgeConfig,
+  spend: AgentSpend | undefined,
+): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
   lines.push('')
@@ -273,6 +426,7 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
     if (dimension !== undefined) lines.push(dimensionRow(name, dimension))
   }
   lines.push('')
+  lines.push(...caseDimensionLines(score, config))
 
   if (score.regressions.length > 0) {
     lines.push(
@@ -294,7 +448,8 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
     lines.push('')
   }
 
-  lines.push(...evidenceLines(score))
+  lines.push(...controlLines(score))
+  lines.push(...evidenceLines(score, spend))
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push(...toolErrorCauseLines(score))
@@ -649,12 +804,25 @@ export const renderReport = (
 ): string => {
   const lines: string[] = ['## Universal Judge', '']
 
+  // FIRST, above every verdict. The estimate was on the PR before the sweep
+  // started; this is where a reader looks for whether it held.
+  if (report.actualCost !== undefined) {
+    lines.push(...actualCostLines(report.actualCost))
+    lines.push('')
+  }
+
   if (report.agents.length === 0) {
     lines.push('No agent produced a verdict in this sweep.')
     lines.push('')
   }
   for (const score of report.agents) {
-    lines.push(...agentSection(score, config))
+    lines.push(
+      ...agentSection(
+        score,
+        config,
+        report.actualCost?.agents.find((a) => a.agentId === score.agentId),
+      ),
+    )
     lines.push('')
   }
 
@@ -717,11 +885,31 @@ export const renderReport = (
     lines.push('')
   }
 
+  // A refused agent's arms usually ran before the refusal, so it was billed
+  // like any other. Its spend goes under the refusal, and any agent with
+  // spend and no section at all gets a line of its own, so the per-agent
+  // lines and the unselected row add up to the total above.
+  const spendFor = (agentId: string): AgentSpend | undefined =>
+    report.actualCost?.agents.find((a) => a.agentId === agentId)
   for (const refusal of report.refusals ?? []) {
     lines.push(`### ${refusal.agentId} — refused`)
     lines.push('')
     lines.push(refusal.reason)
+    const spend = spendFor(refusal.agentId)
+    if (spend !== undefined) lines.push('', spentLine(spend))
     lines.push('')
+  }
+  const sectioned = new Set([
+    ...report.agents.map((a) => a.agentId),
+    ...(report.refusals ?? []).map((r) => r.agentId),
+  ])
+  const unsectioned = (report.actualCost?.agents ?? []).filter(
+    (a) =>
+      !sectioned.has(a.agentId) &&
+      a.base.runs + a.candidate.runs + a.judge.calls > 0,
+  )
+  for (const spend of unsectioned) {
+    lines.push(`### ${spend.agentId} — not judged`, '', spentLine(spend), '')
   }
 
   const identical = report.identicalOutputs ?? []
@@ -732,6 +920,12 @@ export const renderReport = (
 
   if (report.armGap !== undefined) {
     lines.push(...armGapLines(report.armGap))
+    lines.push('')
+  }
+
+  const rulings = report.rulings ?? []
+  if (rulings.length > 0) {
+    lines.push(...rulingsLines(rulings))
     lines.push('')
   }
 

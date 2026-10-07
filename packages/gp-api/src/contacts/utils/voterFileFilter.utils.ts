@@ -132,6 +132,13 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
 // same bounds.
 export { INCOME_RANGE_MAPPING }
 
+// The names of a drawn boundary's parts: the one array column that is not
+// filter criteria. The generic array branch below would otherwise turn it
+// into an `in` filter on a voter column that does not exist.
+const isShapeLabels = (
+  value: readonly (string | PrismaJson.GeoShapeLabels[number])[],
+): value is PrismaJson.GeoShapeLabels => typeof value[0] === 'object'
+
 // Accepts a full persisted VoterFileFilter (saved-segment path) or the
 // unsaved, partial filter set the live count sends (ENG-10517). Only the filter
 // fields are read; missing ones are treated as unset, exactly like false/empty.
@@ -238,7 +245,11 @@ export const convertVoterFileFilterToFilters = (
         continue
       }
       filters[key] = true
-    } else if (Array.isArray(value) && value.length > 0) {
+    } else if (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      !isShapeLabels(value)
+    ) {
       if (key === 'languageCodes') {
         const filterMap = LANGUAGE_CODE_TO_LABEL
         const normalizedLanguages: string[] = value

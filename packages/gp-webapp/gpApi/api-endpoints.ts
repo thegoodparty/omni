@@ -13,7 +13,23 @@ import type {
   DoorKnockingTurf,
   GeoJsonPolygon,
   GeoJsonShape,
+  GeoShapeLabels,
   ServeDoorKnockingTalkingPointsPurpose,
+  AudioUploadUrlRequest,
+  AudioUploadUrlResponse,
+  ConfirmConstituentFeedback,
+  ConstituentFeedbackListResponse,
+  ConstituentFeedbackRecord,
+  PendingFeedbackResponse,
+  FeedbackReportResponse,
+  FeedbackThemeDetail,
+  IssueTag,
+  IssueTagListResponse,
+  IssueTagStatus,
+  RecordConstituentFeedback,
+  RecordConstituentFeedbackResponse,
+  SynthesisRun,
+  UpdateIssueTag,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -34,7 +50,6 @@ import type {
   CreatePriorityInput,
   UpdatePriorityInput,
   PriorityStatus,
-  OutreachProposal,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -170,9 +185,19 @@ export interface MeetingsListItemDto {
    * gp-api's MeetingsListItemDto.userAgendaStatus.
    */
   userAgendaStatus?: UserAgendaStatus | null
+  /**
+   * Why gp-api declined to publish the user's agenda run, when
+   * userAgendaStatus is 'rejected'. Machine string; null otherwise.
+   */
+  userAgendaReason?: string | null
 }
 
-export type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
+export type UserAgendaStatus =
+  | 'processing'
+  | 'failed'
+  | 'rejected'
+  | 'completed'
+  | 'unknown'
 
 // A row of campaign_position with its relations included. `description` is the
 // candidate's own wording; `position.name` is the catalog stance it was chosen
@@ -545,6 +570,13 @@ export type APIEndpoints = {
   // typed the way `POST /v1/door-knocking/address-preview` types the same
   // unsaved-draft grammar, since the schema lives in gp-api; the response is
   // a contracts schema. 502 on model failure.
+  //
+  // `communityInputQuestion` rides both this and the Serve sibling below, for
+  // the one purpose that asks a question (Win's "Hear from voters", Serve's
+  // community input). The question is what the effort exists to ask, so the
+  // card's "ask" is written to put it to the resident rather than a generic
+  // what-matters-to-you question. Sent rather than read server-side because
+  // the turf does not exist at draft time; refused on any other purpose.
   'POST /v1/outreach/door-knocking/draft': {
     Request: {
       purpose: DoorKnockingTalkingPointsPurpose
@@ -552,6 +584,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      communityInputQuestion?: string
       event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
@@ -564,6 +597,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      communityInputQuestion?: string
       event?: OutreachEventDetails
     }
     Response: DoorKnockingTalkingPointsDraftResponse
@@ -1197,15 +1231,9 @@ export type APIEndpoints = {
   }
 
   // A proposal key names the outreach a chat card WOULD create. A 404 is the
-  // normal "not sent yet" answer, and the PUT is an idempotent create, so a
-  // double click cannot send twice.
+  // normal "not sent yet" answer.
   'GET /v1/outreach/by-proposal-key/:proposalKey': {
     Request: {}
-    Response: OutreachDetail
-  }
-
-  'PUT /v1/outreach/by-proposal-key/:proposalKey': {
-    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId?: string }
     Response: OutreachDetail
   }
 
@@ -1356,13 +1384,15 @@ export type APIEndpoints = {
 
   // `geoPoly` narrows the saved list by a drawn boundary. Null clears one; on
   // the PUT, omitting it keeps whatever the row already holds, like every
-  // other key of this partial update.
+  // other key of this partial update. `geoPolyLabels` names and colours each
+  // part, aligned by index, and is only read beside `geoPoly`.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
       geoPoly?: GeoJsonShape | null
+      geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1372,7 +1402,14 @@ export type APIEndpoints = {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
       geoPoly?: GeoJsonShape | null
+      geoPolyLabels?: GeoShapeLabels | null
     } & Record<string, unknown>
+    Response: SegmentResponse
+  }
+  // The list a chat card created, by the key the card derives. 404 means
+  // the card has not been pressed yet.
+  'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey': {
+    Request: { proposalKey: string }
     Response: SegmentResponse
   }
   'GET /v1/voters/voter-file/filters': {
@@ -1627,6 +1664,65 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/not-a-voter': {
     Request: SetNotAVoter
     Response: SetNotAVoterResponse
+  }
+  // Serve issue capture. Separate from the interaction write because the
+  // knock has to save first — the memo resolves its knock by the clientKey
+  // that write persisted — and because a dead-zone failure here must never
+  // cost the canvasser the knock they already logged.
+  'POST /v1/constituent-feedback': {
+    Request: RecordConstituentFeedback
+    Response: RecordConstituentFeedbackResponse
+  }
+  'PATCH /v1/constituent-feedback/:id/confirm': {
+    Request: ConfirmConstituentFeedback
+    Response: ConstituentFeedbackRecord
+  }
+  'GET /v1/constituent-feedback': {
+    Request: { personId: string }
+    Response: ConstituentFeedbackListResponse
+  }
+  // Offline memos. Where the phone puts a recording it held with no signal;
+  // the memo then posts the key to POST /v1/constituent-feedback in place of
+  // a transcript.
+  'POST /v1/constituent-feedback/audio-upload-url': {
+    Request: AudioUploadUrlRequest
+    Response: AudioUploadUrlResponse
+  }
+  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
+  // own, an owner or manager everyone's.
+  'GET /v1/constituent-feedback/pending': {
+    Request: { outreachId: number }
+    Response: PendingFeedbackResponse
+  }
+  // Transcribes or extracts a pending memo again.
+  'POST /v1/constituent-feedback/:id/retry': {
+    Request: {}
+    Response: ConstituentFeedbackRecord
+  }
+  // The effort's report: what the "What we heard" page renders, and what
+  // the turf and phone entry rows read their two counts from.
+  'GET /v1/constituent-feedback/efforts/:outreachId/report': {
+    Request: {}
+    Response: FeedbackReportResponse
+  }
+  // 422 `{ confirmed, required }` under the floor, 429 inside the cooldown,
+  // 409 while a run is in flight.
+  'POST /v1/constituent-feedback/efforts/:outreachId/synthesize': {
+    Request: {}
+    Response: SynthesisRun
+  }
+  'GET /v1/constituent-feedback/themes/:id': {
+    Request: {}
+    Response: FeedbackThemeDetail
+  }
+  // Owner and manager only: a volunteer gets 403.
+  'GET /v1/constituent-feedback/tags': {
+    Request: { status?: IssueTagStatus }
+    Response: IssueTagListResponse
+  }
+  'PATCH /v1/constituent-feedback/tags/:id': {
+    Request: UpdateIssueTag
+    Response: IssueTag
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole

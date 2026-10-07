@@ -18,6 +18,7 @@ export const DASHBOARD_ROUTE_SEGMENTS = [
   'door-knocking',
   'election-result',
   'home',
+  'issue-capture',
   'ordinances',
   'outreach',
   'polls',

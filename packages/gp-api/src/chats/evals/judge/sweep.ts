@@ -1,38 +1,72 @@
 import { randomUUID } from 'node:crypto'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { z } from 'zod'
 import { hoursToMilliseconds } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { LlmService } from '@/llm/services/llm.service'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import { overrideEnvForEvals } from '../envOverride'
+import {
+  armSpend,
+  formatTotal,
+  judgeSpendBetween,
+  meterJudge,
+  NO_JUDGE_SPEND,
+  parseEstimateUsd,
+  type AgentSpend,
+  type JudgeSpend,
+} from './actualCost'
 import { AGENTS, type AgentEntry } from './agents'
 import { armGap, windowOf } from './armGap'
 import { createRng } from './bootstrap'
+import {
+  CaseListError,
+  caseDimensionsOf,
+  caseJudgingOf,
+  loadCaseList,
+  type CaseDimension,
+  type CaseJudging,
+  type CaseList,
+} from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   allIdenticalReason,
   identicalOutputs,
   type IdenticalOutputs,
 } from './identicalOutputs'
-import { judgeAll, RUBRIC_VERSION, type CaseVerdict } from './judge'
+import {
+  CaseDimensionCollisionError,
+  judgeAll,
+  RUBRIC_VERSION,
+  type CaseVerdict,
+} from './judge'
 import {
   IdenticalConfigError,
   MismatchedInputError,
   normalizeAgent,
+  type NormalizedAgent,
+  withConditions,
   type NormalizeOptions,
 } from './normalize'
 import { invariantViolations } from './invariants'
 import type { RunRecord } from './record'
-import { RecordStoreError, type ArmManifest, type RecordStore } from './records'
+import {
+  RecordStoreError,
+  type AgentRulings,
+  type ArmManifest,
+  type RecordStore,
+} from './records'
 import {
   renderReport,
   unpinnedMartReads,
   type AgentIdenticalConfig,
   type Refusal,
   type SeededTranscripts,
+  type StoredRulings,
   type SweepReport,
 } from './report'
-import { scoreAgent, type AgentScore } from './score'
+import { scoreAgent, type AgentScore, type ControlsScoredAnyway } from './score'
 import {
   parseSweepEnv,
   storeFromEnv,
@@ -60,6 +94,86 @@ export interface JudgingDeps {
   // a seed rather than only from a run.
   rng?: Rng
   registry?: readonly AgentEntry[]
+  // Where a case's own dimensions come from. THIS checkout's case list, not
+  // either arm's records: the judging step runs at the candidate commit, the
+  // arms never record the field, and so both slots of a pair are asked the
+  // same questions whatever the base ref knew.
+  loadCases?: (agent: AgentEntry) => CaseList
+  // Each case's condition and scored flag, read from the case list in THIS
+  // checkout. Injected so a test need not stand a case list on disk.
+  caseJudging?: (agent: AgentEntry) => ReadonlyMap<string, CaseJudging>
+  // The caseIds the BASE ref's list marks `scored: false`, or null when that
+  // list cannot be read. Injected for the same reason.
+  baseControls?: (agent: AgentEntry) => ReadonlySet<string> | null
+  // The plan job's estimate, printed beside what was actually spent.
+  estimateUsd?: string
+}
+
+// Only a background list carries either field, so a chat agent costs no read.
+const readCaseJudging = (
+  agent: AgentEntry,
+): ReadonlyMap<string, CaseJudging> =>
+  agent.shape === 'background'
+    ? caseJudgingOf(loadCaseList(agent))
+    : new Map<string, CaseJudging>()
+
+// Read raw rather than through `parseCaseList`: the base ref's list is held to
+// the base ref's schema, not this one, and the only fact wanted here is which
+// cases it holds out.
+const BaseControlsSchema = z.object({
+  cases: z.array(
+    z.object({ caseId: z.string(), scored: z.boolean().optional() }),
+  ),
+})
+
+const readBaseControls = (
+  baseDir: string | undefined,
+  agent: AgentEntry,
+): ReadonlySet<string> | null => {
+  if (baseDir === undefined || agent.cases === null) return null
+  try {
+    const list = BaseControlsSchema.parse(
+      JSON.parse(
+        readFileSync(
+          path.join(
+            baseDir,
+            'packages/gp-api/src/chats/evals/judge/cases',
+            agent.cases,
+          ),
+          'utf8',
+        ),
+      ),
+    )
+    return new Set(
+      list.cases.filter((one) => one.scored === false).map((one) => one.caseId),
+    )
+  } catch {
+    return null
+  }
+}
+
+// A CONTROL NEEDS BOTH REFS TO AGREE. The candidate's list is the branch under
+// test, so on its own it could mark the very probe it regresses `scored:
+// false` and turn the verdict green. A case is held out only when the base
+// list holds it out too. Every other case the candidate marks is scored and
+// named, and an unreadable base list scores them all: the safe mistake is
+// counting a control, never dropping a probe.
+const resolveControls = (
+  candidate: ReadonlySet<string>,
+  base: ReadonlySet<string> | null,
+): { unscored: Set<string>; scoredAnyway?: ControlsScoredAnyway } => {
+  if (candidate.size === 0) return { unscored: new Set() }
+  if (base === null) {
+    return {
+      unscored: new Set(),
+      scoredAnyway: { caseIds: [...candidate].sort(), why: 'baseUnread' },
+    }
+  }
+  const unscored = new Set([...candidate].filter((id) => base.has(id)))
+  const disputed = [...candidate].filter((id) => !base.has(id)).sort()
+  return disputed.length === 0
+    ? { unscored }
+    : { unscored, scoredAnyway: { caseIds: disputed, why: 'baseDisagrees' } }
 }
 
 export interface SweepResult {
@@ -124,6 +238,53 @@ const refusalFor = (
   return null
 }
 
+// A failed write costs the per-case record, not the verdict: the judgments
+// are already paid for and scored in memory, so the sweep reports and says
+// the rulings were lost rather than throwing the verdict away with them.
+const storeRulings = async (
+  store: RecordStore,
+  rulings: AgentRulings,
+): Promise<string | null> => {
+  try {
+    return await store.putRulings(rulings)
+  } catch (err) {
+    console.error(
+      `rulings for ${rulings.agentId} were not stored: ` +
+        (err instanceof Error ? err.name : 'unknown error'),
+    )
+    return null
+  }
+}
+
+// Background agents only: a chat case has no dimensions of its own yet.
+const caseDimensionsByCase = (
+  agent: AgentEntry | undefined,
+  load: (agent: AgentEntry) => CaseList,
+): ReadonlyMap<string, readonly CaseDimension[]> => {
+  if (agent === undefined || agent.shape !== 'background') return new Map()
+  return new Map(
+    load(agent)
+      .cases.map((one) => [one.caseId, caseDimensionsOf(one)] as const)
+      .filter(([, dimensions]) => dimensions.length > 0),
+  )
+}
+
+const withCaseDimensions = (
+  normalized: NormalizedAgent,
+  byCase: ReadonlyMap<string, readonly CaseDimension[]>,
+): NormalizedAgent =>
+  byCase.size === 0
+    ? normalized
+    : {
+        ...normalized,
+        judgeable: normalized.judgeable.map((c) => {
+          const caseDimensions = byCase.get(c.caseId)
+          return caseDimensions === undefined
+            ? c
+            : { ...c, payload: { ...c.payload, caseDimensions } }
+        }),
+      }
+
 export const judgeSweep = async (
   deps: JudgingDeps,
   env: SweepEnv,
@@ -131,6 +292,11 @@ export const judgeSweep = async (
   const config = deps.config ?? DEFAULT_JUDGE_CONFIG
   const rng = deps.rng ?? createRng(1)
   const registry = deps.registry ?? AGENTS
+  const loadCases = deps.loadCases ?? loadCaseList
+  const caseJudging = deps.caseJudging ?? readCaseJudging
+  const baseControls =
+    deps.baseControls ??
+    ((agent: AgentEntry) => readBaseControls(env.baseDir, agent))
 
   // Both manifests, first and fatally. An arm with no manifest never reported
   // a capture, and the failure that produces it is a vitest suite whose tests
@@ -168,6 +334,9 @@ export const judgeSweep = async (
     ...(await deps.store.listRecords(env.sweepId, 'candidate')),
   ]
 
+  const meter = meterJudge(deps.llm)
+  const judgeByAgent = new Map<string, JudgeSpend>()
+
   const scores: AgentScore[] = []
   const refusals: Refusal[] = []
   const placeholderCases: string[] = []
@@ -175,6 +344,7 @@ export const judgeSweep = async (
   const identical: IdenticalOutputs[] = []
   const identicalConfigs: AgentIdenticalConfig[] = []
   const identicalOutputsReported: string[] = []
+  const rulings: StoredRulings[] = []
 
   // A REQUEST THAT NAMED ITS AGENTS DISARMS BOTH SAMENESS REFUSALS. Not the
   // other guards: a missing manifest, one arm's records, a spend switch the
@@ -221,12 +391,51 @@ export const judgeSweep = async (
       seededTranscripts.push({ agentId, caseIds: seededCaseIds })
     }
 
+    // Refused rather than defaulted when the list cannot be read. Defaulting
+    // would score a control as an ordinary case and judge a probe without
+    // the condition it was written around, and the report would say neither.
+    let judging: ReadonlyMap<string, CaseJudging> = new Map()
+    const entry = registry.find((a) => a.agentId === agentId)
+    if (entry === undefined) {
+      refusals.push({
+        agentId,
+        reason:
+          'This agent is not in the judge registry, so this checkout cannot ' +
+          'tell which cases carry a condition or are held out as a control.',
+      })
+      continue
+    }
+    try {
+      judging = caseJudging(entry)
+    } catch (err) {
+      if (!(err instanceof CaseListError)) throw err
+      refusals.push({
+        agentId,
+        reason:
+          "This checkout could not read the agent's case list, so it " +
+          'cannot tell which cases carry a condition or are held out as ' +
+          `a control: ${err.message}`,
+      })
+      continue
+    }
+    const candidateControls = new Set(
+      [...judging].filter(([, one]) => !one.scored).map(([caseId]) => caseId),
+    )
+    const controls = resolveControls(
+      candidateControls,
+      candidateControls.size === 0 ? new Set() : baseControls(entry),
+    )
+    const unscoredCaseIds = controls.unscored
+
     try {
       // Refuses two arms that hashed to the same config unless the request
       // named them: on `auto` the agent saw no difference, so there is
       // nothing to compare and a sweep would have spent money proving two
       // identical things identical.
-      const normalized = normalizeAgent(forAgent, rng, config, options)
+      const normalized = withCaseDimensions(
+        withConditions(normalizeAgent(forAgent, rng, config, options), judging),
+        caseDimensionsByCase(entry, loadCases),
+      )
       if (normalized.identicalConfig !== null) {
         identicalConfigs.push({ agentId, ...normalized.identicalConfig })
       }
@@ -234,7 +443,12 @@ export const judgeSweep = async (
       // Before any judge call, because a sweep whose arms produced the same
       // bytes has nothing for a judge to read and the calls would be paid
       // for either way.
-      const sameness = identicalOutputs(agentId, normalized.judgeable)
+      // Controls left out: one that differs by noise would otherwise keep
+      // "every pair matched" false and inflate the count beside it.
+      const sameness = identicalOutputs(
+        agentId,
+        normalized.judgeable.filter((c) => !unscoredCaseIds.has(c.caseId)),
+      )
       identical.push(sameness)
       if (sameness.allIdentical && config.gates.failOnAllIdenticalOutputs) {
         if (!env.explicitSelection) {
@@ -244,12 +458,34 @@ export const judgeSweep = async (
         identicalOutputsReported.push(agentId)
       }
 
-      const judgments = await judgeAll(deps.llm, normalized.judgeable, config)
-      scores.push(scoreAgent({ normalized, judgments }, config))
+      const before = meter.snapshot()
+      let judgments
+      try {
+        judgments = await judgeAll(meter.llm, normalized.judgeable, config)
+      } finally {
+        judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
+      }
+      scores.push({
+        ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
+        ...(controls.scoredAnyway !== undefined && {
+          controlsScoredAnyway: controls.scoredAnyway,
+        }),
+      })
+      rulings.push({
+        agentId,
+        location: await storeRulings(deps.store, {
+          sweepId: env.sweepId,
+          agentId,
+          rubricVersion: RUBRIC_VERSION,
+          judgments,
+        }),
+      })
     } catch (err) {
       if (
         !(err instanceof IdenticalConfigError) &&
-        !(err instanceof MismatchedInputError)
+        !(err instanceof MismatchedInputError) &&
+        !(err instanceof CaseListError) &&
+        !(err instanceof CaseDimensionCollisionError)
       ) {
         throw err
       }
@@ -263,8 +499,44 @@ export const judgeSweep = async (
   // rule is a fact about the branch whether or not it was judgeable.
   const broken = invariantViolations(records)
 
+  const agentSpend: AgentSpend[] = env.agentIds.map((agentId) => {
+    const forAgent = records.filter((r) => r.agentId === agentId)
+    return {
+      agentId,
+      base: armSpend(forAgent, 'base'),
+      candidate: armSpend(forAgent, 'candidate'),
+      // Absent for an agent the judge refused before calling the panel.
+      judge: judgeByAgent.get(agentId) ?? NO_JUDGE_SPEND,
+    }
+  })
+
+  const unselectedRecords = records.filter(
+    (r) => !env.agentIds.includes(r.agentId),
+  )
+
   const report: SweepReport = {
     agents: scores,
+    // Only when the sweep could spend. A JUDGE_SPEND-off sweep dispatched
+    // nothing and called no model, and its records carry no cost, so a
+    // total here would print "at least $0.00" over runs that were never
+    // billed.
+    ...(env.spends && {
+      actualCost: {
+        base: armSpend(records, 'base'),
+        candidate: armSpend(records, 'candidate'),
+        judge: meter.snapshot(),
+        agents: agentSpend,
+        ...(unselectedRecords.length > 0 && {
+          unselected: {
+            base: armSpend(unselectedRecords, 'base'),
+            candidate: armSpend(unselectedRecords, 'candidate'),
+          },
+        }),
+        ...(deps.estimateUsd !== undefined && {
+          estimateUsd: deps.estimateUsd,
+        }),
+      },
+    }),
     ...(refusals.length > 0 && { refusals }),
     registry,
     armGap: armGap(
@@ -287,6 +559,7 @@ export const judgeSweep = async (
     // say which reads the missing pin was free to move.
     ...(unpinned.length > 0 && { unpinnedMart: unpinned }),
     ...(broken.length > 0 && { invariantViolations: broken }),
+    ...(rulings.length > 0 && { rulings }),
   }
 
   return {
@@ -331,6 +604,23 @@ export const emitReport = (
   if (summary !== undefined && summary !== '') {
     appendFileSync(summary, `${markdown}\n`, 'utf8')
   }
+}
+
+// The total, as a step output, for the closing summary table that sits under
+// the report. That table already prints the estimate, and an estimate with
+// no actual beside it is the gap this exists to close.
+export const emitActualCost = (
+  report: SweepReport,
+  env: NodeJS.ProcessEnv = process.env,
+): void => {
+  const output = env.GITHUB_OUTPUT
+  if (report.actualCost === undefined) return
+  if (output === undefined || output === '') return
+  appendFileSync(
+    output,
+    `actual_usd=${formatTotal(report.actualCost)}\n`,
+    'utf8',
+  )
 }
 
 // Built only when `main` runs, never on import, because `overrideEnvForEvals`
@@ -400,10 +690,13 @@ const CANNED_REASONING =
   'No model was called: JUDGE_SPEND was not true, so nothing read these two ' +
   'outputs and nothing can be told apart.'
 
-export const cannedVerdict = (config: JudgeConfig): CaseVerdict => ({
+export const cannedVerdict = (
+  config: JudgeConfig,
+  dimensions: readonly string[] = config.dimensions,
+): CaseVerdict => ({
   rubric_version: RUBRIC_VERSION,
   dimensions: Object.fromEntries(
-    config.dimensions.map((dimension) => [
+    dimensions.map((dimension) => [
       dimension,
       { reasoning: CANNED_REASONING, verdict: 'cannot_determine' as const },
     ]),
@@ -411,13 +704,27 @@ export const cannedVerdict = (config: JudgeConfig): CaseVerdict => ({
   overall: { reasoning: CANNED_REASONING, verdict: 'cannot_determine' },
 })
 
-const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
+// The dimension keys a panel schema requires, read off the schema itself: the
+// canned judge is handed nothing else, and a case with its own dimensions
+// requires keys the config does not name.
+const requiredDimensions = (
+  schema: z.ZodType,
+  config: JudgeConfig,
+): string[] =>
+  schema instanceof z.ZodObject &&
+  schema.shape.dimensions instanceof z.ZodObject
+    ? Object.keys(schema.shape.dimensions.shape)
+    : [...config.dimensions]
+
+export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   // Parsed through the caller's own schema, so a canned verdict that no
   // longer satisfies it fails here rather than arriving as an "ungraded"
   // judgment — which reads as a broken judge and is how the first version of
   // this got every case wrong while still printing a report.
   jsonCompletion: async ({ schema }) => ({
-    object: schema.parse(cannedVerdict(config)),
+    object: schema.parse(
+      cannedVerdict(config, requiredDimensions(schema, config)),
+    ),
     tokens: 0,
     model: 'canned-judge',
   }),
@@ -431,12 +738,14 @@ export const main = async (): Promise<number> => {
       store: storeFromEnv(env),
       llm: env.spends ? anthropicJudge(config) : cannedJudge(config),
       config,
+      estimateUsd: parseEstimateUsd(process.env.JUDGE_ESTIMATE_USD),
     },
     env,
   )
   emitReport(
     env.spends ? result.markdown : `${CANNED_JUDGE_NOTE}\n\n${result.markdown}`,
   )
+  emitActualCost(result.report)
   return result.exitCode
 }
 

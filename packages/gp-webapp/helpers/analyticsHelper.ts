@@ -840,6 +840,34 @@ export const EVENTS = {
     NotAVoterReasonCleared:
       'Outreach - Door Knocking Not A Voter Reason Cleared',
   },
+  // Issue capture, on Win and Serve, and its own product area rather than
+  // Door Knocking's or Outreach's: the same three events fire from a knock and
+  // from a call, so a channel-named group would have to be written twice and
+  // the rollup metric — the share of conversations that carry an issue —
+  // would have to add two events together. `channel` and `product` are
+  // properties instead, the same way outreach events carry `product`.
+  //
+  // Skipped is as load-bearing as Confirmed. Together they are the only
+  // measure of whether a canvasser will answer a question about a
+  // conversation they have just finished, which is the riskiest assumption in
+  // the feature; a skip that fired nothing would read as capture never
+  // happening.
+  IssueCapture: {
+    MemoRecorded: 'Issue Capture - Memo Recorded',
+    MemoConfirmed: 'Issue Capture - Memo Confirmed',
+    MemoSkipped: 'Issue Capture - Memo Skipped',
+    // The report's own three. Counts only, never a memo's words or a tag's
+    // name: what a person said is not an analytics payload.
+    ReportViewed: 'Issue Capture - Report Viewed',
+    SynthesisRequested: 'Issue Capture - Synthesis Requested',
+    TagAccepted: 'Issue Capture - Tag Accepted',
+    TagDismissed: 'Issue Capture - Tag Dismissed',
+    // The offline path: a memo recorded with no signal, the moment it
+    // reaches the server, and its confirmation later from "Notes to review".
+    MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
+    MemoUploaded: 'Issue Capture - Memo Uploaded',
+    PendingMemoConfirmed: 'Issue Capture - Pending Memo Confirmed',
+  },
 } as const
 
 export const getStoredSessionId = (): number => {

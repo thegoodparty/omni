@@ -350,8 +350,9 @@ _LARGE_PARAMS = {
 )
 async def test_params_reach_the_agent_as_a_file_on_both_delivery_paths(tmp_path, params, via_broker):
     """Dispatch → runner config → harness: whichever way params travel, the
-    agent's env names a file holding exactly those params. PARAMS_JSON keeps
-    its old contract (set when small, absent when large) for back-compat."""
+    agent's env names a file holding exactly those params. On the dispatch
+    side PARAMS_JSON keeps its old contract (set when small, absent when
+    large); the agent never inherits it."""
     message = {**_base_message("roundtrip_exp"), "params": params}
     overrides = build_container_overrides(
         experiment={"model": "sonnet", "timeout_seconds": 600},
@@ -386,6 +387,7 @@ async def test_params_reach_the_agent_as_a_file_on_both_delivery_paths(tmp_path,
     async def fake_query(prompt, options):
         captured["options"] = options
         captured["file_at_start"] = Path(options.env["PARAMS_FILE"]).read_text()
+        captured["inherits_params_json"] = "PARAMS_JSON" in os.environ
         yield ResultMessage(
             subtype="result",
             duration_ms=1,
@@ -399,7 +401,11 @@ async def test_params_reach_the_agent_as_a_file_on_both_delivery_paths(tmp_path,
 
     (tmp_path / "output").mkdir()
     (tmp_path / "output" / "result.json").write_text("{}")
-    with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+    # The container's env stays set for the whole run, as it does in Fargate.
+    with (
+        patch.dict(os.environ, env_map, clear=False),
+        patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query),
+    ):
         await ClaudeSdkHarness().run(
             instruction="Do analysis",
             model="sonnet",
@@ -414,4 +420,7 @@ async def test_params_reach_the_agent_as_a_file_on_both_delivery_paths(tmp_path,
     # anything else here (PARAMS_JSON above all) would silently override it.
     assert captured["options"].env == {"PARAMS_FILE": params_file}
     assert json.loads(captured["file_at_start"]) == params
+    # One way in: the CLI inherits this process's env, so PARAMS_JSON is gone
+    # by the time the agent starts, on the inline path too.
+    assert captured["inherits_params_json"] is False
     assert stat.S_IMODE(os.stat(params_file).st_mode) == 0o444

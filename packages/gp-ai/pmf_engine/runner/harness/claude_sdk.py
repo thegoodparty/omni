@@ -510,6 +510,10 @@ async def run_agent(
     output_dir = os.path.join(workspace_dir, "output")
     os.makedirs(output_dir, exist_ok=True)
     params_file = write_params_file(workspace_dir, params)
+    # The SDK hands the CLI this process's env plus options.env, so PARAMS_JSON
+    # would otherwise still reach the agent's tools beside PARAMS_FILE. Every
+    # experiment reads the file now; config parsing already consumed it.
+    os.environ.pop("PARAMS_JSON", None)
 
     # Extend (don't replace) ALLOWED_TOOLS with manifest-supplied tools.
     # De-dup while preserving order so the assertable shape is stable.

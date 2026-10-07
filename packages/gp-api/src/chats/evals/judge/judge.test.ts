@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { JSONParseError, NoObjectGeneratedError, TypeValidationError } from 'ai'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
+  CaseDimensionCollisionError,
   CaseVerdictSchema,
   caseVerdictSchemaFor,
+  FLAG_TYPES,
   judgeAll,
   judgeCase,
   OVERALL,
@@ -223,6 +226,21 @@ describe('what reaches the model', () => {
     expect(calls[1]?.messages[0]?.content).toContain('artifact')
   })
 
+  // A probe planted something in the input, and a judge left to grade polish
+  // prefers the run that read better while missing what was planted.
+  it('tells an artifact judge a planted condition outranks polish', async () => {
+    const [bgBase, bgCandidate] = BACKGROUND_PAIR
+    const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const background = blindCase(bgBase, bgCandidate, X_IS_BASE)
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(chat), DEFAULT_JUDGE_CONFIG)
+    await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
+    expect(calls[1]?.messages[0]?.content).toMatch(
+      /"Condition:".*handled that condition.*reads better but ignores/s,
+    )
+    expect(calls[0]?.messages[0]?.content).not.toContain('Condition:')
+  })
+
   // The dimension set is config, so a trace dimension switched on later
   // must reach the prompt without a code change.
   it('asks for exactly the configured dimensions', async () => {
@@ -379,6 +397,66 @@ describe('judgeCase', () => {
     expect(result.flags).toEqual([
       expect.objectContaining({ run: 'Y', type: 'restricted_data' }),
     ])
+  })
+})
+
+// The rubric doc's flag list, enforced. A free-text type let one finding
+// arrive under two names, so a flag count did not compare run to run.
+describe('the flag vocabulary', () => {
+  const flagged = (type: string): JsonValue =>
+    reply({
+      flags: [{ run: 'X', type, loc: 'X.final', explanation: 'why' }],
+    })
+
+  it('names every flag type in the prompt', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)))
+    const user = calls[0]?.messages[1]?.content ?? ''
+    expect(user).toContain(`types: ${FLAG_TYPES.join(', ')}.`)
+  })
+
+  it('shows the model the list in the schema it fills', () => {
+    const schema = JSON.stringify(
+      z.toJSONSchema(caseVerdictSchemaFor(DEFAULT_JUDGE_CONFIG.dimensions)),
+    )
+    expect(schema).toContain(JSON.stringify(FLAG_TYPES))
+  })
+
+  // Anthropic's tool mode does not enforce an enum, so an invented type does
+  // arrive, and refusing it would throw away the seat's whole verdict.
+  it('keeps the verdict and replaces an invented type', async () => {
+    const { llm } = fake([flagged('name error inherited')])
+    const result = await judgeCase(
+      llm,
+      plan(blindCase(BASE, CANDIDATE, X_IS_BASE)),
+    )
+    const judgment = graded(result)
+    expect(judgment.flags.map((f) => f.type)).toEqual(['other_severe'])
+    expect(JSON.stringify(judgment)).not.toContain('name error inherited')
+  })
+
+  it('replaces an invented type on a stored verdict too', () => {
+    const parsed = CaseVerdictSchema.parse(flagged('name error propagated'))
+    expect(parsed.flags?.map((f) => f.type)).toEqual(['other_severe'])
+    expect(
+      CaseVerdictSchema.parse(flagged('fabricated_source')).flags?.[0]?.type,
+    ).toBe('fabricated_source')
+  })
+})
+
+describe('an ungraded judgment', () => {
+  it('keeps the slot map, so its stored ruling names the arms', async () => {
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: { seats: [], temperature: 0 },
+    }
+    const planned = plan(blindCase(BASE, CANDIDATE, X_IS_BASE))
+    const { llm } = fake([reply()])
+    const result = await judgeCase(llm, planned, config)
+    expect(result).toMatchObject({
+      kind: 'ungraded',
+      slotMap: planned.slotMap,
+    })
   })
 })
 
@@ -769,5 +847,102 @@ describe('a truncated response is not called a rubric failure', () => {
     for (const dimension of DEFAULT_JUDGE_CONFIG.dimensions) {
       expect(reason).not.toContain(dimension)
     }
+  })
+})
+
+// A probe asks about a relationship between the artifact and the input it
+// mutated, which the three default dimensions do not. The case's own question
+// has to reach the prompt, be required by the schema the seat is held to, and
+// come back combined — or the judge is asked it in prose and answers nothing.
+describe('a case with dimensions of its own', () => {
+  const sparse = {
+    name: 'sparse_input_handling',
+    question: 'Does the run say which opponents had too little to summarize?',
+  }
+  const withSparse = (): NormalizedCase => {
+    const normalized = blindCase(
+      BACKGROUND_PAIR[0],
+      BACKGROUND_PAIR[1],
+      X_IS_BASE,
+    )
+    return {
+      ...normalized,
+      payload: { ...normalized.payload, caseDimensions: [sparse] },
+    }
+  }
+  const sparseReply = (verdict: string): JsonValue =>
+    reply({
+      dimensions: {
+        task_success: dim('tie', null),
+        instruction_adherence: dim('tie', null),
+        user_utility: dim('X'),
+        sparse_input_handling: dim(verdict),
+      },
+    })
+
+  it('puts the question in the rubric and the name in the list', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG)
+    const prompt = calls[0]?.messages[1]?.content
+    expect(prompt).toContain(
+      'dimensions: task_success, instruction_adherence, user_utility, ' +
+        'sparse_input_handling.',
+    )
+    expect(prompt).toContain(`- sparse_input_handling: ${sparse.question}`)
+  })
+
+  it('holds the seat to answering it', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG)
+    expect(calls[0]?.schemaAccepts(reply())).toBe(false)
+    expect(calls[0]?.schemaAccepts(sparseReply('Y'))).toBe(true)
+  })
+
+  it('combines it beside the defaults', async () => {
+    const { llm } = fake([sparseReply('Y')])
+    const judgment = graded(
+      await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG),
+    )
+    expect(judgment.dimensions.sparse_input_handling?.verdict).toBe('Y')
+    expect(judgment.dimensions.user_utility?.verdict).toBe('X')
+  })
+
+  it('survives the order swap', () => {
+    const swapped = planJudgments([withSparse()], {
+      ...DEFAULT_JUDGE_CONFIG,
+      orderSwap: { enabled: true, fraction: 1 },
+    }).find((p) => p.key.order === 'swapped')
+    expect(swapped?.payload.caseDimensions).toEqual([sparse])
+  })
+
+  // The case list only knows the default config. A config judging on other
+  // names has to refuse a case that reuses one, before any seat is paid.
+  it('refuses a name the active config already judges on', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      dimensions: [...DEFAULT_JUDGE_CONFIG.dimensions, sparse.name],
+    }
+    await expect(judgeCase(llm, plan(withSparse()), config)).rejects.toThrow(
+      CaseDimensionCollisionError,
+    )
+    await expect(judgeCase(llm, plan(withSparse()), config)).rejects.toThrow(
+      /meeting_briefing\/brief-2025-11-04 asks sparse_input_handling/,
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  it('leaves a case without them asking exactly what it asked before', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(
+      llm,
+      plan(blindCase(BACKGROUND_PAIR[0], BACKGROUND_PAIR[1], X_IS_BASE)),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    const prompt = calls[0]?.messages[1]?.content ?? ''
+    expect(prompt).toContain(
+      'dimensions: task_success, instruction_adherence, user_utility. Then',
+    )
+    expect(prompt).not.toContain('This case was written to test')
   })
 })

@@ -614,3 +614,206 @@ def test_markdown_is_capped_with_a_pointer_to_the_job_summary():
     capped = gg.render_markdown(report, limit=gg.COMMENT_LIMIT)
     assert len(full) > gg.COMMENT_LIMIT >= len(capped)
     assert "job summary" in capped and capped.startswith("<!-- analytics-guard -->")
+
+
+def test_snapshot_carries_route_texts_and_the_product_map():
+    snap = gg.build_snapshot(tree({
+        "packages/gp-webapp/app/dashboard/page.tsx": "export default function P() { return <div/> }",
+        "packages/gp-webapp/app/dashboard/components/Card.tsx": "export const Card = 1",
+        gg.PRODUCT_MAP: "name: 'Profile',\n    path: '/dashboard/profile',",
+    }))
+    assert set(snap.route_texts) == {"packages/gp-webapp/app/dashboard/page.tsx"}
+    assert "Profile" in snap.product_map
+
+
+SURFACE_REG = """export const EVENTS = {
+  Office: {
+    Searched: 'Onboarding - Candidate Office Searched',
+  },
+}
+"""
+APPD = "packages/gp-webapp/app/"
+OFFICE_STEP = APPD + "onboarding/step/components/OfficeStep.tsx"
+LIVE_ONBOARDING = {
+    APPD + "onboarding/step/page.tsx": "import OfficeStep from './components/OfficeStep'\nexport default function P() { return <OfficeStep/> }",
+    OFFICE_STEP: "export default function OfficeStep() { trackEvent(EVENTS.Office.Searched) }",
+    APPD + "dashboard/profile/page.tsx": "import OfficeStep from 'app/onboarding/step/components/OfficeStep'\nexport default function P() { return <OfficeStep/> }",
+}
+REDIRECTED = dict(LIVE_ONBOARDING)
+REDIRECTED[APPD + "onboarding/step/page.tsx"] = "import { redirect } from 'next/navigation'\nexport default async function P(): Promise<never> {\n  redirect('/x')\n}\n"
+GOOD_ROW = '  - {event: "Onboarding - Candidate Office Searched", surface: "step", display_name: "Profile - Candidate Office Searched", reason: "moved to profile", date: "2026-10-02"}\n'
+
+
+def _surface_report(base_files, head_files, head_watchlist=WATCHLIST_YAML):
+    base = gg.build_snapshot(tree(base_files, web=SURFACE_REG))
+    head = gg.build_snapshot(tree(head_files, web=SURFACE_REG, watchlist=head_watchlist))
+    return gg.evaluate(base, head, {"m": [sa.Leg("Some - Okr")]}, "2026-10-01", {})
+
+
+def test_redirecting_the_old_page_warns_surface_moved():
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED)
+    hits = [f for f in report.warns if f.rule == "surface_moved"]
+    assert [f.event for f in hits] == ["Onboarding - Candidate Office Searched"]
+    assert "do not rename" in hits[0].fix.lower()
+    assert not report.blocks
+
+
+def test_mounting_on_one_more_page_does_not_warn():
+    base = {k: v for k, v in LIVE_ONBOARDING.items() if "dashboard/profile" not in k}
+    report = _surface_report(base, LIVE_ONBOARDING)
+    assert not [f for f in report.warns if f.rule == "surface_moved"]
+
+
+def test_reviving_a_dead_component_elsewhere_warns():
+    base = {k: v for k, v in REDIRECTED.items() if "dashboard/profile" not in k}
+    report = _surface_report(base, REDIRECTED)
+    assert [f.event for f in report.warns if f.rule == "surface_moved"] == ["Onboarding - Candidate Office Searched"]
+
+
+def test_flow_prefix_events_are_skipped():
+    watch = WATCHLIST_YAML + "flow_prefixes:\n  - Onboarding\n"
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    assert not [f for f in report.warns if f.rule == "surface_moved"]
+
+
+def test_a_relabel_row_added_in_the_change_clears_the_warning():
+    watch = "events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n" + GOOD_ROW.replace('"step"', '"profile"')
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    assert not [f for f in report.warns if f.rule == "surface_moved"]
+    assert [f.rule for f in report.cleared] == ["surface_moved"]
+
+
+def test_a_relabel_row_with_an_unknown_surface_is_invalid():
+    watch = "events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n" + GOOD_ROW.replace('"step"', '"nowhere-at-all"')
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    rules = sorted(f.rule for f in report.warns)
+    assert "invalid_relabel" in rules
+    assert "surface_moved" in rules
+
+
+def test_a_relabel_row_with_a_placeholder_is_invalid():
+    watch = ("events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n"
+             + GOOD_ROW.replace('"step"', '"profile"').replace('"moved to profile"', '"<why>"'))
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch)
+    assert any(f.rule == "invalid_relabel" for f in report.warns)
+
+
+def test_examined_counts_traced_events():
+    report = _surface_report(LIVE_ONBOARDING, REDIRECTED)
+    assert report.examined["surface_traced"] == 1
+    assert "traced 1 webapp events" in gg.render_markdown(report)
+
+
+def test_the_relabel_fix_proposes_the_label_slug_not_the_alphabetically_first_name():
+    import event_reach as er
+    area = er.Area("/dashboard/profile", "Profile", frozenset({"profile", "my-profile"}))
+    after = er.Reach(areas=(area,), live_routes=frozenset({"/dashboard/profile"}), dead_routes=frozenset(),
+                     gap_files=frozenset(), dashboard_wide=False, visited=frozenset())
+    fix = gg._relabel_fix("Onboarding - Candidate Office Searched", after)
+    assert 'surface: "profile"' in fix
+    assert 'display_name: "Profile - Candidate Office Searched"' in fix
+
+
+def test_a_crash_in_the_surface_pass_warns_once_and_keeps_every_okr_block(monkeypatch):
+    import event_reach as er
+    cc = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
+    base = gg.build_snapshot(tree({TASKFLOW: cc, MODAL: cc}))
+    head = gg.build_snapshot(tree({MODAL: cc}))
+    expected = gg.evaluate(base, head, LEGS, "2026-10-01", renames={})
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("reach blew up")
+    monkeypatch.setattr(er, "ReachIndex", boom)
+    report = gg.evaluate(base, head, LEGS, "2026-10-01", renames={})
+    assert [f.rule for f in report.blocks] == [f.rule for f in expected.blocks]
+    assert "okr_call_site_lost" in [f.rule for f in report.blocks]
+    failed = [f for f in report.warns if f.rule == "surface_check_failed"]
+    assert len(failed) == 1 and "RuntimeError: reach blew up" in failed[0].detail
+    assert [f for f in report.warns if f.rule != "surface_check_failed"] == expected.warns
+    assert report.cleared == expected.cleared
+    assert report.examined["surface_traced"] == 0
+    assert f"#### {gg._TITLES['surface_check_failed']}" in gg.render_markdown(report)
+
+
+def test_the_cleared_heading_covers_relabel_rows_too():
+    watch = "events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n" + GOOD_ROW.replace('"step"', '"profile"')
+    md = gg.render_markdown(_surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch))
+    assert "**Cleared by a row in this change**" in md
+
+
+SECTION = "packages/gp-webapp/app/dashboard/plan/Section.tsx"
+HOOK = "packages/gp-webapp/app/dashboard/plan/useCompleteTask.tsx"
+CC = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
+
+
+def _moved_row(to: str) -> str:
+    return ('  - {event: "Voter Outreach - Campaign Completed", intent: moved, '
+            f'to: "{to}", reason: "pulled into a hook", date: "2026-10-06"}}\n')
+
+
+def _hook_refactor(rows: str = "", hook_imported: bool = True):
+    base = gg.build_snapshot(tree({SECTION: CC}, watchlist=_wl("")))
+    section = "import { useCompleteTask } from './useCompleteTask'" if hook_imported else "noop()"
+    head = gg.build_snapshot(tree({SECTION: section, HOOK: CC}, watchlist=_wl(rows)))
+    events, paths = gg.watched_legs(LEGS)
+    return base, head, gg.okr_findings(base, head, events, paths, renames={})
+
+
+def test_a_call_moved_into_a_hook_offers_the_one_line_moved_row_first():
+    _, _, [f] = _hook_refactor()
+    assert f.fix.startswith("Moved the call into another file")
+    assert f'intent: moved, to: "{HOOK}"' in f.fix
+
+
+def test_a_removal_with_no_new_call_site_does_not_offer_moved():
+    base = gg.build_snapshot(tree({TASKFLOW: CC, MODAL: CC}))
+    head = gg.build_snapshot(tree({MODAL: CC}))
+    events, paths = gg.watched_legs(LEGS)
+    [f] = gg.okr_findings(base, head, events, paths, renames={})
+    assert "intent: moved" not in f.fix
+
+
+def test_one_moved_row_clears_the_finding_for_every_metric():
+    base, head, [f] = _hook_refactor(_moved_row(HOOK))
+    f = gg.Finding(f.rule, f.level, f.event, f.detail, f.fix,
+                   ("win_activated_users", "win_product_output_users"))
+    remaining, cleared = gg.apply_intents([f], base, head)
+    assert remaining == [] and cleared == [f]
+
+
+def test_a_moved_row_naming_a_file_that_gained_nothing_is_refused():
+    base, head, [f] = _hook_refactor(_moved_row(MODAL))
+    remaining, cleared = gg.apply_intents([f], base, head)
+    assert cleared == [] and sorted(x.rule for x in remaining) == ["invalid_intent", "okr_call_site_lost"]
+
+
+def test_a_moved_row_naming_a_file_nothing_imports_is_refused():
+    base, head, [f] = _hook_refactor(_moved_row(HOOK), hook_imported=False)
+    remaining, _ = gg.apply_intents([f], base, head)
+    assert "invalid_intent" in {x.rule for x in remaining}
+
+
+def test_a_moved_row_does_not_clear_a_removed_page():
+    base, head, _ = _hook_refactor(_moved_row(HOOK))
+    f = gg.Finding("okr_page_removed", "block", "Voter Outreach - Campaign Completed", "x", "fix",
+                   ("win_activated_users",))
+    remaining, _ = gg.apply_intents([f], base, head)
+    assert [x.rule for x in remaining if x.level == "block"] == ["okr_page_removed"]
+
+
+def test_copying_the_suggested_moved_row_with_its_placeholders_does_not_clear_it():
+    base, _, [f] = _hook_refactor()
+    row = next(line for line in f.fix.splitlines() if "intent: moved" in line)
+    head = gg.build_snapshot(tree({SECTION: "import { useCompleteTask } from './useCompleteTask'", HOOK: CC},
+                                  watchlist=_wl(row + "\n")))
+    remaining, cleared = gg.apply_intents([f], base, head)
+    assert cleared == [] and "invalid_intent" in {x.rule for x in remaining}
+
+
+def test_an_unimported_call_site_file_is_not_offered_moved():
+    base = gg.build_snapshot(tree({SECTION: CC, "packages/gp-webapp/app/dashboard/plan/page.tsx":
+                                   "import S from './Section'"}))
+    head = gg.build_snapshot(tree({SECTION: CC, HOOK: CC}))
+    events, paths = gg.watched_legs(LEGS)
+    [f] = gg.okr_findings(base, head, events, paths, renames={})
+    assert f.rule == "okr_file_unused" and "intent: moved" not in f.fix

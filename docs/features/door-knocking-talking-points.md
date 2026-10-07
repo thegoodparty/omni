@@ -427,8 +427,9 @@ Rules beyond the shared non-partisan/no-invention baseline:
   stumble mid-sentence — but the wizard still highlights unfilled brackets
   before the paid press.
 
-**Purpose copy** is two records keyed on the nine slugs (Win six, Serve six,
-overlapping on `introduce_myself`, `event_invite`, `custom`), following phone
+**Purpose copy** is two records keyed on the nine slugs (Win seven, Serve six,
+overlapping on `introduce_myself`, `event_invite`, `community_input`,
+`custom`), following phone
 banking's `WIN_PURPOSE_PROMPTS` convention. It steers the Ask, which is where
 purpose earns its keep — an `election_day_turnout` ask seeks a commitment to
 vote, an `event_invite` ask carries logistics, a `community_input` ask is a

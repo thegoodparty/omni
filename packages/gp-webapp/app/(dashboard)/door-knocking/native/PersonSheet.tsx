@@ -29,7 +29,8 @@ import {
   demographicFacts,
   voterDemographicFacts,
 } from './demographicFacts'
-import RecordKnockForm from './RecordKnockForm'
+import RecordKnockForm, { type KnockDraft } from './RecordKnockForm'
+import type { UnsavedDrafts } from 'app/(dashboard)/shared/useUnsavedDrafts'
 import {
   FOLLOW_UP_OPTIONS,
   FOLLOW_UP_QUESTION,
@@ -209,6 +210,9 @@ interface PersonSheetProps {
   onSelectTarget: (targetId: number) => void
   statusFor: (target: RoutePayloadTarget) => DoorKnockStatus
   clientKeyFor: (targetId: number) => string
+  // Owned above this sheet, which closes between doors and goes with the
+  // walk list at `peek`, so neither can hold what a door left unsaved.
+  knockDrafts?: UnsavedDrafts<KnockDraft>
   onRecorded: (
     targetId: number,
     personId: string,
@@ -312,6 +316,7 @@ export default function PersonSheet({
   onSelectTarget,
   statusFor,
   clientKeyFor,
+  knockDrafts,
   onRecorded,
   onNoteCreated,
   onNoteUpdated,
@@ -793,6 +798,7 @@ export default function PersonSheet({
                 onRecorded={(personId, knockStatus) =>
                   onRecorded(target.stopTargetId, personId, knockStatus)
                 }
+                drafts={knockDrafts}
               />
               {/* Below the form, because it is a follow-up to what the form
                   just recorded — it renders nothing until this door is logged

@@ -25,7 +25,13 @@ env files exist, it fails closed rather than boot with nothing to work from.
 When a `degradable` var that declares a `placeholder` in its env contract
 (e.g. `ANTHROPIC_API_KEY` for AI chat) is still at that placeholder, the env
 step names the feature that will stay off; the fix is adding the key to
-`LOCAL_DEV_ENV`, not editing `.env` by hand.
+`LOCAL_DEV_ENV`, not editing `.env` by hand. A re-run skips a `.env` that
+already validates, so a key added to `LOCAL_DEV_ENV` after your first run
+only reaches you with `npm run setup -- --secrets-only --refresh`, which
+fetches the bundle again and lays it over your files, keeping every value
+the bundle doesn't carry. The same fetch writes the Grafana MCP token to
+`.env.mcp.local` at the repo root, so your agent can read logs
+(`docs/mcp.md`); restart Claude Code after it lands.
 election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.

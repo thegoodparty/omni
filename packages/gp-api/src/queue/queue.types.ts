@@ -1,3 +1,4 @@
+import type { FeedbackSynthesisCompleteEvent } from '@goodparty_org/contracts'
 import { TcrCompliance } from '../generated/prisma'
 import z from 'zod'
 import { ISO_DATE_ONLY_RE } from '../shared/util/date.util'
@@ -7,6 +8,10 @@ export enum QueueType {
   TCR_COMPLIANCE_STATUS_CHECK = 'tcrComplianceStatusCheck',
   DOMAIN_EMAIL_FORWARDING = 'domainEmailForwarding',
   POLL_ANALYSIS_COMPLETE = 'pollAnalysisComplete',
+  // Published by the polls synthesis pipeline when it has grouped an issue
+  // capture run's memos. Shape: FeedbackSynthesisCompleteEventSchema in
+  // @goodparty_org/contracts.
+  FEEDBACK_SYNTHESIS_COMPLETE = 'feedbackSynthesisComplete',
   POLL_CREATION = 'pollCreation',
   POLL_EXPANSION = 'pollExpansion',
   CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
@@ -26,6 +31,12 @@ export enum QueueType {
   // scrub opt-outs, write the CSV and hand it to fulfilment. Product-
   // agnostic — the handler reads the outreach type off the row.
   OUTREACH_TEXT_SEND = 'outreachTextSend',
+  // The P2P phone-list build, moved off the POST request into the queue
+  // behind a kill switch (Voter Outreach 2.0). Carries only the build row's
+  // id — everything the build needs (the validated request, the campaign,
+  // the org) is read back off that row, so a redelivered message can't act
+  // on stale content.
+  P2P_PHONE_LIST_BUILD = 'p2pPhoneListBuild',
 }
 
 export type QueueMessage =
@@ -41,6 +52,10 @@ export type QueueMessage =
   | {
       type: QueueType.POLL_ANALYSIS_COMPLETE
       data: PollAnalysisCompleteEvent['data']
+    }
+  | {
+      type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE
+      data: FeedbackSynthesisCompleteEvent['data']
     }
   | { type: QueueType.POLL_CREATION; data: PollCreationEvent['data'] }
   | { type: QueueType.POLL_EXPANSION; data: PollExpansionEvent['data'] }
@@ -91,6 +106,10 @@ export type QueueMessage =
   | {
       type: QueueType.EXTRACT_CHAT_ATTACHMENT
       data: ExtractChatAttachmentMessage
+    }
+  | {
+      type: QueueType.P2P_PHONE_LIST_BUILD
+      data: P2pPhoneListBuildMessage
     }
 
 export type GenerateAiContentMessageData = {
@@ -228,6 +247,7 @@ export enum MessageGroup {
   cvStatusPoll = 'cvStatusPoll',
   extractChatAttachment = 'extractChatAttachment',
   campaignStoryCompleted = 'campaignStoryCompleted',
+  p2pPhoneListBuild = 'p2pPhoneListBuild',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -314,4 +334,12 @@ export const ExtractChatAttachmentMessageSchema = z.object({
 })
 export type ExtractChatAttachmentMessage = z.infer<
   typeof ExtractChatAttachmentMessageSchema
+>
+
+// The build row id only — see QueueType.P2P_PHONE_LIST_BUILD.
+export const P2pPhoneListBuildMessageSchema = z.object({
+  buildId: z.string().uuid(),
+})
+export type P2pPhoneListBuildMessage = z.infer<
+  typeof P2pPhoneListBuildMessageSchema
 >

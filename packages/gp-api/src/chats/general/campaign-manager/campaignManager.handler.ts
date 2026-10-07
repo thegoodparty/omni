@@ -1,11 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import {
-  differenceInCalendarDays,
-  differenceInCalendarWeeks,
-  isValid,
-  parseISO,
-} from 'date-fns'
-import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
@@ -47,6 +41,8 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
+import { buildCampaignManagerOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
@@ -148,21 +144,6 @@ const EMPTY_STORY_STATE: StoryState = {
   missing: ['why', 'background', 'positions'],
 }
 
-// details is a raw JSON blob with no schema at this call site, so a
-// human-patched or differently-formatted date parses to an Invalid Date and the
-// difference comes back NaN. NaN is not null, so it would slip past every
-// null-guard downstream and land in the system prompt as "NaN days from today".
-// Return null for anything unparseable and let the prompt say it does not know.
-const calendarDaysUntil = (iso: string): number | null => {
-  const parsed = parseISO(iso)
-  return isValid(parsed) ? differenceInCalendarDays(parsed, new Date()) : null
-}
-
-const calendarWeeksUntil = (iso: string): number | null => {
-  const parsed = parseISO(iso)
-  return isValid(parsed) ? differenceInCalendarWeeks(parsed, new Date()) : null
-}
-
 // Native web search only exists when the Anthropic key is configured. Read in
 // one place so the prompt's guidance and the tool registration can never
 // disagree about whether the manager can search.
@@ -176,11 +157,13 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   district: null,
   officeLevel: null,
   location: null,
-  weeksToElection: null,
+  electionDate: null,
+  primaryElectionDate: null,
+  primaryResult: null,
+  didWin: null,
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
-  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
@@ -203,6 +186,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   readonly scope = ChatScope.campaign_assistant
   readonly isSensitive = true
   readonly models = [...CAMPAIGN_MANAGER_MODELS]
+  // The default 5 steps ran out mid-outreach: describe, count, size, then
+  // save or present is already four tool calls before any retry or search,
+  // and a turn that runs out of steps ends without presenting anything.
+  readonly maxSteps = 15
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -301,7 +288,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         ])
       : [null, null]
     const details = campaign.details
-    const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
     const ballotStatus = parseBallotStatus(campaign.ballotStatus)
@@ -345,13 +331,17 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       district: details.district ?? null,
       officeLevel: details.ballotLevel ?? null,
       location,
-      weeksToElection: electionDate ? calendarWeeksUntil(electionDate) : null,
+      state: details.state ?? null,
+      // The record as stored. The prompt builder parses and counts from these
+      // against the candidate's local day, so an unparseable value reads as no
+      // date there rather than becoming NaN here.
+      electionDate: details.electionDate ?? null,
+      primaryElectionDate: details.primaryElectionDate ?? null,
+      primaryResult: campaign.primaryResult ?? null,
+      didWin: campaign.didWin ?? null,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,
       filingPeriodEnd: details.filingPeriodsEnd ?? null,
-      daysToFilingDeadline: details.filingPeriodsEnd
-        ? calendarDaysUntil(details.filingPeriodsEnd)
-        : null,
       topTasks: selectTopDynamicTasks(tasks).map((t) => ({
         title: t.title,
         date: t.date,
@@ -374,7 +364,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   }
 
   buildSystemPrompt(ctx: CampaignManagerContext): string {
-    return buildCampaignManagerSystemPrompt(ctx)
+    return buildCampaignManagerSystemPrompt(
+      ctx,
+      Object.keys(this.buildTools(ctx)),
+    )
   }
 
   buildTools(ctx: CampaignManagerContext): Record<string, LlmTool> {
@@ -448,22 +441,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // No voter file tool registers when the campaign is known not to have
-    // access, the open catalog included: a catalog whose output this
-    // campaign cannot act on reads to the model as a menu to walk through,
-    // and what filtering covers is one line in the product map instead.
-    // Saved lists too: without Pro the service refuses every saved-list
-    // action except listing names, so the tool here would be a list of names
-    // the campaign cannot count, edit, or use, one more menu it cannot act
-    // on. Only a known false gates. An unknown flag
-    // arises only when no campaign resolved, which also turns these tools
-    // off, so the service stays the deciding check.
-    if (
-      this.contacts &&
-      ctx.crmToolsEnabled &&
-      ctx.organization &&
-      ctx.isPro !== false
-    ) {
+    // A campaign without Pro can still count, size a sample and be shown a
+    // text card: the count service is open to it (the outreach build path
+    // prices a list before the upgrade) and the card's own button takes it
+    // to the Pro gate. Only the tools whose services refuse it stay Pro:
+    // precincts and saved-list management. Only a known false gates; an
+    // unknown flag arises only when no campaign resolved, which turns every
+    // one of these off anyway.
+    if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
+      const isPro = ctx.isPro !== false
       const filterTools: Record<string, LlmTool> = {}
       filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
@@ -473,14 +459,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       // tools: it IS the vocabulary read for the one dimension the catalog
       // cannot carry, and a count is as entitled to a precinct as a saved
       // list is.
-      filterTools.list_precincts = buildListPrecinctsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
+      if (isPro) {
+        filterTools.list_precincts = buildListPrecinctsTool({
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+      }
       // Saved-filter CRUD goes through the same VoterFileFilterService
       // paths as the voter-file routes (Pro gate, completed-outreach
       // validation, org scoping, locked-filter conflict all inherited).
-      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+      if (isPro && this.voterFileFilters && ctx.savedFilterToolsEnabled) {
         filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
@@ -496,6 +484,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         filterConsumers: registeredFilterConsumers(filterTools),
       })
       Object.assign(tools, filterTools)
+      // The card's text flow saves the list through the voter-file route,
+      // which a free campaign can use too, so this follows the saved-list
+      // signal rather than the Pro-only tool.
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+        tools.size_outreach_sample = buildSizeOutreachSampleTool()
+        tools.present_outreach_proposal =
+          buildCampaignManagerOutreachProposalTool()
+      }
     }
 
     return tools

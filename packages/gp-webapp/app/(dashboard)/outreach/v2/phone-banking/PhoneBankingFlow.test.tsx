@@ -52,6 +52,12 @@ vi.mock('app/(dashboard)/shared/dictation/useDictationAppend', () => ({
   }),
 }))
 
+// The question-asking card is offered only where issue capture is on; these
+// cases pick it, so the flag is on here.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
 // useListWizardCount (reached in the audience builder) reads the active org
 // slug — same precedent as RobocallFlow.test.tsx.
 vi.mock('@shared/organization-picker', () => ({
@@ -282,9 +288,46 @@ describe('PhoneBankingFlow', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Go to call list' }))
+    // The envelope rides along: the list read carries none, and it is how
+    // the caller page links to what people said on the list.
     expect(router.push).toHaveBeenCalledWith(
-      `/outreach/phone-banking/${createResponse.id}`,
+      `/outreach/phone-banking/${createResponse.id}?outreachId=${createResponse.outreachId}`,
     )
+  })
+
+  it('sends the hear-from-voters question with the Win create', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(10)
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openFlow()
+
+    await user.click(
+      await screen.findByRole('button', { name: /Hear from voters/i }),
+    )
+    const question = 'How do you feel about the road bond?'
+    await user.type(await screen.findByLabelText('The question'), question)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Who do you want to reach?')
+    await pickSavedListAndContinue('Likely Dems')
+
+    await screen.findAllByText('Write your call script')
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(createCalls[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
   })
 
   // Win's create is strict, and a chat card's link is Serve's: none of it,
@@ -663,6 +706,114 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  // A reply held until the candidate has acted, so the test can edit while
+  // the call is still in flight.
+  const mockHeldImprove = () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/phone-banking/draft', async ({ body }) => {
+      if (body.currentDraft === undefined) {
+        return { status: 200, data: { draft: draftFor(body) } }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { draft: 'The AI rewrite.' } }
+    })
+    return { release, answered }
+  }
+
+  it('keeps what the candidate types while Improve is running', async () => {
+    const { release, answered } = mockHeldImprove()
+    openFlow()
+    await advanceToScript()
+    const initialDraft = draftFor({ purpose: 'introduce_myself', tone: 'warm' })
+    await waitFor(() => expect(scriptText()).toBe(initialDraft))
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        initialDraft.length + 1,
+        ' Sarah Chen will call at 5pm.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(scriptText()).toMatch(/Sarah Chen will call at 5pm\./)
+    expect(scriptText()).not.toMatch(/The AI rewrite/)
+  })
+
+  // A call the candidate edited past can still fail. Its error must not
+  // come back over words they already fixed.
+  it("keeps the candidate's words when a superseded call fails late", async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/phone-banking/draft', async ({ body }) => {
+      if (body.currentDraft === undefined) {
+        return { status: 200, data: { draft: draftFor(body) } }
+      }
+      await held
+      answered.done = true
+      return {
+        status: 502,
+        data: { message: 'Phone banking draft generation failed' },
+      }
+    })
+    openFlow()
+    await advanceToScript()
+    const initialDraft = draftFor({ purpose: 'introduce_myself', tone: 'warm' })
+    await waitFor(() => expect(scriptText()).toBe(initialDraft))
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        initialDraft.length + 1,
+        ' Sarah Chen will call at 5pm.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(
+      screen.queryByText(/We couldn.t draft your script just now/),
+    ).not.toBeInTheDocument()
+    expect(scriptText()).toMatch(/Sarah Chen will call at 5pm\./)
+  })
+
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes.
+  it('clears the draft error once the candidate types', async () => {
+    api.mock('POST /v1/outreach/phone-banking/draft', {
+      status: 502,
+      data: { message: 'Phone banking draft generation failed' },
+    })
+    openFlow()
+    await advanceToScript()
+
+    expect(
+      await screen.findByText(/We couldn.t draft your script just now/),
+    ).toBeInTheDocument()
+
+    typeScript('This is Sarah Chen, calling about the roads.')
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn.t draft your script just now/),
+      ).not.toBeInTheDocument(),
+    )
+  })
   it('sends trimmed instructions on Regenerate and Improve with AI, omitting them when blank', async () => {
     const draftCalls = mockDraft()
     openFlow()

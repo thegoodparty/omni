@@ -1367,6 +1367,18 @@ describe('<ChiefOfStaffChatBody>', () => {
           },
         },
       })
+      // The drawing surface draws the list's whole audience, not its members.
+      api.mock('POST /v1/contacts/points', {
+        status: 200,
+        data: {
+          points: people.map((person) => ({
+            id: person.id,
+            lat: 44.7593,
+            lng: -85.6175,
+          })),
+          truncated: false,
+        },
+      })
     }
 
     // The tool's ARGS are the payload, so the card can render from the live
@@ -1468,7 +1480,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_map" />)
 
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
 
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
@@ -1495,7 +1507,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1589,7 +1601,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_two" />)
 
       const buttons = await screen.findAllByRole('button', {
-        name: /draw an area/i,
+        name: /draw shapes/i,
       })
       expect(buttons).toHaveLength(2)
 
@@ -1599,7 +1611,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       // Both, including the one that opened it: re-clicking its own card
       // would remount the overlay just as readily.
       expect(
-        screen.queryAllByRole('button', { name: /draw an area/i }),
+        screen.queryAllByRole('button', { name: /draw shapes/i }),
       ).toHaveLength(0)
     })
 
@@ -1653,7 +1665,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_saved" />)
 
       await user.click(
-        await screen.findByRole('button', { name: /edit area/i }),
+        await screen.findByRole('button', { name: /edit shapes/i }),
       )
       await user.click(
         await within(await screen.findByTestId('boundary-overlay')).findByRole(
@@ -1674,6 +1686,68 @@ describe('<ChiefOfStaffChatBody>', () => {
       // Hidden: the holder drew, they did not type.
       expect(screen.queryByText(/I drew an area on the map/)).toBeNull()
       await screen.findByText('That leaves 412 constituents.')
+    })
+
+    // A list the agent offers is saved by a button, not by a typed "yes",
+    // and the card turns into the list's map. The conversation is told, in a
+    // hidden turn, because the write itself touches nothing the model sees.
+    it('creates an offered list from its card and tells the conversation', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      api.mock(
+        'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey',
+        { status: 404, data: {} as never },
+      )
+      api.mock('POST /v1/voters/voter-file/filter', {
+        status: 200,
+        data: { id: LIST.listId, name: LIST.name } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'Saved. Draw an area to narrow it.' },
+          { type: 'done', assistantMessageId: 'a_created' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'cut me renters'),
+        msg('assistant', 'Here is the list.', {
+          id: 'a_offer',
+          segments: [
+            { kind: 'text', text: 'Here is the list.' },
+            {
+              kind: 'tool',
+              toolName: 'present_list_proposal',
+              toolCallId: 'call_offer',
+              payload: {
+                name: LIST.name,
+                summary: 'Renters in the district.',
+                count: 1200,
+                filters: { homeownerNo: true },
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_offer" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Create list' }),
+      )
+
+      expect(
+        await screen.findByRole('button', { name: /draw shapes/i }),
+      ).toBeInTheDocument()
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card.`,
+          }),
+        ),
+      )
+      expect(screen.queryByText(/I created the list/)).toBeNull()
     })
 
     // The drawer is mounted by the body so it survives a turn committing
@@ -1737,7 +1811,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       // Draw and save while the first turn is still streaming.
       await user.click(
-        await screen.findByRole('button', { name: /edit area/i }),
+        await screen.findByRole('button', { name: /edit shapes/i }),
       )
       await user.click(
         await within(await screen.findByTestId('boundary-overlay')).findByRole(
@@ -1790,7 +1864,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       // The card itself renders — only the button waits.
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1832,7 +1906,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       // Opened while the turn is still streaming, off the live card.
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
 
@@ -2125,6 +2199,71 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
       ),
     )
   })
+})
+
+describe('<ChiefOfStaffChatBody> upload racing the status poll', () => {
+  it('shows one chip when the poll returns the row before the upload resolves', async () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const polled = vi.fn()
+    api.mock('GET /v1/chats/:conversationId/attachments', () => {
+      polled()
+      return {
+        status: 200,
+        data: {
+          attachments: [
+            {
+              id: 'att-1',
+              source: 'upload',
+              sourceUrl: null,
+              fileName: 'budget.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 1,
+              pageCount: null,
+              status: 'ready',
+              failureReason: null,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      }
+    })
+    let resolveUpload: (value: unknown) => void = () => undefined
+    uploadAttachmentMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpload = resolve
+      }),
+    )
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+
+    fireEvent.drop(container.firstElementChild as HTMLElement, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [new File(['x'], 'budget.pdf', { type: 'application/pdf' })],
+      },
+    })
+    await waitFor(() => expect(polled).toHaveBeenCalled(), { timeout: 5_000 })
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+      ).toHaveLength(2),
+    )
+
+    resolveUpload({
+      id: 'att-1',
+      fileName: 'budget.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    // With every row ready the poll stops, so a duplicate would stay put.
+    await new Promise((resolve) => setTimeout(resolve, 3_500))
+    expect(
+      screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+    ).toHaveLength(1)
+  }, 15_000)
 })
 
 describe('<ChiefOfStaffChatBody> link attachments', () => {

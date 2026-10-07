@@ -37,6 +37,13 @@ Before opening a PR, run the full gate locally. From the repo root:
 npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
 ```
 
+**If you added or renamed a controller, run `npm run generate` first.**
+`src/generated/route-types.ts` is gitignored and built by
+`scripts/generate-route-types.ts`, and the alerting ownership tests read
+`CONTROLLER_NAMES` from it. CI always generates fresh, so a stale local copy
+makes those tests pass here and fail there — a new controller with no entry in
+`CONTROLLER_OWNERS` is invisible until the PR is already open.
+
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
 against a shadow DB; a `Test` job fans the vitest suite across 2 shards
@@ -44,6 +51,10 @@ against a shadow DB; a `Test` job fans the vitest suite across 2 shards
 about 4-5 min of wall clock; and an empty `Validate` gate `needs` both so the
 branch-protection-required `Validate` check is green only when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
+
+`lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
+the whole package peaks right at Node's default ~4 GB, so without it lint dies
+with a heap-out-of-memory crash (exit 134) on a laptop just as it did in CI.
 
 The unit-test DB is provisioned by cloning a schema template, not by replaying
 every migration per suite. `vitest.config.ts` runs `src/test-global-setup.ts`
@@ -172,6 +183,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |
+| Speech: dictation, text to speech, recordings            | `src/speech/AGENTS.md`                               |
 | Schema / migrations                                      | `prisma/AGENTS.md`                                   |
 | `@goodparty_org/contracts`                               | `contracts/AGENTS.md` + `docs/contracts.md`          |
 | Pulumi / Docker / Grafana                                | `deploy/AGENTS.md`                                   |

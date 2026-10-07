@@ -3,6 +3,7 @@ import {
   PRIORITY_GATE_STEPS,
   PRIORITY_STEP_LABELS,
   ProposalChannelSchema,
+  SMS_COMPOSED_MAX_LENGTH,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import type { ProposalChannel } from '@goodparty_org/contracts'
@@ -21,10 +22,12 @@ const priorityProposalInput = OutreachProposalSchema.omit({
     'main for the most-affected group, contrast for the least-affected one.',
   ),
 })
-// Outside a priority there is no check for a send to put out.
+// Outside a priority there is no check for a send to put out, and so no
+// earlier sample of one to widen.
 const presentOutreachProposalInput = priorityProposalInput.omit({
   stepId: true,
   side: true,
+  widensOutreachIds: true,
 })
 
 // What each channel's own flow checks a message against before it will send,
@@ -99,6 +102,56 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
   description: DESCRIPTION,
   inputSchema: presentOutreachProposalInput,
   execute: proposalResult,
+})
+
+// Win's text, as its own flow composes it: the greeting merges Peerly's
+// single-brace token, and the flow appends the "Paid for by" and opt-out
+// lines. The identification mirrors identificationIntro in the webapp's
+// smsCompose.util.ts, which a Win text's compliance check looks for.
+export const WIN_TEXT_MESSAGE_RULES = [
+  'WHAT THE TEXT NEEDS (the text flow checks these):',
+  '- Start with who is texting: the candidate by first name and the office they are running for, for example "this is Renee, candidate for Asheville City Council." Never a placeholder like [Name] or [your name].',
+  '- Do not write a greeting, a "Paid for by" line or an opt-out line: the flow adds "Hello {first_name}," before the message, and the "Paid for by" and "Reply STOP to opt out" lines after it.',
+  '- No link shorteners like bit.ly; paste the full web address.',
+  `- Keep it under 300 characters. The whole text, with the lines the flow adds, has to stay under ${SMS_COMPOSED_MAX_LENGTH}.`,
+  "- The candidate's first name and office are in your context. If either is missing, ask before you present, rather than writing a placeholder.",
+].join('\n')
+
+const WIN_DESCRIPTION =
+  'Present a ready-to-send text to voters as a card. Everything must be ' +
+  "final: the text goes out under the candidate's name exactly as you " +
+  'write it. Never call this with a sketch, a placeholder, or a message ' +
+  'you plan to refine. Count the voters with a cell phone with ' +
+  'count_contacts and pass that same filter as audienceFilters, with its ' +
+  'count and a short listName. Do not save a list first: the list is ' +
+  'saved when the candidate starts the text from the card. channel is ' +
+  'always text: this card cannot carry phone banking, door knocking or a ' +
+  'social post, so describe those in your reply instead. The card shows ' +
+  'only the audience, the count, the channel and a button that opens ' +
+  "Voter Outreach's text flow with everything filled in, where the " +
+  'candidate reviews, pays for and sends it. So say why these voters ' +
+  'once, in your own message, and never promise them one click. ' +
+  'deepLinkOnly is set from the channel whatever you pass, so do not ' +
+  'reason about it.\n\n' +
+  WIN_TEXT_MESSAGE_RULES
+
+// Win's text flow is the only one that opens on a card's audience today, so
+// any other channel would hand the candidate a button into a flow that drops
+// what the card proposed.
+export const buildCampaignManagerOutreachProposalTool = (): LlmStreamTool<
+  typeof presentOutreachProposalInput
+> => ({
+  description: WIN_DESCRIPTION,
+  inputSchema: presentOutreachProposalInput,
+  execute: (input) =>
+    input.channel === ProposalChannelSchema.enum.text
+      ? proposalResult(input)
+      : {
+          error:
+            'Only a text can be presented here. Describe phone banking, ' +
+            'door knocking or a social post in your reply instead, ' +
+            'without a card.',
+        },
 })
 
 // Why a priority's proposal may not be shown, or null. A side already sent

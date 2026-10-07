@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { TurfAssigneeMenu } from 'app/(dashboard)/outreach/v2/TurfAssigneeMenu'
+import { WhatWeHeardLink } from 'app/(dashboard)/issue-capture/WhatWeHeardLink'
 import { MarkDoneDialog, type MarkDoneTarget } from './MarkDoneDialog'
 import { TurfSummaryCard } from './TurfSummaryCard'
 import { turfStage, turfStatusLabel, useTurfLifecycle } from './turfLifecycle'
@@ -81,6 +82,15 @@ export const TurfSummaryRow = ({
               {turfStatusLabel(turf)}
             </span>
           )
+        }
+        // On a finished turf too: Done is when the summary runs, so that is
+        // when the report has the most to say.
+        heard={
+          <WhatWeHeardLink
+            outreachId={turf.outreachId}
+            isServe={isServe}
+            className="border-t border-border pt-2"
+          />
         }
         footer={
           active ? (

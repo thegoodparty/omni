@@ -32,6 +32,12 @@ vi.mock('app/(dashboard)/outreach/v2/gate/useOutreachGate', () => ({
   }),
 }))
 
+// The question-asking card is offered only where issue capture is on; these
+// cases pick it, so the flag is on here.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
 const useCampaignMock = vi.fn()
 const useUserMock = vi.fn()
 
@@ -421,6 +427,87 @@ describe('the talking points step', () => {
     await renderAtPoints({}, /Invite people to an event/)
 
     expect(screen.getByText(/Fill in the square brackets/)).toBeInTheDocument()
+  })
+
+  // The question the official typed is what the effort exists to ask, so the
+  // card's ask has to be written from it. Without this the ask came back as
+  // the purpose copy's generic "what should the council focus on".
+  it('sends the community-input question to the serve endpoint', async () => {
+    mockDraft()
+    const question = 'Would you take part in a compost pilot?'
+    const serveSurface = (step: 'filters' | 'name' | 'points') => (
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step={step} />
+      </DoorKnockingSurfaceProvider>
+    )
+
+    const view = render(serveSurface('filters'))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Ask for community input/ }),
+    )
+    fireEvent.change(await screen.findByLabelText('The question'), {
+      target: { value: question },
+    })
+    view.rerender(serveSurface('name'))
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Ward 3 listening' },
+    })
+    view.rerender(serveSurface('points'))
+
+    await waitFor(() => expect(serveDrafts).toHaveLength(1))
+    expect(serveDrafts[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
+  })
+
+  // Win's "Hear from voters" asks one question too, and its card is written
+  // from it by the Win prompt, never the Serve one.
+  it('sends the hear-from-voters question to the win endpoint', async () => {
+    mockDraft()
+    const question = 'How do you feel about the road bond?'
+
+    const view = render(<CreateListFlow {...baseProps} step="filters" />)
+    fireEvent.click(screen.getByRole('button', { name: /Hear from voters/ }))
+    fireEvent.change(await screen.findByLabelText('The question'), {
+      target: { value: question },
+    })
+    view.rerender(<CreateListFlow {...baseProps} step="name" />)
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Road bond listening' },
+    })
+    view.rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    await waitFor(() => expect(drafts).toHaveLength(1))
+    expect(drafts[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
+    expect(serveDrafts).toHaveLength(0)
+  })
+
+  // Every other purpose asks nothing, so it must not carry a stale question
+  // into a request its endpoint would only ignore.
+  it('sends no question for a purpose that asks none', async () => {
+    mockDraft()
+    const serveSurface = (step: 'filters' | 'name' | 'points') => (
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step={step} />
+      </DoorKnockingSurfaceProvider>
+    )
+
+    const view = render(serveSurface('filters'))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Explain a recent decision/ }),
+    )
+    view.rerender(serveSurface('name'))
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Ward 3 update' },
+    })
+    view.rerender(serveSurface('points'))
+
+    await waitFor(() => expect(serveDrafts).toHaveLength(1))
+    expect(serveDrafts[0]).not.toHaveProperty('communityInputQuestion')
   })
 
   // Serve is the same step and the same route, discriminated by the surface

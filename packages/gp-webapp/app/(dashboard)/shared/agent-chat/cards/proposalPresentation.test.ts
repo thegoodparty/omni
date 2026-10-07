@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { proposalListSample, proposalSampleLine } from './proposalPresentation'
+import {
+  outreachDetailHref,
+  peopleCount,
+  proposalListSample,
+  proposalSampleLine,
+} from './proposalPresentation'
 
 const KEY = '3f2c1a90-1111-4222-8333-444455556666'
 
@@ -69,5 +74,21 @@ describe('proposalSampleLine', () => {
         widensOutreachIds: [12],
       }),
     ).toBe('Call everyone of the 300 not asked yet')
+  })
+})
+
+describe('peopleCount', () => {
+  it('counts constituents in Serve and voters in Win', () => {
+    expect(peopleCount(1)).toBe('1 constituent')
+    expect(peopleCount(1_200, 'serve')).toBe('1,200 constituents')
+    expect(peopleCount(1, 'win')).toBe('1 voter')
+    expect(peopleCount(1_200, 'win')).toBe('1,200 voters')
+  })
+})
+
+describe('outreachDetailHref', () => {
+  it("leads to each product's own outreach page", () => {
+    expect(outreachDetailHref(7)).toBe('/constituent-outreach?outreachId=7')
+    expect(outreachDetailHref(7, 'win')).toBe('/outreach?outreachId=7')
   })
 })

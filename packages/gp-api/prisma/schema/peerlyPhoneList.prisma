@@ -1,18 +1,53 @@
+enum PhoneListBuildStatus {
+  queued
+  building
+  processing
+  ready
+  failed
+}
+
 model PeerlyPhoneList {
   id                          String                     @id @default(uuid(7))
   createdAt                   DateTime                   @default(now()) @map("created_at")
+  // Bumped on every write, including the claim CAS (queued -> building) —
+  // the stale-building reaper's staleness predicate (claimForBuild /
+  // reclaimStaleBuilding / failStaleBuilding) reads this to tell an
+  // abandoned claim from one that's merely slow.
+  updatedAt                   DateTime                   @updatedAt @map("updated_at")
   organizationSlug            String                     @map("organization_slug")
   organization                Organization               @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   campaign                    Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId                  Int                        @map("campaign_id")
   // The Peerly upload token returned by /phonelists on create — the only
   // handle available until the status endpoint resolves a numeric list id.
-  token                       String                     @unique
+  // Nullable because the build is moving off the request into a background
+  // job: a row can exist in `queued`/`building` before a token is ever
+  // obtained.
+  token                       String?                    @unique @map("token")
   // Stamped by the status endpoint the first time Peerly reports the list
   // ready (task 03 looks this row up by peerlyListId, which equals
   // Outreach.phoneListId).
   peerlyListId                Int?                       @unique @map("peerly_list_id")
   voterFileFilterId           Int?                       @map("voter_file_filter_id")
+  buildStatus                 PhoneListBuildStatus       @default(queued) @map("build_status")
+  buildError                  String?                    @map("build_error")
+  // The validated POST body (voter filter fields + list name), captured at
+  // accept time so the async build handler (Voter Outreach 2.0, kill-switch
+  // gated) can redo filter resolution + CSV generation without the HTTP
+  // request around to ask again. Re-validated through the same Zod schema on
+  // read rather than trusted as already-shaped. Nullable because a row from
+  // before this column existed has none — such a row can never be retried by
+  // the async handler, only by a fresh POST.
+  requestSnapshot              Json?                      @map("request_snapshot") @db.JsonB
+  // The `leads_loaded` value observed on the previous ACTIVE status poll
+  // (either route). A large list keeps loading after Peerly reports ACTIVE,
+  // so `ready` is only stamped once this matches the current read (or the
+  // list is already fully loaded) — see stampPeerlyListId callers.
+  lastSeenLeadsLoaded          Int?                       @map("last_seen_leads_loaded")
+  // How many times the async build handler has claimed this row (queued ->
+  // building). The stale-building reaper uses this to stop retrying and
+  // park the row `failed` instead of re-queuing it forever.
+  buildAttempts                Int                        @default(0) @map("build_attempts")
   // Count of org-opted-out contacts screened out of this build's filter
   // resolution (ENG-10800). Zero also covers "the scrub was skipped" (over
   // the people-api id-filter cap) — the send proceeds unscrubbed either way,

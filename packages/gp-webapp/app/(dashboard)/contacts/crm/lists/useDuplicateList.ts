@@ -44,6 +44,8 @@ export const useDuplicateList = () => {
         recommendedChannel: _recommendedChannel,
         recommendedIntent: _recommendedIntent,
         recommendedModified: _recommendedModified,
+        // Unique per list: the copy was not created from that chat card.
+        proposalKey: _proposalKey,
         ...rest
       } = segment
 

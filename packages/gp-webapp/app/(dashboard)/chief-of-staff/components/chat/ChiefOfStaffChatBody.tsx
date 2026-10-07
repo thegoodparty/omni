@@ -64,12 +64,18 @@ import {
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
+  ListProposalSchema,
+  mintProposalKey,
   ShowListMapSchema,
   type ShowListMap,
   type ComposeHandoffPayload,
 } from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
+import ChatListProposal, {
+  type ChatListProposalPayload,
+} from './ChatListProposal'
+import { listCreatedMessage } from './listCreatedMessage'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
 import { boundarySavedMessage } from './boundarySavedMessage'
 import { supportsAttachments } from '../../../shared/agent-chat/attachmentScopes'
@@ -190,9 +196,9 @@ interface Props {
    */
   showMessageActions?: boolean
   /**
-   * The chat scope used to gate attachment support. Defaults to
-   * 'chief_of_staff' so existing CoS callers need no change; Campaign Manager
-   * passes 'campaign_assistant' to correctly suppress the paperclip.
+   * Which assistant this body talks to. Defaults to 'chief_of_staff' so
+   * existing CoS callers need no change; Campaign Manager passes
+   * 'campaign_assistant'.
    */
   scope?: ChatScope
 }
@@ -209,7 +215,11 @@ export type ChatSuggestion = {
   kickoff?: string
 }
 
-const INTRO_SEEN_KEY = 'cos-intro-streamed'
+// Per scope, so seeing one assistant's intro never suppresses the other's.
+// Chief of Staff keeps its original key so officials who already saw it are
+// not shown it again.
+const introSeenKey = (scope: ChatScope): string =>
+  scope === 'chief_of_staff' ? 'cos-intro-streamed' : `${scope}-intro-streamed`
 
 // Stable default so callers that omit the prop keep the same array identity
 // across renders (no needless re-run of the load effect).
@@ -253,6 +263,9 @@ const UPLOAD_GUARD_COPY: Record<
  * creation, hidden kickoffs, starter chips, and quick prompts.
  */
 const LIST_MAP_TOOL = 'show_list_map'
+// Off the widget registry for the map's reason: once its list is created the
+// card becomes that map, which renders after the turn's prose.
+const LIST_PROPOSAL_TOOL = 'present_list_proposal'
 
 type CosWidgetContext = CardWidgetContext &
   ClarifyWidgetContext &
@@ -277,11 +290,30 @@ const listMapFromSegments = (
   return parsed.success ? parsed.data : null
 }
 
+// The key is derived from the conversation and the tool call, so the card
+// asks after the same list on every reload without the model writing it.
+const listProposalFromSegments = (
+  segments: ChatMessageSegment[],
+  conversationId: string | null,
+): ChatListProposalPayload | null => {
+  const segment = segments.find((s) => s.toolName === LIST_PROPOSAL_TOOL)
+  if (!segment?.toolCallId || !conversationId) return null
+  const parsed = ListProposalSchema.safeParse(segment.payload)
+  return parsed.success
+    ? {
+        ...parsed.data,
+        proposalKey: mintProposalKey(conversationId, segment.toolCallId),
+      }
+    : null
+}
+
 // Chief of Staff has no rail of its own, so a card's detail opens in the
 // right-side sheet the contacts page uses for a person.
 const ChiefOfStaffChatBody = (props: Props): React.JSX.Element => (
   <CardDetailProvider>
-    <ProposalFlowsProvider>
+    <ProposalFlowsProvider
+      mode={props.scope === 'campaign_assistant' ? 'win' : 'serve'}
+    >
       <ChiefOfStaffChatThread {...props} />
     </ProposalFlowsProvider>
     <CardDetailSheetHost />
@@ -332,6 +364,8 @@ function ChiefOfStaffChatThread({
     retryable: boolean
   } | null>(null)
   const [liveListMap, setLiveListMap] = useState<ShowListMap | null>(null)
+  const [liveListProposal, setLiveListProposal] =
+    useState<ChatListProposalPayload | null>(null)
   const [liveWidgets, setLiveWidgets] = useState<
     PositionedWidget<CosWidgetContext>[]
   >([])
@@ -441,6 +475,7 @@ function ChiefOfStaffChatThread({
       onTurnStart: () => {
         setStreamError(null)
         setLiveListMap(null)
+        setLiveListProposal(null)
         setLiveWidgets([])
       },
       // Cleared on settle as well as on start. The commit empties
@@ -450,6 +485,7 @@ function ChiefOfStaffChatThread({
       // history, until the next message happens to clear it.
       onTurnSettle: () => {
         setLiveListMap(null)
+        setLiveListProposal(null)
         setLiveWidgets([])
       },
       onError: (message, retryable) => setStreamError({ message, retryable }),
@@ -462,6 +498,22 @@ function ChiefOfStaffChatThread({
           if (parsed.success) setLiveListMap(parsed.data)
           // Consumed either way: a payload we cannot parse is still not a
           // pill the user should see.
+          return true
+        }
+        if (
+          event.type === 'tool_call' &&
+          event.toolName === LIST_PROPOSAL_TOOL
+        ) {
+          const parsed = ListProposalSchema.safeParse(event.args)
+          if (parsed.success && event.toolCallId && turnConversationId) {
+            setLiveListProposal({
+              ...parsed.data,
+              proposalKey: mintProposalKey(
+                turnConversationId,
+                event.toolCallId,
+              ),
+            })
+          }
           return true
         }
         if (event.type === 'tool_call' && cosWidgets.has(event.toolName)) {
@@ -540,7 +592,7 @@ function ChiefOfStaffChatThread({
         })
         .catch((err) => {
           reportErrorToSentry(err, {
-            surface: 'chief-of-staff-chat',
+            surface: analyticsLabel,
             phase: 'attachment-poll',
           })
         })
@@ -549,7 +601,7 @@ function ChiefOfStaffChatThread({
       cancelled = true
       clearInterval(id)
     }
-  }, [attachmentsEnabled, conversationId, hasPending])
+  }, [attachmentsEnabled, conversationId, hasPending, analyticsLabel])
 
   const handleRemoveAttachment = useCallback(
     async (id: string): Promise<void> => {
@@ -561,13 +613,13 @@ function ChiefOfStaffChatThread({
           await deleteChatAttachment(conversationId, id)
         } catch (err) {
           reportErrorToSentry(err, {
-            surface: 'chief-of-staff-chat',
+            surface: analyticsLabel,
             phase: 'attachment-delete',
           })
         }
       }
     },
-    [conversationId],
+    [conversationId, analyticsLabel],
   )
 
   // Contents whose persisted USER turn is hidden from the transcript: the
@@ -606,7 +658,7 @@ function ChiefOfStaffChatThread({
     if (!isOpener) {
       let seen = false
       try {
-        seen = window.localStorage.getItem(INTRO_SEEN_KEY) === '1'
+        seen = window.localStorage.getItem(introSeenKey(scope)) === '1'
       } catch {
         seen = false
       }
@@ -617,7 +669,7 @@ function ChiefOfStaffChatThread({
     const id = setInterval(() => {
       if (!isOpener) {
         try {
-          window.localStorage.setItem(INTRO_SEEN_KEY, '1')
+          window.localStorage.setItem(introSeenKey(scope), '1')
         } catch {
           // private mode / storage disabled — still stream this session
         }
@@ -629,7 +681,7 @@ function ChiefOfStaffChatThread({
       })
     }, 28)
     return () => clearInterval(id)
-  }, [opener, isFirstChat, introTotal])
+  }, [opener, isFirstChat, introTotal, scope])
 
   const introParts = useMemo(() => {
     let remaining = introProgress
@@ -707,7 +759,7 @@ function ChiefOfStaffChatThread({
       }
     } catch (err) {
       reportErrorToSentry(err, {
-        surface: 'chief-of-staff-chat',
+        surface: analyticsLabel,
         phase: 'init',
         conversationIdOverride,
       })
@@ -746,7 +798,7 @@ function ChiefOfStaffChatThread({
       return id
     } catch (err) {
       reportErrorToSentry(err, {
-        surface: 'chief-of-staff-chat',
+        surface: analyticsLabel,
         phase: 'init',
       })
       return null
@@ -754,7 +806,14 @@ function ChiefOfStaffChatThread({
       creatingRef.current = false
       setLoading(false)
     }
-  }, [conversationId, chatApi, onConversationCreated, queryClient, historyKey])
+  }, [
+    conversationId,
+    chatApi,
+    onConversationCreated,
+    queryClient,
+    historyKey,
+    analyticsLabel,
+  ])
 
   const handleAttachFile = useCallback(
     async (file: File): Promise<void> => {
@@ -773,8 +832,12 @@ function ChiefOfStaffChatThread({
       ])
       try {
         const result = await uploadChatAttachment(cid, file)
+        // The status poll can land between finalize and this line and already
+        // hold the server row, so mapping the temp onto it would show it twice.
         setAttachments((prev) =>
-          prev.map((a) => (a.id === tempId ? result : a)),
+          prev.some((a) => a.id === result.id)
+            ? prev.filter((a) => a.id !== tempId)
+            : prev.map((a) => (a.id === tempId ? result : a)),
         )
         maybeShowUploadGuard()
         void trackEvent(EVENTS.ChiefOfStaff.DocumentAttached, {
@@ -786,7 +849,7 @@ function ChiefOfStaffChatThread({
         })
       } catch (err) {
         reportErrorToSentry(err, {
-          surface: 'chief-of-staff-chat',
+          surface: analyticsLabel,
           phase: 'attachment-upload',
         })
         setAttachments((prev) =>
@@ -798,7 +861,13 @@ function ChiefOfStaffChatThread({
         )
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
+    [
+      conversationId,
+      ensureConversationId,
+      maybeShowUploadGuard,
+      scope,
+      analyticsLabel,
+    ],
   )
 
   const handleAttachLink = useCallback(
@@ -862,7 +931,7 @@ function ChiefOfStaffChatThread({
         }
       } catch (err) {
         reportErrorToSentry(err, {
-          surface: 'chief-of-staff-chat',
+          surface: analyticsLabel,
           phase: 'attachment-link',
         })
         setAttachments((prev) =>
@@ -883,7 +952,13 @@ function ChiefOfStaffChatThread({
         })
       }
     },
-    [conversationId, ensureConversationId, maybeShowUploadGuard, scope],
+    [
+      conversationId,
+      ensureConversationId,
+      maybeShowUploadGuard,
+      scope,
+      analyticsLabel,
+    ],
   )
 
   // Drag-and-drop anywhere on the chat surface attaches the dropped files
@@ -1110,6 +1185,13 @@ function ChiefOfStaffChatThread({
     [refiningList],
   )
 
+  // Same queue as a drawn boundary, for the same reason: the card's write
+  // touches nothing the model can see, and a list made while a turn is still
+  // streaming must not lose the only turn that says it exists.
+  const handleListCreated = useCallback((list: ShowListMap) => {
+    setPendingBoundaryNote(listCreatedMessage(list))
+  }, [])
+
   // Queued rather than sent, because a boundary can be saved while a turn is
   // still streaming — the drawer is mounted by this component precisely so it
   // survives that — and `deliver` refuses a send with one in flight. Dropping
@@ -1248,6 +1330,7 @@ function ChiefOfStaffChatThread({
     // message until it settles. Without this the card renders below the fold
     // and the follow-scroll has nothing to react to.
     liveListMap,
+    liveListProposal,
     liveWidgets,
   ])
 
@@ -1259,7 +1342,8 @@ function ChiefOfStaffChatThread({
     sending &&
     visibleSegments.length === 0 &&
     liveWidgets.length === 0 &&
-    !liveListMap
+    !liveListMap &&
+    !liveListProposal
   const liveBlocks = liveTurnBlocks(
     visibleSegments,
     liveWidgets,
@@ -1308,6 +1392,10 @@ function ChiefOfStaffChatThread({
         // onEvent, and a map that only existed in the session that made it
         // would vanish under the user the moment they refreshed.
         listMap: listMapFromSegments(m.segments ?? []),
+        listProposal: listProposalFromSegments(
+          m.segments ?? [],
+          conversationId,
+        ),
         // The map segment is dropped from the inline run, not just rendered
         // alongside it. Live, onEvent consumes the event so no pill is ever
         // built; on replay the segment is still in the transcript and would
@@ -1320,7 +1408,9 @@ function ChiefOfStaffChatThread({
             : persistedTurnBlocks({
                 registry: cosWidgets,
                 segments: (m.segments ?? []).filter(
-                  (s) => s.toolName !== LIST_MAP_TOOL,
+                  (s) =>
+                    s.toolName !== LIST_MAP_TOOL &&
+                    s.toolName !== LIST_PROPOSAL_TOOL,
                 ),
                 content: m.content,
                 messageId: m.id,
@@ -1434,7 +1524,9 @@ function ChiefOfStaffChatThread({
             <AssistantRow
               key={m.id}
               fullWidth={
-                Boolean(m.listMap) || m.blocks.some((b) => b.kind === 'widget')
+                Boolean(m.listMap) ||
+                Boolean(m.listProposal) ||
+                m.blocks.some((b) => b.kind === 'widget')
               }
             >
               <TurnBlocks
@@ -1458,6 +1550,13 @@ function ChiefOfStaffChatThread({
                   onRefineArea={refiningList ? undefined : setRefiningList}
                 />
               ) : null}
+              {m.listProposal ? (
+                <ChatListProposal
+                  proposal={m.listProposal}
+                  onRefineArea={refiningList ? undefined : setRefiningList}
+                  onCreated={handleListCreated}
+                />
+              ) : null}
               {showMessageActions && conversationId && m.content ? (
                 <MessageActionBar
                   conversationId={conversationId}
@@ -1475,9 +1574,16 @@ function ChiefOfStaffChatThread({
             of nothing but the show_list_map call, and onEvent consumes that
             event rather than pushing a segment, so gating the row on
             segments alone hid the map until the transcript reloaded. */}
-        {visibleSegments.length > 0 || liveWidgets.length > 0 || liveListMap ? (
+        {visibleSegments.length > 0 ||
+        liveWidgets.length > 0 ||
+        liveListMap ||
+        liveListProposal ? (
           <AssistantRow
-            fullWidth={Boolean(liveListMap) || liveWidgets.length > 0}
+            fullWidth={
+              Boolean(liveListMap) ||
+              Boolean(liveListProposal) ||
+              liveWidgets.length > 0
+            }
           >
             <TurnBlocks
               blocks={liveBlocks}
@@ -1497,6 +1603,13 @@ function ChiefOfStaffChatThread({
               <ChatListMap
                 {...liveListMap}
                 onRefineArea={refiningList ? undefined : setRefiningList}
+              />
+            ) : null}
+            {liveListProposal ? (
+              <ChatListProposal
+                proposal={liveListProposal}
+                onRefineArea={refiningList ? undefined : setRefiningList}
+                onCreated={handleListCreated}
               />
             ) : null}
           </AssistantRow>

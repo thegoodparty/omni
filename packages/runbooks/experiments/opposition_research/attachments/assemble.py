@@ -29,10 +29,10 @@ def _workspace():
 
 
 def _load_params():
-    raw = os.environ.get("PARAMS_JSON", "{}")
     try:
-        params = json.loads(raw)
-    except (ValueError, TypeError):
+        with open(os.environ["PARAMS_FILE"], "r", encoding="utf-8") as fh:
+            params = json.load(fh)
+    except (KeyError, ValueError, OSError):
         params = {}
     return params if isinstance(params, dict) else {}
 
@@ -42,7 +42,7 @@ def _load_race(scratch_dir):
     # The input contract nests the race under campaign_strategy_context, so the
     # agent writes the bits the assembler needs here. Returns None only when the
     # file is missing/unreadable, so an explicit empty {} the agent wrote is
-    # used as-is rather than silently falling back to PARAMS_JSON.
+    # used as-is rather than silently falling back to the params file.
     path = os.path.join(scratch_dir, "_race.json")
     try:
         with open(path, "r", encoding="utf-8") as fh:

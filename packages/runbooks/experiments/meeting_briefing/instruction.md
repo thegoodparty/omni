@@ -6,7 +6,7 @@ Run a meeting briefing for one elected official's specific city council meeting.
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_briefing.json` and nowhere else.
 5. Perform the spot-check at the bottom — schema-valid data can still be garbage.
 6. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
@@ -50,15 +50,15 @@ The packet is **not** the published agenda summary page. The summary lists item 
 - PrimeGov portal meeting page is the item list only. Follow each item's "Attachments" link.
 - A meeting's HTML page when none of the links resolve to PDFs (`Content-Type: application/pdf`) means the packet has not been published yet.
 
-**If the packet is not yet published** — e.g. the meeting exists on the calendar but only a summary is available, or the platform shows a "Not available" placeholder for attachments — route to `briefing_status: "awaiting_agenda"` per Step 3. Do not synthesize a briefing from summary + news.
+**If the packet is not yet published** — e.g. the meeting exists on the calendar but only a summary is available, or the platform shows a "Not available" placeholder for attachments — route to `briefing_status: "awaiting_agenda"` per Step 3. Do not synthesize a briefing from summary + news. Record how the agenda was obtained in `run_metadata.agenda_availability` (Step 15); `not_published`, `partial`, and `inferred_from_prior` are never compatible with a ready briefing.
 
-**Verification rule for `run_metadata.agenda_packet_url`:** the URL you record must either (a) return `Content-Type: application/pdf` when fetched, OR (b) point to a discoverable index page where every substantive item resolves to one or more PDF attachments you actually downloaded and chunked into `raw_context[]`. If neither is true, the briefing is not grounded — set `briefing_status: "awaiting_agenda"`.
+**Verification rule for `run_metadata.agenda_packet_url`:** the URL you record must either (a) return `Content-Type: application/pdf` when fetched, OR (b) point to a discoverable index page where every substantive item resolves to one or more PDF attachments you actually downloaded and chunked into `raw_context[]`, OR (c) be the platform page from which you read **this meeting's** agenda item by item because the PDF packet sits behind a sign-in wall or does not exist. Case (c) is `agenda_availability: "html_agenda"` only when every substantive item of **this** meeting is present in what you read; anything missing is `partial`. If none of (a), (b), (c) is true, the briefing is not grounded — set `briefing_status: "awaiting_agenda"`.
 
 **Exception for the upload path.** When the packet was pre-staged at `/workspace/input/agenda.pdf` (`briefing_status: "agenda_provided_by_user"`), `run_metadata.agenda_packet_url` is `null` because there is no permanent URL. That is the correct value and does NOT trigger the verification rule above — the pre-staged file itself is the grounded source, and you have chunked its contents into `raw_context[]`. Do not flip to `awaiting_agenda` just because the URL is null in this case.
 
 ## TODO CHECKLIST
 
-1. Read PARAMS_JSON; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date. Capture `PARAMS.knownAgendaLocation` (optional) as a channel-0 hint for Step 2.
+1. Read PARAMS_FILE; verify Databricks env via a trivial ping query. Capture `PARAMS.meetingDate` (required) as the target meeting date. Capture `PARAMS.knownAgendaLocation` (optional) as a channel-0 hint for Step 2.
 2. Resolve the agenda **packet** source for the target date — full briefing PDFs, not the summary page — per the precondition above (path > URL > **channel-0 hint** > channels 1-4 platform discovery). If the user supplied an agenda (path or URL), use it and skip platform verification entirely. Otherwise, verify the target meeting exists on the platform calendar for `PARAMS.meetingDate`; if the platform shows no meeting on that date (stale schedule signal) and the user did NOT supply an agenda, set `briefing_status: "no_meeting_found"` and exit early.
 3. Substantive-items check + packet-availability gate. If no attachments / no compiled PDF, route to `awaiting_agenda`.
 4. Chunk the agenda packet section-aware → page-fallback into `raw_context[]`.
@@ -193,11 +193,11 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 
 ### Step 1 — Read params and verify Databricks env
 
-Read `PARAMS_JSON` once at the top:
+Read `PARAMS_FILE` once at the top:
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 TARGET_MEETING_DATE = PARAMS["meetingDate"]  # required, YYYY-MM-DD
 TARGET_MEETING_TIME = PARAMS.get("meetingTime")  # optional, "HH:MM" 24-hour
 TARGET_MEETING_TIMEZONE = PARAMS.get("meetingTimezone")  # optional, IANA name
@@ -283,7 +283,7 @@ When you use a past packet as enrichment: cite it as its own `sources[]` entry w
 
 **Agenda input precedence:** pre-staged `/workspace/input/agenda.pdf` (upload path) > `agendaPacketUrl` from PARAMS (URL-paste path) > agent-discovered next meeting on the platform.
 
-When the agent uses a user-supplied agenda (either pre-staged file or pasted URL), set `briefing_status: "agenda_provided_by_user"` and record the decision in `run_metadata.run_decisions[]`. The "no future meeting" precondition still applies — if the user-supplied agenda is for a past meeting, set `no_meeting_found`.
+When the agent uses a user-supplied agenda (either pre-staged file or pasted URL), set `briefing_status: "agenda_provided_by_user"` and record the decision in `run_metadata.run_decisions[]`. Read the meeting date the document itself states (cover, header, or first page) and record it as `run_metadata.packet_stated_meeting_date`, with `packet_date_verification` set to `matched` when it is within three days of `PARAMS.meetingDate`, `mismatched` when further off, or `unavailable` when no date can be read. Produce the briefing whether or not the stated date matches `PARAMS.meetingDate`; a user-supplied agenda never ends as `no_meeting_found`.
 
 If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/agenda.pdf`, **that file is the primary source — do not re-fetch from the platform.** The platforms below are for the case where the bundled packet references a document not included, or where legislative history for a referenced item is useful context. In that case, go directly to the platform — do not start with a generic web search.
 
@@ -984,6 +984,22 @@ Top-level enum that tells downstream consumers what kind of artifact this is. Se
 
 Default expectation: `briefing_ready`. The other values are exit codes for graceful degradation, not failures the run should panic on.
 
+#### `agenda_availability`
+
+Fill it on every run. It states how the target meeting's agenda was obtained.
+
+| Value                 | Meaning                                                                                                                                                      | Allowed `briefing_status`                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `full_packet`         | The packet PDF(s) for **this** meeting were downloaded and chunked.                                                                                          | `briefing_ready`, `agenda_provided_by_user`    |
+| `html_agenda`         | Every substantive item of this meeting's agenda was read from the platform's page; no PDF was reachable (sign-in wall, or none exists). | `briefing_ready`, `agenda_provided_by_user`    |
+| `partial`             | Some of this meeting's documents were reachable and others were not.                                                                                        | `awaiting_agenda` only                         |
+| `not_published`       | The meeting is listed on the platform but no agenda or packet is posted yet.                                                                                 | `awaiting_agenda` (or `no_meeting_found` when the meeting itself is not listed) |
+| `inferred_from_prior` | Items were taken from other meetings' documents, minutes, or news because this meeting's agenda was not reachable.                                         | `awaiting_agenda` only                         |
+
+A ready briefing never carries `partial`, `not_published`, or `inferred_from_prior`. When in doubt between `html_agenda` and `partial`, ask whether every substantive item of **this** meeting is present in what you read: all present is `html_agenda`, anything missing is `partial`.
+
+`packet_stated_meeting_date` and `packet_date_verification` accompany it: the date the agenda document itself states, and whether it matched `PARAMS.meetingDate` within three days, mismatched, or could not be read. Record them on every run, not only user-supplied ones.
+
 When the substantive-items check (Step 3) found zero substantive items, the run terminates early with `briefing_status: "awaiting_agenda"`, a single placeholder item, and `claims: []`. See Step 3 for the placeholder shape.
 
 #### `required_data_points`
@@ -1131,6 +1147,9 @@ Assemble the final JSON artifact and write it to `/workspace/output/meeting_brie
   {
     "agenda_packet_url": "the permanent agendaPacketUrl value from PARAMS when set, or null when the packet was pre-staged at /workspace/input/agenda.pdf or when briefing_status is awaiting_agenda or no_meeting_found",
     "discovered_agenda_location": "best current prose describing where future agenda packets will likely be found for this body (see guidance below)",
+    "agenda_availability": "full_packet | html_agenda | partial | not_published | inferred_from_prior (Step 15)",
+    "packet_stated_meeting_date": "YYYY-MM-DD as stated by the agenda document itself, or null",
+    "packet_date_verification": "matched | mismatched | unavailable",
     "source_bundle_retrieved_at": "ISO 8601 UTC timestamp set when the last source was fetched",
     "briefing_version": "v2",
     "run_decisions": [
@@ -1225,7 +1244,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 - **Every featured item must have at least one talking point.** Empty array is a schema violation; set `display.talking_points` to a non-empty list or `null`.
 - **Every Haystaq score reported in `display.constituent_sentiment`** must trace to a column in the Step 6 inline catalog and a row in the Step 8 batched L2 query.
 - **`district_note` is always `null`** — deprecated since city scope was removed.
-- **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
+- **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_FILE and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
 - **All sentiment `mean_score`s below 5** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check. (A NULL `mean_score` is a different case: the column has no coverage in this state — vendor vintage — not an error; null the section with `haystaq_status: "no_column"` per Step 16, never coerce it to 0.)
 - **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; this is a required step, not a spot-check afterthought — every `news`/`government_website` source must clear the `http.head` liveness check plus a topicality read of the fetched body (Step 14) before it is cited anywhere.
 - **`recent_news` entry missing `publication_date` or older than 60 days before `meetingDate`** → the schema requires the field and the QA gate rejects stale entries; drop the entry and set `display.recent_news: null` if nothing else qualifies (Step 11).

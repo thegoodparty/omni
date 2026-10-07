@@ -1,14 +1,15 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
-import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
+import { BROADCAST_OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 import { ROBOCALL_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
 
 // Robocall script-draft purpose slugs, on the wire for
 // POST /v1/outreach/robocall/draft. The webapp's robocallPurposes.ts maps
 // these to the design's card copy. No "issue update" purpose (product call).
 // Shares the canonical vocabulary (OutreachPurpose.schema.ts) with every
-// other outreach channel.
-export const ROBOCALL_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
+// other outreach channel, less the purpose that asks a question: a recorded
+// call has nobody to hear the answer.
+export const ROBOCALL_PURPOSE_VALUES = BROADCAST_OUTREACH_PURPOSE_VALUES
 export const RobocallPurposeSchema = z.enum(ROBOCALL_PURPOSE_VALUES)
 export type RobocallPurpose = z.infer<typeof RobocallPurposeSchema>
 
@@ -23,10 +24,6 @@ export const RobocallScriptDraftRequestSchema = z.object({
   // On Improve, the whole script, disclosure line included: gp-api hides the
   // parts deriveRobocallProtectedParts locks from the model and restores them.
   currentDraft: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
-  // Deploy compatibility only: a webapp from before the app wrote the
-  // disclosure sends the rented number so the model ends the script with it.
-  // The current webapp never sends it; delete once a release has settled.
-  callbackNumber: z.string().min(1).max(32).optional(),
 })
 export type RobocallScriptDraftRequest = z.infer<
   typeof RobocallScriptDraftRequestSchema

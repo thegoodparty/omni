@@ -237,9 +237,9 @@
     - 'I drew an area on the map and saved it to my list "District renters" (list 41). Where does that leave the list?'
     - 'Can I get just that area as its own list to send door knockers to?'
   turn_expectations:
-    - 'Builds and saves the list (count_contacts then crud_saved_filters create) and calls show_list_map on the saved id.'
+    - 'Counts the list with count_contacts and offers it with present_list_proposal, passing the same filter and its count. Does not create it with crud_saved_filters, does not call show_list_map (the card becomes the map once created), and does not ask whether to save it in prose.'
     - "Re-reads the list with crud_saved_filters action 'get' on id 41 and reports the post-boundary count as the list's current size. Says the shape narrowed THAT list in place. Never claims it cannot read, see, or act on the drawn area."
-    - 'Gives the order plainly: save the list from its filters first, then draw the area on its map. Does not claim it can create a list already scoped to the shape, does not make drawing a precondition for building the list, and does not claim it cannot help at all.'
+    - 'Gives the order plainly: offer the list from its filters first, and once it is created, draw the area on its map. Does not claim it can create a list already scoped to the shape, does not make drawing a precondition for building the list, and does not claim it cannot help at all.'
   required_behavior:
     - "Turn 2 calls crud_saved_filters with action 'get' and the id from the message"
     - 'Turn 2 reports the count that call returned, not a figure from turn 1'
@@ -252,6 +252,7 @@
     - 'Claims it created, edited, or cleared a shape itself'
     - 'Claims it created a new list already scoped to the drawn area'
     - 'Asks the user to draw a shape before it will build the list, or otherwise stalls on geography it cannot cut itself'
+    - 'Turn 1 creates the list itself with crud_saved_filters, or asks the user to type a confirmation to save it'
   oracle: trace
   runs: 5
   severity_if_failed: blocker

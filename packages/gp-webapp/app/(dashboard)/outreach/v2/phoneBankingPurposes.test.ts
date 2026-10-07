@@ -21,6 +21,7 @@ describe('PHONE_BANKING_PURPOSES', () => {
         id: 'election_day_turnout',
         label: 'Encourage voters to vote on election day',
       },
+      { id: 'community_input', label: 'Hear from voters' },
       { id: 'custom', label: 'Write my own script' },
     ])
   })
@@ -42,6 +43,9 @@ describe('PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS', () => {
     )
     expect(phoneBankingPurposeNameSuggestion('introduce_myself')).toBe(
       'Introduction calls',
+    )
+    expect(phoneBankingPurposeNameSuggestion('community_input')).toBe(
+      'Listening calls',
     )
     expect(phoneBankingPurposeNameSuggestion('not-a-purpose')).toBe(
       'Phone banking calls',

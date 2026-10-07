@@ -8,6 +8,7 @@ import { ChatCardRenderer } from './ChatCardRenderer'
 // The flows themselves are the outreach page's components and have their own
 // suite (proposalFlows.test.tsx). Here only what the chip hands them.
 const flows = vi.hoisted(() => ({
+  mode: 'serve' as 'win' | 'serve',
   open: vi.fn(),
   textAvailable: true,
   textResolved: true,
@@ -19,6 +20,7 @@ vi.mock('./proposalFlows', () => ({
 }))
 
 afterEach(() => {
+  flows.mode = 'serve'
   flows.textAvailable = true
   flows.textResolved = true
 })
@@ -198,5 +200,60 @@ describe('OutreachProposalCard', () => {
     renderCard(proposalCard())
 
     expect(await screen.findByText(/Could not load this/)).toBeInTheDocument()
+  })
+})
+
+describe('OutreachProposalCard in Campaign Manager', () => {
+  it('counts voters and opens the text flow', async () => {
+    mockNotSent()
+    flows.mode = 'win'
+    const card = proposalCard({ channel: 'text' })
+
+    renderCard(card)
+
+    expect(await screen.findByText('SMS · 412 voters')).toBeInTheDocument()
+    expect(screen.queryByText(/constituent/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Start the text' }))
+    expect(flows.open).toHaveBeenCalledWith(card, undefined)
+  })
+
+  it('holds the button until the text gate can run', async () => {
+    mockNotSent()
+    flows.mode = 'win'
+    flows.textResolved = false
+
+    renderCard(proposalCard({ channel: 'text' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Start the text' }),
+    ).toBeDisabled()
+  })
+
+  it('offers no button for a channel with no Win flow here', async () => {
+    mockNotSent()
+    flows.mode = 'win'
+
+    renderCard(proposalCard({ channel: 'phoneBanking' }))
+
+    expect(
+      await screen.findByText('Phone banking · 412 voters'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('reads as sent and leads to the Voter Outreach row', async () => {
+    flows.mode = 'win'
+    api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
+      status: 200,
+      data: { ...outreachRow, outreachType: 'p2p', campaignId: 9 },
+    })
+
+    renderCard(proposalCard({ channel: 'text' }))
+
+    const link = await screen.findByRole('link', {
+      name: /Riverside neighbors/,
+    })
+    expect(within(link).getByText(/Sent to 412 voters/)).toBeVisible()
+    expect(link).toHaveAttribute('href', '/outreach?outreachId=501')
   })
 })

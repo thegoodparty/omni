@@ -7,9 +7,11 @@ import type {
 import { chiefOfStaffChatApi } from '../../../chief-of-staff/data/chat-api'
 import { HISTORY_KEY } from '../../../chief-of-staff/data/use-chat-history'
 import {
+  buildCampaignManagerIntro,
   CAMPAIGN_MANAGER_HISTORY_KEY,
   campaignManagerChatApi,
 } from '../../../campaign-manager/campaignManagerChat'
+import { COS_INTRO_MESSAGES } from '../../../chief-of-staff/components/chat/chatConstants'
 
 export const ASSISTANT_PLACEHOLDER =
   "Describe the list you want and I'll make it for you"
@@ -24,6 +26,9 @@ export interface AssistantChatBinding {
   // alias for it; the list-building framing moves to the subtitle.
   agentName: string
   analyticsLabel: string
+  // The chat body defaults to the Chief of Staff's intro, so a Win binding
+  // that left this unset introduced the candidate to the wrong assistant.
+  defaultIntro: string[]
 }
 
 // No dedicated ChatScope for this surface (a new scope needs a migration and
@@ -33,6 +38,7 @@ export interface AssistantChatBinding {
 // with those surfaces instead of double-fetching the same list.
 export const getAssistantChat = (
   isWinContext: boolean,
+  firstName?: string | null,
 ): AssistantChatBinding =>
   isWinContext
     ? {
@@ -41,6 +47,7 @@ export const getAssistantChat = (
         scope: 'campaign_assistant',
         agentName: 'Chat',
         analyticsLabel: 'campaign-manager-chat',
+        defaultIntro: buildCampaignManagerIntro(firstName),
       }
     : {
         chatApi: chiefOfStaffChatApi,
@@ -48,4 +55,5 @@ export const getAssistantChat = (
         scope: 'chief_of_staff',
         agentName: 'Chief of Staff',
         analyticsLabel: 'chief-of-staff-chat',
+        defaultIntro: COS_INTRO_MESSAGES,
       }

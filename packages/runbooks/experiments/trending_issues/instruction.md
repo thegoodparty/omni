@@ -8,7 +8,7 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/trending_issues.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
@@ -23,7 +23,7 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 
 ## TODO CHECKLIST
 
-1. Read PARAMS_JSON. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
+1. Read PARAMS_FILE. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
 2. Call `GET_community_issues` with `query: { list: "trending" }` to retrieve the current issue list. Record existing issue IDs.
 3. Run broad `WebSearch` queries for `<district_descriptor> local issues 2026` and related terms, including the public output of local community advocacy groups (associations, BIAs, neighborhood councils, coalitions; prefer nonpartisan), to identify candidate trending topics.
 4. For each candidate topic: verify the top URL with `pmf_runtime.http.head`; escalate to `http.get` only if head returns 403/405 or you need body content.
@@ -123,7 +123,7 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 ORG_SLUG = PARAMS["organization_slug"]
 STATE = PARAMS["state"]
 OFFICE = PARAMS["office"]

@@ -19,6 +19,7 @@ export default function SourceLine({
         className="border-transparent bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"
         {...(source.url ? { url: source.url } : {})}
       />
+      {source.date ? <span className="shrink-0">{source.date}</span> : null}
     </div>
   )
 }

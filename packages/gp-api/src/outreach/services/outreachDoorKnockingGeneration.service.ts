@@ -198,6 +198,11 @@ const WIN_PURPOSE_PROMPTS: Record<DoorKnockingTalkingPointsPurpose, string> = {
     'engagement question asks whether they have a plan for getting there — ' +
     'when in the day, or how — because a plan is what turns a yes into a ' +
     'vote.',
+  community_input:
+    'Purpose: listening. There is no commitment to seek: the ask is one ' +
+    'question about what the candidate should be working on, and the whole ' +
+    'card reads as an invitation to talk rather than a pitch. The ' +
+    'engagement question is the most open one on this list.',
   // Never freshly generated — see the guard in generateDraft.
   custom:
     'Purpose: the candidate wrote these points themselves. Adapt what they ' +
@@ -384,6 +389,10 @@ export interface DoorKnockingDraftInput<TPurpose extends string> {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  // The community-input purpose only, on either product. Absent everywhere
+  // else, which is why the block it produces is conditional rather than a
+  // fixed line.
+  communityInputQuestion?: string
   event?: OutreachEventDetails
 }
 
@@ -451,6 +460,29 @@ export class OutreachDoorKnockingGenerationService {
     this.logger.setContext(OutreachDoorKnockingGenerationService.name)
   }
 
+  // The question this effort exists to ask, when there is one.
+  //
+  // Fenced for the reason every other piece of user text here is: it is
+  // typed by a person and must read as quoted material, not as further
+  // instructions to the prompt. The ask is the field it governs — the whole
+  // point of the community-input purpose is that the door closes on this
+  // question rather than on a generic one — so the rule sits beside it.
+  private buildQuestionContext(question?: string): string[] {
+    if (!question) return []
+    return [
+      ...fenced('The question this effort is trying to answer:', question),
+      // "In place of" is load-bearing: the listening purpose above tells the
+      // model the ask is one general question about what the office or the
+      // candidate should work on, which is the ask this field exists to
+      // replace. Without a stated precedence the two instructions simply
+      // conflict.
+      'This is what "ask" must put to the resident, in place of the general ' +
+        'question described above. Keep what it asks exactly. You may word ' +
+        'it to invite them to say more, but do not widen it into a general ' +
+        'what-matters-to-you question and do not answer it yourself.',
+    ]
+  }
+
   // The audience block, restated beside the description it governs rather than
   // left to the system prompt alone — the constraint travels with the data.
   // Both come from `audienceUseRule`, so the two cannot drift.
@@ -501,6 +533,7 @@ export class OutreachDoorKnockingGenerationService {
       `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
       voice.purposePrompts[input.purpose],
+      ...this.buildQuestionContext(input.communityInputQuestion),
       ...extraContext,
       ...this.buildAudienceContext(audienceDescription, voice),
     ]

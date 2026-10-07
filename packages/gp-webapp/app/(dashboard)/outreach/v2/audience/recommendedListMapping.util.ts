@@ -13,12 +13,18 @@ import type { VoterFileFilters } from 'app/(dashboard)/contacts/crm/shared/voter
 // PhoneBankingPurpose/DoorKnockingPurpose are literal re-exports of the same
 // OutreachPurpose array, not per-channel variants, so this is the one map
 // every flow calls rather than four copies that must stay byte-identical by
-// hand. "custom" gets no recommendation; Serve's own non-electoral vocabulary
-// shares some of these slug strings for an unrelated meaning and must be
-// excluded by the caller (checking its own Win/Serve surface) before ever
-// reaching this.
+// hand. "custom" gets no recommendation, and neither does "community_input":
+// a listening effort has no audience a recommendation is cut for. Serve's own
+// non-electoral vocabulary shares some of these slug strings for an
+// unrelated meaning and must be excluded by the caller (checking its own
+// Win/Serve surface) before ever reaching this.
+type RecommendablePurpose = Exclude<
+  OutreachPurpose,
+  'custom' | 'community_input'
+>
+
 const PURPOSE_TO_RECOMMENDED_INTENT: Record<
-  Exclude<OutreachPurpose, 'custom'>,
+  RecommendablePurpose,
   RecommendedListIntent
 > = {
   introduce_myself: 'introduce',
@@ -31,7 +37,9 @@ const PURPOSE_TO_RECOMMENDED_INTENT: Record<
 export const intentForOutreachPurpose = (
   purpose: OutreachPurpose,
 ): RecommendedListIntent | null =>
-  purpose === 'custom' ? null : PURPOSE_TO_RECOMMENDED_INTENT[purpose]
+  purpose === 'custom' || purpose === 'community_input'
+    ? null
+    : PURPOSE_TO_RECOMMENDED_INTENT[purpose]
 
 // The inverse, for a recommendation carried in from the voter data page:
 // its card was picked before any purpose, and the card's intent IS the
@@ -43,11 +51,11 @@ const RECOMMENDED_INTENT_TO_PURPOSE = Object.fromEntries(
     intent,
     purpose,
   ]),
-) as Record<RecommendedListIntent, Exclude<OutreachPurpose, 'custom'>>
+) as Record<RecommendedListIntent, RecommendablePurpose>
 
 export const purposeForRecommendedVariant = (
   variant: RecommendedListVariant,
-): Exclude<OutreachPurpose, 'custom'> =>
+): RecommendablePurpose =>
   RECOMMENDED_INTENT_TO_PURPOSE[RECOMMENDED_LIST_VARIANT_INTENT[variant]]
 
 // Voter_Status band values (docs/features/recommended-lists.md) as they

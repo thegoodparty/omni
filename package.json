@@ -31,7 +31,7 @@
     "generate:prisma:gp-api": "npx prisma generate --schema=packages/gp-api/prisma/schema",
     "generate:prisma:election-api": "npx prisma generate --schema=packages/election-api/prisma/schema",
     "dev": "bash scripts/dev.sh",
-    "setup": "scripts/setup.sh",
+    "setup": "bash scripts/setup.sh",
     "ai-rules:update": "git submodule update --remote ai-rules",
     "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'",
     "prepare": "husky || true",

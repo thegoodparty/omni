@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common'
 import { ChatsModule } from '@/chats/chats.module'
+import { BriefingChatsModule } from '@/chats/briefing-chats/briefing-chats.module'
+import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { GeneralChatsController } from './controllers/general-chats.controller'
 import { ChatScopeRegistry } from './services/chatScopeRegistry.service'
@@ -27,6 +29,7 @@ import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
     CampaignManagerModule,
     OrdinanceFlowModule,
     PriorityFlowModule,
+    BriefingChatsModule,
   ],
   controllers: [GeneralChatsController],
   providers: [
@@ -40,12 +43,20 @@ import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
         campaignManager: CampaignManagerHandler,
         ordinanceFlow: OrdinanceFlowHandler,
         priorityFlow: PriorityFlowHandler,
-      ) => [chiefOfStaff, campaignManager, ordinanceFlow, priorityFlow],
+        briefingAnnotation: BriefingAnnotationHandler,
+      ) => [
+        chiefOfStaff,
+        campaignManager,
+        ordinanceFlow,
+        priorityFlow,
+        briefingAnnotation,
+      ],
       inject: [
         ChiefOfStaffHandler,
         CampaignManagerHandler,
         OrdinanceFlowHandler,
         PriorityFlowHandler,
+        BriefingAnnotationHandler,
       ],
     },
   ],

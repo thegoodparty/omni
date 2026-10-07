@@ -873,6 +873,45 @@ dismissed:
 #       relocated (+ route: "/path") | not_a_change (the guard was wrong; say why)
 # A not_a_change row with no metric: reports a dead listing the guard got wrong (the
 # event still fires in a way it cannot see) and clears that block; triage treats it as a guard bug.
+# A call moved into another file is one line, no metric, checked against the code (the file
+# must gain a call site in that change and be imported); Queue C skips it:
+#   - {event: "<event>", intent: moved, to: "<file>", reason: "<why>", date: "YYYY-MM-DD"}
 # Queue C turns each row into the gp-data-platform anchored_on change, then deletes it.
 # Empty most of the time. Leave the key bare (not `intents: []`) so a row can be appended.
+#
+# Surface drift (DATA-2531):
+#   flow_prefixes: name prefixes that name a flow, not a place. The surface drift
+#     detector and the guard's surface_moved warning skip these events. Owner: Tristan.
+#   prefix_areas: a prefix the detector cannot match to an area by itself, mapped to the
+#     area slug it means (the nav label, or the page title for a page not in the nav).
+#     This ADDS an area the prefix may match; the prefix still matches by its own name
+#     too, so one prefix can span pages with different area names (Serve Onboarding
+#     maps to onboarding on one page and still matches its own name on another).
+#   relabels: an approved relabel, written in the PR that moves an event (the guard's
+#     surface_moved fix) or by hand. Row: {event, surface, display_name, reason, date}.
+#     Add a row directly under the `relabels:` line below, which is mid-file, not at
+#     the end of this file. Triage applies it to Govern through event-metadata. Rows
+#     stay after they are applied: with git history this list is the record of every
+#     relabel.
+flow_prefixes:
+  - Pro Upgrade
+  - P2P Upgrade
+  - Payment
+  - 10DLC
+  - 10 DLC Compliance
+  - Navigation
+  - Navigation Top
+  - Org Switcher
+prefix_areas:
+  Serve Onboarding: onboarding
+  Onboarding V2: candidate-onboarding
+  Candidacy: election-result
+relabels:
+  - {event: "Win - Opponent Activity Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Activity Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Profile Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Profile Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Research Started", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Research Started", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Standout Action Clicked", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Standout Action Clicked", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Standout Actions Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Standout Actions Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponent Upgrade Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Upgrade Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
+  - {event: "Win - Opponents Manually Added", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponents Manually Added", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
 intents:

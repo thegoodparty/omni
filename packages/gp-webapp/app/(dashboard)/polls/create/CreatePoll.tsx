@@ -1,4 +1,5 @@
 'use client'
+import { DEFAULT_TEXT_REPLY_RATE } from '@goodparty_org/contracts'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useForm, Controller } from 'react-hook-form'
@@ -471,7 +472,7 @@ const AudienceSelectionForm: React.FC<{
       </p>
 
       <PollAudienceSelector
-        expectedResponseRate={0.03}
+        expectedResponseRate={DEFAULT_TEXT_REPLY_RATE}
         totalConstituentsWithCellPhone={query.data.totalConstituents}
         alreadySent={0}
         responsesAlreadyReceived={0}

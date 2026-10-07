@@ -13,6 +13,12 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+// The form confirms an offline save with a snackbar, whose provider lives in
+// the app shell.
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
 // Stand in for the shared dictation hook so a transcript can be delivered
 // without the real getUserMedia / WebSocket / AudioWorklet stack.
 const mocks = vi.hoisted(() => ({

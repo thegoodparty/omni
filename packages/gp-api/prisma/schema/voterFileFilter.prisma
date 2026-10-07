@@ -113,6 +113,19 @@ model VoterFileFilter {
   /// constraint". A resolver keyed on `rows.length > 0` silently drops the
   /// polygon and hands back the whole demographic audience.
   geoPoly                    Json?                              @map("geo_poly")
+  /// [GeoShapeLabels]
+  /// What each part of `geoPoly` is called and the colour it was drawn in,
+  /// one entry per part in `shapePolygons` order. Display only: nothing
+  /// resolves membership from it. Written only together with `geoPoly`, so a
+  /// reshaped boundary never carries the names of the parts it replaced.
+  /// Null on every list saved before shapes could be named, and readers fall
+  /// back to "Shape N" in the palette order.
+  geoPolyLabels              Json?                              @map("geo_poly_labels")
+  /// The key of the chat card this list was created from, derived from the
+  /// conversation and the tool call that proposed it. Unique, so a second
+  /// press of the same card returns the list the first one made, and the card
+  /// can ask whether it has already been created after a reload.
+  proposalKey                String?                            @unique @map("proposal_key")
   /// When `geoMembers` was last resolved from `geoPoly`. The demographic
   /// half of a list re-resolves on every read while the geographic half is
   /// frozen; this makes that asymmetry visible and gives a future

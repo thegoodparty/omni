@@ -132,13 +132,17 @@ jobs:
           # job's timeout-minutes bound this loop; it exits when setup.sh
           # does. A second clock here raced setup.sh's (outer started at
           # launch, inner after the npm ci/docker/migrate preamble).
+          # Every probe is capped: a dev server mid-compile accepts the
+          # connection and answers nothing, and an uncapped curl parked this
+          # loop until the job's timeout-minutes cancelled it, after setup.sh
+          # itself had already printed "ready" (run 37346283518).
           while true; do
             if [ "$api_ok" != true ] &&
-              curl -fsS -o /dev/null http://localhost:3000/v1/health; then
+              curl -fsS --max-time 5 -o /dev/null http://localhost:3000/v1/health; then
               api_ok=true
             fi
             if [ "$webapp_ok" != true ] &&
-              curl -fsS -o /dev/null http://localhost:4000; then
+              curl -fsS --max-time 5 -o /dev/null http://localhost:4000; then
               webapp_ok=true
             fi
             if [ "$api_ok" = true ] && [ "$webapp_ok" = true ]; then
@@ -153,20 +157,20 @@ jobs:
 
           if [ "$api_ok" != true ] || [ "$webapp_ok" != true ]; then
             echo "api_ok=$api_ok webapp_ok=$webapp_ok" >&2
-            echo "last codes: api=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health || true) webapp=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4000 || true)" >&2
+            echo "last codes: api=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health || true) webapp=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:4000 || true)" >&2
             echo "--- tail of setup.log ---" >&2
             tail -n 200 setup.log >&2
             exit 1
           fi
 
-          api_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health || true)"
-          webapp_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:4000 || true)"
+          api_code="$(curl -fsS --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health || true)"
+          webapp_code="$(curl -fsS --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:4000 || true)"
           echo "GET /v1/health -> $api_code ; GET :4000 -> $webapp_code"
           # Same -f semantics as the poll loop above: the healthy webapp
           # answers / with a 307 to the sign-in page, so asserting a literal
           # 200 on :4000 fails a fully-working stack. -f only rejects >=400.
-          if ! curl -fsS http://localhost:3000/v1/health ||
-            ! curl -fsS -o /dev/null http://localhost:4000; then
+          if ! curl -fsS --max-time 5 http://localhost:3000/v1/health ||
+            ! curl -fsS --max-time 5 -o /dev/null http://localhost:4000; then
             echo "--- tail of setup.log ---" >&2
             tail -n 200 setup.log >&2
             exit 1

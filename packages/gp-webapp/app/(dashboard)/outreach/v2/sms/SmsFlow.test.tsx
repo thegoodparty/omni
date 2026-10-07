@@ -7,6 +7,10 @@ import { api } from 'helpers/test-utils/api-mocking'
 import type { OutreachDetail, SmsDraftRequest } from '@goodparty_org/contracts'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
+import {
+  createP2pPhoneList,
+  getP2pPhoneListBuildStatus,
+} from 'helpers/createP2pPhoneList'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
@@ -81,8 +85,13 @@ vi.mock('app/(dashboard)/shared/dictation/useDictationAppend', () => ({
 // The p2p phone-list helpers use the untyped clientFetch/apiRoutes path, so
 // they are module-mocked rather than MSW-mocked.
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 1200,
     excludedOptedOutCount: 3,
@@ -762,6 +771,137 @@ describe('SmsFlow', () => {
       expect(calls[1]?.currentDraft).toContain('Vote soon.')
     })
 
+    // A reply held until the candidate has acted, so the test can edit while
+    // the call is still in flight.
+    const mockHeldImprove = () => {
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const answered = { done: false }
+      api.mock('POST /v1/outreach/sms/draft', async ({ body }) => {
+        if (!body.currentDraft) {
+          return {
+            status: 200,
+            data: { draft: `AI body (${body.tone}) for ${body.purpose}` },
+          }
+        }
+        await held
+        answered.done = true
+        return { status: 200, data: { draft: 'The AI rewrite.' } }
+      })
+      return { release, answered }
+    }
+
+    it('keeps what the candidate types while Improve is running', async () => {
+      const { release, answered } = mockHeldImprove()
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'Vote soon.'),
+          ' Bring a friend.',
+        )
+      })
+      release()
+      await waitFor(() => expect(answered.done).toBe(true))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+      expect(box).toHaveTextContent(/Vote soon\. Bring a friend\./)
+      expect(box).not.toHaveTextContent(/The AI rewrite/)
+    })
+
+    // A call the candidate edited past can still fail. Its error must not
+    // come back over words they already fixed.
+    it("keeps the candidate's words when a superseded call fails late", async () => {
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const answered = { done: false }
+      api.mock('POST /v1/outreach/sms/draft', async ({ body }) => {
+        if (!body.currentDraft) {
+          return {
+            status: 200,
+            data: { draft: `AI body (${body.tone}) for ${body.purpose}` },
+          }
+        }
+        await held
+        answered.done = true
+        return {
+          status: 502,
+          data: { message: 'SMS draft generation failed' },
+        }
+      })
+      const { box, editor } = await reachCompose()
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'Vote soon.'),
+          ' Bring a friend.',
+        )
+      })
+      release()
+      await waitFor(() => expect(answered.done).toBe(true))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+      expect(
+        screen.queryByText(/We couldn.t draft your message just now/),
+      ).not.toBeInTheDocument()
+      expect(box).toHaveTextContent(/Vote soon\. Bring a friend\./)
+    })
+
+    it('keeps an Undo made while Improve is running', async () => {
+      const { release, answered } = mockHeldImprove()
+      const { box, editor } = await reachCompose()
+      // A first Improve that lands, so Undo has something to go back to.
+      api.mockOrdered('POST /v1/outreach/sms/draft', [
+        ({ body }) => ({
+          status: 200,
+          data: {
+            draft: (body.currentDraft ?? '').replace('Vote soon.', 'Go vote!'),
+          },
+        }),
+      ])
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Vote soon.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+      await waitFor(() => expect(box).toHaveTextContent(/Go vote!/))
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Improve with AI' }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      release()
+      await waitFor(() => expect(answered.done).toBe(true))
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+      expect(box).toHaveTextContent(/Vote soon\./)
+      expect(box).not.toHaveTextContent(/The AI rewrite/)
+    })
+
     it('gives a failed first draft the locked parts to write between', async () => {
       api.mock('POST /v1/outreach/sms/draft', {
         status: 502,
@@ -791,6 +931,47 @@ describe('SmsFlow', () => {
           'Hello {first_name},\n\nPaid for by Friends of Jane. ' +
             'Reply STOP to opt out.',
         ),
+      )
+    })
+
+    // Typing is the candidate taking over from the failed draft, so the
+    // card goes and Try again cannot improve their words.
+    it('clears the draft error once the candidate types', async () => {
+      api.mock('POST /v1/outreach/sms/draft', {
+        status: 502,
+        data: { message: 'SMS draft generation failed' },
+      })
+      openFlow()
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(screen.getByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText(/We couldn.t draft your message just now/),
+      ).toBeInTheDocument()
+      const box = await screen.findByRole('textbox', { name: 'Message body' })
+      const editor = (box as HTMLElement & { editor: Editor }).editor
+      await waitFor(() => expect(endOf(editor, 'Hello ')).toBeGreaterThan(0))
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, ','),
+          ' this is Sarah Chen.',
+        )
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.queryByText(/We couldn.t draft your message just now/),
+        ).not.toBeInTheDocument(),
       )
     })
 
@@ -882,6 +1063,8 @@ describe('SmsFlow', () => {
         initialScript: string
         preselectedListId: number
         campaignPlanDueDate: string
+        proposalLink: { proposalKey: string }
+        onProposalCreateFailed: () => void
       }>,
     ) =>
       render(
@@ -923,6 +1106,69 @@ describe('SmsFlow', () => {
       // The audience step reads back the selected list by name rather than
       // leaving the picker on its placeholder.
       expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
+    })
+
+    // A Campaign Manager card's key rides the create, so the server marks
+    // the card sent once the text is paid for.
+    it("carries a chat card's proposal key on the create", async () => {
+      vi.mocked(createOutreach).mockClear()
+      const proposalKey = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+        proposalLink: { proposalKey },
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
+          expect.objectContaining({ proposalKey, voterFileFilterId: 41 }),
+          expect.anything(),
+        ),
+      )
+    })
+
+    it('tells the card when the create carrying its key is refused', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(createOutreach).mockResolvedValueOnce(null)
+      const onProposalCreateFailed = vi.fn()
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+        proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
+        onProposalCreateFailed,
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(onProposalCreateFailed).toHaveBeenCalledTimes(1),
+      )
     })
 
     // Words the product carried in or wrote are checked for the sender's
@@ -1842,6 +2088,174 @@ describe('SmsFlow', () => {
         await screen.findByText('When do you want to send it?'),
       ).toBeInTheDocument()
       expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('phone list build status', () => {
+    // Restores the module mock's original (ready) behavior so later tests in
+    // this file are never affected by an override left behind here.
+    afterEach(() => {
+      vi.mocked(createP2pPhoneList).mockReset()
+      vi.mocked(createP2pPhoneList).mockImplementation(async () => ({
+        ok: true,
+        token: 'tok-1',
+        buildId: 'build-1',
+      }))
+      vi.mocked(getP2pPhoneListBuildStatus).mockReset()
+      vi.mocked(getP2pPhoneListBuildStatus).mockImplementation(async () => ({
+        buildStatus: 'ready',
+        phoneListId: 77,
+        leadsLoaded: 1200,
+        excludedOptedOutCount: 3,
+        excludedDuplicatePhoneCount: 1,
+      }))
+    })
+
+    const runToReview = async () => {
+      mockDraft()
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+        ).toBeEnabled(),
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    }
+
+    it('shows a preparing state while the build is still in progress and never flashes the failed card', async () => {
+      vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
+        buildStatus: 'building',
+      })
+      openFlow()
+      await runToReview()
+
+      expect(
+        await screen.findByRole('status', { name: 'Loading' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText("We couldn't prepare this audience. Try again."),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows the build-failed state with a retry that requests a fresh build', async () => {
+      vi.mocked(createP2pPhoneList)
+        .mockReset()
+        .mockResolvedValueOnce({ ok: true, token: 'tok-1', buildId: 'build-1' })
+        .mockResolvedValueOnce({ ok: true, token: 'tok-2', buildId: 'build-2' })
+      vi.mocked(getP2pPhoneListBuildStatus).mockImplementation(
+        async (buildId) =>
+          buildId === 'build-1'
+            ? {
+                buildStatus: 'failed',
+                buildError: 'No contacts matched the filter.',
+              }
+            : {
+                buildStatus: 'ready',
+                phoneListId: 77,
+                leadsLoaded: 1200,
+                excludedOptedOutCount: 3,
+                excludedDuplicatePhoneCount: 1,
+              },
+      )
+      openFlow()
+      await runToReview()
+
+      expect(
+        await screen.findByText(
+          "We couldn't prepare this audience. Try again.",
+        ),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+      await waitFor(() =>
+        expect(
+          screen.queryByText("We couldn't prepare this audience. Try again."),
+        ).not.toBeInTheDocument(),
+      )
+      expect(await screen.findByText('1,200')).toBeInTheDocument()
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
+    })
+
+    it('rebuilds automatically on Back from a failed build, so re-entering review is not stuck on the stale failure', async () => {
+      vi.mocked(createP2pPhoneList)
+        .mockReset()
+        .mockResolvedValueOnce({ ok: true, token: 'tok-1', buildId: 'build-1' })
+        .mockResolvedValueOnce({ ok: true, token: 'tok-2', buildId: 'build-2' })
+      vi.mocked(getP2pPhoneListBuildStatus).mockImplementation(
+        async (buildId) =>
+          buildId === 'build-1'
+            ? {
+                buildStatus: 'failed',
+                buildError: 'No contacts matched the filter.',
+              }
+            : {
+                buildStatus: 'ready',
+                phoneListId: 77,
+                leadsLoaded: 1200,
+                excludedOptedOutCount: 3,
+                excludedDuplicatePhoneCount: 1,
+              },
+      )
+      openFlow()
+      await runToReview()
+
+      expect(
+        await screen.findByText(
+          "We couldn't prepare this audience. Try again.",
+        ),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+
+      // Back already re-requested a fresh build in the background -- the
+      // candidate doesn't have to notice the stale failure and press retry
+      // themselves before continuing.
+      await waitFor(() =>
+        expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2),
+      )
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        screen.queryByText("We couldn't prepare this audience. Try again."),
+      ).not.toBeInTheDocument()
+      expect(await screen.findByText('1,200')).toBeInTheDocument()
+    })
+
+    it('keeps a successful build across Back/forward without rebuilding it', async () => {
+      openFlow()
+      await runToReview()
+
+      expect(await screen.findByText('1,200')).toBeInTheDocument()
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(await screen.findByText('1,200')).toBeInTheDocument()
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
     })
   })
 })

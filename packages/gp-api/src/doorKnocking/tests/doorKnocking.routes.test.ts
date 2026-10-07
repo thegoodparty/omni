@@ -782,6 +782,29 @@ describe('door-knocking routes', () => {
       expect(logged.status).toBe(201)
       expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(1)
     })
+
+    it('refuses a knock on a turf with no outreach envelope', async () => {
+      const { turf, routeId } = await routedTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { turf: { route: { id: routeId } } } },
+        })
+      await service.prisma.outreach.delete({
+        where: { id: (await envelopeFor(turf.id)).id },
+      })
+
+      const logged = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa',
+          outcome: 'answered',
+        },
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(logged.status).toBe(404)
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(0)
+    })
   })
 
   // Creating a list IS the purchase. One request, one transaction: turf,
@@ -1225,6 +1248,26 @@ describe('door-knocking routes', () => {
       })
       expect(turf.purpose).toBe('election_day_turnout')
       expect((await envelopeFor(turf.id)).script).toBe(talkingPoints)
+    })
+
+    // "Hear from voters" asks one question, kept on the turf so issue capture
+    // can read every memo on this walk against it.
+    it('freezes the hear-from-voters question with the turf', async () => {
+      stubVendors()
+
+      const res = await postTurf({
+        purpose: 'community_input',
+        communityInputQuestion: 'How do you feel about the road bond?',
+      })
+
+      expect(res.status).toBe(201)
+      const turf = await service.prisma.doorKnockingTurf.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(turf.purpose).toBe('community_input')
+      expect(turf.communityInputQuestion).toBe(
+        'How do you feel about the road bond?',
+      )
     })
 
     // Both fields are optional, and every list created before the step existed
@@ -4429,6 +4472,31 @@ describe('door-knocking routes', () => {
         manual: false,
       })
       expect(row.occurredAt).toBeInstanceOf(Date)
+    })
+
+    // A person can sit in two turfs, so the person alone cannot say which
+    // effort a knock counted toward. The envelope is resolved here anyway to
+    // authorize volunteers; storing it is what gives an effort its own count.
+    it('stamps the knock with its turf’s outreach envelope', async () => {
+      const turf = await createTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingTurfId: turf.id } },
+        })
+
+      const res = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+      })
+
+      expect(res.status).toBe(201)
+      const envelope = await envelopeFor(turf.id)
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+          where: { organizationSlug: orgSlug },
+        })
+      expect(row.outreachId).toBe(envelope.id)
     })
 
     // What comes back recolors the dot on the phone without re-fetching the

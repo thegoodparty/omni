@@ -492,7 +492,7 @@ describe('update_priority_status holds the check to being offered', () => {
     summary: 'Rents, not stock',
   }
 
-  it('says the check is due when a gate settles without one', async () => {
+  it('asks what is missing when a gate settles without a check', async () => {
     const id = await createPriority()
 
     const result = await toolFor(id, () => false).execute({
@@ -501,7 +501,7 @@ describe('update_priority_status holds the check to being offered', () => {
     })
 
     expect(result).toHaveProperty('checkDue')
-    expect(JSON.stringify(result)).toContain('Offer its check now')
+    expect(JSON.stringify(result)).toContain('settled with no check')
     expect(stepOf(await statusService.read(id), 'define').state).toBe('settled')
   })
 
@@ -623,7 +623,7 @@ describe('update_priority_status holds the check to being offered', () => {
     ).not.toHaveProperty('error')
   })
 
-  it('refuses to open the next step past a gate with no check', async () => {
+  it('opens the next step past a gate with no check', async () => {
     const id = await createPriority()
 
     const result = await toolFor(id, () => false).execute({
@@ -631,8 +631,29 @@ describe('update_priority_status holds the check to being offered', () => {
       nextAction: 'Pull the numbers',
     })
 
-    expect(result).toHaveProperty('error')
-    expect(stepOf(await statusService.read(id), 'define').state).toBe('open')
+    expect(result).not.toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'evidence').state).toBe(
+      'active',
+    )
+  })
+
+  it('closes a listening step whose gate never needed a check', async () => {
+    const id = await createPriority()
+
+    const result = await toolFor(id, () => false).execute({
+      steps: [
+        settleDefine,
+        { id: 'evidence', state: 'settled' },
+        { id: 'listen_problem', state: 'settled' },
+        { id: 'options', state: 'active' },
+      ],
+      nextAction: 'Lay out the options',
+    })
+
+    expect(result).not.toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'listen_problem').state).toBe(
+      'settled',
+    )
   })
 
   it('refuses to record asked before anything went out', async () => {
@@ -827,7 +848,7 @@ describe('update_priority_status only lets constituents answer a check', () => {
     expect(result).not.toHaveProperty('error')
   })
 
-  it('reads a stale asked that was never shown as no check at all', async () => {
+  it('lets work go on past a stale asked that was never shown', async () => {
     const id = await createPriority()
     await statusService.applyUpdate(id, {
       steps: [
@@ -845,11 +866,10 @@ describe('update_priority_status only lets constituents answer a check', () => {
       nextAction: 'Pull the numbers',
     })
 
-    expect(result).toHaveProperty('error')
-    expect(JSON.stringify(result)).toContain('never shown')
+    expect(result).not.toHaveProperty('error')
   })
 
-  it('lets one step open past an unanswered check, and no further', async () => {
+  it('lets work go on past a check still waiting on the official', async () => {
     const id = await createPriority()
     await offerDefine(id)
     const tool = toolAt(id, false, later())
@@ -867,8 +887,7 @@ describe('update_priority_status only lets constituents answer a check', () => {
       ],
       nextAction: 'Hear from people',
     })
-    expect(listen).toHaveProperty('error')
-    expect(JSON.stringify(listen)).toContain('still waiting')
+    expect(listen).not.toHaveProperty('error')
   })
 })
 

@@ -115,7 +115,8 @@ def intent_findings(watchlist_path: Path, anchors: Mapping[str, Sequence[Any]]) 
     guard does not watch either), the row has done its job.
 
     A row with no metric is a dead-listing false positive a PR reported, not a metric
-    change, so it is skipped here; the triage skill reviews those as guard bugs."""
+    change, so it is skipped here; the triage skill reviews those as guard bugs. A moved row
+    is a refactor the guard already checked against the code, so it is skipped too."""
     if not anchors:
         # Same as align(): without the declaration nothing can be compared, and the
         # monitor already reports the read failure in red.
@@ -126,7 +127,7 @@ def intent_findings(watchlist_path: Path, anchors: Mapping[str, Sequence[Any]]) 
     doc = yaml.safe_load(path.read_text()) or {}
     out = []
     for row in doc.get("intents") or []:
-        if not isinstance(row, Mapping) or not row.get("metric"):
+        if not isinstance(row, Mapping) or not row.get("metric") or row.get("intent") == "moved":
             continue
         metric, event = str(row.get("metric")), str(row.get("event"))
         watched = {leg.event for leg in anchors.get(metric, []) if leg.watched}

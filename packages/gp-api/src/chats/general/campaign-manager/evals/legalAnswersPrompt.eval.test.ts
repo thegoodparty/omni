@@ -75,7 +75,6 @@ const ON_BALLOT: CampaignManagerContext = {
   ballotStatus: 'on-ballot',
   filingPeriodStart: null,
   filingPeriodEnd: null,
-  daysToFilingDeadline: null,
 }
 
 // One compliance article, the way production answers a texting question. Its
