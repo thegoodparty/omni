@@ -160,31 +160,18 @@ const WeekNavigator = ({
   )
 }
 
-// "Done" is plain green text; the other states are pills.
+// Only a finished phase says so, in plain green text. The phase happening now
+// is the one that opens on arrival, which says it without a label.
 export const PhaseStatus = ({
   status,
 }: {
   status: CampaignStrategyPhaseModel['status']
-}): React.JSX.Element => {
-  if (status === 'done') {
-    return <span className="text-success-700 text-sm font-semibold">Done</span>
-  }
-  if (status === 'active') {
-    return (
-      <Badge className="border-transparent bg-primary/10 text-primary">
-        Happening now
-      </Badge>
-    )
-  }
-  return (
-    <Badge className="text-muted-foreground border-border bg-transparent">
-      Coming up
-    </Badge>
-  )
-}
+}): React.JSX.Element | null =>
+  status === 'done' ? (
+    <span className="text-success-700 text-sm font-semibold">Done</span>
+  ) : null
 
-// One phase as a standalone card (active phase gets a blue border). Title and
-// summary stay visible when collapsed; objective/category groups and task rows
+// One phase as a standalone card. Title and summary stay visible when collapsed; objective/category groups and task rows
 // run edge to edge so dividers and highlights reach the card sides.
 const CampaignStrategyPhase = ({
   phase,
@@ -197,10 +184,7 @@ const CampaignStrategyPhase = ({
   <AccordionItem
     id={`phase-${phase.key}`}
     value={phase.key}
-    className={cn(
-      'bg-card overflow-hidden rounded-xl border px-0 shadow-sm',
-      phase.status === 'active' && 'border-primary',
-    )}
+    className="bg-card overflow-hidden rounded-xl border px-0 shadow-sm"
   >
     <AccordionTrigger className="px-6 py-5 hover:no-underline">
       <span className="flex flex-1 flex-col gap-1 text-left">
