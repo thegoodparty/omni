@@ -594,6 +594,9 @@ export default function CreateListFlow({
   // Discards a response that arrives after a newer request was fired, so a
   // slow first draft cannot overwrite a fast regenerate.
   const draftRequestRef = useRef(0)
+  // The last draft call, so Try again repeats what failed (a Regenerate or
+  // an Improve) rather than guessing from the purpose.
+  const lastDraftRef = useRef<(() => void) | null>(null)
 
   // A recommendation accepted as a brand-new list carries clauses the who
   // step's boolean pill draft has no plane for — precincts and support
@@ -1138,6 +1141,8 @@ export default function CreateListFlow({
     // writing their own, and only Improve applies.
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    lastDraftRef.current = () =>
+      requestDraft(nextPurpose, currentDraft, previousDraft)
     const trimmed = instructions.trim()
     // Read here and passed as a variable, the way `instructions` is: the
     // question is what a community-input effort exists to ask, so the card's
@@ -1999,6 +2004,15 @@ export default function CreateListFlow({
               canImprove={generatedBlock().length > 0}
               isDrafting={draft.isPending}
               isDraftError={draft.isError}
+              onRetry={() =>
+                lastDraftRef.current
+                  ? lastDraftRef.current()
+                  : requestDraft(
+                      purpose,
+                      undefined,
+                      generatedBlock() || undefined,
+                    )
+              }
               isCustomPurpose={purpose === 'custom'}
             />
           )}

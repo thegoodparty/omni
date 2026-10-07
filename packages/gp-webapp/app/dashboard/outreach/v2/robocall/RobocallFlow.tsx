@@ -290,6 +290,10 @@ export const RobocallFlow = ({
   const purposeRef = useRef(purpose)
   purposeRef.current = purpose
   const recorder = useRobocallRecorder(MAX_RECORDING_SECONDS)
+  // The script as it stood when the recording was saved. The check listens
+  // to the recording, not the script, so a later edit or polish keeps a
+  // passed recording and only says the two no longer match.
+  const [recordedScript, setRecordedScript] = useState<string | null>(null)
   const { reset: resetRecorder } = recorder
   const audioUpload = useRobocallAudioUpload()
   const { reset: resetAudioUpload } = audioUpload
@@ -315,7 +319,10 @@ export const RobocallFlow = ({
     const rec = recorder.recording
     if (!rec) return
     const uploaded = await audioUpload.uploadAudio(rec.blob)
-    if (uploaded) recorder.save()
+    if (uploaded) {
+      recorder.save()
+      setRecordedScript(script)
+    }
   }
 
   // Re-recording (status back to idle) drops any prior upload + verdict.
@@ -323,6 +330,7 @@ export const RobocallFlow = ({
     if (recorder.status === 'idle') {
       resetAudioUpload()
       resetCompliance()
+      setRecordedScript(null)
     }
   }, [recorder.status, resetAudioUpload, resetCompliance])
 
@@ -657,10 +665,9 @@ export const RobocallFlow = ({
     })
   }
 
-  // Any change to the script the candidate must read aloud (purpose, tone,
-  // regenerate) or backing out of compose invalidates a recording made against
-  // the old script — drop it so a stale saved clip can't satisfy the Continue
-  // gate against a script the candidate never read.
+  // A new purpose, or backing out of compose, drops the recording: it was
+  // made for a different call, so a stale saved clip must not satisfy the
+  // Continue gate.
   const invalidateRecording = () => {
     resetRecorder()
     resetAudioUpload()
@@ -843,8 +850,6 @@ export const RobocallFlow = ({
     } else {
       requestDraft(purpose, t)
     }
-    // The new draft supersedes the script a recording was read against.
-    invalidateRecording()
   }
 
   const aiAction = ownWords ? 'improve' : 'regenerate'
@@ -856,7 +861,6 @@ export const RobocallFlow = ({
     } else {
       requestDraft(purpose, tone)
     }
-    invalidateRecording()
   }
 
   const handleScriptChange = (next: string) => {
@@ -1169,6 +1173,11 @@ export const RobocallFlow = ({
             recorder={recorder}
             maxSeconds={MAX_RECORDING_SECONDS}
             onSaveRecording={handleSaveRecording}
+            scriptChangedSinceRecording={
+              recorder.status === 'saved' &&
+              recordedScript !== null &&
+              script !== recordedScript
+            }
             isUploading={audioUpload.isUploading}
             uploadError={audioUpload.error}
             complianceChecking={complianceMutation.isPending}

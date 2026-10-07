@@ -872,7 +872,7 @@ describe('PhoneBankingFlow', () => {
     })
   })
 
-  it('omits previousDraft on a tone change after the candidate manually edited the script, so their edits are never told to diverge from', async () => {
+  it("polishes the candidate's own script in a new tone rather than replacing it", async () => {
     const draftCalls = mockDraft()
     openFlow()
     await advanceToScript()
@@ -884,25 +884,25 @@ describe('PhoneBankingFlow', () => {
 
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(2))
-    expect(draftCalls[1]).toMatchObject({ tone: 'direct' })
-    expect(draftCalls[1]).not.toHaveProperty('previousDraft')
-
-    // A later tone change, with no further edits since that AI draft
-    // landed, goes back to sending previousDraft — the guard is per-edit,
-    // not sticky for the rest of the session.
+    expect(draftCalls[1]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'direct',
+      currentDraft: 'My hand-edited script',
+    })
     await waitFor(() =>
-      expect(scriptText()).toBe(
-        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
-      ),
+      expect(scriptText()).toBe('Improved (direct): My hand-edited script'),
     )
+
+    // A polish is still the candidate's words, so the next tone polishes
+    // that in turn.
     await user.click(screen.getByRole('radio', { name: /Urgent/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(3))
-    expect(draftCalls[2]).toMatchObject({
+    expect(draftCalls[2]).toEqual({
+      purpose: 'introduce_myself',
       tone: 'urgent',
-      previousDraft: draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
+      currentDraft: 'Improved (direct): My hand-edited script',
     })
   })
-
   it('clears instructions on a purpose re-pick, so the immediate draft for the new purpose omits them', async () => {
     const draftCalls = mockDraft()
     openFlow()

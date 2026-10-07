@@ -12,6 +12,7 @@ import {
   SparklesIcon,
   SquareIcon,
 } from '@styleguide/components/ui/icons'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { DEPARTURE_NOTE, type TalkingPointsLines } from '../talkingPointsCard'
 
@@ -91,6 +92,8 @@ interface TalkingPointsStepProps {
   onInstructionsChange: (instructions: string) => void
   onRegenerate: () => void
   onImprove: () => void
+  // Repeats the call that failed, Regenerate or Improve.
+  onRetry: () => void
   canImprove: boolean
   isDrafting: boolean
   isDraftError: boolean
@@ -125,6 +128,7 @@ export const TalkingPointsStep = ({
   onInstructionsChange,
   onRegenerate,
   onImprove,
+  onRetry,
   canImprove,
   isDrafting,
   isDraftError,
@@ -189,11 +193,7 @@ export const TalkingPointsStep = ({
             We couldn&apos;t write your talking points just now. Try again, or
             write your own below.
           </p>
-          <Button
-            type="button"
-            size="small"
-            onClick={isCustomPurpose ? onImprove : onRegenerate}
-          >
+          <Button type="button" size="small" onClick={onRetry}>
             Try again
           </Button>
         </Card>
@@ -237,6 +237,10 @@ export const TalkingPointsStep = ({
               // more than that endpoint allows.
               maxLength={DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH}
               className="min-h-0"
+            />
+            <LengthCounter
+              length={lines[key].length}
+              max={DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH}
             />
             <p className="text-xs text-muted-foreground">{caption}</p>
           </div>

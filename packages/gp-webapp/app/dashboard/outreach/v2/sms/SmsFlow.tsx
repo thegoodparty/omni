@@ -542,11 +542,12 @@ export const SmsFlow = ({
   // Locks are found in this, not in what is being typed, so a name the
   // candidate is halfway through typing never locks under their cursor.
   const [lockSource, setLockSource] = useState('')
-  const [manuallyEdited, setManuallyEdited] = useState(false)
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
   const [ownWords, setOwnWords] = useState(false)
+  // The candidate's words from just before the last AI change replaced
+  // them. Typing clears it: going back would throw the typing away.
   const [undoText, setUndoText] = useState<string | null>(null)
   const [toneDrafts, setToneDrafts] = useState<
     Partial<Record<SocialTone, string>>
@@ -722,7 +723,6 @@ export const SmsFlow = ({
     setMessage(seeded)
     setLockSource(seeded)
     seedUncheckedRef.current = initialScript || null
-    setManuallyEdited(Boolean(initialScript))
     setOwnWords(Boolean(initialScript))
     setUndoText(null)
     setToneDrafts({})
@@ -1016,7 +1016,7 @@ export const SmsFlow = ({
     nextPurpose: SmsFlowPurpose | null,
     nextTone: SocialTone,
     priorMessage: string,
-    priorManuallyEdited: boolean,
+    priorOwnWords: boolean,
     currentDraft?: string,
   ) => {
     if (!nextPurpose) return
@@ -1042,10 +1042,7 @@ export const SmsFlow = ({
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
-          if (priorManuallyEdited) {
-            setUndoText(priorMessage)
-            setManuallyEdited(false)
-          }
+          setUndoText(priorOwnWords ? priorMessage : null)
           // The model writes the body only, so a fresh draft is composed
           // around it here: greeting, the identification (the body's
           // editable first sentence, replacing any the model wrote),
@@ -1086,7 +1083,6 @@ export const SmsFlow = ({
   const handleSelectPurpose = (selected: SmsFlowPurpose) => {
     setPurpose(selected)
     setTone('warm')
-    setManuallyEdited(false)
     setUndoText(null)
     // A custom message starts as its locked parts, written between.
     const start =
@@ -1109,7 +1105,6 @@ export const SmsFlow = ({
       setOwnWords(false)
       setToneDrafts({})
       setUndoText(null)
-      setManuallyEdited(false)
       resetDraftMutation()
     }
     setStepId('audience')
@@ -1122,7 +1117,7 @@ export const SmsFlow = ({
     if (ownWords) {
       setTone(nextTone)
       if (hasWrittenBody) {
-        requestDraft(purpose, nextTone, message, manuallyEdited, message)
+        requestDraft(purpose, nextTone, message, ownWords, message)
       }
       return
     }
@@ -1144,17 +1139,16 @@ export const SmsFlow = ({
       // Not re-checked: a generated entry was identified when it arrived,
       // and any other entry is the candidate's own typing.
       loadMessage(remembered)
-      setManuallyEdited(false)
       return
     }
-    requestDraft(purpose, nextTone, message, manuallyEdited)
+    requestDraft(purpose, nextTone, message, ownWords)
   }
 
   const handleMessageChange = (value: string) => {
     seedUncheckedRef.current = null
     setMessage(value)
-    setManuallyEdited(true)
     setOwnWords(true)
+    setUndoText(null)
     // An edit wins over a reply still in flight, which would otherwise land
     // on top of it. Dropping the call also clears a failed one's error.
     draftRequestRef.current += 1
@@ -1164,11 +1158,11 @@ export const SmsFlow = ({
   const aiAction = ownWords ? 'improve' : 'regenerate'
   const handleAiAction = () => {
     if (aiAction === 'regenerate') {
-      requestDraft(purpose, tone, message, manuallyEdited)
+      requestDraft(purpose, tone, message, ownWords)
       return
     }
     if (!hasWrittenBody) return
-    requestDraft(purpose, tone, message, manuallyEdited, message)
+    requestDraft(purpose, tone, message, ownWords, message)
   }
 
   const handleUndo = () => {
@@ -1177,7 +1171,6 @@ export const SmsFlow = ({
     resetDraftMutation()
     loadMessage(undoText)
     setUndoText(null)
-    setManuallyEdited(true)
     setOwnWords(true)
   }
 

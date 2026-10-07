@@ -386,7 +386,7 @@ describe('SocialFlow', () => {
     expect(onClose).toHaveBeenCalledTimes(2)
   })
 
-  it('shows Undo only after manual typing is replaced by a tone draft, never from presets alone', async () => {
+  it("shows Undo only once the candidate's own words are replaced, never from presets alone", async () => {
     const draftCalls = mockDraft()
     openFlow()
     await user.click(screen.getByText('Introduce myself to voters'))
@@ -409,17 +409,19 @@ describe('SocialFlow', () => {
       screen.queryByRole('button', { name: 'Undo' }),
     ).not.toBeInTheDocument()
 
-    // Manual typing, then a NEWLY GENERATED tone draft replaces it: Undo
-    // appears + restores. (An uncached tone — cached switches restore from
-    // memory and never clobber, so they never need Undo.)
+    // Typed words are the candidate's own, so a tone polishes them rather
+    // than swapping in a fresh draft, and Undo goes back to them.
     typeDraft('My own words')
     await user.click(screen.getByRole('radio', { name: /Urgent/ }))
     const undo = await screen.findByRole('button', { name: 'Undo' })
     await waitFor(() =>
-      expect(draftText()).toBe(
-        draftFor({ purpose: 'introduce_myself', tone: 'urgent' }),
-      ),
+      expect(draftText()).toBe('Improved (urgent): My own words'),
     )
+    expect(draftCalls[2]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'urgent',
+      currentDraft: 'My own words',
+    })
     await user.click(undo)
     expect(draftText()).toBe('My own words')
   })
@@ -447,14 +449,6 @@ describe('SocialFlow', () => {
     )
     expect(draftCalls).toHaveLength(2)
 
-    // Manual edits are part of the tone's memory when switching away.
-    typeDraft('Warm but mine')
-    await user.click(screen.getByRole('radio', { name: /Direct/ }))
-    expect(draftCalls).toHaveLength(2)
-    await user.click(screen.getByRole('radio', { name: /Warm/ }))
-    expect(draftText()).toBe('Warm but mine')
-    expect(draftCalls).toHaveLength(2)
-
     // Regenerate is the only path that refetches an already-drafted tone.
     await user.click(screen.getByRole('button', { name: /Regenerate/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(3))
@@ -462,9 +456,20 @@ describe('SocialFlow', () => {
       purpose: 'introduce_myself',
       tone: 'warm',
     })
+
+    // Once the words are the candidate's, a tone polishes them instead of
+    // swapping in the remembered draft.
+    typeDraft('Warm but mine')
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    await waitFor(() => expect(draftCalls).toHaveLength(4))
+    expect(draftCalls[3]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'direct',
+      currentDraft: 'Warm but mine',
+    })
   })
 
-  it('keeps the custom purpose fully manual: no draft call, pills never clobber', async () => {
+  it("never drafts over the custom purpose: a tone polishes the candidate's words", async () => {
     const draftCalls = mockDraft()
     openFlow()
     await user.click(screen.getByText('Write my own message'))
@@ -473,15 +478,20 @@ describe('SocialFlow', () => {
     expect(draftText()).toBe('')
     typeDraft('Entirely my words')
 
-    // Tone pills stay visible but must not fire a call or replace the text.
+    // A tone polishes their words, as on SMS; nothing writes a fresh draft.
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
-    expect(draftCalls).toHaveLength(0)
-    expect(draftText()).toBe('Entirely my words')
+    await waitFor(() =>
+      expect(draftText()).toBe('Improved (direct): Entirely my words'),
+    )
+    expect(draftCalls).toEqual([
+      {
+        purpose: 'custom',
+        tone: 'direct',
+        currentDraft: 'Entirely my words',
+      },
+    ])
     expect(
       screen.queryByRole('button', { name: 'Regenerate' }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Undo' }),
     ).not.toBeInTheDocument()
   })
 
@@ -524,7 +534,7 @@ describe('SocialFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  it('shows Improve with AI only after manual typing; improving replaces with Undo + tone memory', async () => {
+  it("shows Improve with AI once the words are the candidate's; improving offers Undo", async () => {
     const draftCalls = mockDraft()
     openFlow()
     await user.click(screen.getByText('Introduce myself to voters'))
@@ -560,23 +570,12 @@ describe('SocialFlow', () => {
       currentDraft: 'My own words',
     })
 
-    // The polished result is generated text: Improve retreats until the
-    // user edits again.
+    // A polish is still the candidate's words: Improve stays on offer.
     expect(
-      screen.queryByRole('button', { name: /Improve with AI/ }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('button', { name: /Improve with AI/ }),
+    ).toBeInTheDocument()
 
-    // The polish fed the current tone's memory: leaving and returning
-    // restores it without another call.
-    await user.click(screen.getByRole('radio', { name: /Warm/ }))
-    expect(draftText()).toBe(
-      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
-    )
-    await user.click(screen.getByRole('radio', { name: /Direct/ }))
-    expect(draftText()).toBe('Improved (direct): My own words')
-    expect(draftCalls).toHaveLength(3)
-
-    // Undo still holds the pre-improve manual words.
+    // Undo goes back to the words before the polish.
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(draftText()).toBe('My own words')
     expect(
@@ -792,7 +791,7 @@ describe('SocialFlow', () => {
     ])
   })
 
-  it('feeds dictated text into per-tone memory on switch-away', async () => {
+  it("treats dictated words as the candidate's own: a tone polishes them", async () => {
     const draftCalls = mockDraft()
     openFlow()
     await user.click(screen.getByText('Introduce myself to voters'))
@@ -807,18 +806,17 @@ describe('SocialFlow', () => {
     })} Also spoken`
     expect(draftText()).toBe(dictated)
 
-    // Dictated words are manual: the generated direct draft snapshots Undo.
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() =>
-      expect(draftText()).toBe(
-        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
-      ),
+      expect(draftText()).toBe(`Improved (direct): ${dictated}`),
     )
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('radio', { name: /Warm/ }))
+    expect(draftCalls[1]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'direct',
+      currentDraft: dictated,
+    })
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(draftText()).toBe(dictated)
-    expect(draftCalls).toHaveLength(2)
   })
 
   it('allows Improve with AI for the custom purpose, with Undo', async () => {

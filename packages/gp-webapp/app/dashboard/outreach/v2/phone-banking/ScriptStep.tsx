@@ -33,6 +33,7 @@ import {
   SunIcon,
   TargetIcon,
 } from '@styleguide/components/ui/icons'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { Intro } from '../social/Intro'
 
@@ -79,6 +80,8 @@ interface ScriptStepProps {
   onInstructionsChange: (instructions: string) => void
   onRegenerate: () => void
   onImprove: () => void
+  // Repeats the call that failed, Regenerate or Improve.
+  onRetry: () => void
   canImprove: boolean
   isDrafting: boolean
   isDraftError: boolean
@@ -98,6 +101,7 @@ export const ScriptStep = ({
   onInstructionsChange,
   onRegenerate,
   onImprove,
+  onRetry,
   canImprove,
   isDrafting,
   isDraftError,
@@ -184,11 +188,7 @@ export const ScriptStep = ({
               We couldn&apos;t draft your script just now. Try again, or write
               your own below.
             </p>
-            <Button
-              type="button"
-              size="small"
-              onClick={isCustomPurpose ? onImprove : onRegenerate}
-            >
+            <Button type="button" size="small" onClick={onRetry}>
               Try again
             </Button>
           </Card>
@@ -215,6 +215,10 @@ export const ScriptStep = ({
             maxLength={PHONE_BANKING_SCRIPT_MAX_LENGTH}
             variant="seamless"
             className="min-h-[140px]"
+          />
+          <LengthCounter
+            length={script.length}
+            max={PHONE_BANKING_SCRIPT_MAX_LENGTH}
           />
           <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
             {canImprove && (
