@@ -28,12 +28,11 @@ import {
   Card,
   ExternalLinkIcon,
   MessageSquareIcon,
-  Overline,
   cn,
 } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
-import { PHASE_META, buildTrackerStrategy } from './buildTrackerStrategy'
+import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { formatTaskDate } from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
 import { isVoterContactFlowType, useTrackerTasks } from './useTrackerTasks'
@@ -363,8 +362,6 @@ const NextTaskCard = ({
 
   if (!frontTask) return countModal
 
-  const frontPhase = tasks.find((row) => row.id === frontTask.id)?.phase
-  const phaseTitle = PHASE_META.find((phase) => phase.key === frontPhase)?.title
   const dueDate = formatTaskDate(frontTask.date)
   const action = frontTask.prompt
     ? null
@@ -501,12 +498,11 @@ const NextTaskCard = ({
             )}
             <Card className="relative min-h-20 gap-0 overflow-hidden rounded-2xl border-components-input-border py-0">
               <div className="flex flex-col gap-1 px-6 py-5">
-                <div className="flex min-h-6 items-start justify-between gap-2">
-                  {frontTask.prompt ? (
-                    <Overline>Campaign Manager</Overline>
-                  ) : (
-                    <Overline>{phaseTitle}</Overline>
-                  )}
+                {/* No overline: the title leads. See design-memory learned.md. */}
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-opensans text-lg font-medium text-card-foreground">
+                    {frontTask.title}
+                  </h3>
                   {/* Dismissing the card asks first: Skip sends it to the back
                       of the stack, Cancel leaves it in front. */}
                   {canSkip && (
@@ -522,9 +518,6 @@ const NextTaskCard = ({
                     </IconButton>
                   )}
                 </div>
-                <h3 className="font-opensans text-lg font-medium text-card-foreground">
-                  {frontTask.title}
-                </h3>
                 {dueDate && (
                   <p className="text-muted-foreground text-sm">Due {dueDate}</p>
                 )}

@@ -22,7 +22,7 @@ export default function DashboardContent({
       pathname={pathname}
       showAlert={false}
       wrapperClassName="!p-0"
-      navHeader={{ icon: 'dashboard', label: NAV_LABELS.campaignManager }}
+      navHeader={{ icon: 'house', label: NAV_LABELS.home }}
     >
       <WebsiteSunsetModalController eligible={sunsetEligible} />
       <CampaignManagerHome tcrCompliance={tcrCompliance} />

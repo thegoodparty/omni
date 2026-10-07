@@ -209,7 +209,7 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
   if (!pathname) return null
   // Exact matches, ahead of the table: a '/dashboard' entry in it would
   // prefix-match (and mistitle) every dashboard subroute that isn't listed.
-  if (pathname === '/dashboard') return NAV_LABELS.campaignManager
+  if (pathname === '/dashboard') return NAV_LABELS.home
   if (pathname === '/dashboard/campaign-plan') {
     return NAV_LABELS.campaignPlan
   }
