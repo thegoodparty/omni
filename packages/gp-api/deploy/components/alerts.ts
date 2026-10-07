@@ -501,6 +501,97 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
+    slug: 'domain-registrar-charge-failed',
+    name: '[Win] Domain registrar is refusing our payment',
+    type: 'log',
+    // Every campaign domain is bought from Vercel's registrar on GOODPARTY's
+    // own Vercel team account, so a payment method that stops working there
+    // refuses every candidate's domain, and nothing in gp-api can see that
+    // account or fix it. Until this rule existed the only way we learned about
+    // it was a candidate being refused: on 2026-10-07 the generated route alert
+    // for POST /v1/domains/purchase was the whole signal, and it says only that
+    // the route errored. Three things make that a bad place to leave it — the
+    // reason is four log lines deeper, the same failure reached through the
+    // Stripe checkout flow errors on a different route entirely, and a route
+    // alert for this very endpoint has been lost to notification grouping
+    // before (2026-09-30).
+    //
+    // DomainsService logs the event once per refused order, with the registrar
+    // order id and Vercel's own error code.
+    //
+    // THRESHOLD 2 RATHER THAN 0, which is the whole judgement in this rule. A
+    // refused charge can clear by itself: on 2026-10-07 three orders failed in
+    // 45 seconds and the same campaign's next attempt, 11 minutes later, was
+    // charged and registered. One refusal is answered by the retry the caller
+    // already makes, and the candidate's own 502 is still covered by the route
+    // alert — so this rule is deliberately the one for the condition a retry
+    // cannot answer: our account refusing three times inside ten minutes.
+    // Paging on a single blip would mute the rule that has to be believed when
+    // the card is genuinely dead.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "DomainRegistrarChargeFailed"',
+      '| json',
+      '| event = "DomainRegistrarChargeFailed"',
+      '[10m]))',
+    ].join(' '),
+    threshold: 2,
+    // Window equals interval, so every line is read exactly once and none is
+    // missed: 1x ingest, which is the floor. A wider window would cost a
+    // multiple of it for a condition that stays broken until a human acts.
+    timeRangeSeconds: 600,
+    evaluationIntervalSeconds: 600,
+    // Logs land in Loki a few seconds behind the request, so the window ends
+    // behind real time rather than at `now` — otherwise the newest lines are in
+    // neither this window nor the next.
+    timeRangeOffsetSeconds: 30,
+    // Fires on the first evaluation that sees the third refusal, rather than
+    // waiting a second 10-minute evaluation to confirm it. `for` counts whole
+    // evaluations, so anything between 1m and 10m here would mean 20 minutes.
+    for: '0m',
+    message: [
+      'Our domain registrar refused GoodParty\u2019s payment on more than two campaign domain purchases in the last 10 minutes — our account, not the candidates’ cards.',
+      'Every registrar buy is billed to the GoodParty Vercel team account, so while this is true candidates are refused their domains and left with no website to launch, at roughly 10 purchases a day. A single refusal can clear on the next attempt and this rule ignores one; three in ten minutes is the card, not a blip.',
+      'Click *View in Grafana* and search "DomainRegistrarChargeFailed" for the lines: each names the domain, the registrar order id and Vercel\'s own error code (`payment-failed` is a declined or expired payment method, or a spend limit reached). The fix is in the Vercel dashboard, not in gp-api — somebody with Owner access on the GoodParty Vercel team has to repair the registrar payment method. Afterwards the candidate has to buy again; nothing retries for them.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
+    slug: 'domain-registration-failed-after-payment',
+    name: '[Win] Domain registration failed after the candidate paid',
+    type: 'log',
+    // The browser checkout flow charges Stripe BEFORE it asks the registrar to
+    // register (the ordering is a known defect, flagged in DomainsService), so
+    // a registration that fails there leaves a candidate who has paid with no
+    // domain. One is one too many, which is why this one pages on a single
+    // line where its sibling above waits for three. Nothing refunds it: refunds here are deliberately human
+    // (src/payments/AGENTS.md), and the domain row simply goes inactive. This
+    // is the same shape as win-outreach-paid-not-scheduled-warning, and the
+    // same reason it exists — money has moved and only a person can put it
+    // back, so the log line has to page rather than wait to be noticed.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "DomainRegistrationFailedAfterPayment"',
+      '| json',
+      '| event = "DomainRegistrationFailedAfterPayment"',
+      '[10m]))',
+    ].join(' '),
+    threshold: 0,
+    // 1x ingest, for the reasons given on the rule above.
+    timeRangeSeconds: 600,
+    evaluationIntervalSeconds: 600,
+    timeRangeOffsetSeconds: 30,
+    for: '0m',
+    message: [
+      'A candidate paid for a domain in the last 10 minutes and the registration then failed. Their card has been charged and they have no domain.',
+      'Click *View in Grafana* and search "DomainRegistrationFailedAfterPayment" for the line: it names the Stripe payment to refund (`paymentId`), the user, the domain, the price and the underlying failure. Nothing refunds it automatically, so the refund is this alert\'s job.',
+      'If the underlying failure is the registrar refusing our own payment, domain-registrar-charge-failed will have fired alongside it and that is the cause to fix first — otherwise the next candidate pays into the same hole. The candidate is told not to pay again, so until somebody acts they are blocked rather than double-charged.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'metric',

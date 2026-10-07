@@ -43,6 +43,23 @@ import { AuthCodeRequester } from '../domains.types'
 
 const mockUser = createMockUser()
 
+/**
+ * The rejection, narrowed, so a test can read the error's own payload. Needed
+ * because the exceptions these paths throw carry the part under test in
+ * `getResponse()` rather than in the message alone.
+ */
+const expectBadGateway = async (
+  promise: Promise<unknown>,
+): Promise<BadGatewayException> => {
+  try {
+    await promise
+  } catch (error) {
+    if (error instanceof BadGatewayException) return error
+    throw error
+  }
+  throw new Error('expected the call to reject with a BadGatewayException')
+}
+
 const mockRequester: AuthCodeRequester = {
   authSource: 'user',
   userId: mockUser.id,
@@ -249,13 +266,53 @@ describe('DomainsService', () => {
 
       await expect(
         service.handleDomainPostPurchase(sessionId, metadata),
-      ).rejects.toThrow('Failed to register domain with Vercel')
+      ).rejects.toThrow('could not be registered')
 
       expect(mockAnalytics.track).not.toHaveBeenCalled()
       expect(mockPrisma.domain.update).toHaveBeenCalledWith({
         where: { id: mockDomain.id },
         data: { status: DomainStatus.inactive },
       })
+    })
+
+    // This flow charges Stripe BEFORE it asks the registrar to register, so a
+    // failure here is money taken with nothing handed over. Nothing refunds it
+    // — refunds are human — so the only thing that can get the candidate their
+    // money back is this log line, which
+    // `domain-registration-failed-after-payment` pages on.
+    it('names the payment to refund when registration fails after the candidate paid', async () => {
+      vi.spyOn(service, 'completeDomainRegistration').mockRejectedValue(
+        new Error('Vercel registration failed'),
+      )
+
+      await expect(
+        service.handleDomainPostPurchase(sessionId, metadata),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'DomainRegistrationFailedAfterPayment',
+          paymentId: 'pi_123',
+          userId: mockUser.id,
+          domainName: 'test-domain.com',
+          priceUsd: 11.25,
+          reason: 'Vercel registration failed',
+        }),
+      )
+    })
+
+    // Paying twice for one domain is the worst outcome available here, and the
+    // generic "failed to register" message invited exactly that.
+    it('tells the candidate not to pay again', async () => {
+      vi.spyOn(service, 'completeDomainRegistration').mockRejectedValue(
+        new Error('Vercel registration failed'),
+      )
+
+      const error = await expectBadGateway(
+        service.handleDomainPostPurchase(sessionId, metadata),
+      )
+
+      expect(error.message).toContain('do not pay again')
     })
 
     it('should send null priceOfSelectedDomain when domain has no price', async () => {
@@ -1988,6 +2045,106 @@ describe('DomainsService', () => {
         expect.objectContaining({
           data: expect.objectContaining({ status: DomainStatus.submitted }),
         }),
+      )
+    })
+
+    // Vercel bills GoodParty's own Vercel team account for every registrar
+    // buy, so `payment-failed` means OUR payment method was refused, not that
+    // anything about this request is wrong. Nothing else in the response or the
+    // logs says so: on 2026-10-07 the only signal was a route that errored.
+    it('records our own billing failure as its own event', async () => {
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      const addDomainToProjectMock = vi.fn().mockResolvedValue({})
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        getRegistrarOrder: vi.fn().mockResolvedValue({
+          status: GetOrderStatus.Failed,
+          error: { code: 'payment-failed' },
+        }),
+        addDomainToProject: addDomainToProjectMock,
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: null,
+        price: new Decimal(1.99),
+      })
+
+      const error = await expectBadGateway(
+        service.completeDomainRegistration(10, contact, {
+          skipPaymentVerification: true,
+        }),
+      )
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'DomainRegistrarChargeFailed',
+          orderId: 'order_123',
+          registrarErrorCode: 'payment-failed',
+          domainName: mockDomain.name,
+          priceUsd: 1.99,
+        }),
+      )
+
+      // Still the retryable failure it always was, deliberately: the same
+      // campaign's next attempt 11 minutes later was charged and registered,
+      // and a caller that gave up on the first refusal would have left it
+      // without the domain it now has.
+      expect(error.message).toContain('Failed to register domain with Vercel')
+      expect(addDomainToProjectMock).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: DomainStatus.inactive },
+        }),
+      )
+    })
+
+    // Anything that is not our own billing must not be reported as our own
+    // billing — the page it feeds asks somebody to go and look at a card.
+    it('does not claim a registry rejection was our payment', async () => {
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        getRegistrarOrder: vi.fn().mockResolvedValue({
+          status: GetOrderStatus.Failed,
+          error: { code: 'registry_rejected' },
+        }),
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+
+      const error = await expectBadGateway(
+        service.completeDomainRegistration(10, contact, {
+          skipPaymentVerification: true,
+        }),
+      )
+
+      expect(error.message).toContain('registry_rejected')
+      expect(mockLogger.error).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'DomainRegistrarChargeFailed' }),
       )
     })
 

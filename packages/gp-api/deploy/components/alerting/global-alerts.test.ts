@@ -264,12 +264,14 @@ const MAX_REREAD_FACTOR = 24
  * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
  * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
  * GB/day, or roughly half the allowance, leaving the other half for humans and
- * for whatever the next alert needs. The set totals 124 today.
+ * for whatever the next alert needs. The set totals 126 today.
  *
  * WHAT THE REMAINING HEADROOM WILL AND WILL NOT BUY, since this is where the
- * next person will want to spend it. 118 of those 124 are the eleven
+ * next person will want to spend it. 120 of those 126 are the thirteen
  * hand-written log alerts; the five route alerts are 5 and the door-knocking
- * recording rule is 1. Another rule at the per-rule ceiling of 24 does not fit,
+ * recording rule is 1. The two domain-money rules added on 2026-10-07 are 1
+ * apiece, which is what a rule whose window equals its interval costs — the
+ * cheapest shape there is, and the one to copy. Another rule at the per-rule ceiling of 24 does not fit,
  * and neither does putting the four Geoapify tiers back on Loki — a 24h window
  * cannot be evaluated more than once an hour without breaching that ceiling on
  * its own, so four of them is 96. That is why door-knocking spend is the one
@@ -359,6 +361,119 @@ describe('people-person-id-repoint-collision', () => {
   // owns the people surface.
   it('pages a group rather than the default receiver', () => {
     expect(alert!.notify).toEqual('win-bugs')
+  })
+})
+
+describe('domain registration money alerts', () => {
+  // Verbatim from domains.service.ts, where they are exported as
+  // REGISTRAR_CHARGE_FAILED_EVENT and
+  // REGISTRATION_FAILED_AFTER_PAYMENT_EVENT. Mirrored rather than imported
+  // because deploy/ does not compile against src/ — so this is the test that
+  // notices when somebody renames an event and silently unhooks the alert from
+  // the thing it was written for.
+  const CHARGE_FAILED_EVENT = 'DomainRegistrarChargeFailed'
+  const FAILED_AFTER_PAYMENT_EVENT = 'DomainRegistrationFailedAfterPayment'
+
+  const alerts = {
+    [CHARGE_FAILED_EVENT]: GLOBAL_ALERTS.find(
+      (a) => a.slug === 'domain-registrar-charge-failed',
+    ),
+    [FAILED_AFTER_PAYMENT_EVENT]: GLOBAL_ALERTS.find(
+      (a) => a.slug === 'domain-registration-failed-after-payment',
+    ),
+  }
+
+  it('registers one rule per event', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      expect(alert, event).toBeDefined()
+    }
+  })
+
+  it('selects the event its service emits', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      expect(alert!.expr, event).toContain(`|= "${event}"`)
+      expect(alert!.expr, event).toContain(`| event = "${event}"`)
+    }
+  })
+
+  // The two failures are different jobs for whoever is paged: one is fixed in
+  // Vercel's dashboard, the other is a refund in Stripe. A rule counting both
+  // could not say which had happened.
+  it('keeps the two events on separate rules', () => {
+    expect(alerts[CHARGE_FAILED_EVENT]!.expr).not.toContain(
+      FAILED_AFTER_PAYMENT_EVENT,
+    )
+    expect(alerts[FAILED_AFTER_PAYMENT_EVENT]!.expr).not.toContain(
+      CHARGE_FAILED_EVENT,
+    )
+  })
+
+  it('keeps every range vector inside the window the engine fetches', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      const fetched = alert!.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+      expect(widestRangeSeconds(alert!.expr), event).toBeLessThanOrEqual(
+        fetched,
+      )
+    }
+  })
+
+  it('promises the reader the window it actually queried', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      expect(promisedSeconds(alert!.message), event).toEqual(
+        widestRangeSeconds(alert!.expr),
+      )
+    }
+  })
+
+  // Both conditions stay true until a person acts — a payment method fixed at
+  // Vercel, a refund issued in Stripe — so neither needs a window wider than
+  // its interval, and reading each line exactly once is the floor of the
+  // shared Loki allowance. Window ÷ interval is the whole cost model.
+  it('reads each log line exactly once', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      expect(rereadFactor(alert!), event).toEqual(1)
+    }
+  })
+
+  // A window ending at `now` cannot see a line that has not finished its few
+  // seconds of ingestion lag, and the next window starts after that line's
+  // timestamp — so without the offset a refused purchase can be read by no
+  // evaluation at all.
+  it('ends its window behind real time, to clear the ingestion lag', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      expect(alert!.timeRangeOffsetSeconds, event).toBeGreaterThan(0)
+    }
+  })
+
+  // `for` counts whole evaluations and these evaluate every 10 minutes, so any
+  // value between 1m and 10m would silently double the time before anybody can
+  // act on a condition that is already established.
+  it('fires on the first evaluation that sees the threshold crossed', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      expect(alert!.for, event).toEqual('0m')
+    }
+  })
+
+  // A candidate who has paid and has no domain is one too many: nothing
+  // refunds them, so the first line has to page.
+  it('pages on a single candidate left out of pocket', () => {
+    expect(alerts[FAILED_AFTER_PAYMENT_EVENT]!.threshold).toEqual(0)
+  })
+
+  // A refused charge is not necessarily a dead card. On 2026-10-07 three
+  // orders failed in 45 seconds and the same campaign's next attempt, 11
+  // minutes later, went through — so one refusal is answered by the retry the
+  // caller already makes, and the candidate's own error is covered by the route
+  // alert. This rule is for the condition a retry cannot answer, and paging on
+  // a blip is how it would come to be ignored.
+  it('ignores a refusal that a retry can clear', () => {
+    expect(alerts[CHARGE_FAILED_EVENT]!.threshold).toEqual(2)
+  })
+
+  it('pages a group rather than the default receiver', () => {
+    for (const [event, alert] of Object.entries(alerts)) {
+      expect(alert!.notify, event).toEqual('win-bugs')
+    }
   })
 })
 
