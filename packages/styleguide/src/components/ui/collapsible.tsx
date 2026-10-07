@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import * as CollapsiblePrimitive from '@radix-ui/react-collapsible'
+import { cn } from '@styleguide/lib/utils'
 
 function Collapsible({
   ...props
@@ -10,11 +11,17 @@ function Collapsible({
 }
 
 function CollapsibleTrigger({
+  className,
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleTrigger>) {
   return (
     <CollapsiblePrimitive.CollapsibleTrigger
       data-slot="collapsible-trigger"
+      // The same keyboard focus ring as Button, for a trigger used bare.
+      className={cn(
+        'rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        className,
+      )}
       {...props}
     />
   )
