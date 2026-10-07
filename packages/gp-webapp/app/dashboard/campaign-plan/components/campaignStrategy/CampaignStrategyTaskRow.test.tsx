@@ -280,6 +280,8 @@ describe('the order of a task’s menu', () => {
     expect(await menuLabels({ task: { ...base, isNext: false } })).toEqual([
       'Mark as done',
       'Ask about this',
+      'Show in 3 days',
+      'Not for me',
     ])
   })
 
@@ -294,7 +296,12 @@ describe('the order of a task’s menu', () => {
         }),
       }),
       // An in-app action closes the task itself, so there's no Mark as done.
-    ).toEqual(['Plan your door knocking', 'Ask about this'])
+    ).toEqual([
+      'Plan your door knocking',
+      'Ask about this',
+      'Show in 3 days',
+      'Not for me',
+    ])
   })
 })
 

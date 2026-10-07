@@ -53,7 +53,7 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   lives in the browser (`useHeadStartWeek`, shared by the card and the list)
   and only counts for next week, so it expires when the calendar gets there.
 - **Skipping is saved on the server.** The next task's Skip (on the card and
-  its row) and the API (`useSetTrackerTaskAside`, optimistic like
+  its row), every other open row's menu, and the API (`useSetTrackerTaskAside`, optimistic like
   completion) offer "Show in 3 days", which moves the task's date three days
   out so the plan sorts it behind what's due sooner, and "Not for me", which
   sets it aside until "Bring it back" in its menu. Tasks dated by fact (the

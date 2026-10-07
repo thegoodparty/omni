@@ -170,12 +170,21 @@ const CampaignStrategyTaskRow = ({
       : []
   // The main action leads, then asking about it; with no action of its own,
   // marking it done is the main action.
+  const putOff = canPutOffTask(task.title)
+  const notForMe = canSetTaskAsideForGood(task.title)
   const openTaskItems = [
     ...(actionItems.length > 0 ? actionItems : markDoneItems),
     ...(onDiscuss
       ? [{ label: 'Ask about this', onClick: () => onDiscuss(task) }]
       : []),
     ...(actionItems.length > 0 ? markDoneItems : []),
+    // Any open task can be put off or set aside, not only the next one.
+    ...(onSetAside && !task.setAside && putOff
+      ? [{ label: PUT_OFF_LABEL, onClick: () => onSetAside(task, 'later') }]
+      : []),
+    ...(onSetAside && !task.setAside && notForMe
+      ? [{ label: 'Not for me', onClick: () => onSetAside(task, 'notForMe') }]
+      : []),
     ...(onSetAside && task.setAside
       ? [{ label: 'Bring it back', onClick: () => onSetAside(task, null) }]
       : []),
@@ -202,8 +211,6 @@ const CampaignStrategyTaskRow = ({
     task.completed || task.setAside
       ? null
       : taskDueLabel(task.dateKnown === false ? null : task.date, new Date())
-  const putOff = canPutOffTask(task.title)
-  const notForMe = canSetTaskAsideForGood(task.title)
 
   return (
     <li
