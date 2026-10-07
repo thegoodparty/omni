@@ -739,3 +739,81 @@ def test_the_cleared_heading_covers_relabel_rows_too():
     watch = "events: []\nbehaviors: []\ndismissed: []\nintents:\nrelabels:\n" + GOOD_ROW.replace('"step"', '"profile"')
     md = gg.render_markdown(_surface_report(LIVE_ONBOARDING, REDIRECTED, head_watchlist=watch))
     assert "**Cleared by a row in this change**" in md
+
+
+SECTION = "packages/gp-webapp/app/dashboard/plan/Section.tsx"
+HOOK = "packages/gp-webapp/app/dashboard/plan/useCompleteTask.tsx"
+CC = "trackEvent(EVENTS.Outreach.CampaignCompleted)"
+
+
+def _moved_row(to: str) -> str:
+    return ('  - {event: "Voter Outreach - Campaign Completed", intent: moved, '
+            f'to: "{to}", reason: "pulled into a hook", date: "2026-10-06"}}\n')
+
+
+def _hook_refactor(rows: str = "", hook_imported: bool = True):
+    base = gg.build_snapshot(tree({SECTION: CC}, watchlist=_wl("")))
+    section = "import { useCompleteTask } from './useCompleteTask'" if hook_imported else "noop()"
+    head = gg.build_snapshot(tree({SECTION: section, HOOK: CC}, watchlist=_wl(rows)))
+    events, paths = gg.watched_legs(LEGS)
+    return base, head, gg.okr_findings(base, head, events, paths, renames={})
+
+
+def test_a_call_moved_into_a_hook_offers_the_one_line_moved_row_first():
+    _, _, [f] = _hook_refactor()
+    assert f.fix.startswith("Moved the call into another file")
+    assert f'intent: moved, to: "{HOOK}"' in f.fix
+
+
+def test_a_removal_with_no_new_call_site_does_not_offer_moved():
+    base = gg.build_snapshot(tree({TASKFLOW: CC, MODAL: CC}))
+    head = gg.build_snapshot(tree({MODAL: CC}))
+    events, paths = gg.watched_legs(LEGS)
+    [f] = gg.okr_findings(base, head, events, paths, renames={})
+    assert "intent: moved" not in f.fix
+
+
+def test_one_moved_row_clears_the_finding_for_every_metric():
+    base, head, [f] = _hook_refactor(_moved_row(HOOK))
+    f = gg.Finding(f.rule, f.level, f.event, f.detail, f.fix,
+                   ("win_activated_users", "win_product_output_users"))
+    remaining, cleared = gg.apply_intents([f], base, head)
+    assert remaining == [] and cleared == [f]
+
+
+def test_a_moved_row_naming_a_file_that_gained_nothing_is_refused():
+    base, head, [f] = _hook_refactor(_moved_row(MODAL))
+    remaining, cleared = gg.apply_intents([f], base, head)
+    assert cleared == [] and sorted(x.rule for x in remaining) == ["invalid_intent", "okr_call_site_lost"]
+
+
+def test_a_moved_row_naming_a_file_nothing_imports_is_refused():
+    base, head, [f] = _hook_refactor(_moved_row(HOOK), hook_imported=False)
+    remaining, _ = gg.apply_intents([f], base, head)
+    assert "invalid_intent" in {x.rule for x in remaining}
+
+
+def test_a_moved_row_does_not_clear_a_removed_page():
+    base, head, _ = _hook_refactor(_moved_row(HOOK))
+    f = gg.Finding("okr_page_removed", "block", "Voter Outreach - Campaign Completed", "x", "fix",
+                   ("win_activated_users",))
+    remaining, _ = gg.apply_intents([f], base, head)
+    assert [x.rule for x in remaining if x.level == "block"] == ["okr_page_removed"]
+
+
+def test_copying_the_suggested_moved_row_with_its_placeholders_does_not_clear_it():
+    base, _, [f] = _hook_refactor()
+    row = next(line for line in f.fix.splitlines() if "intent: moved" in line)
+    head = gg.build_snapshot(tree({SECTION: "import { useCompleteTask } from './useCompleteTask'", HOOK: CC},
+                                  watchlist=_wl(row + "\n")))
+    remaining, cleared = gg.apply_intents([f], base, head)
+    assert cleared == [] and "invalid_intent" in {x.rule for x in remaining}
+
+
+def test_an_unimported_call_site_file_is_not_offered_moved():
+    base = gg.build_snapshot(tree({SECTION: CC, "packages/gp-webapp/app/dashboard/plan/page.tsx":
+                                   "import S from './Section'"}))
+    head = gg.build_snapshot(tree({SECTION: CC, HOOK: CC}))
+    events, paths = gg.watched_legs(LEGS)
+    [f] = gg.okr_findings(base, head, events, paths, renames={})
+    assert f.rule == "okr_file_unused" and "intent: moved" not in f.fix

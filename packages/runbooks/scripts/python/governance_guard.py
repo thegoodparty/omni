@@ -3,7 +3,8 @@
 Compares the repo at the merge base with the PR head (or the working tree) and stops a
 change that silently breaks an OKR instrument or leaves a dead event listing behind.
 
-Blocks: any file losing a call site of a watched OKR leg; the page behind a path-qualified
+Blocks: any file losing a call site of a watched OKR leg (a moved row clears it when the
+call went into another file that runs); the page behind a path-qualified
 leg removed; an OKR call-site file no longer imported; an event's last call site removed
 while its registry key survives; a monitored_events.yaml surface path this change made
 stale; a monitored_events.yaml this change made unparseable. Warns: a HubSpot-used backend
@@ -367,23 +368,45 @@ def watched_legs(anchors: Mapping[str, Sequence[sa.Leg]]
 _CHOOSE_INTENT = "<relocated|not_a_change|successor|retire_activity>"
 
 
-def intent_fix(event: str, metrics: Sequence[str], head_count: int) -> str:
+def intent_fix(event: str, metrics: Sequence[str], head_count: int,
+               gained: Sequence[str] = ()) -> str:
     """Suggests retire_activity only when nothing sends the event any more. While it still
     fires elsewhere the right kind is a judgment, so the row carries a placeholder that
-    validation refuses until someone picks one."""
+    validation refuses until someone picks one. When another file gained a call site, the
+    likeliest story is a refactor, so the one-line moved row is offered first."""
     kind = "retire_activity" if head_count == 0 else _CHOOSE_INTENT
     rows = "\n".join(
         f'  - {{metric: {m}, event: "{event}", intent: {kind}, reason: "<why>", date: "YYYY-MM-DD"}}'
         for m in metrics
     )
+    if gained:
+        to = gained[0] if len(gained) == 1 else "<one of: " + ", ".join(gained) + ">"
+        lead = (
+            "Moved the call into another file (a hook, a shared component) and it still fires "
+            "the same way? Add this one line to the intents: block of packages/runbooks/scripts/"
+            f'python/monitored_events.yaml:\n```yaml\n  - {{event: "{event}", intent: moved, '
+            f'to: "{to}", reason: "<why>", date: "YYYY-MM-DD"}}\n```\n'
+            "Otherwise, say what is happening to the activity with one line per metric:\n"
+        )
+    else:
+        lead = (
+            "This event counts toward an OKR, so say what is happening to the activity. Add one "
+            "line per metric to the intents: block of packages/runbooks/scripts/python/"
+            "monitored_events.yaml:\n"
+        )
     return (
-        "This event counts toward an OKR, so say what is happening to the activity. Add one "
-        "line per metric to the intents: block of packages/runbooks/scripts/python/"
-        f"monitored_events.yaml:\n```yaml\n{rows}\n```\n"
+        f"{lead}```yaml\n{rows}\n```\n"
         "intent is one of: retire_activity (stop counting it), successor (add successor: "
-        '"<event>"), relocated (add route: "/path"), not_a_change (the guard is wrong; '
-        "say why). If you removed it by mistake, restoring it clears this."
+        '"<event>"), relocated (the page moved; add route: "/path"), not_a_change (the guard '
+        "is wrong; say why). If you removed it by mistake, restoring it clears this."
     )
+
+
+def _gained_files(before: Mapping[str, int], after: Mapping[str, int],
+                  renames: Mapping[str, str]) -> list[str]:
+    """Files holding more call sites of an event than they did at the base, renames followed."""
+    was = {renames.get(p, p): n for p, n in before.items()}
+    return sorted(p for p, n in after.items() if n > was.get(p, 0))
 
 
 def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[str, ...]],
@@ -393,6 +416,7 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
     for event, metrics in sorted(event_legs.items()):
         before, after = base.files_for(event), head.files_for(event)
         fix = intent_fix(event, metrics, head.count(event))
+        lost_fix = intent_fix(event, metrics, head.count(event), _gained_files(before, after, renames))
         for path, n in sorted(before.items()):
             new = renames.get(path, path)
             now = after.get(new, 0)
@@ -400,7 +424,7 @@ def okr_findings(base: Snapshot, head: Snapshot, event_legs: Mapping[str, tuple[
                 out.append(Finding(
                     "okr_call_site_lost", "block", event,
                     f"{path} had {n} call site(s) of this OKR event and now has {now}.",
-                    fix, metrics))
+                    lost_fix, metrics))
             elif not _is_route_file(path) and new in head.files \
                     and base.importers(path) and not head.importers(new):
                 moved = f" (renamed from {path})" if new != path else ""
@@ -468,7 +492,7 @@ def watchlist_findings(base: Snapshot, head: Snapshot) -> list[Finding]:
                     "`  - {...}`, and the block must not still read `intents: []`.")]
 
 
-INTENT_KINDS = frozenset({"retire_activity", "successor", "relocated", "not_a_change"})
+INTENT_KINDS = frozenset({"retire_activity", "successor", "relocated", "not_a_change", "moved"})
 _INTENT_REQUIRED = ("metric", "event", "intent", "reason", "date")
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -484,15 +508,15 @@ def _iso_date(value: object) -> bool:
 
 
 def intent_problems(row: Mapping) -> list[str]:
-    """metric is optional only for not_a_change: that row reports a dead listing the guard
-    got wrong, which no metric owns."""
+    """metric is optional for not_a_change, which reports a dead listing the guard got wrong,
+    and for moved, which changes no metric: the activity still fires, from another file."""
     if not isinstance(row, Mapping):
         return [f"intent row is not a mapping: {row!r}"]
     kind = row.get("intent")
-    required = [k for k in _INTENT_REQUIRED if not (k == "metric" and kind == "not_a_change")]
+    required = [k for k in _INTENT_REQUIRED if not (k == "metric" and kind in ("not_a_change", "moved"))]
     problems = [f"intent row for {row.get('event')!r} is missing {k}"
                 for k in required if not str(row.get(k) or "").strip()]
-    for k in ("metric", "event", "reason", "date", "successor", "route"):
+    for k in ("metric", "event", "reason", "date", "successor", "route", "to"):
         value = str(row.get(k) or "")
         if "<" in value or value == "YYYY-MM-DD":
             problems.append(f"intent row for {row.get('event')!r} still has the placeholder "
@@ -507,6 +531,8 @@ def intent_problems(row: Mapping) -> list[str]:
         problems.append(f"successor intent for {row.get('event')!r} needs successor:")
     if kind == "relocated" and not row.get("route"):
         problems.append(f"relocated intent for {row.get('event')!r} needs route:")
+    if kind == "moved" and not row.get("to"):
+        problems.append(f"moved intent for {row.get('event')!r} needs to: (the file the call moved into)")
     return problems
 
 
@@ -516,10 +542,25 @@ def _intent_rows(snap: Snapshot) -> list[Mapping]:
 
 def _row_key(row: Mapping) -> tuple:
     """Identity only. Rewording an old row's reason or date on main is not a new decision."""
-    return tuple(str(row.get(k)) for k in ("metric", "event", "intent", "successor", "route"))
+    return tuple(str(row.get(k)) for k in ("metric", "event", "intent", "successor", "route", "to"))
 
 
-def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
+def _moved_problems(row: Mapping, base: Snapshot, head: Snapshot,
+                    renames: Mapping[str, str]) -> list[str]:
+    """A moved row is checked against the code, not taken on trust: the named file must have
+    gained a call site in this change, and something must still run it. Pointing at a file
+    that already sent the event would let a real removal through."""
+    event, to = str(row.get("event")), str(row["to"])
+    if to not in _gained_files(base.files_for(event), head.files_for(event), renames):
+        return [f"moved intent for {event!r} names {to}, which gained no call site of it in "
+                "this change; name the file the call moved into"]
+    if not _is_route_file(to) and not head.importers(to):
+        return [f"moved intent for {event!r} names {to}, but nothing imports it, so it never runs"]
+    return []
+
+
+def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot,
+                  renames: Mapping[str, str] | None = None
                   ) -> tuple[list[Finding], list[Finding]]:
     """Only rows this change adds can clear a finding. A row left on main from an earlier
     retirement would otherwise pre-approve every later break of the same event."""
@@ -530,6 +571,8 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
     usable = []
     for row in added:
         problems = intent_problems(row)
+        if row.get("intent") == "moved" and row.get("to") and not problems:
+            problems.extend(_moved_problems(row, base, head, renames or {}))
         if row.get("intent") == "successor" and row.get("successor") and head.count(str(row["successor"])) == 0:
             problems.append(f"successor {row['successor']!r} has no call site in this change, so nothing "
                             "would carry the activity forward")
@@ -540,6 +583,12 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot
             usable.append(row)
     used: set[int] = set()
     for f in findings:
+        if f.rule == "okr_call_site_lost":
+            rows = [i for i, r in enumerate(usable) if r["intent"] == "moved" and r["event"] == f.event]
+            if rows:
+                used.update(rows)
+                cleared.append(f)
+                continue
         if f.rule.startswith("okr_"):
             rows = [i for i, r in enumerate(usable)
                     if r.get("metric") and r["event"] == f.event and str(r["metric"]) in f.metrics]
@@ -689,7 +738,7 @@ def evaluate(base: Snapshot, head: Snapshot, anchors: Mapping[str, Sequence[sa.L
             f"The surface check did not run: {type(exc).__name__}: {exc}",
             "Nothing to do in this PR; report it so the guard can be fixed.")]
         relabel_cleared, traced = [], 0
-    remaining, cleared = apply_intents(with_surface, base, head)
+    remaining, cleared = apply_intents(with_surface, base, head, renames)
     cleared = cleared + relabel_cleared
     # A path leg whose route matches no page is silently unguarded by okr_findings (which only
     # reacts to a route disappearing between base and head), so surface it explicitly: a

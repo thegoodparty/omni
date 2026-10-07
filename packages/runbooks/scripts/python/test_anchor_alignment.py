@@ -499,3 +499,9 @@ def test_intent_rows_are_not_reported_when_the_anchors_could_not_be_read(tmp_pat
     wl.write_text('intents:\n  - {metric: win_activated_users, event: "Door Knocking - Door Logged", '
                   'intent: retire_activity, reason: "r", date: "2026-10-01"}\n')
     assert aa.intent_findings(wl, {}) == []
+
+
+def test_a_moved_intent_row_is_not_a_semantic_layer_change(tmp_path):
+    wl = tmp_path / "monitored_events.yaml"
+    wl.write_text('intents:\n  - {metric: m, event: E, intent: moved, to: "a.tsx", reason: r, date: "2026-10-06"}\n')
+    assert aa.intent_findings(wl, {"m": [sa.Leg("E")]}) == []
