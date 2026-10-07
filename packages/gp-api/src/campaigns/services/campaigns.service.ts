@@ -17,7 +17,6 @@ import {
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { Campaign, Prisma, User } from '../../generated/prisma'
-import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { differenceInMilliseconds, formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -1220,9 +1219,15 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   //
   // CampaignStrategyService is resolved lazily via ModuleRef rather than
   // injected: it depends on CampaignTrackerTasksService from this module, so
-  // importing CampaignStrategyModule here would close a cycle.
+  // importing CampaignStrategyModule here would close a cycle. The import is
+  // lazy too, not just the lookup: a top-level import put this file on an
+  // import cycle with the strategy service's own dependencies, and whichever
+  // test entry loaded this file first saw one of them as undefined when Nest
+  // read the strategy constructor's metadata.
   private async generatePlanOnLaunch(campaignId: number): Promise<void> {
     try {
+      const { CampaignStrategyService } =
+        await import('@/campaignStrategy/services/campaignStrategy.service.js')
       const strategy = this.moduleRef.get(CampaignStrategyService, {
         strict: false,
       })
