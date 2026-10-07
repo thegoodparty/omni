@@ -3,8 +3,8 @@
 // token lives — it is injected as the `GP_API_M2M_TOKEN` secret and is never
 // exposed to the browser card.
 //
-// It forwards the contact's email / name / BallotReady person id to the gp-api
-// admin endpoint, which provisions a passwordless Clerk user, mints a sign-in
+// It forwards the contact's email / name / BallotReady person id / HubSpot
+// record id to the gp-api admin endpoint, which provisions a passwordless Clerk user, mints a sign-in
 // token, optionally pre-fills the ElectedOffice from BallotReady, and returns
 // the `/serve/welcome?__clerk_ticket=...` redemption URL.
 //
@@ -76,21 +76,30 @@ exports.main = async (context = {}) => {
   if (!token) {
     return {
       statusCode: 500,
-      body: { error: 'GP_API_M2M_TOKEN secret is not configured on this app function.' },
+      body: {
+        error:
+          'GP_API_M2M_TOKEN secret is not configured on this app function.',
+      },
     }
   }
 
   // GP_API_URL is an optional override. To use it, add it as a secret
   // (`hs secret add GP_API_URL`) and include it in `secretKeys` in
   // serve-magic-link-function-hsmeta.json. Otherwise it defaults to prod.
-  const gpApiUrl = (process.env.GP_API_URL || DEFAULT_GP_API_URL).replace(/\/+$/, '')
+  const gpApiUrl = (process.env.GP_API_URL || DEFAULT_GP_API_URL).replace(
+    /\/+$/,
+    '',
+  )
 
   const props = context.propertiesToSend || {}
   const email = props.email
   if (!email) {
     return {
       statusCode: 400,
-      body: { error: 'This contact has no email address, so a link cannot be generated.' },
+      body: {
+        error:
+          'This contact has no email address, so a link cannot be generated.',
+      },
     }
   }
 
@@ -101,6 +110,9 @@ exports.main = async (context = {}) => {
   }
   if (props.br_person_id) {
     payload.personId = String(props.br_person_id)
+  }
+  if (props.hs_object_id) {
+    payload.hubspotContactId = String(props.hs_object_id)
   }
 
   try {
@@ -161,12 +173,16 @@ exports.main = async (context = {}) => {
 
     return {
       statusCode: 200,
-      body: sendError ? { url: data.url, sent, sendError } : { url: data.url, sent },
+      body: sendError
+        ? { url: data.url, sent, sendError }
+        : { url: data.url, sent },
     }
   } catch (e) {
     return {
       statusCode: 502,
-      body: { error: `Failed to reach gp-api: ${e && e.message ? e.message : String(e)}` },
+      body: {
+        error: `Failed to reach gp-api: ${e && e.message ? e.message : String(e)}`,
+      },
     }
   }
 }
