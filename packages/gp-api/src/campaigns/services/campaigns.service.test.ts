@@ -1,3 +1,4 @@
+import { ModuleRef } from '@nestjs/core'
 import { RaceTargetMetricsSchema } from '@goodparty_org/contracts'
 import { BallotReadyService } from '@/elections/services/ballotReady.service'
 import { ElectionsService } from '@/elections/services/elections.service'
@@ -1003,6 +1004,7 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
       {
         reconcileBallotAccessTasks: vi.fn(),
       } as unknown as CampaignTrackerTasksService,
+      { get: vi.fn() } as unknown as ModuleRef,
     )
   })
 
