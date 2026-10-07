@@ -96,6 +96,19 @@ describe('tcrComplianceBaseShape address fields', () => {
     ).toBe(true)
   })
 
+  it('rejects a placeholder committeeName such as "N/A"', () => {
+    expect(tcrComplianceBaseShape.committeeName.safeParse('N/A').success).toBe(
+      false,
+    )
+    expect(
+      tcrComplianceBaseShape.committeeName.safeParse(' none ').success,
+    ).toBe(false)
+    expect(
+      tcrComplianceBaseShape.committeeName.safeParse('Sykora for Council')
+        .success,
+    ).toBe(true)
+  })
+
   it('rejects an empty or whitespace-only candidateName', () => {
     expect(tcrComplianceBaseShape.candidateName.safeParse('').success).toBe(
       false,
