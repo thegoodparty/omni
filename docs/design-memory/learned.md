@@ -36,6 +36,10 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
 29. Never tell users something we cannot know is true. Encouragement about
     their own effort is fine; claims about their race ("Your neighbors are with
     you", "Momentum is building") are not, unless the data says so. (earned)
+30. A date on a card is plain, muted text with a calendar icon, after the
+    description, not a badge. It turns warning (never red, which means an
+    error) and says so in words only when it is close or past: "Due today",
+    "3 days overdue". At most one badge per card. (earned)
 
 ## Content
 

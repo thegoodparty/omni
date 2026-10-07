@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { z } from 'zod'
+import { differenceInCalendarDays, startOfDay } from 'date-fns'
 import Link from 'next/link'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
@@ -25,6 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  CalendarIcon,
   Card,
   ConfettiBurst,
   EmptyState,
@@ -84,6 +86,32 @@ const followingTasks = (
   return siblings
     .slice(siblings.findIndex((task) => task.id === nextTask.id) + 1)
     .filter((task) => !task.completed)
+}
+
+// The card's due line. Plain and muted while the date is a while off; once it
+// is close or past it turns warning and says so in words, so it never relies
+// on color alone. Warning rather than destructive: red means an error here,
+// and a late task is something to catch up on, not a failure.
+export const taskDueLabel = (
+  date: string | null,
+  today: Date,
+): { label: string; urgent: boolean } | null => {
+  const formatted = formatTaskDate(date)
+  if (!date || !formatted) return null
+  const days = differenceInCalendarDays(
+    new Date(date.slice(0, 10).replace(/-/g, '/')),
+    startOfDay(today),
+  )
+  if (days < 0) {
+    const late = -days
+    return {
+      label: `${late} ${late === 1 ? 'day' : 'days'} overdue`,
+      urgent: true,
+    }
+  }
+  if (days === 0) return { label: 'Due today', urgent: true }
+  if (days === 1) return { label: 'Due tomorrow', urgent: true }
+  return { label: `Due ${formatted}`, urgent: false }
 }
 
 // Mark as done: the confetti bursts, then the card lifts off the top of the
@@ -437,7 +465,7 @@ const NextTaskCard = ({
 
   if (!strategy) return countModal
 
-  const dueDate = frontTask ? formatTaskDate(frontTask.date) : null
+  const due = frontTask ? taskDueLabel(frontTask.date, new Date()) : null
   const action = taskAction(frontRow, surface)
 
   // A task done inside the product (its action opens one of our own screens)
@@ -590,14 +618,24 @@ const NextTaskCard = ({
                       </IconButton>
                     )}
                   </div>
-                  {dueDate && (
-                    <p className="text-muted-foreground text-sm">
-                      Due {dueDate}
-                    </p>
-                  )}
                   <p className="text-muted-foreground text-sm">
                     {frontTask.description}
                   </p>
+                  {/* After the description, so the title and description
+                      read as one thought and the date sits by the actions. */}
+                  {due && (
+                    <p
+                      className={cn(
+                        'flex items-center gap-1.5 text-sm',
+                        due.urgent
+                          ? 'text-warning-dark'
+                          : 'text-muted-foreground',
+                      )}
+                    >
+                      <CalendarIcon className="size-4 shrink-0" aria-hidden />
+                      {due.label}
+                    </p>
+                  )}
                   <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
                     <>
                       {action && (
