@@ -351,10 +351,18 @@ export const getDashboardMenuItems = (
     (chiefOfStaffShown ? 1 : 0) +
     (prioritiesShown ? 1 : 0)
 
-  // The campaign tracker tab, and the "Your Story" tab just above it (the
-  // story is what the tracker + plan are generated from).
+  // The campaign tracker tab, right after Campaign Manager.
   menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+
+  // "Your Story" follows the daily-use tabs, right after Voter Data (whichever
+  // form of it this org gets: Win's contacts, the Pro upsell, or Serve's).
+  const voterDataItemIndex = menuItems.findIndex(
+    (item) =>
+      item === WIN_CONTACTS_MENU_ITEM ||
+      item === VOTER_DATA_UPGRADE_ITEM ||
+      item === CONTACTS_MENU_ITEM,
+  )
+  menuItems.splice(voterDataItemIndex + 1, 0, CAMPAIGN_STORY_MENU_ITEM)
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
