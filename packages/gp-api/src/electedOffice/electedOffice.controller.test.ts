@@ -731,6 +731,28 @@ describe('ElectedOfficeController', () => {
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
     })
 
+    it('sends the seat snapshot to HubSpot on the completing PUT', async () => {
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const sync = vi.spyOn(
+        service.app.get(CrmOfficeHolderService),
+        'syncElectedOffice',
+      )
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' },
+      )
+
+      expect(result.status).toBe(200)
+      expect(sync).toHaveBeenCalledWith(created.data.id, {
+        sendSeatFields: true,
+      })
+    })
+
     it('persists the selfReported marker via a partial PUT (defaults to false)', async () => {
       // The net-new serve onboarding flow stamps this on the party-step PUT to
       // mark the office as the user's own pick (vs a sales/BR prefill).

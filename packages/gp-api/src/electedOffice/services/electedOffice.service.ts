@@ -301,7 +301,7 @@ export class ElectedOfficeService extends createPrismaBase(
     await this.dispatchScheduleAfterCreate(office)
 
     await this.crmOfficeHolder.syncElectedOffice(office.id, {
-      justCreated: freshlyCreated,
+      sendSeatFields: freshlyCreated || args.onboardingCompletedAt != null,
     })
 
     return office
@@ -344,7 +344,9 @@ export class ElectedOfficeService extends createPrismaBase(
 
   async update(args: Prisma.ElectedOfficeUpdateArgs) {
     const updated = await this.model.update(args)
-    await this.crmOfficeHolder.syncElectedOffice(updated.id)
+    await this.crmOfficeHolder.syncElectedOffice(updated.id, {
+      sendSeatFields: args.data.onboardingCompletedAt instanceof Date,
+    })
     return updated
   }
 

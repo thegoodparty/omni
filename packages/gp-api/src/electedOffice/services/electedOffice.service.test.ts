@@ -251,7 +251,7 @@ describe('ElectedOfficeService.create', () => {
     ).toBe(1)
   })
 
-  it('syncs a freshly created office to HubSpot as just created', async () => {
+  it('syncs a freshly created office to HubSpot with its seat snapshot', async () => {
     const sync = vi.spyOn(
       service.app.get(CrmOfficeHolderService),
       'syncElectedOffice',
@@ -259,10 +259,10 @@ describe('ElectedOfficeService.create', () => {
 
     const office = await electedOffices.create({ userId: service.user.id })
 
-    expect(sync).toHaveBeenCalledWith(office.id, { justCreated: true })
+    expect(sync).toHaveBeenCalledWith(office.id, { sendSeatFields: true })
   })
 
-  it('syncs the idempotent return without marking it just created', async () => {
+  it('syncs the idempotent return without forcing the seat snapshot', async () => {
     const first = await electedOffices.create({ userId: service.user.id })
     const sync = vi.spyOn(
       service.app.get(CrmOfficeHolderService),
@@ -271,7 +271,7 @@ describe('ElectedOfficeService.create', () => {
 
     await electedOffices.create({ userId: service.user.id })
 
-    expect(sync).toHaveBeenCalledWith(first.id, { justCreated: false })
+    expect(sync).toHaveBeenCalledWith(first.id, { sendSeatFields: false })
   })
 
   it('dispatches the schedule after creating an office', async () => {
@@ -439,7 +439,31 @@ describe('ElectedOfficeService.update', () => {
       data: { party: 'Independent' },
     })
 
-    expect(sync).toHaveBeenCalledWith(office.id)
+    expect(sync).toHaveBeenCalledWith(office.id, { sendSeatFields: false })
+  })
+
+  it('forces the seat snapshot on the update that completes onboarding', async () => {
+    const electedOffices = service.app.get(ElectedOfficeService)
+    const sync = vi.spyOn(
+      service.app.get(CrmOfficeHolderService),
+      'syncElectedOffice',
+    )
+    await service.prisma.organization.create({
+      data: { slug: 'eo-update-complete', ownerId: service.user.id },
+    })
+    const office = await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: 'eo-update-complete',
+      },
+    })
+
+    await electedOffices.update({
+      where: { id: office.id },
+      data: { onboardingCompletedAt: new Date('2026-01-06T15:31:00.000Z') },
+    })
+
+    expect(sync).toHaveBeenCalledWith(office.id, { sendSeatFields: true })
   })
 })
 
