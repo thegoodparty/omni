@@ -470,6 +470,44 @@ describe('SocialFlow', () => {
     })
   })
 
+  it('clears Undo when a remembered tone draft comes back', async () => {
+    mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    // Direct: a fresh draft for that tone, and warm is now remembered.
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    await waitFor(() =>
+      expect(draftText()).toBe(
+        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
+      ),
+    )
+
+    // The candidate's own words, then Regenerate replaces them: a fresh
+    // direct draft comes back and Undo appears.
+    typeDraft('My own words')
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await waitFor(() =>
+      expect(draftText()).toBe(
+        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
+      ),
+    )
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+
+    // Warm is served from memory, and the Undo from the swap it just
+    // replaced does not survive it.
+    await user.click(screen.getByRole('radio', { name: /Warm/ }))
+    expect(draftText()).toBe(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Undo' }),
+    ).not.toBeInTheDocument()
+  })
+
   it("never drafts over the custom purpose: a tone polishes the candidate's words", async () => {
     const draftCalls = mockDraft()
     openFlow()

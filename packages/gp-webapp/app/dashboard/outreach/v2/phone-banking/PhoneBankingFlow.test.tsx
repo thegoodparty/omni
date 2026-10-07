@@ -816,6 +816,39 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  // Custom never drafts, so only the purpose-change reset, not a keystroke,
+  // can clear a stale error carried over from a different purpose.
+  it('clears the draft error when switching to a custom purpose', async () => {
+    api.mock('POST /v1/outreach/phone-banking/draft', {
+      status: 502,
+      data: { message: 'Phone banking draft generation failed' },
+    })
+    openFlow()
+    await advanceToScript()
+    expect(
+      await screen.findByText(/We couldn.t draft your script just now/),
+    ).toBeInTheDocument()
+
+    // script -> who -> purpose.
+    await user.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
+    await screen.findByText('Write my own script')
+
+    // Custom never drafts, so switching to it and picking the audience again
+    // (backing off who discards the prior selection) returns to the script
+    // step with no new draft call to clear the stale error on its own.
+    await user.click(screen.getByText('Write my own script'))
+    await pickSavedListAndContinue('Likely Dems')
+
+    // Custom textarea shows and the stale error card is gone.
+    expect(
+      await screen.findByRole('textbox', { name: 'Call script' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We couldn.t draft your script just now/),
+    ).not.toBeInTheDocument()
+  })
+
   it('Try again repeats an Improve that failed', async () => {
     const draftCalls: PhoneBankingScriptDraftRequest[] = []
     api.mock('POST /v1/outreach/phone-banking/draft', ({ body }) => {

@@ -1079,6 +1079,39 @@ describe('RobocallFlow', () => {
     ).not.toBeInTheDocument()
   })
 
+  // The script is noted when recording starts, not when the clip is saved,
+  // so a redraft while the clip is still an unsaved preview is caught too.
+  it('notes a script change made before the recording is saved', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await screen.findByText('Preview your recording')
+    expect(
+      screen.queryByText(/Your script changed after you recorded/),
+    ).not.toBeInTheDocument()
+
+    mockDraft('A fresh take before the recording is saved.')
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+
+    // Still unsaved (preview) at this point, and the note already shows.
+    expect(
+      await screen.findByText(/Your script changed after you recorded/),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Recording saved')
+
+    expect(
+      screen.getByText(/Your script changed after you recorded/),
+    ).toBeInTheDocument()
+  })
+
   it('re-drafts when a different tone is chosen', async () => {
     await gotoCompose()
     expect(

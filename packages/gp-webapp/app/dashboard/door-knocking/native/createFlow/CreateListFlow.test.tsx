@@ -806,6 +806,44 @@ describe('CreateListFlow', () => {
     )
   })
 
+  // Custom never drafts, so switching to it is the only other takeover that
+  // can clear a stale error: the candidate never types a replacement, they
+  // just say they'll write their own.
+  it('clears the draft error when switching to a custom purpose', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    // Back to the purpose step: points -> who -> purpose. The first Back
+    // leaves `filters`, which the page syncs back as a step prop; the second
+    // is a stage change inside `filters` and needs no rerender.
+    fireEvent.click(screen.getByLabelText('Back'))
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    await screen.findByRole('combobox', { name: 'All lists' })
+    fireEvent.click(screen.getByLabelText('Back'))
+    await screen.findByRole('button', { name: 'Something else' })
+
+    // Pick the write-my-own purpose and return to points. The who step's own
+    // audience pick survives the purpose change, so Continue is already live.
+    fireEvent.click(screen.getByRole('button', { name: 'Something else' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      screen.queryByText(/We couldn.t write your talking points/),
+    ).not.toBeInTheDocument()
+  })
+
   // Try again has to repeat the call that failed rather than guessing from
   // the purpose. An Improve carries the candidate's own edited words as
   // `currentDraft`, so a Try again that fell back to a fresh draft would
