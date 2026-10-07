@@ -7,7 +7,9 @@ import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
 import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { VerificationIntro } from './VerificationIntro'
+import { hasVerificationDraft } from '../verificationDraft'
 
 export type VerificationStep = 'intro' | 'form' | 'submitted'
 
@@ -28,7 +30,8 @@ const PIN_NOTICE_BODY =
 
 interface CampaignVerificationStepsProps {
   // Lets a caller resume on a step other than the intro (e.g. a page wrapper
-  // mapping `?step=submitted` on refresh). Defaults to 'intro'.
+  // mapping `?step=submitted` on refresh). Defaults to the form when this
+  // browser holds an unsubmitted draft, the intro otherwise.
   initialStep?: VerificationStep
   // Fired on mount and on every step change so a caller-owned chrome (a page
   // Stepper, a URL) can track the active step without this component
@@ -44,13 +47,22 @@ interface CampaignVerificationStepsProps {
 // sheet or page wrapper owns that, and each screen pins its own footer to
 // the bottom of the caller's column.
 const CampaignVerificationSteps = ({
-  initialStep = 'intro',
+  initialStep,
   onStepChange,
   onExit,
   onComplete,
   completeLabel = 'Done',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
-  const [step, setStep] = useState<VerificationStep>(initialStep)
+  const [campaign] = useCampaign()
+  // `null` until mounted when the caller gives no step: the draft lives in
+  // localStorage, which the server render cannot read, so choosing during
+  // render would hydrate the intro over a client that wants the form.
+  const [step, setStep] = useState<VerificationStep | null>(initialStep ?? null)
+  useEffect(() => {
+    if (step !== null) return
+    setStep(campaign && hasVerificationDraft(campaign.id) ? 'form' : 'intro')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Reset scroll to the top whenever the active step changes (dashboard
   // convention), and let the caller track the active step. Only `step`
@@ -58,6 +70,7 @@ const CampaignVerificationSteps = ({
   // callback on every caller render, and this must fire on step transitions
   // only, not on every caller re-render.
   useEffect(() => {
+    if (step === null) return
     window.scrollTo(0, 0)
     onStepChange?.(step)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -102,6 +115,7 @@ const CampaignVerificationSteps = ({
           contactCaption={FILING_CONTACT_CAPTION}
           onBack={() => setStep('intro')}
           onSubmitted={() => setStep('submitted')}
+          persistDraft
         />
       )}
       {step === 'submitted' && (
