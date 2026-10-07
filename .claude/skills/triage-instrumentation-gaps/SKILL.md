@@ -584,7 +584,9 @@ row in this triage PR. Every `not_a_change` row is a possible guard false positi
 the PR, and if the guard was wrong, file the fix. An `intents:` row with no `metric:` is a
 PR reporting a dead listing the guard got wrong; it is not a metric change, so Queue C
 never shows it. Whenever this PR touches `monitored_events.yaml`, look for such rows: file
-the guard fix, then delete the row. An `intent_row_resolved` also appears when the metric
+the guard fix, then delete the row. A `moved` row is a refactor the guard already checked
+against the code (the call went into another file that runs); Queue C never shows it and
+it needs no review, so delete it on sight. An `intent_row_resolved` also appears when the metric
 keeps the event only as a historical leg, since the guard no longer watches it either.
 
 ### Resolve a drift end to end

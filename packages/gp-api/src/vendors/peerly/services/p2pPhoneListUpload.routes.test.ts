@@ -2,12 +2,16 @@ import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { QueueType } from '@/queue/queue.types'
+import { subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   OfficeLevel,
   OutreachStatus,
   OutreachType,
 } from '../../../generated/prisma'
+import { P2pPhoneListUploadService } from './p2pPhoneListUpload.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 
 const service = useTestService()
@@ -1012,7 +1016,10 @@ describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)
     vi.spyOn(
       service.app.get(PeerlyPhoneListService),
       'getPhoneListDetails',
-    ).mockResolvedValue({ leads_loaded: 10 } as never)
+      // leads_supplied === leads_loaded: a fully-loaded (small) list, which
+      // stabilizes on the very first ACTIVE read — the stable-leads_loaded
+      // guard's fast path.
+    ).mockResolvedValue({ leads_loaded: 10, leads_supplied: 10 } as never)
 
     const first = await service.client.get(
       '/v1/p2p/phone-list/poll-token/status',
@@ -1118,7 +1125,9 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     vi.spyOn(
       service.app.get(PeerlyPhoneListService),
       'getPhoneListDetails',
-    ).mockResolvedValue({ leads_loaded: 42 } as never)
+      // Fully loaded (leads_supplied === leads_loaded) — stabilizes on the
+      // first ACTIVE read, same fast path as the token-route test above.
+    ).mockResolvedValue({ leads_loaded: 42, leads_supplied: 42 } as never)
 
     const result = await service.client.get(
       `/v1/p2p/phone-list/build/${build.id}/status`,
@@ -1137,6 +1146,74 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
       where: { id: build.id },
     })
     expect(stamped).toMatchObject({ peerlyListId: 777, buildStatus: 'ready' })
+  })
+
+  it('does not stamp ready while leads_loaded keeps climbing, and stamps once it reads the same value twice', async () => {
+    const campaign = await seedWinCampaign()
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        token: 'climbing-token',
+        buildStatus: 'processing',
+      },
+    })
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue({
+      Data: { list_state: 'ACTIVE', list_id: 888 },
+    } as never)
+    const getDetails = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'getPhoneListDetails',
+    )
+
+    const poll = () =>
+      service.client.get(`/v1/p2p/phone-list/build/${build.id}/status`, {
+        headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
+      })
+
+    // Never equal to leads_supplied (500), so the only way to ready is two
+    // consecutive equal reads — never the leads_supplied fast path.
+    getDetails.mockResolvedValueOnce({
+      leads_loaded: 100,
+      leads_supplied: 500,
+    } as never)
+    const first = await poll()
+    expect(first.status).toBe(202)
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: null, buildStatus: 'processing' })
+
+    // Still climbing — the stored reading updates, but it's still not ready.
+    getDetails.mockResolvedValueOnce({
+      leads_loaded: 300,
+      leads_supplied: 500,
+    } as never)
+    const second = await poll()
+    expect(second.status).toBe(202)
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: null, buildStatus: 'processing' })
+
+    // Same value as the previous read — stable, so this poll stamps ready.
+    getDetails.mockResolvedValueOnce({
+      leads_loaded: 300,
+      leads_supplied: 500,
+    } as never)
+    const third = await poll()
+    expect(third.status).toBe(200)
+    expect(third.data).toMatchObject({ phoneListId: 888, leadsLoaded: 300 })
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: 888, buildStatus: 'ready' })
   })
 
   it('returns 200 failed with the stored buildError, without calling Peerly', async () => {
@@ -1209,5 +1286,335 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     )
 
     expect(result.status).toBe(404)
+  })
+})
+
+describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)', () => {
+  beforeEach(() => {
+    stubDistrict()
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const ageBuildRow = (buildId: string, minutes: number) =>
+    // @updatedAt is client-managed (Prisma always overwrites an explicit
+    // value with now()), so a stale claim can only be simulated with a raw
+    // write to the underlying column — same trick as
+    // outreachRobocallStaging.test.ts's ageStagingRow.
+    service.prisma.$executeRaw`
+      UPDATE peerly_phone_list
+      SET updated_at = ${subMinutes(new Date(), minutes)}
+      WHERE id = ${buildId}
+    `
+
+  describe('kill switch', () => {
+    it('OFF (default/unset): unchanged synchronous S2 behavior — builds and uploads in-request', async () => {
+      await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const upload = stubPeerlyUpload()
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+
+      const result = await service.client.post(
+        '/v1/p2p/phone-list',
+        { name: 'Sync default' },
+        { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data).toMatchObject({ token: 'peerly-upload-token' })
+      expect(upload).toHaveBeenCalledTimes(1)
+      expect(enqueue).not.toHaveBeenCalled()
+      expect(
+        await service.prisma.peerlyPhoneList.findFirst({
+          where: { token: 'peerly-upload-token' },
+        }),
+      ).toMatchObject({ buildStatus: 'processing' })
+    })
+
+    it('ON: creates the queued row, enqueues after it commits, and returns {buildId, token: null} without building in-request', async () => {
+      vi.stubEnv('P2P_PHONE_LIST_ASYNC_BUILD', 'true')
+      await seedWinCampaign()
+      const upload = stubPeerlyUpload()
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+
+      const result = await service.client.post(
+        '/v1/p2p/phone-list',
+        { name: 'Async accept' },
+        { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data).toEqual({
+        token: null,
+        buildId: expect.any(String),
+      })
+      expect(upload).not.toHaveBeenCalled()
+
+      const { buildId } = result.data as { buildId: string }
+      // The row the enqueued message points at already exists (and already
+      // carries the snapshot the handler needs) by the time sendMessage was
+      // called — proof the enqueue happened after the row committed, not
+      // before.
+      const row = await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: buildId },
+      })
+      expect(row).toMatchObject({ buildStatus: 'queued', token: null })
+      expect(row?.requestSnapshot).toMatchObject({ name: 'Async accept' })
+
+      expect(enqueue).toHaveBeenCalledTimes(1)
+      const [message, group, options] = enqueue.mock.calls[0]!
+      expect(message).toEqual({
+        type: QueueType.P2P_PHONE_LIST_BUILD,
+        data: { buildId },
+      })
+      expect(group).toContain(buildId)
+      expect(options).toMatchObject({ throwOnError: true })
+    })
+  })
+
+  describe('handleQueuedBuild', () => {
+    const createQueuedRow = async (
+      campaignId: number,
+      snapshot: Record<string, unknown> = { name: 'Queued build' },
+      organizationSlug = WIN_SLUG,
+    ) =>
+      service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug,
+          campaignId,
+          requestSnapshot: snapshot,
+        },
+      })
+
+    it('happy path: queued -> processing, with a token, via the real build+upload', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const upload = stubPeerlyUpload()
+      const build = await createQueuedRow(campaign.id)
+
+      const acked = await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(acked).toBe(true)
+      expect(upload).toHaveBeenCalledTimes(1)
+      const row = await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      })
+      expect(row).toMatchObject({
+        buildStatus: 'processing',
+        token: 'peerly-upload-token',
+      })
+      expect(
+        await service.prisma.peerlyPhoneListRecipient.count({
+          where: { peerlyPhoneListId: build.id },
+        }),
+      ).toBe(1)
+    })
+
+    it('concurrent double delivery builds and uploads to Peerly exactly once (claim CAS)', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const upload = stubPeerlyUpload()
+      const build = await createQueuedRow(campaign.id)
+
+      const handler = service.app.get(P2pPhoneListUploadService)
+      const [firstAck, secondAck] = await Promise.all([
+        handler.handleQueuedBuild(build.id),
+        handler.handleQueuedBuild(build.id),
+      ])
+
+      // Both deliveries ack — the loser's claim misses (count 0) rather than
+      // erroring, which is the idempotent-no-op contract.
+      expect(firstAck).toBe(true)
+      expect(secondAck).toBe(true)
+      expect(upload).toHaveBeenCalledTimes(1)
+      expect(
+        await service.prisma.peerlyPhoneListRecipient.count({
+          where: { peerlyPhoneListId: build.id },
+        }),
+      ).toBe(1)
+    })
+
+    it('a redelivery that finds a token already stamped skips the Peerly upload entirely', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      const upload = stubPeerlyUpload('already-stamped-token')
+      // Simulates the crash window: a prior attempt's Peerly upload
+      // succeeded and stampBuildToken wrote the token, but the process died
+      // before recordUpload wrote the recipients — the reaper reset this row
+      // back to `queued` without touching the token.
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          token: 'already-stamped-token',
+          requestSnapshot: { name: 'Resumed build' },
+        },
+      })
+
+      const acked = await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(acked).toBe(true)
+      expect(upload).not.toHaveBeenCalled()
+      const row = await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      })
+      expect(row).toMatchObject({
+        buildStatus: 'processing',
+        token: 'already-stamped-token',
+      })
+      expect(
+        await service.prisma.peerlyPhoneListRecipient.count({
+          where: { peerlyPhoneListId: build.id },
+        }),
+      ).toBe(1)
+    })
+
+    it('a permanent failure (no TCR identity) marks the row failed and acks', async () => {
+      const campaign = await service.prisma.organization
+        .create({
+          data: { slug: 'no-tcr-async', ownerId: service.user.id },
+        })
+        .then(() =>
+          service.prisma.campaign.create({
+            data: {
+              userId: service.user.id,
+              slug: 'no-tcr-async-campaign',
+              organizationSlug: 'no-tcr-async',
+            },
+          }),
+        )
+      const build = await createQueuedRow(
+        campaign.id,
+        { name: 'Queued build' },
+        'no-tcr-async',
+      )
+
+      const acked = await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(acked).toBe(true)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({
+        buildStatus: 'failed',
+        buildError: 'TCR compliance record does not have a Peerly identity ID',
+      })
+    })
+
+    it('a transient failure (people-db) throws so SQS redelivers, leaving the row building', async () => {
+      const campaign = await seedWinCampaign()
+      vi.spyOn(
+        service.app.get(VoterQueryService),
+        'findPeople',
+      ).mockRejectedValue(new Error('people-db unavailable'))
+      const build = await createQueuedRow(campaign.id)
+
+      await expect(
+        service.app.get(P2pPhoneListUploadService).handleQueuedBuild(build.id),
+      ).rejects.toThrow('people-db unavailable')
+
+      const row = await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      })
+      // Left `building`, not `failed` — a transient fault parks nothing;
+      // the stale-building reaper (or SQS redelivery once the row is reset)
+      // is what retries it.
+      expect(row).toMatchObject({ buildStatus: 'building', buildAttempts: 1 })
+    })
+  })
+
+  describe('stale-building reclaim', () => {
+    it('reclaims a stale `building` row back to `queued` and re-enqueues it', async () => {
+      const campaign = await seedWinCampaign()
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          buildAttempts: 1,
+          requestSnapshot: { name: 'Stuck build' },
+        },
+      })
+      await ageBuildRow(build.id, 30)
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+
+      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'queued' })
+      expect(enqueue).toHaveBeenCalledTimes(1)
+      const [message] = enqueue.mock.calls[0]!
+      expect(message).toEqual({
+        type: QueueType.P2P_PHONE_LIST_BUILD,
+        data: { buildId: build.id },
+      })
+    })
+
+    it('does not touch a `building` row that is still within the stale window', async () => {
+      const campaign = await seedWinCampaign()
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          requestSnapshot: { name: 'Healthy in-flight build' },
+        },
+      })
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+
+      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'building' })
+      expect(enqueue).not.toHaveBeenCalled()
+    })
+
+    it('fails a stale row permanently once it has exceeded its retry budget', async () => {
+      const campaign = await seedWinCampaign()
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          buildAttempts: 3,
+          requestSnapshot: { name: 'Exhausted build' },
+        },
+      })
+      await ageBuildRow(build.id, 30)
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+
+      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'failed' })
+      expect(enqueue).not.toHaveBeenCalled()
+    })
   })
 })

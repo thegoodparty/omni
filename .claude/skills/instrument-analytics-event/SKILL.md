@@ -251,6 +251,12 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
   When the event still fires elsewhere, the suggested row carries
   `intent: <relocated|not_a_change|successor|retire_activity>`: that placeholder, a
   `"<why>"` reason and a `YYYY-MM-DD` date are all refused until replaced with real values.
+  **A refactor that moved the call into another file** (a hook, a shared component) is one
+  row, no `metric:`: `- {event: "<name>", intent: moved, to: "<file>", reason: "<why>", date: "YYYY-MM-DD"}`.
+  The guard's comment pre-fills `to:` when exactly one file gained a call site. It refuses
+  the row unless `to:` gained a call site in this change and something imports it. Use it
+  only when the moved call is the same activity; if the move changed what the user does
+  to fire it, ask the human and write per-metric rows instead.
 - **An event's last call site is removed but its `EVENTS` key stays.** Delete the key
   and follow "When a change removes an event" below. If the event in fact still fires in
   a way the guard cannot see, add `- {event: "<name>", intent: not_a_change, reason: "<why>", date: "YYYY-MM-DD"}`

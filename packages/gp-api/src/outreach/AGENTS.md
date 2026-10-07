@@ -957,8 +957,14 @@ outreach proposal can carry the same details as `event` (contracts
   false`: it hands back what was built, not a fresh build. A text holds the
   key from its unpaid draft on: re-entering the flow moves the key to the
   fresh draft, and once a draft under it is paid the key is spent (409).
-  `findByProposalKey` skips `pending_payment`, so an unpaid text reads as
-  not sent. Each create (and each replay) calls
+  Win's text takes the same key on `POST /outreach` (`proposalKey`, a new
+  p2p draft only, never a resume), with the same rules
+  (`util/createUnderProposalKey.util.ts`, shared with the Serve SMS create);
+  it carries no priority, since the Campaign Manager's card puts out no
+  check. `findByProposalKey` skips `pending_payment` and `draft`, so an
+  unpaid text reads as not sent, and `GET
+  /outreach/by-proposal-key/:proposalKey` is org-scoped so a Win card
+  resolves too. Each create (and each replay) calls
   `PriorityStatusService.recordOutreachSentOrLog` after its own commit,
   which moves that side of the priority's check to out and logs rather than
   throws, since the send stands either way; the text records from the
@@ -1323,6 +1329,10 @@ writing no row) and the pass-through when on;
 `tests/outreachServeSmsProposal.test.ts` runs a card's text through the
 harness (the key moving to a fresh draft, an unpaid draft reading as unsent,
 the paid send putting the priority's check out, a spent key 409ing);
+`tests/outreachWinSmsProposal.test.ts` does the same for a Win p2p draft
+(the key persisted and moved, unpaid and build-mode drafts reading as
+unsent through the Win org's probe, a paid one reading as sent and 409ing
+a repeat, another org's key 409ing, a key on a resume refused);
 `services/outreachServeSmsCreate.service.test.ts` covers the create
 (a client-supplied count ignored, below-25 rejected by name, exactly-25
 accepted, an empty audience rejected, weekend / too-soon / too-far / unreal

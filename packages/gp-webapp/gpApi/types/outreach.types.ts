@@ -48,6 +48,11 @@ export interface CreateOutreachPayload {
    */
   draft?: boolean
   draftOutreachId?: number
+  /**
+   * The chat card proposal this text was started from. The server keeps it
+   * on the newest unpaid draft, so the card reads as sent once it is paid.
+   */
+  proposalKey?: string
 }
 
 /** VoterFileFilter as returned when included on Outreach (scalars only, from Prisma) */

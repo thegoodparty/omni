@@ -1,7 +1,11 @@
 import { addDays, format, subDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BadRequestException } from '@nestjs/common'
-import { ExperimentRun, UserRole } from '../generated/prisma'
+import {
+  ExperimentRun,
+  ExperimentRunStatus,
+  UserRole,
+} from '../generated/prisma'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
@@ -175,6 +179,45 @@ describe('POST /v1/campaignStrategy/backfill', () => {
     const campaign = await seedCampaign()
     await service.prisma.campaignStrategy.create({
       data: { campaignId: campaign.id, ...markers },
+    })
+
+    expect(await selectedIds()).toEqual([campaign.id])
+  })
+
+  // A batch called while the previous one is still generating must move on
+  // to the next campaigns, not re-select the ones already in flight.
+  it.each([
+    [ExperimentRunStatus.QUEUED],
+    [ExperimentRunStatus.RUNNING],
+    [ExperimentRunStatus.AWAITING_RESUME],
+    [ExperimentRunStatus.SUPERSEDED],
+  ])('skips a campaign whose plan run is %s', async (status) => {
+    const campaign = await seedCampaign()
+    const run = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: 'opposition_research',
+        status,
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: { campaignId: campaign.id, oppositionRunId: run.runId },
+    })
+
+    expect(await selectedIds()).toEqual([])
+  })
+
+  it('selects a campaign whose plan run failed', async () => {
+    const campaign = await seedCampaign()
+    const run = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: 'opposition_research',
+        status: ExperimentRunStatus.FAILED,
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: { campaignId: campaign.id, oppositionRunId: run.runId },
     })
 
     expect(await selectedIds()).toEqual([campaign.id])

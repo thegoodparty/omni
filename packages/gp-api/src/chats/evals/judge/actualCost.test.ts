@@ -230,6 +230,31 @@ describe('the actual cost block', () => {
     expect(formatTotal({ ...COST, ...over })).toBe('at least $3.50')
   })
 
+  // An agent that was billed but neither scored nor refused still gets a
+  // line, so the per-agent lines add up to the total; one that spent nothing
+  // gets none.
+  it('gives a billed agent with no section a line of its own', () => {
+    const spent = {
+      agentId: 'meeting_briefing',
+      base: { usd: 1.5, runs: 3, unmeasured: NONE },
+      candidate: { usd: 1.75, runs: 3, unmeasured: NONE },
+      judge: COST.judge,
+    }
+    const idle = {
+      agentId: 'trending_issues',
+      base: { usd: 0, runs: 0, unmeasured: NONE },
+      candidate: { usd: 0, runs: 0, unmeasured: NONE },
+      judge: { usd: 0, calls: 0, failedCalls: 0, unmeasured: 0 },
+    }
+    const report = renderReport({
+      agents: [],
+      actualCost: { ...COST, agents: [spent, idle] },
+    })
+    expect(report).toContain('### meeting_briefing — not judged')
+    expect(report).toContain('- spent on this agent: $3.50')
+    expect(report).not.toContain('trending_issues')
+  })
+
   it('sits above every verdict in the report', () => {
     const report = renderReport({ agents: [], actualCost: COST })
     expect(report.indexOf('**Actual cost')).toBeLessThan(

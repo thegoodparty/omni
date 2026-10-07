@@ -78,6 +78,12 @@ interface SmsReviewStepProps {
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
+  // The phone-list build itself (not the draft-creation step `prepareError`
+  // covers) resolved to `failed` — distinct because the fix is different:
+  // there's a fresh build to request, not a draft to retry.
+  buildFailed?: boolean
+  retryingBuild?: boolean
+  onRetryBuild?: () => void
   // The candidate cannot send yet (milestone 2's gate), so this reads back
   // what they built with no schedule rows and no checkout — the flow's own
   // CTA saves it as a draft instead (design: flowReview's preClear branch).
@@ -103,6 +109,9 @@ export const SmsReviewStep = ({
   excludedDuplicatePhoneCount,
   preparing,
   prepareError,
+  buildFailed = false,
+  retryingBuild = false,
+  onRetryBuild,
   readOnlySummary = false,
   onComplete,
 }: SmsReviewStepProps) => {
@@ -307,7 +316,7 @@ export const SmsReviewStep = ({
               ) : (
                 'Free'
               )
-            ) : prepareError || sessionError ? (
+            ) : prepareError || buildFailed || sessionError ? (
               '\u2014'
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
@@ -359,7 +368,22 @@ export const SmsReviewStep = ({
         </p>
       )}
 
-      {readOnlySummary ? null : prepareError ? (
+      {readOnlySummary ? null : buildFailed ? (
+        <Card className="items-start gap-3 border-destructive p-4">
+          <p className="text-sm text-foreground">
+            We couldn&apos;t prepare this audience. Try again.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onRetryBuild}
+            disabled={retryingBuild}
+            loading={retryingBuild}
+          >
+            Try again
+          </Button>
+        </Card>
+      ) : prepareError ? (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
             We couldn&apos;t set up your purchase. Go back a step and try again.

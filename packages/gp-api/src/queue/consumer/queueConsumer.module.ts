@@ -24,6 +24,7 @@ import { OrdinancesModule } from 'src/ordinances/ordinances.module'
 import { CrmModule } from 'src/crm/crmModule'
 import { ChatsModule } from 'src/chats/chats.module'
 import { OutreachModule } from 'src/outreach/outreach.module'
+import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
 import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFeedback.module'
 
 @Module({
@@ -61,6 +62,9 @@ import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFe
     // calls. Nothing imports QueueConsumerModule except AppModule, so this
     // edge adds no cycle.
     OutreachModule,
+    // For P2pPhoneListUploadService, which the `p2pPhoneListBuild` case
+    // calls.
+    PeerlyModule,
     // For FeedbackSynthesisIngestService, the `feedbackSynthesisComplete`
     // handler.
     ConstituentFeedbackModule,

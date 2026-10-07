@@ -37,8 +37,13 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // has no Peerly phone list of its own yet — replacing this derivation with
 // the org-scoped create is the hub-wiring ticket's job, not the surface's.
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 1200,
     excludedOptedOutCount: 0,

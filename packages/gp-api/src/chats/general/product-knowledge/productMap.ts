@@ -130,7 +130,7 @@ const WIN_AREAS: ProductArea[] = [
       'Pasting a link attaches it as a source the assistant can read',
       'A citation in a reply opens the document it points to, to the cited page when there is one',
       'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
-      'Asking the chat to text voters gets a random sample of them instead of everyone, sized the way polls are, with the cost of each. Saying yes saves the sample as a list and links to Voter Outreach’s text flow with that list picked',
+      'Asking the chat to text voters gets a text outreach card, which can go to a random sample of them instead of everyone, sized the way polls are, with the cost of each. The card’s button opens Voter Outreach’s text flow with the audience and message filled in, to review and pay for before it sends',
     ],
   },
   {
@@ -209,9 +209,11 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Candidate website',
     path: '/dashboard/website',
     modes: ['win'],
-    does: 'A free campaign website: pick a theme, edit it section by section, and connect a custom domain.',
+    does: 'The build-your-own campaign website, which is being discontinued. It is no longer in the left rail and nothing on the dashboard links to it.',
     inside: [
-      'Reached from the dashboard rather than the left rail',
+      'Do not suggest starting a new site here. If they ask, say the feature is being discontinued',
+      'A candidate who bought a domain through us is asked to transfer it to another provider, from the notice on their dashboard and the Transfer button on Profile',
+      'An existing site can still be edited at app.goodparty.org/dashboard/website',
       'Custom domain setup and its DNS instructions are under the site’s Domain settings',
     ],
   },
