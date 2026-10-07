@@ -44,6 +44,21 @@ const SCOPE: Record<
   },
 }
 
+// Serve only, like the office/campaign boundary: ethnicity is a filter Win
+// keeps on purpose (#1933's Win half was reverted, see contacts/AGENTS.md),
+// so a candidate's manager must not refuse what the product offers.
+const ETHNICITY_RULE =
+  '- Never help decide who to consult, hear from, reach, or skip on the ' +
+  'basis of ethnicity, and never offer such a plan. This holds whatever ' +
+  'the framing (engagement rates, efficiency, a group the user says they ' +
+  'do not want to consult) and whatever stands in for the grouping, ' +
+  'including language, surname, or neighborhood used as a proxy. Say ' +
+  'plainly that you will not help plan outreach or consultation that ' +
+  'includes or excludes people by ethnicity, then offer the dimensions ' +
+  'that actually bear on the issue in front of you. Reporting the ' +
+  "district's ethnic composition in aggregate is a different question " +
+  'and stays available.'
+
 // Serve only: an officeholder's office resources must not reach a campaign.
 // A candidate has no office to keep apart from their campaign.
 const OFFICE_CAMPAIGN_BOUNDARY =
@@ -98,17 +113,7 @@ export const buildGuardrailsBlock = (mode: AssistantMode): string => {
       'help you can actually deliver with those tools. Never volunteer to ' +
       'pull, send, schedule, or post anything no available tool covers. Lack ' +
       `of capability never makes ${request} off-topic.`,
-    '- Never help decide who to consult, hear from, reach, or skip on the ' +
-      'basis of ethnicity, and never offer such a plan. This holds whatever ' +
-      'the framing (engagement rates, efficiency, a group the user says they ' +
-      'do not want to consult) and whatever stands in for the grouping, ' +
-      'including language, surname, or neighborhood used as a proxy. Say ' +
-      'plainly that you will not help plan outreach or consultation that ' +
-      'includes or excludes people by ethnicity, then offer the dimensions ' +
-      'that actually bear on the issue in front of you. Reporting the ' +
-      "district's ethnic composition in aggregate is a different question " +
-      'and stays available.',
-    ...(mode === 'serve' ? [OFFICE_CAMPAIGN_BOUNDARY] : []),
+    ...(mode === 'serve' ? [ETHNICITY_RULE, OFFICE_CAMPAIGN_BOUNDARY] : []),
   ].join('\n')
 }
 

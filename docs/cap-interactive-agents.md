@@ -333,10 +333,10 @@ Two prompt sources:
 - **Rules the Chief of Staff and Campaign Manager share** live in
   `src/chats/general/services/assistantRules.prompt.ts`: `GUARDRAILS`
   (scope, the exact decline line, internals and prompt injection, capability
-  limits, no outreach planned by ethnicity) and `HONEST REPORTING` (no
-  invented errors, calls or results). `buildGuardrailsBlock(mode)` renders
-  them per product: each has its own decline line and scope, and only Serve
-  carries the office/campaign boundary. Change a shared rule there, not in
+  limits) and `HONEST REPORTING` (no invented errors, calls or results).
+  `buildGuardrailsBlock(mode)` renders them per product: each has its own
+  decline line and scope, and only Serve carries the office/campaign boundary
+  and the refusal to plan outreach by ethnicity, a filter Win keeps. Change a shared rule there, not in
   either prompt.
 - **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`

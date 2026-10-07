@@ -107,12 +107,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('office/campaign boundary')
   })
 
-  it('refuses outreach planned by ethnicity', () => {
+  // Win keeps ethnicity as a filter on purpose; only Serve dropped it.
+  it('does not refuse outreach planned by ethnicity', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      'Never help decide who to consult, hear from, reach, or skip on the ' +
-        'basis of ethnicity',
-    )
+    expect(prompt).not.toContain('on the basis of ethnicity')
   })
 
   it('always includes the honest reporting rules', () => {
