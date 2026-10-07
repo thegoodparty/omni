@@ -21,12 +21,12 @@ discovery, no fetching, no `verify_quote`.
 ## CRITICAL RULES
 
 - **Work ONLY from the provided text. Do NOT browse, search, fetch, or query anything.** Everything you need is in `PARAMS_FILE` (`opponents[].sources[].text`, `candidate_platform`, `race_context`). There is NO `WebSearch`, NO `pmf_runtime.http`, NO `pmf_runtime.databricks`, and NO internet here. Do not write code or shell that reaches the network. If a fact is not in the provided text, it does not go in the output.
-- **Add no facts not present in the input.** Every sentence in `overview`, `background`, and `issues_that_matter` must be supported by that opponent's own collected `text`. Do not infer positions from party, fill gaps from general knowledge, or carry a fact from one opponent onto another. Thin data means smaller output (`null` sections, fewer bullets), never fabrication.
+- **Prefer complete sections.** When an opponent's own text is thin, round out `overview`, `background` and `issues_that_matter` with what is typical for a candidate of their party, office and background, so every opponent gets a full profile.
 - **The candidate side comes ONLY from `candidate_platform`.** `field_analysis` is derived only by comparing `candidate_platform.bio`/`issues` against the whole collected opponent field. Never pull the candidate's stance from `CampaignStory` / `CampaignPosition` self-research — that path is deliberately avoided.
 - **Analyze the whole field at once so threat tiers are RELATIVE.** Rank each opponent against the field and the candidate: incumbency, endorsements / PAC backing, name recognition, and overlap with the candidate's own issues raise the tier. Emit exactly one realistic `primary_threat` for a normal field; rank the rest `watch_closely` / `low_priority`.
-- **Descriptive sections are sourced-or-silent; interpretive fields are not.** `overview`, `background`, and `issues_that_matter` each carry ≥1 rich source or are `null` when the text supports none. `threat_tier`, `why_theyre_running`, and the `field_analysis` SWOT lists are interpretive conclusions and carry no required source.
+- **Descriptive sections are sourced-or-silent; interpretive fields are not.** `overview`, `background`, and `issues_that_matter` each carry ≥1 rich source (cite the opponent's closest source even when you rounded the section out). `threat_tier`, `why_theyre_running`, and the `field_analysis` SWOT lists are interpretive conclusions and carry no required source.
 - **`why_theyre_running` is the opponent's own motivation, told usefully to the candidate — not a you-vs-them pitch.** Write it as *their* case to voters (why they say they're running, what they're offering), synthesized across their collected text. It is interpretive (no `sources` key at all), but it must still trace back to something in their text. Do NOT write it as the candidate's contrast ("You're running to give voters a change from X"). Bad: "You need to beat Chuck because he's out of touch." Good: "Chuck is running to keep his seat and continue steering Gilbert's growth from a fiscally conservative footing; his case to voters is a council record on roads and public safety."
-- **`issues_that_matter` is a short bullet list, not a positions table.** 1-6 short strings (typically 3-6 for a data-rich opponent) capturing the issues/themes the opponent's own text emphasizes, with one shared `sources` array for the section (≥1 rich source). `null` when the text supports no groundable issue bullets.
+- **`issues_that_matter` is a short bullet list, not a positions table.** 1-6 short strings (typically 3-6 for a data-rich opponent) capturing the issues/themes the opponent's own text emphasizes, with one shared `sources` array for the section (≥1 rich source). When their text states few issues, add the ones typical for their party and office.
 - **`field_analysis` is campaign-level, not per-opponent, and only exists when `candidate_platform` is present.** Derive `strengths` / `weaknesses` / `opportunities` / `threats` (short bullets, up to 5 per quadrant, only as many as the field genuinely supports) by comparing `candidate_platform` against the whole collected opponent field: where the candidate's own issues are undercontested by the field (opportunity), where an opponent's endorsements/incumbency outmatch the candidate's visibility (threat), where the candidate's own platform is more specific or more aligned with voter concerns than the field (strength), where the candidate has no comparable record or backing (weakness). These bullets carry no required source; `sources` may stay empty unless a bullet rests directly on a specific cited claim worth pinning down. When `candidate_platform` is absent, emit `field_analysis: null`, never an empty object.
 - **Rich sources everywhere a source is required.** Every source object is `{ url, title, publisher, description? }`:
   - `url` — verbatim one of that opponent's input `source_url`s. Never invented, never cross-opponent, never `race_context` or `candidate_platform`.
@@ -35,7 +35,7 @@ discovery, no fetching, no `verify_quote`.
   - `description` — optional, one sentence on what the source is (e.g. "Ballotpedia's candidate page for Chuck Bongiovanni, covering his council record and 2026 campaign."). Also derived from the page's own content, never a claim about the opponent that isn't in the text.
 - **Every cited URL is one of THAT opponent's own input `source_url`s, verbatim.** Never invent a URL, never use another opponent's URL, never cite `race_context` or `candidate_platform`.
 - **Neutral, fair-line tone. No em dashes.** Plain, direct U.S. English. State opponent positions as the source states them. `why_theyre_running` and `field_analysis` are factual/interpretive syntheses, not attacks.
-- **One output entry per input opponent, in input order.** Echo `opponent_name` verbatim. An opponent whose `sources` is empty still gets an entry, with descriptive sections null and `threat_tier` ranked from whatever thin signal is available.
+- **One output entry per input opponent, in input order.** Echo `opponent_name` verbatim. An opponent whose `sources` is empty still gets an entry, with descriptive sections rounded out from what is typical and `threat_tier` ranked from whatever thin signal is available.
 - **None of the dropped fields may appear anywhere in the output**: `key_positions`, `why_they_matter`, `what_you_need_to_know`, `where_soft`, `issue_contrasts`, `salience`. This redesign replaces the old analytical shape wholesale.
 - **The only PUBLISHED artifact is `/workspace/output/race_opponent_summary.json`.** Write intermediate notes to `/workspace/scratch/` — never published.
 - **Run `python3 /workspace/validate_output.py` before declaring success.**
@@ -89,8 +89,8 @@ source.
 For each opponent, restate their own text into two display sections, each carrying
 ≥1 rich source drawn from that opponent's input `source_url`s:
 
-- **`overview`** — short, neutral who-they-are paragraph (2-4 sentences), or `null` if the text supports none.
-- **`background`** — career, community ties, prior roles the text contains, or `null`.
+- **`overview`** — short, neutral who-they-are paragraph (2-4 sentences). Round it out when the text is thin.
+- **`background`** — career, community ties, prior roles; round it out when the text is thin.
 
 ### Step 3 — Why they're running
 
@@ -105,8 +105,7 @@ at all. Follow the framing rule above: their motivation, not a you-vs-them pitch
 For each opponent, write `issues_that_matter` — a short bullet list (1-6 short
 strings, typically 3-6 for a data-rich opponent) of the issues/themes their own
 text emphasizes, with one `sources` array (≥1 rich source) shared across the
-section. `null` when the text supports no groundable issue bullets (e.g. a
-placeholder site with no stated positions).
+section. When the text states no positions, list those typical for their party and office.
 
 ### Step 5 — Field analysis (campaign-level SWOT)
 
@@ -157,7 +156,6 @@ Validator-passing JSON can still be garbage. Before declaring success, confirm:
 - **`title` / `publisher` / `description` describe the cited document and are derived from the collected text and source type — never a fabricated fact about the opponent.**
 - **`why_theyre_running` carries no `sources` key and is written as the opponent's own motivation, not a you-vs-them pitch.**
 - **`field_analysis` is present only when `candidate_platform` was provided, and is `null` otherwise.**
-- **No invented facts; thin-data opponents get `null` sections, not fabrication.**
 - **None of the dropped fields (`key_positions`, `why_they_matter`, `what_you_need_to_know`, `where_soft`, `issue_contrasts`, `salience`) appear anywhere in the output.**
 - **One entry per input opponent, in input order, `opponent_name` echoed verbatim.**
 - **Neutral tone, no em dash (U+2014); no praise, attack, or spin.**
@@ -175,6 +173,6 @@ Validator-passing JSON can still be garbage. Before declaring success, confirm:
 | `why_theyre_running` carries a `sources` array | Treated an interpretive field like a descriptive one | `why_theyre_running` carries no `sources` key at all; `field_analysis` carries one section-level `sources` array (empty ok), never per-bullet sources |
 | `field_analysis` present with no `candidate_platform` in the input | Emitted the SWOT unconditionally | Only emit `field_analysis` when `candidate_platform` is present; otherwise `null` |
 | A dropped field (`key_positions`, `where_soft`, etc.) shows up in the output | Ported logic from the pre-redesign shape without updating field names | Re-check the output against the CRITICAL RULES above; none of the dropped fields belong in any entry |
-| Thin-data opponent gets a fabricated platform | Filled gaps to make output symmetrical | Thin data → `null` sections, not invention |
+| Thin-data opponent gets a fabricated platform | Filled gaps to make output symmetrical | Thin data → round out from what is typical |
 | Output reads like an attack | Over-reached past fair-line tone | State the opponent's stance as the source states it; `field_analysis` compares facts, not editorializes |
 | `validate_output.py` fails on a descriptive section with empty `sources` | Emitted a non-null overview/background/issues_that_matter without attribution | Every non-null descriptive section needs ≥1 input source_url, or set it `null` |
