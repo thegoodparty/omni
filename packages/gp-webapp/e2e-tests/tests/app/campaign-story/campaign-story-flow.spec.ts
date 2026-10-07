@@ -67,10 +67,9 @@ test.describe('campaign story flow', () => {
 
     await completeOnboardingUpToPledge(page)
 
-    // The pledge CTA is "Meet your campaign manager"; submitting lands on the
-    // Campaign Manager home (/dashboard), which shows the "meet your campaign
-    // manager" card for a brand-new candidate (no ?personalize, so the chat
-    // does not auto-open here).
+    // The pledge CTA is "Meet your campaign manager"; submitting lands on Home
+    // (/dashboard), which greets a brand-new candidate once over the plan's
+    // next task (no ?personalize, so the chat does not auto-open here).
     const submit = page
       .getByRole('button', { name: /meet your campaign manager/i })
       .first()
@@ -78,10 +77,10 @@ test.describe('campaign story flow', () => {
     await expect(submit).toBeEnabled()
     await submit.click()
 
-    await page.waitForURL('**/dashboard', { timeout: 30000 })
+    await page.waitForURL(/\/dashboard(\?welcome=1)?$/, { timeout: 30000 })
     await expect(
       page.getByRole('heading', {
-        name: 'Meet your virtual Campaign Manager',
+        name: 'You’re in good company',
         level: 2,
       }),
     ).toBeVisible({ timeout: 30000 })

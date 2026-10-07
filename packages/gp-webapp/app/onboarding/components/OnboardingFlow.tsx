@@ -66,6 +66,7 @@ import type {
   SelectedOffice,
   SignupGoal,
 } from './onboardingTypes'
+import { FIRST_LANDING_PARAM } from 'app/dashboard/campaign-manager/homeHeadlines'
 
 type OnboardingUpdateAttribute = {
   key: string
@@ -1136,7 +1137,7 @@ export default function OnboardingFlow({
       if (!ok) return
       // Lands on the Campaign Manager home, whose chat opens with the story
       // intake (the plan + tracker are generated from the story later).
-      router.push('/dashboard')
+      router.push(`/dashboard?${FIRST_LANDING_PARAM}=1`)
       return
     }
     if (nextStep) {

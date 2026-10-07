@@ -27,11 +27,12 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
 18. A tag or label earns its place by saying something true and specific to this
     item, like a real deadline. Labels that would show on every visit ("Start
     here", "High priority") are noise. (earned)
-28. One line of text above a primary card, not two. A headline can cheer the
-    candidate on ("You've got this") or lead into the card ("Here's your next
-    move"); either can be an instruction. A second line that only points at the
-    card ("Here's what to do next") is redundant, since the card is what's next.
-    (earned)
+28. One line of text above a primary card, not two, and it speaks to that
+    card: a door-knocking task gets "One door at a time", the story task gets
+    "Tell it your way". The line stays while its card is in front and changes
+    when the card does. It can cheer or instruct. A second line that only
+    points at the card ("Here's what to do next") is redundant, since the card
+    is what's next. (earned)
 29. Never tell users something we cannot know is true. Encouragement about
     their own effort is fine; claims about their race ("Your neighbors are with
     you", "Momentum is building") are not, unless the data says so. (earned)

@@ -37,8 +37,7 @@ import { formatTaskDate } from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
 import { isVoterContactFlowType, useTrackerTasks } from './useTrackerTasks'
 import { selectTopDynamicTasks } from 'app/dashboard/campaign-manager/selectTopDynamicTasks'
-import { BALLOT_CARD_COPY } from 'app/dashboard/campaign-manager/GetOnBallotCard'
-import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
+import { useTaskHeadline } from 'app/dashboard/campaign-manager/homeHeadlines'
 import type {
   CampaignStrategyData,
   CampaignStrategyPhase,
@@ -66,9 +65,6 @@ const findNextTask = (
 // shape and the stacked priorities from raw rows, so both narrow to this.
 type DeckTask = Pick<CampaignStrategyTask, 'id' | 'title' | 'description'> & {
   date: string | null
-  // Set for the Campaign Manager's own prompts (ballot, story, meet), which
-  // join the stack as cards with their one action instead of a task's.
-  prompt?: { ctaLabel: string; onCta: () => void }
 }
 
 // Sent as the candidate's first message, so the manager answers about this
@@ -233,11 +229,16 @@ const subscribeCollapsed = (listener: () => void): (() => void) => {
 // rail uses, so a task completed on either surface leaves both.
 const NextTaskCard = ({
   heading,
+  firstLanding = false,
   surface,
   tone = 'default',
   className,
 }: {
-  heading: string
+  // The plan names its section. Without one, the heading follows the card in
+  // front: a line for its kind of task, switching when the card does.
+  heading?: string
+  // Home's first landing after onboarding greets the candidate instead.
+  firstLanding?: boolean
   // Both surfaces hold the same stack (the next task, then this week's top
   // priorities) and the same skips, so they always show the same front card.
   // Only the manager draws the cards behind it; the plan has the full list
@@ -251,7 +252,6 @@ const NextTaskCard = ({
   const [campaign] = useCampaign()
   const { tasks } = useTrackerTasks()
   const chat = useCampaignManagerChat()
-  const story = useCampaignStoryComplete(true)
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null)
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false)
@@ -286,87 +286,28 @@ const NextTaskCard = ({
     return findNextTask(buildTrackerStrategy(tasks, { electionDate }))
   }, [tasks, electionDateIso])
 
-  // Every "do this now" card lives in this one stack, in the order the
-  // candidate needs them: get on the ballot, tell the story (which is what
-  // creates tracker tasks at all), the tasks themselves, then meeting the
-  // manager. Prompts need the chat dock, so they drop out without it.
-  const ballotCopy =
-    campaign?.ballotStatus === 'qualified-not-filed' ||
-    campaign?.ballotStatus === 'considering'
-      ? BALLOT_CARD_COPY[campaign.ballotStatus]
-      : null
-  const storyPending = !story.isLoading && !story.isError && !story.isComplete
-  const leadPrompts: DeckTask[] = chat
-    ? [
-        ...(ballotCopy
-          ? [
-              {
-                id: 'prompt-ballot',
-                title: ballotCopy.title,
-                description: ballotCopy.description,
-                date: null,
-                prompt: {
-                  ctaLabel: ballotCopy.ctaLabel,
-                  onCta: chat.startBallotAccess,
-                },
-              },
-            ]
-          : []),
-        ...(storyPending
-          ? [
-              {
-                id: 'prompt-story',
-                title: 'Tell us your campaign story',
-                description:
-                  'Share your why, your background, and the issues you care about to sharpen your plan.',
-                date: null,
-                prompt: {
-                  ctaLabel: 'Personalize your campaign',
-                  onCta: chat.startStory,
-                },
-              },
-            ]
-          : []),
-      ]
-    : []
-  const trailPrompts: DeckTask[] =
-    chat && !chat.meetDismissed
-      ? [
-          {
-            id: 'prompt-meet',
-            title: 'Meet your virtual Campaign Manager',
-            description:
-              'Introducing your Campaign Manager. Get a quick tour for how it can help.',
-            date: null,
-            prompt: {
-              ctaLabel: 'Meet your Campaign Manager',
-              onCta: chat.openManager,
-            },
-          },
-        ]
-      : []
+  // The stack always leads with the plan's next task; the week's top
+  // priorities wait behind it for a skip.
   const deck: DeckTask[] = [
-    ...leadPrompts,
     ...(nextTask ? [nextTask] : []),
     ...selectTopDynamicTasks(tasks).filter((task) => task.id !== nextTask?.id),
-    ...trailPrompts,
   ]
   // Skipping sends a card to the back of the stack, in the order skipped. Only
   // for this visit: it reorders the stack, it does not reschedule the task.
   const skipRank = (id: string) => skippedIds.indexOf(id)
   deck.sort((a, b) => skipRank(a.id) - skipRank(b.id))
   const frontTask = deck[0]
+  const frontRow = tasks.find((row) => row.id === frontTask?.id)
+  const taskHeadline = useTaskHeadline(
+    heading === undefined ? frontRow : undefined,
+    { firstLanding },
+  )
   const layersBehind = surface === 'manager' ? Math.min(deck.length - 1, 2) : 0
 
   if (!frontTask) return countModal
 
   const dueDate = formatTaskDate(frontTask.date)
-  const action = frontTask.prompt
-    ? null
-    : taskAction(
-        tasks.find((row) => row.id === frontTask.id),
-        surface,
-      )
+  const action = taskAction(frontRow, surface)
 
   // A task done inside the product (its action opens one of our own screens)
   // should close itself when that work happens, so it offers no manual "Mark
@@ -429,7 +370,7 @@ const NextTaskCard = ({
                   : 'text-foreground',
               )}
             >
-              {heading}
+              {heading ?? taskHeadline ?? '\u00a0'}
             </h2>
           </div>
           {collapsible && (
@@ -511,68 +452,54 @@ const NextTaskCard = ({
                   {frontTask.description}
                 </p>
                 <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
-                  {frontTask.prompt ? (
-                    <Button
-                      type="button"
-                      size="medium"
-                      className="w-full sm:w-auto"
-                      onClick={frontTask.prompt.onCta}
-                    >
-                      {frontTask.prompt.ctaLabel}
-                    </Button>
-                  ) : (
-                    <>
-                      {action && (
-                        <Button
-                          asChild
-                          size="medium"
-                          className="w-full sm:w-auto"
-                        >
-                          {action.external ? (
-                            <a
-                              href={action.href}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {action.label}
-                              <ExternalLinkIcon
-                                className="size-4"
-                                aria-hidden
-                              />
-                            </a>
-                          ) : (
-                            <Link href={action.href}>{action.label}</Link>
-                          )}
-                        </Button>
-                      )}
-                      {!completesItself && (
-                        <Button
-                          type="button"
-                          variant={action ? 'outline' : 'default'}
-                          size="medium"
-                          className="w-full sm:w-auto"
-                          onClick={markDone}
-                        >
-                          <CheckIcon className="size-4" aria-hidden />
-                          Mark as done
-                        </Button>
-                      )}
-                      {chat && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="small"
-                          className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto sm:self-center"
-                          onClick={() =>
-                            chat.discussTask(discussTaskMessage(frontTask))
-                          }
-                        >
-                          <MessageSquareIcon className="size-4" aria-hidden />
-                          Discuss in chat
-                        </Button>
-                      )}
-                    </>
-                  )}
+                  <>
+                    {action && (
+                      <Button
+                        asChild
+                        size="medium"
+                        className="w-full sm:w-auto"
+                      >
+                        {action.external ? (
+                          <a
+                            href={action.href}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {action.label}
+                            <ExternalLinkIcon className="size-4" aria-hidden />
+                          </a>
+                        ) : (
+                          <Link href={action.href}>{action.label}</Link>
+                        )}
+                      </Button>
+                    )}
+                    {!completesItself && (
+                      <Button
+                        type="button"
+                        variant={action ? 'outline' : 'default'}
+                        size="medium"
+                        className="w-full sm:w-auto"
+                        onClick={markDone}
+                      >
+                        <CheckIcon className="size-4" aria-hidden />
+                        Mark as done
+                      </Button>
+                    )}
+                    {chat && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="small"
+                        className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto sm:self-center"
+                        onClick={() =>
+                          chat.discussTask(discussTaskMessage(frontTask))
+                        }
+                      >
+                        <MessageSquareIcon className="size-4" aria-hidden />
+                        Discuss in chat
+                      </Button>
+                    )}
+                  </>
                 </div>
               </div>
             </Card>

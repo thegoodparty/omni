@@ -6,11 +6,13 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
+import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import type { ChatStreamEvent } from '../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import { buildCampaignManagerIntro } from './campaignManagerChat'
 import CampaignManagerHome from './CampaignManagerHome'
+import { FIRST_LANDING_HEADLINE, HOME_HEADLINES } from './homeHeadlines'
 import { CampaignManagerChatProvider } from './CampaignManagerChatProvider'
 
 type SurfaceProps = React.ComponentProps<
@@ -20,8 +22,8 @@ type SurfaceProps = React.ComponentProps<
 // The chat dock (footer + surface + open/story controls) lives in the
 // always-present CampaignManagerChatProvider (mounted in DashboardLayout in
 // production); the home reads it from context. Render the same composition here
-// so the meet card (home) and the footer/surface (provider) wire up as they do
-// in the app.
+// so the card (home) and the footer/surface (provider) wire up as they do in
+// the app.
 const renderHome = () =>
   render(
     <CampaignManagerChatProvider>
@@ -61,7 +63,7 @@ const mockRouterReplace = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
   usePathname: () => '/dashboard',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }))
 
 const surfacePropsMock = vi.fn<(props: SurfaceProps) => void>()
@@ -92,6 +94,23 @@ const latestSurfaceProps = (): SurfaceProps => {
   return call[0]
 }
 
+let mockTasks: CampaignTrackerTask[] = []
+
+const doorsTask: CampaignTrackerTask = {
+  id: 'doors-1',
+  title: 'Knock on Doors',
+  description: 'Knock your target doors to connect with voters face-to-face.',
+  cta: null,
+  link: null,
+  flowType: 'doorKnocking',
+  week: 1,
+  date: '2026-10-09T00:00:00.000Z',
+  completed: false,
+  phase: 'active',
+  proRequired: true,
+  isDefaultTask: false,
+}
+
 vi.mock(
   '../campaign-plan/components/campaignStrategy/useTrackerTasks',
   async (importOriginal) => ({
@@ -99,7 +118,7 @@ vi.mock(
       typeof import('../campaign-plan/components/campaignStrategy/useTrackerTasks')
     >()),
     useTrackerTasks: (): TrackerTasksResult => ({
-      tasks: [],
+      tasks: mockTasks,
       isPending: false,
       isError: false,
       isGeneratingDynamic: false,
@@ -138,8 +157,8 @@ vi.mock('../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
 
-// No prior conversations, so the first-run "meet" card renders. Partial-mock so
-// the footer's history popover keeps its real useDeleteConversation.
+// No prior conversations. Partial-mock so the footer's history popover keeps
+// its real useDeleteConversation.
 vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('../chief-of-staff/data/use-chat-history')
@@ -147,8 +166,7 @@ vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
   useChatHistory: () => ({ data: [] }),
 }))
 
-// The story card transitively renders here too; default to an incomplete
-// story so both first-run cards are present for this smoke test.
+// An incomplete story, so the manager still offers to personalize.
 vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(() => ({
     isComplete: false,
@@ -189,31 +207,11 @@ beforeEach(() => {
   streamMessageMock.mockReset()
   mockRouterReplace.mockReset()
   surfacePropsMock.mockClear()
+  mockTasks = []
 })
 
-// Every prompt now lives in the one next-task stack, and a fresh candidate's
-// stack leads with the story prompt. Skip forward until the named card is in
-// front. `hidden` so it still works behind an open (aria-hiding) chat drawer.
-async function bringToFront(title: string): Promise<void> {
-  // pointerEventsCheck off: an open drawer sets pointer-events: none on the
-  // page behind it, which user-event otherwise refuses to click through.
-  const user = userEvent.setup({ pointerEventsCheck: 0 })
-  for (let i = 0; i < 5; i += 1) {
-    if (screen.queryByRole('heading', { name: title, hidden: true })) return
-    // Skipping is the card's X, confirmed in a dialog.
-    await user.click(
-      screen.getByRole('button', { name: 'Skip this task', hidden: true }),
-    )
-    await user.click(
-      await screen.findByRole('button', { name: 'Skip', hidden: true }),
-    )
-  }
-}
-
-const MEET_TITLE = 'Meet your virtual Campaign Manager'
-
-// Opens the manager chat onto its seeded greeting: clicking "meet your
-// campaign manager" resolves the conversation, and listMessages returns the
+// Opens the manager chat onto its seeded greeting: opening the footer chat
+// resolves the conversation, and listMessages returns the
 // server-seeded greeting as the sole assistant message (played back, then
 // committed to history).
 async function openOnSeededGreeting(): Promise<void> {
@@ -230,9 +228,8 @@ async function openOnSeededGreeting(): Promise<void> {
 
   const user = userEvent.setup()
   renderHome()
-  await bringToFront(MEET_TITLE)
   await user.click(
-    screen.getByRole('button', { name: /meet your campaign manager/i }),
+    screen.getByRole('button', { name: /open campaign manager chat/i }),
   )
   await waitFor(() => expect(screen.getByText(/^Hi Renee/)).toBeInTheDocument())
 }
@@ -241,10 +238,13 @@ describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     renderHome()
 
-    // The stack leads with the story prompt for a candidate without one.
+    // The card is only ever a plan task, never one of the manager's prompts.
     expect(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: 'Personalize your campaign' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Meet your virtual Campaign Manager'),
+    ).not.toBeInTheDocument()
     // The footer chat bar uses the campaign-manager open label, not CoS.
     expect(
       screen.getByRole('button', { name: /open campaign manager chat/i }),
@@ -364,7 +364,7 @@ describe('CampaignManagerHome', () => {
 })
 
 describe('CampaignManagerHome story auto-launch', () => {
-  it('starts the story flow (opens + hidden sentinel kickoff) when the story card is clicked', async () => {
+  it('starts the story flow (opens + hidden sentinel kickoff) from the deep link', async () => {
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     listMessagesMock.mockResolvedValue([])
     streamMessageMock.mockReturnValue(
@@ -373,12 +373,8 @@ describe('CampaignManagerHome story auto-launch', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
-    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
 
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
@@ -417,12 +413,8 @@ describe('CampaignManagerHome story auto-launch', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
-    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
 
     // The story-intake reply streams in.
     await waitFor(() =>
@@ -434,7 +426,7 @@ describe('CampaignManagerHome story auto-launch', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('opens the manager without a kickoff via the meet card', async () => {
+  it('opens the manager without a kickoff from the footer chat', async () => {
     await openOnSeededGreeting()
 
     expect(latestSurfaceProps().open).toBe(true)
@@ -451,12 +443,8 @@ describe('CampaignManagerHome story auto-launch', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
-    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
     await waitFor(() =>
       expect(latestSurfaceProps().pendingKickoff).toBe(
         CAMPAIGN_MANAGER_START_STORY_SENTINEL,
@@ -523,80 +511,28 @@ describe('CampaignManagerHome story auto-launch', () => {
   })
 })
 
-describe('CampaignManagerHome meet-card dismissal', () => {
-  // Query including aria-hidden: an open chat drawer aria-hides the dashboard
-  // behind it, so a still-mounted (undismissed) meet card would otherwise read
-  // as absent. This distinguishes "removed from the DOM" (dismissed) from
-  // "present but behind the open chat" (not dismissed).
-  const meetHeading = () =>
-    screen.queryByRole('heading', {
-      name: MEET_TITLE,
-      level: 3,
-      hidden: true,
+describe('CampaignManagerHome headline', () => {
+  it('heads the card with a line for its kind of task', async () => {
+    mockTasks = [doorsTask]
+    renderHome()
+
+    const heading = await screen.findByRole('heading', { level: 2 })
+    expect(HOME_HEADLINES.doorKnocking).toContain(heading.textContent)
+  })
+
+  it('greets the first landing after onboarding once, then strips the marker', async () => {
+    mockTasks = [doorsTask]
+    window.history.replaceState({}, '', '/dashboard?welcome=1')
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: FIRST_LANDING_HEADLINE,
+      }),
+    ).toBeInTheDocument()
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard', {
+      scroll: false,
     })
-
-  it('shows the meet card for a fresh candidate', async () => {
-    renderHome()
-    await bringToFront(MEET_TITLE)
-    expect(meetHeading()).toBeInTheDocument()
-  })
-
-  it('keeps the meet card when only the story flow is started', async () => {
-    createMock.mockResolvedValue({ conversationId: 'conv_1' })
-    listMessagesMock.mockResolvedValue([])
-    streamMessageMock.mockReturnValue(
-      makeStream([
-        { type: 'text', delta: 'Tell me your why.' },
-        { type: 'done', assistantMessageId: 'a1' },
-      ]),
-    )
-    const user = userEvent.setup()
-    renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
-    await waitFor(() =>
-      expect(latestSurfaceProps().pendingKickoff).toBe(
-        CAMPAIGN_MANAGER_START_STORY_SENTINEL,
-      ),
-    )
-
-    // Starting the story is not "meeting the manager", so the card stays.
-    await bringToFront(MEET_TITLE)
-    expect(meetHeading()).toBeInTheDocument()
-  })
-
-  it('dismisses the meet card when the manager is opened via the footer chat box', async () => {
-    createMock.mockResolvedValue({ conversationId: 'conv_1' })
-    listMessagesMock.mockResolvedValue([])
-    const user = userEvent.setup()
-    renderHome()
-    await bringToFront(MEET_TITLE)
-    expect(meetHeading()).toBeInTheDocument()
-
-    await user.click(
-      screen.getByRole('button', { name: /open campaign manager chat/i }),
-    )
-
-    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
-  })
-
-  it('dismisses the meet card on its own click and keeps it dismissed on remount', async () => {
-    createMock.mockResolvedValue({ conversationId: 'conv_1' })
-    listMessagesMock.mockResolvedValue([])
-    const user = userEvent.setup()
-    const { unmount } = renderHome()
-    await bringToFront(MEET_TITLE)
-
-    await user.click(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
-    )
-    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
-
-    // Persisted: a fresh mount does not bring it back.
-    unmount()
-    renderHome()
-    expect(meetHeading()).not.toBeInTheDocument()
   })
 })

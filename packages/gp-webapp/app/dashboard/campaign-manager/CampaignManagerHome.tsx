@@ -1,30 +1,43 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import NextTaskCard from '../campaign-plan/components/campaignStrategy/NextTaskCard'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
-import { useHomeHeadline } from './homeHeadlines'
+import { FIRST_LANDING_PARAM } from './homeHeadlines'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
- * The Campaign Manager dashboard home for the campaign-story cohort: the Pro
- * banner, the texting-setup banner, the first-run
- * "meet your campaign manager" card, and the top tracker tasks.
+ * The Campaign Manager dashboard home for the campaign-story cohort: the
+ * plan's next task under a headline for its kind, then the Pro and
+ * texting-setup banners.
  *
  * The persistent footer chat bar and the chat surface are NOT rendered here —
  * they live in the always-present dock (CampaignManagerChatProvider, mounted in
  * DashboardLayout) so the manager is reachable from every page. This home reads
- * the dock's controls from context: the meet card opens the manager (dismissing
- * itself), and the personalize card launches the story-intake flow.
+ * the dock's controls from context.
  */
 export default function CampaignManagerHome({
   tcrCompliance,
 }: {
   tcrCompliance: TcrCompliance | null
 }): React.JSX.Element {
-  // A mission line rather than a welcome; blank until it is picked on the
-  // client, so the card's position does not jump.
-  const headline = useHomeHeadline()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  // Read once, so the greeting survives the param being stripped below.
+  const [firstLanding] = useState(
+    () => searchParams?.get(FIRST_LANDING_PARAM) === '1',
+  )
+  // A reload or a shared link must not greet them again.
+  useEffect(() => {
+    if (!firstLanding || !pathname) return
+    const params = new URLSearchParams(searchParams?.toString())
+    params.delete(FIRST_LANDING_PARAM)
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }, [firstLanding, pathname, router, searchParams])
 
   return (
     // On desktop the welcome and the card sit in the middle of the space
@@ -34,7 +47,7 @@ export default function CampaignManagerHome({
     // grey doesn't show through above it.
     <div className="flex min-h-screen flex-col bg-muted lg:-mb-24 lg:min-h-[calc(100dvh-3.5rem)] lg:pb-24">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
-        <NextTaskCard surface="manager" heading={headline ?? '\u00a0'} />
+        <NextTaskCard surface="manager" firstLanding={firstLanding} />
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
       </div>
