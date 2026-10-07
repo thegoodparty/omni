@@ -3,7 +3,7 @@
 import NextTaskCard from '../campaign-plan/components/campaignStrategy/NextTaskCard'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
-import { useUser } from '@shared/hooks/useUser'
+import { useHomeHeadline } from './homeHeadlines'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
@@ -22,8 +22,9 @@ export default function CampaignManagerHome({
 }: {
   tcrCompliance: TcrCompliance | null
 }): React.JSX.Element {
-  const [user] = useUser()
-  const firstName = user?.firstName
+  // A mission line rather than a welcome; blank until it is picked on the
+  // client, so the card's position does not jump.
+  const headline = useHomeHeadline()
 
   return (
     // On desktop the welcome and the card sit in the middle of the space
@@ -35,7 +36,7 @@ export default function CampaignManagerHome({
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
         <NextTaskCard
           surface="manager"
-          heading={firstName ? `Welcome back, ${firstName}!` : 'Welcome back!'}
+          heading={headline ?? '\u00a0'}
           subheading="Here’s what to do next"
         />
         <ProUpgradeBanner />
