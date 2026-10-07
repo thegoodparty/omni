@@ -71,14 +71,22 @@ const WeekNavigator = ({
 }): React.JSX.Element => {
   const rawIndex = weeks.findIndex((w) => w.isCurrent)
   const currentIndex = rawIndex === -1 ? weeks.length - 1 : rawIndex
-  const [selected, setSelected] = useState(currentIndex)
+  // A head start puts the next task in next week, so open there instead.
+  const aheadIndex = weeks.findIndex((w) =>
+    w.tasks.some((task) => task.isNext && !task.completed),
+  )
+  const openIndex =
+    aheadIndex !== -1 && (rawIndex === -1 || aheadIndex > rawIndex)
+      ? aheadIndex
+      : currentIndex
+  const [selected, setSelected] = useState(openIndex)
   // Re-sync the open week when a background poll shifts which week is "current"
   // (a new generation, or midnight crossing into a new week); otherwise
   // `selected` keeps its stale mount-time value and silently shows last week.
-  const prevCurrentIndex = useRef(currentIndex)
-  if (prevCurrentIndex.current !== currentIndex) {
-    prevCurrentIndex.current = currentIndex
-    setSelected(currentIndex)
+  const prevOpenIndex = useRef(openIndex)
+  if (prevOpenIndex.current !== openIndex) {
+    prevOpenIndex.current = openIndex
+    setSelected(openIndex)
   }
   const lowerBound = rawIndex === -1 ? 0 : Math.max(0, currentIndex - 1)
   const upperBound =

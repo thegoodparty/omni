@@ -48,6 +48,15 @@ cards the candidate checks off. Feature overview + backend:
   it for every campaign; there is no client-catalog fallback and no story gate
   upstream. When the fetch settles with no rows the section shows a "setting up
   your tracker" state (bootstrap in flight).
+- **Head start.** Once this week has no open task, the next-step card offers
+  next week's: `buildTrackerStrategy`'s `headStartWeek` marks next week's
+  first open task `isNext`, and the week navigator opens on it. The choice
+  lives in the browser (`useHeadStartWeek`, shared by the card and the list)
+  and only counts for next week, so it expires when the calendar gets there.
+- **Completion is optimistic.** `useToggleTrackerTaskComplete` writes the
+  row's `completed` into the cache before the request lands (rolled back on
+  error), so the next-step card can bring the next task forward the moment
+  the done one leaves instead of showing it again until the refetch.
 - **Non-prod "Generate tasks" override.** `CampaignStrategySection` renders a
   `{!IS_PROD}` button (from `appEnv`) that hits `POST
 /v1/campaigns/tracker-tasks/generate` (gp-api 404s it in prod). It exists

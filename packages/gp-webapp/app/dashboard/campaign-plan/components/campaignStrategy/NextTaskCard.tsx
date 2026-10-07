@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 import Link from 'next/link'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
@@ -26,16 +26,21 @@ import {
   AlertDialogTitle,
   Button,
   Card,
+  ConfettiBurst,
+  EmptyState,
   ExternalLinkIcon,
   MessageSquareIcon,
   cn,
 } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
-import { buildTrackerStrategy } from './buildTrackerStrategy'
+import {
+  buildTrackerStrategy,
+  followingWeekStart,
+} from './buildTrackerStrategy'
 import { formatTaskDate } from './CampaignStrategyTaskRow'
 import { useCompleteTrackerTask } from './useCompleteTrackerTask'
-import { isVoterContactFlowType, useTrackerTasks } from './useTrackerTasks'
+import { useTrackerTasks } from './useTrackerTasks'
 import { selectTopDynamicTasks } from 'app/dashboard/campaign-manager/selectTopDynamicTasks'
 import { useTaskHeadline } from 'app/dashboard/campaign-manager/homeHeadlines'
 import type {
@@ -45,13 +50,14 @@ import type {
 } from './campaignStrategy.types'
 
 // Every phase can flag its own next task, so the phase happening now wins.
-// Active lists tasks by week, and only the current week carries the flag.
+// Active lists tasks by week, and only one week carries the flag: this one, or
+// next week after a head start.
 const findNextTask = (
   strategy: CampaignStrategyData,
 ): CampaignStrategyTask | undefined => {
   const visibleTasks = (phase: CampaignStrategyPhase) =>
     phase.weeks
-      ? (phase.weeks.find((week) => week.isCurrent)?.tasks ?? [])
+      ? phase.weeks.flatMap((week) => week.tasks)
       : phase.groups.flatMap((group) => group.tasks)
   return [...strategy.phases]
     .sort(
@@ -60,6 +66,30 @@ const findNextTask = (
     .flatMap(visibleTasks)
     .find((task) => task.isNext && !task.completed)
 }
+
+// What the plan has after the next task: the open tasks that follow it in its
+// own week (or phase), in the plan's order. They stand behind it in the stack,
+// so finishing one brings the plan's real next one forward.
+const followingTasks = (
+  strategy: CampaignStrategyData,
+  nextTask: CampaignStrategyTask,
+): CampaignStrategyTask[] => {
+  const siblings = strategy.phases
+    .flatMap((phase) => [
+      ...(phase.weeks ?? []).map((week) => week.tasks),
+      ...phase.groups.map((group) => group.tasks),
+    ])
+    .find((list) => list.some((task) => task.id === nextTask.id))
+  if (!siblings) return []
+  return siblings
+    .slice(siblings.findIndex((task) => task.id === nextTask.id) + 1)
+    .filter((task) => !task.completed)
+}
+
+// Mark as done: the confetti bursts, then the card lifts off the top of the
+// stack while the one behind it rises into place, all on one axis.
+const CELEBRATE_MS = 500
+const EXIT_MS = 300
 
 // The fields the card shows. The next task comes from the tracker's render
 // shape and the stacked priorities from raw rows, so both narrow to this.
@@ -193,6 +223,43 @@ const subscribeSkipped = (listener: () => void): (() => void) => {
 
 const NO_SKIPS: string[] = []
 
+// The week a candidate who finished this one pulled forward, shared by both
+// surfaces so the plan's list and Home's card agree on the next task. Only
+// next week counts (see buildTrackerStrategy), so it expires on its own.
+const HEAD_START_KEY = 'next-task-head-start'
+const headStartListeners = new Set<() => void>()
+let headStartMemory: string | null = null
+
+const readHeadStart = (): string | null => {
+  try {
+    return window.localStorage.getItem(HEAD_START_KEY)
+  } catch {
+    return headStartMemory
+  }
+}
+
+const writeHeadStart = (week: string): void => {
+  headStartMemory = week
+  try {
+    window.localStorage.setItem(HEAD_START_KEY, week)
+  } catch {
+    // Storage disabled: headStartMemory holds it for this page load.
+  }
+  headStartListeners.forEach((listener) => listener())
+}
+
+const subscribeHeadStart = (listener: () => void): (() => void) => {
+  headStartListeners.add(listener)
+  window.addEventListener('storage', listener)
+  return () => {
+    headStartListeners.delete(listener)
+    window.removeEventListener('storage', listener)
+  }
+}
+
+export const useHeadStartWeek = (): string | null =>
+  useSyncExternalStore(subscribeHeadStart, readHeadStart, () => null)
+
 // Whether the plan's next-step section is folded. A per-viewer convenience,
 // so it lives in the browser and survives a reload.
 const COLLAPSED_KEY = 'next-task-collapsed'
@@ -252,8 +319,31 @@ const NextTaskCard = ({
   const [campaign] = useCampaign()
   const { tasks } = useTrackerTasks()
   const chat = useCampaignManagerChat()
-  const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
-  const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null)
+  // The task just marked done, held in front while it celebrates and leaves.
+  const [leaving, setLeaving] = useState<{
+    id: string
+    stage: 'celebrate' | 'exit'
+  } | null>(null)
+  // Whatever comes forward next rises into place, then settles.
+  const [arriving, setArriving] = useState(false)
+  const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks, {
+    onCompleted: (id) => setLeaving({ id, stage: 'celebrate' }),
+  })
+  useEffect(() => {
+    if (!leaving) return
+    const timer = window.setTimeout(
+      () => {
+        if (leaving.stage === 'celebrate') {
+          setLeaving({ ...leaving, stage: 'exit' })
+          return
+        }
+        setLeaving(null)
+        setArriving(true)
+      },
+      leaving.stage === 'celebrate' ? CELEBRATE_MS : EXIT_MS,
+    )
+    return () => window.clearTimeout(timer)
+  }, [leaving])
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false)
   // The plan's next step leads the page but can be folded away. The manager's
   // card is the page itself, so it always stays open.
@@ -278,35 +368,76 @@ const NextTaskCard = ({
     campaign?.electionDate ??
     null
 
-  const nextTask = useMemo(() => {
-    if (tasks.length === 0) return undefined
+  const headStartWeek = useHeadStartWeek()
+  const strategy = useMemo(() => {
+    if (tasks.length === 0) return null
     const electionDate = electionDateIso
       ? new Date(electionDateIso.replace(/-/g, '/'))
       : null
-    return findNextTask(buildTrackerStrategy(tasks, { electionDate }))
-  }, [tasks, electionDateIso])
+    return buildTrackerStrategy(tasks, { electionDate, headStartWeek })
+  }, [tasks, electionDateIso, headStartWeek])
+  const nextTask = strategy ? findNextTask(strategy) : undefined
 
   // The stack always leads with the plan's next task; the week's top
-  // priorities wait behind it for a skip.
-  const deck: DeckTask[] = [
-    ...(nextTask ? [nextTask] : []),
-    ...selectTopDynamicTasks(tasks).filter((task) => task.id !== nextTask?.id),
-  ]
+  // priorities wait behind it for a skip. With no next task the week is done
+  // (or had nothing in it), and the card says so instead.
+  const deck: DeckTask[] = []
+  if (strategy && nextTask) {
+    for (const task of [
+      nextTask,
+      ...followingTasks(strategy, nextTask),
+      ...selectTopDynamicTasks(tasks),
+    ]) {
+      if (!deck.some((held) => held.id === task.id)) deck.push(task)
+    }
+  }
   // Skipping sends a card to the back of the stack, in the order skipped. Only
   // for this visit: it reorders the stack, it does not reschedule the task.
   const skipRank = (id: string) => skippedIds.indexOf(id)
   deck.sort((a, b) => skipRank(a.id) - skipRank(b.id))
-  const frontTask = deck[0]
+  // The completion lands at once, so the done task has already left the deck;
+  // its row stands in front until it has finished leaving.
+  const leavingRow = leaving
+    ? tasks.find((row) => row.id === leaving.id)
+    : undefined
+  const stack: DeckTask[] = leavingRow
+    ? [leavingRow, ...deck.filter((task) => task.id !== leavingRow.id)]
+    : deck
+  const frontTask = stack[0]
   const frontRow = tasks.find((row) => row.id === frontTask?.id)
+
+  const activeWeeks =
+    strategy?.phases.find((phase) => phase.key === 'active')?.weeks ?? []
+  const thisWeek = activeWeeks.find((week) => week.isCurrent)
+  // Celebrate only a week that had something in it to finish.
+  const weekDone = Boolean(
+    thisWeek &&
+    thisWeek.tasks.length > 0 &&
+    thisWeek.tasks.every((task) => task.completed),
+  )
+  const followingWeek = followingWeekStart(new Date())
+  const canHeadStart = activeWeeks.some(
+    (week) =>
+      week.start === followingWeek &&
+      week.tasks.some((task) => !task.completed),
+  )
+  const emptyKind = weekDone ? 'weekDone' : 'caughtUp'
+
   const taskHeadline = useTaskHeadline(
-    heading === undefined ? frontRow : undefined,
+    heading !== undefined
+      ? undefined
+      : frontTask
+        ? frontRow
+        : strategy
+          ? { id: emptyKind, title: '', flowType: null, kind: emptyKind }
+          : undefined,
     { firstLanding },
   )
-  const layersBehind = surface === 'manager' ? Math.min(deck.length - 1, 2) : 0
+  const layersBehind = surface === 'manager' ? Math.min(stack.length - 1, 2) : 0
 
-  if (!frontTask) return countModal
+  if (!strategy) return countModal
 
-  const dueDate = formatTaskDate(frontTask.date)
+  const dueDate = frontTask ? formatTaskDate(frontTask.date) : null
   const action = taskAction(frontRow, surface)
 
   // A task done inside the product (its action opens one of our own screens)
@@ -316,20 +447,19 @@ const NextTaskCard = ({
   // links keep the button, since we can't see them.
   const completesItself = Boolean(action && !action.external)
   const markDone = () => {
-    const row = tasks.find((task) => task.id === frontTask.id)
-    // The count modal already stands in front of these.
-    if (isVoterContactFlowType(row?.flowType ?? null)) {
-      onToggleComplete(frontTask.id, true)
-      return
-    }
-    setConfirmTaskId(frontTask.id)
+    if (!frontTask) return
+    // No confirmation: we trust the candidate, and the plan can reopen it.
+    // Outreach asks for its voter count first, inside onToggleComplete.
+    onToggleComplete(frontTask.id, true)
   }
-  const canSkip = deck.length > 1
-  const skipFront = () =>
+  const canSkip = !leaving && stack.length > 1
+  const skipFront = () => {
+    if (!frontTask) return
     writeSkipped([
       ...skippedIds.filter((id) => id !== frontTask.id),
       frontTask.id,
     ])
+  }
 
   return (
     <Collapsible
@@ -401,159 +531,197 @@ const NextTaskCard = ({
           )}
         </div>
         <CollapsibleContent>
-          <div
-            className={cn(
-              'relative w-full',
-              layersBehind === 2 && 'pb-4',
-              layersBehind === 1 && 'pb-2',
-            )}
-          >
-            {layersBehind === 2 && (
-              <Card
-                aria-hidden
-                className="absolute inset-x-6 top-4 bottom-0 rounded-2xl border-components-input-border py-0"
-              />
-            )}
-            {layersBehind >= 1 && (
-              <Card
-                aria-hidden
-                className={cn(
-                  'absolute inset-x-3 top-2 rounded-2xl border-components-input-border py-0',
-                  layersBehind === 2 ? 'bottom-2' : 'bottom-0',
-                )}
-              />
-            )}
-            <Card className="relative min-h-20 gap-0 overflow-hidden rounded-2xl border-components-input-border py-0">
-              <div className="flex flex-col gap-1 px-6 py-5">
-                {/* No overline: the title leads. See design-memory learned.md. */}
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-opensans text-lg font-medium text-card-foreground">
-                    {frontTask.title}
-                  </h3>
-                  {/* Dismissing the card asks first: Skip sends it to the back
-                      of the stack, Cancel leaves it in front. */}
-                  {canSkip && (
-                    <IconButton
-                      type="button"
-                      variant="ghost"
-                      size="small"
-                      aria-label="Skip this task"
-                      className="-mt-1 -mr-2 shrink-0"
-                      onClick={() => setConfirmSkipOpen(true)}
-                    >
-                      <XMarkIcon className="size-5" aria-hidden />
-                    </IconButton>
+          {frontTask ? (
+            <div
+              className={cn(
+                'relative w-full',
+                layersBehind === 2 && 'pb-4',
+                layersBehind === 1 && 'pb-2',
+              )}
+            >
+              {layersBehind === 2 && (
+                <Card
+                  aria-hidden
+                  className="absolute inset-x-6 top-4 bottom-0 rounded-2xl border-components-input-border py-0"
+                />
+              )}
+              {layersBehind >= 1 && (
+                <Card
+                  aria-hidden
+                  className={cn(
+                    'absolute inset-x-3 top-2 rounded-2xl border-components-input-border py-0',
+                    layersBehind === 2 ? 'bottom-2' : 'bottom-0',
                   )}
-                </div>
-                {dueDate && (
-                  <p className="text-muted-foreground text-sm">Due {dueDate}</p>
+                />
+              )}
+              <Card
+                key={frontTask.id}
+                onAnimationEnd={(event) => {
+                  if (event.target === event.currentTarget) setArriving(false)
+                }}
+                className={cn(
+                  'relative min-h-20 gap-0 rounded-2xl border-components-input-border py-0',
+                  leaving && 'pointer-events-none',
+                  leaving?.stage === 'exit' &&
+                    'animate-out fade-out slide-out-to-top-8 fill-mode-forwards duration-300 motion-reduce:animate-none',
+                  !leaving &&
+                    arriving &&
+                    'animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300 motion-reduce:animate-none',
                 )}
-                <p className="text-muted-foreground text-sm">
-                  {frontTask.description}
-                </p>
-                <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
-                  <>
-                    {action && (
-                      <Button
-                        asChild
-                        size="medium"
-                        className="w-full sm:w-auto"
-                      >
-                        {action.external ? (
-                          <a
-                            href={action.href}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {action.label}
-                            <ExternalLinkIcon className="size-4" aria-hidden />
-                          </a>
-                        ) : (
-                          <Link href={action.href}>{action.label}</Link>
-                        )}
-                      </Button>
-                    )}
-                    {!completesItself && (
-                      <Button
-                        type="button"
-                        variant={action ? 'outline' : 'default'}
-                        size="medium"
-                        className="w-full sm:w-auto"
-                        onClick={markDone}
-                      >
-                        <CheckIcon className="size-4" aria-hidden />
-                        Mark as done
-                      </Button>
-                    )}
-                    {chat && (
-                      <Button
+              >
+                <div className="flex flex-col gap-1 px-6 py-5">
+                  {/* No overline: the title leads. See design-memory learned.md. */}
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-opensans text-lg font-medium text-card-foreground">
+                      {frontTask.title}
+                    </h3>
+                    {/* Dismissing the card asks first: Skip sends it to the back
+                      of the stack, Cancel leaves it in front. */}
+                    {canSkip && (
+                      <IconButton
                         type="button"
                         variant="ghost"
                         size="small"
-                        className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto sm:self-center"
-                        onClick={() =>
-                          chat.discussTask(discussTaskMessage(frontTask))
-                        }
+                        aria-label="Skip this task"
+                        className="-mt-1 -mr-2 shrink-0"
+                        onClick={() => setConfirmSkipOpen(true)}
                       >
-                        <MessageSquareIcon className="size-4" aria-hidden />
-                        Discuss in chat
-                      </Button>
+                        <XMarkIcon className="size-5" aria-hidden />
+                      </IconButton>
                     )}
-                  </>
+                  </div>
+                  {dueDate && (
+                    <p className="text-muted-foreground text-sm">
+                      Due {dueDate}
+                    </p>
+                  )}
+                  <p className="text-muted-foreground text-sm">
+                    {frontTask.description}
+                  </p>
+                  <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
+                    <>
+                      {action && (
+                        <Button
+                          asChild
+                          size="medium"
+                          className="w-full sm:w-auto"
+                        >
+                          {action.external ? (
+                            <a
+                              href={action.href}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {action.label}
+                              <ExternalLinkIcon
+                                className="size-4"
+                                aria-hidden
+                              />
+                            </a>
+                          ) : (
+                            <Link href={action.href}>{action.label}</Link>
+                          )}
+                        </Button>
+                      )}
+                      {!completesItself && (
+                        <Button
+                          type="button"
+                          variant={action ? 'outline' : 'default'}
+                          size="medium"
+                          className="w-full sm:w-auto"
+                          onClick={markDone}
+                        >
+                          <ConfettiBurst
+                            play={leaving?.id === frontTask.id}
+                            style={{ width: 16, height: 16 }}
+                          >
+                            <CheckIcon className="size-4" aria-hidden />
+                          </ConfettiBurst>
+                          Mark as done
+                        </Button>
+                      )}
+                      {chat && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="small"
+                          className="w-full text-primary hover:bg-primary/5 sm:ml-auto sm:w-auto sm:self-center"
+                          onClick={() =>
+                            chat.discussTask(discussTaskMessage(frontTask))
+                          }
+                        >
+                          <MessageSquareIcon className="size-4" aria-hidden />
+                          Discuss in chat
+                        </Button>
+                      )}
+                    </>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          </div>
+              </Card>
+            </div>
+          ) : (
+            <EmptyState
+              onAnimationEnd={(event) => {
+                if (event.target === event.currentTarget) setArriving(false)
+              }}
+              className={cn(
+                'rounded-2xl border-components-input-border',
+                arriving &&
+                  'animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300 motion-reduce:animate-none',
+              )}
+              title={
+                weekDone
+                  ? 'You finished this week’s tasks'
+                  : 'Nothing due this week'
+              }
+              message={
+                canHeadStart
+                  ? 'Next week’s tasks are ready when you are.'
+                  : 'Check back next week.'
+              }
+              action={
+                canHeadStart && (
+                  <Button
+                    type="button"
+                    size="medium"
+                    onClick={() => writeHeadStart(followingWeek)}
+                  >
+                    Get a head start
+                  </Button>
+                )
+              }
+            />
+          )}
         </CollapsibleContent>
-        {/* Completing pulls the card away and brings the next one forward, so a
-          stray press would lose the task from view. Brand-default action, not
-          destructive: the task can be reopened from the plan. */}
-        <AlertDialog
-          open={confirmTaskId !== null}
-          onOpenChange={(open) => {
-            if (!open) setConfirmTaskId(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Mark this task done?</AlertDialogTitle>
-              <AlertDialogDescription>{frontTask.title}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Not yet</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  if (confirmTaskId) onToggleComplete(confirmTaskId, true)
-                  setConfirmTaskId(null)
-                }}
-              >
-                Mark done
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <AlertDialog open={confirmSkipOpen} onOpenChange={setConfirmSkipOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Skip this task for now?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {frontTask.title} moves to the back of your list, and the next
-                task takes its place.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  skipFront()
-                  setConfirmSkipOpen(false)
-                }}
-              >
-                Skip
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {frontTask && (
+          <>
+            <AlertDialog
+              open={confirmSkipOpen}
+              onOpenChange={setConfirmSkipOpen}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Skip this task for now?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {frontTask.title} moves to the back of your list, and the
+                    next task takes its place.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => {
+                      skipFront()
+                      setConfirmSkipOpen(false)
+                    }}
+                  >
+                    Skip
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
         {countModal}
       </section>
     </Collapsible>

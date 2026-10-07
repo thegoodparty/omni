@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { startOfDay } from 'date-fns'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
-import { buildTrackerStrategy } from './buildTrackerStrategy'
+import {
+  buildTrackerStrategy,
+  followingWeekStart,
+} from './buildTrackerStrategy'
 
 const row = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   id: 'x',
@@ -333,5 +336,65 @@ describe('buildTrackerStrategy with the campaign story task', () => {
       { electionDate: startOfDay(new Date('2026-11-03')), today },
     )
     expect(data.phases.find((p) => p.key === 'active')?.status).toBe('upcoming')
+  })
+})
+
+describe('buildTrackerStrategy head start', () => {
+  // A Thursday: this week starts 2026-01-12, next week 2026-01-19.
+  const today = startOfDay(new Date('2026-01-15'))
+  const nextIds = (data: ReturnType<typeof buildTrackerStrategy>) =>
+    data.phases
+      .flatMap((p) => p.weeks ?? [])
+      .flatMap((w) => w.tasks)
+      .filter((t) => t.isNext)
+      .map((t) => t.id)
+  const rows = (thisWeekDone: boolean) => [
+    row({
+      id: 'this',
+      phase: 'active',
+      date: '2026-01-13',
+      completed: thisWeekDone,
+    }),
+    row({ id: 'next-a', phase: 'active', date: '2026-01-20' }),
+    row({ id: 'next-b', phase: 'active', date: '2026-01-21' }),
+  ]
+
+  it('names next week as the one to pull forward', () => {
+    expect(followingWeekStart(today)).toBe('2026-01-19')
+  })
+
+  it('leaves no next task once the week is done, until asked', () => {
+    const data = buildTrackerStrategy(rows(true), {
+      electionDate: null,
+      today,
+    })
+    expect(nextIds(data)).toEqual([])
+  })
+
+  it('makes next week’s first open task the next one on a head start', () => {
+    const data = buildTrackerStrategy(rows(true), {
+      electionDate: null,
+      today,
+      headStartWeek: '2026-01-19',
+    })
+    expect(nextIds(data)).toEqual(['next-a'])
+  })
+
+  it('keeps this week’s open task first, head start or not', () => {
+    const data = buildTrackerStrategy(rows(false), {
+      electionDate: null,
+      today,
+      headStartWeek: '2026-01-19',
+    })
+    expect(nextIds(data)).toEqual(['this'])
+  })
+
+  it('ignores a head start for any week but next week', () => {
+    const data = buildTrackerStrategy(rows(true), {
+      electionDate: null,
+      today,
+      headStartWeek: '2026-01-12',
+    })
+    expect(nextIds(data)).toEqual([])
   })
 })

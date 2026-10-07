@@ -95,6 +95,7 @@ const latestSurfaceProps = (): SurfaceProps => {
 }
 
 let mockTasks: CampaignTrackerTask[] = []
+const mockToggleMutate = vi.fn()
 
 const doorsTask: CampaignTrackerTask = {
   id: 'doors-1',
@@ -123,7 +124,10 @@ vi.mock(
       isError: false,
       isGeneratingDynamic: false,
     }),
-    useToggleTrackerTaskComplete: () => ({ mutate: vi.fn(), isPending: false }),
+    useToggleTrackerTaskComplete: () => ({
+      mutate: mockToggleMutate,
+      isPending: false,
+    }),
   }),
 )
 
@@ -208,6 +212,7 @@ beforeEach(() => {
   mockRouterReplace.mockReset()
   surfacePropsMock.mockClear()
   mockTasks = []
+  mockToggleMutate.mockReset()
 })
 
 // Opens the manager chat onto its seeded greeting: opening the footer chat
@@ -534,5 +539,128 @@ describe('CampaignManagerHome headline', () => {
     expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard', {
       scroll: false,
     })
+  })
+})
+
+describe('CampaignManagerHome with no next task', () => {
+  // A Thursday: this week runs Oct 5-11, next week starts Oct 12.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
+  const activeTask = (
+    over: Partial<CampaignTrackerTask>,
+  ): CampaignTrackerTask => ({
+    ...doorsTask,
+    isDefaultTask: true,
+    ...over,
+  })
+
+  it('celebrates a finished week and pulls next week forward on request', async () => {
+    mockTasks = [
+      activeTask({
+        id: 'done',
+        date: '2026-10-06T00:00:00.000Z',
+        completed: true,
+      }),
+      activeTask({
+        id: 'ahead',
+        title: 'Make phone bank calls',
+        flowType: 'phoneBanking',
+        date: '2026-10-13T00:00:00.000Z',
+      }),
+    ]
+    const user = userEvent.setup()
+    renderHome()
+
+    expect(
+      await screen.findByText('You finished this week’s tasks'),
+    ).toBeInTheDocument()
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(HOME_HEADLINES.weekDone).toContain(heading.textContent)
+
+    await user.click(screen.getByRole('button', { name: 'Get a head start' }))
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'Make phone bank calls',
+      }),
+    ).toBeInTheDocument()
+    expect(HOME_HEADLINES.phoneBanking).toContain(
+      screen.getByRole('heading', { level: 2 }).textContent,
+    )
+  })
+
+  it('says nothing is due, without celebrating, in a week with no tasks', async () => {
+    mockTasks = [activeTask({ id: 'later', date: '2026-10-27T00:00:00.000Z' })]
+    renderHome()
+
+    expect(await screen.findByText('Nothing due this week')).toBeInTheDocument()
+    expect(screen.getByText('Check back next week.')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Get a head start' }),
+    ).not.toBeInTheDocument()
+    expect(HOME_HEADLINES.caughtUp).toContain(
+      screen.getByRole('heading', { level: 2 }).textContent,
+    )
+  })
+})
+
+describe('CampaignManagerHome marking a task done', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
+  const setupTask = (
+    over: Partial<CampaignTrackerTask>,
+  ): CampaignTrackerTask => ({
+    ...doorsTask,
+    flowType: null,
+    phase: 'preLaunch',
+    isDefaultTask: true,
+    proRequired: false,
+    ...over,
+  })
+
+  it('stacks the plan’s next tasks behind the front card', async () => {
+    mockTasks = [
+      setupTask({ id: 'ein', title: 'Get your EIN', date: '2026-10-09' }),
+      setupTask({
+        id: 'bank',
+        title: 'Open a campaign bank account',
+        date: '2026-10-10',
+      }),
+    ]
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Get your EIN' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Skip this task' }),
+    ).toBeInTheDocument()
+  })
+
+  it('completes on the first press, without asking to confirm', async () => {
+    mockTasks = [
+      setupTask({ id: 'ein', title: 'Get your EIN', date: '2026-10-09' }),
+    ]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Mark as done' }),
+    )
+
+    expect(mockToggleMutate).toHaveBeenCalledWith({
+      id: 'ein',
+      completed: true,
+    })
+    expect(screen.queryByText('Mark this task done?')).not.toBeInTheDocument()
   })
 })

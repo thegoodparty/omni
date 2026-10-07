@@ -108,6 +108,20 @@ export const HOME_HEADLINES = {
     'See how far you’ve come',
     'Log your work',
   ],
+  // No next task: every task this week is done.
+  weekDone: [
+    'That’s a wrap on this week',
+    'Nice work this week',
+    'You’re ahead of the game',
+    'Way to show up',
+  ],
+  // No next task, and nothing was due this week.
+  caughtUp: [
+    'You’re all caught up',
+    'All clear for now',
+    'Take a breath',
+    'Enjoy the breather',
+  ],
   // An AI-written task that names no channel the plan knows.
   other: [
     'Here’s your next move',
@@ -165,9 +179,12 @@ export type HeadlineTask = {
   id: string
   title: string
   flowType: string | null
+  // Set for a state rather than a task, such as a finished week.
+  kind?: HeadlineKind
 }
 
 export const headlineKind = (task: HeadlineTask): HeadlineKind => {
+  if (task.kind) return task.kind
   const entry = CAMPAIGN_TASK_CATALOG.find((def) => def.title === task.title)
   const byCategory = entry && CATEGORY_KIND[entry.category]
   if (byCategory) return byCategory

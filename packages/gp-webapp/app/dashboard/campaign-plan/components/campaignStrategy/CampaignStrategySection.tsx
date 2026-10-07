@@ -9,7 +9,12 @@ import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useGenerateTrackerTasks, useTrackerTasks } from './useTrackerTasks'
 import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
-import { discussTaskMessage, skipNextTask, taskAction } from './NextTaskCard'
+import {
+  discussTaskMessage,
+  skipNextTask,
+  taskAction,
+  useHeadStartWeek,
+} from './NextTaskCard'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
@@ -59,14 +64,17 @@ const CampaignStrategySection = ({
     campaign?.electionDate ??
     null
 
+  // Next week pulled forward from the next-step card, so the list marks the
+  // same next task and its week navigator opens there.
+  const headStartWeek = useHeadStartWeek()
   // Render only from persisted rows. null until the first generation lands.
   const strategy = useMemo(() => {
     if (tasks.length === 0) return null
     const electionDate = electionDateIso
       ? new Date(electionDateIso.replace(/-/g, '/'))
       : null
-    return buildTrackerStrategy(tasks, { electionDate })
-  }, [tasks, electionDateIso])
+    return buildTrackerStrategy(tasks, { electionDate, headStartWeek })
+  }, [tasks, electionDateIso, headStartWeek])
 
   // Fires only once `strategy` exists, so it means "the candidate actually saw
   // their tasks" — not merely that the route loaded (the page view already

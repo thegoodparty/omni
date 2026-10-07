@@ -40,6 +40,13 @@ export const trackerOrigin = (
 // docs/features/voter-outreach-analytics.md.
 export const useCompleteTrackerTask = (
   tasks: CampaignTrackerTask[],
+  {
+    onCompleted,
+  }: {
+    // Called once a completion is committed (after the count, for outreach),
+    // so a surface can celebrate it. Never for a cancelled count.
+    onCompleted?: (id: string) => void
+  } = {},
 ): {
   onToggleComplete: (id: string, completed: boolean) => void
   countModal: React.JSX.Element | null
@@ -69,6 +76,7 @@ export const useCompleteTrackerTask = (
     // signal, and an event named Completed must not fire on one.
     if (task && completed) trackTaskCompleted(task)
     toggleComplete.mutate({ id, completed })
+    if (completed) onCompleted?.(id)
   }
 
   const onCountSubmit = (count: number) => {
@@ -96,6 +104,7 @@ export const useCompleteTrackerTask = (
       type: countTask.flowType,
       quantity: count,
     })
+    onCompleted?.(countTask.id)
     setCountTask(null)
   }
 

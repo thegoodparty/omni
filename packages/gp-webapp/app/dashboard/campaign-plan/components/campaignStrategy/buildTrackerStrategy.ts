@@ -1,4 +1,10 @@
-import { differenceInDays, format, startOfDay, startOfWeek } from 'date-fns'
+import {
+  addWeeks,
+  differenceInDays,
+  format,
+  startOfDay,
+  startOfWeek,
+} from 'date-fns'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type {
   CampaignStrategyData,
@@ -198,12 +204,27 @@ const buildActiveWeeks = (
     })
 }
 
+// The Monday after this week, as a week's `start`: the one week a candidate
+// who has finished this one can pull forward.
+export const followingWeekStart = (today: Date): string =>
+  format(
+    addWeeks(startOfWeek(startOfDay(today), { weekStartsOn: 1 }), 1),
+    'yyyy-MM-dd',
+  )
+
 export const buildTrackerStrategy = (
   tasks: CampaignTrackerTask[],
   {
     electionDate,
     today = new Date(),
-  }: { electionDate: Date | null; today?: Date },
+    headStartWeek = null,
+  }: {
+    electionDate: Date | null
+    today?: Date
+    // Next week's start, once the candidate has asked to get a head start.
+    // Stale once the calendar reaches it, when it is simply this week.
+    headStartWeek?: string | null
+  },
 ): CampaignStrategyData => {
   // Weekly regen appends each run as a new `week` generation; older ones
   // persist (completion history + prior-task dedupe via MCP) but only the
@@ -292,6 +313,21 @@ export const buildTrackerStrategy = (
       .filter((t) => !t.completed)
       .sort(compareTasks)
     if (candidates[0]) candidates[0].isNext = true
+  }
+
+  // With this week finished, a head start makes next week's first open task
+  // the next one. Only ever next week: the navigator reaches no further.
+  const hasNext = phases.some((phase) =>
+    [
+      ...phase.groups.flatMap((group) => group.tasks),
+      ...(phase.weeks ?? []).flatMap((week) => week.tasks),
+    ].some((task) => task.isNext && !task.completed),
+  )
+  if (!hasNext && headStartWeek === followingWeekStart(today)) {
+    const first = activeWeeks
+      .find((week) => week.start === headStartWeek)
+      ?.tasks.find((task) => !task.completed)
+    if (first) first.isNext = true
   }
 
   const daysToElection = electionDate

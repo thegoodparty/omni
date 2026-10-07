@@ -312,3 +312,49 @@ describe('CampaignStrategySection — tracker viewed event', () => {
     expect(mockTrackEvent).not.toHaveBeenCalled()
   })
 })
+
+describe('CampaignStrategySection — head start', () => {
+  // A Thursday: this week runs Oct 5-11, next week Oct 12-18.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    window.localStorage.clear()
+    return () => {
+      vi.useRealTimers()
+      window.localStorage.clear()
+    }
+  })
+
+  const weeks = [
+    task({
+      id: 'done',
+      phase: 'active',
+      date: '2026-10-06T00:00:00.000Z',
+      completed: true,
+    }),
+    task({
+      id: 'ahead',
+      title: 'Next week task',
+      phase: 'active',
+      date: '2026-10-13T00:00:00.000Z',
+    }),
+  ]
+
+  it('opens on this week while the candidate has not asked for a head start', () => {
+    mockTasks.mockReturnValue(settled(weeks))
+    render(<CampaignStrategySection />)
+
+    expect(screen.getByText('Oct 5 - Oct 11')).toBeInTheDocument()
+  })
+
+  it('opens on next week, with its first task next, after a head start', () => {
+    window.localStorage.setItem('next-task-head-start', '2026-10-12')
+    mockTasks.mockReturnValue(settled(weeks))
+    const { container } = render(<CampaignStrategySection />)
+
+    expect(screen.getByText('Oct 12 - Oct 18')).toBeInTheDocument()
+    expect(container.querySelector('[data-next-task]')?.textContent).toContain(
+      'Next week task',
+    )
+  })
+})

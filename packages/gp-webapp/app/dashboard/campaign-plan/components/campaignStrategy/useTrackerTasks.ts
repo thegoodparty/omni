@@ -146,6 +146,26 @@ export function useToggleTrackerTaskComplete() {
         : clientRequest('DELETE /v1/campaigns/tracker-tasks/complete/:id', {
             id,
           }),
+    // Applied before the request lands, so the next-step card can bring the
+    // next task forward the moment the done one leaves, rather than showing
+    // the done task again until the refetch.
+    onMutate: async ({ id, completed }) => {
+      await queryClient.cancelQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+      const previous = queryClient.getQueryData<CampaignTrackerTask[]>(
+        TRACKER_TASKS_QUERY_KEY,
+      )
+      queryClient.setQueryData<CampaignTrackerTask[]>(
+        TRACKER_TASKS_QUERY_KEY,
+        (rows) =>
+          rows?.map((row) => (row.id === id ? { ...row, completed } : row)),
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(TRACKER_TASKS_QUERY_KEY, context.previous)
+      }
+    },
     onSuccess: (_data, { completed, type, quantity }) => {
       queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
       // A recorded voter count lands on campaign.data.reportedVoterGoals (which
