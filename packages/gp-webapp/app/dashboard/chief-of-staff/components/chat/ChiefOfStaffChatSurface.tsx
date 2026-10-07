@@ -66,7 +66,7 @@ interface Props {
   /** Show the per-message copy + thumbs bar under each assistant turn. */
   showMessageActions?: boolean
   /**
-   * The chat scope forwarded to the body's useAttachmentsEnabled call.
+   * The chat scope forwarded to the body, which decides attachment support.
    * Defaults to 'chief_of_staff'; Campaign Manager passes 'campaign_assistant'.
    */
   scope?: ChatScope

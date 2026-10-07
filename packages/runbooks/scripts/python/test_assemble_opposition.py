@@ -60,6 +60,12 @@ def _run(ws, extra_env=None):
     )
 
 
+def _params_file_env(ws, params):
+    path = ws / "params.json"
+    path.write_text(json.dumps(params), encoding="utf-8")
+    return {"PARAMS_FILE": str(path)}
+
+
 def _artifact(ws):
     return json.loads((ws / "output" / "opposition_research.json").read_text())
 
@@ -186,14 +192,14 @@ def test_candidate_as_opponent_fails_with_hyphenated_name(tmp_path):
 
 def test_empty_race_file_is_used_not_params_fallback(tmp_path):
     # _race.json exists but is {} -> use it as-is (no partisan_type, so party is
-    # NOT normalized). It must NOT silently fall back to PARAMS_JSON; if it did,
+    # NOT normalized). It must NOT silently fall back to the params file; if it did,
     # the nonpartisan partisan_type there would force party_affiliation.
     opp = _seed_opponent()
     opp["party"] = "Democratic"
     ws = _setup_workspace(tmp_path, [opp], {})
     proc = _run(
         ws,
-        extra_env={"PARAMS_JSON": json.dumps({"partisan_type": "nonpartisan"})},
+        extra_env=_params_file_env(ws, {"partisan_type": "nonpartisan"}),
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _artifact(ws)["opponents"][0]["party_affiliation"] == "Democratic"
@@ -239,18 +245,18 @@ def test_non_array_opponents_file_yields_empty(tmp_path):
     assert _artifact(ws) == {"opponents": []}
 
 
-def test_race_falls_back_to_params_json(tmp_path):
-    # No _race.json on disk -> assemble reads race fields from PARAMS_JSON.
+def test_race_falls_back_to_params_file(tmp_path):
+    # No _race.json on disk -> assemble reads race fields from the params file.
     # The nonpartisan partisan_type from PARAMS must still normalize the party.
-    ws = _setup_workspace(tmp_path, [_seed_opponent()], _race())
+    opp = _seed_opponent()
+    opp["party"] = "Democratic"
+    ws = _setup_workspace(tmp_path, [opp], _race())
     (ws / "scratch" / "_race.json").unlink()
     proc = _run(
         ws,
-        extra_env={
-            "PARAMS_JSON": json.dumps(
-                {"candidate_name": "Maria Sanchez", "partisan_type": "nonpartisan"}
-            )
-        },
+        extra_env=_params_file_env(
+            ws, {"candidate_name": "Maria Sanchez", "partisan_type": "nonpartisan"}
+        ),
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _artifact(ws)["opponents"][0]["party_affiliation"] == "Nonpartisan"

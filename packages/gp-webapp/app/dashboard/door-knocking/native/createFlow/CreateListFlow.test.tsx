@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
@@ -10,6 +11,7 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { TurfDraft } from '../turfDrafts'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
@@ -23,6 +25,16 @@ vi.mock('@shared/organization-picker', () => ({
 }))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
+// The question-asking card is offered only where issue capture is on. On by
+// default so every other case here keeps the full set of cards.
+const issueCapture = vi.hoisted(() => ({ enabled: true }))
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(() => ({
+    ready: true,
+    enabled: issueCapture.enabled,
+  })),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -636,6 +648,161 @@ describe('CreateListFlow', () => {
     // is merely still in flight fails this rather than passing it.
     await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
     expect(filterPosts).toBe(0)
+  })
+
+  // A Regenerate reply can land after the candidate has started editing a
+  // different section than the one it is replacing — `onLineChange` bumps
+  // `draftRequestRef` and resets the pending draft mutation so that edit
+  // wins rather than being overwritten by the stale reply.
+  it('keeps a talking point typed while a reply is still in flight', async () => {
+    const POINTS = {
+      engagementQuestion: 'What would you fix around here first?',
+      context: 'Fix our roads with a real maintenance plan.',
+      ask: 'Ask whether we can count on them in November.',
+    }
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      if (body.previousDraft === undefined) {
+        return { status: 200, data: POINTS }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { ...POINTS, context: 'The AI reply.' } }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const contextBox = () =>
+      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+        POINTS.context,
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    act(() => {
+      const { editor } = contextBox()
+      // One short of the doc's end, which is inside the last paragraph: the
+      // doc boundary itself would open a new one.
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size - 1,
+        ' Sarah Chen said the roads need work too.',
+      )
+    })
+
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${POINTS.context} Sarah Chen said the roads need work too.`,
+    )
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).not.toContain(
+      'The AI reply.',
+    )
+  })
+
+  // A call the candidate edited past can still fail. Its error must not
+  // come back over words they already fixed.
+  it("keeps the candidate's words when a superseded call fails late", async () => {
+    const POINTS = {
+      engagementQuestion: 'What would you fix around here first?',
+      context: 'Fix our roads with a real maintenance plan.',
+      ask: 'Ask whether we can count on them in November.',
+    }
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      if (body.previousDraft === undefined) {
+        return { status: 200, data: POINTS }
+      }
+      await held
+      answered.done = true
+      return {
+        status: 502,
+        data: { message: 'Door-knocking draft generation failed' },
+      }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const contextBox = () =>
+      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+        POINTS.context,
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    // Edit only once the call is actually pending, same as the candidate
+    // editing mid-flight. The Regenerate button's own spinner is the signal.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Regenerate/ })).toBeDisabled(),
+    )
+    act(() => {
+      const { editor } = contextBox()
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size - 1,
+        ' Sarah Chen said the roads need work too.',
+      )
+    })
+
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(
+      screen.queryByText(/We couldn.t write your talking points/),
+    ).not.toBeInTheDocument()
+    expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${POINTS.context} Sarah Chen said the roads need work too.`,
+    )
+  })
+
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes.
+  it('clears the draft error once the candidate types a talking point', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    act(() => {
+      const { editor } = screen.getByLabelText('Context') as HTMLElement & {
+        editor: Editor
+      }
+      editor.commands.insertContent('Sarah Chen wants safer streets.')
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn.t write your talking points/),
+      ).not.toBeInTheDocument(),
+    )
   })
 
   // The regression this line shipped with: two counts side by side, one
@@ -1763,6 +1930,7 @@ describe('CreateListFlow purpose step', () => {
   beforeEach(() => {
     testQueryClient.clear()
     vi.clearAllMocks()
+    issueCapture.enabled = true
   })
 
   const renderPurpose = (serveMode: boolean) =>
@@ -1792,6 +1960,111 @@ describe('CreateListFlow purpose step', () => {
     expect(screen.queryByText('Encourage early voting')).toBeNull()
     expect(screen.queryByText('Turn out my supporters')).toBeNull()
   })
+
+  // The community-input purpose is the only one that asks a question, and it
+  // is the one the door's issue capture reads as the context for every memo.
+  it('asks what the campaign wants to learn, and holds Continue until it does', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'Would you compost?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  // Win's question-asking goal is the same slug as Serve's, under the Win
+  // label, and it takes the same extra step.
+  it('asks a candidate what they want to learn after Hear from voters', async () => {
+    renderPurpose(false)
+
+    fireEvent.click(screen.getByText('Hear from voters'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'What do you want to learn?',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'How about the road bond?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  // Continue only guards emptiness, so a question left over from an earlier
+  // pick would ship as this campaign's rather than tripping the guard.
+  it('does not carry a question over to a later purpose pick', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+    fireEvent.change(await screen.findByLabelText('The question'), {
+      target: { value: 'Would you compost?' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(await screen.findByText('Ask for community input'))
+
+    expect(await screen.findByLabelText('The question')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it.each([
+    [false, 'Hear from voters'],
+    [true, 'Ask for community input'],
+  ])(
+    'offers the question-asking goal only where issue capture is on (serve: %s)',
+    (serveMode, label) => {
+      const first = renderPurpose(serveMode)
+      expect(screen.getByText(label)).toBeInTheDocument()
+      first.unmount()
+
+      issueCapture.enabled = false
+      renderPurpose(serveMode)
+      expect(screen.queryByText(label)).toBeNull()
+      expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+      // A picker render is not the treatment, so it must not log an exposure.
+      expect(useIssueCaptureFlag).toHaveBeenCalledWith(false)
+    },
+  )
+
+  // The card is the only thing the flag takes away: a campaign already on the
+  // question-asking goal when the flag goes off still asks and still saves.
+  it.each([
+    [false, 'Hear from voters'],
+    [true, 'Ask for community input'],
+  ])(
+    'keeps the question step for a goal picked before the flag went off (serve: %s)',
+    async (serveMode, label) => {
+      const view = renderPurpose(serveMode)
+      fireEvent.click(screen.getByText(label))
+      const field = await screen.findByLabelText('The question')
+
+      issueCapture.enabled = false
+      view.rerender(
+        <DoorKnockingSurfaceProvider value={serveMode}>
+          <CreateListFlow {...baseProps} step="filters" />
+        </DoorKnockingSurfaceProvider>,
+      )
+
+      expect(screen.getByLabelText('The question')).toBe(field)
+      fireEvent.change(field, { target: { value: 'Would you compost?' } })
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() =>
+        expect(screen.queryByLabelText('The question')).toBeNull(),
+      )
+    },
+  )
 
   // The per-card second line is gone with the bespoke card: no other channel
   // has one, and the step is now literally the other channels' component.

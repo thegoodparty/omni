@@ -265,17 +265,6 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
-### Human approval for agent-authored PRs
-
-The `main` ruleset requires one approval, and delegate-reviewer's approval
-counts. So `human-approval.yml` runs a required **"Human approval"** check: on a
-PR opened by an author in its `GATED_AUTHORS` list (today `bugboss-gp[bot]`) it
-fails until someone with write access to the repo approves the current head
-commit. A push after the approval turns it red again. Every other PR passes it immediately. To gate
-another agent, add its `login[bot]` to `GATED_AUTHORS`. The agents' GitHub Apps
-hold no `workflows` permission, which is what stops them editing the file to
-make it pass; never grant one that permission.
-
 ### Analytics guard
 
 `.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every

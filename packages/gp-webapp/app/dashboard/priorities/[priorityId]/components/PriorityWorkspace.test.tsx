@@ -159,6 +159,41 @@ describe('PriorityWorkspace', () => {
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
   })
 
+  it('waits for the reply to a turn left mid-stream, without starting another', async () => {
+    const kickoff: ChatMessageDto = {
+      id: 'u1',
+      conversationId: CONVERSATION_ID,
+      role: 'user',
+      content:
+        "Let's begin. Tell me where this stands and what we should work on first.",
+      createdAt: '2026-09-01T00:00:00.000Z',
+    }
+    const reply: ChatMessageDto = {
+      id: 'a1',
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: 'Nothing has started on this yet.',
+      createdAt: '2026-09-01T00:00:05.000Z',
+      segments: [{ kind: 'text', text: 'Nothing has started on this yet.' }],
+    }
+    mocks.listMessages
+      .mockResolvedValueOnce([kickoff])
+      .mockResolvedValue([kickoff, reply])
+
+    renderWorkspace()
+
+    expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Nothing has started on this yet.',
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(mocks.streamMessage).not.toHaveBeenCalled()
+  })
+
   it('moves the rail while the turn is still streaming, then reconciles', async () => {
     const gate = deferred()
     mocks.streamMessage.mockImplementation(
@@ -566,6 +601,208 @@ describe('PriorityWorkspace', () => {
       screen.getByRole('radio', { name: 'The two by the school' }),
     ).not.toBeChecked()
     expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
+  })
+
+  it('names the card it is writing once text is already on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'The county runs this. ' },
+          { type: 'tool_input_start', toolName: 'present_outside_contact' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
+    expect(
+      await screen.findByText('Looking up who to contact...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('names the question it is preparing once text is on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Two ways to read this. ' },
+          { type: 'tool_input_start', toolName: 'ask_clarify_question' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/Two ways to read this/)).toBeInTheDocument()
+    expect(
+      await screen.findByText('Preparing your question...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('keeps showing work between tool calls once text is on screen', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Pulling the renters on those blocks. ' },
+          { type: 'tool_call', toolName: 'count_contacts', args: {} },
+          { type: 'tool_result', toolName: 'count_contacts', result: {} },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Pulling the renters on those blocks/),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('holds the shimmer off after a finding card until the next tool starts', async () => {
+    const gate = deferred()
+    const next = deferred()
+    mocks.streamMessage.mockImplementation(async function* () {
+      yield { type: 'text', delta: 'Here is what other cities did. ' }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_comparables',
+        toolCallId: 'tc-c',
+        args: {
+          comparables: [
+            {
+              city: 'Boulder',
+              state: 'CO',
+              quote: 'Containers are required.',
+              status: 'passed',
+              source: { id: 's1', title: 'Waste Regulations' },
+            },
+          ],
+        },
+      }
+      await next.promise
+      yield { type: 'tool_input_start', toolName: 'present_outside_contact' }
+      await gate.promise
+      yield { type: 'done', assistantMessageId: 'a1' }
+    })
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Containers are required/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    next.resolve()
+    expect(
+      await screen.findByText('Looking up who to contact...'),
+    ).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('drops the shimmer as soon as a question card is up', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'One thing to settle first. ' },
+          { type: 'tool_input_start', toolName: 'ask_clarify_question' },
+          {
+            type: 'tool_call',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-q',
+            args: {
+              questionId: 'q1',
+              question: 'Is the problem trash or garages?',
+              options: [{ label: 'Trash' }, { label: 'Garages' }],
+            },
+          },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Is the problem trash or garages?'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Preparing your question...'),
+    ).not.toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('drops the shimmer once the turn has finished streaming', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is where this stands. ' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/Here is where this stands/),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument(),
+    )
+  })
+
+  it('shows how other places handled it on the ordinance comparables card', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'Here is what other cities did.' },
+          {
+            kind: 'tool',
+            toolName: 'present_comparables',
+            payload: {
+              comparables: [
+                {
+                  city: 'Boulder',
+                  state: 'CO',
+                  quote: 'Bear-resistant containers are required citywide.',
+                  status: 'passed',
+                  source: {
+                    id: 's1',
+                    title: 'Bear Protection Ordinance',
+                    url: 'https://bouldercolorado.gov/bears',
+                    publisher: 'City of Boulder',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(await screen.findByText(/Boulder/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Bear-resistant containers are required citywide/),
+    ).toBeInTheDocument()
   })
 
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {

@@ -1,10 +1,8 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { FREE_TEXTS_OFFER } from '@/shared/constants/freeTextsOffer'
-import {
-  calcTextAmountInCents,
-  PRICE_PER_TEXT_TENTH_CENTS,
-} from '@/shared/util/textPricing.util'
+import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { PeerlyPhoneList } from 'src/generated/prisma'
 import { PhoneListState } from 'src/vendors/peerly/peerly.types'
@@ -59,11 +57,17 @@ const baseMetadata: OutreachPurchaseMetadata = {
 const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   id: 'list-1',
   createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
   organizationSlug: 'org-1',
   campaignId: 1,
   token: 'token-abc',
   peerlyListId: 42,
   voterFileFilterId: null,
+  buildStatus: 'ready',
+  buildError: null,
+  requestSnapshot: null,
+  lastSeenLeadsLoaded: null,
+  buildAttempts: 0,
   excludedOptedOutCount: 0,
   excludedDuplicatePhoneCount: 0,
 }

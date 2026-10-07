@@ -16,14 +16,18 @@ Secrets are referenced via environment variables — **no tokens are committed**
 
 ## Required environment variables
 
-Only Grafana needs a secret. Set it in your shell before launching Claude Code; the
-token must belong to a service account with at least Viewer/Editor access to logs,
-metrics, and traces.
+Only Grafana needs a secret, and `npm run setup` vends it: the GitHub device flow
+writes a Viewer-role token to the gitignored `.env.mcp.local` at the repo root
+(`docs/development.md`). Restart Claude Code after setup writes it. Already set up?
+`npm run setup -- --secrets-only --refresh` fetches it.
 
 | Variable                        | Used by | Notes                                          |
 | ------------------------------- | ------- | ---------------------------------------------- |
 | `GRAFANA_SERVICE_ACCOUNT_TOKEN` | grafana | Required. Grafana Cloud service-account token. |
 
+- `.mcp.json` starts `grafana` through `scripts/mcp/grafana.sh`. A token exported in
+  your shell wins; otherwise it reads `.env.mcp.local` from the current checkout,
+  then from the main checkout, so worktrees need no copy.
 - `grafana` needs `uvx` (from `uv`) on your PATH; its URL is hardcoded to
   `https://goodparty.grafana.net` in `.mcp.json`.
 - `playwright` runs via `npx` and needs no env vars. It is configured `--headless
@@ -56,7 +60,7 @@ gets used. Do not use it to read a design.
 The cap is per-read, not per-file: the underlying `read_file` takes `offset` and
 `limit`. The **`claude-design-read`** skill pages around it and verifies the
 result against the server's own line count. `list_files` is unaffected, and note
-`list_projects` returns only design *systems* — address a regular design project
+`list_projects` returns only design _systems_ — address a regular design project
 by id.
 
 ## Design docs in ClickUp

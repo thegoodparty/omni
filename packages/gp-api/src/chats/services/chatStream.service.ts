@@ -5,6 +5,7 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  ChatScope,
   Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
@@ -21,11 +22,10 @@ import {
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import {
+  ATTACHMENT_SCOPES,
   ChatAttachmentsService,
-  SERVE_CHAT_ATTACHMENTS_FLAG,
 } from './chatAttachments.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -95,6 +95,10 @@ export interface StreamArgs {
   // Subset of attachment IDs the client wants injected on this turn. When
   // omitted all ready attachments for the conversation are injected.
   attachmentIds?: string[]
+  // The caller's chat scope. Attachments are injected only for a scope in
+  // ATTACHMENT_SCOPES, and the AttachedDocumentQueried analytics event needs
+  // it to attribute a citation to the right product (Win vs Serve).
+  scope?: ChatScope
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -410,7 +414,6 @@ export class ChatStreamService {
     @Optional() private readonly braintrust?: BraintrustService,
     @Optional() private readonly chatAttachments?: ChatAttachmentsService,
     @Optional() private readonly s3?: S3Service,
-    @Optional() private readonly features?: FeaturesService,
     @Optional() private readonly analytics?: AnalyticsService,
   ) {
     this.logger.setContext(ChatStreamService.name)
@@ -424,18 +427,14 @@ export class ChatStreamService {
 
   private async loadAttachmentBlocks(
     conversationId: string,
-    ownerUserId: number,
+    scope?: ChatScope,
     attachmentIds?: string[],
   ): Promise<{
     fileParts: LlmFilePart[]
     attachments: AttachedDocMeta[]
   } | null> {
-    if (!this.chatAttachments || !this.s3 || !this.features) return null
-    const enabled = await this.features.isFeatureEnabled({
-      user: ownerUserId,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) return null
+    if (!this.chatAttachments || !this.s3) return null
+    if (!scope || !ATTACHMENT_SCOPES.has(scope)) return null
 
     const rows = await this.chatAttachments.model.findMany({
       where: {
@@ -498,6 +497,8 @@ export class ChatStreamService {
           data: new Uint8Array(bytes),
           mediaType: row.mimeType,
           filename: row.id,
+          // Images can't carry citations; only PDF document blocks do.
+          ...(isPdf && { citationsEnabled: true }),
         })
       } else {
         const text = row.extractedText
@@ -540,7 +541,7 @@ export class ChatStreamService {
 
     const attachmentResult = await this.loadAttachmentBlocks(
       args.conversationId,
-      args.ownerUserId,
+      args.scope,
       args.attachmentIds,
     )
 
@@ -883,7 +884,11 @@ export class ChatStreamService {
               .track(
                 args.ownerUserId,
                 EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-                { documentId: firstAttachmentId, turnIndex },
+                {
+                  documentId: firstAttachmentId,
+                  turnIndex,
+                  ...(args.scope && { scope: args.scope }),
+                },
               )
               .catch((err: unknown) => {
                 this.logger.error(

@@ -7,6 +7,7 @@ import type { AgentEntry } from './agents'
 import { createRng } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
+  BACKGROUND_TOOL_ERROR_PAIR,
   CHAT_PAIR,
   IDENTICAL_DIGEST_PAIR,
   TOOL_ERROR_PAIR,
@@ -26,7 +27,7 @@ const REGISTRY: readonly AgentEntry[] = [
   {
     agentId: 'chief_of_staff',
     shape: 'chat',
-    cases: 'cos.yaml',
+    cases: 'chief_of_staff.json',
     status: 'wired',
   },
   {
@@ -77,9 +78,9 @@ const verdictFrom = (
 const respond = (verdict: 'X' | 'Y', loc: string): JsonValue => {
   const dimension = {
     reasoning: 'the fuller answer covers more of the question',
-    evidence: [{ loc, quote: LONG, note: 'coverage' }],
     verdict,
     magnitude: 'clear',
+    needed_to_decide: '',
   }
   return {
     rubric_version: 'uj-rubric-0.2',
@@ -88,6 +89,7 @@ const respond = (verdict: 'X' | 'Y', loc: string): JsonValue => {
       DEFAULT_JUDGE_CONFIG.dimensions.map((d) => [d, dimension]),
     ),
     overall: dimension,
+    evidence: [{ dimension: 'overall', loc, quote: LONG, note: 'coverage' }],
     flags: [],
     absolute_floor: {
       X_acceptable: 'yes',
@@ -151,12 +153,50 @@ const pipeline = async (
 }
 
 describe('the coverage line', () => {
+  // The real registry, pinned. race_opponent_summary was wired on Melecia's
+  // real bench, so it is the one wired agent outside the parenthetical.
+  it('reads 3 of 20 wired, 2 on placeholder inputs, for the registry', () => {
+    expect(coverageLines()[0]).toBe(
+      '**Coverage: 3 of 20 agents wired (2 on placeholder inputs).**',
+    )
+  })
+
   // Asserted as an exact string. A pattern like /\d+ of \d+/ would pass
   // whichever registry got counted, which is the kind of test that looks
   // like coverage and is not.
   it('counts the wired agents against the judgeable ones', () => {
     expect(coverageLines(REGISTRY)[0]).toBe(
+      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+    )
+  })
+
+  // race_opponent_summary.json is the one case list not marked placeholder.
+  it('leaves the placeholder count out when there is none', () => {
+    const real: AgentEntry = {
+      agentId: 'race_opponent_summary',
+      shape: 'background',
+      cases: 'race_opponent_summary.json',
+      status: 'wired',
+    }
+    expect(coverageLines([real, ...REGISTRY.slice(1)])[0]).toBe(
       '**Coverage: 1 of 2 agents wired.**',
+    )
+  })
+
+  // Wired and placeholder differ here, so the parenthetical cannot be
+  // printing the wired count by mistake.
+  it('counts placeholder inputs apart from wired', () => {
+    const mixed: readonly AgentEntry[] = [
+      ...REGISTRY,
+      {
+        agentId: 'race_opponent_summary',
+        shape: 'background',
+        cases: 'race_opponent_summary.json',
+        status: 'wired',
+      },
+    ]
+    expect(coverageLines(mixed)[0]).toBe(
+      '**Coverage: 2 of 3 agents wired (1 on placeholder inputs).**',
     )
   })
 
@@ -170,7 +210,9 @@ describe('the coverage line', () => {
   // so this prints even when the sweep produced nothing at all.
   it('prints even when no agent was judged', () => {
     const report = renderReport({ agents: [], registry: REGISTRY })
-    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
+    expect(report).toContain(
+      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+    )
     expect(report).toContain('No agent produced a verdict')
   })
 })
@@ -356,8 +398,8 @@ describe('the measured layer', () => {
     const score = await pipeline(sweepRecords(5))
     const report = renderReport({ agents: [score], registry: REGISTRY })
     // 31,213 input at $3/M plus 227 output at $15/M, on both arms.
-    expect(report).toContain('- cost: +0.0000 USD per run pair')
-    expect(report).toContain('(base 0.0970, candidate 0.0970)')
+    expect(report).toContain('- cost difference per run pair: +0.0000 USD')
+    expect(report).toContain('(mean per run: base 0.0970, candidate 0.0970)')
     expect(report).toContain('- latency: +0 ms per run pair')
     expect(report).toContain('- tool errors: +0.00 per run pair')
     expect(report).toContain('not read from the records stored dollars')
@@ -442,12 +484,14 @@ describe('provenance', () => {
       regressions: [],
       exclusions: {
         ungradedReasons: [],
+        toolErrorCauses: [],
         toolError: 0,
         infraError: 0,
         identicalConfig: 0,
         unpaired: 0,
         ungraded: 0,
       },
+      scoredToolErrorCauses: [],
       positionConsistency: null,
       swappedPairs: 0,
       orderUnstablePairs: [],
@@ -466,6 +510,7 @@ describe('provenance', () => {
         liveWebCases: 0,
       },
       ci: null,
+      controls: [],
     }
     const report = renderReport({ agents: [score] })
     expect(report).toContain('cannot be traced back to a pull request')
@@ -499,7 +544,7 @@ describe('qualifiers', () => {
   it('does not headline a flag that both arms raised', async () => {
     const score = await pipeline(sweepRecords(3))
     const flag = {
-      type: 'other_severe',
+      type: 'other_severe' as const,
       explanation: 'both did it',
       loc: undefined,
       caseId: 'cos-case-0',
@@ -543,7 +588,9 @@ describe('refusals', () => {
     })
     expect(report).toContain('### ordinance_flow — refused')
     expect(report).toContain('both arms hashed to the same config digest')
-    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
+    expect(report).toContain(
+      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+    )
   })
 })
 
@@ -970,6 +1017,10 @@ describe('the all-identical-outputs qualifier', () => {
   // The table's own closing sentence used to promise a refusal above it, which
   // on this path does not exist. It has to describe both outcomes or it tells
   // a reader to go looking for something that is not there.
+  //
+  // The ORDINARY fixture, one matching pair out of 25: that sentence is a
+  // static part of the table and not a branch, so an all-identical fixture
+  // here would imply a conditional that does not exist.
   it('leaves the table honest about both outcomes', async () => {
     const report = renderReport({
       agents: [await pipeline(sweepRecords(25))],
@@ -977,14 +1028,170 @@ describe('the all-identical-outputs qualifier', () => {
       identicalOutputs: [
         {
           agentId: 'chief_of_staff',
-          identical: 25,
+          identical: 1,
           of: 25,
-          allIdentical: true,
+          allIdentical: false,
           caseIds: ['cos-case-0'],
         },
       ],
     })
     expect(report).toContain('qualified above rather than read as SAME')
+  })
+})
+
+// The same failure for tool errors: "Excluded pairs: 9 tool error" and no way
+// to tell which tool, or why, without a diagnostic branch.
+describe('tool-error exclusions say which tool and why', () => {
+  const withCauses = async (
+    toolErrorCauses: AgentScore['exclusions']['toolErrorCauses'],
+  ): Promise<string> => {
+    const base = await pipeline(sweepRecords(3))
+    return renderReport({
+      agents: [
+        { ...base, exclusions: { ...base.exclusions, toolErrorCauses } },
+      ],
+    })
+  }
+
+  it('lists each cause under the exclusion line', async () => {
+    const report = await withCauses([
+      {
+        tool: 'Bash',
+        errorClass: 'KeyError',
+        pairs: 9,
+        arms: ['base', 'candidate'],
+      },
+      { tool: 'Read', errorClass: 'exit code 1', pairs: 1, arms: ['base'] },
+    ])
+    const lines = report.split('\n')
+    const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
+    expect(lines.slice(at + 1, at + 3)).toEqual([
+      '- chief_of_staff: `Bash` — KeyError (×9, base and candidate)',
+      '- chief_of_staff: `Read` — exit code 1 (×1, base)',
+    ])
+  })
+
+  it('shows five causes and counts the rest', async () => {
+    const report = await withCauses(
+      Array.from({ length: 7 }, (_, i) => ({
+        tool: `tool${i}`,
+        errorClass: 'other',
+        pairs: 1,
+        arms: ['candidate' as const],
+      })),
+    )
+    expect(report).toContain('`tool4`')
+    expect(report).not.toContain('`tool5`')
+    expect(report).toContain('- and 2 more')
+  })
+
+  // A background pair with tool errors is scored, so its causes are not
+  // exclusions and must not read as ones: they get their own heading, after a
+  // blank line so Markdown does not fold it into the line above.
+  it('lists scored causes under their own heading', async () => {
+    const base = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...base,
+          scoredToolErrorCauses: [
+            {
+              tool: 'Bash',
+              errorClass: 'exit code 1',
+              pairs: 7,
+              arms: ['base', 'candidate'],
+            },
+          ],
+        },
+      ],
+    })
+    const lines = report.split('\n')
+    const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
+    expect(lines.slice(at + 1, at + 4)).toEqual([
+      '',
+      'Tool errors (scored, not excluded):',
+      '- chief_of_staff: `Bash` — exit code 1 (×7, base and candidate)',
+    ])
+  })
+
+  // End to end on the shape the decision is about: a background pair whose
+  // arms both hit a failing Bash snippet is judged, and the report still
+  // carries the measured delta and the causes.
+  it('reports a background tool-error pair as scored, with delta and causes', async () => {
+    const records = BACKGROUND_TOOL_ERROR_PAIR.map((record) => ({
+      ...record,
+      output: {
+        kind: 'text' as const,
+        value: record.arm === 'base' ? SHORT : LONG,
+      },
+    }))
+    const score = await pipeline(records)
+    const report = renderReport({ agents: [score] })
+
+    expect(score.overall.judgments).toBeGreaterThan(0)
+    expect(report).toContain('Excluded pairs: 0 tool error, 0 infra error')
+    expect(report).toContain('- tool errors: -1.00 per run pair')
+    expect(report).toContain('Tool errors (scored, not excluded):')
+    expect(report).toContain(
+      '- race_opponent_summary: `Bash` — exit code 1 (×1, base and candidate)',
+    )
+    expect(report).toContain(
+      '- race_opponent_summary: `Bash` — ValueError (×1, base)',
+    )
+  })
+
+  it('adds nothing when no pair was excluded for a tool error', async () => {
+    const report = await withCauses([])
+    const lines = report.split('\n')
+    const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
+    expect(lines[at + 1]).toBe('')
+  })
+
+  // THE PUBLIC-PAGE GUARANTEE, end to end. omni is public and this report
+  // reaches the run log and the step summary. Each message below is the
+  // kind of thing a tool really prints, carrying voter data or a secret that
+  // redaction cannot be trusted to recognise. None of it may reach the page:
+  // only the tool name and a fixed error class do.
+  it('never prints error text, whatever the record holds', async () => {
+    const leaks = [
+      'Jane',
+      '123 Oak St',
+      'Jane Smith, 742 Evergreen Terrace',
+      '555-867-5309',
+      '078-05-1120',
+      'QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
+      'warehouse.cloud.internal',
+      'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      'PARAMS_JSON',
+    ]
+    const messages = [
+      "statement failed: SELECT * FROM voters WHERE first_name='Jane' " +
+        "AND address='123 Oak St'",
+      'Exit code 1\nTraceback (most recent call last):\n' +
+        "KeyError: 'Jane Smith, 742 Evergreen Terrace'",
+      'no voter at 555-867-5309 or 078-05-1120',
+      'Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
+      'could not reach warehouse.cloud.internal:8443',
+      'aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      "KeyError: 'PARAMS_JSON'",
+    ]
+    const records = messages.flatMap((message, i) =>
+      [BASE, CANDIDATE].map((record) => ({
+        ...record,
+        caseId: `leak-${i}`,
+        runId: `run_${record.arm}_leak_${i}`,
+        agentShape: 'background' as const,
+        telemetry: { ...record.telemetry, toolCalls: 1, toolErrors: 1 },
+        toolErrorDetails: [{ tool: 'Bash', message }],
+      })),
+    )
+    const report = renderReport({
+      agents: [await pipeline([...sweepRecords(3), ...records])],
+    })
+
+    expect(report).toContain('`Bash` — KeyError (×2, base and candidate)')
+    for (const leak of leaks) expect(report).not.toContain(leak)
   })
 })
 
@@ -1154,5 +1361,48 @@ describe('a base arm that never answered', () => {
     expect(report).toContain('The candidate broke a rule the base kept')
     expect(report).not.toContain('produced no answer')
     expect(report).not.toContain('unverified')
+  })
+})
+
+// A case dimension is usually asked by one or two probes, so its row has to
+// say which ones and must not print an interval resampled from one number.
+describe('the case dimension rows', () => {
+  const withCaseDimension = async (cases: number): Promise<AgentScore> => {
+    const score = await pipeline(sweepRecords(3))
+    return {
+      ...score,
+      caseDimensions: [
+        {
+          name: 'sparse_handling',
+          caseIds: ['probe_sparse'],
+          score: { ...score.overall, cases },
+        },
+      ],
+    }
+  }
+
+  it('names the cases that asked it, below the defaults', async () => {
+    const report = renderReport({ agents: [await withCaseDimension(1)] })
+    const table = report.indexOf('| case dimension |')
+    expect(table).toBeGreaterThan(report.indexOf('| user_utility |'))
+    expect(report).toMatch(/\| sparse_handling \| .* \| probe_sparse \|/)
+  })
+
+  it('prints no interval below the case floor', async () => {
+    const report = renderReport({ agents: [await withCaseDimension(1)] })
+    const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
+    expect(row).toContain('too few cases for an interval (1 of 20)')
+    expect(row).not.toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
+  })
+
+  it('prints the interval once there are enough', async () => {
+    const report = renderReport({ agents: [await withCaseDimension(20)] })
+    const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
+    expect(row).toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
+  })
+
+  it('adds nothing for an agent whose cases asked none', async () => {
+    const report = renderReport({ agents: [await pipeline(sweepRecords(3))] })
+    expect(report).not.toContain('case dimension')
   })
 })

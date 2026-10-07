@@ -64,7 +64,10 @@ describe('CampaignManagerHandler.loadContext (integration)', () => {
     expect(ctx.topTasks.map((t) => t.title)).toEqual([
       'Knock 50 doors in Ward 3',
     ])
-    expect(ctx.weeksToElection).toBeGreaterThan(0)
+    expect(ctx.electionDate).toBe('2099-11-03')
+    expect(handler.buildSystemPrompt(ctx)).toContain(
+      'Election date on record: Tuesday, November 3, 2099',
+    )
   })
 })
 

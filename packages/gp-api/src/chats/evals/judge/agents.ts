@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CaseListError, loadCaseList } from './cases'
 import { AgentShapeSchema } from './record'
 
 // Every agent the judge is meant to cover, wired or not. This file is the
@@ -12,7 +13,8 @@ import { AgentShapeSchema } from './record'
 export const AgentStatusSchema = z.enum([
   // Judgeable, not yet verified. The normal starting state.
   'pending',
-  // Has produced a real verdict at least once.
+  // A live sweep from main has judged at least one of its pairs. The entry
+  // links that run, so the count can be checked rather than believed.
   'wired',
   // Cannot be judged yet for a reason outside this build. Excluded from the
   // coverage denominator so the number is not permanently unreachable, and
@@ -20,6 +22,17 @@ export const AgentStatusSchema = z.enum([
   'blocked',
 ])
 export type AgentStatus = z.infer<typeof AgentStatusSchema>
+
+export const WiredBySchema = z.object({
+  runUrl: z
+    .string()
+    .regex(
+      /^https:\/\/github\.com\/thegoodparty\/omni\/actions\/runs\/\d+$/,
+      'runUrl must be a github.com/thegoodparty/omni/actions/runs/<id> URL',
+    ),
+  date: z.iso.date(),
+})
+export type WiredBy = z.infer<typeof WiredBySchema>
 
 export const AgentEntrySchema = z
   .object({
@@ -31,16 +44,33 @@ export const AgentEntrySchema = z
     status: AgentStatusSchema,
     // Required on a blocked entry, so "blocked" can never be a shrug.
     blockedReason: z.string().min(1).optional(),
+    // A background agent whose main path reads gp-api over the broker. Only
+    // these run as the seeded account in judgeFixtureIdentity.ts; every other
+    // dispatch names no user, so the broker cannot reach gp-api for it.
+    readsGpApi: z.literal(true).optional(),
+    // Required on a wired entry, so "wired" can never be a claim with no run
+    // behind it.
+    wiredBy: WiredBySchema.optional(),
   })
   .refine((a) => (a.status === 'blocked') === (a.blockedReason !== undefined), {
     message: 'blockedReason is required on a blocked agent, and only there',
     path: ['blockedReason'],
   })
+  .refine((a) => (a.status === 'wired') === (a.wiredBy !== undefined), {
+    message: 'wiredBy is required on a wired agent, and only there',
+    path: ['wiredBy'],
+  })
+  // The coverage line reads a wired agent's case list for its placeholder
+  // flag, and a judged pair was drawn from one.
+  .refine((a) => a.status !== 'wired' || a.cases !== null, {
+    message: 'a wired agent needs a case list',
+    path: ['cases'],
+  })
 export type AgentEntry = z.infer<typeof AgentEntrySchema>
 
-// The four chat scopes registered in CHAT_SCOPE_HANDLERS today, plus the one
-// that is not. Ids match ChatScope in the Prisma schema, so the runner can
-// resolve a handler straight from the registry with no mapping table.
+// The five chat scopes registered in CHAT_SCOPE_HANDLERS. Ids match ChatScope
+// in the Prisma schema, so the runner can resolve a handler straight from the
+// registry with no mapping table.
 const CHAT_AGENT_IDS = [
   'chief_of_staff',
   'campaign_assistant',
@@ -57,28 +87,20 @@ type ChatAgentId = (typeof CHAT_AGENT_IDS)[number]
 // so a typo there compiles — what catches a registry entry pointing at a file
 // nobody wrote is the directory check in chatCaseLists.test.ts.
 //
-// briefing_annotation is absent on purpose. It is blocked, not unwritten, so
-// a case list would be inputs for a runner that cannot drive it.
-//
-// All four are placeholder lists — see the `note` in each file — so status
-// stays `pending`. `wired` means an agent has produced a real verdict at
-// least once, and none of these has driven a turn.
+// All five are placeholder lists — see the `note` in each file. That does
+// not stop an agent being wired; the coverage line counts it separately.
 const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
   chief_of_staff: 'chief_of_staff.json',
   campaign_assistant: 'campaign_assistant.json',
   ordinance_flow: 'ordinance_flow.json',
   priority_flow: 'priority_flow.json',
+  briefing_annotation: 'briefing_annotation.json',
 }
 
 // Keyed by the id union too, so dropping a scope from CHAT_AGENT_IDS without
-// dropping its reason is a typecheck failure.
-const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {
-  briefing_annotation:
-    'No ChatScopeHandler yet. Briefing chat still assembles its own ' +
-    'prompt and tools, so the chat runner cannot drive it through the ' +
-    'registry. Unblocked by the briefing-chats migration, which is a ' +
-    'follow-on rather than a prerequisite.',
-}
+// dropping its reason is a typecheck failure. Empty today: every chat scope
+// can be driven.
+const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {}
 
 const CHAT_AGENTS: AgentEntry[] = CHAT_AGENT_IDS.map((agentId) => {
   const blockedReason = CHAT_BLOCKED_REASONS[agentId]
@@ -130,13 +152,11 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // per sweep. A registry entry is the same either way on purpose: the
 // difference belongs to the case list and the sweep, not to the denominator.
 //
-// compliance_setup is absent on purpose, the same way briefing_annotation is
-// above: it is blocked, so a case list would be inputs for a sweep that must
-// not run.
+// compliance_setup is absent on purpose: it is blocked, so a case list would
+// be inputs for a sweep that must not run.
 //
-// All fifteen are placeholder lists — see the `note` in each file — so status
-// stays `pending`. `wired` means an agent has produced a real verdict at
-// least once, and none of these has been dispatched.
+// All but race_opponent_summary are placeholder lists — see the `note` in
+// each file. As above, the coverage line counts a wired one separately.
 const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
   campaign_tracker_tasks: 'campaign_tracker_tasks.json',
   district_issue_pulse: 'district_issue_pulse.json',
@@ -157,23 +177,20 @@ const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
 
 // The experiments whose main path reads from gp-api over the broker's MCP
 // proxy: the issue feed, and for meeting_briefing the official's priorities
-// too. The broker reaches gp-api as the run ticket's user, and a judge
-// dispatch names none, so the proxy refuses the call before gp-api sees it:
-// on both arms, every time. Each agent then takes its empty-data fallback, so
-// a verdict would describe only that fallback and read as a real one.
-// Unblocked by a long-lived dev user owning a `judge-` organization with an
-// elected office, priorities and an issue feed, and the dispatch naming that
-// user.
+// too. The broker reaches gp-api as the run ticket's user, so these three are
+// dispatched as the seeded fixture account (scripts/seed-judge-fixture.ts)
+// against its `judge-fixture` organization. Without that a judge dispatch
+// names no user, the proxy refuses the read on both arms, and a verdict would
+// describe only the agent's empty-data fallback.
 //
 // campaign_tracker_tasks is NOT here: only its weekly-mode case reads from
 // gp-api (prior tasks), and that case reads none on either arm, which its
 // case list says.
-const GP_API_TOOL_REASON =
-  'Its main path reads from gp-api over the broker, and the broker reaches ' +
-  "gp-api as the run ticket's user, which a judge dispatch does not name. " +
-  'The read would fail on both arms and the agent would take its empty-data ' +
-  'fallback, so a verdict would describe only that fallback. Unblocked by a ' +
-  'seeded dev user and judge- organization the dispatch can name.'
+const GP_API_READERS: ReadonlySet<BackgroundAgentId> = new Set([
+  'meeting_briefing',
+  'top_community_issues',
+  'trending_issues',
+])
 
 // Keyed by the id union, so dropping an experiment without dropping its
 // reason is a typecheck failure — the same shape as CHAT_BLOCKED_REASONS.
@@ -187,9 +204,6 @@ const BACKGROUND_BLOCKED_REASONS: Partial<Record<BackgroundAgentId, string>> = {
     'nothing downstream would mark those writes as a test. Blocked rather ' +
     'than left without a case list: captureArm skips a blocked agent, which ' +
     'makes this a control instead of a gap waiting for someone to fill it.',
-  meeting_briefing: GP_API_TOOL_REASON,
-  top_community_issues: GP_API_TOOL_REASON,
-  trending_issues: GP_API_TOOL_REASON,
 }
 
 const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => {
@@ -201,28 +215,71 @@ const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => {
     ...(blockedReason === undefined
       ? { status: 'pending' as const }
       : { status: 'blocked' as const, blockedReason }),
+    ...(GP_API_READERS.has(agentId) && { readsGpApi: true as const }),
   }
 })
 
+// The runs that wired each agent. See "Marking an agent wired" in the README.
+// Applied over the entries above rather than inside them: a blocked agent
+// listed here keeps its blockedReason, which the schema then refuses.
+const WIRED_BY: Partial<Record<string, WiredBy>> = {
+  chief_of_staff: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/36999748321',
+    date: '2026-10-02',
+  },
+  opposition_research: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37161231631',
+    date: '2026-10-03',
+  },
+  race_opponent_summary: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/37355882821',
+    date: '2026-10-05',
+  },
+} satisfies Partial<Record<ChatAgentId | BackgroundAgentId, WiredBy>>
+
+const withWiring = (entry: AgentEntry): AgentEntry => {
+  const wiredBy = WIRED_BY[entry.agentId]
+  return wiredBy === undefined ? entry : { ...entry, status: 'wired', wiredBy }
+}
+
 // Readonly: nine build tracks import this, and a coverage number that any
 // one of them could push onto is not a number anyone should trust.
-export const AGENTS: readonly AgentEntry[] = Object.freeze([
-  ...CHAT_AGENTS,
-  ...BACKGROUND_AGENTS,
-])
+export const AGENTS: readonly AgentEntry[] = Object.freeze(
+  [...CHAT_AGENTS, ...BACKGROUND_AGENTS].map(withWiring),
+)
 
 export interface Coverage {
   wired: number
+  // Wired agents whose case list is marked placeholder: judged, but on inputs
+  // written to exercise the pipeline rather than to test the agent.
+  placeholder: number
   // Agents that could be wired: everything except the blocked ones. This is
   // the denominator the report prints.
   judgeable: number
   blocked: readonly AgentEntry[]
 }
 
-export const coverage = (agents: readonly AgentEntry[] = AGENTS): Coverage => {
+// A list that will not load counts as placeholder inputs: the conservative
+// reading, and one agent's broken file must not fail the plan or the report
+// of a sweep that never touches it. The case-list tests fail that PR anyway.
+export const placeholderOrUnreadable = (agent: AgentEntry): boolean => {
+  try {
+    return loadCaseList(agent).placeholder
+  } catch (err) {
+    if (err instanceof CaseListError) return true
+    throw err
+  }
+}
+
+export const coverage = (
+  agents: readonly AgentEntry[] = AGENTS,
+  isPlaceholder: (agent: AgentEntry) => boolean = placeholderOrUnreadable,
+): Coverage => {
   const blocked = agents.filter((a) => a.status === 'blocked')
+  const wired = agents.filter((a) => a.status === 'wired')
   return {
-    wired: agents.filter((a) => a.status === 'wired').length,
+    wired: wired.length,
+    placeholder: wired.filter(isPlaceholder).length,
     judgeable: agents.length - blocked.length,
     blocked,
   }

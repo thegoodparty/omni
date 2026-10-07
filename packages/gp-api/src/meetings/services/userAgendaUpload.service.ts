@@ -23,6 +23,19 @@ const PRESIGN_PUT_EXPIRES_IN = 60 * 15 // 15 min — upload itself
 // exactly one user-supplied input (the agenda).
 const AGENDA_WORKSPACE_DEST = 'agenda.pdf'
 
+export type UserAgendaStatus =
+  | 'processing'
+  | 'failed'
+  | 'rejected'
+  | 'completed'
+  | 'unknown'
+
+export type UserAgendaRowStatus = {
+  status: UserAgendaStatus
+  /** Set only when status is 'rejected': the machine reason gp-api recorded. */
+  reason: string | null
+}
+
 @Injectable()
 export class UserAgendaUploadService extends createPrismaBase(
   MODELS.UserAgendaUpload,
@@ -213,6 +226,9 @@ export class UserAgendaUploadService extends createPrismaBase(
         byteSize,
         uploadedByUserId: userId,
         experimentRunId: null,
+        // A fresh submission clears the previous run's refusal so the row
+        // reads as processing again rather than carrying a stale reason.
+        refusalReason: null,
       },
       select: { id: true },
     })
@@ -281,7 +297,7 @@ export class UserAgendaUploadService extends createPrismaBase(
   async getStatusForMeetings(
     electedOfficeId: string,
     window: { from: Date; to: Date },
-  ): Promise<Map<string, 'processing' | 'failed' | 'completed' | 'unknown'>> {
+  ): Promise<Map<string, UserAgendaRowStatus>> {
     const rows = await this.client.userAgendaUpload.findMany({
       where: {
         electedOfficeId,
@@ -290,22 +306,30 @@ export class UserAgendaUploadService extends createPrismaBase(
       select: {
         meetingDate: true,
         experimentRunId: true,
+        refusalReason: true,
         experimentRun: { select: { status: true } },
       },
     })
-    const out = new Map<
-      string,
-      'processing' | 'failed' | 'completed' | 'unknown'
-    >()
+    const out = new Map<string, UserAgendaRowStatus>()
+    const set = (
+      date: string,
+      status: UserAgendaStatus,
+      reason: string | null = null,
+    ) => out.set(date, { status, reason })
     for (const row of rows) {
       const date = row.meetingDate.toISOString().slice(0, 10)
       const runStatus = row.experimentRun?.status
       if (runStatus === 'RUNNING' || runStatus === 'AWAITING_RESUME') {
-        out.set(date, 'processing')
+        set(date, 'processing')
       } else if (runStatus === 'FAILED') {
-        out.set(date, 'failed')
+        set(date, 'failed')
+      } else if (runStatus === 'COMPLETED' && row.refusalReason) {
+        // The run finished but gp-api declined to publish its artifact (for
+        // example the pasted packet was for another meeting). The official
+        // sees why and can submit again.
+        set(date, 'rejected', row.refusalReason)
       } else if (runStatus === 'COMPLETED') {
-        out.set(date, 'completed')
+        set(date, 'completed')
       } else if (row.experimentRunId === null) {
         // Upload row exists with no run linked: dispatch failed (or is racing
         // mid-finalize). From the user's POV the upload didn't kick off a
@@ -314,9 +338,9 @@ export class UserAgendaUploadService extends createPrismaBase(
         // linkage during a successful finalize is short; users seeing a
         // momentary `failed` that flips to `processing` on next refresh is
         // acceptable.
-        out.set(date, 'failed')
+        set(date, 'failed')
       } else {
-        out.set(date, 'unknown')
+        set(date, 'unknown')
       }
     }
     return out

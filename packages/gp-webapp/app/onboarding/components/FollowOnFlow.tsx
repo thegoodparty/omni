@@ -17,6 +17,7 @@ import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import {
   ELIGIBILITY_QUERY_KEY,
   ORGANIZATIONS_QUERY_KEY,
+  useSetOrganizationSlug,
 } from '@shared/organization-picker'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { Campaign } from 'helpers/types'
@@ -113,6 +114,7 @@ export default function FollowOnFlow({
 }: FollowOnFlowProps): React.JSX.Element {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const setSelectedOrgSlug = useSetOrganizationSlug()
 
   const eligibilityQuery = useQuery({
     queryKey: ELIGIBILITY_QUERY_KEY,
@@ -226,13 +228,22 @@ export default function FollowOnFlow({
 
   const setNewCampaignActive = (campaign: Campaign) => {
     setLiveCampaign(campaign)
-    setCookie(ORG_SLUG_COOKIE, `campaign-${campaign.id}`)
+    const slug = `campaign-${campaign.id}`
+    // The cookie first, so every request from here on is for the new org.
+    setCookie(ORG_SLUG_COOKIE, slug)
     // The new org must appear and become active; eligibility changes now that
     // a fresh active campaign exists. Invalidate all three so the dashboard
     // (and the switcher) reflect the new campaign on arrival.
     void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
-    void queryClient.invalidateQueries({ queryKey: ORGANIZATIONS_QUERY_KEY })
     void queryClient.invalidateQueries({ queryKey: ELIGIBILITY_QUERY_KEY })
+    // The provider keeps its own selected slug, so the cookie alone left the
+    // dashboard on the office it came from (the Campaign Manager's chat dock
+    // stayed hidden) until a reload. Selected only once the org list holds
+    // the new org: before that the provider falls back to the first org and
+    // its stale-cookie repair would write that fallback back over the cookie.
+    void queryClient
+      .invalidateQueries({ queryKey: ORGANIZATIONS_QUERY_KEY })
+      .then(() => setSelectedOrgSlug(slug))
   }
 
   const buildEarlyAttrs = (): { key: string; value: string }[] => {

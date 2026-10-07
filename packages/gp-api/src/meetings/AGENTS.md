@@ -73,8 +73,8 @@ The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `Elected
 
 `upsertBriefingRow` is selective about which `briefing_status` values it persists:
 
-- `briefing_ready`, `agenda_provided_by_user` → write the row.
-- Any other "placeholder" value (`awaiting_agenda`, `no_meeting_found`) → log, fire the `Briefing Assistant - Agenda Not Created` Segment event (with `daysUntilMeeting` to the target meeting date), and skip so the next cron retries.
+- `briefing_ready`, `agenda_provided_by_user` → write the row, unless `assessPublishability` refuses: the artifact's `run_metadata.agenda_availability` says the agenda was unavailable (`partial`, `not_published`, `inferred_from_prior`); or, on a user-provided run, the `UserAgendaUpload` row for this run is missing, or the packet's own stated date (`packet_stated_meeting_date`, `packet_date_verification`) is more than three days from the target. A refusal logs the reason, stores it on the upload row (`refusalReason`, surfaced as `userAgendaStatus: 'rejected'`), fires Agenda Not Created with it, and skips the row so the slot stays open. A discovered agenda that states another date is logged, not refused, and an artifact without `agenda_availability` publishes with a warning log. Dashboard cards and item links sync only when a row was written.
+- Any other "placeholder" value (`awaiting_agenda`, `no_meeting_found`) → log; store why on the run's `UserAgendaUpload` row if it has one (`no_briefing:<status>`, or the packet date mismatch when the artifact states another meeting's date), surfaced as `userAgendaStatus: 'rejected'` so a pasted agenda is not left at "Finishing up"; fire the `Briefing Assistant - Agenda Not Created` Segment event (with `daysUntilMeeting` to the target meeting date); and skip so the next cron retries.
 - `error` → log and skip.
 
 ## Controllers and routes
@@ -152,7 +152,7 @@ Built per request in `buildToolsForUser()`. Availability depends on env vars and
 | ---------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get_artifacts`        | `BriefingArtifactsProvider`             | Always.                                                                                                                                                                                         |
 | `web_search`           | Anthropic native (`webSearch_20250305`) | `ANTHROPIC_API_KEY` is set (chat is Claude-only). Runs inside the enterprise Anthropic agreement — no third-party search provider.                                                              |
-| `district_insights`    | `DatabricksSqlProvider`                 | Databricks env vars are set **and** `DistrictResolverService.resolveByUserId()` returns a district. Locked to the `int__l2_nationwide_uniform_w_haystaq` table with mandatory district filters. |
+| `district_insights`    | `DatabricksSqlProvider`                 | Databricks env vars are set **and** `DistrictResolverService.resolveByOrgSlug()` returns a district for the briefing's own org. Locked to the `int__l2_nationwide_uniform_w_haystaq` table with mandatory district filters. |
 | `list_district_topics` | Static                                  | Same condition as `district_insights`.                                                                                                                                                          |
 | `get_my_notes`         | `LazyNotesProvider`                     | Only when `BriefingNotesService.countNotesForUser()` > 0. The count check is up-front; the actual notes load is deferred to first tool call.                                                    |
 

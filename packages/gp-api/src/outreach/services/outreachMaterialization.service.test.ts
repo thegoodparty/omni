@@ -5,7 +5,40 @@ import { PinoLogger } from 'nestjs-pino'
 import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { PeerlyPhoneListCaptureService } from '@/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
+
+// materializeFromCapture is private; accessed the same way as other
+// private-method tests in this codebase (e.g. crmCampaigns.service.test.ts,
+// campaignTcrCompliance.service.test.ts) so the test can pass a small
+// `pageSize` override — calling through the public materializeOutreach
+// entry point has no way to reach it, since production never overrides the
+// real 1000-row SEGMENT_PAGE_SIZE.
+const materializeFromCapturePrivate = (
+  materialization: OutreachMaterializationService,
+  campaign: Campaign,
+  outreach: Outreach,
+  occurredAt: Date,
+  maxRecipients?: number,
+  pageSize?: number,
+): Promise<number | null> =>
+  (
+    materialization as unknown as {
+      materializeFromCapture: (
+        campaign: Campaign,
+        outreach: Outreach,
+        occurredAt: Date,
+        maxRecipients?: number,
+        pageSize?: number,
+      ) => Promise<number | null>
+    }
+  ).materializeFromCapture(
+    campaign,
+    outreach,
+    occurredAt,
+    maxRecipients,
+    pageSize,
+  )
 
 const service = useTestService()
 
@@ -307,6 +340,61 @@ describe('OutreachMaterializationService', () => {
     expect(findContacts.mock.calls[1]?.[0]).toMatchObject({ page: 2 })
   })
 
+  it('materializes every recipient with no per-launch cap', async () => {
+    const { campaign, outreach } = await seedOutreach({ slug: 'mat-no-cap' })
+    // Spans three mocked pages, so the loop must run past the first page —
+    // and past the point a finite cap would stop it — to get everyone.
+    // materializeFromFilter's `maxRecipients` safety-valve defaults to
+    // Number.POSITIVE_INFINITY and nothing overrides it here, so this
+    // exercises the exact unlimited production path without a 100k-row
+    // fixture (a regression that reintroduces a silent finite default is
+    // caught by temporarily lowering that default below `totalRecipients`
+    // and confirming this same test then fails).
+    const totalRecipients = 5
+    const pageSize = 2
+    const findContacts = vi
+      .spyOn(contacts, 'findContacts')
+      .mockImplementation(async (params) => {
+        const page = params.page ?? 1
+        const start = (page - 1) * pageSize
+        const ids = Array.from(
+          { length: Math.min(pageSize, Math.max(totalRecipients - start, 0)) },
+          (_, i) => `pid-${start + i}`,
+        )
+        return peoplePage(ids, {
+          totalResults: totalRecipients,
+          pageSize,
+          totalPages: Math.ceil(totalRecipients / pageSize),
+          currentPage: page,
+          hasNextPage: start + ids.length < totalRecipients,
+          hasPreviousPage: page > 1,
+        })
+      })
+    const warnSpy = vi
+      .spyOn(PinoLogger.prototype, 'warn')
+      .mockImplementation(() => undefined)
+
+    try {
+      await materialization.materializeOutreach(campaign, outreach)
+
+      const count = await service.prisma.contactInteractionText.count({
+        where: { outreachId: outreach.id },
+      })
+      expect(count).toBe(totalRecipients)
+      expect(warnSpy).not.toHaveBeenCalled()
+      // Proves the pager actually ran to exhaustion rather than stopping
+      // early: a cap that short-circuits the loop before the last page
+      // would still leave 5 rows below a 100k-row default, so the count
+      // alone can't catch it. Fetching all 3 pages is what a finite cap
+      // would truncate.
+      expect(findContacts).toHaveBeenCalledTimes(
+        Math.ceil(totalRecipients / pageSize),
+      )
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
   it('propagates a people-api failure to the caller (best-effort lives in OutreachService)', async () => {
     const { campaign, outreach } = await seedOutreach({ slug: 'mat-fail' })
     vi.spyOn(contacts, 'findContacts').mockRejectedValue(
@@ -380,6 +468,46 @@ describe('OutreachMaterializationService', () => {
         )
         const filter = await filterById(filterId)
         expect(filter.firstUsedForOutreachAt).not.toBeNull()
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
+    it('falls back to filter resolution when the phone list exists but has zero captured recipients', async () => {
+      const { campaign, outreach, filterId } = await seedOutreach({
+        slug: 'mat-captured-zero',
+        phoneListId: 6161,
+      })
+      // Present phone-list row, but no recipient rows under it — the
+      // present-yet-empty branch, distinct from mat-no-capture's "row never
+      // existed" branch. findRecipientsPage's real first call returns [].
+      await seedCapturedPhoneList({
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        peerlyListId: 6161,
+        voterFileFilterId: filterId,
+        personIds: [],
+      })
+      const findContacts = vi
+        .spyOn(contacts, 'findContacts')
+        .mockResolvedValue(peoplePage(['pid-1', 'pid-2']))
+      const warnSpy = vi
+        .spyOn(PinoLogger.prototype, 'warn')
+        .mockImplementation(() => undefined)
+
+      try {
+        await materialization.materializeOutreach(campaign, outreach)
+
+        expect(findContacts).toHaveBeenCalled()
+        const rows = await textRowsFor(outreach.id)
+        expect(rows.map((r) => r.personId)).toEqual(['pid-1', 'pid-2'])
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            outreachId: outreach.id,
+            phoneListId: 6161,
+          }),
+          expect.stringContaining('falling back'),
+        )
       } finally {
         warnSpy.mockRestore()
       }
@@ -506,6 +634,82 @@ describe('OutreachMaterializationService', () => {
         outreach.voterFileFilterId,
         campaign.organizationSlug,
       )
+    })
+
+    it('materializes every captured recipient across multiple findRecipientsPage calls, with no per-launch cap', async () => {
+      const { campaign, outreach } = await seedOutreach({
+        slug: 'mat-captured-batch',
+        outreachType: OutreachType.p2p,
+        phoneListId: 5151,
+      })
+      const phoneList = await seedCapturedPhoneList({
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        peerlyListId: 5151,
+        voterFileFilterId: null,
+        // The real recipient rows aren't read in this test — findRecipientsPage
+        // is mocked below — but a phone list still needs at least one row to
+        // exist for the capture-vs-fallback contract to be exercised honestly.
+        personIds: ['unused'],
+      })
+      const allRecipients = ['cap-1', 'cap-2', 'cap-3', 'cap-4', 'cap-5'].map(
+        (personId) => ({ personId }),
+      )
+      const peerlyPhoneListCapture = service.app.get(
+        PeerlyPhoneListCaptureService,
+      )
+      // Mirrors findRecipientsPage's real skip/take contract (ordered,
+      // sliced) so the N+1 sentinel behaves exactly as it would against a
+      // real table — just with a pageSize of 2 instead of 1000, so 5
+      // recipients span three calls instead of needing 1000+ seeded rows.
+      const findRecipientsPage = vi
+        .spyOn(peerlyPhoneListCapture, 'findRecipientsPage')
+        .mockImplementation(async (_phoneListId, { skip, take }) =>
+          allRecipients.slice(skip, skip + take),
+        )
+      const warnSpy = vi
+        .spyOn(PinoLogger.prototype, 'warn')
+        .mockImplementation(() => undefined)
+
+      try {
+        const materialized = await materializeFromCapturePrivate(
+          materialization,
+          campaign,
+          outreach,
+          new Date(),
+          undefined,
+          2,
+        )
+
+        expect(materialized).toBe(5)
+        const rows = await textRowsFor(outreach.id)
+        expect(rows.map((r) => r.personId)).toEqual([
+          'cap-1',
+          'cap-2',
+          'cap-3',
+          'cap-4',
+          'cap-5',
+        ])
+        // Three pages of 2 for five recipients proves the skip/N+1
+        // stop-condition actually advanced across calls rather than
+        // returning everything in one shot.
+        expect(findRecipientsPage).toHaveBeenCalledTimes(3)
+        expect(findRecipientsPage).toHaveBeenNthCalledWith(1, phoneList.id, {
+          skip: 0,
+          take: 3,
+        })
+        expect(findRecipientsPage).toHaveBeenNthCalledWith(2, phoneList.id, {
+          skip: 2,
+          take: 3,
+        })
+        expect(findRecipientsPage).toHaveBeenNthCalledWith(3, phoneList.id, {
+          skip: 4,
+          take: 3,
+        })
+        expect(warnSpy).not.toHaveBeenCalled()
+      } finally {
+        warnSpy.mockRestore()
+      }
     })
   })
 })

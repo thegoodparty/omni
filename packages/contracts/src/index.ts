@@ -20,6 +20,27 @@ export {
   type SupportAnswer,
   SUPPORT_ANSWER_VALUES,
   SupportAnswerSchema,
+  type ConstituentFeedbackStance,
+  CONSTITUENT_FEEDBACK_STANCE_VALUES,
+  ConstituentFeedbackStanceSchema,
+  type ConstituentFeedbackChannel,
+  CONSTITUENT_FEEDBACK_CHANNEL_VALUES,
+  ConstituentFeedbackChannelSchema,
+  type ConstituentFeedbackCaptureMethod,
+  CONSTITUENT_FEEDBACK_CAPTURE_METHOD_VALUES,
+  ConstituentFeedbackCaptureMethodSchema,
+  type ConstituentFeedbackExtractionStatus,
+  CONSTITUENT_FEEDBACK_EXTRACTION_STATUS_VALUES,
+  ConstituentFeedbackExtractionStatusSchema,
+  type IssueTagStatus,
+  ISSUE_TAG_STATUS_VALUES,
+  IssueTagStatusSchema,
+  type IssueTagSource,
+  ISSUE_TAG_SOURCE_VALUES,
+  IssueTagSourceSchema,
+  type SynthesisRunStatus,
+  SYNTHESIS_RUN_STATUS_VALUES,
+  SynthesisRunStatusSchema,
   type DoorKnockOutcome,
   DOOR_KNOCK_OUTCOME_VALUES,
   DoorKnockOutcomeSchema,
@@ -824,11 +845,15 @@ export {
 export {
   ShowListMapSchema,
   type ShowListMap,
+  ListProposalSchema,
+  type ListProposal,
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {
   ComposeHandoffPayloadSchema,
   type ComposeHandoffPayload,
+  type ComposeHandoffChannel,
+  COMPOSE_HANDOFF_CHANNEL_SCHEMAS,
 } from './chats/ComposeHandoff.schema'
 
 export {
@@ -891,11 +916,23 @@ export {
   type MergeTagId,
 } from './outreach/MergeTag.const'
 export {
+  SAMPLE_TARGET_REPLIES,
+  DEFAULT_TEXT_REPLY_RATE,
+  HIGH_CONFIDENCE_MIN_REPLIES,
+  HIGH_CONFIDENCE_MIN_SHARE,
+  PRICE_PER_TEXT_TENTH_CENTS,
+  PRICE_PER_TEXT,
+  recommendedSampleSize,
+  isHighConfidence,
+} from './outreach/SampleSizing.const'
+export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
   type OutreachPurpose,
   SERVE_OUTREACH_PURPOSE_VALUES,
   ServeOutreachPurposeSchema,
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
 export {
@@ -993,6 +1030,12 @@ export {
   RobocallScriptDraftResponseSchema,
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
+export {
+  deriveRobocallProtectedParts,
+  formatRobocallCallbackNumber,
+  robocallDisclosureLine,
+  type RobocallProtectedPart,
+} from './outreach/RobocallProtectedParts'
 export {
   RobocallNumberResponseSchema,
   type RobocallNumberResponse,
@@ -1181,6 +1224,12 @@ export {
 } from './people/PeopleOverlapCount.schema'
 
 export {
+  MAX_LIST_SAMPLE_SIZE,
+  ListSampleSchema,
+  type ListSample,
+} from './people/ListSample.schema'
+
+export {
   DoorKnockingEvaluateRequestSchema,
   type DoorKnockingEvaluateRequest,
   DoorKnockingEvaluatedPersonSchema,
@@ -1262,6 +1311,11 @@ export {
   type GeoJsonShape,
   shapePolygons,
   shapePartCount,
+  MAX_GEO_SHAPE_NAME_LENGTH,
+  GeoShapeLabelSchema,
+  type GeoShapeLabel,
+  GeoShapeLabelsSchema,
+  type GeoShapeLabels,
 } from './shared/GeoJsonShape.schema'
 
 export {
@@ -1333,6 +1387,74 @@ export {
   SetNotAVoterResponseSchema,
   type SetNotAVoterResponse,
 } from './doorKnocking/DoorKnockingNotAVoter.schema'
+
+export {
+  CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
+  CONSTITUENT_FEEDBACK_MAX_ISSUES,
+  ConstituentFeedbackIssueSchema,
+  type ConstituentFeedbackIssue,
+  RecordConstituentFeedbackSchema,
+  type RecordConstituentFeedback,
+  RecordConstituentFeedbackResponseSchema,
+  type RecordConstituentFeedbackResponse,
+  ConfirmConstituentFeedbackSchema,
+  type ConfirmConstituentFeedback,
+  type ConfirmedConstituentFeedbackIssue,
+  ConstituentFeedbackSchema,
+  type ConstituentFeedbackRecord,
+  ConstituentFeedbackListResponseSchema,
+  type ConstituentFeedbackListResponse,
+  IssueTagRefSchema,
+  type IssueTagRef,
+  AudioUploadUrlRequestSchema,
+  type AudioUploadUrlRequest,
+  AudioUploadUrlResponseSchema,
+  type AudioUploadUrlResponse,
+  PendingFeedbackReferenceSchema,
+  type PendingFeedbackReference,
+  PendingFeedbackSchema,
+  type PendingFeedback,
+  PendingFeedbackResponseSchema,
+  type PendingFeedbackResponse,
+} from './constituentFeedback/ConstituentFeedback.schema'
+
+export {
+  FEEDBACK_SYNTHESIS_SOURCE_TYPE,
+  FeedbackSynthesisCompleteEventSchema,
+  type FeedbackSynthesisCompleteEvent,
+  FeedbackSynthesisResponseRowsSchema,
+  type FeedbackSynthesisResponseRows,
+  SynthesisRunSchema,
+  type SynthesisRun,
+  StanceCountsSchema,
+  type StanceCounts,
+  FeedbackThemeSummarySchema,
+  type FeedbackThemeSummary,
+  FEEDBACK_REPORT_MEMO_LIMIT,
+  FeedbackReportMemoSchema,
+  type FeedbackReportMemo,
+  FeedbackReportResponseSchema,
+  type FeedbackReportResponse,
+  FeedbackThemeMemberSchema,
+  type FeedbackThemeMember,
+  FeedbackThemeDetailSchema,
+  type FeedbackThemeDetail,
+  IssueTagSchema,
+  type IssueTag,
+  IssueTagListResponseSchema,
+  type IssueTagListResponse,
+  UpdateIssueTagSchema,
+  type UpdateIssueTag,
+  FEEDBACK_SEED_MAX_COUNT,
+  SeedFeedbackRequestSchema,
+  type SeedFeedbackRequest,
+  SeedFeedbackResponseSchema,
+  type SeedFeedbackResponse,
+} from './constituentFeedback/FeedbackSynthesis.schema'
 
 export {
   PHONE_BANKING_PURPOSE_VALUES,

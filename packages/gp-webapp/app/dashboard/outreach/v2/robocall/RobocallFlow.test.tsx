@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import type {
   OutreachDetail,
@@ -15,10 +16,35 @@ import { RobocallFlow } from './RobocallFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
 
+// The script field is a TokenField: its text lives in the editor TipTap
+// hangs on the textbox, not in a `value`.
+const scriptEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Robocall script' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
+
 // The gate's own flag/membership plumbing has its own tests; here the flow's
 // wiring is what's under test, so the hook is driven directly through the
 // shared reactive stand-in (see mockReactiveGate for why it is a module
 // singleton rather than a hoisted ref).
+// The disclosure names the candidate until a committee is recorded, so
+// the campaign carries a name. No state: the schedule cases read
+// the time zone off its absence.
+const campaignMock = {
+  ownerName: 'Sarah Chen',
+  positionName: 'City Council',
+  details: {},
+}
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [campaignMock],
+}))
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [{ firstName: 'Sarah', lastName: 'Chen' }],
+}))
+
 vi.mock('../gate/useOutreachGate', async () => {
   const { useMockOutreachGate } =
     await import('../gate/testing/mockReactiveGate')
@@ -465,6 +491,7 @@ describe('RobocallFlow', () => {
   // useElectedOffice fires on mount (no enable guard); 404 => not an elected
   // official (data null), exercising the hook's real 404->null branch.
   beforeEach(() => {
+    campaignMock.ownerName = 'Sarah Chen'
     api.mock('GET /v1/elected-office/current', {
       status: 404,
       data: { message: 'No elected office' },
@@ -1061,6 +1088,26 @@ describe('RobocallFlow', () => {
     ).not.toBeInTheDocument()
   })
 
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes and Try again cannot improve their words.
+  it('clears the draft error once the candidate types', async () => {
+    mockDraftError()
+    await gotoComposeRaw()
+    expect(
+      await screen.findByText(/We couldn't draft your script just now/),
+    ).toBeInTheDocument()
+
+    act(() => {
+      scriptEditor().commands.insertContentAt(1, 'This is Sarah Chen.')
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn't draft your script just now/),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
   it('clears the draft error when switching to a custom purpose', async () => {
     mockDraftError()
     await gotoComposeRaw()
@@ -1101,26 +1148,34 @@ describe('RobocallFlow', () => {
     // mock); custom must never fire a draft, so this must never render.
     mockDraft('SHOULD-NOT-APPEAR auto draft')
 
-    // No tone pills, no "Suggested for" line, and an editable textarea.
-    expect(screen.queryByText('Direct')).not.toBeInTheDocument()
+    // The script opens on its locked disclosure, with room above to write.
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/^\n\nPaid for by .+, 202-555-0147\.$/),
+    )
     expect(screen.queryByText(/Suggested for/)).not.toBeInTheDocument()
     expect(
       screen.queryByText('SHOULD-NOT-APPEAR auto draft'),
     ).not.toBeInTheDocument()
 
-    const textarea = screen.getByRole('textbox', { name: 'Robocall script' })
-    await userEvent.type(textarea, 'Hi, this is my own script.')
-    expect(textarea).toHaveValue('Hi, this is my own script.')
+    act(() => {
+      scriptEditor().commands.insertContentAt(1, 'Hi, this is my own script.')
+    })
+    expect(scriptText()).toMatch(
+      /^Hi, this is my own script\.\n\nPaid for by .+, 202-555-0147\.$/,
+    )
   })
 
-  it('shows the callback number reminder in compose', async () => {
-    await gotoCompose('Write my own script')
-    // There is no banner now; a quiet reminder always surfaces the number so
-    // the candidate can read it aloud, whichever purpose they picked.
+  // The app writes the disclosure and closes the script on it, the number
+  // grouped the way it is read aloud.
+  it('closes the drafted script on the disclosure the app wrote', async () => {
+    mockDraft()
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
     expect(
-      await screen.findByText(/must say who paid for the call/),
+      screen.getByText(/Read the last line as written/),
     ).toBeInTheDocument()
-    expect(screen.getByText(/\+12025550147/)).toBeInTheDocument()
   })
 
   it('shows a retry when renting the callback number fails', async () => {
@@ -1145,7 +1200,230 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('threads the rented callback number into the draft request', async () => {
+  // One AI action, as on SMS: Regenerate on an untouched draft, Improve with
+  // AI once the candidate has edited, and Improve sends the whole script so
+  // gp-api can keep its disclosure intact.
+  it('turns Regenerate into Improve after an edit and polishes the whole script', async () => {
+    const bodies: RobocallScriptDraftRequest[] = []
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      bodies.push(body)
+      return {
+        status: 200,
+        data: {
+          draft: body.currentDraft
+            ? body.currentDraft.replace('Vote early.', 'Please vote early!')
+            : 'A grounded script.',
+        },
+      }
+    })
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+    expect(screen.getByRole('button', { name: 'Regenerate' })).toBeEnabled()
+
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Vote early.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+
+    await waitFor(() => expect(bodies).toHaveLength(2))
+    expect(bodies[1]?.currentDraft).toMatch(
+      /^A grounded script\. Vote early\.\n\nPaid for by .+, 202-555-0147\.$/,
+    )
+    await waitFor(() => expect(scriptText()).toMatch(/Please vote early!/))
+  })
+
+  // A reply held until the candidate has acted, so the test can edit while
+  // the call is still in flight.
+  const mockHeldImprove = () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/robocall/draft', async ({ body }) => {
+      if (!body.currentDraft) {
+        return { status: 200, data: { draft: 'A grounded script.' } }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { draft: 'The AI rewrite.' } }
+    })
+    return { release, answered }
+  }
+
+  it('keeps what the candidate types while Improve is running', async () => {
+    const { release, answered } = mockHeldImprove()
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Vote early.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script. Vote early.'.length + 1,
+        ' Bring a friend.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(scriptText()).toMatch(/Vote early\. Bring a friend\./)
+    expect(scriptText()).not.toMatch(/The AI rewrite/)
+  })
+
+  // A call the candidate edited past can still fail. Its error must not
+  // come back over words they already fixed.
+  it("keeps the candidate's words when a superseded call fails late", async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/robocall/draft', async ({ body }) => {
+      if (!body.currentDraft) {
+        return { status: 200, data: { draft: 'A grounded script.' } }
+      }
+      await held
+      answered.done = true
+      return {
+        status: 502,
+        data: { message: 'Robocall draft generation failed' },
+      }
+    })
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Vote early.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script. Vote early.'.length + 1,
+        ' Bring a friend.',
+      )
+    })
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(
+      screen.queryByText(/We couldn.t draft your script just now/),
+    ).not.toBeInTheDocument()
+    expect(scriptText()).toMatch(/Vote early\. Bring a friend\./)
+  })
+
+  // An owner with no name on file still gets a sponsor: the script has to
+  // carry the disclosure to pass the recording check.
+  it('names the signed-in user as sponsor when the owner has no name', async () => {
+    campaignMock.ownerName = ''
+    mockDraft()
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(
+        /\n\nPaid for by Sarah Chen, 202-555-0147\.$/,
+      ),
+    )
+  })
+
+  // A gp-api from before masking drops the disclosure on Improve (its prompt
+  // told the model to remove one). The flow puts the line back, so a polish
+  // never leaves the script without it, whichever server answered.
+  it('puts the disclosure back when an Improve reply drops it', async () => {
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => ({
+      status: 200,
+      data: {
+        draft: body.currentDraft
+          ? 'A polished script without the line.'
+          : 'A grounded script.',
+      },
+    }))
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Edited.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+
+    await waitFor(() =>
+      expect(scriptText()).toMatch(
+        /^A polished script without the line\.\n\nPaid for by .+, 202-555-0147\.$/,
+      ),
+    )
+  })
+
+  // The guard judges the close, not a phrase: a script that only mentions
+  // "paid for by", or quotes the line mid-script, keeps every word and gets
+  // the real line as its close.
+  it.each([
+    [
+      'mentions paid for by in its last sentence',
+      'Our parks were paid for by all of us.',
+    ],
+    [
+      'quotes the line mid-script but dropped the close',
+      'I always say "Paid for by Sarah Chen, 202-555-0147." Vote early.',
+    ],
+  ])(
+    'keeps a polish that %s and closes it on the line',
+    async (_, polished) => {
+      api.mock('POST /v1/outreach/robocall/draft', ({ body }) => ({
+        status: 200,
+        data: { draft: body.currentDraft ? polished : 'A grounded script.' },
+      }))
+      await gotoComposeRaw()
+      await waitFor(() =>
+        expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+      )
+      act(() => {
+        scriptEditor().commands.insertContentAt(
+          'A grounded script.'.length + 1,
+          ' Edited.',
+        )
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Improve with AI' }),
+      )
+
+      await waitFor(() =>
+        expect(scriptText()).toBe(
+          `${polished}\n\nPaid for by Sarah Chen, 202-555-0147.`,
+        ),
+      )
+    },
+  )
+
+  // The model never writes the disclosure, so it is never handed the number.
+  it('drafts the body without the callback number', async () => {
     let draftBody: RobocallScriptDraftRequest | null = null
     api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
       draftBody = body
@@ -1153,11 +1431,8 @@ describe('RobocallFlow', () => {
     })
 
     await gotoComposeRaw()
-    await screen.findByText(/A grounded script/)
-
-    // The on-entry draft carries the rented number so the server can require
-    // the spoken disclosure.
-    expect(draftBody).toMatchObject({ callbackNumber: '+12025550147' })
+    await waitFor(() => expect(scriptText()).toMatch(/^A grounded script\./))
+    expect(draftBody).not.toHaveProperty('callbackNumber')
   })
 
   it('does not draft the old purpose if it changes while renting', async () => {
@@ -1372,7 +1647,9 @@ describe('RobocallFlow', () => {
     // The saved recording is playable and the read script is shown back.
     expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
     expect(
-      screen.getByText('Hi, this is Alex, and I am running for City Council.'),
+      screen.getByText(
+        /^Hi, this is Alex, and I am running for City Council\./,
+      ),
     ).toBeInTheDocument()
   })
 

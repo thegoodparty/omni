@@ -4,6 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common'
 import { z } from 'zod'
+import { ListSampleSchema } from '@goodparty_org/contracts'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import {
@@ -36,6 +37,16 @@ const crudSavedFiltersInputSchema = voterFilterBaseSchema
     action: z.enum(['list', 'get', 'create', 'update', 'delete']),
     id: z.number().int().positive().optional(),
     name: z.string().min(1).max(MAX_SAVED_FILTER_NAME_LENGTH).optional(),
+    sample: z
+      .object({ size: ListSampleSchema.shape.size })
+      .strict()
+      .optional()
+      .describe(
+        "create only: save a random sample of size people from the filter's " +
+          'audience instead of all of it, frozen at save. Take size from ' +
+          'size_outreach_sample. An audience no bigger than size is saved ' +
+          'whole.',
+      ),
   })
   .strict()
 
@@ -95,7 +106,10 @@ export const buildCrudSavedFiltersTool = (deps: {
     | 'findByIdAndOrganizationSlug'
     | 'filterAccessCheck'
   >
-  contacts: Pick<ContactsService, 'countContacts' | 'countSegment'>
+  contacts: Pick<
+    ContactsService,
+    'countContacts' | 'countSegment' | 'drawListSample'
+  >
   organization: Organization
 }): LlmStreamTool<typeof crudSavedFiltersInputSchema> => ({
   description:
@@ -114,7 +128,9 @@ export const buildCrudSavedFiltersTool = (deps: {
     '(requires name, max 40 characters; compose filter fields from ' +
     'describe_filter_dimensions) and returns { id, name, hasBoundary, ' +
     'count } — hasBoundary is always false, because geometry can only be ' +
-    "drawn onto a list that already exists, never sent here; 'update' " +
+    'drawn onto a list that already exists, never sent here. Pass sample ' +
+    'on create to save a random sample of the audience instead of all of ' +
+    "it, and count is then the sample's size; 'update' " +
     'edits a list by id; ' +
     "'delete' removes a list by id. A list already used for outreach is " +
     'locked: update and delete return an error explaining it must be ' +
@@ -126,7 +142,10 @@ export const buildCrudSavedFiltersTool = (deps: {
   inputSchema: crudSavedFiltersInputSchema,
   execute: async (input): Promise<CrudSavedFiltersOutput> => {
     const { voterFileFilters, contacts, organization } = deps
-    const { action, id, name, ...filter } = input
+    const { action, id, name, sample, ...filter } = input
+    if (sample && action !== 'create') {
+      return { error: 'sample applies to create only' }
+    }
     if (action === 'list') {
       const filters =
         await voterFileFilters.findUsableByOrganizationSlug(organization)
@@ -184,10 +203,15 @@ export const buildCrudSavedFiltersTool = (deps: {
         // list behind; the count is the same live number the route path
         // computes (the lists index always reads live counts).
         const { count } = await contacts.countContacts(filter, organization)
-        const created = await voterFileFilters.create(organization.slug, {
-          ...filter,
-          name,
-        })
+        const sampleMemberIds = sample
+          ? await contacts.drawListSample(organization, filter, sample)
+          : null
+        const created = await voterFileFilters.create(
+          organization.slug,
+          { ...filter, name, sample },
+          null,
+          sampleMemberIds,
+        )
         // Always false: the tool cannot send geometry, so a list it creates
         // is born without a shape. Stated rather than omitted so every ref
         // the model sees carries the flag and its absence never reads as
@@ -196,7 +220,7 @@ export const buildCrudSavedFiltersTool = (deps: {
           id: created.id,
           name: created.name,
           hasBoundary: false,
-          count,
+          count: sampleMemberIds ? sampleMemberIds.length : count,
         }
       }
       if (id === undefined) return { error: `${action} requires id` }

@@ -96,6 +96,21 @@ export const CostSchema = z.object({
 })
 export type Cost = z.infer<typeof CostSchema>
 
+// A count of tool errors is not actionable: a sweep that excluded every pair
+// said "9 tool error" and nothing else, and naming the failing tool meant a
+// throwaway diagnostic branch. So each failure carries the tool and the
+// error text, bounded because the base-arm cache stores the record and every
+// later sweep re-downloads it, and redacted because the text is a vendor or
+// shell string we do not control and it ends up in a public step summary.
+export const MAX_TOOL_ERROR_DETAILS = 10
+export const MAX_TOOL_ERROR_CHARS = 300
+
+export const ToolErrorDetailSchema = z.object({
+  tool: z.string().min(1),
+  message: z.string().min(1).max(MAX_TOOL_ERROR_CHARS),
+})
+export type ToolErrorDetail = z.infer<typeof ToolErrorDetailSchema>
+
 export const TelemetrySchema = z.object({
   latencyMs: z.number().int().nonnegative(),
   tokens: TokenUsageSchema,
@@ -183,6 +198,13 @@ export const RunRecordSchema = z
     // queries, so capturing them lets the two arms' generated SQL be diffed
     // directly — a real regression class caught with no judge call.
     toolQueries: z.array(z.string().min(1)),
+    // The first failures behind telemetry.toolErrors, in call order. Optional
+    // so a record written before the field existed still parses; absent
+    // also on a run with no tool error.
+    toolErrorDetails: z
+      .array(ToolErrorDetailSchema)
+      .max(MAX_TOOL_ERROR_DETAILS)
+      .optional(),
     // The Delta table version both arms read, so a verdict can never be an
     // artifact of the voter data moving between the two runs. Absent for a
     // run that touched no versioned table.
@@ -212,10 +234,22 @@ export const RunRecordSchema = z
 export type RunRecord = z.infer<typeof RunRecordSchema>
 
 // A case is only comparable when both arms produced an agent result AND
-// neither hit an infrastructure failure. A tool error is the subtle one: the
-// Databricks client resolves lazily, so a broken credential still yields a
-// coherent but worse-informed answer rather than a failed run. Both arms
-// degrade identically and a judge would read that as a code regression, so
-// these cases resolve to CAN'T SAY instead of entering the delta.
+// neither hit an infrastructure failure.
+//
+// FOR A CHAT AGENT, A TOOL ERROR ALSO MAKES IT INCOMPARABLE. The Databricks
+// client resolves lazily, so a broken credential still yields a coherent but
+// worse-informed answer rather than a failed run. Both arms degrade
+// identically and a judge would read that as a code regression, so these
+// cases resolve to CAN'T SAY instead of entering the delta.
+//
+// FOR A BACKGROUND AGENT IT DOES NOT. Live sweeps showed background agents
+// routinely write a Python snippet in Bash, hit `exit code 1` or a
+// ValueError, fix it and carry on; excluding every such pair left almost
+// nothing scored (7 of 9 pairs on race_opponent_summary, run 37355882821).
+// What the judge scores for a background agent is the final artifact, and a
+// run that recovered still produced one. A missing or invalid artifact is
+// already infraError (see runners/background.ts), so it stays excluded. The
+// tool-error count is still measured and reported beside the verdict.
 export const isComparable = (record: RunRecord): boolean =>
-  record.status !== 'infraError' && record.telemetry.toolErrors === 0
+  record.status !== 'infraError' &&
+  (record.agentShape === 'background' || record.telemetry.toolErrors === 0)

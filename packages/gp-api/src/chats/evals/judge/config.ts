@@ -133,9 +133,9 @@ export interface ArmGapConfig {
 //
 // At the chat budget a single background agent is 8 cases x 3 attempts = 24
 // runs per arm, which is twenty-six hours of wall clock against a job allowed
-// three, and roughly $384 to judge one agent (48 runs across both arms at ~$8
-// a run, the figure judge.yml prices at). So background carries its own
-// numbers rather than inheriting them.
+// three, and up to $384 to judge one agent (48 runs across both arms at ~$8
+// a run, the price planCost.ts puts on an agent never measured in a judge
+// sweep). So background carries its own numbers rather than inheriting them.
 export interface ShapeBudget {
   attemptsPerCase: number
   // The first n cases of the list, or the whole list when absent. A cap

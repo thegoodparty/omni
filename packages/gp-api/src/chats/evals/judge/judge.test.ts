@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { JSONParseError, NoObjectGeneratedError, TypeValidationError } from 'ai'
+import { z } from 'zod'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { LlmMessage } from '../../../llm/types/llmMessages.types'
+import { MAX_CASE_DIMENSIONS } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
+  CaseDimensionCollisionError,
   CaseVerdictSchema,
   caseVerdictSchemaFor,
+  FLAG_TYPES,
   judgeAll,
   judgeCase,
   OVERALL,
@@ -96,14 +100,17 @@ const fake = (
   }
 }
 
+// In the wire shape a model sends: every field present, with `none` and the
+// empty string standing for an absent magnitude and an absent note, and the
+// evidence in one list beside the dimensions.
 const dim = (
   verdict: string,
   magnitude: string | null = 'clear',
 ): JsonValue => ({
   reasoning: 'because',
-  evidence: [{ loc: 'X.final', quote: 'q', note: 'n' }],
   verdict,
-  magnitude,
+  magnitude: magnitude ?? 'none',
+  needed_to_decide: '',
 })
 
 const reply = (
@@ -123,6 +130,7 @@ const reply = (
     user_utility: dim(o.overall ?? 'Y'),
   },
   overall: dim(o.overall ?? 'Y', o.magnitude ?? 'clear'),
+  evidence: [{ dimension: 'overall', loc: 'X.final', quote: 'q', note: 'n' }],
   flags: o.flags ?? [],
   absolute_floor: o.floor ?? {
     X_acceptable: 'yes',
@@ -221,6 +229,21 @@ describe('what reaches the model', () => {
     await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
     expect(calls[0]?.messages[0]?.content).toContain('conversational')
     expect(calls[1]?.messages[0]?.content).toContain('artifact')
+  })
+
+  // A probe planted something in the input, and a judge left to grade polish
+  // prefers the run that read better while missing what was planted.
+  it('tells an artifact judge a planted condition outranks polish', async () => {
+    const [bgBase, bgCandidate] = BACKGROUND_PAIR
+    const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const background = blindCase(bgBase, bgCandidate, X_IS_BASE)
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(chat), DEFAULT_JUDGE_CONFIG)
+    await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
+    expect(calls[1]?.messages[0]?.content).toMatch(
+      /"Condition:".*handled that condition.*reads better but ignores/s,
+    )
+    expect(calls[0]?.messages[0]?.content).not.toContain('Condition:')
   })
 
   // The dimension set is config, so a trace dimension switched on later
@@ -379,6 +402,64 @@ describe('judgeCase', () => {
     expect(result.flags).toEqual([
       expect.objectContaining({ run: 'Y', type: 'restricted_data' }),
     ])
+  })
+})
+
+// The rubric doc's flag list, enforced. A free-text type let one finding
+// arrive under two names, so a flag count did not compare run to run.
+describe('the flag vocabulary', () => {
+  const flagged = (type: string): JsonValue =>
+    reply({
+      flags: [{ run: 'X', type, loc: 'X.final', explanation: 'why' }],
+    })
+
+  it('names every flag type in the prompt', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(blindCase(BASE, CANDIDATE, X_IS_BASE)))
+    const user = calls[0]?.messages[1]?.content ?? ''
+    expect(user).toContain(`types: ${FLAG_TYPES.join(', ')}.`)
+  })
+
+  it('shows the model the list in the schema it fills', () => {
+    const schema = JSON.stringify(sentSchema(DEFAULT_JUDGE_CONFIG.dimensions))
+    expect(schema).toContain(JSON.stringify(FLAG_TYPES))
+  })
+
+  // Anthropic's tool mode does not enforce an enum, so an invented type does
+  // arrive, and refusing it would throw away the seat's whole verdict.
+  it('keeps the verdict and replaces an invented type', async () => {
+    const { llm } = fake([flagged('name error inherited')])
+    const result = await judgeCase(
+      llm,
+      plan(blindCase(BASE, CANDIDATE, X_IS_BASE)),
+    )
+    const judgment = graded(result)
+    expect(judgment.flags.map((f) => f.type)).toEqual(['other_severe'])
+    expect(JSON.stringify(judgment)).not.toContain('name error inherited')
+  })
+
+  it('replaces an invented type on a stored verdict too', () => {
+    const parsed = CaseVerdictSchema.parse(flagged('name error propagated'))
+    expect(parsed.flags?.map((f) => f.type)).toEqual(['other_severe'])
+    expect(
+      CaseVerdictSchema.parse(flagged('fabricated_source')).flags?.[0]?.type,
+    ).toBe('fabricated_source')
+  })
+})
+
+describe('an ungraded judgment', () => {
+  it('keeps the slot map, so its stored ruling names the arms', async () => {
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: { seats: [], temperature: 0 },
+    }
+    const planned = plan(blindCase(BASE, CANDIDATE, X_IS_BASE))
+    const { llm } = fake([reply()])
+    const result = await judgeCase(llm, planned, config)
+    expect(result).toMatchObject({
+      kind: 'ungraded',
+      slotMap: planned.slotMap,
+    })
   })
 })
 
@@ -562,18 +643,25 @@ describe('the order-swap subsample', () => {
 // full verdict, so the schema was never the thing under test.
 describe('caseVerdictSchemaFor', () => {
   const dims = ['task_success', 'instruction_adherence', 'user_utility']
-  const dimension = { reasoning: 'r', verdict: 'tie' }
+  const dimension = TIE
   const verdict = (dimensions: Record<string, typeof dimension>) => ({
     rubric_version: 'uj-rubric-0.2',
     dimensions,
-    overall: { reasoning: 'r', verdict: 'tie' },
+    overall: dimension,
+    evidence: [],
   })
 
   it('refuses an empty dimensions object', () => {
     // The open record ACCEPTS this, which is the whole bug. Asserted against
     // the permissive schema too, so the difference between them is the thing
     // under test rather than an implementation detail.
-    expect(CaseVerdictSchema.safeParse(verdict({})).success).toBe(true)
+    expect(
+      CaseVerdictSchema.safeParse({
+        rubric_version: 'uj-rubric-0.2',
+        dimensions: {},
+        overall: { reasoning: 'r', verdict: 'tie' },
+      }).success,
+    ).toBe(true)
     expect(caseVerdictSchemaFor(dims).safeParse(verdict({})).success).toBe(
       false,
     )
@@ -607,17 +695,64 @@ describe('caseVerdictSchemaFor', () => {
   })
 })
 
+// The evidence travels in one list beside the dimensions and lands back on
+// the dimension each item names, so a stored verdict reads as it always did.
+describe('the evidence list on the wire', () => {
+  const cite = (dimension: string, loc: string) => ({
+    dimension,
+    loc,
+    quote: 'q',
+    note: '',
+  })
+
+  it('puts each item back on the dimension it names', () => {
+    const parsed = caseVerdictSchemaFor(['toString', 'b']).parse({
+      rubric_version: 'uj-rubric-0.2',
+      dimensions: { toString: TIE, b: TIE },
+      overall: TIE,
+      evidence: [
+        cite('toString', 'X.final'),
+        cite('b', 'Y.final'),
+        cite('overall', 'input'),
+        cite('valueOf', 'X.final'),
+      ],
+    })
+    const named = new Map(Object.entries(parsed.dimensions))
+    expect(named.get('toString')?.evidence).toEqual([
+      { loc: 'X.final', quote: 'q' },
+    ])
+    expect(named.get('b')?.evidence).toEqual([{ loc: 'Y.final', quote: 'q' }])
+    // An item naming no dimension the verdict carries is kept, under
+    // overall, including a name that is only on the prototype chain.
+    expect(parsed.overall.evidence?.map((e) => e.loc)).toEqual([
+      'input',
+      'X.final',
+    ])
+    expect(parsed.overall.magnitude).toBeNull()
+    expect(parsed.overall.needed_to_decide).toBeUndefined()
+  })
+})
+
 // The hop from `caseVerdictSchemaFor` to the model call. The schema tests
 // above prove the strict schema refuses an empty dimensions object; this is
 // what proves the judge hands that schema to the model rather than the
 // permissive one it sits beside. Reverting that single line reintroduces the
 // defect that left the first live sweep with 29 ungraded judgments, and
 // without this the whole suite stays green while it does.
+// A whole dimension in the wire shape, answering tie.
+const TIE = {
+  reasoning: 'r',
+  verdict: 'tie',
+  magnitude: 'none',
+  needed_to_decide: '',
+}
+
 describe('the seat is constrained by the strict schema', () => {
   const emptyDimensions = {
     rubric_version: 'uj-rubric-0.2',
     dimensions: {},
-    overall: { reasoning: 'r', verdict: 'tie' },
+    overall: TIE,
+    evidence: [],
   }
 
   it('gives the model a schema that refuses empty dimensions', async () => {
@@ -640,7 +775,7 @@ describe('the seat is constrained by the strict schema', () => {
     expect(
       accepts?.({
         ...emptyDimensions,
-        dimensions: { task_success: { reasoning: 'r', verdict: 'tie' } },
+        dimensions: { task_success: TIE },
       }),
     ).toBe(true)
     expect(accepts?.(emptyDimensions)).toBe(false)
@@ -664,6 +799,98 @@ describe('a seat does not inherit the service retry budget', () => {
   })
 })
 
+// The JSON Schema the panel's request carries: the AI SDK converts a zod 4
+// schema with exactly this call (provider-utils `zod4Schema`), input io
+// because the model writes the input side of every transform.
+const sentSchema = (dimensions: readonly string[]): unknown =>
+  z.toJSONSchema(caseVerdictSchemaFor(dimensions), {
+    target: 'draft-7',
+    io: 'input',
+  })
+
+// THE STRUCTURED-OUTPUT API'S SCHEMA LIMITS, counted on the JSON Schema the
+// AI SDK actually sends (`sentSchema`), the way the API documents
+// them: a property absent from its object's `required` is one optional
+// parameter, and a property whose schema is an `anyOf` or a type array is one
+// union parameter, both summed across the whole schema. Over either limit
+// and the API refuses the request, so every panel call fails and every
+// judgment comes back ungraded; the reworded flag type did exactly that.
+// Measured at the largest case the case lists allow, because the dimension
+// object repeats once per dimension.
+describe('the panel schema fits the API limits', () => {
+  const API_OPTIONAL_LIMIT = 24
+  const API_UNION_LIMIT = 16
+
+  const countParameters = (
+    node: unknown,
+    counts = { optional: 0, unions: 0 },
+  ): { optional: number; unions: number } => {
+    if (Array.isArray(node)) {
+      for (const item of node) countParameters(item, counts)
+      return counts
+    }
+    if (node === null || typeof node !== 'object') return counts
+    const properties: unknown = Reflect.get(node, 'properties')
+    if (properties !== null && typeof properties === 'object') {
+      const required: unknown = Reflect.get(node, 'required')
+      const named = new Set(Array.isArray(required) ? required : [])
+      for (const [name, property] of Object.entries(properties)) {
+        if (!named.has(name)) counts.optional += 1
+        if (
+          property !== null &&
+          typeof property === 'object' &&
+          ('anyOf' in property || Array.isArray(Reflect.get(property, 'type')))
+        ) {
+          counts.unions += 1
+        }
+      }
+    }
+    for (const value of Object.values(node)) countParameters(value, counts)
+    return counts
+  }
+
+  const sentFor = (dimensions: readonly string[]) =>
+    countParameters(sentSchema(dimensions))
+
+  const caseDimensions = Array.from(
+    { length: MAX_CASE_DIMENSIONS },
+    (_, index) => `case_dimension_${index}`,
+  )
+
+  it('stays under both limits with the most dimensions a case may add', () => {
+    const counts = sentFor([
+      ...DEFAULT_JUDGE_CONFIG.dimensions,
+      ...caseDimensions,
+    ])
+    expect(counts.optional).toBeLessThanOrEqual(API_OPTIONAL_LIMIT)
+    expect(counts.unions).toBeLessThanOrEqual(API_UNION_LIMIT)
+  })
+
+  // THE THIRD LIMIT CANNOT BE COUNTED HERE: the API also refuses a schema
+  // whose compiled grammar is too large, and an evidence list of objects
+  // inside each dimension did that at two case dimensions. What it
+  // measured is that a dimension of scalars stays small, so that is the
+  // property held.
+  it('keeps every dimension to scalars', () => {
+    const dimension = JSON.parse(
+      JSON.stringify(sentSchema(DEFAULT_JUDGE_CONFIG.dimensions)),
+    ).properties.dimensions.properties.task_success
+    for (const property of Object.values<{ type?: string }>(
+      dimension.properties,
+    )) {
+      expect(['string', 'boolean', 'number']).toContain(property.type)
+    }
+  })
+
+  // The stronger property, and the one that keeps the limit from coming
+  // back: a dimension adds no optional or union parameter at all.
+  it('costs nothing per dimension', () => {
+    expect(
+      sentFor([...DEFAULT_JUDGE_CONFIG.dimensions, ...caseDimensions]),
+    ).toEqual(sentFor(DEFAULT_JUDGE_CONFIG.dimensions))
+  })
+})
+
 // A DIMENSION NAME THAT IS ALSO AN OBJECT KEY. `o['__proto__'] = x` sets the
 // prototype instead of defining an own property, so a schema shape built by
 // assignment would carry no key for this one name — and `z.object` would then
@@ -679,14 +906,11 @@ describe('caseVerdictSchemaFor is not confused by an object key', () => {
       const verdict = (dimensions: JsonValue) => ({
         rubric_version: 'uj-rubric-0.2',
         dimensions,
-        overall: { reasoning: 'r', verdict: 'tie' },
+        overall: TIE,
+        evidence: [],
       })
       expect(schema.safeParse(verdict({})).success).toBe(false)
-      expect(
-        schema.safeParse(
-          verdict({ [name]: { reasoning: 'r', verdict: 'tie' } }),
-        ).success,
-      ).toBe(true)
+      expect(schema.safeParse(verdict({ [name]: TIE })).success).toBe(true)
     },
   )
 })
@@ -769,5 +993,102 @@ describe('a truncated response is not called a rubric failure', () => {
     for (const dimension of DEFAULT_JUDGE_CONFIG.dimensions) {
       expect(reason).not.toContain(dimension)
     }
+  })
+})
+
+// A probe asks about a relationship between the artifact and the input it
+// mutated, which the three default dimensions do not. The case's own question
+// has to reach the prompt, be required by the schema the seat is held to, and
+// come back combined — or the judge is asked it in prose and answers nothing.
+describe('a case with dimensions of its own', () => {
+  const sparse = {
+    name: 'sparse_input_handling',
+    question: 'Does the run say which opponents had too little to summarize?',
+  }
+  const withSparse = (): NormalizedCase => {
+    const normalized = blindCase(
+      BACKGROUND_PAIR[0],
+      BACKGROUND_PAIR[1],
+      X_IS_BASE,
+    )
+    return {
+      ...normalized,
+      payload: { ...normalized.payload, caseDimensions: [sparse] },
+    }
+  }
+  const sparseReply = (verdict: string): JsonValue =>
+    reply({
+      dimensions: {
+        task_success: dim('tie', null),
+        instruction_adherence: dim('tie', null),
+        user_utility: dim('X'),
+        sparse_input_handling: dim(verdict),
+      },
+    })
+
+  it('puts the question in the rubric and the name in the list', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG)
+    const prompt = calls[0]?.messages[1]?.content
+    expect(prompt).toContain(
+      'dimensions: task_success, instruction_adherence, user_utility, ' +
+        'sparse_input_handling.',
+    )
+    expect(prompt).toContain(`- sparse_input_handling: ${sparse.question}`)
+  })
+
+  it('holds the seat to answering it', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG)
+    expect(calls[0]?.schemaAccepts(reply())).toBe(false)
+    expect(calls[0]?.schemaAccepts(sparseReply('Y'))).toBe(true)
+  })
+
+  it('combines it beside the defaults', async () => {
+    const { llm } = fake([sparseReply('Y')])
+    const judgment = graded(
+      await judgeCase(llm, plan(withSparse()), DEFAULT_JUDGE_CONFIG),
+    )
+    expect(judgment.dimensions.sparse_input_handling?.verdict).toBe('Y')
+    expect(judgment.dimensions.user_utility?.verdict).toBe('X')
+  })
+
+  it('survives the order swap', () => {
+    const swapped = planJudgments([withSparse()], {
+      ...DEFAULT_JUDGE_CONFIG,
+      orderSwap: { enabled: true, fraction: 1 },
+    }).find((p) => p.key.order === 'swapped')
+    expect(swapped?.payload.caseDimensions).toEqual([sparse])
+  })
+
+  // The case list only knows the default config. A config judging on other
+  // names has to refuse a case that reuses one, before any seat is paid.
+  it('refuses a name the active config already judges on', async () => {
+    const { llm, calls } = fake([sparseReply('Y')])
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      dimensions: [...DEFAULT_JUDGE_CONFIG.dimensions, sparse.name],
+    }
+    await expect(judgeCase(llm, plan(withSparse()), config)).rejects.toThrow(
+      CaseDimensionCollisionError,
+    )
+    await expect(judgeCase(llm, plan(withSparse()), config)).rejects.toThrow(
+      /meeting_briefing\/brief-2025-11-04 asks sparse_input_handling/,
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  it('leaves a case without them asking exactly what it asked before', async () => {
+    const { llm, calls } = fake([reply()])
+    await judgeCase(
+      llm,
+      plan(blindCase(BACKGROUND_PAIR[0], BACKGROUND_PAIR[1], X_IS_BASE)),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    const prompt = calls[0]?.messages[1]?.content ?? ''
+    expect(prompt).toContain(
+      'dimensions: task_success, instruction_adherence, user_utility. Then',
+    )
+    expect(prompt).not.toContain('This case was written to test')
   })
 })

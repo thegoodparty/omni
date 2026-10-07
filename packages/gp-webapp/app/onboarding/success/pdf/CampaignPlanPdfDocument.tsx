@@ -954,16 +954,30 @@ export const CampaignPlanPdfDocument = ({
 
         <Text style={styles.h3}>Projected Votes Needed to Win</Text>
         <Text style={styles.para}>
-          Our modeling projects voter turnout of{' '}
-          <Text style={styles.paraBold}>
-            {plan.projectedTurnout.toLocaleString('en-US')} voters
-          </Text>
-          , putting the threshold for a win at{' '}
+          {plan.votesCast !== null ? (
+            <>
+              Our modeling projects{' '}
+              <Text style={styles.paraBold}>
+                {plan.votesCast.toLocaleString('en-US')} votes
+              </Text>{' '}
+              will be cast for {plan.race} candidates in the election,
+            </>
+          ) : (
+            <>
+              Our modeling projects voter turnout of{' '}
+              <Text style={styles.paraBold}>
+                {plan.projectedTurnout.toLocaleString('en-US')} voters
+              </Text>
+              ,
+            </>
+          )}{' '}
+          putting the threshold for victory at{' '}
           <Text style={styles.paraBold}>
             {plan.winNumber.toLocaleString('en-US')} votes
-          </Text>{' '}
-          — a simple majority (50% + 1) of voters who cast a ballot. Hitting
-          that target requires{' '}
+          </Text>
+          . This is the lowest amount of votes we project {plan.winNumberGoal};
+          our campaign plan below will guide you toward surpassing that number.
+          Hitting that target requires{' '}
           <Text style={styles.paraBold}>
             {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
           </Text>{' '}

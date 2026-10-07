@@ -26,6 +26,9 @@ export interface OrdinanceFlowContext {
   officeTitle: string | null
   officeLevel: BallotReadyPositionLevel | null
   jurisdiction: string | null
+  // Two-letter state from the code record or the resolved district, for the
+  // date line's zone.
+  state?: string | null
   seedType: OrdinanceSeedType
   issueSlug: string | null
   goalText: string | null
@@ -104,6 +107,7 @@ export class OrdinanceFlowContextService extends createPrismaBase(
       jurisdiction: codeRecord
         ? `${codeRecord.place}, ${codeRecord.state}`
         : null,
+      state: codeRecord?.state ?? null,
       seedType: ordinance.seedType,
       issueSlug: ordinance.issueSlug,
       goalText: ordinance.goalText,

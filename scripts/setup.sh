@@ -8,7 +8,7 @@
 #
 # Usage:
 #   scripts/setup.sh [--from <path>] [--api-url <url>] [--force]
-#                    [--secrets-only] [--user-state <state>]
+#                    [--secrets-only] [--refresh] [--user-state <state>]
 #
 #   --from <path>     A working omni checkout to copy real .env values from,
 #                     instead of the GitHub device flow (takes precedence).
@@ -24,6 +24,12 @@
 #                     already exists (the caller's own install step, not
 #                     this one, provides it) since the secrets step shells
 #                     out via `npx tsx`.
+#   --refresh         Fetch the LOCAL_DEV_ENV bundle again and rebuild the
+#                     .env files even when they already validate, so keys
+#                     an admin added after your first run reach you. Bundle
+#                     values replace yours; every other value you set is
+#                     kept. Device flow only, so not with --from. Also
+#                     re-vends the Grafana MCP token into .env.mcp.local.
 #   --user-state <state>
 #                     Product state for the login this script seeds at the
 #                     end (default free-win; see
@@ -54,11 +60,15 @@ source "$ROOT/scripts/setup-config.sh"
 # docs/development.md and gp-webapp/package.json's `dev` script.
 GP_API_ENV="$ROOT/packages/gp-api/.env"
 GP_WEBAPP_ENV="$ROOT/packages/gp-webapp/.env.local"
+# Not a package: the repo's MCP servers' tokens, read by scripts/mcp/*.sh.
+# Gitignored by *.local; worktree-setup.sh's root .env.* copy carries it.
+MCP_ENV="$ROOT/.env.mcp.local"
 
 FROM=""
 API_URL="https://gp-api-dev.goodparty.org"
 FORCE=false
 SECRETS_ONLY=false
+REFRESH=false
 USER_STATE="free-win"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -78,12 +88,16 @@ while [ $# -gt 0 ]; do
       SECRETS_ONLY=true
       shift
       ;;
+    --refresh)
+      REFRESH=true
+      shift
+      ;;
     --user-state)
       USER_STATE="$2"
       shift 2
       ;;
     -h | --help)
-      sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -92,6 +106,11 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$REFRESH" = true ] && [ -n "$FROM" ]; then
+  echo "--refresh re-fetches the LOCAL_DEV_ENV bundle; it can't be combined with --from." >&2
+  exit 1
+fi
 
 log() { echo "==> $*"; }
 indent() { echo "    $*"; }
@@ -184,6 +203,7 @@ plan_action() {
   local pkg="$1" path="$2"
   if [ -f "$path" ] && npx tsx "$ROOT/scripts/setup/lib/cli.ts" check "$pkg" "$path" >/dev/null 2>&1; then
     PLAN_ACTION="skip"
+    [ "$REFRESH" = true ] && PLAN_ACTION="write"
     return
   fi
   if [ -f "$path" ] && [ "$FORCE" != true ]; then
@@ -262,9 +282,11 @@ elif [ "$need_from" = true ]; then
   npm run build -w packages/contracts >/dev/null
   # $missing is a bash word-split list of literal package names this script
   # built above ("gp-api gp-webapp"), never external input — safe unquoted.
+  # mcp rides along on every device flow rather than starting one of its
+  # own, so a blob with no mcp entry never re-prompts on each run.
   # shellcheck disable=SC2086
   if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" device-flow \
-    "$GITHUB_OAUTH_CLIENT_ID" "$API_URL" "$TMP_ENV_DIR" $missing; then
+    "$GITHUB_OAUTH_CLIENT_ID" "$API_URL" "$TMP_ENV_DIR" $missing mcp; then
     echo "ERROR: could not fetch dev env bundles via the GitHub device flow." >&2
     echo "Re-run with --from <path-to-a-working-checkout> instead, or see" >&2
     echo "the epic's ops prerequisites for help." >&2
@@ -280,15 +302,18 @@ log "[3/8] Writing/completing .env files"
 # env still doesn't validate, before anything real has been touched.
 # $device_file, when it exists, is the device flow's vended bundle for
 # this package (staged above); it takes precedence over $path, which is
-# only ever populated by the --from copy step.
+# only ever populated by the --from copy step. When both exist (--refresh,
+# or --force over an invalid file), $path goes in underneath the bundle so
+# a rebuild keeps whatever the bundle doesn't carry.
 build_one() {
-  local pkg="$1" path="$2" out="$3" device_file="${4:-}" copied="-"
+  local pkg="$1" path="$2" out="$3" device_file="${4:-}" copied="-" under=""
   if [ -n "$device_file" ] && [ -f "$device_file" ]; then
     copied="$device_file"
+    [ -f "$path" ] && under="$path"
   elif [ -f "$path" ]; then
     copied="$path"
   fi
-  if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" build "$pkg" "$copied" "$out"; then
+  if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" build "$pkg" "$copied" "$out" ${under:+"$under"}; then
     echo "ERROR: could not build a valid env for $pkg (missing vars above)." >&2
     echo "No files were written." >&2
     exit 1
@@ -309,6 +334,16 @@ fi
 if [ "$GP_WEBAPP_ACTION" = "write" ]; then
   mv "$TMP_ENV_DIR/gp-webapp.env" "$GP_WEBAPP_ENV"
   indent "wrote packages/gp-webapp/.env.local"
+fi
+# An empty vended token means LOCAL_DEV_ENV has no mcp entry yet; keep
+# whatever token the file already holds rather than blanking it.
+MCP_TOKEN_LINE='^GRAFANA_SERVICE_ACCOUNT_TOKEN=.'
+if grep -q "$MCP_TOKEN_LINE" "$TMP_ENV_DIR/device-mcp.env" 2>/dev/null; then
+  mv "$TMP_ENV_DIR/device-mcp.env" "$MCP_ENV"
+  indent "wrote .env.mcp.local (Grafana MCP token; restart Claude Code to pick it up)"
+elif ! grep -q "$MCP_TOKEN_LINE" "$MCP_ENV" 2>/dev/null; then
+  indent "no Grafana MCP token yet: the grafana MCP stays off until an admin"
+  indent "adds one to LOCAL_DEV_ENV, then run npm run setup -- --secrets-only --refresh"
 fi
 rm -rf "$TMP_ENV_DIR"
 TMP_ENV_DIR=""
@@ -394,12 +429,15 @@ webapp_ok=false
 # 450 * 2s = 15min, matching the setup-smoke job's outer poll budget: a cold
 # first boot compiles gp-webapp + gp-api on a 2-core CI runner, and this
 # inner gate must never give up before the workflow's own deadline does.
+# Each probe is capped: a dev server mid-compile accepts the connection and
+# answers nothing, and an uncapped curl then parks this loop past the job's
+# own timeout, so the dev log below never prints and the run reads as a hang.
 timeout_iters=450
 for _ in $(seq 1 "$timeout_iters"); do
-  if [ "$api_ok" != true ] && curl -fsS "http://localhost:3000/v1/health" >/dev/null 2>&1; then
+  if [ "$api_ok" != true ] && curl -fsS --max-time 5 "http://localhost:3000/v1/health" >/dev/null 2>&1; then
     api_ok=true
   fi
-  if [ "$webapp_ok" != true ] && curl -fsS "http://localhost:4000" >/dev/null 2>&1; then
+  if [ "$webapp_ok" != true ] && curl -fsS --max-time 5 "http://localhost:4000" >/dev/null 2>&1; then
     webapp_ok=true
   fi
   if [ "$api_ok" = true ] && [ "$webapp_ok" = true ]; then

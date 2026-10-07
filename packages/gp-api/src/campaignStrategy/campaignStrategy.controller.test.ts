@@ -4,6 +4,7 @@ import { FastifyReply } from 'fastify'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignStrategyController } from './campaignStrategy.controller'
+import { CampaignPlanBackfillService } from './services/campaignPlanBackfill.service'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
 
 const sampleUser = {
@@ -68,6 +69,7 @@ describe('CampaignStrategyController', () => {
     }
     controller = new CampaignStrategyController(
       service as unknown as CampaignStrategyService,
+      {} as CampaignPlanBackfillService,
       createMockLogger(),
     )
   })

@@ -51,8 +51,9 @@ export const buildCampaignStoryTool = (deps: {
     'array) and replaces whatever that field held, so call it as soon as the ' +
     'candidate gives an answer in their own words, then again with a rewrite ' +
     "once they approve one; 'generate' kicks off the campaign plan + tracker " +
-    'once all three answers are saved. Never save a rewrite the candidate has ' +
-    'not approved, and only generate after they confirm.',
+    'once all three answers are saved, and is called without asking first: ' +
+    'finishing the story is the request. Never save a rewrite the candidate ' +
+    'has not approved.',
   inputSchema: campaignStoryToolInputSchema,
   execute: async (input): Promise<CampaignStoryToolOutput> => {
     const { intake, campaignId, candidateName } = deps

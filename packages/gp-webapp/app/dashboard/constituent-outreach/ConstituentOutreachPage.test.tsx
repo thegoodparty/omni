@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -16,6 +17,26 @@ import type {
 } from '@goodparty_org/contracts'
 import ConstituentOutreachPage from './ConstituentOutreachPage'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
+
+// The draft field is a TokenField: its text lives in the editor TipTap hangs
+// on the textbox, not in a `value`.
+const draftEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Draft message' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const draftText = () => draftEditor().getText({ blockSeparator: '\n' })
+
+// The script field is a TokenField: its text lives in the editor TipTap
+// hangs on the textbox, not in a `value`.
+const scriptEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Call script' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
 
 // Desktop history table, scoped so its content isn't confused with the
 // mobile card list (also in the DOM, hidden via CSS).
@@ -336,7 +357,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     await user.click(screen.getByText('Social media'))
     await user.click(await screen.findByText('Introduce myself'))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
       ),
     )
@@ -456,9 +477,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
       await screen.findByRole('button', { name: /Continue \(10\)/ }),
     )
     await screen.findAllByText('Write your call script')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
     await user.type(screen.getByLabelText('Campaign name'), 'Maple calls')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(

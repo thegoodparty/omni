@@ -132,6 +132,9 @@ const CONTROLLER_OWNERS: Partial<
   'public-person-profiles': BOTH,
   'public-campaigns': BOTH,
   'speech/transcribe': BOTH,
+  // Issue capture: memos, the effort report and the tag list, on both
+  // products, each behind its own rollout flag.
+  'constituent-feedback': BOTH,
   'voters/voter-file': BOTH,
   chats: BOTH,
   'error-logger': BOTH,

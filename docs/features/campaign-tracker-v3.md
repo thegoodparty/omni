@@ -107,16 +107,31 @@ renders dynamic rows only, so the static story row never appears in it). Ballot
 access still outranks it: a missed filing deadline cannot be undone. All three
 surfaces share the same title and caption.
 
-### Regeneration when the story lands
+### Regeneration when the story changes
 
-A plan generated without a complete story goes stale the moment the candidate
-finishes one, in a way the `raceId` comparison can't see.
-`CampaignStrategy.generatedWithStory` tracks it, and `alignPlanWithStory` (the
-same shape as `alignPlanWithRace`) wipes the content in place and lets
-`dispatchPending` regenerate when the flag is false and the story is now
-complete. The flag **is** the claim: the plan endpoint is polled, so the
-conditional `updateMany` is what stops two concurrent polls from each
-resetting and double-dispatching. Attempt counters deliberately survive.
+A plan goes stale whenever the story it was built from changes, in a way the
+`raceId` comparison can't see — whether that is a candidate finishing a story
+they never had, or editing an answer years later.
+`CampaignStrategy.storyFingerprint` holds a hash of the three answers the plan
+was last generated from (`fingerprintStory`, beside the one story reader), and
+`alignPlanWithStory` (the same shape as `alignPlanWithRace`) wipes the content
+in place and lets `dispatchPending` regenerate whenever the current story
+hashes to something else. Attempt counters deliberately survive.
+
+The hash **is** the claim, as a compare-and-swap rather than a one-way flag:
+every write is conditional on the row still holding the fingerprint that call
+read, which is what stops two concurrent polls from both resetting and
+double-dispatching. It also makes the write path cheap enough to fire on every
+story save: the story page saves each field independently, so one edit arrives
+as several messages that all hash alike once it settles, and only a hash that
+actually differs reaches the reset.
+
+`generatedWithStory`, the boolean this replaced, survives for one job: telling
+a pre-fingerprint row that was built *from* a story (adopt the current hash
+silently) apart from one built *without* one (regenerate). Without that, adding
+the column would have billed a regeneration for every campaign with a finished
+story at once. It is dead weight once every row carries a fingerprint and can
+be dropped then.
 
 The decision is per-section, not per-plan, and reading it per-plan cost two
 bugs in a row. Each section owns a runId and a `persistedAt`, so a section

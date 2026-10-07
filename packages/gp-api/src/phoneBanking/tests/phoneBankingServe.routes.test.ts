@@ -111,9 +111,20 @@ describe('serve phone banking routes', () => {
       async (purpose) => {
         mockPeoplePage([fakePerson({ cellPhone: '3075660001' })])
 
+        // community_input is the one purpose that asks a question rather than
+        // delivering a message, and the contract requires the question with
+        // it — issue capture reads it as the context for every call's memo.
         const res = await service.client.post(
           '/v1/phone-banking/serve/lists',
-          buildBody({ purpose }),
+          buildBody(
+            purpose === 'community_input'
+              ? {
+                  purpose,
+                  communityInputQuestion:
+                    'Would you take part in a compost pilot?',
+                }
+              : { purpose },
+          ),
           eoHeaders(),
         )
 
@@ -573,6 +584,28 @@ describe('serve phone banking routes', () => {
       const res = await service.client.post(
         '/v1/phone-banking/serve/lists',
         buildBody({ proposalKey: PROPOSAL_KEY, priorityId: foreign.id }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(404)
+      expect(
+        await service.prisma.phoneBankingList.count({
+          where: { organizationSlug: eoSlug },
+        }),
+      ).toBe(0)
+    })
+
+    it('refuses an archived priority', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770099' })])
+      const priority = await officePriority()
+      await service.prisma.priority.update({
+        where: { id: priority.id },
+        data: { archivedAt: new Date() },
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY, priorityId: priority.id }),
         eoHeaders(),
       )
 

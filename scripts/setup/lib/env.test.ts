@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildMergedEnv, parseEnvFile, serializeEnvFile } from './env'
+import {
+  buildMergedEnv,
+  findPlaceholderFeatures,
+  parseEnvFile,
+  serializeBuiltEnv,
+  serializeEnvFile,
+} from './env'
 
 describe('parseEnvFile', () => {
   it('parses KEY=value, KEY=, and quoted values, ignoring comments/blanks', () => {
@@ -36,6 +42,16 @@ describe('serializeEnvFile', () => {
   it('writes one KEY=value per line in the given key order', () => {
     const out = serializeEnvFile({ B: '2', A: '1' }, ['A', 'B', 'C'])
     expect(out).toBe('A=1\nB=2\nC=\n')
+  })
+})
+
+describe('serializeBuiltEnv', () => {
+  it('leaves blank and missing keys out so code defaults apply', () => {
+    const out = serializeBuiltEnv(
+      { A: '1', TEST_SEND_COOLDOWN_MS: '', B: '0' },
+      ['A', 'TEST_SEND_COOLDOWN_MS', 'B', 'C'],
+    )
+    expect(out).toBe('A=1\nB=0\n')
   })
 })
 
@@ -100,5 +116,39 @@ describe('buildMergedEnv', () => {
       {},
     )
     expect(merged).toEqual({ ONLY_THIS: 'a' })
+  })
+})
+
+describe('findPlaceholderFeatures', () => {
+  const contract = {
+    ANTHROPIC_API_KEY: {
+      tier: 'degradable',
+      feature: 'ai-chat',
+      placeholder: 'your-anthropic-key',
+    },
+    SLACK_APP_ID: { tier: 'degradable', feature: 'slack-notifications' },
+    NODE_ENV: { tier: 'optional', placeholder: 'development' },
+  }
+
+  it('names a placeholder-declared feature left at its placeholder', () => {
+    expect(
+      findPlaceholderFeatures(contract, {
+        ANTHROPIC_API_KEY: 'your-anthropic-key',
+        SLACK_APP_ID: '',
+        NODE_ENV: 'development',
+      }),
+    ).toEqual(['ai-chat (ANTHROPIC_API_KEY)'])
+  })
+
+  it('names it when the value is empty', () => {
+    expect(
+      findPlaceholderFeatures(contract, { ANTHROPIC_API_KEY: '' }),
+    ).toEqual(['ai-chat (ANTHROPIC_API_KEY)'])
+  })
+
+  it('returns nothing once a real value is set', () => {
+    expect(
+      findPlaceholderFeatures(contract, { ANTHROPIC_API_KEY: 'sk-ant-real' }),
+    ).toEqual([])
   })
 })

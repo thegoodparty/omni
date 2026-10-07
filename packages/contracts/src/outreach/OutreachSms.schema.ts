@@ -1,11 +1,11 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
-import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
+import { BROADCAST_OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 import { OutreachEventDetailsSchema } from './OutreachEvent.schema'
 
-// SMS is the canonical vocabulary every other outreach channel now shares —
-// see OutreachPurpose.schema.ts.
-export const SMS_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
+// SMS is the canonical vocabulary every other outreach channel now shares,
+// less the purpose that asks a question — see OutreachPurpose.schema.ts.
+export const SMS_PURPOSE_VALUES = BROADCAST_OUTREACH_PURPOSE_VALUES
 export const SmsPurposeSchema = z.enum(SMS_PURPOSE_VALUES)
 export type SmsPurpose = z.infer<typeof SmsPurposeSchema>
 

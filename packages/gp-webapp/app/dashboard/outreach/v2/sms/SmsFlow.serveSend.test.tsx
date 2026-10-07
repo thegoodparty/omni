@@ -6,7 +6,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { api } from 'helpers/test-utils/api-mocking'
 import {
   createP2pPhoneList,
-  getP2pPhoneListStatus,
+  getP2pPhoneListBuildStatus,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import type { TcrCompliance } from 'helpers/types'
@@ -46,8 +46,13 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // would otherwise fail for the wrong reason, and the point is to assert they
 // were never reached at all.
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 1200,
     excludedOptedOutCount: 3,
@@ -184,7 +189,7 @@ describe('SmsFlow serve send path', () => {
     createCheckoutSession.mockClear()
     uploadFileToS3.mockClear()
     vi.mocked(createP2pPhoneList).mockClear()
-    vi.mocked(getP2pPhoneListStatus).mockClear()
+    vi.mocked(getP2pPhoneListBuildStatus).mockClear()
     vi.mocked(createOutreach).mockClear()
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
@@ -275,7 +280,7 @@ describe('SmsFlow serve send path', () => {
     // identity to send under, so the phone-list derivation must never run —
     // on the audience step, on the name step, or anywhere else.
     expect(createP2pPhoneList).not.toHaveBeenCalled()
-    expect(getP2pPhoneListStatus).not.toHaveBeenCalled()
+    expect(getP2pPhoneListBuildStatus).not.toHaveBeenCalled()
     // Win's campaign-scoped draft create likewise.
     expect(createOutreach).not.toHaveBeenCalled()
   })
@@ -495,18 +500,23 @@ describe('SmsFlow serve send path', () => {
     // "City Council - District 3" -> "City Council Member": the district
     // suffix is dropped and the noun is made a person, by polls' own
     // grammarizeOfficeName rather than by anything re-derived here.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, your City Council Member\./),
+    )
     expect(
-      await screen.findByText(/this is Jane, your City Council Member\./),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/candidate for/)).toBeNull()
-    expect(screen.queryByText(/District 3/)).toBeNull()
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).not.toHaveTextContent(/candidate for|District 3/)
 
     // A second tone, to prove the wiring is tone-keyed and not a constant.
     // (All four are pinned in smsCompose.util.test.ts.)
     await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
-    expect(
-      await screen.findByText(/Jane here, your City Council Member\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/Jane here, your City Council Member\./),
+    )
   })
 })
 
@@ -591,9 +601,11 @@ describe('SmsFlow win send path (unchanged)', () => {
     await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText(/this is Jane, candidate for City Council\./),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+    )
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),

@@ -162,7 +162,7 @@ const CampaignStrategySection = ({
         <Card className="mx-4 mt-6 flex items-center gap-3 p-4 sm:mx-auto sm:max-w-[calc(48rem-2rem)]">
           <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
           <p className="text-muted-foreground text-sm">
-            Setting up your campaign tracker. Your tasks will appear here
+            Setting up your campaign plan. Your tasks will appear here
             automatically in a few minutes.
           </p>
         </Card>

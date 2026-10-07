@@ -11,6 +11,7 @@ import {
   cn,
 } from '@styleguide'
 import {
+  CircleAlertIcon,
   EyeIcon,
   GiftIcon,
   InfoIcon,
@@ -77,6 +78,12 @@ interface SmsReviewStepProps {
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
+  // The phone-list build itself (not the draft-creation step `prepareError`
+  // covers) resolved to `failed` — distinct because the fix is different:
+  // there's a fresh build to request, not a draft to retry.
+  buildFailed?: boolean
+  retryingBuild?: boolean
+  onRetryBuild?: () => void
   // The candidate cannot send yet (milestone 2's gate), so this reads back
   // what they built with no schedule rows and no checkout — the flow's own
   // CTA saves it as a draft instead (design: flowReview's preClear branch).
@@ -102,15 +109,28 @@ export const SmsReviewStep = ({
   excludedDuplicatePhoneCount,
   preparing,
   prepareError,
+  buildFailed = false,
+  retryingBuild = false,
+  onRetryBuild,
   readOnlySummary = false,
   onComplete,
 }: SmsReviewStepProps) => {
   const [campaign] = useCampaign()
-  const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
+  const { checkoutSession, error, setError, fetchClientSecret } =
+    useCheckoutSession()
   const [preview, setPreview] = useState(false)
   const [isRedeeming, setIsRedeeming] = useState(false)
   const [payError, setPayError] = useState(false)
   const [payErrorMessage, setPayErrorMessage] = useState<string | null>(null)
+  // What Stripe is actually charging once the form has priced the session,
+  // which is the only figure that reflects an applied promo code. Null until
+  // the form reports it, so the summary falls back to the session amount.
+  const [liveTotalDollars, setLiveTotalDollars] = useState<number | null>(null)
+  // A declined or failed card confirm. The form stays mounted so the
+  // candidate can try another card on the same session; swapping in the
+  // purchase-error card read as "Failed to initialize purchase" and forced a
+  // Back that minted a new draft and session (Dujuan Thomas, 2026-10-06).
+  const [cardError, setCardError] = useState<string | null>(null)
   const isRedeemingRef = useRef(false)
   const hasFetchedSession = useRef(false)
 
@@ -120,7 +140,14 @@ export const SmsReviewStep = ({
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
-  const totalDollars = isFree ? 0 : (checkoutSession?.amount ?? 0)
+  const totalDollars = isFree
+    ? 0
+    : (liveTotalDollars ?? checkoutSession?.amount ?? 0)
+  // The provider's error is set both when the session could not be created
+  // and, by the form, when a confirm fails. Only the first is fatal to the
+  // step; once a session exists an error is a card problem to show inline.
+  const sessionError = Boolean(error) && !checkoutSession
+  const inlineCardError = cardError ?? (checkoutSession ? error : null)
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
   const summaryDollars =
@@ -163,6 +190,10 @@ export const SmsReviewStep = ({
   }
 
   const handlePaidComplete = async (sessionId: string) => {
+    // Reached only after Stripe confirmed the card, so a decline shown from
+    // an earlier attempt is stale while the flow moves to the success screen.
+    setCardError(null)
+    setError(null)
     const response = await completeCheckoutSession(sessionId)
     if (!response.ok) {
       const parsed = purchaseErrorSchema.safeParse(response.data)
@@ -171,8 +202,10 @@ export const SmsReviewStep = ({
         setPayError(true)
         return
       }
-      // Unparseable failures keep the throw so CheckoutForm's onError still
-      // reports to Sentry and snackbars.
+      // The card is already charged, so this is not a card problem: show the
+      // purchase error card, not the inline decline. The throw stays so
+      // CheckoutForm's onError still reports to Sentry and snackbars.
+      setPayError(true)
       throw new Error('Failed to complete purchase')
     }
     await onComplete(true)
@@ -290,7 +323,7 @@ export const SmsReviewStep = ({
               ) : (
                 'Free'
               )
-            ) : prepareError || error ? (
+            ) : prepareError || buildFailed || sessionError ? (
               '\u2014'
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
@@ -342,7 +375,22 @@ export const SmsReviewStep = ({
         </p>
       )}
 
-      {readOnlySummary ? null : prepareError ? (
+      {readOnlySummary ? null : buildFailed ? (
+        <Card className="items-start gap-3 border-destructive p-4">
+          <p className="text-sm text-foreground">
+            We couldn&apos;t prepare this audience. Try again.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onRetryBuild}
+            disabled={retryingBuild}
+            loading={retryingBuild}
+          >
+            Try again
+          </Button>
+        </Card>
+      ) : prepareError ? (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
             We couldn&apos;t set up your purchase. Go back a step and try again.
@@ -357,7 +405,7 @@ export const SmsReviewStep = ({
         <div className="flex justify-center py-6">
           <Spinner />
         </div>
-      ) : payError || error ? (
+      ) : payError || sessionError ? (
         <PurchaseError serverError={payErrorMessage ?? undefined} />
       ) : isFree ? (
         <Button
@@ -376,9 +424,19 @@ export const SmsReviewStep = ({
             <p className="font-medium text-foreground">Payment details</p>
             <CheckoutPayment
               onPaymentSuccess={handlePaidComplete}
-              onPaymentError={() => setPayError(true)}
+              onPaymentError={setCardError}
+              onTotalChange={setLiveTotalDollars}
             />
           </Card>
+          {inlineCardError && (
+            <Alert
+              variant="destructive"
+              icon={<CircleAlertIcon className="size-4" />}
+            >
+              <AlertTitle>Your payment didn&apos;t go through</AlertTitle>
+              <AlertDescription>{inlineCardError}</AlertDescription>
+            </Alert>
+          )}
           <Alert variant="info" icon={<InfoIcon className="size-4" />}>
             <AlertTitle>${money(totalDollars)} due today</AlertTitle>
             <AlertDescription>

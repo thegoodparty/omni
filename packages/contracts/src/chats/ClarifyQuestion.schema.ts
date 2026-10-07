@@ -21,6 +21,8 @@ export const ChatSourceSchema = z.object({
   publisher: z.string().optional(),
   kind: z.enum(['external', 'internal']).optional(),
   excerpt: z.string().optional(),
+  /** When the page was published or last updated, as it shows it ("March 2026"). */
+  date: z.string().optional(),
 })
 export type ChatSource = z.infer<typeof ChatSourceSchema>
 

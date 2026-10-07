@@ -13,8 +13,13 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 }))
 
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 19000,
     excludedOptedOutCount: 0,
@@ -570,7 +575,11 @@ describe('SmsFlow — recommended lists', () => {
       return { status: 200, data: row }
     })
     vi.mocked(createP2pPhoneList)
-      .mockResolvedValueOnce({ ok: true, token: 'tok-list-a' })
+      .mockResolvedValueOnce({
+        ok: true,
+        token: 'tok-list-a',
+        buildId: 'build-list-a',
+      })
       .mockResolvedValueOnce({ ok: false, status: 400 })
     await openToAudience()
 

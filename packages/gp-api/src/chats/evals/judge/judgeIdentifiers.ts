@@ -1,6 +1,7 @@
 import { appendFileSync } from 'node:fs'
 import { RaceListItemArraySchema } from '@goodparty_org/contracts'
 import { Headers, MimeTypes } from 'http-constants-ts'
+import { JUDGE_USER_EMAIL } from './judgeFixtureIdentity'
 import { JUDGE_ORG_SLUG_PREFIX, ORG_SLUG } from './runners/background'
 import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 
@@ -11,15 +12,13 @@ import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 // it to `judge-*`, names an organization that does not exist; `race_id` is a
 // trace and idempotency identifier; `user_email` is matched only against a
 // roster inside the same params. So none of them has to name anything that
-// exists, and nothing here needs a credential.
+// exists, and nothing here needs a credential. The three agents that DO read
+// gp-api never see this slug: they run as the seeded account in
+// judgeFixtureIdentity.ts instead.
 //
 // Resolved once per sweep, by a step before either arm, and handed to both
 // through step outputs: two arms with different values would be comparing two
 // inputs.
-
-// Not a person and not a mailbox anyone reads: example.com is reserved for
-// exactly this (RFC 2606), and a public case list should carry no real address.
-export const JUDGE_USER_EMAIL = 'judge-sweep@example.com'
 
 // One per sweep, from the sweep id both arms already share. The organization
 // does not exist, so the slug only has to be one nothing real uses; an eval

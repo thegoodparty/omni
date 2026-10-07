@@ -15,7 +15,12 @@ export const buildAskClarifyQuestionTool = (): LlmStreamTool<
     'answered. Set multiSelect when more than one answer can be true, such as ' +
     'options the user could pursue together or symptoms of one problem; the ' +
     'options become checkboxes and the answer comes back as the chosen labels ' +
-    'joined into one line. Leave it off when the answers rule each other out.',
+    'joined into one line. Leave it off when the answers rule each other out. ' +
+    'The UI shows the question above its options, so never write ' +
+    'the question, or any rewording of it, as chat text. Any text before ' +
+    'this call is context and never ends in a question. Use this tool ' +
+    'whenever the user has to choose; never end a message with an either/or ' +
+    'or pick-one question in prose.',
   inputSchema: ChatClarifyQuestionSchema,
   execute: ({ questionId, options, multiSelect }) => {
     // A multi-select answer comes back as labels joined into one line, so a

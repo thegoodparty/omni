@@ -3,6 +3,7 @@ import { createRng } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
   BACKGROUND_PAIR,
+  BACKGROUND_TOOL_ERROR_PAIR,
   BLOCKED_PAIR,
   CHAT_PAIR,
   IDENTICAL_DIGEST_PAIR,
@@ -399,6 +400,9 @@ describe('refusals', () => {
         arms: ['base', 'candidate'],
       }),
     ])
+    // And NO notice, because an `auto` report must carry no qualifier at all:
+    // the exclusion above is how this case is reported there.
+    expect(result.identicalConfig).toBeNull()
   })
 
   it('refuses arms that were given different inputs', () => {
@@ -437,6 +441,43 @@ describe('exclusions', () => {
         reason: 'toolError',
         arms: ['candidate'],
       }),
+    ])
+  })
+
+  // A background agent is judged on its final artifact. Live sweeps showed
+  // them routinely hitting a failing Bash snippet, fixing it and carrying on;
+  // excluding those pairs left almost nothing scored.
+  it('scores a background pair whose arms both hit tool errors', () => {
+    const result = normalizeAgent(BACKGROUND_TOOL_ERROR_PAIR, ALWAYS_X_IS_BASE)
+    expect(result.excluded).toEqual([])
+    expect(result.judgeable.map((c) => c.caseId)).toEqual(['race-t1'])
+  })
+
+  it('scores a background pair where only one arm hit a tool error', () => {
+    const [base, candidate] = BACKGROUND_TOOL_ERROR_PAIR
+    const clean = {
+      ...candidate,
+      telemetry: { ...candidate.telemetry, toolErrors: 0 },
+    }
+    const result = normalizeAgent([base, clean], ALWAYS_X_IS_BASE)
+    expect(result.excluded).toEqual([])
+    expect(result.judgeable).toHaveLength(1)
+  })
+
+  // The relaxation is for tool errors only. A background arm with no
+  // artifact is infraError (the runner records a missing or unparseable
+  // artifact that way), and that still excludes the pair, tool errors or not.
+  it('still excludes a background pair with an infra error', () => {
+    const [base, candidate] = BACKGROUND_TOOL_ERROR_PAIR
+    const died: RunRecord = {
+      ...candidate,
+      status: 'infraError',
+      output: null,
+    }
+    const result = normalizeAgent([base, died], ALWAYS_X_IS_BASE)
+    expect(result.judgeable).toEqual([])
+    expect(result.excluded).toEqual([
+      expect.objectContaining({ reason: 'infraError', arms: ['candidate'] }),
     ])
   })
 
@@ -821,21 +862,23 @@ describe('an explicitly named selection is judged rather than refused', () => {
     ).toBeNull()
   })
 
-  // The guard is the default, so a caller that says nothing — and `auto`,
-  // which says so — still gets the refusal. Both spellings, because the whole
-  // point is that the opt-in has to be asked for by name.
-  it.each([
-    ['nothing at all', undefined],
-    ['an explicitly derived selection', { explicitSelection: false }],
-  ] as const)('still refuses on %s', (_label, options) => {
+  // `{ explicitSelection: false }` rather than an absent option: the two
+  // refusals above already cover a caller that passes nothing, and what is
+  // new here is a selection the trigger says out loud was derived.
+  const DERIVED: NormalizeOptions = { explicitSelection: false }
+
+  it('still refuses the agent on an explicitly derived selection', () => {
     expect(() =>
       normalizeAgent(
         IDENTICAL_DIGEST_PAIR,
         ALWAYS_X_IS_BASE,
         DEFAULT_JUDGE_CONFIG,
-        options,
+        DERIVED,
       ),
     ).toThrow(IdenticalConfigError)
+  })
+
+  it('still refuses the pair on an explicitly derived selection', () => {
     const [base, candidate] = IDENTICAL_DIGEST_PAIR
     expect(() =>
       blindCase(
@@ -843,7 +886,7 @@ describe('an explicitly named selection is judged rather than refused', () => {
         candidate,
         ALWAYS_X_IS_BASE,
         DEFAULT_JUDGE_CONFIG,
-        options,
+        DERIVED,
       ),
     ).toThrow(IdenticalConfigError)
   })

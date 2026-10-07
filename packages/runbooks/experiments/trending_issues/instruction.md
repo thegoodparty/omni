@@ -8,7 +8,7 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/trending_issues.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
@@ -23,8 +23,8 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 
 ## TODO CHECKLIST
 
-1. Read PARAMS_JSON. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
-2. Call `GET_community_issues` with `organization_slug` to retrieve the current issue list. Record existing issue IDs.
+1. Read PARAMS_FILE. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
+2. Call `GET_community_issues` with `query: { list: "trending" }` to retrieve the current issue list. Record existing issue IDs.
 3. Run broad `WebSearch` queries for `<district_descriptor> local issues 2026` and related terms, including the public output of local community advocacy groups (associations, BIAs, neighborhood councils, coalitions; prefer nonpartisan), to identify candidate trending topics.
 4. For each candidate topic: verify the top URL with `pmf_runtime.http.head`; escalate to `http.get` only if head returns 403/405 or you need body content.
 5. Select up to 5 issues with the strongest recent signal (recency + coverage breadth).
@@ -69,7 +69,7 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 
 **Existing issue feed**:
 
-- Call `GET_community_issues` FIRST, before any research. The API returns the complete current issue list for the organization.
+- Call `GET_community_issues` FIRST, before any research, with `query: { list: "trending" }`. The API returns the complete current issue list for the organization.
 - When an output issue corresponds to an issue already in the feed, set `existing_issue_id` to that issue's ID. Never drop a prioritized existing issue unless it is clearly resolved.
 - Prefer carrying an existing ID over creating a net-new issue for the same underlying concern.
 
@@ -123,7 +123,7 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 ORG_SLUG = PARAMS["organization_slug"]
 STATE = PARAMS["state"]
 OFFICE = PARAMS["office"]
@@ -135,7 +135,7 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 **Milestone — run `milestone("feed")`** (per BEFORE YOU START item 7) before this step's work.
 
-Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category` for each. You will use these IDs in Step 6 to carry issues forward.
+Call `GET_community_issues` with `query: { list: "trending" }`; the tool requires `list` and rejects a call without it, and the organization comes from the run's auth context (ORG_SLUG). Record every existing issue: capture `id`, `title`, and `category` for each. You will use these IDs in Step 6 to carry issues forward.
 
 ### Step 3 — Broad news discovery
 

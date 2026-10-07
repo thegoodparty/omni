@@ -2,14 +2,22 @@ import { bootstrapCi, createRng, mean, type Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   OVERALL,
+  type FlagType,
   type GradedJudgment,
   type Judgment,
   type Magnitude,
   type SlotVerdict,
 } from './judge'
 import type { NormalizedAgent, SlotMap } from './normalize'
+import { errorClass, publicToolName } from './toolErrorDetails'
 import { priceUsd, sharesPricing } from './pricing'
-import type { AgentShape, Arm, CiContext, RunRecord } from './record'
+import {
+  ArmSchema,
+  type AgentShape,
+  type Arm,
+  type CiContext,
+  type RunRecord,
+} from './record'
 
 // Un-blinds, orients everything to the candidate, and turns a pile of
 // slot-level judgments into one verdict for one agent.
@@ -106,11 +114,31 @@ export interface ExclusionCounts {
   // which one meant reproducing the run. The reasons are already on the
   // judgments — this carries them to the report.
   ungradedReasons: readonly string[]
+  // The same treatment for tool-error exclusions, which had only a count.
+  // Grouped so nine pairs failing one way read as one line, not nine.
+  // Covers the pairs excluded for a tool error (chat only) and the pairs
+  // excluded as identicalConfig whose arms hit tool errors anyway: before
+  // background tool errors were scored, those were tool-error exclusions and
+  // listed here, and moving them to another reason must not hide what failed.
+  // A judged background pair's causes are in `scoredToolErrorCauses`.
+  toolErrorCauses: readonly ToolErrorCause[]
+}
+
+export interface ToolErrorCause {
+  // Allowlisted by publicToolName, so safe to print.
+  tool: string
+  // A fixed class from errorClass, never the error text: the report is
+  // public and the text can carry voter data.
+  errorClass: string
+  // Pairs this cause appeared in, whichever arm it hit: excluded pairs in
+  // `exclusions.toolErrorCauses`, judged pairs in `scoredToolErrorCauses`.
+  pairs: number
+  arms: readonly Arm[]
 }
 
 export interface OrientedFlag {
   arm: Arm
-  type: string
+  type: FlagType
   explanation: string
   loc: string | undefined
   caseId: string
@@ -138,6 +166,13 @@ export interface DegradedPanel {
   seats: readonly string[]
 }
 
+// One of a case's own dimensions, scored over only the cases that carry it.
+export interface CaseDimensionScore {
+  name: string
+  caseIds: readonly string[]
+  score: DimensionScore
+}
+
 export interface AgentScore {
   agentId: string
   shape: AgentShape
@@ -147,10 +182,20 @@ export interface AgentScore {
   labelNote: string
   overall: DimensionScore
   dimensions: Readonly<Record<string, DimensionScore>>
+  // Never folded into `dimensions`, `overall`, `regressions` or the label: a
+  // question one probe asks is not evidence about the agent at large, and
+  // averaging it in would let one case move every agent-level number.
+  caseDimensions?: readonly CaseDimensionScore[]
   // Dimensions whose upper bound is below zero. Attached to every verdict
   // and never changes the label.
   regressions: readonly string[]
   exclusions: ExclusionCounts
+  // Tool errors on pairs that were JUDGED anyway, grouped like
+  // `exclusions.toolErrorCauses`. Only a background agent has any: its
+  // verdict is on the final artifact, so a run that hit a failing Bash
+  // snippet and recovered is scored rather than excluded (see isComparable),
+  // and this keeps the evidence of what failed beside the verdict.
+  scoredToolErrorCauses: readonly ToolErrorCause[]
   positionConsistency: number | null
   // THE DENOMINATOR, reported with the rate and never without it. 3 of 5 and
   // 60 of 100 are both "60%", and only one of them says anything.
@@ -167,6 +212,36 @@ export interface AgentScore {
   degradedPanel: DegradedPanel | null
   evidence: MeasuredEvidence
   ci: CiContext | null
+  // Pairs on a case marked `scored: false`, one entry per pair, and in none
+  // of the numbers above. Empty for an agent with no such case.
+  controls: readonly ControlReading[]
+  // Cases the candidate's list marks `scored: false` that were scored anyway,
+  // because the base ref's list does not hold them out or could not be read.
+  controlsScoredAnyway?: ControlsScoredAnyway
+}
+
+export interface ControlsScoredAnyway {
+  caseIds: readonly string[]
+  why: 'baseDisagrees' | 'baseUnread'
+}
+
+// What the judge said about one control pair, oriented to the candidate like
+// everything else here. On a control a call other than a tie is the judge's
+// own noise floor on this input, which is the number a reader needs before
+// trusting any other verdict in the section.
+export interface ControlReading {
+  caseId: string
+  attempt: number
+  outcome:
+    | 'candidate'
+    | 'base'
+    | 'tie'
+    | 'cannot_determine'
+    // Judged, but every seat failed.
+    | 'ungraded'
+    // Never reached the judge: excluded or missing an arm.
+    | 'not_judged'
+  magnitude: Magnitude | null
 }
 
 interface PairScore {
@@ -581,6 +656,101 @@ const floorVerdicts = (
   }
 }
 
+// A record written before toolErrorDetails existed has the count and no
+// detail. It still gets a line, so the causes always account for every
+// tool-error exclusion.
+const UNRECORDED = 'unrecorded'
+
+const armsWithToolErrors = (records: {
+  base: RunRecord
+  candidate: RunRecord
+}): Arm[] =>
+  ArmSchema.options.filter((arm) => records[arm].telemetry.toolErrors > 0)
+
+// SCORED means a graded judgment exists for the pair. A pair whose every
+// judge call failed is ungraded and counted apart, so listing it here would
+// say it was scored when it was not. Empty for a chat agent, whose tool-error
+// pairs never reach `judgeable`.
+const scoredWithToolErrors = (
+  normalized: NormalizedAgent,
+  gradedJudgments: readonly GradedJudgment[],
+): ToolErrorPair[] => {
+  const gradedPairs = new Set(
+    gradedJudgments.map((j) => pairKey(j.key.caseId, j.key.attempt)),
+  )
+  return normalized.judgeable.flatMap(({ caseId, attempt, records }) => {
+    if (!gradedPairs.has(pairKey(caseId, attempt))) return []
+    const arms = armsWithToolErrors(records)
+    return arms.length > 0 ? [{ arms, records }] : []
+  })
+}
+
+// Excluded pairs whose tool errors the report should name: every tool-error
+// exclusion, and an identicalConfig exclusion whose arms hit tool errors. The
+// second is a background pair; it was a tool-error exclusion before tool
+// errors stopped excluding background pairs, and its causes must not vanish.
+// An infraError pair is left out, as it always was: a run that died never got
+// far enough for a tool error to mean anything about it.
+const excludedWithToolErrors = (normalized: NormalizedAgent): ToolErrorPair[] =>
+  normalized.excluded.flatMap(({ reason, arms, records }) => {
+    if (reason === 'toolError') return [{ arms, records }]
+    if (reason !== 'identicalConfig') return []
+    const hit = armsWithToolErrors(records)
+    return hit.length > 0 ? [{ arms: hit, records }] : []
+  })
+
+interface ToolErrorPair {
+  arms: readonly Arm[]
+  records: { base: RunRecord; candidate: RunRecord }
+}
+
+// Built from errorClass and publicToolName only, never from the message:
+// this is what reaches the public report. See toolErrorDetails.ts.
+
+const toolErrorCauses = (pairs: readonly ToolErrorPair[]): ToolErrorCause[] => {
+  const causes = new Map<
+    string,
+    { tool: string; errorClass: string; pairs: number; arms: Set<Arm> }
+  >()
+  for (const pair of pairs) {
+    const seen = new Set<string>()
+    for (const arm of pair.arms) {
+      const details = pair.records[arm].toolErrorDetails ?? []
+      const found =
+        details.length > 0
+          ? details.map((detail) => ({
+              tool: publicToolName(detail.tool, pair.records[arm].agentShape),
+              errorClass: errorClass(detail.message),
+            }))
+          : [{ tool: 'unknown', errorClass: UNRECORDED }]
+      for (const { tool, errorClass: cls } of found) {
+        const key = `${tool}\u0000${cls}`
+        const cause = causes.get(key) ?? {
+          tool,
+          errorClass: cls,
+          pairs: 0,
+          arms: new Set<Arm>(),
+        }
+        if (!seen.has(key)) cause.pairs += 1
+        seen.add(key)
+        cause.arms.add(arm)
+        causes.set(key, cause)
+      }
+    }
+  }
+  return [...causes.values()]
+    .map((cause) => ({
+      ...cause,
+      arms: ArmSchema.options.filter((arm) => cause.arms.has(arm)),
+    }))
+    .sort(
+      (a, b) =>
+        b.pairs - a.pairs ||
+        a.tool.localeCompare(b.tool) ||
+        a.errorClass.localeCompare(b.errorClass),
+    )
+}
+
 // Graded judgments only. A judgment whose every seat failed came back
 // `ungraded`, which is already counted in `exclusions.ungraded` and named in
 // the report; counting it here as well would report one failure twice and
@@ -601,18 +771,108 @@ const degradedPanel = (
     : { judgments: affected, seats: [...seats].sort() }
 }
 
+// Off the payloads the judge was sent, so a row exists only for a question
+// the panel was actually asked, and its case list is the cases that asked it.
+const scoreCaseDimensions = (
+  normalized: NormalizedAgent,
+  judgments: readonly GradedJudgment[],
+  config: JudgeConfig,
+  seed: number,
+): CaseDimensionScore[] => {
+  const carriers = new Map<string, Set<string>>()
+  for (const c of normalized.judgeable) {
+    for (const d of c.payload.caseDimensions ?? []) {
+      carriers.set(d.name, (carriers.get(d.name) ?? new Set()).add(c.caseId))
+    }
+  }
+  return [...carriers]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, caseIds]) => ({
+      name,
+      caseIds: [...caseIds].sort(),
+      score: scoreDimension(judgments, name, config, seed).score,
+    }))
+}
+
 export interface ScoreInput {
   normalized: NormalizedAgent
   judgments: readonly Judgment[]
+  // Cases marked `scored: false`. Held out of EVERY aggregate — the verdict,
+  // the dimensions, the gates, the floor, the flags, the exclusion counts and
+  // the measured evidence — and reported as `controls` instead.
+  unscoredCaseIds?: ReadonlySet<string>
+}
+
+const orientedOutcome = (
+  oriented: number | null,
+): ControlReading['outcome'] => {
+  if (oriented === null) return 'cannot_determine'
+  if (oriented === 0) return 'tie'
+  return oriented > 0 ? 'candidate' : 'base'
+}
+
+// The primary-order judgment, because that is the one every pair has; the
+// swapped one exists only for the subsample and measures position bias, not
+// the pair.
+const controlReadings = (
+  normalized: NormalizedAgent,
+  judgments: readonly Judgment[],
+  unscored: ReadonlySet<string>,
+): ControlReading[] => {
+  const readings: ControlReading[] = []
+  for (const one of normalized.judgeable) {
+    if (!unscored.has(one.caseId)) continue
+    const judgment = judgments.find(
+      (j) =>
+        j.key.caseId === one.caseId &&
+        j.key.attempt === one.attempt &&
+        j.key.order === 'primary',
+    )
+    const overall =
+      judgment?.kind === 'graded' ? judgment.dimensions[OVERALL] : undefined
+    let outcome: ControlReading['outcome'] = 'ungraded'
+    if (judgment === undefined) outcome = 'not_judged'
+    else if (judgment.kind === 'graded' && overall !== undefined) {
+      outcome = orientedOutcome(orient(overall.verdict, judgment.slotMap))
+    }
+    readings.push({
+      caseId: one.caseId,
+      attempt: one.attempt,
+      outcome,
+      magnitude: overall?.magnitude ?? null,
+    })
+  }
+  for (const one of [...normalized.excluded, ...normalized.unpaired]) {
+    if (!unscored.has(one.caseId)) continue
+    readings.push({
+      caseId: one.caseId,
+      attempt: one.attempt,
+      outcome: 'not_judged',
+      magnitude: null,
+    })
+  }
+  return readings.sort(
+    (a, b) => a.caseId.localeCompare(b.caseId) || a.attempt - b.attempt,
+  )
 }
 
 export const scoreAgent = (
-  { normalized, judgments }: ScoreInput,
+  { normalized: all, judgments: allJudgments, unscoredCaseIds }: ScoreInput,
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
   // Seeded by default so two runs over the same judgments report the same
   // interval; a caller that wants a different draw passes another seed.
   seed = 1,
 ): AgentScore => {
+  const unscored = unscoredCaseIds ?? new Set<string>()
+  const scoredCase = (one: { caseId: string }): boolean =>
+    !unscored.has(one.caseId)
+  const normalized: NormalizedAgent = {
+    ...all,
+    judgeable: all.judgeable.filter(scoredCase),
+    excluded: all.excluded.filter(scoredCase),
+    unpaired: all.unpaired.filter(scoredCase),
+  }
+  const judgments = allJudgments.filter((j) => scoredCase(j.key))
   const gradedJudgments = graded(judgments)
   const dimensions: Record<string, DimensionScore> = {}
   for (const dimension of config.dimensions) {
@@ -624,6 +884,12 @@ export const scoreAgent = (
     ).score
   }
   const overallResult = scoreDimension(gradedJudgments, OVERALL, config, seed)
+  const caseDimensions = scoreCaseDimensions(
+    normalized,
+    gradedJudgments,
+    config,
+    seed,
+  )
   const overall = overallResult.score
 
   const swappedPairs = overallResult.pairs.filter(
@@ -660,7 +926,12 @@ export const scoreAgent = (
     ...normalized.judgeable.map((c) => c.records),
     ...normalized.excluded.map((c) => c.records),
   ]
-  const candidateWithCi = allPairs.find((p) => p.candidate.ci !== undefined)
+  // Over every pair, controls included: the CI context says which change was
+  // under test, and an agent whose only pairs were controls still tested one.
+  const candidateWithCi = [
+    ...all.judgeable.map((c) => c.records),
+    ...all.excluded.map((c) => c.records),
+  ].find((p) => p.candidate.ci !== undefined)
 
   return {
     agentId: normalized.agentId,
@@ -669,6 +940,7 @@ export const scoreAgent = (
     labelNote: labelled.note,
     overall,
     dimensions,
+    ...(caseDimensions.length > 0 && { caseDimensions }),
     regressions: Object.entries(dimensions)
       .filter(([, score]) => (score.interval?.upper ?? 0) < 0)
       .map(([name]) => name),
@@ -687,7 +959,11 @@ export const scoreAgent = (
           judgments.filter((j) => j.kind === 'ungraded').map((j) => j.reason),
         ),
       ],
+      toolErrorCauses: toolErrorCauses(excludedWithToolErrors(normalized)),
     },
+    scoredToolErrorCauses: toolErrorCauses(
+      scoredWithToolErrors(normalized, gradedJudgments),
+    ),
     positionConsistency,
     swappedPairs: swappedPairs.length,
     orderUnstablePairs: overallResult.pairs
@@ -700,5 +976,6 @@ export const scoreAgent = (
     degradedPanel: degradedPanel(gradedJudgments),
     evidence: measure(allPairs),
     ci: candidateWithCi?.candidate.ci ?? null,
+    controls: controlReadings(all, allJudgments, unscored),
   }
 }

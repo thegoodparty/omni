@@ -33,6 +33,7 @@ const makeInput = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   projectedTurnoutUpper: null,
   winNumberLower: null,
   winNumberUpper: null,
+  numberOfSeats: null,
   raceCandidates: [],
   milestones: null,
   ...overrides,
@@ -406,5 +407,59 @@ describe('buildPlanData prediction intervals', () => {
     )
 
     expect(rangeFor('Registered voters', plan)).toBe('')
+  })
+})
+
+describe('buildPlanData seat-aware win number copy', () => {
+  const winNumberSource = (plan: ReturnType<typeof buildPlanData>) =>
+    plan.metrics.find((m) => m.metric === 'Projected Votes Needed to Win')
+      ?.source
+
+  it('frames a multi-seat race as a top-N finish', () => {
+    const plan = buildPlanData(
+      makeInput({
+        projectedTurnout: 35914,
+        winNumber: 17958,
+        numberOfSeats: 3,
+      }),
+    )
+
+    expect(plan.votesCast).toBe(71828)
+    expect(plan.winNumberGoal).toBe('to secure a finish in the top 3')
+    expect(winNumberSource(plan)).toBe(
+      'Projecting enough votes to finish in the top 3.',
+    )
+  })
+
+  it('frames a single-seat race as more than half the votes cast', () => {
+    const plan = buildPlanData(
+      makeInput({ projectedTurnout: 2000, winNumber: 1001, numberOfSeats: 1 }),
+    )
+
+    expect(plan.votesCast).toBe(2000)
+    expect(plan.winNumberGoal).toBe('you need to win the race')
+    expect(winNumberSource(plan)).toBe(
+      'Projecting more than half of the votes cast.',
+    )
+  })
+
+  it('makes no seat claim when the seat count is unknown', () => {
+    const plan = buildPlanData(
+      makeInput({ projectedTurnout: 2000, winNumber: 1001 }),
+    )
+
+    expect(plan.votesCast).toBeNull()
+    expect(plan.winNumberGoal).toBe('you need to win your election')
+    expect(winNumberSource(plan)).toBe(
+      'Projecting from the voters we expect to cast a ballot.',
+    )
+  })
+
+  it('makes no seat claim for an archived civics win number', () => {
+    // The fixture's 1,000 is not floor(2,000 / 2) + 1, as a civics number
+    // wouldn't be.
+    const plan = buildPlanData(makeInput({ numberOfSeats: 3 }))
+
+    expect(plan.votesCast).toBeNull()
   })
 })

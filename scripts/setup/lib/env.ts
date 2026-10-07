@@ -38,6 +38,16 @@ export const parseEnvFile = (contents: string): EnvMap => {
 export const serializeEnvFile = (env: EnvMap, keys: string[]): string =>
   keys.map((key) => `${key}=${env[key] ?? ''}`).join('\n') + '\n'
 
+// The built .env leaves blank keys out instead of writing KEY=. gp-api reads
+// tunables as Number(process.env.X ?? default), and '' slips past ?? to 0,
+// zeroing cooldowns and timeouts. device-<pkg>.env keeps its blanks, since
+// there an empty value is an admin's deliberate override of a placeholder.
+export const serializeBuiltEnv = (env: EnvMap, keys: string[]): string =>
+  serializeEnvFile(
+    env,
+    keys.filter((key) => (env[key] ?? '') !== ''),
+  )
+
 // Merge precedence: copied value > local-only default > placeholder, decided
 // by which layer HAS the key, not by truthiness — an intentionally-empty
 // copied or local-only value (e.g. cli.ts's queue-name defaults, left unset
@@ -59,3 +69,22 @@ export const buildMergedEnv = (
   }
   return merged
 }
+
+type PlaceholderSpec = { tier: string; feature?: string; placeholder?: string }
+
+// Only vars that declare a `placeholder` are checked: those are the ones whose
+// .env.example value boots cleanly and then fails at first use. The rest of
+// the degradable tier (Slack channels, Peerly) is expected to stay dark on a
+// laptop, and listing it would bury the one line that matters.
+export const findPlaceholderFeatures = (
+  contract: Record<string, PlaceholderSpec>,
+  env: EnvMap,
+): string[] =>
+  Object.entries(contract)
+    .filter(
+      ([name, spec]) =>
+        spec.tier === 'degradable' &&
+        spec.placeholder !== undefined &&
+        (!env[name] || env[name] === spec.placeholder),
+    )
+    .map(([name, spec]) => `${spec.feature} (${name})`)

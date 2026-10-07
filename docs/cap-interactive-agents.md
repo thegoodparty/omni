@@ -32,7 +32,9 @@ on those axes.
 
 `src/llm/services/llm.service.ts`. The whole interactive model funnels through this
 one class. Dependencies (`package.json`): `ai` and `@ai-sdk/anthropic`.
-`ANTHROPIC_API_KEY` is required at startup.
+`LlmService` throws at construction when `ANTHROPIC_API_KEY` is unset. Local
+setup vends it from `LOCAL_DEV_ENV`; left at its `.env.example` placeholder,
+the API boots and every chat call fails with a 401.
 
 All paths resolve to Anthropic via `@ai-sdk/anthropic` (`resolveChatModel` always
 calls `anthropicProvider.languageModel(model)`). DI tokens:
@@ -108,11 +110,18 @@ to rendering the partial locally.
 `loadContext / buildSystemPrompt / buildTools`. Handlers register through the
 `CHAT_SCOPE_HANDLERS` DI token — adding a scope needs no controller/service
 change. `ChatScopeRegistry` **fails closed**: any `isSensitive` scope must use
-only `claude`-routed models, so tool outputs never leave Anthropic. Today
-**`chief_of_staff`, `campaign_assistant` and `ordinance_flow` are registered**;
-`briefing_annotation` exists as a `ChatScope` enum value but briefing chat still
-runs through its own dedicated controller/service. Handlers may also declare an
-optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8).
+only `claude`-routed models, so tool outputs never leave Anthropic. **All five
+scopes are registered** — `chief_of_staff`, `campaign_assistant`,
+`ordinance_flow`, `priority_flow` and `briefing_annotation`. Briefing chat keeps its own
+`:annotationId` routes, but its context, prompt and tools come from
+`BriefingAnnotationHandler`, which `BriefingChatsService` builds once and the
+module republishes for the registry. Its `resolveConversation` rejects: a
+briefing conversation is created with its `Annotation` in one transaction
+(`POST /v1/briefing-chats`), so the generic create path cannot produce a usable
+one. Handlers may also declare an
+optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8;
+the Campaign Manager and Chief of Staff use 15, because a single outreach turn
+chains describe, count, size and present before any retry).
 
 **The session model is shared, and stays that way.** `GeneralChatsService.
 resolveConversation` owns it: every open creates a NEW conversation, and
@@ -126,6 +135,22 @@ candidate). A handler overrides it only for a genuinely different model:
 `ordinance_flow` keys one conversation to an (ordinance, step) anchor. A scope
 that needs something already in a new transcript implements `seedConversation`
 instead — Campaign Manager uses it to seed its greeting.
+
+### Attachments (documents and links)
+
+`chief_of_staff` and `campaign_assistant` let the user attach files (PDF, DOCX,
+image, plain text) and links to a conversation; every other scope 404s the
+write routes. `ATTACHMENT_SCOPES` in `src/chats/services/chatAttachments.service.ts`
+is the one list, and the webapp mirrors it in `supportsAttachments`
+(`app/dashboard/shared/agent-chat/attachmentScopes.ts`). Uploads are
+presign → browser POST to S3 → finalize (magic-byte check, PDF page count;
+DOCX and text extract on the queue); links are fetched once at attach time
+behind the SSRF guard. On each turn `ChatStreamService` injects the
+conversation's ready attachments into the latest user message as Anthropic
+document blocks with citations on, and maps the returned citations to
+citation segments the webapp renders as clickable chips. Both handlers also
+register `compose_handoff`, which turns a reply into a prefilled social post
+on the product's own outreach page (`win_social` or `serve_social`).
 
 ## Tools / function calling
 
@@ -209,9 +234,25 @@ COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 always **streaming** (multi-step `stepCountIs`); the non-streaming `toolCompletion`
 exists but isn't used by these surfaces.
 
+### A list is saved from a card, not a typed "yes"
+
+The Chief of Staff never creates a list itself. It counts the filter with
+`count_contacts` and calls `present_list_proposal`, a display tool whose args
+are the card: name, one-line summary, count and the filter it counted with.
+The card's **Create list** button posts that filter to
+`POST /v1/voters/voter-file/filter` with a `proposalKey` derived from the
+conversation and the tool call (`mintProposalKey`), so a second press returns
+the first list, and `GET /v1/voters/voter-file/filter/by-proposal-key/:key`
+tells a reloaded card that its list already exists. Once it does, the card
+renders as that list's map card. The write touches nothing the model sees, so
+the body sends a hidden turn (`listCreatedMessage`) naming the list and its id,
+through the same queue a drawn boundary uses. The prompt forbids asking
+whether to save a list in prose, which is what produced the "Ready to save
+that list?" / "yes" exchange.
+
 ### A drawn boundary reaches the conversation
 
-`show_list_map`'s card carries a Draw area button, and the shape the holder
+The list map card carries a Draw shapes button, and the shape the holder
 draws is written straight from the browser to `PUT /v1/voters/voter-file/
 filter/:id`. That write touches nothing the model can see. So the transcript
 has to be told, and three things do it together — fixing any one alone leaves

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { ChatCard } from '@goodparty_org/contracts'
@@ -8,7 +9,6 @@ import {
   ProposalFlowsProvider,
   useProposalFlows,
 } from 'app/dashboard/shared/agent-chat/cards/proposalFlows'
-import { SERVE_SMS_SURFACE } from 'app/dashboard/outreach/v2/sms/SmsFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -32,8 +32,13 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // has no Peerly phone list of its own yet — replacing this derivation with
 // the org-scoped create is the hub-wiring ticket's job, not the surface's.
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 1200,
     excludedOptedOutCount: 0,
@@ -167,16 +172,20 @@ describe('a text card, through the drawer', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const box = (await screen.findByLabelText(
-      'Message body',
-    )) as HTMLTextAreaElement
-    await waitFor(() => expect(box.value).toMatch(/^this is Jane, /))
-    expect(box.value.match(/this is/gi)).toHaveLength(1)
-    expect(box.value).not.toContain('[')
-    expect(box.value).toContain(
+    // The field holds the whole message: greeting, body and opt-out.
+    const box = await screen.findByRole('textbox', { name: 'Message body' })
+    const message = () =>
+      (box as HTMLElement & { editor: Editor }).editor.getText({
+        blockSeparator: '\n',
+      })
+    await waitFor(() =>
+      expect(message()).toMatch(/^Hello \{\{first_name\}\}, this is Jane, /),
+    )
+    expect(message().match(/this is/gi)).toHaveLength(1)
+    expect(message()).not.toContain('[')
+    expect(message()).toContain(
       "We're working on expanding composting options.",
     )
-    const composed = SERVE_SMS_SURFACE.composeMessage(box.value, null)
-    expect(composed.match(/\b(?:hello|hi|hey)\b/gi)).toHaveLength(1)
+    expect(message().match(/\b(?:hello|hi|hey)\b/gi)).toHaveLength(1)
   })
 })

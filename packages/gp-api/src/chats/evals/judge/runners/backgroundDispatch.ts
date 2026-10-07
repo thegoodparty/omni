@@ -1,13 +1,19 @@
 import { z } from 'zod'
-import type { AgentEntry } from '../agents'
+import { findAgent, type AgentEntry } from '../agents'
 import type { JudgeConfig } from '../config'
 import type { PlaceholderValues } from '../caseParams'
 import { missingValues, substituteBackgroundCases } from '../caseParams'
 import type { BackgroundCase, CaseList } from '../cases'
-import { isChatCase, loadBackgroundCases, loadCaseList } from '../cases'
+import {
+  caseTurns,
+  isChatCase,
+  loadBackgroundCases,
+  loadCaseList,
+} from '../cases'
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
 import { armConfigFor, backgroundDestinationFrom } from '../sweepEnv'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { agentConfigFor } from './agentConfig'
 import type { AgentConfig, BackgroundRunInput } from './background'
 
@@ -48,14 +54,41 @@ export const pollTimeoutMsFor = (timeoutSeconds: number): number =>
 // run — rather than cut off partway, which would write no manifest and leave
 // the judging step failing on a missing arm.
 //
-// ONE KNOWN GAP, not measured yet: only background wall clock is spent
-// against this. Chat agents walk inside the same arm and the same vitest
-// timeout while the background runs are out, so the arm takes the longer of
-// the two rather than their sum, but nothing bounds the chat half: a sweep
-// with more than an arm's worth of chat cases could still overrun. There are
-// no measured chat turn durations to budget them with; when there are, they
-// belong beside the wave in admitBackground.
+// The chat half of the arm is bounded against it too, separately: chat
+// agents walk while the background runs are out, so the arm takes the
+// longer of the two rather than their sum. See CHAT_TURN_MS.
 export const ARM_BUDGET_MS = 70 * 60 * 1000
+
+// ONE CHAT TURN'S WALL CLOCK, as planned for, per agent.
+//
+// Chat agents walk one turn after another and nothing times a turn out, so
+// a selection with more turns than an arm holds ran into the vitest timeout,
+// which kills the arm with no manifest and orphans every background run
+// still out. `all` is 5 agents x 8 cases x 3 attempts = 120 turns an arm.
+//
+// Measured, not chosen: chief_of_staff from the first live sweep (run
+// 36999748321), 48 turns averaging 12.0s, the slowest 32s, and 24 turns in
+// 5.0 and 4.6 minutes of arm. ordinance_flow from one 94s step
+// (implementation notes, 2026-09-28). Each is planned at about 1.3-1.6x that,
+// because one slow arm overrunning costs the whole sweep.
+//
+// An agent nobody has timed is planned at the slowest measured class, not
+// the cheapest. priority_flow runs up to 30 tool steps a turn, and guessing
+// low is the failure this exists to stop; refusing by name costs one agent.
+export const CHAT_TURN_MS: Readonly<Partial<Record<string, number>>> = {
+  chief_of_staff: 20_000,
+  ordinance_flow: 120_000,
+}
+export const UNMEASURED_CHAT_TURN_MS = 120_000
+
+export const chatTurnMsFor = (agentId: string): number =>
+  CHAT_TURN_MS[agentId] ?? UNMEASURED_CHAT_TURN_MS
+
+// What armBudget.ts probes the base tree for before it refuses any chat
+// agent. A base arm without it walks every chat agent whatever it is told,
+// so refusing one on the candidate alone would only pay the base for turns
+// that pair with nothing.
+export const CHAT_TIME_BOUNDED = true
 
 // Deliberately NOT a fallback for a manifest with no timeout. `timeout_seconds`
 // is in agentConfigFor's REQUIRED_FIELDS, so an agent that reaches here has
@@ -129,6 +162,9 @@ export const walkedBackgroundCases = (
 // And an agent whose walked cases need a value the sweep could not resolve:
 // a race id goes missing whenever the named election has passed, and the
 // loader then refuses exactly the lists that need one.
+//
+// A chat agent is refused by design only when the resolver named it, which
+// it does for chat turns that would not fit the arm.
 export const refusedBeforeSpend = (
   agent: AgentEntry,
   env: ArmEnv,
@@ -136,15 +172,21 @@ export const refusedBeforeSpend = (
     one,
   ) => walkedBackgroundCases(one, env),
 ): boolean =>
-  agent.shape === 'background' &&
-  ((env.backgroundAdmitted !== undefined &&
-    !env.backgroundAdmitted.has(agent.agentId)) ||
-    // Also what a resolution that silently produced nothing looks like, and
-    // it is meant to: that sweep still judges its chat agents.
-    env.fixtureValues.orgSlug === undefined ||
-    env.dispatchQueueUrl === undefined ||
-    (agent.cases !== null &&
-      missingValues(casesFor(agent), env.fixtureValues).length > 0))
+  agent.shape === 'background'
+    ? (env.backgroundAdmitted !== undefined &&
+        !env.backgroundAdmitted.has(agent.agentId)) ||
+      // Also what a resolution that silently produced nothing looks like, and
+      // it is meant to: that sweep still judges its chat agents. Read
+      // through fixtureValuesFor, so an agent that dispatches as the seeded
+      // fixture is judged on the values it actually uses, not the sweep's.
+      fixtureValuesFor(agent, env.fixtureValues).orgSlug === undefined ||
+      env.dispatchQueueUrl === undefined ||
+      (agent.cases !== null &&
+        missingValues(
+          casesFor(agent),
+          fixtureValuesFor(agent, env.fixtureValues),
+        ).length > 0)
+    : env.backgroundRefused?.has(agent.agentId) === true
 
 // THE AGENTS AN ARM MUST HAVE CAPTURED, for the arm suite's final check. A
 // skip of any of these is paid work that did not happen, and the suite turns
@@ -158,9 +200,13 @@ export const capturableAgents = (
   requested: readonly string[],
   env: ArmEnv,
   find: (agentId: string) => AgentEntry | undefined,
+  // Required, because a local run's chat refusals are worked out from it:
+  // left out, a deliberate refusal would read as a failed capture.
+  config: JudgeConfig,
   casesFor?: Parameters<typeof refusedBeforeSpend>[2],
-): string[] =>
-  requested.filter((id) => {
+): string[] => {
+  const decided = withChatRefusals(env, config, find)
+  return requested.filter((id) => {
     const entry = find(id)
     // Explicit rather than left to optional chaining: an id the registry
     // cannot resolve is refused outright by captureArm, so it can never be
@@ -169,8 +215,22 @@ export const capturableAgents = (
     // Before the refusal check, which reads the list: a blocked agent or one
     // with no list was never going to be captured either way.
     if (entry.cases === null || entry.status === 'blocked') return false
-    return !refusedBeforeSpend(entry, env, casesFor)
+    return !refusedBeforeSpend(entry, decided, casesFor)
   })
+}
+
+// THE PLACEHOLDER VALUES ONE AGENT'S CASES ARE FILLED FROM. An agent that
+// reads gp-api runs against the seeded fixture organization rather than the
+// per-sweep slug, and its params have to name the same organization the
+// dispatch does, or the artifact would echo one slug while the reads used
+// another.
+export const fixtureValuesFor = (
+  agent: Pick<AgentEntry, 'readsGpApi'>,
+  values: PlaceholderValues,
+): PlaceholderValues =>
+  agent.readsGpApi === true
+    ? { ...values, orgSlug: JUDGE_FIXTURE.orgSlug }
+    : values
 
 export const backgroundRunInputFor = (
   request: ArmCaseRequest,
@@ -185,7 +245,7 @@ export const backgroundRunInputFor = (
     )
   }
   const destination = backgroundDestinationFrom(env)
-  const orgSlug = env.fixtureValues.orgSlug
+  const orgSlug = fixtureValuesFor(request.agent, env.fixtureValues).orgSlug
   // Refused by name BEFORE anything is staged or sent. The dispatch builder
   // enforces the `judge-` prefix itself, but its message is about a slug it
   // was handed; this one is about the sweep not having resolved its
@@ -210,7 +270,12 @@ export const backgroundRunInputFor = (
     // to touch.
     config,
     variant: { ...request.variant, model: modelOf(config) },
-    organizationSlug: orgSlug,
+    ...(request.agent.readsGpApi === true
+      ? {
+          organizationSlug: JUDGE_FIXTURE.orgSlug,
+          clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        }
+      : { organizationSlug: orgSlug }),
     metadataBucket: destination.metadataBucket,
     artifactBucket: destination.artifactBucket,
     poll: { timeoutMs: pollTimeoutMs(config), intervalMs },
@@ -251,6 +316,10 @@ export interface BackgroundBudgetInput {
   // WHY each refused agent was refused, as the resolver decided it. Carried
   // so the refusal an arm records — and the report shows — says "would take
   // 75 minutes on the slower arm" rather than "see the step log".
+  //
+  // For a CHAT agent it is also the decision: chat agents are walked unless
+  // named here, because the resolver refuses one only for its turns not
+  // fitting the arm.
   refusedReasons?: ReadonlyMap<string, string>
 }
 
@@ -293,7 +362,16 @@ export const caseLoaderFor = (
   const remaining = { slots: maxInFlight }
   return (agent) => {
     const list = load(agent)
-    if (list.shape !== 'background') return list
+    if (list.shape !== 'background') {
+      // Thrown from here for the reason the background refusal below is.
+      const why = refusedReasons?.get(agent.agentId)
+      if (why !== undefined) {
+        throw new Error(
+          `${agent.agentId} was not admitted to this sweep: ${why}`,
+        )
+      }
+      return list
+    }
     // ADMISSION FIRST, before anything else is read. A refused agent must be
     // refused as refused: checked after substitution, an agent that was never
     // going to run surfaced as an unsubstituted-placeholder error instead,
@@ -316,7 +394,7 @@ export const caseLoaderFor = (
     const all = loadBackground(agent)
     const cases = substituteBackgroundCases(
       maxCases === undefined ? all : all.slice(0, maxCases),
-      values,
+      fixtureValuesFor(agent, values),
     )
     const config = loadConfig(agent.agentId)
     // Reached here rather than at the dispatch, where a manifest naming no
@@ -417,7 +495,7 @@ export const armDeps = (
     budgetMs,
     config,
     env.backgroundAdmitted,
-    env.backgroundRefused,
+    withChatRefusals(env, config).backgroundRefused,
   ),
 })
 
@@ -543,4 +621,99 @@ export const admitBackground = (
     for (const id of cost.caseIds ?? []) takenCaseIds.add(id)
   }
   return { admitted, refused }
+}
+
+// What an arm's chat agents may spend between them: the whole arm less the
+// room WAVE_MARGIN_MS leaves for booting the app and writing the manifest.
+// Not shared with background, which runs alongside rather than after.
+export const chatBudgetMs = (budgetMs: number): number =>
+  budgetMs - WAVE_MARGIN_MS
+
+// WHY ONE CHAT AGENT'S TURNS DO NOT FIT what the chat agents before it left,
+// or undefined when they do.
+export const chatRefusal = (
+  turns: number,
+  turnMs: number,
+  msLeft: number,
+  budgetMs: number,
+): string | undefined => {
+  const minutes = (value: number): number => Math.ceil(value / 60_000)
+  if (turns * turnMs <= msLeft) return undefined
+  return (
+    `would take about ${minutes(turns * turnMs)} minutes for ${turns} chat ` +
+    `turns at ${turnMs / 1000}s each, and ${minutes(msLeft)} ` +
+    `of the arm's ${minutes(budgetMs)} were left for chat once the chat ` +
+    'agents before it were admitted; select fewer agents'
+  )
+}
+
+// THE CHAT AGENTS NEITHER ARM MAY WALK, decided once like admitBackground
+// and in the order the arm walks them. A refused agent leaves its share to
+// the ones after it, so one heavy agent does not take the rest down with it.
+export const refuseChat = (
+  selected: readonly AgentEntry[],
+  turnsOf: (agent: AgentEntry) => number,
+  budgetMs: number,
+): { agentId: string; reason: string }[] => {
+  const refused: { agentId: string; reason: string }[] = []
+  let msLeft = chatBudgetMs(budgetMs)
+  for (const agent of selected) {
+    if (agent.shape !== 'chat' || agent.cases === null) continue
+    const turns = turnsOf(agent)
+    const turnMs = chatTurnMsFor(agent.agentId)
+    const why = chatRefusal(turns, turnMs, msLeft, budgetMs)
+    if (why !== undefined) {
+      refused.push({ agentId: agent.agentId, reason: why })
+      continue
+    }
+    msLeft -= turns * turnMs
+  }
+  return refused
+}
+
+// How many turns a chat list drives per attempt: a case of several turns
+// costs all of them.
+export const chatTurnsIn = (list: CaseList): number =>
+  list.cases.reduce(
+    (sum, one) => sum + (isChatCase(one) ? caseTurns(one).length : 0),
+    0,
+  )
+
+// THE CHAT REFUSALS AN ARM OBEYS. A sweep's come from the resolver and are
+// returned as they are. A local run has no resolver, so it works its own out
+// here, once, by the same rule — and both the loader and the arm suite's
+// final check read the result, so a refusal is a refusal by design rather
+// than a capture that failed and turned the run red.
+//
+// A list this tree cannot read counts no turns: the arm reports the real
+// error by name.
+export const withChatRefusals = (
+  env: ArmEnv,
+  config: JudgeConfig,
+  find: (agentId: string) => AgentEntry | undefined = findAgent,
+  load: (agent: AgentEntry) => CaseList = loadCaseList,
+): ArmEnv => {
+  if (env.backgroundRefused !== undefined) return env
+  const selected = [...new Set(env.agentIds)]
+    .map(find)
+    .filter(
+      (agent): agent is AgentEntry =>
+        agent !== undefined && agent.status !== 'blocked',
+    )
+  const turnsOf = (agent: AgentEntry): number => {
+    try {
+      return chatTurnsIn(load(agent))
+    } catch {
+      return 0
+    }
+  }
+  const refused = refuseChat(
+    selected,
+    (agent) => turnsOf(agent) * config.attemptsPerCase,
+    env.armBudgetMs ?? ARM_BUDGET_MS,
+  )
+  return {
+    ...env,
+    backgroundRefused: new Map(refused.map((one) => [one.agentId, one.reason])),
+  }
 }

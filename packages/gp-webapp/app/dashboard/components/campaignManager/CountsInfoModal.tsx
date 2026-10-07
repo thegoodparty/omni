@@ -11,6 +11,12 @@ import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/sh
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { RaceTargetMetrics } from 'helpers/types'
+import {
+  resolveSeatContext,
+  winNumberModalIntro,
+  winNumberModalLead,
+  winNumberShareClause,
+} from 'app/onboarding/components/winNumberCopy'
 
 interface CountsInfoModalProps {
   open?: boolean
@@ -23,7 +29,13 @@ export const CountsInfoModal = ({
   setOpen = noop,
   raceTargetMetrics,
 }: CountsInfoModalProps): React.JSX.Element => {
-  const { projectedTurnout, winNumber } = raceTargetMetrics ?? {}
+  const { projectedTurnout, winNumber, numberOfSeats } = raceTargetMetrics ?? {}
+  const seatContext = resolveSeatContext({
+    numberOfSeats,
+    winNumber: winNumber ?? 0,
+    projectedTurnout: projectedTurnout ?? 0,
+  })
+  const shareClause = winNumberShareClause(seatContext)
   // Shared with the other contacts-stats consumers (queryKey
   // ['contacts-stats']); lazy-gated so the fetch only runs while the modal is
   // open, preserving the original hand-rolled hook's behavior.
@@ -76,9 +88,7 @@ export const CountsInfoModal = ({
           Projected votes needed to win
         </div>
         <div className="mt-1.5 text-sm text-muted-foreground">
-          This is how many votes you need to win the seat. We use a conservative
-          target: 50% of the voters we expect to cast a ballot, plus one more
-          vote.
+          {winNumberModalIntro(seatContext)}
         </div>
 
         <div className="mt-4 text-base font-semibold">
@@ -103,10 +113,10 @@ export const CountsInfoModal = ({
             to actually vote, based on past elections like yours.
           </li>
           <li>
-            To win, you need{' '}
+            {winNumberModalLead(seatContext)}, you need{' '}
             <span className="font-semibold">{numberFormatter(winNumber)}</span>{' '}
-            of those voters on your side. That&rsquo;s just over half (
-            <span className="font-semibold">50% + 1</span>).
+            of those voters on your side.
+            {shareClause ? <> That&rsquo;s {shareClause}.</> : null}
           </li>
         </ol>
 

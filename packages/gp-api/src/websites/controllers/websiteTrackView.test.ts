@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { WebsiteStatus } from '../../generated/prisma'
 
@@ -95,6 +95,13 @@ describe('POST /v1/websites/:vanityPath/track-view', () => {
   })
 
   it('refuses the 61st view from one address, each with a fresh visitorId', async () => {
+    // The bucket refills a token a second, so on a runner slow enough to
+    // spend a second on 60 requests the 61st would be allowed. Holding the
+    // clock still tests the capacity, which is what this case is about.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date() })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
     for (let i = 0; i < 60; i++) {
       const allowed = await service.client.post(
         route(PUBLISHED_PATH),

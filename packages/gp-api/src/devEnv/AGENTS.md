@@ -5,8 +5,8 @@ ever reading a credential. `POST /v1/dev-env/bundle` takes a GitHub user token,
 verifies active membership in the `thegoodparty` org, and returns per-package
 bundles read from the curated `LOCAL_DEV_ENV` Secrets Manager blob.
 
-| Route                     | Guard                  | Purpose                        |
-| ------------------------- | ---------------------- | ------------------------------ |
+| Route                     | Guard                  | Purpose                         |
+| ------------------------- | ---------------------- | ------------------------------- |
 | `POST /v1/dev-env/bundle` | `GithubOrgMemberGuard` | Per-package local `.env` values |
 
 The response carries live dev credentials by contract (`DevEnvBundleResponse`
@@ -41,6 +41,12 @@ sets it on the **dev** deploy only and grants the dev task role
 `secretsmanager:GetSecretValue` on that one secret. Unset (preview, prod,
 most laptops) vending answers 503 — it is a `degradable` feature, not a boot
 dependency, because creating the secret is an ops step that can lag the code.
+
+`mcp` is the one bundle that is not a package: the repo's MCP-server tokens,
+written to the root `.env.mcp.local` and declared in the manifest by hand
+(today only `GRAFANA_SERVICE_ACCOUNT_TOKEN`). Add its entry to the blob only
+after the gp-api that knows `mcp` is on dev, or every fetch 500s on an
+undeclared package.
 
 The blob is `{ "<package>": { "<ENV_VAR>": "<value>" } }` and **is** the
 allowlist: there is no filtering code that could leak a non-vendable key.

@@ -42,6 +42,9 @@ export class CreateOutreachSchema extends createZodDto(
       phoneListId: z.coerce.number().int().positive().optional(),
       draftOutreachId: z.coerce.number().int().positive().optional(),
       priorityId: z.string().min(1).optional(),
+      // The chat card this text was started from, derived by the card and
+      // never written by the model.
+      proposalKey: z.string().uuid().optional(),
       // P2P-specific fields
       didState: z
         .string()
@@ -129,6 +132,19 @@ export class CreateOutreachSchema extends createZodDto(
           message:
             'P2P outreach must be created with draft: true, or resumed ' +
             'with draftOutreachId',
+        })
+      }
+      // A resume converts a saved draft that was built without the card, so
+      // only a fresh text draft can be the card's send.
+      if (
+        data.proposalKey !== undefined &&
+        (data.outreachType !== OutreachType.p2p || data.draftOutreachId)
+      ) {
+        ctx.addIssue({
+          path: ['proposalKey'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'proposalKey is only accepted on a new P2P draft, not a resume',
         })
       }
       if (data.status === OutreachStatus.pending_payment) {

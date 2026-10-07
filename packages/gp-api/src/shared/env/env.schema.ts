@@ -164,6 +164,22 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     placeholder: 'some_key',
   },
 
+  // LlmService only checks presence, so the .env.example placeholder boots
+  // fine and every chat then 401s. Declaring it lets setup name the gap.
+  ANTHROPIC_API_KEY: {
+    tier: 'degradable',
+    feature: 'ai-chat',
+    placeholder: 'your-anthropic-key',
+  },
+
+  // ballotReady.service throws at import when unset, so the placeholder is
+  // what boots a laptop, and onboarding's office step then 401s on it.
+  BALLOT_READY_KEY: {
+    tier: 'degradable',
+    feature: 'office-search',
+    placeholder: 'key',
+  },
+
   L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
@@ -247,7 +263,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MAILGUN_INTERCEPT_EMAIL: { tier: 'optional' },
   TRACK_MAILGUN_EMAILS: { tier: 'optional', default: 'false' },
 
-  ANTHROPIC_API_KEY: { tier: 'optional' },
   AI_MODELS: { tier: 'optional' },
   AI_FALLBACK_MODEL: { tier: 'optional' },
   // Not read directly by our code; the `ai` SDK's provider registry checks
@@ -258,7 +273,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   LLAMA_AI_ASSISTANT: { tier: 'optional' },
   BRAINTRUST_API_KEY: { tier: 'optional' },
 
-  BALLOT_READY_KEY: { tier: 'optional' },
   GEOAPIFY_API_KEY: { tier: 'optional' },
   BRAVE_API_KEY: { tier: 'optional' },
   SEGMENT_WRITE_KEY: { tier: 'optional' },
@@ -274,10 +288,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
-  CAMPAIGN_PLAN_INPUT_QUEUE_URL: { tier: 'optional' },
   CAMPAIGN_PLAN_RESULTS_BUCKET: { tier: 'optional' },
   CAMPAIGN_PLAN_SHARES_BUCKET: { tier: 'optional' },
-  CAMPAIGN_PLAN_LOCAL_URL: { tier: 'optional' },
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
@@ -301,6 +313,13 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ROBOCALL_AUDIO_BUCKET: { tier: 'optional' },
   ROBOCALL_TEST_OVERRIDE_NUMBER: { tier: 'optional' },
   SERVE_ANALYSIS_BUCKET_NAME: { tier: 'optional' },
+  // Issue capture synthesis (constituentFeedback/). Unset means the
+  // deployed pipeline; `mock` keeps everything in-process.
+  FEEDBACK_SYNTHESIS_ENGINE: { tier: 'optional', default: 'pipeline' },
+  FEEDBACK_SYNTHESIS_MOCK_GROUPING: { tier: 'optional', default: 'llm' },
+  // Issue capture's offline memos (speech/services/transcribeFile.service.ts).
+  // Unset means S3 and batch Transcribe; `mock` keeps both on the laptop.
+  SPEECH_TRANSCRIBE_FILE_MODE: { tier: 'optional', default: 'aws' },
   TEVYN_POLL_CSVS_BUCKET: { tier: 'optional' },
   // Intentionally unset in every environment: falls back to
   // TEVYN_POLL_CSVS_BUCKET above (see outreachTextDelivery.service.ts).
@@ -314,6 +333,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
+  P2P_PHONE_LIST_ASYNC_BUILD: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },
   CV_SCAN_RETRIEVE_SPACING_MS: { tier: 'optional' },

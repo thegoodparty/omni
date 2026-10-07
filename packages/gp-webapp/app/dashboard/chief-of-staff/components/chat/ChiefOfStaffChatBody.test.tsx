@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
@@ -40,19 +41,8 @@ vi.mock('helpers/analyticsHelper', async (orig) => ({
   trackEvent: (...args: unknown[]) => trackEventMock(...args),
 }))
 
-// Attachments are flag-gated; the toggle lets the drag-and-drop block turn
-// them on without flipping the flag under every other test in this file.
-// The mock respects scope so the paperclip scope regression tests work without
-// touching the real GrowthBook client.
-let attachmentsOn = false
-vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
-  useAttachmentsEnabled: (scope: string) => ({
-    ready: true,
-    enabled: attachmentsOn && scope === 'chief_of_staff',
-  }),
-}))
-
 const uploadAttachmentMock = vi.fn()
+const linkAttachmentMock = vi.fn()
 const downloadAttachmentMock = vi.fn()
 const trackEventMock = vi.fn()
 // Sonner's toast never renders in jsdom (no <Toaster> here), so the guard
@@ -66,6 +56,7 @@ vi.mock('@styleguide', async (importOriginal) => ({
 vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
   ...(await orig<object>()),
   uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+  linkChatAttachment: (...args: unknown[]) => linkAttachmentMock(...args),
   downloadChatAttachment: (...args: unknown[]) =>
     downloadAttachmentMock(...args),
 }))
@@ -166,8 +157,8 @@ beforeEach(() => {
   // client; tests that assert the committed transcript override this.
   listMessagesMock.mockResolvedValue([])
   seq = 0
-  attachmentsOn = false
   uploadAttachmentMock.mockReset()
+  linkAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
   trackEventMock.mockReset()
   toastMock.mockReset()
@@ -394,7 +385,6 @@ describe('<ChiefOfStaffChatBody>', () => {
   })
 
   it('fires CitationOpened when a citation chip is clicked', async () => {
-    attachmentsOn = true
     listMessagesMock.mockResolvedValue([
       msg('assistant', 'Per the resolution [1], the budget is set.', {
         id: 'a-cite',
@@ -423,7 +413,51 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() =>
       expect(trackEventMock).toHaveBeenCalledWith(
         EVENTS.ChiefOfStaff.CitationOpened,
-        { documentId: 'att-42', pageNumber: 3 },
+        { documentId: 'att-42', pageNumber: 3, scope: 'chief_of_staff' },
+      ),
+    )
+    openSpy.mockRestore()
+  })
+
+  // ENG-11219: Win's Campaign Manager mounts this same body under
+  // campaign_assistant, so citation events must carry that scope rather than
+  // the chief_of_staff default.
+  it('fires CitationOpened with scope campaign_assistant for the Campaign Manager', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Per the resolution [1], the budget is set.', {
+        id: 'a-cite-win',
+        segments: [
+          { kind: 'text', text: 'Per the resolution ' },
+          {
+            kind: 'citation',
+            attachmentId: 'att-77',
+            page: 1,
+            quotedText: 'allocate $500K',
+          },
+          { kind: 'text', text: ', the budget is set.' },
+        ],
+      }),
+    ])
+    downloadAttachmentMock.mockResolvedValue(null)
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window)
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_cite_win"
+        scope="campaign_assistant"
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Open source 1' })
+    fireEvent.click(chip)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.CitationOpened,
+        { documentId: 'att-77', pageNumber: 1, scope: 'campaign_assistant' },
       ),
     )
     openSpy.mockRestore()
@@ -1333,6 +1367,18 @@ describe('<ChiefOfStaffChatBody>', () => {
           },
         },
       })
+      // The drawing surface draws the list's whole audience, not its members.
+      api.mock('POST /v1/contacts/points', {
+        status: 200,
+        data: {
+          points: people.map((person) => ({
+            id: person.id,
+            lat: 44.7593,
+            lng: -85.6175,
+          })),
+          truncated: false,
+        },
+      })
     }
 
     // The tool's ARGS are the payload, so the card can render from the live
@@ -1434,7 +1480,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_map" />)
 
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
 
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
@@ -1461,7 +1507,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1555,7 +1601,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_two" />)
 
       const buttons = await screen.findAllByRole('button', {
-        name: /draw an area/i,
+        name: /draw shapes/i,
       })
       expect(buttons).toHaveLength(2)
 
@@ -1565,7 +1611,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       // Both, including the one that opened it: re-clicking its own card
       // would remount the overlay just as readily.
       expect(
-        screen.queryAllByRole('button', { name: /draw an area/i }),
+        screen.queryAllByRole('button', { name: /draw shapes/i }),
       ).toHaveLength(0)
     })
 
@@ -1619,7 +1665,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_saved" />)
 
       await user.click(
-        await screen.findByRole('button', { name: /edit area/i }),
+        await screen.findByRole('button', { name: /edit shapes/i }),
       )
       await user.click(
         await within(await screen.findByTestId('boundary-overlay')).findByRole(
@@ -1640,6 +1686,68 @@ describe('<ChiefOfStaffChatBody>', () => {
       // Hidden: the holder drew, they did not type.
       expect(screen.queryByText(/I drew an area on the map/)).toBeNull()
       await screen.findByText('That leaves 412 constituents.')
+    })
+
+    // A list the agent offers is saved by a button, not by a typed "yes",
+    // and the card turns into the list's map. The conversation is told, in a
+    // hidden turn, because the write itself touches nothing the model sees.
+    it('creates an offered list from its card and tells the conversation', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      api.mock(
+        'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey',
+        { status: 404, data: {} as never },
+      )
+      api.mock('POST /v1/voters/voter-file/filter', {
+        status: 200,
+        data: { id: LIST.listId, name: LIST.name } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'Saved. Draw an area to narrow it.' },
+          { type: 'done', assistantMessageId: 'a_created' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'cut me renters'),
+        msg('assistant', 'Here is the list.', {
+          id: 'a_offer',
+          segments: [
+            { kind: 'text', text: 'Here is the list.' },
+            {
+              kind: 'tool',
+              toolName: 'present_list_proposal',
+              toolCallId: 'call_offer',
+              payload: {
+                name: LIST.name,
+                summary: 'Renters in the district.',
+                count: 1200,
+                filters: { homeownerNo: true },
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_offer" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Create list' }),
+      )
+
+      expect(
+        await screen.findByRole('button', { name: /draw shapes/i }),
+      ).toBeInTheDocument()
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card.`,
+          }),
+        ),
+      )
+      expect(screen.queryByText(/I created the list/)).toBeNull()
     })
 
     // The drawer is mounted by the body so it survives a turn committing
@@ -1703,7 +1811,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       // Draw and save while the first turn is still streaming.
       await user.click(
-        await screen.findByRole('button', { name: /edit area/i }),
+        await screen.findByRole('button', { name: /edit shapes/i }),
       )
       await user.click(
         await within(await screen.findByTestId('boundary-overlay')).findByRole(
@@ -1756,7 +1864,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       // The card itself renders — only the button waits.
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1798,7 +1906,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       // Opened while the turn is still streaming, off the live card.
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
 
@@ -1864,20 +1972,21 @@ describe('<ChiefOfStaffChatBody> attachment scope', () => {
     listMessagesMock.mockResolvedValue([])
   })
 
-  it('hides the paperclip for campaign_assistant scope even when the flag is on', () => {
-    attachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
-    // ChatComposer only renders the attachment trigger when attachmentsEnabled.enabled.
-    // With campaign_assistant scope the mock returns enabled:false, so no paperclip.
+  it.each(['campaign_assistant', 'chief_of_staff'] as const)(
+    'shows the paperclip for the %s scope',
+    (scope) => {
+      render(<ChiefOfStaffChatBody active scope={scope} />)
+      expect(
+        screen.getByRole('button', { name: /attach/i }),
+      ).toBeInTheDocument()
+    },
+  )
+
+  it('hides the paperclip for a scope without attachment support', () => {
+    render(<ChiefOfStaffChatBody active scope="ordinance_flow" />)
     expect(
       screen.queryByRole('button', { name: /attach/i }),
     ).not.toBeInTheDocument()
-  })
-
-  it('shows the paperclip for chief_of_staff scope when the flag is on', () => {
-    attachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
-    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
   })
 })
 
@@ -1886,17 +1995,20 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
     dataTransfer: { types: ['Files'], files },
   })
 
-  const renderBody = () => {
+  const renderBody = (scope?: 'ordinance_flow') => {
     listConversationsMock.mockResolvedValue([])
     listMessagesMock.mockResolvedValue([])
     const { container } = render(
-      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope && { scope })}
+      />,
     )
     return container.firstElementChild as HTMLElement
   }
 
   it('shows the drop overlay while dragging files and hides it on leave', () => {
-    attachmentsOn = true
     const surface = renderBody()
 
     fireEvent.dragEnter(surface, dragPayload([]))
@@ -1909,7 +2021,6 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 
   it('uploads a supported dropped file through the attach path', async () => {
-    attachmentsOn = true
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
       fileName: 'agenda.pdf',
@@ -1931,7 +2042,6 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 
   it('does not upload an unsupported dropped file', async () => {
-    attachmentsOn = true
     const surface = renderBody()
     const file = new File(['x'], 'malware.exe', {
       type: 'application/x-msdownload',
@@ -1943,8 +2053,8 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
     expect(uploadAttachmentMock).not.toHaveBeenCalled()
   })
 
-  it('ignores drops while attachments are disabled', async () => {
-    const surface = renderBody()
+  it('ignores drops on a scope without attachment support', async () => {
+    const surface = renderBody('ordinance_flow')
     const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
 
     fireEvent.dragEnter(surface, dragPayload([file]))
@@ -1959,18 +2069,24 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
 })
 
 describe('<ChiefOfStaffChatBody> upload guard toast', () => {
-  const GUARD_COPY =
+  const SERVE_GUARD_COPY =
     "Don't upload closed-session, privileged, or active-litigation material."
+  const WIN_GUARD_COPY =
+    "Don't upload voter files, donor records, or anything you're not allowed to share."
 
   const dragPayload = (files: File[]) => ({
     dataTransfer: { types: ['Files'], files },
   })
 
-  const renderBody = () => {
+  const renderBody = (scope?: 'chief_of_staff' | 'campaign_assistant') => {
     listConversationsMock.mockResolvedValue([])
     listMessagesMock.mockResolvedValue([])
     const { container } = render(
-      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope ? { scope } : {})}
+      />,
     )
     return container.firstElementChild as HTMLElement
   }
@@ -1981,8 +2097,7 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
       dragPayload([new File(['x'], name, { type: 'application/pdf' })]),
     )
 
-  it('shows the guard toast once after the first successful upload', async () => {
-    attachmentsOn = true
+  it('shows the Serve guard toast once after the first successful CoS upload, keyed serve-chat-attachments-guard', async () => {
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
       fileName: 'agenda.pdf',
@@ -1993,10 +2108,55 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     const surface = renderBody()
 
     dropPdf(surface, 'agenda.pdf')
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(GUARD_COPY))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(SERVE_GUARD_COPY),
+    )
     expect(trackEventMock).toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
-      {},
+      { scope: 'chief_of_staff' },
+    )
+    // The attach event itself (not just the guard toast) must carry the
+    // Serve scope too — a regression that hardcoded DocumentAttached's scope
+    // would otherwise pass this suite (ENG-11219).
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.DocumentAttached,
+      expect.objectContaining({ scope: 'chief_of_staff' }),
+    )
+    expect(window.localStorage.getItem('serve-chat-attachments-guard')).toBe(
+      '1',
+    )
+
+    dropPdf(surface, 'minutes.pdf')
+    await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalledTimes(2))
+    expect(toastMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the Win guard toast once after the first successful CM upload, keyed win-chat-attachments-guard', async () => {
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    const surface = renderBody('campaign_assistant')
+
+    dropPdf(surface, 'agenda.pdf')
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(WIN_GUARD_COPY))
+    expect(window.localStorage.getItem('win-chat-attachments-guard')).toBe('1')
+    expect(
+      window.localStorage.getItem('serve-chat-attachments-guard'),
+    ).toBeNull()
+    // The Campaign Manager mounts this same body under campaign_assistant, so
+    // the attach and guard events must carry that scope rather than the
+    // chief_of_staff default (ENG-11219).
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.DocumentAttached,
+      expect.objectContaining({ scope: 'campaign_assistant' }),
+    )
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.UploadGuardShown,
+      { scope: 'campaign_assistant' },
     )
 
     dropPdf(surface, 'minutes.pdf')
@@ -2005,7 +2165,6 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   })
 
   it('does not show the guard toast when the upload fails', async () => {
-    attachmentsOn = true
     uploadAttachmentMock.mockRejectedValue(new Error('boom'))
     const surface = renderBody()
 
@@ -2015,7 +2174,243 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     expect(toastMock).not.toHaveBeenCalled()
     expect(trackEventMock).not.toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
-      {},
+      { scope: 'chief_of_staff' },
+    )
+    // The failed-upload prompt event must still fire, carrying the Serve
+    // scope (ENG-11219).
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.SourceUnreachablePromptShown,
+        { promptContext: 'Upload failed', scope: 'chief_of_staff' },
+      ),
+    )
+  })
+
+  it('tags the source-unreachable prompt event with the campaign_assistant scope for a failed CM upload', async () => {
+    uploadAttachmentMock.mockRejectedValue(new Error('boom'))
+    const surface = renderBody('campaign_assistant')
+
+    dropPdf(surface, 'agenda.pdf')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.SourceUnreachablePromptShown,
+        { promptContext: 'Upload failed', scope: 'campaign_assistant' },
+      ),
+    )
+  })
+})
+
+describe('<ChiefOfStaffChatBody> upload racing the status poll', () => {
+  it('shows one chip when the poll returns the row before the upload resolves', async () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const polled = vi.fn()
+    api.mock('GET /v1/chats/:conversationId/attachments', () => {
+      polled()
+      return {
+        status: 200,
+        data: {
+          attachments: [
+            {
+              id: 'att-1',
+              source: 'upload',
+              sourceUrl: null,
+              fileName: 'budget.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 1,
+              pageCount: null,
+              status: 'ready',
+              failureReason: null,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      }
+    })
+    let resolveUpload: (value: unknown) => void = () => undefined
+    uploadAttachmentMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpload = resolve
+      }),
+    )
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+
+    fireEvent.drop(container.firstElementChild as HTMLElement, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [new File(['x'], 'budget.pdf', { type: 'application/pdf' })],
+      },
+    })
+    await waitFor(() => expect(polled).toHaveBeenCalled(), { timeout: 5_000 })
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+      ).toHaveLength(2),
+    )
+
+    resolveUpload({
+      id: 'att-1',
+      fileName: 'budget.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    // With every row ready the poll stops, so a duplicate would stay put.
+    await new Promise((resolve) => setTimeout(resolve, 3_500))
+    expect(
+      screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+    ).toHaveLength(1)
+  }, 15_000)
+})
+
+describe('<ChiefOfStaffChatBody> link attachments', () => {
+  const renderBody = (scope?: 'chief_of_staff' | 'campaign_assistant') => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope ? { scope } : {})}
+      />,
+    )
+  }
+
+  const pasteLink = async (url: string): Promise<void> => {
+    const input = await screen.findByLabelText(/ask a question/i)
+    fireEvent.paste(input, { clipboardData: { getData: () => url } })
+  }
+
+  it('fires LinkSubmitted with the chief_of_staff scope on a successful link attach', async () => {
+    linkAttachmentMock.mockResolvedValue({
+      ok: true,
+      attachment: {
+        id: 'link-1',
+        fileName: 'https://example.com/agenda.pdf',
+        status: 'ready',
+        pageCount: null,
+        failureReason: null,
+      },
+    })
+    renderBody()
+
+    await pasteLink('see https://example.com/agenda.pdf for details')
+
+    await waitFor(() =>
+      expect(linkAttachmentMock).toHaveBeenCalledWith(
+        'conv',
+        'https://example.com/agenda.pdf',
+      ),
+    )
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.LinkSubmitted,
+      {
+        linkHost: 'example.com',
+        fetchSucceeded: true,
+        scope: 'chief_of_staff',
+      },
+    )
+  })
+
+  it('fires LinkFetchFailed with the campaign_assistant scope when the server reports a fetch error', async () => {
+    linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.org/minutes.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.org',
+          failureReason: 'unreachable',
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the campaign_assistant scope when the link attach throws', async () => {
+    linkAttachmentMock.mockRejectedValue(new Error('network down'))
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.net/report.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.net',
+          failureReason: 'network_error',
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkSubmitted with the campaign_assistant scope on a successful link attach', async () => {
+    linkAttachmentMock.mockResolvedValue({
+      ok: true,
+      attachment: {
+        id: 'link-2',
+        fileName: 'https://example.com/flyer.pdf',
+        status: 'ready',
+        pageCount: null,
+        failureReason: null,
+      },
+    })
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.com/flyer.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkSubmitted,
+        {
+          linkHost: 'example.com',
+          fetchSucceeded: true,
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the chief_of_staff scope when the server reports a fetch error', async () => {
+    linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
+    renderBody()
+
+    await pasteLink('see https://example.org/budget.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.org',
+          failureReason: 'unreachable',
+          scope: 'chief_of_staff',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the chief_of_staff scope when the link attach throws', async () => {
+    linkAttachmentMock.mockRejectedValue(new Error('network down'))
+    renderBody()
+
+    await pasteLink('see https://example.net/contract.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.net',
+          failureReason: 'network_error',
+          scope: 'chief_of_staff',
+        },
+      ),
     )
   })
 })
@@ -2257,6 +2652,141 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
       screen.getAllByRole('button', { name: 'Continue in compose' }),
     ).toHaveLength(1)
     expect(screen.queryByText('compose_handoff')).not.toBeInTheDocument()
+  })
+
+  // This body is shared by Serve's Chief of Staff and Win's Campaign
+  // Manager, so the handoff routes on the payload's own channel rather than
+  // which surface mounted it.
+  describe('compose_handoff routing', () => {
+    beforeEach(() => {
+      vi.mocked(router.push!).mockClear()
+    })
+
+    afterEach(() => {
+      sessionStorage.clear()
+    })
+
+    it('routes a win_social handoff to the Win hub with the nonce', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'text', text: 'Here is a draft.' },
+            {
+              kind: 'tool',
+              toolName: 'compose_handoff',
+              payload: {
+                channel: 'win_social',
+                draftText: 'The pothole crew starts Monday.',
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv_win" />)
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(router.push).toHaveBeenCalledTimes(1)
+      const destination = vi.mocked(router.push!).mock.calls[0]?.[0] as string
+      expect(destination).toMatch(
+        /^\/dashboard\/outreach\?compose=social&source=campaign_manager&handoff=.+$/,
+      )
+      const nonce = destination.split('handoff=')[1]
+      expect(sessionStorage.getItem(`cos-handoff-${nonce}`)).toBe(
+        JSON.stringify({
+          channel: 'win_social',
+          draftText: 'The pothole crew starts Monday.',
+        }),
+      )
+    })
+
+    it('still routes a serve_social handoff to the Serve hub', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'text', text: 'Here is a draft.' },
+            { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody active conversationIdOverride="conv_serve" />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(router.push).toHaveBeenCalledTimes(1)
+      const destination = vi.mocked(router.push!).mock.calls[0]?.[0] as string
+      expect(destination).toMatch(
+        /^\/dashboard\/constituent-outreach\?compose=social&handoff=.+$/,
+      )
+    })
+
+    // ENG-11219: the handoff event is one event shared by both products, so
+    // ComposeHandoffOpened must carry the mounting surface's scope rather than
+    // being inferred from the payload's own channel.
+    it('fires ComposeHandoffOpened with scope campaign_assistant for the Campaign Manager', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            {
+              kind: 'tool',
+              toolName: 'compose_handoff',
+              payload: {
+                channel: 'win_social',
+                draftText: 'The pothole crew starts Monday.',
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody
+          active
+          conversationIdOverride="conv_win_scope"
+          scope="campaign_assistant"
+        />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.ComposeHandoffOpened,
+        expect.objectContaining({ scope: 'campaign_assistant' }),
+      )
+    })
+
+    it('fires ComposeHandoffOpened with scope chief_of_staff for the chief of staff', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody active conversationIdOverride="conv_cos_scope" />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.ComposeHandoffOpened,
+        expect.objectContaining({ scope: 'chief_of_staff' }),
+      )
+    })
   })
 
   it('reloads an answered question with its answer checked', async () => {

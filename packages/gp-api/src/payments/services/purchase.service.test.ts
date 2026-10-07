@@ -571,6 +571,46 @@ describe('PurchaseService', () => {
       ).not.toHaveBeenCalled()
     })
 
+    it('fulfills a session a promotion code covered in full', async () => {
+      // Stripe completes a $0 session with payment_status
+      // no_payment_required and no PaymentIntent; there is nothing to wait
+      // for, so deferring it would leave the purchase unfulfilled forever.
+      const sessionId = 'cs_test_full_promo'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.TEXT,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'no_payment_required',
+          payment_intent: null,
+          amount_total: 0,
+          metadata: {
+            purchaseType: PurchaseType.TEXT,
+            userId: '1',
+          },
+        }),
+      )
+
+      const result = await service.completeCheckoutSession({
+        checkoutSessionId: sessionId,
+      })
+
+      expect(result.deferred).toBeUndefined()
+      expect(result.alreadyProcessed).toBe(false)
+      expect(mockCheckoutSessionPostPurchaseHandler).toHaveBeenCalledWith(
+        sessionId,
+        expect.objectContaining({ purchaseType: PurchaseType.TEXT }),
+      )
+      expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
+      expect(
+        mockStripeService.updatePaymentIntentMetadata,
+      ).not.toHaveBeenCalled()
+    })
+
     it('should skip handler if already processed (idempotency)', async () => {
       // Arrange
       const sessionId = 'cs_test_already_done'

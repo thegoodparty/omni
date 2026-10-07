@@ -8,14 +8,14 @@ The position name (`office`) usually contains the jurisdiction (e.g. `"Burnsvill
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_schedule.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` (schema-only fast check) and then `python3 /workspace/qa_checks.py` (deterministic semantic checks, e.g. hint quality) before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## TODO CHECKLIST
 
-1. Read `PARAMS_JSON`. Capture `state`, `office`. Derive the jurisdiction (city / town / county) from `office`; if `office` is generic, WebSearch `office` + `state` to identify it before any other step. If `known_schedule_location` is present, hold it as the channel-0 hint for Step 2.
+1. Read `PARAMS_FILE`. Capture `state`, `office`. Derive the jurisdiction (city / town / county) from `office`; if `office` is generic, WebSearch `office` + `state` to identify it before any other step. If `known_schedule_location` is present, hold it as the channel-0 hint for Step 2.
 2. Try the channel-0 hint first when present; otherwise discover the official government site via `WebSearch` (city/county domain, ideally `.gov` or `.us`).
 3. Fetch the agendas / meetings / city council page via `pmf_runtime.http.get` and confirm a recurring schedule is stated.
 4. If no recurring schedule appears on a top-level page, search for and fetch the municipal code section (often searchable as `<jurisdiction> <state> municipal code council meetings`).
@@ -89,7 +89,7 @@ If after STEP 4 you cannot find an explicit recurring schedule from an official 
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 STATE = PARAMS["state"]
 OFFICE = PARAMS["office"]
 KNOWN_LOCATION = PARAMS.get("known_schedule_location")  # optional hint from a prior run

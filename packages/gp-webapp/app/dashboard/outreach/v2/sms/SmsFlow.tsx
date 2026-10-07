@@ -20,6 +20,9 @@ import type {
 import type { TcrCompliance } from 'helpers/types'
 import {
   checkSmsStandards,
+  deriveSmsProtectedParts,
+  mergeTagToken,
+  PRICE_PER_TEXT,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -36,14 +39,14 @@ import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
 import {
   createP2pPhoneList,
-  getP2pPhoneListStatus,
+  getP2pPhoneListBuildStatus,
+  type PhoneListBuildStatusResult,
   type PhoneListStatusResponse,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
-  OUTREACH_OPTIONS,
   OUTREACH_TYPES,
   FREE_TEXTS_OFFER,
 } from 'app/dashboard/outreach/constants'
@@ -92,11 +95,14 @@ import {
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
+import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
 import {
   composeScript,
   composeServeScript,
   ensureSmsIdentification,
   identificationIntro,
+  provisionalCommitteeName,
+  restoreSmsSystemRegions,
   openWithSmsIdentification,
   SMS_PURPOSES,
   type SmsFlowPurpose,
@@ -147,8 +153,7 @@ const STEP_TITLES: Record<StepId, string> = {
   review: 'Review & pay',
 }
 
-const PRICE_PER_MESSAGE =
-  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
+const PRICE_PER_MESSAGE = PRICE_PER_TEXT
 
 // SMS texts cell phones, so both counts use the cell dimension:
 // reachability.sms for a saved list, and a { hasCellPhone: true } overlay on
@@ -320,10 +325,15 @@ interface SmsFlowProps {
   // opens on the list builder already filled in, and saves it when the
   // official confirms and names it.
   proposedAudience?: ProposedAudience
-  // The chat card proposal this flow was opened from. Rides on the Serve
-  // create, so the draft holds the card's key (a paid one reads as sent and
-  // cannot be paid twice) and the paid send puts the priority's check out.
+  // The chat card proposal this flow was opened from. Rides on the create
+  // (Serve's whole link, Win's key), so the draft holds the card's key (a
+  // paid one reads as sent and cannot be paid twice) and, on a priority, the
+  // paid send puts its check out.
   proposalLink?: ProposalLink
+  // Win's create was refused while carrying the card's key, which is how a
+  // card sent from another tab or an earlier session answers (409). The
+  // card's surface decides whether that means it already went out.
+  onProposalCreateFailed?: () => void
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -496,6 +506,7 @@ export const SmsFlow = ({
   initialScript,
   proposedAudience,
   proposalLink,
+  onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
   resumeDraft = null,
@@ -524,20 +535,40 @@ export const SmsFlow = ({
   // back through the details step makes that body stale.
   const confirmedEventRef = useRef<string | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
-  const [body, setBody] = useState('')
+  // The whole message as sent. The greeting, disclaimer and opt-out line
+  // live in it as locked parts rather than around it as separate regions.
+  const [message, setMessage] = useState('')
+  // The message as the system last wrote it (a draft, a seed, an undo).
+  // Locks are found in this, not in what is being typed, so a name the
+  // candidate is halfway through typing never locks under their cursor.
+  const [lockSource, setLockSource] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
+  // Whether the words are the candidate's (typed, seeded or polished) rather
+  // than an untouched fresh draft. Picks the one AI action: Regenerate, or
+  // Improve with AI.
+  const [ownWords, setOwnWords] = useState(false)
   const [undoText, setUndoText] = useState<string | null>(null)
   const [toneDrafts, setToneDrafts] = useState<
     Partial<Record<SocialTone, string>>
   >({})
 
   const [phoneListToken, setPhoneListToken] = useState<string | null>(null)
+  // The build-status poll's handle — set from the same POST response as
+  // `phoneListToken`, but the poll keys off this rather than the token
+  // (gp-api resolves it before Peerly necessarily has anything to report).
+  const [phoneListBuildId, setPhoneListBuildId] = useState<string | null>(null)
   const [phoneListCreating, setPhoneListCreating] = useState(false)
   const [phoneListError, setPhoneListError] = useState(false)
   const [stopPolling, setStopPolling] = useState(false)
   const [phoneList, setPhoneList] = useState<PhoneListStatusResponse | null>(
     null,
   )
+  // A build the poll resolved to `failed` — a review-step-level state,
+  // distinct from `phoneListError` (which blocks Continue a step earlier,
+  // before a build even starts polling). Carries its own retry rather than
+  // sharing `phoneListError`'s because by review time there's a phone list
+  // build to re-request, not a list create to re-run.
+  const [phoneListBuildFailed, setPhoneListBuildFailed] = useState(false)
 
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
@@ -560,10 +591,10 @@ export const SmsFlow = ({
   const [paidSend, setPaidSend] = useState(false)
 
   const draftRequestRef = useRef(0)
-  // True while the body is a seed carried in from outside the flow that has
-  // not yet been checked for the sender's identification. Cleared by the
-  // check, or by the first keystroke, so hand-typed text is never rewritten.
-  const seedUncheckedRef = useRef(false)
+  // The body of a seed carried in from outside the flow, held until it has
+  // been checked for the sender's identification. Cleared by the check, or
+  // by the first keystroke, so hand-typed text is never rewritten.
+  const seedUncheckedRef = useRef<string | null>(null)
 
   // Every saved-draft and gate concern — the row, the resume switch, the
   // gate/explainer visibility, and the origin that says what finishing the
@@ -685,17 +716,24 @@ export const SmsFlow = ({
     resetEventDetails()
     confirmedEventRef.current = null
     setTone('warm')
-    setBody(initialScript ?? '')
-    seedUncheckedRef.current = Boolean(initialScript)
+    const seeded = initialScript
+      ? surface.composeMessage(initialScript, null)
+      : ''
+    setMessage(seeded)
+    setLockSource(seeded)
+    seedUncheckedRef.current = initialScript || null
     setManuallyEdited(Boolean(initialScript))
+    setOwnWords(Boolean(initialScript))
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
     setPhoneListToken(null)
+    setPhoneListBuildId(null)
     setPhoneListCreating(false)
     setPhoneListError(false)
     setStopPolling(false)
     setPhoneList(null)
+    setPhoneListBuildFailed(false)
     setName(resumeDraft?.name ?? '')
     setNameEdited(Boolean(resumeDraft?.name))
     setDate(undefined)
@@ -716,6 +754,7 @@ export const SmsFlow = ({
     initialScript,
     preselectedRecommendedVariant,
     resumeDraft,
+    surface,
   ])
 
   // Object URL lifecycle for the image preview.
@@ -778,9 +817,18 @@ export const SmsFlow = ({
     (surface.isServe ? Boolean(user) : campaign != null) &&
     identificationNames.length > 0
   useEffect(() => {
-    if (!open || !seedUncheckedRef.current || !identificationReady) return
-    seedUncheckedRef.current = false
-    setBody((seeded) => withIdentification(seeded, 'warm'))
+    const seed = seedUncheckedRef.current
+    if (!open || seed === null || !identificationReady) return
+    seedUncheckedRef.current = null
+    // Repaired as a body, then composed: the identification follows the
+    // greeting. Composed without a committee; the footer effect below adds
+    // the line the message should name.
+    const repaired = surface.composeMessage(
+      withIdentification(seed, 'warm'),
+      null,
+    )
+    setMessage(repaired)
+    setLockSource(repaired)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
   }, [open, initialScript, identificationReady])
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
@@ -791,25 +839,51 @@ export const SmsFlow = ({
   const committeeName = surface.isServe
     ? null
     : (tcrCompliance?.committeeName ?? null)
+  // Until verification records the committee, the message names a
+  // provisional one, so the "Paid for by" line is always there to see. It is
+  // swapped for the real committee the moment one exists.
+  const provisionalCommittee = surface.isServe
+    ? null
+    : provisionalCommitteeName(candidateFullName)
+  const footerCommittee = committeeName ?? provisionalCommittee
+  const upgradeFooter = (script: string) =>
+    upgradeScriptFooter(script, footerCommittee)
   // A resumed row carries the script exactly as it was saved (intro, body and
   // system footer already joined), so it must not be composed a second time.
   // Only the system footer is upgraded: a draft saved before verification has
   // no paid-for-by line, and scheduling's server-side compliance check will
   // demand it against the committee that exists by resume time.
   const composedMessage =
-    resumed && savedDraft?.script
-      ? upgradeScriptFooter(savedDraft.script, committeeName)
-      : surface.composeMessage(body, committeeName)
+    resumed && savedDraft?.script ? upgradeFooter(savedDraft.script) : message
   const composedLength = composedMessage.length
+  const loadMessage = (next: string) => {
+    setMessage(next)
+    setLockSource(next)
+  }
+  // The committee resolves after the flow opens, so a message composed
+  // before it has the opt-out line alone. Same upgrade a resumed draft gets.
+  useEffect(() => {
+    const upgraded = upgradeFooter(message)
+    if (upgraded === message) return
+    setMessage(upgraded)
+    setLockSource(upgraded)
+    // upgradeFooter is rebuilt each render from footerCommittee.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message, footerCommittee])
+  // The message with nothing written between its locked parts.
+  const emptyMessage = surface.composeMessage('', footerCommittee)
+  const hasWrittenBody =
+    message.replace(/\s+/g, '') !== '' &&
+    message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
   const rawStandards = checkSmsStandards(composedMessage, {
     candidateNames: identificationNames,
     committeeName,
   })
   // Win ignores nothing once a committee exists, so this is the raw verdict
   // there. Without one (build mode -- the campaign is not verified yet) the
-  // paid-for-by line is system-composed off a committee name that does not
-  // exist, so no edit the candidate can make satisfies the rule; it is
-  // dropped here, and the footer upgrade above supplies the line at resume.
+  // line names a provisional committee the server would not accept, so the
+  // rule is dropped here; the footer upgrade above swaps in the real
+  // committee once verification records it, before anything can be sent.
   const ignoredStandardsRules: readonly SmsStandardsRule[] =
     !surface.isServe && committeeName === null
       ? [...surface.ignoredStandardsRules, 'paid_for_by']
@@ -821,7 +895,15 @@ export const SmsFlow = ({
     passed: standardsFailures.length === 0,
     failures: standardsFailures,
   }
-  const bracketsToFill = unfilledBrackets(body)
+  // Locks the provisional line too: the verdict ignores it, but the
+  // candidate still must not edit the disclaimer out.
+  const protectedParts = deriveSmsProtectedParts(lockSource, {
+    candidateNames: identificationNames,
+    committeeName: footerCommittee,
+    channel: surface.isServe ? 'serve' : 'peerly',
+    ignoredRules: surface.ignoredStandardsRules,
+  })
+  const bracketsToFill = unfilledBrackets(message)
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -915,15 +997,39 @@ export const SmsFlow = ({
     }
   }, [selectedList, date, name, nameEdited, surface, purpose])
 
+  // An Improve reply keeps the greeting and footer exactly as the system
+  // wrote them, because gp-api masks them. One that does not (a gp-api from
+  // before masking, mid-deploy) has them composed back around its body, so a
+  // polish can never send without the disclaimer or opt-out.
+  const keepSystemRegions = (reply: string): string => {
+    const [greeting = '', footer = ''] = surface
+      .composeMessage('', footerCommittee)
+      .split('\n\n')
+    return restoreSmsSystemRegions(reply, {
+      greeting,
+      footer,
+      token: mergeTagToken('first_name', surface.isServe ? 'serve' : 'peerly'),
+    })
+  }
+
   const requestDraft = (
     nextPurpose: SmsFlowPurpose | null,
     nextTone: SocialTone,
-    priorBody: string,
+    priorMessage: string,
     priorManuallyEdited: boolean,
     currentDraft?: string,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
+    // The polish endpoint takes a message within the limit. Every path to it
+    // (the AI button, a tone pill, Try again) stops here when it is over, and
+    // the over-limit note already says to shorten it.
+    if (
+      currentDraft !== undefined &&
+      currentDraft.length > SMS_COMPOSED_MAX_LENGTH
+    ) {
+      return
+    }
     const requestId = ++draftRequestRef.current
     const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutation.mutate(
@@ -937,22 +1043,41 @@ export const SmsFlow = ({
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           if (priorManuallyEdited) {
-            setUndoText(priorBody)
+            setUndoText(priorMessage)
             setManuallyEdited(false)
           }
-          // Fresh drafts open with the identification (design model: it is
-          // the message's editable first sentence); improve mode polishes a
-          // message that already carries it, and gets it back if the model
-          // dropped or bracketed the name.
+          // The model writes the body only, so a fresh draft is composed
+          // around it here: greeting, the identification (the body's
+          // editable first sentence, replacing any the model wrote),
+          // disclaimer and opt-out. Improve sends the whole message and gets
+          // the whole message back as is: gp-api locks the name, so a reply
+          // cannot drop it, and repairing the identification here would put
+          // an intro in front of the greeting.
           const full =
             currentDraft === undefined
-              ? openWithSmsIdentification(
-                  generated,
-                  identificationFor(nextTone),
+              ? surface.composeMessage(
+                  openWithSmsIdentification(
+                    generated,
+                    identificationFor(nextTone),
+                  ),
+                  footerCommittee,
                 )
-              : withIdentification(generated, nextTone)
-          setBody(full)
-          setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
+              : keepSystemRegions(generated)
+          loadMessage(full)
+          setOwnWords(currentDraft !== undefined)
+          // Only fresh drafts are remembered per tone: a polish is of the
+          // candidate's words, which a tone switch must not swap away.
+          if (currentDraft === undefined) {
+            setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
+          }
+        },
+        // A first draft that fails leaves nothing to write into, so the
+        // field gets the message's locked parts and the candidate writes
+        // between them, as on the custom purpose.
+        onError: () => {
+          if (requestId !== draftRequestRef.current) return
+          if (priorMessage.trim().length > 0) return
+          loadMessage(surface.composeMessage('', footerCommittee))
         },
       },
     )
@@ -963,7 +1088,11 @@ export const SmsFlow = ({
     setTone('warm')
     setManuallyEdited(false)
     setUndoText(null)
-    setBody('')
+    // A custom message starts as its locked parts, written between.
+    const start =
+      selected === 'custom' ? surface.composeMessage('', footerCommittee) : ''
+    loadMessage(start)
+    setOwnWords(selected === 'custom')
     setToneDrafts({})
     resetDraftMutation()
     confirmedEventRef.current = null
@@ -975,7 +1104,9 @@ export const SmsFlow = ({
     if (confirmedEventRef.current !== confirmed) {
       confirmedEventRef.current = confirmed
       draftRequestRef.current += 1
-      setBody('')
+      setMessage('')
+      setLockSource('')
+      setOwnWords(false)
       setToneDrafts({})
       setUndoText(null)
       setManuallyEdited(false)
@@ -986,16 +1117,25 @@ export const SmsFlow = ({
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
+    // The candidate's own words are polished in the new tone, never
+    // replaced by a fresh draft in it.
+    if (ownWords) {
+      setTone(nextTone)
+      if (hasWrittenBody) {
+        requestDraft(purpose, nextTone, message, manuallyEdited, message)
+      }
+      return
+    }
     if (!purpose || purpose === 'custom') {
       setTone(nextTone)
       return
     }
-    // A blank body (first generation still in flight) must neither be
+    // A blank message (first generation still in flight) must neither be
     // cached for the outgoing tone nor treated as a memory hit for the
     // incoming one — restoring '' would blank the editor and skip the fetch.
     const remembered = toneDrafts[nextTone]
-    if (body.trim().length > 0) {
-      setToneDrafts((prev) => ({ ...prev, [tone]: body }))
+    if (message.trim().length > 0) {
+      setToneDrafts((prev) => ({ ...prev, [tone]: message }))
     }
     setTone(nextTone)
     if (remembered !== undefined && remembered.trim().length > 0) {
@@ -1003,30 +1143,42 @@ export const SmsFlow = ({
       resetDraftMutation()
       // Not re-checked: a generated entry was identified when it arrived,
       // and any other entry is the candidate's own typing.
-      setBody(remembered)
+      loadMessage(remembered)
       setManuallyEdited(false)
       return
     }
-    requestDraft(purpose, nextTone, body, manuallyEdited)
+    requestDraft(purpose, nextTone, message, manuallyEdited)
   }
 
-  const handleBodyChange = (value: string) => {
-    seedUncheckedRef.current = false
-    setBody(value)
+  const handleMessageChange = (value: string) => {
+    seedUncheckedRef.current = null
+    setMessage(value)
     setManuallyEdited(true)
-    if (draftMutation.isError) resetDraftMutation()
+    setOwnWords(true)
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
-  const handleImprove = () => {
-    if (body.trim().length === 0) return
-    requestDraft(purpose, tone, body, manuallyEdited, body)
+  const aiAction = ownWords ? 'improve' : 'regenerate'
+  const handleAiAction = () => {
+    if (aiAction === 'regenerate') {
+      requestDraft(purpose, tone, message, manuallyEdited)
+      return
+    }
+    if (!hasWrittenBody) return
+    requestDraft(purpose, tone, message, manuallyEdited, message)
   }
 
   const handleUndo = () => {
     if (undoText === null) return
-    setBody(undoText)
+    draftRequestRef.current += 1
+    resetDraftMutation()
+    loadMessage(undoText)
     setUndoText(null)
     setManuallyEdited(true)
+    setOwnWords(true)
   }
 
   // Name-step continue: create the list through the shared audience hook
@@ -1045,16 +1197,19 @@ export const SmsFlow = ({
         return
       }
       setPhoneListToken(null)
+      setPhoneListBuildId(null)
       setPhoneList(null)
       setStopPolling(false)
+      setPhoneListBuildFailed(false)
       setPhoneListCreating(true)
       const result = await createP2pPhoneList(created, created.id)
       setPhoneListCreating(false)
-      if (!result.ok || !result.token) {
+      if (!result.ok || !result.token || !result.buildId) {
         setPhoneListError(true)
         return
       }
       setPhoneListToken(result.token)
+      setPhoneListBuildId(result.buildId)
       setStepId('schedule')
     } catch {
       setPhoneListCreating(false)
@@ -1085,17 +1240,20 @@ export const SmsFlow = ({
     // list would let a retry skip straight to schedule with the wrong
     // audience.
     setPhoneListToken(null)
+    setPhoneListBuildId(null)
     setPhoneList(null)
     setStopPolling(false)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     setPhoneListCreating(true)
     const result = await createP2pPhoneList(created, created.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('schedule')
   }
 
@@ -1128,13 +1286,15 @@ export const SmsFlow = ({
     }
     setPhoneListCreating(true)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('schedule')
   }
 
@@ -1177,20 +1337,44 @@ export const SmsFlow = ({
     if (!selectedList || phoneListCreating) return
     setPhoneListCreating(true)
     setPhoneListError(false)
+    setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token) {
+    if (!result.ok || !result.token || !result.buildId) {
       setPhoneListError(true)
       return
     }
     setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
     setStepId('review')
+  }
+
+  // Review-step retry: a build the poll resolved to `failed` has nothing
+  // left to poll (the row stays `failed`), so this re-requests a fresh one
+  // from the same selected list rather than re-polling the dead buildId.
+  const handleRetryPhoneListBuild = async () => {
+    if (!selectedList || phoneListCreating) return
+    setPhoneListBuildFailed(false)
+    setPhoneListToken(null)
+    setPhoneListBuildId(null)
+    setPhoneList(null)
+    setStopPolling(false)
+    setPhoneListCreating(true)
+    const result = await createP2pPhoneList(selectedList, selectedList.id)
+    setPhoneListCreating(false)
+    if (!result.ok || !result.token || !result.buildId) {
+      setPhoneListBuildFailed(true)
+      return
+    }
+    setPhoneListToken(result.token)
+    setPhoneListBuildId(result.buildId)
   }
 
   // First compose entry generates the initial draft (custom writes its own).
   useEffect(() => {
     if (stepId !== 'compose' || !open) return
-    if (purpose === 'custom' || body.trim() || draftMutation.isPending) return
+    if (purpose === 'custom' || message.trim() || draftMutation.isPending)
+      return
     requestDraft(purpose, tone, '', false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, open])
@@ -1214,6 +1398,10 @@ export const SmsFlow = ({
     const discount = campaign?.hasFreeTextsOffer
       ? Math.min(phoneList.leadsLoaded, FREE_TEXTS_OFFER.COUNT)
       : 0
+    // Never beside draftOutreachId: the server takes a card's key on a fresh
+    // draft only, since a saved one was built without it.
+    const sendsProposalKey =
+      proposalLink !== undefined && !(resumed && savedDraft)
     ;(async () => {
       try {
         const outreach = await createOutreach(
@@ -1252,6 +1440,9 @@ export const SmsFlow = ({
             ...(resumed && savedDraft
               ? { draftOutreachId: savedDraft.id }
               : {}),
+            ...(sendsProposalKey
+              ? { proposalKey: proposalLink.proposalKey }
+              : {}),
             draft: true,
           },
           resumed ? null : image,
@@ -1288,6 +1479,7 @@ export const SmsFlow = ({
             )
         } else {
           setDraftCreateError(true)
+          if (sendsProposalKey) onProposalCreateFailed?.()
         }
       } finally {
         if (generation === draftGenerationRef.current) {
@@ -1310,6 +1502,8 @@ export const SmsFlow = ({
     name,
     audience.selectedListId,
     image,
+    proposalLink,
+    onProposalCreateFailed,
   ])
 
   const handleScheduled = async (paid: boolean) => {
@@ -1373,6 +1567,19 @@ export const SmsFlow = ({
       isDraftCreatingRef.current = false
       setDraftOutreachId(null)
       setDraftCreateError(false)
+      // A build the poll resolved to `failed` is dead state, not a snapshot
+      // worth keeping — left alone, re-entering review would show the exact
+      // same failure card from before the edit instead of giving the edited
+      // campaign its own shot. Re-request it the same way the review step's
+      // own retry does, rather than only clearing the flags: nothing else
+      // triggers a build between compose and review, so clearing without
+      // rebuilding would strand review on a permanent "preparing" spinner. A
+      // build still in flight or one that already succeeded is untouched —
+      // the audience didn't change, so a completed phoneList survives
+      // Back/forward without a needless rebuild.
+      if (phoneListBuildFailed) {
+        void handleRetryPhoneListBuild()
+      }
     }
     const previous = stepOrder[stepIndex - 1]
     if (previous) setStepId(previous)
@@ -1492,7 +1699,7 @@ export const SmsFlow = ({
                       onClick: () =>
                         setStepId(buildMode ? 'schedule' : 'review'),
                       disabled:
-                        body.trim().length === 0 ||
+                        !hasWrittenBody ||
                         !standards.passed ||
                         bracketsToFill.length > 0 ||
                         composedLength > SMS_COMPOSED_MAX_LENGTH ||
@@ -1597,19 +1804,58 @@ export const SmsFlow = ({
       }
       dirty={dirty}
     >
-      {phoneListToken && !phoneList && (
-        <LongPoll<PhoneListStatusResponse | false>
-          pollingMethod={async () => getP2pPhoneListStatus(phoneListToken)}
+      {phoneListBuildId && !phoneList && (
+        // Keyed on the buildId so a retry (a fresh buildId) remounts this
+        // rather than resuming a poll loop that already ran out its
+        // setTimeout chain after the previous build's terminal state.
+        // `limit`: gp-api's status route maps every non-2xx -- including a
+        // permanent 404 for a build row that is genuinely gone -- to "keep
+        // polling" (see getP2pPhoneListBuildStatus), so this loop is the only
+        // thing standing between a stuck/missing build and a silent,
+        // permanent spinner. PHONE_LIST_BUILD_POLL_LIMIT is sized generously
+        // (minutes, not the expected build duration) so it never cuts off a
+        // legitimately long async build.
+        <LongPoll<PhoneListBuildStatusResult>
+          key={phoneListBuildId}
+          pollingMethod={async () =>
+            getP2pPhoneListBuildStatus(phoneListBuildId)
+          }
           onSuccess={(result) => {
-            if (result === undefined || result === false) {
+            // `getP2pPhoneListBuildStatus` always resolves to a value — this
+            // guard is only here because LongPoll's signature allows `void`.
+            if (!result) return false
+            if (result.buildStatus === 'ready') {
+              const {
+                phoneListId,
+                leadsLoaded,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
+              } = result
+              setPhoneList({
+                phoneListId,
+                leadsLoaded,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
+              })
               setStopPolling(true)
-              return
+              // Terminal this tick -- told synchronously so a `ready` on the
+              // last allowed attempt doesn't also trip `onLimitReached`.
+              return true
             }
-            setPhoneList(result)
+            if (result.buildStatus === 'failed') {
+              setPhoneListBuildFailed(true)
+              setStopPolling(true)
+              return true
+            }
+            // 'building': keep polling, nothing changes yet.
+            return false
+          }}
+          limit={PHONE_LIST_BUILD_POLL_LIMIT}
+          onLimitReached={() => {
+            setPhoneListBuildFailed(true)
             setStopPolling(true)
           }}
           stopPolling={stopPolling}
-          limit={60}
         />
       )}
       <GateExplainerModal
@@ -1674,9 +1920,11 @@ export const SmsFlow = ({
               // A different audience needs a fresh phone list, and a stale
               // "couldn't prepare" error from the last attempt is moot.
               setPhoneListToken(null)
+              setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
+              setPhoneListBuildFailed(false)
             }}
             universeName={audience.universeName}
             universeListId={audience.universeListId}
@@ -1700,9 +1948,11 @@ export const SmsFlow = ({
             onSelectRecommendation={(recommendation) => {
               audience.selectRecommendation(recommendation)
               setPhoneListToken(null)
+              setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
+              setPhoneListBuildFailed(false)
             }}
             createRecommendedListError={audience.createRecommendedListError}
             preselectedRecommendation={audience.preselectedRecommendation}
@@ -1797,23 +2047,21 @@ export const SmsFlow = ({
           isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
-          audienceName={selectedList?.name ?? audience.builderName}
           standardsFailures={standards.failures}
           unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}
-          committeeName={committeeName}
-          body={body}
-          onBodyChange={handleBodyChange}
+          message={message}
+          onMessageChange={handleMessageChange}
+          protectedParts={protectedParts}
+          mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
+          hasWrittenBody={hasWrittenBody}
           composedLength={composedLength}
-          onRegenerate={() => requestDraft(purpose, tone, body, manuallyEdited)}
-          onImprove={handleImprove}
-          canImprove={manuallyEdited && body.trim().length > 0}
+          aiAction={aiAction}
+          onAiAction={handleAiAction}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           canUndo={undoText !== null}
           onUndo={handleUndo}
-          isCustomPurpose={purpose === 'custom'}
-          image={image}
           imagePreviewUrl={imagePreviewUrl}
           onImageChange={setImage}
           imageError={imageError}
@@ -1856,9 +2104,13 @@ export const SmsFlow = ({
             }
             preparing={
               !buildMode &&
+              !phoneListBuildFailed &&
               (!phoneList || (!draftOutreachId && !draftCreateError))
             }
             prepareError={draftCreateError}
+            buildFailed={phoneListBuildFailed}
+            retryingBuild={phoneListCreating}
+            onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}
             onComplete={handleScheduled}
           />

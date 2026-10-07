@@ -1,5 +1,6 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
 import { Message } from '@aws-sdk/client-sqs'
+import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
   Poll,
@@ -63,6 +64,7 @@ import {
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
+  P2pPhoneListBuildMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -89,6 +91,9 @@ import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
+import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
+import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
+import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -181,7 +186,9 @@ export class QueueConsumerService {
     private readonly chatAttachments: ChatAttachmentsService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
+    private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
+    private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -384,6 +391,25 @@ export class QueueConsumerService {
         const pollAnalysisCompleteEvent =
           PollAnalysisCompleteEventSchema.parse(queueMessage)
         return await this.handlePollAnalysisComplete(pollAnalysisCompleteEvent)
+      case QueueType.FEEDBACK_SYNTHESIS_COMPLETE: {
+        this.logger.info('received feedbackSynthesisComplete message')
+        // A malformed event can never become valid, and requeueing it would
+        // hold its FIFO group until the DLQ limit. Ack-drop it, logged; the
+        // run it names is failed by the stale-run sweep. An ingest error
+        // escapes to the requeue path: the run is still running, so a
+        // redelivery retries it, and the ingest's claim makes that safe.
+        const event =
+          FeedbackSynthesisCompleteEventSchema.safeParse(queueMessage)
+        if (!event.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: event.error },
+            'malformed feedbackSynthesisComplete message, discarding',
+          )
+          return true
+        }
+        await this.feedbackSynthesisIngest.handle(event.data)
+        return true
+      }
       case QueueType.POLL_CREATION:
         this.logger.info('received pollCreation message')
         const pollCreationEvent = PollCreationEventSchema.parse(queueMessage)
@@ -509,6 +535,16 @@ export class QueueConsumerService {
         // than ack-dropping it the way a poison ordinance step is dropped.
         const { data } = OutreachTextSendEventSchema.parse(queueMessage)
         return await this.handleOutreachTextSend(data)
+      }
+      case QueueType.P2P_PHONE_LIST_BUILD: {
+        this.logger.info('received p2pPhoneListBuild message')
+        // A malformed payload is our own producer's bug (the message only
+        // ever carries a buildId) — let it throw and age to the DLQ rather
+        // than ack-dropping it.
+        const { buildId } = P2pPhoneListBuildMessageSchema.parse(
+          queueMessage.data,
+        )
+        return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
       }
 
       default:
@@ -841,13 +877,11 @@ export class QueueConsumerService {
 
     let highConfidence = false
     if (constituency.pagination.totalResults) {
-      // High confidence is EITHER:
-      //  - 75 total responses
-      //  - responses from >=10%
       // This was last decided here: https://goodparty.clickup.com/t/90132012119/ENG-4771
-      highConfidence =
-        totalResponses > 75 ||
-        totalResponses / constituency.pagination.totalResults >= 0.1
+      highConfidence = isHighConfidence({
+        replies: totalResponses,
+        population: constituency.pagination.totalResults,
+      })
     }
 
     await this.pollIssuesService.model.deleteMany({

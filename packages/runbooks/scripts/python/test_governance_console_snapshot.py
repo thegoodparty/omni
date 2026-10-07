@@ -369,6 +369,11 @@ def test_a_govern_correction_is_not_described_as_a_retirement():
 def test_a_permanent_verb_says_that_it_is_permanent():
     """Permanence is the property that decides how carefully a row is worth reading."""
     for queue, effects in gcs.VERB_EFFECTS.items():
+        if queue == "surface":
+            # Not forever like the other three: a relabel dismissal is read back
+            # against the same signal, so it clears on its own once the event's code
+            # actually moves again. Its sentence says so instead of claiming permanence.
+            continue
         assert "no expiry" in effects["dismiss"] or "Permanent" in effects["dismiss"], (
             f"{queue} dismiss does not say it is permanent"
         )
@@ -831,7 +836,7 @@ def test_build_snapshot_stamps_its_own_prior_flagged_for_the_next_run():
     assert snapshot["prior_flagged"] == {"A": "dormant"}
     assert snapshot["run_date"] == "2026-09-28"
     assert [q["queue"] for q in snapshot["queues"]] == [
-        "flags", "gaps", "proposals", "alignment"]
+        "flags", "gaps", "proposals", "alignment", "surface"]
 
 
 def test_build_snapshot_counts_open_decisions_across_every_queue():
@@ -909,7 +914,8 @@ def test_main_wires_the_code_axis_into_the_written_snapshot(tmp_path):
     out = tmp_path / "out" / "governance-console.json"
 
     rc = gcs.main(["--report", str(report), "--gaps", str(gaps), "--explorer", str(explorer),
-                   "--code", str(code), "-o", str(out)])
+                   "--code", str(code), "--drift", str(tmp_path / "no-drift.json"),
+                   "-o", str(out)])
 
     assert rc == 0
     snapshot = json.loads(out.read_text())
@@ -934,3 +940,55 @@ def test_no_flag_sentence_promises_a_silence_the_pipeline_cannot_write():
     for verdict in ("dismiss:event", "ticket:event"):
         assert "raised again next run" in flags[verdict], verdict
         assert "no expiry" not in flags[verdict] and "Permanent" not in flags[verdict]
+
+
+# --- the surface queue ---------------------------------------------------------
+
+DRIFT = {"rows": {
+    "Profile - Running Against: Click Save": {
+        "verdict": "moved", "confidence": "high", "claimed": "Profile", "areas": ["Additional Questions"],
+        "live_routes": ["/dashboard/questions"], "removal_commit": "93cb4a414 2026-06-19",
+        "signal": {"attributed": 15, "coverage": 0.75, "agreement": 0.93}, "okr": False,
+        "proposed_surface": "additional-questions", "proposed_display_name": "Additional Questions - Running Against: Click Save",
+        "proposed_fires_on": "Additional Questions (/dashboard/questions)", "disposition": "new", "source": "detector"},
+    "Contacts - Segment Created": {
+        "verdict": "stale_area_name", "confidence": "proposed", "claimed": "Contacts", "areas": ["Voter Data"],
+        "live_routes": ["/dashboard/contacts"], "removal_commit": None, "signal": None, "okr": False,
+        "proposed_surface": "voter-data", "proposed_display_name": "Voter Data - Segment Created",
+        "proposed_fires_on": "Voter Data (/dashboard/contacts)", "disposition": "open", "source": "detector"},
+    "Settled - X": {"verdict": "moved", "disposition": "applied"},
+    "Accepted - Y": {"verdict": "relabel", "disposition": "accepted", "source": "relabels"},
+}}
+
+
+def test_surface_queue_lists_only_open_rows_and_prechecks_high_confidence():
+    items = gcs.build_surface_queue(DRIFT)
+    assert [i["id"] for i in items] == ["Contacts - Segment Created", "Profile - Running Against: Click Save"]
+    by_id = {i["id"]: i for i in items}
+    assert by_id["Profile - Running Against: Click Save"]["recommended"] == "accept"
+    assert by_id["Contacts - Segment Created"]["recommended"] == ""
+    assert all(i["queue"] == "surface" and i["verbs"] == gcs.SURFACE_VERBS for i in items)
+    ev = by_id["Profile - Running Against: Click Save"]["evidence"][0]
+    assert ev["proposed_surface"] == "additional-questions"
+    assert ev["removal_commit"] == "93cb4a414 2026-06-19"
+
+
+def test_surface_verbs_all_have_effects_and_rows_get_event_cards():
+    assert set(gcs.SURFACE_VERBS) <= set(gcs.VERB_EFFECTS["surface"])
+    queues = [{"queue": "surface", "items": gcs.build_surface_queue(DRIFT)}]
+    assert "Profile - Running Against: Click Save" in gcs.queue_event_types(queues)
+
+
+def test_build_snapshot_without_drift_still_has_an_empty_surface_queue():
+    report = {"run_date": "2026-10-02", "flagged": [], "status_counts": {}}
+    snap = gcs.build_snapshot(report, {}, {"events": [], "areas": []}, None, {})
+    assert {"queue": "surface", "items": []} in snap["queues"]
+
+
+def test_surface_queue_shows_the_slug_options_and_uses_us_spelling():
+    drift = {"rows": {"Settings - Personal Info: Click Upload": {
+        "verdict": "moved", "confidence": "proposed", "claimed": "Settings", "areas": ["Profile"],
+        "proposed_surface": "profile", "surface_options": ["my-profile", "profile"], "disposition": "new"}}}
+    [item] = gcs.build_surface_queue(drift)
+    assert item["evidence"][0]["surface_options"] == "my-profile, profile"
+    assert item["label"] == "Settings - Personal Info: Click Upload: labeled Settings, fires from Profile"

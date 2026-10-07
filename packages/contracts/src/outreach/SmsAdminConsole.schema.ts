@@ -194,6 +194,10 @@ export type SmsProtectedPart =
       rule: Exclude<SmsStandardsRule, 'first_name_token' | 'length'>
       kind: 'phrase'
       text: string
+      // Where the locked copy starts in the script. The same words can
+      // appear twice (a body quoting the opt-out line), and the copy chosen
+      // here is the one to lock, not the first one a search would find.
+      start: number
     }
 
 const escapeRegExp = (text: string): string =>
@@ -203,13 +207,11 @@ const escapeRegExp = (text: string): string =>
 // inside "kitchen" would freeze a word that is not the candidate's name.
 // Letter lookarounds rather than `\\b`, which only knows ASCII letters and
 // would never match a name like "Élodie".
-const findWords = (script: string, words: string): string | null => {
-  const match = new RegExp(
+const findWords = (script: string, words: string): RegExpExecArray | null =>
+  new RegExp(
     `(?<![\\p{L}\\p{N}])${escapeRegExp(words)}(?![\\p{L}\\p{N}])`,
     'iu',
   ).exec(script)
-  return match ? match[0] : null
-}
 
 export const deriveSmsProtectedParts = (
   script: string,
@@ -248,21 +250,43 @@ export const deriveSmsProtectedParts = (
   // is gated on the rule.
   let disclaimer: { start: number; text: string } | null = null
   {
-    const phrase = /paid\s+for\s+by/i.exec(script)
-    if (phrase) {
-      const committee = context.committeeName?.trim()
-      const after = script.slice(phrase.index + phrase[0].length)
-      const named = committee
-        ? // Any run of non-letters between them: "Paid for by Friends", "Paid
-          // for by: Friends", "Paid for by - Friends" all name the committee.
-          new RegExp(`^[^\\p{L}\\p{N}]+${escapeRegExp(committee)}`, 'iu').exec(
-            after,
-          )
-        : null
-      disclaimer = {
-        start: phrase.index,
-        text: phrase[0] + (named ? named[0] : ''),
+    // The composer writes the disclaimer as the message's closing line, so
+    // a body that also says "paid for by" must not claim the lock: the
+    // last occurrence that names the committee wins, otherwise the last one.
+    const phrases = [...script.matchAll(/paid\s+for\s+by/gi)]
+    const committee = context.committeeName?.trim()
+    const unitAt = (phrase: RegExpExecArray | RegExpMatchArray) => {
+      const index = phrase.index ?? 0
+      const after = script.slice(index + phrase[0].length)
+      if (committee) {
+        // Any run of non-letters between them: "Paid for by Friends", "Paid
+        // for by: Friends", "Paid for by - Friends" all name the committee.
+        // The period that closes the line goes with it, so neither an edit
+        // nor Improve can leave the disclaimer unpunctuated.
+        const named = new RegExp(
+          `^[^\\p{L}\\p{N}]+${escapeRegExp(committee)}\\.?`,
+          'iu',
+        ).exec(after)
+        return named ? { start: index, text: phrase[0] + named[0] } : null
       }
+      // No committee to name (not recorded yet): the unit runs to the end
+      // of its line, so whatever the line names stays as written, periods
+      // in it included ("St. Louis"). It stops short of an opt-out on the
+      // same line, which is a part of its own.
+      const line = /^[^\n]*/.exec(after)?.[0] ?? ''
+      const optOutAt = line.search(/\s+reply\s+stop\b/i)
+      const rest = (optOutAt === -1 ? line : line.slice(0, optOutAt)).trimEnd()
+      return { start: index, text: phrase[0] + rest }
+    }
+    const last = phrases[phrases.length - 1]
+    if (committee) {
+      disclaimer =
+        phrases
+          .map(unitAt)
+          .filter((unit) => unit !== null)
+          .pop() ?? (last ? { start: last.index ?? 0, text: last[0] } : null)
+    } else if (last) {
+      disclaimer = unitAt(last)
     }
   }
 
@@ -294,22 +318,44 @@ export const deriveSmsProtectedParts = (
     // The full name as written when it is there; otherwise the first of its
     // words the script uses, since scripts often identify by first name.
     const names = (context.candidateNames ?? []).filter(Boolean)
-    const text =
+    const found =
       names.map((name) => findWords(outside, name.trim())).find(Boolean) ??
       nameWordsOf(names)
         .map((token) => findWords(outside, token))
         .find(Boolean)
-    if (text) parts.push({ rule: 'candidate_name', kind: 'phrase', text })
+    if (found) {
+      parts.push({
+        rule: 'candidate_name',
+        kind: 'phrase',
+        text: found[0],
+        start: found.index,
+      })
+    }
   }
 
   if (disclaimer && !ignored.has('paid_for_by')) {
-    parts.push({ rule: 'paid_for_by', kind: 'phrase', text: disclaimer.text })
+    parts.push({
+      rule: 'paid_for_by',
+      kind: 'phrase',
+      text: disclaimer.text,
+      start: disclaimer.start,
+    })
   }
 
   if (!ignored.has('opt_out_line')) {
-    const optOut = /reply\s+stop\b(?:\s+to\s+opt[\s-]?out)?\.?/i.exec(script)
-    if (optOut)
-      parts.push({ rule: 'opt_out_line', kind: 'phrase', text: optOut[0] })
+    // The last one: the composed opt-out line closes the message, and a body
+    // that mentions replying STOP earlier must not take the lock from it.
+    const optOut = [
+      ...script.matchAll(/reply\s+stop\b(?:\s+to\s+opt[\s-]?out)?\.?/gi),
+    ].pop()
+    if (optOut) {
+      parts.push({
+        rule: 'opt_out_line',
+        kind: 'phrase',
+        text: optOut[0],
+        start: optOut.index ?? 0,
+      })
+    }
   }
 
   return parts

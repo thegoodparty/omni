@@ -14,13 +14,13 @@ nearest reference wrapper.
 | File | What it is |
 |------|------------|
 | `useStreamingTurn.ts` | **The engine.** Drives one turn: optimistic user push, the `streamMessage` event loop, interleaved text/tool `liveSegments`, smooth reveal, the idle watchdog, the late-persistence commit poll, and abort-on-unmount. This is the only streaming loop — there is no second one. |
-| `chatUI.tsx` | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name; with the attachment props the ghost paperclip opens the file picker directly and pasted http(s) URLs call `onAttachLink` — no URL form; drag-and-drop lives in `ChiefOfStaffChatBody`, not here), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
+| `chatUI.tsx` | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name; with the attachment props the ghost paperclip opens the file picker directly and pasted http(s) URLs call `onAttachLink` — no URL form; drag-and-drop lives in `ChiefOfStaffChatBody`, not here. Offered only where `supportsAttachments(scope)` (`attachmentScopes.ts`) is true: `chief_of_staff` and `campaign_assistant`, matching gp-api's `ATTACHMENT_SCOPES`), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
 | `streaming.ts` | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`. |
 | `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. |
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
 | `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below. |
 | `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
-| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. The copy is Serve copy (`SERVE_*`); Win's Campaign Manager mounts the Chief of Staff body but its agent has none of these tools. See "Cards" below. |
+| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent emits only text proposals (`present_outreach_proposal`). The proposal card's copy and links are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope); the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
@@ -86,6 +86,21 @@ registry existed, and they had started to drift.
    point in the text where its tool fired, with prose above and below it, and a
    reload renders the same order it streamed in.
 
+**A question written right above the clarify widget is dropped.** The widget
+shows its own question, so prose that also asks it puts it on screen twice.
+Both `liveTurnBlocks` and `persistedTurnBlocks` strip the closing question of
+the text block directly before an `ask_clarify_question` widget
+(`withoutTrailingQuestion`), and the whole block if that was all it held. It
+touches nothing else: a pill between the text and the widget, or any other
+widget, leaves the prose alone. The prompts forbid the duplicate too; this is
+the backstop for when the model slips. On the live turn the question can show
+for a beat before the widget lands, since the widget appears only once the
+reveal reaches its seam. A surface that renders its live clarify widget below
+the turn blocks instead of as one of them (the ordinance flow) applies
+`dropTrailingQuestion` to the live blocks while a clarify call is pending. A
+short capitalized word or a dotted one before a period ("Dr.", "U.S.") is read
+as an abbreviation, not a sentence break, so a cut never leaves a fragment.
+
 A block whose data is not in the tool args (the Priorities status marker reads
 a replay held in state) is not a registry entry. Hand it to
 `persistedTurnBlocks` as `surfaceWidget` and build its live instance yourself.
@@ -95,10 +110,27 @@ must return null for it from `toolLabel`.** `InlineSegments` treats it like any
 other tool, and a label map that falls back to the raw tool name would put
 `compose_handoff` on a pill. `AiChatBody` and `AskAiChatBody` do this.
 
+**`ChiefOfStaffChatBody` is the one surface that registers it, and it is
+shared by both products** — Serve's Chief of Staff and Win's Campaign Manager
+both mount this body, so its `handleComposeHandoff` routes on the payload's
+own `channel` rather than on which product opened the chat. Either way the
+payload is written to `sessionStorage` under `cos-handoff-<nonce>` (never the
+URL, which would expose the draft text) and the nonce rides a `?handoff=`
+query param. `serve_social` pushes
+`/dashboard/constituent-outreach?compose=social&handoff=<nonce>`;
+`win_social` (ENG-11218) pushes
+`/dashboard/outreach?compose=social&source=campaign_manager&handoff=<nonce>`.
+Each hub's own consumer resolves the nonce back into a prefill once, on
+arrival — `ConstituentOutreachPage.tsx` for Serve,
+`outreach/components/OutreachComposeDeepLink.tsx` for Win — and a payload
+whose channel doesn't match that hub (or a missing/expired/malformed nonce)
+is silently ignored rather than erroring.
+
 `ordinances/components/stepWidgets.tsx` is the reference registry. Chief of
 Staff's `show_list_map` is deliberately not on one: its map renders after the
 turn's prose and only once per turn, and a registry entry would move it to
-where the tool fired.
+where the tool fired. `present_list_proposal` is off the registry for the same
+reason, because once its list is created the card becomes that map.
 
 ## Cards — one row each, the detail somewhere else
 
@@ -148,7 +180,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   guard need, since they still carry "Hi, this is [Your Name]..."), phone
   banking's name, and the audience. A card from before `audienceFilters` points at a saved list; a
   current one carries the filter the agent counted with, and the flow opens
-  its builder already filled in (`proposedAudience`) and saves the list when
+  its builder already filled in (`proposedAudience`, with the proposal's
+  sample when it asks one: "Text 4,000 of 58,520, picked at random" on the
+  card, the frozen draw in the saved list) and saves the list when
   the official confirms and names it. Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
   card saves the list at the click, the latest point it can, and goes there,
@@ -171,6 +205,30 @@ there is the agent's to say, once, in its message; no card repeats it.
   proposal says texting is not available instead of offering a button.
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
   hub. No compose, edit or send UI lives in a card: the flows own it.
+- **Campaign Manager's text card is Win's.** `ChiefOfStaffChatBody` hands
+  `ProposalFlowsProvider` a `mode` off its `scope` (`campaign_assistant` is
+  `win`; priorities and a card outside any provider are `serve`), and the
+  card reads it from the provider. In Win mode the card counts voters
+  (`peopleCount`), a sent card links to `/dashboard/outreach?outreachId=`
+  (`outreachDetailHref`), and the button opens Win's `SmsFlow` (its default
+  surface, the campaign's texting registration as `tcrCompliance`) rather
+  than the Serve one, with no `serve-sms-outreach` flag. Before it opens,
+  the provider runs the text gate: a free campaign (the Campaign Manager
+  shows it the card too) gets the Pro pitch (`ProPitchDialog`, source
+  `campaign_manager`, channel `sms`) in place of the flow, and a Pro one
+  passes only with an approved registration (`useTextOutreachGate`'s
+  compliance modal). Outreach Pro gating is fully rolled out, so the card
+  does not read the `outreach-pro-gating-v2` flag. The button waits until
+  the campaign and registration have loaded. The card's
+  `proposalKey` rides Win's `POST /v1/outreach` create, and
+  `GET /v1/outreach/by-proposal-key/:proposalKey` resolves it once paid.
+  The key rides a fresh draft only, never a resume: a draft built in build
+  mode and resumed later does not carry it, so that card never reads as
+  sent. A create refused while carrying the key (a 409: already sent) has
+  the provider re-read the card, and a card that resolves as sent closes
+  the flow. A
+  Win card for any other channel shows its line with no button: nothing
+  else has a Win flow here.
 
 Chief of Staff renders inside a vaul drawer, and React bubbles a portal's
 pointer events up the React tree into it, which is why the detail sheet

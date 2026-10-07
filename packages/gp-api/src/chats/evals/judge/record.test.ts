@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isComparable, RunRecordSchema } from './record'
 import {
   ALL_PAIRS,
+  BACKGROUND_TOOL_ERROR_PAIR,
   BLOCKED_PAIR,
   CHAT_PAIR,
   IDENTICAL_DIGEST_PAIR,
@@ -40,6 +41,32 @@ describe('RunRecordSchema', () => {
       telemetry: { ...candidate.telemetry, toolCalls: 0, toolErrors: 1 },
     })
     expect(result.success).toBe(false)
+  })
+
+  // Every stored record and cached base arm predates toolErrorDetails, and a
+  // cached arm that stopped parsing would be re-run at full price.
+  it('parses a record written before toolErrorDetails existed', () => {
+    const [, candidate] = TOOL_ERROR_PAIR
+    const { toolErrorDetails, ...old } = candidate
+    expect(toolErrorDetails).toBeDefined()
+    expect(RunRecordSchema.safeParse(old).success).toBe(true)
+  })
+
+  it('refuses an unbounded detail list', () => {
+    const [, candidate] = TOOL_ERROR_PAIR
+    const detail = { tool: 'Bash', message: 'boom' }
+    expect(
+      RunRecordSchema.safeParse({
+        ...candidate,
+        toolErrorDetails: Array.from({ length: 11 }, () => detail),
+      }).success,
+    ).toBe(false)
+    expect(
+      RunRecordSchema.safeParse({
+        ...candidate,
+        toolErrorDetails: [{ tool: 'Bash', message: 'x'.repeat(301) }],
+      }).success,
+    ).toBe(false)
   })
 
   it('rejects a run that ended before it started', () => {
@@ -183,6 +210,19 @@ describe('isComparable', () => {
 
   it('rejects an infraError arm', () => {
     const [, candidate] = INFRA_ERROR_PAIR
+    expect(isComparable(candidate)).toBe(false)
+  })
+
+  // A background agent is judged on its artifact, and one that hit a failing
+  // Bash snippet and recovered still produced one.
+  it('keeps a background arm with tool errors comparable', () => {
+    expect(BACKGROUND_TOOL_ERROR_PAIR.every(isComparable)).toBe(true)
+  })
+
+  it('rejects a background infraError arm even with no tool error', () => {
+    const [, candidate] = INFRA_ERROR_PAIR
+    expect(candidate.agentShape).toBe('background')
+    expect(candidate.telemetry.toolErrors).toBe(0)
     expect(isComparable(candidate)).toBe(false)
   })
 

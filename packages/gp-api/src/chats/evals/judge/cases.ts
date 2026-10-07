@@ -9,6 +9,7 @@ import {
   type JsonValue,
 } from './record'
 import type { AgentEntry } from './agents'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 
 // Loads an agent's inputs. One file per agent, authored per agent rather than
 // coded, which is the property that makes wiring the twenty-first agent a case
@@ -110,16 +111,26 @@ export const toolFailureDelayMs = (failure: ToolFailure): number =>
 //                   what `get_ballot_requirements` registers on.
 //   ordinanceStep   each ordinance step past clarify carries its own
 //                   `present_*` tools and nothing else does.
+//   briefingHighlight
+//                   the one state here that registers no tool: it opens the
+//                   briefing chat on a highlighted passage instead of the
+//                   whole briefing, which is the other thing the briefing
+//                   prompt renders differently. Like ordinanceStep it picks
+//                   what the conversation is anchored on, and like it the
+//                   runner reads the anchor back.
 //
 // Absent means "whatever the seeder seeds by default", which is every one of
 // these present. Only an explicit `false` takes something away, so a case
-// list that names none of them seeds exactly what it seeded before.
+// list that names none of them seeds exactly what it seeded before. The
+// exception is briefingHighlight, whose default is the whole briefing: a
+// highlight is something a user picks, not something an account has.
 export const ChatAccountStateSchema = z
   .object({
     pro: z.boolean().optional(),
     district: z.boolean().optional(),
     campaignDetails: z.boolean().optional(),
     ordinanceStep: OrdinanceFlowStepSchema.optional(),
+    briefingHighlight: z.boolean().optional(),
   })
   .strict()
   .refine((state) => Object.keys(state).length > 0, {
@@ -339,16 +350,126 @@ export const caseTurns = (one: ChatCase): string[] => {
 export const usesSeededTranscript = (one: ChatCase): boolean =>
   one.priorTranscript !== undefined
 
-export const BackgroundCaseSchema = z.object({
-  caseId: CaseIdSchema,
-  // The parameters fixture the experiment is dispatched with. Opaque here for
-  // the same reason a record's input is opaque: only the runner knows what an
-  // experiment's params mean.
-  params: z.record(z.string(), JsonValueSchema),
-})
+// A question the judge is asked about ONE case, beside the config's default
+// dimensions. A probe tests a relationship between the artifact and an input
+// the case mutated, and "is this a good artifact" is the wrong question for
+// it: a polished artifact that glossed over a sparse input can read better
+// than one that handled it.
+//
+// JUDGE-ONLY. The runner never reads it, so it never reaches the agent's
+// params or a record. The judging step reads it from its own checkout's case
+// list, keyed by caseId, and puts it on the one payload both slots share — so
+// both runs are always judged on the same questions, and a base ref that
+// predates the field strips it from a case the base arm never judges anyway.
+//
+// The reserved names are the keys a verdict already has. `overall` is
+// judge.ts's OVERALL, spelled out because judge.ts imports this module.
+const RESERVED_DIMENSIONS = new Set([
+  ...DEFAULT_JUDGE_CONFIG.dimensions,
+  'overall',
+])
+
+export const MAX_CASE_DIMENSIONS = 4
+
+export const CaseDimensionSchema = z
+  .object({
+    // Becomes a key in the judge's output schema and a row in a public
+    // report, so it is held to an identifier: a leading letter also rules
+    // out `__proto__`, the one key `z.object` cannot require.
+    name: z
+      .string()
+      .max(40)
+      .regex(
+        /^[a-z][a-z0-9_]*$/,
+        'a case dimension name is a snake_case identifier',
+      )
+      .refine((name) => !RESERVED_DIMENSIONS.has(name), {
+        message:
+          'that name is already a dimension every case is judged on; a ' +
+          'case dimension has to be a question of its own',
+      }),
+    question: z.string().min(1).max(400),
+  })
+  .strict()
+export type CaseDimension = z.infer<typeof CaseDimensionSchema>
+
+// Long enough for a mutation excerpt and the axis it tests, short enough that
+// it cannot become a second input competing with the params for the judge's
+// attention.
+export const MAX_CONDITION_CHARS = 2_000
+
+export const BackgroundCaseSchema = z
+  .object({
+    caseId: CaseIdSchema,
+    // The parameters fixture the experiment is dispatched with. Opaque here
+    // for the same reason a record's input is opaque: only the runner knows
+    // what an experiment's params mean.
+    params: z.record(z.string(), JsonValueSchema),
+    // What this case planted in or took out of `params`, for the JUDGE. A
+    // probe tests a relationship between the artifact and the input, and a
+    // judge not told what was planted has to find it unaided inside tens of
+    // thousands of characters of source text — or grade polish instead.
+    //
+    // NEVER DISPATCHED. The runner sends `params` and nothing else, so the
+    // agent cannot read the answer key. The judging step reads this off the
+    // case list in its own checkout and adds it to the shared input after
+    // blinding, which is what makes it identical across arms: it is never
+    // part of either arm's record, so a base ref that predates the field
+    // cannot strip it from one side and turn every pair into a mismatch.
+    condition: z.string().trim().min(1).max(MAX_CONDITION_CHARS).optional(),
+    // `false` keeps the pair out of every aggregate. It still runs and is
+    // still judged, and the report states that judgment on its own line: a
+    // control's job is to be the zero reading, and averaged into the verdict
+    // it is just one more case.
+    scored: z.boolean().optional(),
+    // Judge-only questions for this one case; see `CaseDimensionSchema`.
+    dimensions: z
+      .array(CaseDimensionSchema)
+      .min(1)
+      .max(MAX_CASE_DIMENSIONS)
+      .refine(
+        (dimensions) =>
+          new Set(dimensions.map((d) => d.name)).size === dimensions.length,
+        { message: 'a case names each of its dimensions once' },
+      )
+      .optional(),
+  })
+  // Strict for the reason `ChatCaseSchema` is: a misspelled `scored` would
+  // otherwise be stripped and the control silently scored, and a misspelled
+  // `condition` would send the judge in blind on the one case that needed it.
+  .strict()
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
 
+// What the judging step needs from a case list beyond the records, keyed by
+// caseId. Chat cases carry neither field, so a chat list yields an empty map.
+export interface CaseJudging {
+  condition?: string
+  scored: boolean
+}
+
+export const caseJudgingOf = (list: CaseList): Map<string, CaseJudging> =>
+  new Map(
+    list.cases.flatMap((one) =>
+      'params' in one
+        ? [
+            [
+              one.caseId,
+              {
+                ...(one.condition !== undefined && {
+                  condition: one.condition,
+                }),
+                scored: one.scored ?? true,
+              },
+            ],
+          ]
+        : [],
+    ),
+  )
+
 export type JudgeCase = ChatCase | BackgroundCase
+
+export const caseDimensionsOf = (one: JudgeCase): readonly CaseDimension[] =>
+  'dimensions' in one ? (one.dimensions ?? []) : []
 
 const CASE_SCHEMAS = {
   chat: ChatCaseSchema,
@@ -432,6 +553,7 @@ export const parseCaseList = (
   const schema = CASE_SCHEMAS[envelope.data.shape]
   const cases: JudgeCase[] = []
   const seen = new Set<string>()
+  const questions = new Map<string, string>()
 
   envelope.data.cases.forEach((raw, index) => {
     const parsed = schema.safeParse(raw)
@@ -457,6 +579,20 @@ export const parseCaseList = (
       )
     }
     seen.add(parsed.data.caseId)
+    // One name is one row in the report, aggregated across every case that
+    // carries it, so two cases asking different questions under it would be
+    // averaged into a number that answers neither.
+    for (const dimension of caseDimensionsOf(parsed.data)) {
+      const asked = questions.get(dimension.name)
+      if (asked !== undefined && asked !== dimension.question) {
+        throw new CaseListError(
+          `${source}: case ${index} asks dimension "${dimension.name}" a ` +
+            'different question than an earlier case; one name is one ' +
+            'row in the report, so give a different question its own name',
+        )
+      }
+      questions.set(dimension.name, dimension.question)
+    }
     cases.push(parsed.data)
   })
 

@@ -6,7 +6,8 @@ shown as holes. Same facts as the analytics event explorer, organised by the sha
 product instead of by question. For the same audience: anyone who wants to know whether
 we measure something, arriving from their own memory of using the site.
 
-Ticket: DATA-2547, under the DATA-2580 epic. Published page:
+Tickets: DATA-2547 (first version), DATA-2586 (the flows drawn since, and the drift
+guard still owed), under the DATA-2580 epic. Published page:
 `https://claude.ai/artifact/1P4qyB56ZNPJ9VPaMjDLLZ` (republish to the same URL).
 
 ## One page with the explorer
@@ -37,13 +38,13 @@ This is the prototype shipped as a first version, on purpose. It was shared to f
 what people can do with it, and the page says so in its "Still being built" panel. What
 is real and what is not:
 
-| Real | Not yet |
-| --- | --- |
-| Six surfaces across Win and Serve, steps read from each flow's own config | Eight more flows, located by file, not drawn |
-| Every event opens the shared card: verdict, both names, volume, Amplitude | Per-step volume where one event covers many steps |
-| Anchor state on every event: anchored, no anchor, call site unknown, no route | Zones on a page are inferred from `fires_on`, not declared anywhere |
-| Feedback composer and usage tracking, the explorer's, from the shared partials | Step extraction; the node model is hand-authored in `map.js` |
-| Eleven undrawn flows placed under their areas as "Still being built" placeholders | Their steps, read out of the files each placeholder names |
+| Real                                                                                              | Not yet                                                             |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Twenty surfaces across Win and Serve, steps read from each flow's own config                      | A flow found later goes in as a `building()` placeholder            |
+| Every event opens the shared card: verdict, both names, volume, Amplitude                         | Per-step volume where one event covers many steps                   |
+| Anchor state on every event: anchored, no anchor, call site unknown, no route                     | Zones on a page are inferred from `fires_on`, not declared anywhere |
+| Feedback composer and usage tracking, the explorer's, from the shared partials                    | Step extraction; the node model is hand-authored in `map.js`        |
+| Undrawn flows placed under their areas as "Still being built" placeholders; the panel counts them | Their steps, read out of the files each placeholder names           |
 
 A placeholder is `building(name, route, src, note?)` in the `TREE`. It renders as a
 collapsed surface with the tag and opens to the file its steps live in, so the map never
@@ -51,8 +52,10 @@ reads as complete. Drawing one means replacing the placeholder with a surface co
 
 The node model (`TREE`, the surface constants) lives in `map.js` as code, because
 it carries judgement per step: which events belong, which branch rejoins where, what a
-note should say. Reading it out of the repo automatically is the DATA-2547 follow-up,
-and its refresh mechanism is the one `event_anchors.json` already uses.
+note should say. Nothing yet notices when a drawn flow's code changes: the drift guard
+in DATA-2586 records each surface's step ids and source files and flags one whose ids
+no longer appear. Reading steps out of the repo automatically would use the refresh
+mechanism `event_anchors.json` already uses.
 
 ## Data
 
@@ -87,6 +90,10 @@ The surfaces republish routine (`trig_01E8wipVnESi9uqoEBWZXFKY`, Mon and Thu 12:
 13:00 UTC) republishes this page with the explorer and the console, under the same guard: only when the committed
 snapshot's `refreshed_at` is strictly newer than the live page's.
 
+The routine builds from `main`. A page republished by hand from an unmerged branch is
+overwritten by the next run, and a map change merged after a run is not live until the
+next run with a newer snapshot. Republish by hand after merging a map change.
+
 ## Shared with the other two pages
 
 Palette, event card, the nav bar and the usage/feedback script come from `../shared/` and
@@ -107,11 +114,19 @@ that has a newer snapshot, or when it is republished by hand.
   both active with no anchor record. The map uses the registry for existence and anchors
   only for the route, which is why those steps show as "no anchor" rather than empty.
 - **One event can cover many steps.** The SMS wizard fires `Voter Outreach - Flow Step
-  Viewed/Completed` for every step with `step` as a property. Matching by event name
+Viewed/Completed` for every step with `step` as a property. Matching by event name
   would call all five steps uninstrumented; the map attaches `(event, property value)`
   and says the volume is per event, not per step.
 - **Route comparison is by first path segment.** Whole-string comparison flagged
   `/onboarding` against `/onboarding/[slug]/[step]` on 6 of 10 onboarding nodes.
+- **A shared event names its property.** A `shared` entry is `[event, value, property?]`;
+  the property defaults to `step` (the outreach shell) and is `type` for the poll payment
+  events, which expanding and creating a poll both fire.
+- **Some flows are honest blanks.** Create a website and Follow-on onboarding fire nothing
+  between entry and outcome; their steps are drawn with `state: 'none'` so the hole shows.
+- **Every label has a plain-language entry.** `GLOSSARY` in `map.js` explains each
+  badge, tag and count for a reader outside analytics. Adding or renaming a label means
+  updating its entry there.
 - **Relabel, never rename.** The card shows both names always; the row shows the type
   only where it differs from the label (4 of 593 events). The relabel panel on Poll
   onboarding proposes display-name changes only.

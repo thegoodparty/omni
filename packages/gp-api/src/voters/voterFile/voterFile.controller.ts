@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  BadRequestException,
   ForbiddenException,
   Get,
   HttpCode,
@@ -9,6 +10,7 @@ import {
   NotFoundException,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -97,6 +99,13 @@ export class VoterFileController {
     @ReqOrganization() organization: Organization,
     @Body() voterFileFilter: CreateVoterFileFilterSchema,
   ) {
+    // A draft's boundary resolves only once the list has an id, so a sample
+    // drawn before saving would ignore it and hold people outside the shape.
+    if (voterFileFilter.sample && voterFileFilter.geoPoly) {
+      throw new BadRequestException(
+        'A list drawn on the map cannot also be saved as a sample',
+      )
+    }
     return this.voterFileFilterService.create(
       organization.slug,
       voterFileFilter,
@@ -104,6 +113,13 @@ export class VoterFileController {
         ? await this.contacts.resolveGeoMemberIds(
             organization,
             voterFileFilter.geoPoly,
+          )
+        : null,
+      voterFileFilter.sample
+        ? await this.contacts.drawListSample(
+            organization,
+            voterFileFilter,
+            voterFileFilter.sample,
           )
         : null,
     )
@@ -115,6 +131,25 @@ export class VoterFileController {
     return this.voterFileFilterService.findUsableByOrganizationSlug(
       organization,
     )
+  }
+
+  // Whether a chat card's list has been created yet, so the card can render
+  // as the list once it has. 404 is the ordinary "not yet" answer.
+  @Get('filter/by-proposal-key/:proposalKey')
+  @UseOrganization()
+  async getVoterFileFilterByProposalKey(
+    @Param('proposalKey', ParseUUIDPipe) proposalKey: string,
+    @ReqOrganization() organization: Organization,
+  ) {
+    const filter =
+      await this.voterFileFilterService.findByProposalKeyAndOrganizationSlug(
+        proposalKey,
+        organization.slug,
+      )
+    if (!filter) {
+      throw new NotFoundException('Voter file filter not found')
+    }
+    return filter
   }
 
   @Get('filter/:id')

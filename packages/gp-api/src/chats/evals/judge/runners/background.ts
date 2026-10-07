@@ -8,11 +8,14 @@ import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
+import { findAgent } from '../agents'
 import { assertNoPlaceholders } from '../caseParams'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import {
   isComparable,
   JsonValueSchema,
+  MAX_TOOL_ERROR_DETAILS,
   RunRecordSchema,
   VariantSchema,
   type Arm,
@@ -20,9 +23,11 @@ import {
   type JsonValue,
   type RunRecord,
   type TokenUsage,
+  type ToolErrorDetail,
   type TraceStep,
   type Variant,
 } from '../record'
+import { publicToolName, toolErrorDetail } from '../toolErrorDetails'
 
 // The background half of the judge: 16 of the 20 agents.
 //
@@ -123,6 +128,9 @@ export interface BackgroundRunInput {
   // so the override key and the record can never name different content.
   variant: Omit<Variant, 'configDigest'>
   organizationSlug: string
+  // Only for an agent the registry marks readsGpApi, and only ever the
+  // fixture account's id; see buildDispatchMessage.
+  clerkUserId?: string
   metadataBucket: string
   artifactBucket: string
   poll: PollOptions
@@ -471,6 +479,7 @@ export interface DispatchMessage {
   run_id: string
   experiment_type: string
   organization_slug: string
+  clerk_user_id?: string
   params: Record<string, JsonValue>
   priority: 'HIGH' | 'DEFAULT'
   _judge_override: JudgeOverride
@@ -484,13 +493,16 @@ export interface DispatchMessage {
 // prefix override prevents it. Confining judge dispatches to a slug no real
 // organization uses puts the pointer somewhere nothing reads, and the slug is
 // not load-bearing anywhere else: scope derivation and the SQL rewriter bind
-// the district from params, never from this.
+// the district from params, never from this. The one exception is the
+// fixture slug, which the broker sends to gp-api as X-Organization-Slug for
+// the agents that read it.
 export const JUDGE_ORG_SLUG_PREFIX = 'judge-'
 
 export const buildDispatchMessage = (args: {
   runId: string
   agentId: string
   organizationSlug: string
+  clerkUserId?: string
   agentCase: BackgroundCase
   override: JudgeOverride
 }): DispatchMessage => {
@@ -511,6 +523,29 @@ export const buildDispatchMessage = (args: {
       `judge dispatch needs a "${JUDGE_ORG_SLUG_PREFIX}" organization slug ` +
         `so it cannot overwrite a real organization's latest.json, got ` +
         `"${args.organizationSlug}"`,
+    )
+  }
+  // A judge run may act as one user only, the seeded fixture, and only on its
+  // own organization. Anything else would let a sweep read, and through the
+  // broker's proxy write, as whoever a caller happened to name.
+  if (
+    args.clerkUserId !== undefined &&
+    (args.clerkUserId !== JUDGE_FIXTURE.clerkUserId ||
+      args.organizationSlug !== JUDGE_FIXTURE.orgSlug)
+  ) {
+    throw new Error(
+      `a judge dispatch may name only the fixture user ` +
+        `"${JUDGE_FIXTURE.clerkUserId}" on "${JUDGE_FIXTURE.orgSlug}", got ` +
+        `"${args.clerkUserId}" on "${args.organizationSlug}"`,
+    )
+  }
+  if (
+    args.clerkUserId !== undefined &&
+    findAgent(args.agentId)?.readsGpApi !== true
+  ) {
+    throw new Error(
+      `${args.agentId} does not read gp-api, so its judge dispatch names no ` +
+        'user; only a readsGpApi agent runs as the fixture account',
     )
   }
   // The backstop for the sweep-wide check in substituteBackgroundCases. That
@@ -597,10 +632,11 @@ export const buildDispatchMessage = (args: {
     ...args.agentCase.params,
     ...(refs.length > 0 ? { [INPUT_FILES_KEY]: refs } : {}),
   }
-  // No clerk_user_id: omitting it makes broker mint skip the Clerk actor-token
-  // round trip, and no judge agent needs a user-scoped tool. It also closes
-  // /agent-mcp to these runs, so a write-action experiment fails at that
-  // route's guard rather than writing product data.
+  // clerk_user_id only for the agents that read gp-api, and then only the
+  // fixture account. Omitted, the ticket names no user and /agent/mcp refuses
+  // the run, which is what every other judge dispatch wants. Named, the run
+  // can reach gp-api's MCP tools as an account with no campaign and no
+  // website, so the write tools it could call 404 rather than write.
   //
   // Nothing about a results queue. A judge dispatch has no experiment_run row,
   // so a callback logs `Experiment run not found` once per run — noise, not
@@ -614,6 +650,7 @@ export const buildDispatchMessage = (args: {
     run_id: args.runId,
     experiment_type: args.agentId,
     organization_slug: args.organizationSlug,
+    ...(args.clerkUserId !== undefined && { clerk_user_id: args.clerkUserId }),
     params,
     priority: 'DEFAULT',
     _judge_override: args.override,
@@ -718,11 +755,30 @@ export const pollForObject = async (
 // skipped tool_use both loses a call and shifts every later error's
 // attribution. Tolerating null is the difference between a partial trace and a
 // quietly wrong one.
+//
+// `content` is a tool result's text: a string, or a list of text blocks. It
+// is read only to name a failure, so a shape nobody anticipated degrades to
+// no text rather than rejecting the line — a rejected result line is the
+// mis-attribution described above.
+const ToolResultContentSchema = z
+  .union([
+    z.string(),
+    z.array(
+      z.object({ type: z.string().nullish(), text: z.string().nullish() }),
+    ),
+  ])
+  .nullish()
+  .catch(null)
+
 const ContentBlockSchema = z.object({
   type: z.string(),
   name: z.string().nullish(),
   input: z.record(z.string(), JsonValueSchema).nullish(),
   is_error: z.boolean().nullish(),
+  content: ToolResultContentSchema,
+  // The CLI dialect ties a result to its call by id; the flat one cannot.
+  id: z.string().nullish(),
+  tool_use_id: z.string().nullish(),
 })
 
 const UsageSchema = z.object({
@@ -745,6 +801,8 @@ const TraceLineSchema = z.object({
     })
     .nullish(),
   is_error: z.boolean().nullish(),
+  // The flat dialect writes a tool result as its own line, content and all.
+  content: ToolResultContentSchema,
   total_cost_usd: z.number().nonnegative().nullish(),
   usage: UsageSchema.nullish(),
 })
@@ -758,6 +816,7 @@ export interface TraceSummary {
   trace: TraceStep[]
   toolCalls: number
   toolErrors: number
+  toolErrorDetails: ToolErrorDetail[]
   tokens: TokenUsage
   // The SDK's own authoritative total from the `result` record. See
   // captureCostUsd for why this is not simply re-derived.
@@ -779,6 +838,7 @@ export const emptyTrace = (): TraceSummary => ({
   trace: [],
   toolCalls: 0,
   toolErrors: 0,
+  toolErrorDetails: [],
   tokens: zeroTokens(),
   liveWeb: false,
   toolQueries: [],
@@ -806,12 +866,24 @@ const MAX_TOOL_QUERY_CHARS = 20_000
 export const traceTooLarge = (jsonl: string): boolean =>
   Buffer.byteLength(jsonl, 'utf8') > MAX_TRACE_BYTES
 
+const resultText = (
+  content: z.infer<typeof ToolResultContentSchema>,
+): string => {
+  if (content === null || content === undefined) return ''
+  if (typeof content === 'string') return content
+  return content
+    .map((block) => block.text ?? '')
+    .filter((text) => text !== '')
+    .join('\n')
+}
+
 export const parseTrace = (jsonl: string): TraceSummary => {
   const trace: TraceStep[] = []
   const tokens = zeroTokens()
   const toolQueries: string[] = []
   let toolCalls = 0
   let rawToolErrors = 0
+  const toolErrorDetails: ToolErrorDetail[] = []
   let liveWeb = false
   let traceCostUsd: number | undefined
 
@@ -834,11 +906,47 @@ export const parseTrace = (jsonl: string): TraceSummary => {
   // in one assistant message then two results, first failing, marks the SECOND
   // call as the failure. Every attribution after that is wrong too.
   const awaitingResult: number[] = []
+  // When a result does carry its call's id, that beats order: it stays right
+  // even if the harness ever answers a batch out of order.
+  const callById = new Map<string, number>()
 
-  const consumeResult = (isError: boolean, error: string): void => {
-    const index = awaitingResult.shift()
+  const takeCall = (
+    toolUseId: string | null | undefined,
+  ): number | undefined => {
+    if (toolUseId === null || toolUseId === undefined) {
+      return awaitingResult.shift()
+    }
+    const index = callById.get(toolUseId)
+    callById.delete(toolUseId)
+    const at = index === undefined ? -1 : awaitingResult.indexOf(index)
+    // An id naming no unanswered recorded call — its tool_use fell past the
+    // step cap or was lost — pins to nothing rather than stealing the
+    // oldest unanswered call from the result that really owns it.
+    if (at === -1) return undefined
+    awaitingResult.splice(at, 1)
+    return index
+  }
+
+  const consumeResult = (
+    isError: boolean,
+    error: string,
+    content: z.infer<typeof ToolResultContentSchema>,
+    toolUseId?: string | null,
+  ): void => {
+    const index = takeCall(toolUseId)
     if (!isError) return
     const step = index === undefined ? undefined : trace[index]
+    if (toolErrorDetails.length < MAX_TOOL_ERROR_DETAILS) {
+      toolErrorDetails.push(
+        toolErrorDetail(
+          // The model names the tool, so an invented name is not stored.
+          step?.kind === 'tool' && step.tool !== undefined
+            ? publicToolName(step.tool, 'background')
+            : undefined,
+          resultText(content),
+        ),
+      )
+    }
     if (step && step.kind === 'tool') {
       step.error = error
       return
@@ -864,7 +972,10 @@ export const parseTrace = (jsonl: string): TraceSummary => {
         // mis-align the rest, because results arrive in call order: every
         // pre-cap call is answered before a post-cap one is, so the queue only
         // ever holds recorded steps that are still genuinely unanswered.
-        if (index !== undefined) awaitingResult.push(index)
+        if (index !== undefined) {
+          awaitingResult.push(index)
+          if (block.id) callById.set(block.id, index)
+        }
         if (LIVE_WEB_TOOLS.has(tool)) liveWeb = true
         // Only a structured `sql` field is taken. A background agent reaches
         // the warehouse by curling the broker from Bash, so its SQL is buried
@@ -885,7 +996,12 @@ export const parseTrace = (jsonl: string): TraceSummary => {
       if (block.type === 'tool_result') {
         const isError = block.is_error === true
         if (isError) rawToolErrors += 1
-        consumeResult(isError, 'tool call failed')
+        consumeResult(
+          isError,
+          'tool call failed',
+          block.content,
+          block.tool_use_id,
+        )
       }
     }
   }
@@ -909,7 +1025,7 @@ export const parseTrace = (jsonl: string): TraceSummary => {
     } else if (record.type === 'tool_result') {
       const isError = record.is_error === true
       if (isError) rawToolErrors += 1
-      consumeResult(isError, 'tool call failed')
+      consumeResult(isError, 'tool call failed', record.content)
     } else if (record.type === 'result') {
       traceCostUsd = record.total_cost_usd ?? traceCostUsd
     }
@@ -923,6 +1039,7 @@ export const parseTrace = (jsonl: string): TraceSummary => {
     // truncated write — and clamping keeps a real, salvageable run from being
     // thrown away over a bookkeeping artifact.
     toolErrors: Math.min(rawToolErrors, toolCalls),
+    toolErrorDetails,
     tokens,
     ...(traceCostUsd === undefined ? {} : { traceCostUsd }),
     liveWeb,
@@ -1124,6 +1241,7 @@ export const runBackgroundCase = async (
     runId,
     agentId: input.agentId,
     organizationSlug: input.organizationSlug,
+    clerkUserId: input.clerkUserId,
     agentCase: input.agentCase,
     override,
   })
@@ -1165,9 +1283,10 @@ export const runBackgroundCase = async (
   // tool calls and zero tool errors, which makes isComparable() true, which
   // lets runBackgroundBaseArm cache a base arm whose every Databricks read may
   // have failed — a permanent baseline claiming zero tool errors, with the
-  // evidence in the trace that never arrived. That defeats the "a tool error
-  // is never a quality signal" protection for every later sweep of the digest,
-  // which is the exact outcome the notCached guard exists to prevent.
+  // evidence in the trace that never arrived. A background tool error no
+  // longer excludes a pair, but it is still measured and reported beside the
+  // verdict, and a cached baseline that silently claims zero would falsify
+  // that figure for every later sweep of the digest.
   //
   // Absence is not normal for a healthy run: the harness writes
   // conversation.jsonl unconditionally and uploads it on the timeout and kill
@@ -1266,6 +1385,9 @@ export const runBackgroundCase = async (
       retries: 0,
     },
     toolQueries: summary.toolQueries,
+    ...(summary.toolErrorDetails.length > 0 && {
+      toolErrorDetails: summary.toolErrorDetails,
+    }),
     ...(input.dataVersion === undefined
       ? {}
       : { dataVersion: input.dataVersion }),
@@ -1345,7 +1467,13 @@ export type CacheRead =
 // into the judge prefix installs a schema-valid baseline that every later sweep
 // reuses, which either hides a regression or invents one.
 //
-// isComparable is re-checked here, not only on write: a hand-written entry
+// Stricter than isComparable on purpose: a base arm captured during a
+// credential or broker outage would otherwise stay the baseline until the
+// agent's config changes, and a re-capture of a clean run is the cheap side.
+export const isCacheableBase = (record: RunRecord): boolean =>
+  isComparable(record) && record.telemetry.toolErrors === 0
+
+// isCacheableBase is re-checked here, not only on write: a hand-written entry
 // would otherwise walk straight past the write-side guard.
 const cacheEntryMatches = (
   entry: CachedBaseArm,
@@ -1360,7 +1488,7 @@ const cacheEntryMatches = (
     record.agentId === agentId &&
     record.caseId === caseId &&
     record.variant.configDigest === configDigest &&
-    isComparable(record)
+    isCacheableBase(record)
   )
 }
 
@@ -1466,10 +1594,13 @@ export const runBackgroundBaseArm = async (
   }
 
   const record = await runBackgroundCase(deps, input)
-  // Never cache a run that cannot be compared. A cached timeout, or a cached
-  // run whose data read failed, would be reused by every later sweep — so a
-  // dead credential would become a permanent baseline rather than one bad run.
-  if (!isComparable(record)) {
+  // Never cache a run that cannot be compared, or one that hit a tool error.
+  // A cached timeout, or a cached run with no readable artifact or trace,
+  // would be reused by every later sweep, so one bad run would become a
+  // permanent baseline. A background run with tool errors IS comparable and
+  // is scored this sweep (see isComparable), but it is not cached: see
+  // isCacheableBase.
+  if (!isCacheableBase(record)) {
     return {
       record,
       cache: 'notCached',

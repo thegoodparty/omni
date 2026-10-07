@@ -47,8 +47,15 @@ import { declaredZipUncompressedSize } from '@/ocr/util/zipInflationGuard.util'
 import mammoth from 'mammoth'
 import { z } from 'zod'
 
-export const SERVE_CHAT_ATTACHMENTS_FLAG = 'serve-chat-attachments'
 export const LINK_FETCH_HTTP = 'LINK_FETCH_HTTP'
+
+// The scopes that support the attachment lifecycle. Any other scope
+// (ordinance_flow, priority_flow, briefing_annotation) never gets
+// attachments.
+export const ATTACHMENT_SCOPES: ReadonlySet<ChatScope> = new Set([
+  ChatScope.chief_of_staff,
+  ChatScope.campaign_assistant,
+])
 
 const PDF_MAGIC = '%PDF'
 const FETCH_TIMEOUT_MS = 15_000
@@ -200,7 +207,7 @@ export class ChatAttachmentsService extends createPrismaBase(
   // Mirrors GeneralChatStoreService.findOwnedConversation: organizationSlug
   // is part of the ownership check, so a user's org-A session can never
   // reach a conversation they hold under org-B.
-  private async loadOwnedChiefOfStaffConversation(
+  private async loadOwnedAttachableConversation(
     conversationId: string,
     userId: number,
     organizationSlug: string | null,
@@ -214,7 +221,7 @@ export class ChatAttachmentsService extends createPrismaBase(
       },
       select: { scope: true },
     })
-    if (!conversation || conversation.scope !== ChatScope.chief_of_staff) {
+    if (!conversation || !ATTACHMENT_SCOPES.has(conversation.scope)) {
       throw new NotFoundException('Conversation not found')
     }
   }
@@ -261,16 +268,11 @@ export class ChatAttachmentsService extends createPrismaBase(
     organizationSlug: string,
     url: string,
   ): Promise<LinkAttachResponse> {
-    const conversation = await this.client.chatConversation.findFirst({
-      where: {
-        id: conversationId,
-        ownerUserId: userId,
-        organizationSlug,
-        deletedAt: null,
-      },
-      select: { scope: true },
-    })
-    if (!conversation) throw new NotFoundException()
+    await this.loadOwnedAttachableConversation(
+      conversationId,
+      userId,
+      organizationSlug,
+    )
 
     let parsed: URL
     try {
@@ -451,7 +453,7 @@ export class ChatAttachmentsService extends createPrismaBase(
     userId: number,
     organizationSlug: string | null,
   ): Promise<ChatAttachmentListResponse> {
-    await this.loadOwnedChiefOfStaffConversation(
+    await this.loadOwnedAttachableConversation(
       conversationId,
       userId,
       organizationSlug,
@@ -481,7 +483,7 @@ export class ChatAttachmentsService extends createPrismaBase(
     userId: number,
     organizationSlug: string | null,
   ): Promise<ChatAttachmentDownloadResponse> {
-    await this.loadOwnedChiefOfStaffConversation(
+    await this.loadOwnedAttachableConversation(
       conversationId,
       userId,
       organizationSlug,
@@ -506,7 +508,7 @@ export class ChatAttachmentsService extends createPrismaBase(
     userId: number,
     organizationSlug: string | null,
   ): Promise<void> {
-    await this.loadOwnedChiefOfStaffConversation(
+    await this.loadOwnedAttachableConversation(
       conversationId,
       userId,
       organizationSlug,
@@ -538,7 +540,7 @@ export class ChatAttachmentsService extends createPrismaBase(
     organizationSlug: string | null,
     body: PresignRequest,
   ): Promise<PresignResponse> {
-    await this.loadOwnedChiefOfStaffConversation(
+    await this.loadOwnedAttachableConversation(
       conversationId,
       userId,
       organizationSlug,
@@ -620,7 +622,7 @@ export class ChatAttachmentsService extends createPrismaBase(
     organizationSlug: string | null,
     body: FinalizeRequest,
   ): Promise<ChatAttachmentDTO> {
-    await this.loadOwnedChiefOfStaffConversation(
+    await this.loadOwnedAttachableConversation(
       conversationId,
       userId,
       organizationSlug,
@@ -670,7 +672,19 @@ export class ChatAttachmentsService extends createPrismaBase(
         await this.markFailed(attachment.id, 'object_missing')
         throw new BadRequestException('object_missing')
       }
-      const { pages } = await parsePdfText(new Uint8Array(bytes))
+      // A file that starts with %PDF- passes the magic-byte check but can
+      // still be corrupt; pdf-parse throws on it.
+      let pages: number | null
+      try {
+        pages = (await parsePdfText(new Uint8Array(bytes))).pages
+      } catch (err) {
+        this.logger.warn(
+          { err, attachmentId: attachment.id },
+          'chat attachment PDF could not be parsed',
+        )
+        await this.markFailed(attachment.id, 'unreadable_pdf')
+        throw new BadRequestException('unreadable_pdf')
+      }
       if (pages === null || pages > CHAT_ATTACHMENT_MAX_PAGES) {
         await this.markFailed(attachment.id, 'too_many_pages')
         throw new BadRequestException('too_many_pages')

@@ -63,31 +63,13 @@ const pairsFor = (agentId: (typeof AUTHORED)[number]) =>
 const casesFor = (agentId: string) => loadBackgroundCases(requireAgent(agentId))
 
 describe('the six fixture-backed background case lists', () => {
-  // `wired` means an agent has produced a real verdict at least once. None of
-  // these has been dispatched. The two that read the issue feed are blocked:
-  // they call a gp-api tool a judge dispatch cannot authenticate.
-  it('blocks the issue-feed agents with the reason, the same for both', () => {
-    const reasons = ['top_community_issues', 'trending_issues'].map(
-      (id) => requireAgent(id).blockedReason,
-    )
-    expect(reasons[0]).toMatch(/reads from gp-api/)
-    expect(reasons[0]).toMatch(/judge dispatch does not name/)
-    expect(reasons[1]).toBe(reasons[0])
-  })
-
-  it('leaves four pending and blocks the two that read the issue feed', () => {
-    expect(
-      Object.fromEntries(AUTHORED.map((id) => [id, requireAgent(id).status])),
-    ).toEqual(
-      Object.fromEntries(
-        AUTHORED.map((id) => [
-          id,
-          id === 'top_community_issues' || id === 'trending_issues'
-            ? 'blocked'
-            : 'pending',
-        ]),
-      ),
-    )
+  // `wired` means a live sweep from main has judged one of its pairs.
+  // opposition_research has; the rest have not been dispatched yet.
+  it('wires opposition_research and leaves the other five pending', () => {
+    for (const id of AUTHORED)
+      expect(requireAgent(id).status, id).toBe(
+        id === 'opposition_research' ? 'wired' : 'pending',
+      )
   })
 
   it.each(AUTHORED)(

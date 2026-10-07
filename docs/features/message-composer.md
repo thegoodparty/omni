@@ -1,9 +1,11 @@
 # Message composer and outreach disclaimers
 
 Owner: Justin. Status: waves 0 and 1 built (`Textarea` seamless variant;
-`TokenField`, `TokenPill` and `MERGE_TAGS`, with no call sites yet), plus
-the SMS span derivation wave 2 plugs into (`deriveSmsProtectedParts`).
-Robocall spans and everything user-visible past wave 0 are not built.
+`TokenField`, `TokenPill` and `MERGE_TAGS`), the SMS span derivation
+(`deriveSmsProtectedParts`), and in #2353 every compose field moved onto
+`TokenField`: SMS with its locked greeting, disclaimer and opt-out, and
+phone banking (a contact-name pill), social and door knocking with no locks,
+and robocall with its app-written, locked disclosure line (wave 3, below).
 
 A plan for two things that turn out to be one thing: editable-but-protected
 disclaimers in the SMS and robocall flows, and a reusable composer to hold them.
@@ -201,6 +203,12 @@ between them, but each piece stays whole.
 | `hasSelfIdentification` | the candidate's name; and `candidate for <office>` | yes, the rest of the opener |
 | `hasOrganization`       | `Paid for by <sponsor>`, one span                  | yes, before and after       |
 | `hasCallbackNumber`     | the formatted number                               | yes                         |
+
+As built (#2353), the disclosure locks as one unit, "Paid for by" to the end
+of its line, the same rule SMS uses with no committee recorded: it needs no
+sponsor known to gp-api, so the field and Improve's masking find the same
+text. Splitting it into the pieces above is the follow-up for states that
+require wording between them.
 
 Standing caveat: robocall spans are advisory. The gate is the recording verdict,
 not the script. Spans reduce failed recordings; they cannot guarantee a passing
@@ -486,9 +494,10 @@ Same shape as SMS, with the model out of the loop.
 | ---- | --------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | 0    | `Textarea` seamless variant, applied to all four composers                        | Fixes the missing focus ring in social, phone banking, robocall |
 | 1    | `TokenField`, `TokenPill`, merge-tag registry, stories, tests                     | None, no call sites yet                                         |
-| 2    | `MessageComposer` shell plus the gp-webapp behavior layer. Migrate SMS first      | SMS footer becomes editable-with-locked-atoms                   |
-| 3    | Robocall: deterministic disclosure, prompt change, locked atom, custom path fixed | Custom scripts stop failing after the recording                 |
-| 4    | Social, phone banking, door-knocking talking points onto the shell                | Consistent toolbar and counter                                  |
+| 2a   | SMS compose onto `TokenField`, server-side masked Improve, one AI action          | SMS footer becomes editable-with-locked-atoms                   |
+| 2b   | `MessageComposer` shell extracted across the four composers                       | None beyond 2a                                                  |
+| 3    | Robocall: deterministic disclosure, prompt change, locked atom, custom path fixed | Built in #2353; the disclosure locks as one sentence for now    |
+| 4    | Social, phone banking, door-knocking talking points onto `TokenField`             | One field everywhere; phone banking's contact name is a pill    |
 | 5    | Optional: chat composers, polls                                                   |                                                                 |
 
 Wave 0 stands alone and is worth landing regardless of the rest.
@@ -522,14 +531,16 @@ answer in one place.
   no span information, so a naive pipeline loses the lock on each round-trip, or
   worse, the model drops the candidate's name and there is nothing left to lock.
 
-  Fix: **never let the model write a protected span.** The AI only ever
-  authors the free text. For SMS the intro and footer are already composed
-  around the draft, so this mostly holds today; it has to hold for Improve too,
-  which by nature rewrites everything. Send the full composed message to the
-  model as context, ask it to return only the editable region, and reassemble
-  deterministically. Re-anchoring by string match after the fact is the
-  fallback, not the plan, and it needs a defined behavior for a span that comes
-  back missing (re-insert at its canonical position).
+  Fix: **never let the model write a protected span.** A fresh draft is the
+  body only, and the webapp composes the greeting, identification, disclaimer
+  and opt-out around it. Improve, which by nature rewrites everything, gets
+  the whole message with each locked part swapped for a numbered marker
+  (`⟦1⟧`), so the model never sees the locked text. gp-api accepts a reply
+  only if every marker comes back exactly once and in order, puts the text
+  back, and refuses one that fails a standards rule the original passed. Two
+  tries, then 502 (`gp-api/src/outreach/util/smsProtectedImprove.util.ts`).
+  A marker cannot be re-anchored by guessing, so a reply that drops one is
+  thrown away rather than repaired.
 
   Same rule retires `DISCLOSURE_RULE` from the robocall prompt, which is
   already the plan for other reasons.
@@ -551,10 +562,6 @@ script' })` and `aria-label="Message body"`. A contenteditable exposes
   decision.
 - **List buttons.** In an SMS a bullet is just a character. Insert plain text,
   as the Lovable version does. Do not enable StarterKit list nodes.
-- **Documented decision reversal.** `outreach/AGENTS.md` records that the footer
-  is "deterministic, never left to the candidate or the LLM" as a product
-  decision from 2026-09-02. Making it editable reverses that. It needs to be a
-  conscious call and the doc needs updating in the same change.
 
 ## Decisions taken
 
@@ -568,6 +575,20 @@ script' })` and `aria-label="Message body"`. A contenteditable exposes
    send time and fulfilment goes through a human with a CSV. The text line is
    belt and braces there, not the guard. Recorded as a deliberate choice.
 3. **Required fields: settled**, see the atom spec above.
+4. **The footer is no longer deterministic.** The 2026-09-02 rule that the
+   paid-for-by and opt-out lines are appended where neither the candidate nor
+   the model can reach them is reversed: they are locked text inside the
+   editable message. Approved for wave 2a; both `outreach/AGENTS.md` files
+   record it.
+5. **One AI action.** Regenerate and Improve were two buttons doing two
+   different things. Now there is one, whose label says which it will do:
+   Regenerate (a fresh draft) while the words are an untouched AI draft,
+   Improve with AI once they are the candidate's. A tone pill follows the
+   same rule, so a tone change never throws away words the candidate wrote.
+6. **Locks come from what the system wrote, not from keystrokes.** The
+   flow derives locks from the message as it last loaded it (a draft, a
+   seed, an Improve reply, an undo). Deriving them live would lock a name the
+   moment it was typed, and every change of lock rebuilds the field.
 
 ## Follow-ups, deliberately out of scope
 

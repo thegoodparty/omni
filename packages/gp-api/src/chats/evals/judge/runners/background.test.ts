@@ -9,8 +9,14 @@ import {
   substituteBackgroundCases,
   UnsubstitutedPlaceholderError,
 } from '../caseParams'
+import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
-import { RunRecordSchema, type Arm, type RunRecord } from '../record'
+import {
+  isComparable,
+  RunRecordSchema,
+  type Arm,
+  type RunRecord,
+} from '../record'
 import {
   artifactKey,
   backgroundConfigDigest,
@@ -19,6 +25,7 @@ import {
   CACHED_BASE_ARM_SCHEMA_VERSION,
   captureCostUsd,
   ciContext,
+  isCacheableBase,
   isJudgeRunId,
   JUDGE_RUN_ID_PREFIX,
   judgeRunId,
@@ -465,6 +472,55 @@ describe('buildDispatchMessage', () => {
     ])
   })
 
+  // The three agents that read gp-api run as the seeded fixture account, and
+  // the broker can only reach gp-api for a ticket that names a user.
+  it('names the fixture user when asked to, on the fixture organization', () => {
+    const message = buildDispatchMessage({
+      ...base,
+      organizationSlug: JUDGE_FIXTURE.orgSlug,
+      clerkUserId: JUDGE_FIXTURE.clerkUserId,
+      agentCase: { caseId: 'c1', params: {} },
+    })
+
+    expect(message.clerk_user_id).toBe('user_judge_fixture')
+    expect(message.organization_slug).toBe('judge-fixture')
+  })
+
+  // A judge run must never act as a real person: the proxy would let it read,
+  // and write, as them.
+  it('refuses any user but the fixture one', () => {
+    expect(() =>
+      buildDispatchMessage({
+        ...base,
+        organizationSlug: JUDGE_FIXTURE.orgSlug,
+        clerkUserId: 'user_2abcRealPerson',
+        agentCase: { caseId: 'c1', params: {} },
+      }),
+    ).toThrow(/only the fixture user/)
+  })
+
+  it('refuses the fixture user for an agent that does not read gp-api', () => {
+    expect(() =>
+      buildDispatchMessage({
+        ...base,
+        agentId: 'self_research',
+        organizationSlug: JUDGE_FIXTURE.orgSlug,
+        clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        agentCase: { caseId: 'c1', params: {} },
+      }),
+    ).toThrow(/does not read gp-api/)
+  })
+
+  it('refuses the fixture user on any other organization', () => {
+    expect(() =>
+      buildDispatchMessage({
+        ...base,
+        clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        agentCase: { caseId: 'c1', params: {} },
+      }),
+    ).toThrow(/only the fixture user/)
+  })
+
   // Both are the silent-stall class the other ceilings in this function guard:
   // the Lambda rejects them, and with the result callback suppressed the sweep
   // would just wait out the whole poll window.
@@ -643,6 +699,30 @@ describe('dispatch envelope', () => {
     // A shared group id would serialize the sweep: FIFO delivers one group in
     // order, so five 20-minute runs would take an hour and a half.
     expect(queue.sent[0]?.groupId).toBe(runId)
+  })
+
+  it('sends the user the run input names, and none when it names none', async () => {
+    const send = async (input: BackgroundRunInput) => {
+      const queue = fakeQueue()
+      await runBackgroundCase(
+        deps(completedRun(input, idFor(input)), queue, fakeClock()),
+        input,
+      )
+      return JSON.parse(queue.sent[0]?.body ?? '{}')
+    }
+
+    expect(
+      await send(
+        runInput({
+          organizationSlug: JUDGE_FIXTURE.orgSlug,
+          clerkUserId: JUDGE_FIXTURE.clerkUserId,
+        }),
+      ),
+    ).toMatchObject({
+      organization_slug: 'judge-fixture',
+      clerk_user_id: 'user_judge_fixture',
+    })
+    expect(await send(runInput())).not.toHaveProperty('clerk_user_id')
   })
 })
 
@@ -844,6 +924,211 @@ describe('parseTrace', () => {
     expect(summary.toolErrors).toBe(1)
     expect(summary.trace[0]).toMatchObject({ tool: 'Bash' })
     expect(summary.trace[0]?.error).toBeDefined()
+  })
+
+  // THE LINE A LIVE SWEEP ACTUALLY WROTE. Every race_opponent_summary pair was
+  // excluded for a tool error, and the record said only "1"; the cause was in
+  // this content all along.
+  const PARAMS_JSON_FAILURE =
+    'Exit code 1\nTraceback (most recent call last):\n  File "run.py", ' +
+    "line 4, in <module>\nKeyError: 'PARAMS_JSON'"
+
+  it('names the failing tool and its error in the flat dialect', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{"command":"python run.py"}}]}}',
+        JSON.stringify({
+          type: 'tool_result',
+          content: PARAMS_JSON_FAILURE,
+          is_error: true,
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrors).toBe(1)
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'Bash', message: PARAMS_JSON_FAILURE },
+    ])
+  })
+
+  it('names the failing tool and its error in the nested CLI dialect', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{}},' +
+          '{"type":"tool_use","name":"Read","input":{}}]}}',
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              { type: 'tool_result', content: 'fine', is_error: false },
+              {
+                type: 'tool_result',
+                content: [
+                  { type: 'text', text: 'File does not exist.' },
+                  { type: 'text', text: 'Path: /tmp/params.json' },
+                ],
+                is_error: true,
+              },
+            ],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails).toEqual([
+      {
+        tool: 'Read',
+        message: 'File does not exist.\nPath: /tmp/params.json',
+      },
+    ])
+  })
+
+  // `content` is read only to name a failure. A shape nobody anticipated
+  // rejecting the whole line would drop the result and shift every later
+  // attribution, which is worse than losing the text.
+  it('keeps a result whose content has an unexpected shape', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{}}]}}',
+        '{"type":"tool_result","content":{"odd":1},"is_error":false}',
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Read","input":{}}]}}',
+        '{"type":"tool_result","content":"boom","is_error":true}',
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'Read', message: 'boom' },
+    ])
+  })
+
+  // The CLI dialect carries the call's id on its result, which survives a
+  // batch answered out of order where call order would not.
+  it('pairs a CLI result with its call by tool_use_id', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","id":"tu_1","name":"Bash","input":{}},' +
+          '{"type":"tool_use","id":"tu_2","name":"Read","input":{}}]}}',
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu_2',
+                content: 'missing',
+                is_error: true,
+              },
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu_1',
+                content: 'ok',
+                is_error: false,
+              },
+            ],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'Read', message: 'missing' },
+    ])
+    expect(summary.trace[0]?.error).toBeUndefined()
+    expect(summary.trace[1]?.error).toBeDefined()
+  })
+
+  it('pins an unknown tool_use_id to no call rather than the oldest', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","id":"tu_1","name":"Bash","input":{}}]}}',
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu_gone',
+                content: 'boom',
+                is_error: true,
+              },
+            ],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.trace[0]?.error).toBeUndefined()
+    expect(summary.toolErrorDetails).toEqual([
+      { tool: 'unknown', message: 'boom' },
+    ])
+  })
+
+  it('stores no tool name the model invented', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"lookup_jane_doe","input":{}},' +
+          '{"type":"tool_use","name":"mcp__broker__GET_community_issues",' +
+          '"input":{}},' +
+          '{"type":"tool_use",' +
+          '"name":"mcp__broker__GET_jane_doe_voter_record","input":{}}]}}',
+        '{"type":"tool_result","content":"no such tool","is_error":true}',
+        '{"type":"tool_result","content":"HTTP 503","is_error":true}',
+        '{"type":"tool_result","content":"no such tool","is_error":true}',
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails.map((d) => d.tool)).toEqual([
+      'unknown',
+      'mcp__broker__GET_community_issues',
+      'unknown',
+    ])
+  })
+
+  it('bounds the detail list and each message', () => {
+    const calls = Array.from({ length: 12 }, (_, i) => [
+      '{"type":"assistant","message":{"content":[' +
+        `{"type":"tool_use","name":"Tool${i}","input":{}}]}}`,
+      JSON.stringify({
+        type: 'tool_result',
+        content: `${'x'.repeat(1000)}\nKeyError: '${i}'`,
+        is_error: true,
+      }),
+    ]).flat()
+    const summary = parseTrace(calls.join('\n'))
+
+    expect(summary.toolErrors).toBe(12)
+    expect(summary.toolErrorDetails).toHaveLength(10)
+    // Invented names, so none is stored.
+    expect(summary.toolErrorDetails[0]?.tool).toBe('unknown')
+    for (const detail of summary.toolErrorDetails) {
+      expect(detail.message.length).toBeLessThanOrEqual(300)
+    }
+    expect(summary.toolErrorDetails[0]?.message).toMatch(/KeyError: '0'$/)
+  })
+
+  it('redacts the error text', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{}}]}}',
+        JSON.stringify({
+          type: 'tool_result',
+          content: 'curl failed for voter@example.com with sk-ant-abcdef123456',
+          is_error: true,
+        }),
+      ].join('\n'),
+    )
+
+    expect(summary.toolErrorDetails[0]?.message).toBe(
+      'curl failed for [email] with [redacted key]',
+    )
   })
 
   it('stamps liveWeb only when the turn actually searched', () => {
@@ -1352,6 +1637,9 @@ describe('runBackgroundBaseArm', () => {
     )
   })
 
+  // Comparable, so it is scored this sweep, but never cached: a base arm
+  // captured during a credential or broker outage would otherwise become the
+  // baseline for every later sweep of the digest.
   it('refuses to cache a base arm whose tools failed', async () => {
     const input = baseInput()
     const runId = idFor(input)
@@ -1372,7 +1660,42 @@ describe('runBackgroundBaseArm', () => {
 
     expect(result.record.status).toBe('produced')
     expect(result.record.telemetry.toolErrors).toBe(1)
+    expect(result.record.toolErrorDetails).toEqual([
+      { tool: 'Bash', message: 'no error text' },
+    ])
+    expect(isComparable(result.record)).toBe(true)
     expect(result.cache).toBe('notCached')
+    expect(store.puts.map((p) => p.key)).not.toContain(
+      baseArmCacheKey(
+        AGENT,
+        backgroundConfigDigest(config),
+        input.agentCase.caseId,
+      ),
+    )
+  })
+
+  it('caches a clean background base arm', async () => {
+    const input = baseInput()
+    const store = completedRun(input, idFor(input))
+
+    const result = await runBackgroundBaseArm(
+      deps(store, fakeQueue(), fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(result.record.agentShape).toBe('background')
+    expect(result.record.status).toBe('produced')
+    expect(result.record.telemetry.toolErrors).toBe(0)
+    expect(isCacheableBase(result.record)).toBe(true)
+    expect(result.cache).toBe('miss')
+    expect(store.puts.map((p) => p.key)).toContain(
+      baseArmCacheKey(
+        AGENT,
+        backgroundConfigDigest(config),
+        input.agentCase.caseId,
+      ),
+    )
   })
 
   it('treats a cache entry that no longer fits the contract as a miss', async () => {
@@ -1448,6 +1771,8 @@ describe('runBackgroundBaseArm', () => {
         ...honest,
         variant: { ...honest.variant, configDigest: 'a-different-digest' },
       },
+      { ...honest, status: 'infraError' as const, output: null },
+      // Comparable, but a base arm with tool errors is never a baseline.
       {
         ...honest,
         telemetry: { ...honest.telemetry, toolCalls: 1, toolErrors: 1 },

@@ -6,7 +6,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  NotFoundException,
   Param,
   Post,
   Put,
@@ -47,11 +46,7 @@ import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.deco
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
-import {
-  ChatAttachmentsService,
-  SERVE_CHAT_ATTACHMENTS_FLAG,
-} from '@/chats/services/chatAttachments.service'
-import { FeaturesService } from '@/features/services/features.service'
+import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
   ChatConversationSchema,
@@ -110,7 +105,6 @@ const formatChunk = (chunk: ChatStreamChunk): string =>
 export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
-    private readonly features: FeaturesService,
     private readonly attachments: ChatAttachmentsService,
     private readonly logger: PinoLogger,
   ) {
@@ -329,11 +323,6 @@ export class GeneralChatsController {
     @Param('conversationId') conversationId: string,
     @Body(new ZodValidationPipe(PresignRequestSchema)) body: PresignRequest,
   ): Promise<PresignResponse> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) throw new NotFoundException()
     return this.attachments.presign(
       conversationId,
       user.id,
@@ -350,11 +339,6 @@ export class GeneralChatsController {
     @Param('conversationId') conversationId: string,
     @Body(new ZodValidationPipe(FinalizeRequestSchema)) body: FinalizeRequest,
   ): Promise<ChatAttachmentDTO> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) throw new NotFoundException()
     return this.attachments.finalize(
       conversationId,
       user.id,
@@ -371,11 +355,6 @@ export class GeneralChatsController {
     @Param('conversationId') conversationId: string,
     @Body() rawBody: Record<string, unknown>,
   ): Promise<LinkAttachResponse> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) throw new NotFoundException()
     const parsed = LinkAttachRequestSchema.safeParse(rawBody)
     if (!parsed.success) throw new BadRequestException(parsed.error.issues)
     return this.attachments.attachLink(

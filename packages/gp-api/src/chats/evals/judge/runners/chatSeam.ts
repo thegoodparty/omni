@@ -10,11 +10,17 @@ import {
   type ToolCall,
 } from '@/llm/services/llm.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import {
+  BriefingAnnotationHandler,
+  type BriefingChatContext,
+} from '@/chats/briefing-chats/briefingAnnotation.handler'
+import { BriefingArtifactCacheService } from '@/chats/briefing-chats/services/briefingArtifactCache.service'
 import { sleep } from '@/shared/util/sleep.util'
 import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
 import { toolFailureDelayMs, type ToolFailure } from '../cases'
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from '../config'
 import type { JsonValue, TraceStep } from '../record'
+import { redactToolError } from '../toolErrorDetails'
 
 // The three seams a chat run is observed at. Each one is the only place the
 // thing it captures exists:
@@ -139,17 +145,12 @@ const MAX_ERROR_CHARS = 200
 // statement client throws with the raw HTTP body, which echoes the failing
 // statement, and the voter SQL builder inlines contact ids by design. The
 // judge needs the failure class, never the vendor's prose, so the message is
-// redacted and bounded before it can reach a stored record.
+// redacted and bounded before it can reach a stored record. Redacted on the
+// whole text first: a cut that lands inside a secret leaves a fragment no
+// shape matches any more.
 export const traceErrorText = (err: unknown): string => {
   const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-  return raw
-    .replace(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
-      '[id]',
-    )
-    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[email]')
-    .replace(/\d{7,}/g, '[digits]')
-    .slice(0, MAX_ERROR_CHARS)
+  return redactToolError(raw).slice(0, MAX_ERROR_CHARS)
 }
 
 const systemPromptOf = (options: LlmStreamOptions): string => {
@@ -670,6 +671,111 @@ export const instrumentDatabricksProvider = (
       restore: () => {
         Object.assign(target, { query: original })
         installedOn.delete(target)
+      },
+    }
+  })
+}
+
+export interface BriefingFixture {
+  // The only bucket the seam answers. Every other read goes to the real
+  // cache, so a briefing the judge did not seed is never handed the fixture.
+  bucket: string
+  artifactContent: string
+  // What the prompt says today is, in place of todayInTimezone(...).
+  today: string
+}
+
+export interface InstalledBriefingFixture {
+  restore: () => void
+}
+
+// THE BRIEFING ARTIFACT AND THE BRIEFING'S `today`, both served from fixed
+// values for the briefings the judge seeded.
+//
+// The artifact: production reads it from S3 by the bucket and key on the
+// MeetingBriefing row, through BriefingArtifactCacheService. No test process
+// can reach S3, and a real artifact is not something to put in a public repo,
+// so the seeder writes a bucket nothing else uses and this answers it.
+//
+// The date: the handler renders todayInTimezone(meetingTimezone) into the
+// prompt. Two arms captured either side of midnight in the meeting's
+// timezone would render two prompts for one branch, which makes their
+// configDigests differ and the agent read a different "today". Pinned here,
+// after the real context is loaded, so everything else about the context is
+// production's.
+//
+// On the PROTOTYPES, for the reason instrumentDatabricksProvider is: the
+// handler is built by hand inside BriefingChatsService rather than by Nest,
+// so there is no container token to resolve it by, and patching the class
+// reaches whichever instance the route holds. Both are matched on the
+// fixture's bucket, so a briefing the judge did not seed passes through
+// untouched — and `assertTestProcess` keeps the whole thing out of a live
+// process.
+export const installBriefingFixture = (
+  fixture: BriefingFixture,
+): InstalledBriefingFixture => {
+  assertTestProcess('installBriefingFixture')
+  const cache = BriefingArtifactCacheService.prototype
+  const handler = BriefingAnnotationHandler.prototype
+  return claim(cache, 'installBriefingFixture', () => {
+    const originalGet = cache.get
+    const originalLoad = handler.loadContext
+    const originalLoadForAnnotation = handler.loadContextForAnnotation
+    const pinned = (ctx: BriefingChatContext): BriefingChatContext =>
+      ctx.briefing.artifactBucket === fixture.bucket
+        ? { ...ctx, today: fixture.today }
+        : ctx
+    Object.assign(cache, {
+      get(
+        this: BriefingArtifactCacheService,
+        bucket: string,
+        key: string,
+      ): Promise<string> {
+        if (bucket === fixture.bucket) {
+          return Promise.resolve(fixture.artifactContent)
+        }
+        // .bind() returns any — TypeScript cannot infer the bound signature
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const unpatched: BriefingArtifactCacheService['get'] =
+          originalGet.bind(this)
+        return unpatched(bucket, key)
+      },
+    })
+    Object.assign(handler, {
+      async loadContext(
+        this: BriefingAnnotationHandler,
+        conversationId: string,
+        userId: number,
+      ): Promise<BriefingChatContext> {
+        // .bind() returns any — TypeScript cannot infer the bound signature
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const unpatched: BriefingAnnotationHandler['loadContext'] =
+          originalLoad.bind(this)
+        return pinned(await unpatched(conversationId, userId))
+      },
+      async loadContextForAnnotation(
+        this: BriefingAnnotationHandler,
+        annotationId: string,
+        userId: number,
+      ): Promise<BriefingChatContext> {
+        // .bind() returns any — TypeScript cannot infer the bound signature
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const unpatched: BriefingAnnotationHandler['loadContextForAnnotation'] =
+          originalLoadForAnnotation.bind(this)
+        return pinned(await unpatched(annotationId, userId))
+      },
+    })
+    return {
+      // The originals put back rather than the properties deleted, for the
+      // reason the Databricks restore gives: these are prototype methods, and
+      // deleting them would leave every instance with none.
+      restore: () => {
+        Object.assign(cache, { get: originalGet })
+        Object.assign(handler, {
+          loadContext: originalLoad,
+          loadContextForAnnotation: originalLoadForAnnotation,
+        })
+        installedOn.delete(cache)
       },
     }
   })

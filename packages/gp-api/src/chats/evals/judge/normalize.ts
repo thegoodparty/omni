@@ -1,4 +1,8 @@
-import { TranscriptInputSchema } from './cases'
+import {
+  TranscriptInputSchema,
+  type CaseDimension,
+  type CaseJudging,
+} from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   isComparable,
@@ -44,6 +48,10 @@ export interface JudgePayload {
   // Identical across arms by construction, so it is shown once.
   sharedInput: string
   runs: readonly [BlindedRun, BlindedRun]
+  // The case's own questions, beside the config's dimensions. Attached by the
+  // judging step from its case list, never read off a record, so both slots
+  // are asked the same ones. See CaseDimensionSchema.
+  caseDimensions?: readonly CaseDimension[]
 }
 
 export interface NormalizedCase {
@@ -489,6 +497,9 @@ const exclusionFor = (
   // infraError first: a run that died never got far enough for a tool
   // error to mean anything about it.
   if (infra.length > 0) return { reason: 'infraError', arms: infra }
+  // Only a chat pair gets this far: isComparable never fails a background
+  // record for a tool error, because its verdict is on the final artifact
+  // and a run that hit a failing Bash snippet and recovered still made one.
   const tool: Arm[] = []
   if (base.telemetry.toolErrors > 0) tool.push('base')
   if (candidate.telemetry.toolErrors > 0) tool.push('candidate')
@@ -622,3 +633,30 @@ export const normalizeAgent = (
         : null,
   }
 }
+
+// A background case's authored condition, added to the shared input AFTER
+// blinding. Not through `renderPayload`, because the condition is not in
+// either record: it comes from the judging checkout's case list, so it is one
+// string by construction and there is no second copy for `blindCase` to
+// compare. Not scrubbed either, for the same reason — scrubbing strips what
+// one arm's record could reveal, and nothing here came from a record.
+//
+// Spelled the way a chat case's directives are, so the judge reads one
+// convention for "this is what the case put the agent under".
+export const withConditions = (
+  normalized: NormalizedAgent,
+  judging: ReadonlyMap<string, CaseJudging>,
+): NormalizedAgent => ({
+  ...normalized,
+  judgeable: normalized.judgeable.map((one) => {
+    const condition = judging.get(one.caseId)?.condition
+    if (condition === undefined) return one
+    return {
+      ...one,
+      payload: {
+        ...one.payload,
+        sharedInput: `${one.payload.sharedInput}\n\nCondition: ${condition}`,
+      },
+    }
+  }),
+})

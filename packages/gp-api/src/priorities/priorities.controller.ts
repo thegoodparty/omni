@@ -28,7 +28,7 @@ import {
 } from './schemas/priority.schema'
 import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
 import { PrioritiesService } from './services/priorities.service'
-import { priorityToApi } from './util/priority.util'
+import { currentStepOf, priorityToApi } from './util/priority.util'
 
 @Controller('priorities')
 @UsePipes(ZodValidationPipe)
@@ -59,7 +59,7 @@ export class PrioritiesController {
     }
     return {
       status: parsePriorityStatus(priority.status),
-      currentStep: priority.currentStep,
+      currentStep: currentStepOf(priority),
       nextAction: priority.nextAction,
     }
   }

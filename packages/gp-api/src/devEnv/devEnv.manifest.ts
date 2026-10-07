@@ -48,6 +48,9 @@ const GP_WEBAPP_ENV_VAR_NAMES = [
 export const DECLARED_ENV_VARS: Record<DevEnvPackage, ReadonlySet<string>> = {
   'gp-api': new Set(Object.keys(ENV_VAR_CONTRACT)),
   'gp-webapp': new Set(GP_WEBAPP_ENV_VAR_NAMES),
+  // Read by scripts/mcp/grafana.sh, the launcher .mcp.json starts the
+  // Grafana MCP through.
+  mcp: new Set(['GRAFANA_SERVICE_ACCOUNT_TOKEN']),
 }
 
 export const isDevEnvPackage = (name: string): name is DevEnvPackage =>

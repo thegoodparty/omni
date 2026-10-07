@@ -487,6 +487,7 @@ jobs:
               packages/gp-api/src/chats/general/campaign-manager/*) add campaign_assistant ;;
               packages/gp-api/src/chats/general/ordinance-flow/*)  add ordinance_flow ;;
               packages/gp-api/src/chats/general/priority-flow/*)   add priority_flow ;;
+              packages/gp-api/src/chats/briefing-chats/*)          add briefing_annotation ;;
               # Background agents. One directory per published experiment, and
               # the directory name IS the agent id.
               packages/runbooks/experiments/_schema/*) ;;
@@ -497,7 +498,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # 16-agent ~$632 sweep that every other guard in this file
+                # ~$681 sweep of every agent that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -694,8 +695,8 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $632
-      # against roughly $7 for the normal one-agent case, and the difference
+      # An accidental `all` is the failure this exists for. It is roughly $681
+      # against single dollars for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
       # is a separate job downstream of this one — the ordering is structural
@@ -707,13 +708,13 @@ jobs:
       # visibility guarantee, deliberately, and not an approval gate; the PR
       # says what it would take to make it one.
       #
-      # The chat figures are the design doc's measured sweep costs, not a
-      # model of them: ~$7 for a chat agent, ~5x that for ordinance_flow (whose
-      # per-step cost is five times every other chat agent). The background
-      # figure is derived below from config.background and pinned to it by a
-      # test, because the budget it prices moved after the design doc did.
-      # Per-agent case lists come from the CLI's own plan, which is reproduced
-      # verbatim below the table, so the two facts a reader needs are never
+      # Every price is the CLI's, printed on its plan row and only summed here:
+      # src/chats/evals/judge/planCost.ts prices each agent from its measured
+      # judge cost per run (background) or turn (chat), its real case list and
+      # the config, at the highest of this branch's, the base ref's and the
+      # default branch's prices.
+      # Per-agent case lists come from the same plan, which is reproduced
+      # verbatim below the table, so the facts a reader needs are never
       # assembled by this YAML.
       - name: Estimate the cost and case count
         id: estimate
@@ -733,6 +734,8 @@ jobs:
           BASE_REF: ${{ steps.gate.outputs.base_ref }}
           PR_NUMBER: ${{ inputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_REF: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
 
@@ -830,7 +833,7 @@ jobs:
 
           # "Nothing here is judgeable" is a SKIP, not a failure, and it is a
           # different thing from "the CLI's output made no sense", which is
-          # further down and does fail. `/judge briefing_annotation` is the live
+          # further down and does fail. `/judge compliance_setup` is the live
           # example of the first: it is a real agent, the request is fine, the
           # CLI exits 0 — and it is the one registry entry marked blocked, so
           # the plan lists nothing. Failing that red would put an X on a PR
@@ -845,7 +848,7 @@ jobs:
             # AND IT SAYS SO ON THE PR. This path ends the step with `exit 0`
             # before the plan comment below is written, so it is the only place
             # that can answer for it — and without this the one request that
-            # really does land here, `/judge briefing_annotation`, was answered
+            # really does land here, `/judge compliance_setup`, was answered
             # with a job summary and total silence on the thread where it was
             # typed. Same marker as the plan comment, so a PR judged twice
             # carries one current comment whichever path each run took.
@@ -893,8 +896,50 @@ jobs:
           # this is the one number the step is reading. stderr is left to the
           # job log, so the CLI's own error text is visible without being
           # spliced into the plan that goes on the PR.
+          # THE BASE REF'S AND THE DEFAULT BRANCH'S PRICES TOO, so a PR cannot
+          # lower its own estimate by editing planCost.ts, nor by opening
+          # against a branch that carries a cheap one: the CLI prices each
+          # agent at the highest of the three, and at the worst case when a
+          # price file or config is missing or will not load. Each ref's chat
+          # case lists come too, because each arm walks its own. planCost.ts
+          # sits beside the candidate's so its imports resolve here.
+          #
+          # A 404 leaves an empty file, which the CLI reads as "the ref has
+          # none". Any other failure leaves a line that is not a file at all,
+          # which the CLI reads as unreadable and prices at the worst case.
+          judge_dir="$(dirname "$CLI")"
+          fetch() {
+            local err=""
+            if [ -n "$1" ] && err="$(gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/$GITHUB_REPOSITORY/contents/$WORKSPACE/$judge_dir/$2?ref=$1" \
+              2>&1 > "$3")"; then
+              return 0
+            fi
+            case "$err" in
+              *'HTTP 404'*) : > "$3" ;;
+              *) echo 'fetch failed' > "$3" ;;
+            esac
+          }
+          # The chat agents in the plan, by id, which is what `all` means
+          # here. A first, unpriced run of the CLI, because it knows the
+          # registry. A failure lists none, and a list never fetched reads as
+          # unreadable, so those agents price at the worst case.
+          chat_ids="$(npx tsx "$CLI" --agents="$AGENTS" --dry-run 2>/dev/null \
+            | sed -nE 's/^  ([a-z0-9_]+)  \[chat\]  .*$/\1/p' || true)"
+          [[ "${DEFAULT_REF:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || DEFAULT_REF=""
+          references=()
+          for ref in base:"$BASE_REF" default:"$DEFAULT_REF"; do
+            dir="$RUNNER_TEMP/ref-${ref%%:*}"
+            mkdir -p "$dir/cases"
+            fetch "${ref#*:}" planCost.ts "$PWD/$judge_dir/planCost.${ref%%:*}.ts"
+            fetch "${ref#*:}" config.ts "$dir/config.ts"
+            for id in $chat_ids; do
+              fetch "${ref#*:}" "cases/$id.json" "$dir/cases/$id.json"
+            done
+            references+=("--reference=$PWD/$judge_dir/planCost.${ref%%:*}.ts,$dir/config.ts,$dir/cases")
+          done
           status=0
-          npx tsx "$CLI" --agents="$AGENTS" --dry-run \
+          npx tsx "$CLI" --agents="$AGENTS" --dry-run "${references[@]}" \
             > "$RUNNER_TEMP/plan.txt" || status=$?
           cat "$RUNNER_TEMP/plan.txt"
 
@@ -945,9 +990,18 @@ jobs:
             exit 0
           fi
 
-          # `  <agentId>  [<shape>]  cases: <value>` — the CLI's own plan rows.
-          rows="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cases: (.*)$/\1 \2 \3/p' \
+          # `  <agentId>  [<shape>]  cents: <n> (<basis>)  cases: <value>` — the
+          # CLI's own plan rows, each priced by the CLI (see planCost.ts).
+          rows="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cents: ([0-9]+) \(([a-z-]+)\)  cases: (.*)$/\1 \2 \3 \4 \5/p' \
             "$RUNNER_TEMP/plan.txt")"
+          # A branch whose CLI predates per-agent pricing prints its rows with
+          # no `cents:`. One CLI prints every row, so if none is priced the whole
+          # plan is that older format, and the loop prices it at the old flat
+          # worst case rather than leaving the branch unjudgeable.
+          if [ -z "$rows" ]; then
+            rows="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cases: (.*)$/\1 \2 0 old-branch \3/p' \
+              "$RUNNER_TEMP/plan.txt")"
+          fi
 
           parsed=0
           if [ -n "$rows" ]; then
@@ -964,23 +1018,6 @@ jobs:
             refuse "The judge CLI planned $planned agents and this workflow could read only $parsed of them out of the plan, so the pricing regex and the plan format have drifted apart. Under-reporting a bill is worse than refusing to report one, so it stops here rather than pricing part of a sweep. That is a fault in the judge, not in this PR."
           fi
 
-          # 2 arms x 3 cases x 1 attempt x $8 a run = $48, from
-          # DEFAULT_JUDGE_CONFIG.background (maxCases 3, attemptsPerCase 1).
-          # Both arms, because the sweep does not read the base-arm cache yet.
-          #
-          # $8 IS DELIBERATELY HIGH. This number exists to make a sweep visible
-          # before it spends, so it rounds up the worst measured mean per run
-          # rather than averaging: meeting_briefing's ~$7.74, invoice-confirmed
-          # (.claude/skills/analyze-cap-agent-costs/profiles/meeting_briefing.md).
-          # The other measurements sit under it: $2.45 to $5.27 for the
-          # community-issues pair (profiles/community_issues.md). Judging is a
-          # few cents on one seat and is not added.
-          #
-          # Set before the loop that reads it, under `set -u`.
-          # judgeWorkflow.test.ts recomputes it from the config and runs the
-          # loop, so a budget change that does not reach here fails there.
-          background_cents=4800
-
           total=0
           sweep_agents=""
           keep() {
@@ -995,7 +1032,7 @@ jobs:
           {
             echo '| agent | shape | case list | estimated USD |'
             echo '| --- | --- | --- | --- |'
-            while read -r id shape cases; do
+            while read -r id shape cents basis cases; do
               # `NO CASE LIST YET` is what the CLI prints for a registry entry
               # whose `cases` is null — which today is every entry. Such a row
               # is deliberately NOT priced and NOT swept: an agent with no case
@@ -1010,10 +1047,15 @@ jobs:
                   continue
                   ;;
               esac
-              case "$id" in
-                ordinance_flow) cents=3500 ;;  # ~5x per step, per the design doc
-                *) [ "$shape" = "chat" ] && cents=700 || cents=$background_cents ;;
-              esac
+              # The worst case for an unmeasured agent, never below what
+              # planCost.ts would charge: 2 arms x 3 cases x $8 a run for a
+              # background agent, and $37.50 for any chat one, ordinance_flow
+              # included. $37.50 ASSUMES 8 turns a list and 3 attempts a case
+              # (16 turns over both arms x 3 x $0.52, x1.5): a longer list or
+              # more attempts on an old branch is underpriced here.
+              if [ "$basis" = old-branch ]; then
+                [ "$shape" = chat ] && cents=3750 || cents=4800
+              fi
               total=$((total + cents))
               keep "$id"
               # `$id` and `$shape` are held to a shape by the row regex's
@@ -1035,8 +1077,15 @@ jobs:
               else
                 cell="\`$safe_cases\`"
               fi
-              printf '| %s | %s | %s | ~%d.%02d |\n' \
-                "$id" "$shape" "$cell" "$((cents / 100))" "$((cents % 100))"
+              case "$basis" in
+                unmeasured) note=' (unmeasured)' ;;
+                old-branch) note=' (old branch, worst case)' ;;
+                base-unread) note=' (base price unread, worst case)' ;;
+                *) note='' ;;
+              esac
+              printf '| %s | %s | %s | ~%d.%02d%s |\n' \
+                "$id" "$shape" "$cell" "$((cents / 100))" "$((cents % 100))" \
+                "$note"
             done <<<"$rows"
           } > "$RUNNER_TEMP/table.md"
 
@@ -1097,9 +1146,11 @@ jobs:
             echo ''
             cat "$RUNNER_TEMP/table.md"
             echo ''
-            echo 'Chat estimates are the design doc'"'"'s measured sweep costs; the background'
-            echo 'estimate rounds up the worst measured per-run cost. Both exist to make an'
-            echo 'accidental all-agents sweep visible before it is expensive,'
+            echo 'Each estimate is the agent'"'"'s measured cost per run or turn in an earlier'
+            echo 'judge sweep, x1.5 and rounded up, or a worst case where it was never'
+            echo 'measured; the highest of this branch'"'"'s, the base ref'"'"'s and the default'
+            echo 'branch'"'"'s prices. It exists'
+            echo 'to make an accidental all-agents sweep visible before it is expensive,'
             echo 'not to bill anyone. An agent with no case list yet is listed but'
             echo 'neither priced nor swept, because it has nothing to compare.'
             echo ''
@@ -1129,7 +1180,7 @@ jobs:
           # Published only now that the file exists, so the step that posts the
           # comment can be gated on this one output and nothing else. It is
           # also the only place the path is written down: the shell here says
-          # `$RUNNER_TEMP` and a `${{ runner.temp }}` in the next step's `env`
+          # `$RUNNER_TEMP` and a `runner.temp` expression in the next step's `env`
           # would be the same directory spelled a second way, which is one
           # rename away from being two different directories.
           echo "comment_path=$RUNNER_TEMP/plan-comment.md" >> "$GITHUB_OUTPUT"
@@ -1421,16 +1472,6 @@ jobs:
           fi
           echo 'the Anthropic key is present'
 
-      # Set from a step rather than from the job's `env`, because the `runner`
-      # context is not available in `jobs.<id>.env`. Outside the checkout, so
-      # the records cannot be mistaken for tracked files or collide with the
-      # base worktree.
-      - name: Name the record store
-        run: |
-          set -euo pipefail
-          echo "RECORDS_DIR=$RUNNER_TEMP/judge-records" >> "$GITHUB_ENV"
-          echo "records for sweep $SWEEP_ID go in $RUNNER_TEMP/judge-records"
-
       # DATABRICKS_HOST CARRIES A SCHEME and gp-api's hostname does not.
       # `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`,
       # which is the form the Python side wants; @databricks/sql prefixes
@@ -1577,6 +1618,39 @@ jobs:
           # judgeWorkflow.test.ts holds them equal.
           role-duration-seconds: 14400
 
+      # WHERE THE RECORDS GO: the private artifacts bucket, under `_judge/`,
+      # so a sweep can be re-graded and read case by case after the job is
+      # gone. The judge role's KeepJudgeRecords grant covers exactly that
+      # prefix (gp-ai's modules/universal-judge-sweep-policy).
+      #
+      # Written to $GITHUB_ENV as the ONE variable the judge processes read,
+      # never as both. The base arm runs the base ref's parser, which refuses
+      # a blank JUDGE_RECORDS_DIR rather than reading it as unset, so a step
+      # `env` that passed both with one empty would fail every base arm.
+      #
+      # Falls back to a job-local directory when the role was not assumed.
+      # The credentials step continues on error so a chat-only sweep still
+      # runs, and a bucket nobody can write to would turn that into a sweep
+      # that fails at its first record. The fallback says so: those records
+      # die with the job.
+      #
+      # Never an Actions artifact. omni is public, an artifact on a public
+      # repository is downloadable by anyone who can see the run, and a
+      # record carries the agent's whole answer and every SQL statement it
+      # ran against the constituent tables.
+      - name: Choose where records are kept
+        env:
+          CREDENTIALS: ${{ steps.judge_credentials.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$CREDENTIALS" = success ]; then
+            echo "JUDGE_RECORDS_BUCKET=gp-agent-artifacts-dev" >> "$GITHUB_ENV"
+            echo "records for sweep $SWEEP_ID go in s3://gp-agent-artifacts-dev/_judge/$SWEEP_ID/"
+          else
+            echo "JUDGE_RECORDS_DIR=$RUNNER_TEMP/judge-records" >> "$GITHUB_ENV"
+            echo "::warning::the judge role was not assumed, so records for sweep $SWEEP_ID stay in this job and are lost when it ends"
+          fi
+
       - name: Resolve where a background dispatch goes
         env:
           JUDGE_ENVIRONMENT: dev
@@ -1585,11 +1659,14 @@ jobs:
           echo "JUDGE_METADATA_BUCKET=agent-experiment-metadata-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
           echo "JUDGE_ARTIFACT_BUCKET=gp-agent-artifacts-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
           queue="agent-dispatch-$JUDGE_ENVIRONMENT.fifo"
-          if url="$(aws sqs get-queue-url --queue-name "$queue" --output text --query QueueUrl 2>/dev/null)"; then
+          # Keep the CLI's error: a refused lookup otherwise reads the same
+          # whether the role, the queue or the permission is what is wrong.
+          err="$(mktemp)"
+          if url="$(aws sqs get-queue-url --queue-name "$queue" --output text --query QueueUrl 2>"$err")"; then
             echo "JUDGE_DISPATCH_QUEUE_URL=$url" >> "$GITHUB_ENV"
             echo "background runs dispatch to $url"
           else
-            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT."
+            echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT. AWS said: $(tr '\n' ' ' < "$err")"
           fi
 
       - name: Resolve the voter mart's Delta version
@@ -1800,7 +1877,6 @@ jobs:
           JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
-          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
           # The affirmative spend switch, and the second one in the chain:
           # this job already requires `inputs.live == true` to exist at all.
           # Anything other than the exact string `true` makes the runner use a
@@ -1844,6 +1920,15 @@ jobs:
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
           JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
+          # THE ROLE'S CREDENTIALS, under names `.env.test` does not define.
+          # vitest applies that file over this environment, and it stubs
+          # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, so the names the
+          # credentials step exported arrive as a stub key beside the real
+          # session token. awsCredentials.ts hands these to the judge's own
+          # clients and to nothing else.
+          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -1871,7 +1956,6 @@ jobs:
           JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
-          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
           JUDGE_SPEND: 'true'
           # Under the arm name, not ANTHROPIC_API_KEY — see the base arm above.
           JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -1892,6 +1976,10 @@ jobs:
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
           JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
+          # The role's credentials under the arm names — see the base arm.
+          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"
@@ -1906,6 +1994,7 @@ jobs:
       # test: that PASSES, and without the manifest check this job would go
       # green having judged nothing.
       - name: Judge both arms
+        id: judging
         # RUNS EVEN WHEN AN ARM CAPTURE FAILED, because by the time it did the
         # money was already spent. One flaky turn in eighteen fails the
         # capture step, and under the default `success()` this step would be
@@ -1919,10 +2008,17 @@ jobs:
           JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
-          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
           # Who asked for these agents, and THE STEP THAT ACTS ON IT: the arms
           # only parse it. See the base arm above.
           JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
+          # A case is held out as a control only when the base ref's list
+          # holds it out too, so a branch cannot exempt the probe it
+          # regresses. Empty when the worktree was never made, which scores
+          # every case.
+          JUDGE_BASE_DIR: ${{ steps.base.outputs.dir }}
+          # Printed beside what the sweep actually spent, at the top of the
+          # report. The step validates the shape before it prints it.
+          JUDGE_ESTIMATE_USD: ${{ needs.plan.outputs.estimate_usd }}
           # THIS STEP SPENDS TOO — one panel call per judgeable pair, per
           # seat — so it needs the switch the arms needed. Omitting it here
           # does not make the sweep free: both captures have already been
@@ -1937,33 +2033,6 @@ jobs:
         run: |
           set -euo pipefail
           npx tsx "$JUDGING_ENTRY"
-
-      # THE RECORDS ARE NOT KEPT, and that is the deliberate choice rather
-      # than an omission.
-      #
-      # The design puts them under `_judge/<sweepId>/` on
-      # gp-agent-artifacts-dev, and `records.ts` has that store ready — a
-      # rubric change re-grades stored records at zero agent cost, which is
-      # only true while they exist. Two things are in the way, and neither is
-      # this PR's to decide.
-      #
-      # S3 needs an IAM grant that does not exist yet AND `id-token: write`
-      # on this job — the job that runs the branch's own code with the
-      # Anthropic and Databricks credentials in its environment. Widening its
-      # permissions is a change to review on its own.
-      #
-      # A workflow artifact is NOT the stopgap it looks like. omni is public,
-      # and an artifact on a public repository is downloadable by anyone who
-      # can see the run, anonymously. A record carries the agent's complete
-      # answer and, in `toolQueries`, every SQL statement the model wrote
-      # against the constituent tables. Publishing that to an anonymous URL
-      # for the sake of re-gradability is the wrong trade for restricted data,
-      # and a redacted projection would not serve re-grading anyway, because
-      # a rubric re-grade needs exactly the text that would have to go.
-      #
-      # So records live for the length of the job. Set JUDGE_RECORDS_BUCKET
-      # instead of JUDGE_RECORDS_DIR once the grant and the permission land,
-      # and durability arrives in the private bucket where it belongs.
 
       # What was swept and where to look, and deliberately NOT the arms' own
       # stdout. Two reasons, either sufficient. It is a program's output going
@@ -1999,6 +2068,9 @@ jobs:
         env:
           AGENTS: ${{ needs.plan.outputs.agents }}
           ESTIMATE_USD: ${{ needs.plan.outputs.estimate_usd }}
+          # Empty when the judging step never ran or the sweep could not
+          # spend, which this step prints as "not measured" below.
+          ACTUAL_USD: ${{ steps.judging.outputs.actual_usd }}
           CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           BASE_REF: ${{ needs.plan.outputs.base_ref }}
           # Resolved by the worktree step. Guarded with `:-` below because this
@@ -2042,6 +2114,7 @@ jobs:
             echo "| base | [\`$BASE_REF\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BASE_REF) ($base_commit) |"
             echo "| sweep id | \`$SWEEP_ID\` |"
             echo "| estimated before the run | ~\$$ESTIMATE_USD |"
+            echo "| actually spent | ${ACTUAL_USD:-not measured} |"
             echo "| outcome | $JOB_STATUS |"
             echo ''
             echo "Output is in [the run log]($RUN_URL). The verdict itself is written"

@@ -70,6 +70,12 @@ import {
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
+import {
+  AUTHORITY_TOOL,
+  COMPARABLES_TOOL,
+  CURRENT_LAW_TOOL,
+  findingWidgetTools,
+} from '../../../ordinances/components/stepWidgets'
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 
@@ -79,12 +85,41 @@ import { StatusChangeMarker } from './StatusChangeMarker'
 const KICKOFF =
   "Let's begin. Tell me where this stands and what we should work on first."
 
+// While the model is still writing a card's arguments (tool_input_start, before
+// the call lands), name what it is working on. Contact, outreach and list work
+// can take a while, and with text already on screen the chat otherwise looks
+// stalled. Same signal the ordinance chat uses; tools that end as a pill fall
+// back to their pill label.
+const GENERATING_LABELS: Record<string, string> = {
+  [CLARIFY_TOOL]: 'Preparing your question...',
+  present_outside_contact: 'Looking up who to contact...',
+  present_outreach_proposal: 'Building the outreach...',
+  present_constituents: 'Pulling the list...',
+  present_contacts: 'Pulling the list...',
+  present_past_outreach: "Checking what you've sent...",
+  [STATUS_TOOL]: 'Updating where this stands...',
+  web_search: 'Searching the web...',
+  [COMPARABLES_TOOL]: 'Looking at what other places did...',
+  [CURRENT_LAW_TOOL]: 'Reading the current code...',
+  [AUTHORITY_TOOL]: 'Checking what you can do here...',
+}
+
+const FINDING_TOOLS = [COMPARABLES_TOOL, CURRENT_LAW_TOOL, AUTHORITY_TOOL]
+
+// Leaving mid-turn aborts the stream, but the server finishes and saves the
+// reply anyway. Coming back before it lands loads a transcript that ends on the
+// official's turn, and no turn here is running to wait for it. Same budget as
+// the shared engine's doneless commit poll: a turn can write for minutes.
+const REPLY_POLL_MS = 2_000
+const REPLY_POLL_MAX_TRIES = 90
+
 type Phase = 'loading' | 'ready' | 'error'
 
 type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
 
 const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
   ...cardWidgetTools,
+  ...findingWidgetTools,
   clarifyWidgetTool,
 ])
 
@@ -139,6 +174,12 @@ const PriorityWorkspaceBody = ({
   >([])
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [generatingTool, setGeneratingTool] = useState<string | null>(null)
+  const [streamDone, setStreamDone] = useState(false)
+  const [awaitingReply, setAwaitingReply] = useState(false)
+  // A finding card can be the last thing in a turn, so the shimmer stays off
+  // right after one lands and comes back with the agent's next tool.
+  const [afterFinding, setAfterFinding] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -159,6 +200,7 @@ const PriorityWorkspaceBody = ({
     messages,
     setMessages,
     visibleSegments,
+    liveSegments,
     sending,
     send: sendTurn,
   } = useStreamingTurn(priorityFlowChatApi, {
@@ -166,13 +208,29 @@ const PriorityWorkspaceBody = ({
     onTurnStart: () => {
       setStreamError(null)
       setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
+      setAfterFinding(false)
     },
     onTurnSettle: () => {
       setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
+      setAfterFinding(false)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (event.type === 'tool_input_start') {
+        setGeneratingTool(event.toolName)
+        setAfterFinding(false)
+        return true
+      }
+      if (event.type === 'tool_call') {
+        setGeneratingTool(null)
+        setAfterFinding(FINDING_TOOLS.includes(event.toolName))
+      }
+      if (event.type === 'done') setStreamDone(true)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
         if (!update) return true
@@ -280,10 +338,12 @@ const PriorityWorkspaceBody = ({
     ),
   )
   useEffect(() => {
-    if (sending || phase !== 'ready' || !conversationId) return
+    if (sending || awaitingReply || phase !== 'ready' || !conversationId) {
+      return
+    }
     const next = pendingSent.current.shift()
     if (next) send(next, { hidden: true })
-  }, [sending, phase, conversationId, sentTick, send])
+  }, [sending, awaitingReply, phase, conversationId, sentTick, send])
 
   useEffect(() => {
     let cancelled = false
@@ -304,6 +364,28 @@ const PriorityWorkspaceBody = ({
         setPhase('ready')
         if (history.length === 0) {
           sendRef.current(KICKOFF, { hidden: true, idOverride: id })
+          return
+        }
+        if (history[history.length - 1]?.role !== 'user') return
+        setAwaitingReply(true)
+        let latest = history
+        try {
+          for (
+            let tries = 0;
+            tries < REPLY_POLL_MAX_TRIES &&
+            latest[latest.length - 1]?.role === 'user';
+            tries++
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, REPLY_POLL_MS))
+            if (cancelled) return
+            latest = await priorityFlowChatApi.listMessages(id)
+            if (cancelled) return
+          }
+          setMessages(latest)
+        } catch {
+          // The transcript already on screen stays; the composer reopens.
+        } finally {
+          if (!cancelled) setAwaitingReply(false)
         }
       } catch {
         if (!cancelled) setPhase('error')
@@ -377,8 +459,31 @@ const PriorityWorkspaceBody = ({
     revealedTextLength,
   )
   // Hold the shimmer until something has actually painted, so there is no
-  // empty flash between "Thinking..." and the first word.
-  const working = sending && blocks.length === 0
+  // empty flash between "Thinking..." and the first word. After that it
+  // comes back whenever the agent is working with nothing moving on screen:
+  // between tool calls, and while a card's arguments stream in. Gated on the
+  // reveal catching up so it never sits under text still typing out, off
+  // while a tool's own pill is shimmering, and off once the stream is done:
+  // the turn can stay sending while it commits, and a shimmer under a
+  // finished question reads as more coming.
+  const revealDone = revealedTextLength >= segmentsTextLength(liveSegments)
+  const pillRunning = liveSegments.some(
+    (segment) => segment.kind === 'tool' && segment.running,
+  )
+  // A question card ends the turn, so nothing more is coming once it is up.
+  const clarifyLive = liveWidgets.some(
+    (widget) => widget.instance.toolName === CLARIFY_TOOL,
+  )
+  const working =
+    awaitingReply ||
+    (sending &&
+      !clarifyLive &&
+      !afterFinding &&
+      (blocks.length === 0 || (revealDone && !pillRunning && !streamDone)))
+  const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
+  const workingLabel =
+    (generatingTool && GENERATING_LABELS[generatingTool]) ||
+    (pillLabel ? `${pillLabel}...` : 'Thinking...')
 
   if (phase === 'error') {
     return (
@@ -506,7 +611,7 @@ const PriorityWorkspaceBody = ({
                         onClarifyAnswer: answerClarify,
                       }}
                     />
-                    {working ? <ThinkingRow /> : null}
+                    {working ? <ThinkingRow label={workingLabel} /> : null}
                   </AssistantRow>
                 ) : null}
 
@@ -528,7 +633,7 @@ const PriorityWorkspaceBody = ({
                 setComposer('')
                 send(text)
               }}
-              disabled={sending || phase !== 'ready'}
+              disabled={sending || awaitingReply || phase !== 'ready'}
               placeholder="Ask about this priority, or tell me what changed..."
               ariaLabel="Message about this priority"
               dictation={dictation}

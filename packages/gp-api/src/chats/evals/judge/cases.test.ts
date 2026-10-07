@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { AGENTS } from './agents'
+import { OVERALL } from './judge'
 import {
   CaseListError,
+  caseJudgingOf,
   caseListPath,
+  MAX_CONDITION_CHARS,
   caseTurns,
   loadCaseList,
   parseCaseList,
@@ -485,6 +488,13 @@ describe('a chat case with an account-state directive', () => {
     )
   })
 
+  it('accepts the briefing highlight, and only as a boolean', () => {
+    expect(parse({ briefingHighlight: true }).accountState).toEqual({
+      briefingHighlight: true,
+    })
+    expect(() => parse({ briefingHighlight: 'yes' })).toThrow(CaseListError)
+  })
+
   it('refuses an ordinance step that is not one of the flow steps', () => {
     expect(() => parse({ ordinanceStep: 'drafting' })).toThrow(CaseListError)
   })
@@ -493,5 +503,140 @@ describe('a chat case with an account-state directive', () => {
   // of the record could not tell the two apart.
   it('refuses an empty state', () => {
     expect(() => parse({})).toThrow(/omit the field/)
+  })
+})
+
+describe('a background case with dimensions of its own', () => {
+  const background = {
+    agentId: 'meeting_briefing',
+    shape: 'background',
+  } as const
+  const parse = (cases: object[]) =>
+    parseCaseList(
+      'd.json',
+      JSON.stringify({ ...background, cases }),
+      background,
+    )
+  const probe = (dimensions: object[], caseId = 'one') => ({
+    caseId,
+    params: { meetingDate: '2026-01-01' },
+    dimensions,
+  })
+  const sparse = { name: 'sparse_handling', question: 'Is the gap named?' }
+
+  it('reads them', () => {
+    expect(parse([probe([sparse])]).cases).toEqual([probe([sparse])])
+  })
+
+  // The one name scoring and the verdict already use, held here as a literal
+  // because judge.ts imports cases.ts.
+  it.each(['task_success', 'user_utility', OVERALL])(
+    'refuses %s, a dimension every case already has',
+    (name) => {
+      expect(() => parse([probe([{ name, question: 'q' }])])).toThrow(
+        /already a dimension every case is judged on/,
+      )
+    },
+  )
+
+  it.each(['Sparse', '__proto__', 'two words', ''])(
+    'refuses %j, which cannot be a schema key and a report row',
+    (name) => {
+      expect(() => parse([probe([{ name, question: 'q' }])])).toThrow(
+        /snake_case identifier/,
+      )
+    },
+  )
+
+  it('refuses a name asked twice in one case', () => {
+    expect(() => parse([probe([sparse, sparse])])).toThrow(
+      /names each of its dimensions once/,
+    )
+  })
+
+  it('refuses more than four', () => {
+    const many = ['a', 'b', 'c', 'd', 'e'].map((name) => ({
+      name,
+      question: 'q',
+    }))
+    expect(() => parse([probe(many)])).toThrow(/dimensions: .*<=4/)
+  })
+
+  it('refuses a misspelled field inside one', () => {
+    expect(() => parse([probe([{ ...sparse, qustion: 'typo' }])])).toThrow(
+      /qustion/,
+    )
+  })
+
+  it('lets two cases share a dimension that asks the same question', () => {
+    expect(
+      parse([probe([sparse], 'one'), probe([sparse], 'two')]).cases,
+    ).toHaveLength(2)
+  })
+
+  it('refuses one name asking two questions across cases', () => {
+    expect(() =>
+      parse([
+        probe([sparse], 'one'),
+        probe([{ ...sparse, question: 'Something else?' }], 'two'),
+      ]),
+    ).toThrow(/case 1 asks dimension "sparse_handling" a different question/)
+  })
+})
+
+// Melecia's two per-case fields. Both are for the judging step only; the
+// runner dispatches `params` and nothing else.
+describe('a background case condition and scored flag', () => {
+  const backgroundList = (cases: object[]): string =>
+    JSON.stringify({ agentId: 'meeting_briefing', shape: 'background', cases })
+  const parse = (cases: object[]) =>
+    parseCaseList('b.json', backgroundList(cases), {
+      agentId: 'meeting_briefing',
+      shape: 'background',
+    })
+
+  it('reads both, and defaults a case to scored with no condition', () => {
+    const list = parse([
+      { caseId: 'probe', params: {}, condition: '  Source 3 is stale.  ' },
+      { caseId: 'control', params: {}, scored: false },
+      { caseId: 'plain', params: {} },
+    ])
+    expect([...caseJudgingOf(list)]).toEqual([
+      ['probe', { condition: 'Source 3 is stale.', scored: true }],
+      ['control', { scored: false }],
+      ['plain', { scored: true }],
+    ])
+  })
+
+  // Stripped instead, a misspelled flag would score the control as an
+  // ordinary case and nothing downstream could tell.
+  it('refuses a misspelled field rather than dropping it', () => {
+    expect(() => parse([{ caseId: 'c', params: {}, scorred: false }])).toThrow(
+      /case 0 \(caseId "c"\).*scorred/,
+    )
+  })
+
+  it('refuses an empty or oversized condition', () => {
+    expect(() =>
+      parse([{ caseId: 'c', params: {}, condition: '   ' }]),
+    ).toThrow(CaseListError)
+    expect(() =>
+      parse([
+        {
+          caseId: 'c',
+          params: {},
+          condition: 'x'.repeat(MAX_CONDITION_CHARS + 1),
+        },
+      ]),
+    ).toThrow(CaseListError)
+  })
+
+  it('yields nothing for a chat list', () => {
+    const list = parseCaseList(
+      'a.json',
+      chatList([{ caseId: 'one', question: 'What are my priorities?' }]),
+      expected,
+    )
+    expect(caseJudgingOf(list).size).toBe(0)
   })
 })

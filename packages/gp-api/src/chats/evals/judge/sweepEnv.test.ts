@@ -175,6 +175,16 @@ describe('parseArmEnv', () => {
     ).toBe(true)
   })
 
+  // Trimmed, like every other value this file parses, so stray whitespace in
+  // a workflow expression is not the difference between a verdict and a
+  // refusal.
+  it('trims a padded selection rather than reading it as derived', () => {
+    expect(
+      parseArmEnv(armEnv({ [SELECTION_ENV]: '  explicit  ' }))
+        .explicitSelection,
+    ).toBe(true)
+  })
+
   // AND A BLANK VALUE MUST NOT REFUSE THE ARM. Same shape as the Delta
   // version above and for the same reason: Actions exports every `env:` entry
   // a job declares, including one built from a step output that wrote nothing,
@@ -316,6 +326,23 @@ describe('parseSweepEnv', () => {
     })
     expect(env.sweepId).toBe('swp_1')
     expect(env.agentIds).toEqual(['chief_of_staff'])
+  })
+
+  // Blank is how GitHub hands over the output of a step that never ran, and
+  // it has to read as "no base worktree", which scores every case.
+  it.each([
+    ['/tmp/judge-base', '/tmp/judge-base'],
+    ['', undefined],
+    [undefined, undefined],
+  ])('reads JUDGE_BASE_DIR=%o as %o', (value, expected) => {
+    expect(
+      parseSweepEnv({
+        JUDGE_SWEEP_ID: 'swp_1',
+        JUDGE_AGENTS: 'chief_of_staff',
+        JUDGE_RECORDS_DIR: '/tmp/judge',
+        ...(value === undefined ? {} : { JUDGE_BASE_DIR: value }),
+      }).baseDir,
+    ).toBe(expected)
   })
 
   // THE ENTRY THAT ACTS ON IT. The arms parse the same value through the

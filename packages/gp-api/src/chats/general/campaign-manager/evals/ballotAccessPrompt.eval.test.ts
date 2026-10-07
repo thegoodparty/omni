@@ -223,7 +223,7 @@ const CASES: BallotEvalCase[] = [
   {
     name: 'deadline: a passed deadline is flagged, not counted down',
     userMessage: 'When is my filing deadline?',
-    ctx: { filingPeriodEnd: '2026-01-15', daysToFilingDeadline: -40 },
+    ctx: { filingPeriodEnd: '2026-01-15' },
     mustContain: [/passed|behind|already closed/i],
     custom: (r) => {
       expect(
@@ -238,7 +238,6 @@ const CASES: BallotEvalCase[] = [
     ctx: {
       filingPeriodStart: null,
       filingPeriodEnd: null,
-      daysToFilingDeadline: null,
     },
     mustNotContain: [/\b2026-\d{2}-\d{2}\b/],
     custom: (r) => {

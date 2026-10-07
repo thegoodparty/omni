@@ -297,6 +297,12 @@ def test_sandbox_md_is_reserved_workspace_file():
     assert "SANDBOX.md" in _RESERVED_WORKSPACE_FILES
 
 
+def test_params_json_is_reserved_workspace_file():
+    from pmf_engine.runner.main import _RESERVED_WORKSPACE_FILES
+
+    assert "params.json" in _RESERVED_WORKSPACE_FILES
+
+
 def test_sandbox_doc_embeds_egress_guard_message_as_single_source():
     """The no-egress sandbox message must have ONE source of truth. The
     SANDBOX.md doc the runner writes (`_SANDBOX_DOC`) and the runtime

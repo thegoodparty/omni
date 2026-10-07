@@ -114,7 +114,17 @@ export const OutreachSheet = ({
 
   return (
     <StepFooterSlotContext.Provider value={footerSlot}>
-      <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
+      {/* handleOnly keeps vaul's swipe-to-dismiss off the content: this sheet
+        has no drag handle, and on a phone a tap on the pay step's Complete
+        Purchase that drifted downward read as a swipe, which closed the sheet
+        and opened the discard confirm over the purchase (2026-10-06). Exit
+        and Escape still close through onOpenChange. */}
+      <Drawer
+        open={open}
+        onOpenChange={onOpenChange}
+        direction="bottom"
+        handleOnly
+      >
         <DrawerContent
           className={cn(
             'h-dvh w-full data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-dvh data-[vaul-drawer-direction=bottom]:rounded-t-none data-[vaul-drawer-direction=bottom]:border-t-0',

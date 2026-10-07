@@ -480,8 +480,10 @@ export const SocialFlow = ({
     setDraft(value)
     setManuallyEdited(true)
     invalidateAssets()
-    // Typing supersedes a failed draft call — clear the inline error.
-    if (draftMutation.isError) resetDraftMutation()
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
   const handleImprove = () => {
@@ -491,6 +493,8 @@ export const SocialFlow = ({
 
   const handleUndo = () => {
     if (undoText === null) return
+    draftRequestRef.current += 1
+    resetDraftMutation()
     setDraft(undoText)
     setUndoText(null)
     setManuallyEdited(true)
@@ -590,7 +594,6 @@ export const SocialFlow = ({
         />
       ) : stepId === 'compose' ? (
         <ComposeStep
-          isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
           draft={draft}
@@ -616,7 +619,6 @@ export const SocialFlow = ({
         />
       ) : (
         <ShareStep
-          isServe={surface.isServe}
           platforms={platforms}
           assets={assets}
           isGenerating={generateMutation.isPending}

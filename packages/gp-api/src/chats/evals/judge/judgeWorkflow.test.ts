@@ -1,15 +1,27 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ARM_BUDGET_MS } from './runners/backgroundDispatch'
+import { AGENTS } from './agents'
 import { budgetOutputLines } from './armBudget'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
-import { DEFAULT_JUDGE_CONFIG } from './config'
+import { formatPlan, selectAgents } from './cli'
+import { estimateAgent } from './planCost'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
+import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
+import { JUDGE_PREFIX } from './records'
 
 // The sweep's three processes each read their spend switch from their own
 // workflow step, so the steps can disagree — and the first version of this
@@ -54,8 +66,16 @@ const setsEnv = (body: string, name: string): boolean =>
 // The VALUE of a step's env entry, not just whether it is there. Two arms that
 // each set a data version from a different expression would satisfy `setsEnv`
 // and still read two different snapshots of the mart.
+//
+// Read from the step's `env:` block only: a `run: |` line sits at the same
+// indent, so a value moved into the script would otherwise still match.
+const envBlockOf = (body: string): string =>
+  /^ {8}env:\n((?: {10}.*\n|\s*\n)*)/m.exec(body)?.[1] ?? ''
+
 const envValue = (body: string, name: string): string | null =>
-  new RegExp(`^ {${ENV_ENTRY}}${name}: (.*)$`, 'm').exec(body)?.[1] ?? null
+  new RegExp(`^ {${ENV_ENTRY}}${name}: (.*)$`, 'm').exec(
+    envBlockOf(body),
+  )?.[1] ?? null
 
 const spendsLive = (body: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
@@ -225,6 +245,31 @@ describe('judge.yml judges what the arms managed to capture', () => {
   })
 })
 
+// The estimate printed in three places and the bill in none. The judging
+// step prints the bill at the top of its report and hands the total to the
+// closing table, so the two sit side by side in both places.
+describe('judge.yml reports what the sweep actually spent', () => {
+  const steps = stepsOf(readFileSync(WORKFLOW, 'utf8'))
+  const judging = steps.find((step) => step.name === 'Judge both arms')
+  const summary = steps.find((step) => step.name === 'Summarise the sweep')
+
+  it('hands the judging step the estimate to print beside it', () => {
+    expect(judging?.body).toMatch(
+      /^ {10}JUDGE_ESTIMATE_USD: \$\{\{ needs\.plan\.outputs\.estimate_usd \}\}$/m,
+    )
+  })
+
+  it('prints the judging step total in the closing table', () => {
+    expect(judging?.body).toMatch(/^ {8}id: judging$/m)
+    expect(summary?.body).toMatch(
+      /^ {10}ACTUAL_USD: \$\{\{ steps\.judging\.outputs\.actual_usd \}\}$/m,
+    )
+    expect(summary?.body).toContain(
+      'echo "| actually spent | ${ACTUAL_USD:-not measured} |"',
+    )
+  })
+})
+
 // THE SAME CLASS OF GUARD AS THE SPEND SWITCH. Both arms are meant to read one
 // snapshot of the voter mart, which only holds if they read one value — and
 // two arms that each resolved "current" themselves would resolve it an hour
@@ -290,6 +335,11 @@ describe('judge.yml pins both arms to one voter-mart version', () => {
 // to the ONE plan-job output rather than to three expressions that agree by
 // coincidence.
 describe('judge.yml tells every judge process who asked', () => {
+  // The plan job's `outputs:` entries sit at six spaces, so the indent is what
+  // tells a published output from a mention of one in a comment.
+  const PUBLISHES_SELECTION =
+    /^ {6}selection: \$\{\{ steps\.select\.outputs\.selection \}\}$/m
+
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
   const spending = steps.filter((step) =>
@@ -318,6 +368,23 @@ describe('judge.yml tells every judge process who asked', () => {
     }
   })
 
+  // THE ONE HOP THAT CROSSES A JOB BOUNDARY, and the only unguarded link in
+  // the chain: the arms read a `needs.plan.outputs.*` expression, so if the
+  // plan job stops publishing that output every explicit sweep silently
+  // refuses again with this file fully green. JUDGE_DATA_VERSION needs no
+  // equivalent — it is a same-job `steps.*.outputs.*` read.
+  it('has the plan job publish what the sweep job reads', () => {
+    // Anchored at the job-output indent, not matched as a substring, for the
+    // reason the spend-switch scan above gives at length: `toContain` is
+    // satisfied by `# selection: ...`, and commenting a line out is the exact
+    // shape this is written to catch.
+    expect(yaml).toMatch(PUBLISHES_SELECTION)
+    // The matcher itself, against what an editor most plausibly leaves behind.
+    expect(
+      '      # selection: ${{ steps.select.outputs.selection }}',
+    ).not.toMatch(PUBLISHES_SELECTION)
+  })
+
   it('resolves it once, in the step that knows the difference', () => {
     const select = steps.find(
       (step) => step.name === 'Resolve the agent selection',
@@ -335,8 +402,24 @@ describe('judge.yml tells every judge process who asked', () => {
     )
   })
 
+  // ON EVERY BRANCH, not merely somewhere in the step. The step has three
+  // exits that publish `agents`, and one of them losing its `selection` line
+  // would publish an empty value — which reads as `auto`, so the guards come
+  // back on for that whole path and nothing goes red. Counted against the
+  // `agents` writes rather than against a literal 3, so adding a fourth exit
+  // is not a test to update but a test that fails until it publishes both.
+  it('publishes it on every branch that publishes an agent list', () => {
+    const body =
+      steps.find((step) => step.name === 'Resolve the agent selection')?.body ??
+      ''
+    const occurrences = (pattern: RegExp): number =>
+      (body.match(pattern) ?? []).length
+    expect(occurrences(/echo "agents=/g)).toBeGreaterThan(1)
+    expect(occurrences(/echo "selection=/g)).toBe(occurrences(/echo "agents=/g))
+  })
+
   // The price and the guard state belong in the same comment: a reader
-  // approving ~$632 of sweep should be able to see whether two arms that hash
+  // approving ~$681 of sweep should be able to see whether two arms that hash
   // alike will be judged or refused.
   it('says in the plan comment which mode the request is in', () => {
     const estimate = steps.find(
@@ -348,6 +431,47 @@ describe('judge.yml tells every judge process who asked', () => {
     )
     expect(estimate?.body).toMatch(/\| selection \| named in the request/)
     expect(estimate?.body).toMatch(/\| selection \| \\`auto\\`, from the diff/)
+  })
+})
+
+// `auto` picks chat agents off the directories a PR touches, through a table
+// in the select step. A chat agent missing from it is never judged unless
+// someone names it, which is a gap nobody sees. Derived from the registry, so
+// a new chat scope without a row fails here by name.
+describe('judge.yml auto-selects every chat agent', () => {
+  const select = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+    (step) => step.name === 'Resolve the agent selection',
+  )
+
+  it.each(AGENTS.filter((a) => a.shape === 'chat').map((a) => a.agentId))(
+    'maps a source directory to %s',
+    (agentId) => {
+      expect(select?.body).toMatch(
+        new RegExp(
+          `packages/gp-api/src/chats/\\S+/\\*\\)\\s+add ${agentId} ;;`,
+        ),
+      )
+    },
+  )
+
+  it('maps the briefing chat module to briefing_annotation', () => {
+    expect(select?.body).toMatch(
+      /packages\/gp-api\/src\/chats\/briefing-chats\/\*\)\s+add briefing_annotation ;;/,
+    )
+  })
+})
+
+// Without it the judging step cannot read the base ref's controls, and every
+// case the branch marks `scored: false` is scored — safe, and silently not
+// what the bench author asked for.
+describe('judge.yml hands the judging step the base worktree', () => {
+  it('passes the base worktree as JUDGE_BASE_DIR', () => {
+    const judging = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
+      (step) => step.name === 'Judge both arms',
+    )
+    expect(judging?.body).toMatch(
+      /^\s+JUDGE_BASE_DIR: \$\{\{ steps\.base\.outputs\.dir \}\}$/m,
+    )
   })
 })
 
@@ -442,6 +566,80 @@ describe('judge.yml normalizes the Databricks host', () => {
     // value came out empty and nothing would prove the sweep says it ran
     // against an unpinned mart.
     expect(stdout.includes('::warning::')).toBe(expected === '')
+  })
+})
+
+// RECORDS GO TO THE PRIVATE BUCKET, through ONE variable. The base arm runs
+// the base ref's parser, which refuses a blank JUDGE_RECORDS_DIR, so the
+// choice is written to $GITHUB_ENV rather than mapped in each step's `env`
+// with one side empty. Run as the step's own bash, both ways.
+describe('judge.yml keeps records in the private bucket', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const choose = steps.find(
+    (step) => step.name === 'Choose where records are kept',
+  )
+  const POLICY = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+
+  const run = (credentials: string): { env: string; stdout: string } => {
+    const script = runBlockOf(choose?.body ?? '')
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    const dir = mkdtempSync(path.join(tmpdir(), 'judge-records-'))
+    const envFile = path.join(dir, 'github-env')
+    writeFileSync(envFile, '')
+    const stdout = execFileSync('bash', ['-c', script], {
+      env: {
+        ...process.env,
+        CREDENTIALS: credentials,
+        GITHUB_ENV: envFile,
+        RUNNER_TEMP: dir,
+        SWEEP_ID: 'judge-1-1',
+      },
+      encoding: 'utf8',
+    })
+    return { env: readFileSync(envFile, 'utf8').trim(), stdout }
+  }
+
+  it('uses the bucket when the judge role was assumed', () => {
+    const { env, stdout } = run('success')
+    expect(env).toBe('JUDGE_RECORDS_BUCKET=gp-agent-artifacts-dev')
+    expect(stdout).not.toContain('::warning::')
+  })
+
+  it('falls back to the job, and says so, when it was not', () => {
+    const { env, stdout } = run('failure')
+    expect(env).toMatch(/^JUDGE_RECORDS_DIR=\S+\/judge-records$/)
+    expect(stdout).toContain('::warning::')
+  })
+
+  // The bucket the step names is the one the role may write, under the
+  // prefix the store writes.
+  it('names the bucket the policy grants', () => {
+    const tf = readFileSync(POLICY, 'utf8')
+    const bucket = /artifacts_bucket\s*=\s*"([^"]+)"/
+      .exec(tf)?.[1]
+      ?.replace('${var.environment}', 'dev')
+    expect(bucket).toBe('gp-agent-artifacts-dev')
+    expect(tf).toMatch(/Sid\s*=\s*"KeepJudgeRecords"/)
+  })
+
+  it('leaves no step mapping a records variable itself', () => {
+    const mapped = steps
+      .filter((step) => /^ {10}JUDGE_RECORDS_(DIR|BUCKET):/m.test(step.body))
+      .map((step) => step.name)
+    expect(mapped).toEqual([])
+  })
+
+  it('chooses after the role is assumed and before the first capture', () => {
+    const at = names.indexOf('Choose where records are kept')
+    expect(at).toBeGreaterThan(
+      names.indexOf('Get credentials for staging and dispatching'),
+    )
+    expect(at).toBeLessThan(names.indexOf('Capture the base arm'))
   })
 })
 
@@ -843,6 +1041,73 @@ describe('the judge role trusts exactly judge.yml on main', () => {
     expect(tf).not.toMatch(
       /aws_iam_role_policy"|managed_policy_arns|inline_policy/,
     )
+  })
+})
+
+// WHAT judge.yml ASKS AWS FOR, THE POLICY HAS TO GRANT. The first live
+// background sweep assumed the role and then could not look the dispatch queue
+// up, because the policy granted SendMessage and not GetQueueUrl, so every
+// background agent was refused. Pinned from both files, so neither can drift.
+describe('the judge policy grants what the sweep job calls', () => {
+  const POLICY = path.resolve(
+    __dirname,
+    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
+  )
+  const tf = readFileSync(POLICY, 'utf8')
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const statement = (sid: string): string => {
+    // Alignment is terraform fmt's, so it moves with the neighbouring keys.
+    const at = tf.search(new RegExp(`Sid\\s*=\\s*"${sid}"`))
+    expect(at, `no ${sid} statement`).toBeGreaterThan(-1)
+    // To the end of the Resource list: an ARN interpolates `${...}`, so the
+    // first `}` is inside it, not the statement's end.
+    return tf.slice(at, tf.indexOf(']', tf.indexOf('Resource', at)) + 1)
+  }
+  const actions = (sid: string): string[] =>
+    [
+      ...(/Action\s*=\s*\[([^\]]*)\]/.exec(statement(sid))?.[1] ?? '').matchAll(
+        /"([^"]+)"/g,
+      ),
+    ].map((match) => match[1] ?? '')
+
+  it('grants the queue lookup the sweep job runs', () => {
+    expect(yaml).toContain('aws sqs get-queue-url --queue-name "$queue"')
+    expect(actions('DispatchJudgeRuns')).toContain('sqs:GetQueueUrl')
+  })
+
+  // Send and look up, nothing else: receiving or deleting would let a sweep
+  // consume the queue the platform dispatches real runs from.
+  it('grants the dispatch queue nothing but send and look up', () => {
+    expect(actions('DispatchJudgeRuns').sort()).toEqual([
+      'sqs:GetQueueUrl',
+      'sqs:SendMessage',
+    ])
+    expect(statement('DispatchJudgeRuns')).toContain('${local.dispatch_queue}')
+  })
+
+  // The record store writes under one head prefix, and real run artifacts
+  // share this bucket, so the grant is pinned to that prefix and to the two
+  // actions the store calls. Derived from records.ts so a renamed prefix fails
+  // here rather than as a denied write after both arms were paid for.
+  it('keeps records under the store prefix only, with no delete', () => {
+    expect(actions('KeepJudgeRecords').sort()).toEqual([
+      's3:GetObject',
+      's3:PutObject',
+    ])
+    // The whole list, so a second and wider ARN beside this one fails too.
+    const resources = statement('KeepJudgeRecords').match(
+      /Resource\s*=\s*\[([^\]]*)\]/,
+    )?.[1]
+    expect(resources?.split(',').map((one) => one.trim())).toEqual([
+      `"arn:aws:s3:::\${local.artifacts_bucket}/${JUDGE_PREFIX}/*"`,
+    ])
+    // Read off the Action lists, not the whole file: the header comment names
+    // DeleteObject in order to say it is absent.
+    const granted = [...tf.matchAll(/Action\s*=\s*\[([^\]]*)\]/g)]
+      .map((match) => match[1] ?? '')
+      .join(',')
+    expect(granted).toContain('s3:PutObject')
+    expect(granted).not.toMatch(/Delete|Acl|Tagging/)
   })
 })
 
@@ -1258,97 +1523,448 @@ describe('judge.yml links the commits, the base and the case lists', () => {
   })
 })
 
-// THE BACKGROUND PRICE IS A FUNCTION OF THE BACKGROUND BUDGET. It was a bare
-// $13 that outlived the budget it priced, so it is recomputed here from
-// config.background: a change to the budget that does not reach the workflow
-// fails this rather than quietly mispricing every plan comment.
-describe('judge.yml prices a background agent from config.background', () => {
+// THE WORKFLOW ADDS UP, AND THE CLI PRICES. Every per-agent number comes from
+// planCost.ts through the plan rows, so a budget, a measurement or a case
+// list that moves a price moves it here without a workflow edit. What the
+// workflow still owns is refusing when it cannot read a price from every row.
+describe('judge.yml sums the prices the CLI puts on the plan', () => {
   const estimate = stepsOf(readFileSync(WORKFLOW, 'utf8')).find(
     (step) => step.name === 'Estimate the cost and case count',
   )
   const script = runBlockOf(estimate?.body ?? '')
 
-  // Rounded up from the worst measured mean, meeting_briefing's ~$7.74.
-  const RUN_CENTS = 800
-  // The base-arm cache is not read by the sweep yet, so both arms run.
-  const ARMS = 2
-  // A chat agent other than ordinance_flow, from the design doc.
-  const CHAT_CENTS = 700
+  const dollars = (cents: number) =>
+    `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
 
-  it('matches arms x cases x attempts x the per-run cost', () => {
-    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
-    expect(maxCases).toBeDefined()
-    const assigned = [...script.matchAll(/^background_cents=(\d+)$/gm)]
-    expect(assigned).toHaveLength(1)
-    expect(Number(assigned[0]?.[1])).toBe(
-      ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS,
+  // Run, not read, with the WHOLE run block and a fake `npx` standing in for
+  // the CLI, so no slice boundary decides what is tested. The step is
+  // `set -u`, so a variable read before it is set fails here too.
+  const runEstimate = (
+    plan: string,
+    agents: string,
+    gh: 'ok' | '404' | '403' | 'error' = 'ok',
+    defaultRef = 'trunk',
+    // The CLI's first, unpriced run exits 1, and its second exits this.
+    cliFails?: number,
+  ) => {
+    // Real, because the step builds the base copy's path from `$PWD`.
+    const dir = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'judge-estimate-')),
     )
-  })
-
-  // Run, not read: the step is `set -u`, so a constant that is right but
-  // assigned after the loop that reads it matches every text check above and
-  // kills the step on the first background row. The WHOLE run block, with a
-  // fake `npx` standing in for the CLI, so no slice boundary decides what is
-  // tested.
-  it('prices a chat and a background row, run through bash', () => {
-    expect(script.split('\n')[0]).toBe('set -euo pipefail')
-    const dir = mkdtempSync(path.join(tmpdir(), 'judge-estimate-'))
+    // The base copy is written beside the candidate's CLI, so the CLI path
+    // has to be inside the scratch directory.
+    const cli = path.join(dir, 'judge/cli.ts')
+    execFileSync('mkdir', [path.dirname(cli)])
     const bin = path.join(dir, 'bin')
     execFileSync('mkdir', [bin])
-    writeFileSync(
-      path.join(dir, 'plan.fixture'),
-      'Universal Judge — plan (2 agents)\n\n' +
-        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
-        '  self_research  [background]  cases: self_research.json\n',
-    )
+    writeFileSync(path.join(dir, 'plan.fixture'), plan)
     writeFileSync(
       path.join(bin, 'npx'),
-      `#!/bin/bash\ncat "${path.join(dir, 'plan.fixture')}"\n`,
+      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'npx.args')}"\n` +
+        (cliFails === undefined
+          ? ''
+          : `[[ "$*" == *--reference* ]] || exit 1\n`) +
+        `cat "${path.join(dir, 'plan.fixture')}"\n` +
+        (cliFails === undefined ? '' : `exit ${cliFails}\n`),
+    )
+    // Stands in for the base ref's files; a GitHub API that does not answer
+    // must not fail the step.
+    writeFileSync(
+      path.join(bin, 'gh'),
+      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'gh.args')}"\n` +
+        {
+          ok: `echo "// $*"\n`,
+          '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1\n',
+          '403': 'echo "gh: Forbidden (HTTP 403)" >&2; exit 1\n',
+          error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1\n',
+        }[gh],
     )
     chmodSync(path.join(bin, 'npx'), 0o755)
+    chmodSync(path.join(bin, 'gh'), 0o755)
     const output = path.join(dir, 'output')
-    const summary = path.join(dir, 'summary')
     writeFileSync(output, '')
-    writeFileSync(summary, '')
-    execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
-      encoding: 'utf8',
-      env: {
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
-        RUNNER_TEMP: dir,
-        GITHUB_OUTPUT: output,
-        GITHUB_STEP_SUMMARY: summary,
-        GITHUB_SERVER_URL: 'https://github.com',
-        GITHUB_REPOSITORY: 'thegoodparty/omni',
-        WORKSPACE: 'packages/gp-api',
-        CLI: 'src/chats/evals/judge/cli.ts',
-        AGENTS: 'chief_of_staff,self_research',
-        REQUESTED: 'chief_of_staff,self_research',
-        SELECTION: EXPLICIT_SELECTION,
-        LIVE: 'false',
-        SWEEP_CAPABLE: 'true',
-        REQUESTED_BY: 'octocat',
-        CANDIDATE_SHA: 'a'.repeat(40),
-        BASE_REF: 'main',
-        PR_NUMBER: '1',
-        RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
-      },
-    })
-    const { maxCases, attemptsPerCase } = DEFAULT_JUDGE_CONFIG.background
-    const background = ARMS * (maxCases ?? 0) * attemptsPerCase * RUN_CENTS
-    const dollars = (cents: number) =>
-      `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
-    const outputs = readFileSync(output, 'utf8')
-    expect(outputs).toMatch(
-      new RegExp(`^usd=${dollars(CHAT_CENTS + background)}$`, 'm'),
-    )
-    expect(outputs).toMatch(/^sweep_agents=chief_of_staff,self_research$/m)
-    const comment = readFileSync(path.join(dir, 'plan-comment.md'), 'utf8')
-    const row = (id: string, shape: string, cents: number) =>
-      new RegExp(
-        `^\\| ${id} \\| ${shape} \\| .* \\| ~${dollars(cents)} \\|$`,
-        'm',
-      )
-    expect(comment).toMatch(row('chief_of_staff', 'chat', CHAT_CENTS))
-    expect(comment).toMatch(row('self_research', 'background', background))
+    writeFileSync(path.join(dir, 'summary'), '')
+    let status = 0
+    try {
+      execFileSync('bash', ['--noprofile', '--norc', '-c', script], {
+        // The step's working directory is the workspace, and CLI is relative
+        // to it.
+        cwd: dir,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        env: {
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          RUNNER_TEMP: dir,
+          GITHUB_OUTPUT: output,
+          GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
+          GITHUB_SERVER_URL: 'https://github.com',
+          GITHUB_REPOSITORY: 'thegoodparty/omni',
+          WORKSPACE: 'packages/gp-api',
+          CLI: path.relative(dir, cli),
+          AGENTS: agents,
+          REQUESTED: agents,
+          SELECTION: EXPLICIT_SELECTION,
+          LIVE: 'false',
+          SWEEP_CAPABLE: 'true',
+          REQUESTED_BY: 'octocat',
+          CANDIDATE_SHA: 'a'.repeat(40),
+          BASE_REF: 'feature-x',
+          DEFAULT_REF: defaultRef,
+          PR_NUMBER: '1',
+          RUN_URL: 'https://github.com/thegoodparty/omni/actions/runs/1',
+        },
+      })
+    } catch (err) {
+      status = (err as { status?: number }).status ?? -1
+    }
+    const read = (file: string) => {
+      try {
+        return readFileSync(path.join(dir, file), 'utf8')
+      } catch {
+        return ''
+      }
+    }
+    return {
+      status,
+      dir,
+      npxArgs: read('npx.args'),
+      ghArgs: read('gh.args'),
+      outputs: readFileSync(output, 'utf8'),
+      comment: read('plan-comment.md'),
+      refusal: read('estimate-refusal-comment.md'),
+    }
+  }
+
+  it('keeps no background price of its own', () => {
+    expect(script.split('\n')[0]).toBe('set -euo pipefail')
+    expect(script).not.toMatch(/^\s*background_cents=/m)
   })
+
+  // The plan is the real CLI's, so a format change on either side fails here.
+  it('sums the real plan for a chat, a measured and an unmeasured agent', () => {
+    const ids = ['chief_of_staff', 'race_opponent_summary', 'self_research']
+    const selection = selectAgents({ kind: 'list', ids })
+    const plan = formatPlan(selection)
+    const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
+    expect(cents).toEqual([900, 600, 4800])
+
+    const result = runEstimate(plan, ids.join(','))
+    expect(result.status).toBe(0)
+    expect(result.outputs).toMatch(/^usd=63\.00$/m)
+    expect(result.outputs).toMatch(
+      /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
+    )
+    const row = (id: string, shape: string, price: string) =>
+      new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
+    expect(result.comment).toMatch(
+      row('race_opponent_summary', 'background', dollars(600)),
+    )
+    expect(result.comment).toMatch(
+      row('self_research', 'background', `${dollars(4800)} \\(unmeasured\\)`),
+    )
+  })
+
+  // A PR prices its own sweep, so the base ref's prices are fetched and
+  // handed to the CLI, which takes the higher of the two.
+  // A PR prices its own sweep, so the base ref's AND the default branch's
+  // price files, configs and case lists are fetched and handed to the CLI,
+  // which takes the highest. The base ref is not the default branch here, so
+  // each ref is seen to be fetched by name.
+  it('hands the CLI the base ref and the default branch', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n',
+      'chief_of_staff',
+    )
+    expect(result.status).toBe(0)
+    const contents = 'repos/thegoodparty/omni/contents/packages/gp-api/judge'
+    for (const [name, ref] of [
+      ['base', 'feature-x'],
+      ['default', 'trunk'],
+    ]) {
+      const cost = path.join(result.dir, `judge/planCost.${name}.ts`)
+      const dir = path.join(result.dir, `ref-${name}`)
+      for (const file of [
+        'planCost.ts',
+        'config.ts',
+        'cases/chief_of_staff.json',
+      ]) {
+        expect(result.ghArgs).toContain(`${contents}/${file}?ref=${ref}`)
+      }
+      expect(readFileSync(cost, 'utf8')).toContain(`planCost.ts?ref=${ref}`)
+      expect(
+        readFileSync(path.join(dir, 'cases/chief_of_staff.json'), 'utf8'),
+      ).toContain(`chief_of_staff.json?ref=${ref}`)
+      expect(result.npxArgs).toContain(
+        `--reference=${cost},${dir}/config.ts,${dir}/cases`,
+      )
+    }
+  })
+
+  // Nothing is fetched for a default branch that is not a plain name, and the
+  // CLI then fails closed on its empty files.
+  it('fetches nothing for a default branch that is not a branch name', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  self_research  [background]  cents: 4800 (base-unread)  cases: self_research.json\n',
+      'self_research',
+      'ok',
+      '--upload-pack=x',
+    )
+    expect(result.status).toBe(0)
+    expect(result.ghArgs).not.toContain('upload-pack')
+    expect(
+      readFileSync(path.join(result.dir, 'judge/planCost.default.ts'), 'utf8'),
+    ).toBe('fetch failed\n')
+  })
+
+  // A 404 is a file the ref does not have, and is left empty: the CLI reads
+  // an empty list as none. Anything else is left as a line that is not a
+  // file, which the CLI reads as unreadable and prices at the worst case.
+  it.each([
+    ['404', ''],
+    // Not just any 4xx: a 403 or a rate limit is not a file that is absent.
+    ['403', 'fetch failed\n'],
+    ['error', 'fetch failed\n'],
+  ] as const)('leaves what a %s fetch says for the CLI', (gh, written) => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 3750 (base-unread)  cases: chief_of_staff.json\n',
+      'chief_of_staff',
+      gh,
+    )
+    expect(result.status).toBe(0)
+    for (const name of ['base', 'default']) {
+      for (const file of [
+        `judge/planCost.${name}.ts`,
+        `ref-${name}/config.ts`,
+        `ref-${name}/cases/chief_of_staff.json`,
+      ]) {
+        expect(readFileSync(path.join(result.dir, file), 'utf8')).toBe(written)
+      }
+    }
+  })
+
+  // The first, unpriced run is only for the ids. When it fails, the step goes
+  // on to the real run, which answers on the thread.
+  it('reaches the priced run when the unpriced one fails', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n\n' +
+        '  unknown agent ids: typo\n',
+      'chief_of_staff,typo',
+      'ok',
+      'trunk',
+      1,
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.npxArgs.split('\n').filter(Boolean)).toHaveLength(2)
+    expect(result.npxArgs).toContain('--reference=')
+    expect(result.refusal).toContain('would not accept this request')
+  })
+
+  // `all` is the selector, not an id: the lists fetched are the chat agents
+  // the CLI plans.
+  it('fetches every planned chat list for `all`, from both refs', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 900 (measured)  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cents: 4800 (unmeasured)  cases: self_research.json\n',
+      'all',
+    )
+    expect(result.status).toBe(0)
+    const contents = 'repos/thegoodparty/omni/contents/packages/gp-api/judge'
+    for (const ref of ['feature-x', 'trunk']) {
+      expect(result.ghArgs).toContain(
+        `${contents}/cases/chief_of_staff.json?ref=${ref}`,
+      )
+    }
+    expect(result.ghArgs).not.toContain('cases/all.json')
+    expect(result.ghArgs).not.toContain('cases/self_research.json')
+  })
+
+  it('refuses when it can read fewer priced rows than the CLI planned', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (2 agents)\n\n' +
+        '  chief_of_staff  [chat]  cents: 700 (design-doc)  cases: chief_of_staff.json\n' +
+        '  self_research  [background]  cents: lots (unmeasured)  cases: self_research.json\n',
+      'chief_of_staff,self_research',
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.outputs).not.toMatch(/^usd=/m)
+    expect(result.refusal).toContain('could read only 1 of them')
+  })
+
+  // A branch whose CLI predates per-agent pricing prints unpriced rows, and
+  // is priced at the worst case rather than refused — never below what this
+  // branch's planCost.ts charges an unmeasured agent.
+  it('prices a plan from an older CLI at the worst case', () => {
+    const worst = (id: string) => {
+      const agent = selectAgents({ kind: 'list', ids: [id] }).selected[0]
+      return agent === undefined ? -1 : estimateAgent(agent).cents
+    }
+    expect(worst('ordinance_flow')).toBe(3750)
+    expect(worst('self_research')).toBe(4800)
+    const result = runEstimate(
+      'Universal Judge — plan (4 agents)\n\n' +
+        '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
+        '  ordinance_flow  [chat]  cases: ordinance_flow.json\n' +
+        '  self_research  [background]  cases: self_research.json\n' +
+        '  campaign_tracker_tasks  [background]  cases: NO CASE LIST YET\n',
+      'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
+    )
+    expect(result.status).toBe(0)
+    expect(result.outputs).toMatch(/^usd=123\.00$/m)
+    expect(result.outputs).toMatch(
+      /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
+    )
+    const label = '\\(old branch, worst case\\)'
+    const row = (id: string, price: string) =>
+      new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
+    expect(result.comment).toMatch(row('chief_of_staff', '37\\.50'))
+    expect(result.comment).toMatch(row('ordinance_flow', '37\\.50'))
+    expect(result.comment).toMatch(row('self_research', '48\\.00'))
+  })
+})
+
+// THE SECOND KEY `.env.test` SHADOWS. The first live background sweep that got
+// past the queue lookup assumed the role, then signed with `.env.test`'s stub
+// access key beside the role's real session token, and AWS refused the key
+// before anything was staged. Pinned on both sides: the workflow passes the
+// three names, and the arm suite and the store build their clients from them.
+describe('the arms reach AWS on the role, not on the stub', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const arms = stepsOf(yaml).filter((step) =>
+    step.name.startsWith('Capture the '),
+  )
+
+  it.each(Object.entries(ARM_AWS_ENV))(
+    'passes the %s to both arms under the arm name',
+    (_field, name) => {
+      expect(arms).toHaveLength(2)
+      const sdkName = name.replace(/^JUDGE_/, '')
+      expect(arms.map((step) => envValue(step.body, name))).toEqual([
+        `\${{ env.${sdkName} }}`,
+        `\${{ env.${sdkName} }}`,
+      ])
+    },
+  )
+
+  it('the credentials step exports the role to env, before both arms', () => {
+    const steps = stepsOf(yaml)
+    const names = steps.map((step) => step.name)
+    const credentials = steps.find(
+      (step) => step.name === 'Get credentials for staging and dispatching',
+    )
+    expect(credentials?.body).toContain(
+      'uses: aws-actions/configure-aws-credentials@',
+    )
+    // Absent, not merely not `false`: `'false'` and `${{ false }}` turn the
+    // export off just as well, and the action's default is the one we want.
+    expect(credentials?.body).not.toMatch(/output-env-credentials:/)
+    expect(names.indexOf(credentials?.name ?? '')).toBeGreaterThan(-1)
+    expect(names.indexOf(credentials?.name ?? '')).toBeLessThan(
+      names.indexOf('Capture the base arm'),
+    )
+  })
+
+  // Every file in the judge, not a list of the ones that have clients today:
+  // a client added anywhere else would sign with the stub. Unit tests are
+  // skipped, because records.test.ts builds a mocked client on purpose.
+  //
+  // Line comments go first: a `/*` inside one (background.ts has
+  // ``_judge/*``) would otherwise open a block that swallows real code up to
+  // the next `*/`. `(^|[^:])` keeps a URL's `//` from eating its line.
+  const strip = (source: string): string =>
+    source.replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '')
+  // Every client this file imports from the SDK, not only S3 and SQS: any
+  // AWS client the judge builds would sign with the stub.
+  const sdkClients = (source: string): Set<string> =>
+    new Set(
+      [...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*'@aws-sdk\/[^']+'/g)]
+        .flatMap((match) => (match[1] ?? '').split(','))
+        .map((name) => name.trim().split(/\s+as\s+/))
+        // The imported name says it is a client; the local name, which an
+        // alias can make anything, is what `new` is called on.
+        .filter(([imported]) => imported?.endsWith('Client') === true)
+        .map((names) => names[names.length - 1] ?? ''),
+    )
+  const built = (source: string, pattern: RegExp): number =>
+    [...source.matchAll(pattern)].filter((match) =>
+      sdkClients(source).has(match[1] ?? ''),
+    ).length
+  const tsFiles = (dir: string): string[] =>
+    readdirSync(dir).flatMap((entry) => {
+      const full = path.join(dir, entry)
+      if (statSync(full).isDirectory()) return tsFiles(full)
+      const unit = full.endsWith('.test.ts') && !full.endsWith('.eval.test.ts')
+      return full.endsWith('.ts') && !unit ? [full] : []
+    })
+
+  it('builds every AWS client from judgeAwsClientConfig()', () => {
+    const found = tsFiles(__dirname)
+      .map((file) => {
+        const source = strip(readFileSync(file, 'utf8'))
+        return {
+          file: path.relative(__dirname, file),
+          any: built(source, /new\s*\(?\s*(\w+)\b/g),
+          exact: built(
+            source,
+            /new (\w+)\(\s*judgeAwsClientConfig\(\),?\s*\)/g,
+          ),
+        }
+      })
+      .filter((client) => client.any > 0)
+    expect(found).toEqual([
+      { file: 'sweep.eval.test.ts', any: 2, exact: 2 },
+      { file: 'sweepEnv.ts', any: 1, exact: 1 },
+    ])
+  })
+
+  const readme = readFileSync(path.resolve(__dirname, 'README.md'), 'utf8')
+  it.each(Object.values(ARM_AWS_ENV))('the env table documents %s', (name) => {
+    expect(readme).toMatch(new RegExp(`^\\| .*\`${name}\``, 'm'))
+  })
+})
+
+// GITHUB'S 21,000-CHARACTER EXPRESSION LIMIT. A `run:` script that contains
+// `${{` anywhere, even inside a shell comment, is evaluated as one expression,
+// and past 21,000 characters the whole workflow fails to parse: every
+// /judge request is then refused with "Exceeded max expression length". A
+// prose mention of `${{ runner.temp }}` in a comment did exactly that to the
+// estimate step once it grew past the limit.
+describe('judge workflows stay under the expression length limit', () => {
+  const LIMIT = 21_000
+  const files = ['judge.yml', 'judge-comment.yml', 'judge-request.yml'].map(
+    (name) => path.resolve(path.dirname(WORKFLOW), name),
+  )
+
+  it.each(files)(
+    '%s has no run script over the limit with ${{ in it',
+    (file) => {
+      const lines = readFileSync(file, 'utf8').split('\n')
+      const offenders: string[] = []
+      lines.forEach((line, index) => {
+        const match = /^(\s*)run: \|\s*$/.exec(line)
+        if (match === null) return
+        const indent = (match[1] ?? '').length
+        const body: string[] = [line]
+        for (let next = index + 1; next < lines.length; next += 1) {
+          const text = lines[next] ?? ''
+          if (
+            text.trim() !== '' &&
+            text.length - text.trimStart().length <= indent
+          )
+            break
+          body.push(text)
+        }
+        const script = body.join('\n')
+        if (script.includes('${{') && script.length >= LIMIT) {
+          offenders.push(`line ${index + 1}: ${script.length} chars`)
+        }
+      })
+      expect(offenders).toEqual([])
+    },
+  )
 })

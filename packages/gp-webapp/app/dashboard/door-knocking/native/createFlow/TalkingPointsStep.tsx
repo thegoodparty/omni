@@ -4,7 +4,7 @@ import {
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
   DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
 } from '@goodparty_org/contracts'
-import { Button, Card, cn, IconButton, Input, Textarea } from '@styleguide'
+import { Button, Card, cn, IconButton, Input, TokenField } from '@styleguide'
 import {
   Loader2Icon,
   MicIcon,
@@ -13,7 +13,6 @@ import {
   SquareIcon,
 } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { ThinkingStream } from 'app/dashboard/outreach/v2/social/ThinkingStream'
 import { DEPARTURE_NOTE, type TalkingPointsLines } from '../talkingPointsCard'
 
 const INSTRUCTIONS_PLACEHOLDER =
@@ -200,96 +199,99 @@ export const TalkingPointsStep = ({
         </Card>
       )}
 
-      {isDrafting && nothingDrafted ? (
-        <ThinkingStream isServe={isServe} />
-      ) : (
-        <Card className="gap-5 p-4">
-          {intro && (
-            <ComposedSection
-              label="Introduction"
-              caption={
-                isServe
-                  ? "Built from your own materials. A volunteer's card names you instead."
-                  : "Built from your campaign. A volunteer's card names you instead."
-              }
-              body={intro}
-            />
-          )}
-
-          {SECTIONS.map(({ key, label, caption, placeholder }) => (
-            <div key={key} className="space-y-1">
-              <label
-                htmlFor={`talking-points-${key}`}
-                className="text-sm font-medium text-foreground"
-              >
-                {label}
-              </label>
-              <Textarea
-                id={`talking-points-${key}`}
-                value={lines[key]}
-                onChange={(e) => onLineChange(key, e.target.value)}
-                placeholder={placeholder}
-                // The draft endpoint's own per-line cap: Improve with AI sends
-                // these back as currentDraft, so the box must never accept
-                // more than that endpoint allows.
-                maxLength={DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH}
-                className="min-h-0 resize-none [field-sizing:content]"
-              />
-              <p className="text-xs text-muted-foreground">{caption}</p>
-            </div>
-          ))}
-
+      <Card className="gap-5 p-4">
+        {intro && (
           <ComposedSection
-            label="Thanks and goodbye"
-            caption="The same however the conversation went."
-            body={DEPARTURE_NOTE}
+            label="Introduction"
+            caption={
+              isServe
+                ? "Built from your own materials. A volunteer's card names you instead."
+                : "Built from your campaign. A volunteer's card names you instead."
+            }
+            body={intro}
           />
+        )}
 
-          <div className="border-border -mx-4 -mb-4 mt-1 flex items-center justify-end gap-1 border-t p-2">
-            {canImprove && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="small"
-                className="text-muted-foreground"
-                disabled={isDrafting}
-                onClick={onImprove}
-              >
-                {isDrafting ? (
-                  <>
-                    <Loader2Icon className="size-4 animate-spin" />
-                    Improving…
-                  </>
-                ) : (
-                  <>
-                    <SparklesIcon className="size-4" />
-                    Improve with AI
-                  </>
-                )}
-              </Button>
-            )}
-            <IconButton
-              type="button"
-              variant={isRecording ? 'destructive' : 'ghost'}
-              size="small"
-              aria-label={isRecording ? 'Stop dictation' : 'Dictate context'}
-              disabled={isDrafting || dictation.status === 'stopping'}
-              onClick={() => {
-                void dictation.toggle()
-              }}
-              className={cn(!isRecording && 'text-muted-foreground')}
+        {SECTIONS.map(({ key, label, caption, placeholder }) => (
+          <div key={key} className="space-y-1">
+            {/* Names the field by id: a label's `for` reaches only form
+                controls, and the field is an editable region. */}
+            <p
+              id={`talking-points-${key}-label`}
+              className="text-sm font-medium text-foreground"
             >
-              {dictation.busy && !isRecording ? (
-                <Loader2Icon className="size-4 animate-spin" aria-hidden />
-              ) : isRecording ? (
-                <SquareIcon className="size-4 fill-current" aria-hidden />
-              ) : (
-                <MicIcon className="size-5" aria-hidden />
-              )}
-            </IconButton>
+              {label}
+            </p>
+            <TokenField
+              aria-labelledby={`talking-points-${key}-label`}
+              value={lines[key]}
+              onChange={(next) => onLineChange(key, next)}
+              // Read-only until the first draft lands, so nothing typed is
+              // overwritten by it.
+              readOnly={isDrafting && nothingDrafted}
+              placeholder={
+                isDrafting && nothingDrafted ? 'Drafting…' : placeholder
+              }
+              // The draft endpoint's own per-line cap: Improve with AI sends
+              // these back as currentDraft, so the box must never accept
+              // more than that endpoint allows.
+              maxLength={DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH}
+              className="min-h-0"
+            />
+            <p className="text-xs text-muted-foreground">{caption}</p>
           </div>
-        </Card>
-      )}
+        ))}
+
+        <ComposedSection
+          label="Thanks and goodbye"
+          caption="The same however the conversation went."
+          body={DEPARTURE_NOTE}
+        />
+
+        <div className="border-border -mx-4 -mb-4 mt-1 flex items-center justify-end gap-1 border-t p-2">
+          {canImprove && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="small"
+              className="text-muted-foreground"
+              disabled={isDrafting}
+              onClick={onImprove}
+            >
+              {isDrafting ? (
+                <>
+                  <Loader2Icon className="size-4 animate-spin" />
+                  Improving…
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="size-4" />
+                  Improve with AI
+                </>
+              )}
+            </Button>
+          )}
+          <IconButton
+            type="button"
+            variant={isRecording ? 'destructive' : 'ghost'}
+            size="small"
+            aria-label={isRecording ? 'Stop dictation' : 'Dictate context'}
+            disabled={isDrafting || dictation.status === 'stopping'}
+            onClick={() => {
+              void dictation.toggle()
+            }}
+            className={cn(!isRecording && 'text-muted-foreground')}
+          >
+            {dictation.busy && !isRecording ? (
+              <Loader2Icon className="size-4 animate-spin" aria-hidden />
+            ) : isRecording ? (
+              <SquareIcon className="size-4 fill-current" aria-hidden />
+            ) : (
+              <MicIcon className="size-5" aria-hidden />
+            )}
+          </IconButton>
+        </div>
+      </Card>
 
       {dictation.status === 'error' && dictation.error !== null && (
         <p className="text-xs text-destructive">

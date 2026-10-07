@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Badge, Button, EmptyState, cn } from '@styleguide'
 import { ArchiveIcon, ChevronRightIcon } from '@styleguide/components/ui/icons'
@@ -14,6 +14,7 @@ import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import AddPriorityForm from './AddPriorityForm'
 import {
   archivePriority,
+  listPriorities,
   prioritizeCommunityIssue,
 } from '../data/priorities-api'
 
@@ -72,6 +73,25 @@ const PrioritiesHub = ({
   const [pendingIssueId, setPendingIssueId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const changedHere = useRef(false)
+
+  // Back to this page renders from Next's router cache, which still holds the
+  // list as it was first loaded: a priority added since is missing, so the row
+  // you click opens an older one, and step badges lag behind. Re-read on mount.
+  // A change made here before the read lands wins over it, and an add the
+  // read already carries is not added twice.
+  useEffect(() => {
+    let cancelled = false
+    listPriorities()
+      .then((fresh) => {
+        if (!cancelled && !changedHere.current) setItems(fresh)
+      })
+      // A failed re-read keeps the list the page rendered with.
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const counts = useMemo(() => {
     const tally: Record<string, number> = {}
@@ -94,7 +114,10 @@ const PrioritiesHub = ({
     setError(null)
     try {
       const created = await prioritizeCommunityIssue(issue.id)
-      setItems((prev) => [...prev, created])
+      changedHere.current = true
+      setItems((prev) =>
+        prev.some((p) => p.id === created.id) ? prev : [...prev, created],
+      )
     } catch {
       setError('Could not add that issue. Please try again.')
     } finally {
@@ -108,6 +131,7 @@ const PrioritiesHub = ({
     setError(null)
     try {
       await archivePriority(id)
+      changedHere.current = true
       setItems((prev) => prev.filter((p) => p.id !== id))
     } catch {
       setError('Could not remove that priority. Please try again.')
@@ -140,7 +164,12 @@ const PrioritiesHub = ({
         {adding ? (
           <AddPriorityForm
             onCreated={(created) => {
-              setItems((prev) => [...prev, created])
+              changedHere.current = true
+              setItems((prev) =>
+                prev.some((p) => p.id === created.id)
+                  ? prev
+                  : [...prev, created],
+              )
               setAdding(false)
             }}
             onCancel={() => setAdding(false)}

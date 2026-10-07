@@ -57,11 +57,13 @@ const ctxWith = (
   district: null,
   officeLevel: null,
   location: null,
-  weeksToElection: null,
+  electionDate: null,
+  primaryElectionDate: null,
+  primaryResult: null,
+  didWin: null,
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
-  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
@@ -430,6 +432,35 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
   })
 })
 
+describe('CampaignManagerHandler.buildTools — compose_handoff', () => {
+  it('registers compose_handoff', () => {
+    const tools = buildHandler().buildTools(ctxWith({}))
+    expect(Object.keys(tools)).toContain('compose_handoff')
+  })
+
+  it("the registered tool's input schema accepts only win_social", async () => {
+    const tools = buildHandler().buildTools(ctxWith({}))
+    const tool = tools.compose_handoff
+    if (!tool || !('execute' in tool)) {
+      throw new Error('expected compose_handoff to register with execute')
+    }
+    const result = await tool.execute({
+      channel: 'win_social',
+      draftText: 'hello voters',
+    })
+    expect(result).toEqual({
+      channel: 'win_social',
+      draftText: 'hello voters',
+    })
+    expect(() =>
+      tool.execute({
+        channel: 'serve_social',
+        draftText: 'hello constituents',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('buildCampaignManagerGreeting', () => {
   it('interpolates the first name when present', () => {
     const greeting = buildCampaignManagerGreeting('Dana')
@@ -456,7 +487,7 @@ describe('buildStoryGreeting', () => {
     const greeting = buildStoryGreeting(
       story(['why', 'background', 'positions']),
     )
-    expect(greeting).toContain('Before I build your plan and tracker')
+    expect(greeting).toContain('Before I build your campaign and outreach plan')
     expect(greeting).toContain('First, your why')
     // No self-introduction: it must not re-greet after the general greeting on
     // the in-chat "Personalize" chip path.
@@ -520,7 +551,10 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     )
   })
 
-  it('registers no voter file tool for a campaign without Pro', () => {
+  // A free campaign can count, size and be shown a text card (the card's
+  // button is its Pro gate); only the tools whose services refuse it stay
+  // Pro.
+  it('lets a campaign without Pro count and present, but not manage lists', () => {
     const tools = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
@@ -532,14 +566,15 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       }),
     )
 
-    // The catalog too: its output is a menu this campaign cannot order
-    // from, and what filtering covers is the product map's line instead.
     for (const name of [
       'describe_filter_dimensions',
       'count_contacts',
-      'list_precincts',
-      'crud_saved_filters',
+      'size_outreach_sample',
+      'present_outreach_proposal',
     ]) {
+      expect(Object.keys(tools)).toContain(name)
+    }
+    for (const name of ['list_precincts', 'crud_saved_filters']) {
       expect(Object.keys(tools)).not.toContain(name)
     }
   })
@@ -613,17 +648,63 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       buildVoterFileFilters(),
     ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
     expect(Object.keys(withWrites)).toContain('crud_saved_filters')
+    expect(Object.keys(withWrites)).toContain('size_outreach_sample')
+    expect(Object.keys(withWrites)).toContain('present_outreach_proposal')
 
     const noService = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
     )
     expect(Object.keys(noService)).not.toContain('crud_saved_filters')
+    expect(Object.keys(noService)).not.toContain('size_outreach_sample')
+    expect(Object.keys(noService)).not.toContain('present_outreach_proposal')
 
     const flagOff = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
     ).buildTools(ctxWith(CRM_ON))
     expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
+    expect(Object.keys(flagOff)).not.toContain('size_outreach_sample')
+    expect(Object.keys(flagOff)).not.toContain('present_outreach_proposal')
+  })
+
+  it('presents a text as a card and refuses any other channel', async () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
+    const tool = tools.present_outreach_proposal
+    if (!tool || 'kind' in tool) throw new Error('not registered')
+    const proposal = {
+      audience: 'Renters on the east side',
+      count: 1200,
+      listName: 'East side renters',
+      message: 'this is Renee, candidate for City Council. What matters?',
+    }
+
+    expect(await tool.execute({ ...proposal, channel: 'text' })).toEqual({
+      presented: true,
+      deepLinkOnly: true,
+    })
+    for (const channel of ['phoneBanking', 'doorKnocking', 'social']) {
+      expect(await tool.execute({ ...proposal, channel })).toEqual({
+        error: expect.stringContaining('Only a text can be presented here'),
+      })
+    }
+    expect(descriptionOf(tool)).not.toContain('official')
+    expect(descriptionOf(tool)).not.toContain('constituent')
+  })
+
+  it('names the registered card tools in the prompt it builds', () => {
+    const handler = buildCrmHandler(buildContacts(), buildVoterFileFilters())
+    const withCard = handler.buildSystemPrompt(
+      ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
+    )
+    expect(withCard).toContain('SAMPLING RULES')
+    expect(withCard).toContain('present_outreach_proposal')
+
+    const withoutCard = handler.buildSystemPrompt(ctxWith(CRM_ON))
+    expect(withoutCard).not.toContain('SAMPLING RULES')
+    expect(withoutCard).not.toContain('present_outreach_proposal')
   })
 
   const buildBallotHandler = (
@@ -648,8 +729,59 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
 
   // details is untyped JSON at the read site, so an unparseable date must not
   // reach the prompt as NaN -- it would slip past every null-guard downstream.
+  it('passes the stored dates and results through as the record holds them', async () => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({
+              id: 5,
+              details: {
+                electionDate: '2026-11-03',
+                primaryElectionDate: '2026-05-19',
+                filingPeriodsStart: '2025-11-05',
+                filingPeriodsEnd: '2026-01-09',
+              },
+              primaryResult: 'lost',
+              didWin: null,
+              data: {},
+              user: null,
+            }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+      },
+    } as unknown as CampaignsService
+    const handler = new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+
+    const ctx = await handler.loadContext('c1', 7)
+
+    expect(ctx.electionDate).toBe('2026-11-03')
+    expect(ctx.primaryElectionDate).toBe('2026-05-19')
+    expect(ctx.filingPeriodStart).toBe('2025-11-05')
+    expect(ctx.filingPeriodEnd).toBe('2026-01-09')
+    expect(ctx.primaryResult).toBe('lost')
+    expect(ctx.didWin).toBeNull()
+    const prompt = handler.buildSystemPrompt(ctx)
+    expect(prompt).toContain(
+      'Election date on record: Tuesday, November 3, 2026',
+    )
+    expect(prompt).toContain('Primary result on record: lost')
+  })
+
   it.each(['2025-Q1', 'not a date', ''])(
-    'returns null day/week counts for the unparseable date %o',
+    'carries the unparseable date %o through and the prompt reads it as none',
     async (bad) => {
       const store = {
         findFirst: vi.fn(() =>
@@ -681,9 +813,12 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
 
       const ctx = await handler.loadContext('c1', 7)
 
-      expect(ctx.daysToFilingDeadline).toBeNull()
-      expect(ctx.weeksToElection).toBeNull()
-      expect(handler.buildSystemPrompt(ctx)).not.toContain('NaN')
+      expect(ctx.electionDate).toBe(bad)
+      expect(ctx.filingPeriodEnd).toBe(bad)
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('Election date on record: none')
+      expect(prompt).toContain('Filing period on record: none')
+      expect(prompt).not.toContain('NaN')
     },
   )
 

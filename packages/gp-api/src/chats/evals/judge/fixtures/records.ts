@@ -23,6 +23,7 @@ interface Overrides {
   toolErrors?: number
   trace?: RunRecord['trace']
   toolQueries?: string[]
+  toolErrorDetails?: RunRecord['toolErrorDetails']
   dataVersion?: string
   liveWeb?: boolean
   ci?: boolean
@@ -98,6 +99,9 @@ const record = (
     retries: 0,
   },
   toolQueries: o.toolQueries ?? [],
+  ...(o.toolErrorDetails === undefined
+    ? {}
+    : { toolErrorDetails: o.toolErrorDetails }),
   ...(o.dataVersion === undefined ? {} : { dataVersion: o.dataVersion }),
   ...(o.ci
     ? {
@@ -237,11 +241,52 @@ export const TOOL_ERROR_PAIR: [RunRecord, RunRecord] = pair(
         error: 'PeopleDbxUnavailableError: credential not configured',
       },
     ],
+    toolErrorDetails: [
+      {
+        tool: 'query_constituent_data',
+        message: 'PeopleDbxUnavailableError: credential not configured',
+      },
+    ],
     output: {
       kind: 'text',
       value:
         "I could not reach the constituent data just now, so here's " +
         'what I can say from your CRM alone.',
+    },
+  }),
+)
+
+// A background run that hit a failing Bash snippet on both arms, fixed it and
+// carried on: both still published a valid artifact. This is the ordinary
+// shape of a live background sweep, and it is scored, not excluded — the
+// verdict is on the artifact. The base arm failed twice in two ways, the
+// candidate once, so the measured delta and the cause list both have
+// something to show.
+const bashFailure = (message: string) => ({
+  tool: 'Bash',
+  message,
+})
+export const BACKGROUND_TOOL_ERROR_PAIR: [RunRecord, RunRecord] = pair(
+  record('race-t1', 'base', {
+    agentId: 'race_opponent_summary',
+    shape: 'background',
+    toolCalls: 4,
+    toolErrors: 2,
+    toolErrorDetails: [
+      bashFailure('Traceback ...\nValueError: bad value'),
+      bashFailure('exit code 1'),
+    ],
+    output: { kind: 'artifact', value: { opponents: [{ name: 'A' }] } },
+  }),
+  record('race-t1', 'candidate', {
+    agentId: 'race_opponent_summary',
+    shape: 'background',
+    toolCalls: 4,
+    toolErrors: 1,
+    toolErrorDetails: [bashFailure('exit code 1')],
+    output: {
+      kind: 'artifact',
+      value: { opponents: [{ name: 'A' }, { name: 'B' }] },
     },
   }),
 )
@@ -294,6 +339,7 @@ export const ALL_PAIRS = {
   VOTER_QUERY_PAIR,
   BACKGROUND_PAIR,
   TOOL_ERROR_PAIR,
+  BACKGROUND_TOOL_ERROR_PAIR,
   BLOCKED_PAIR,
   INFRA_ERROR_PAIR,
   IDENTICAL_DIGEST_PAIR,

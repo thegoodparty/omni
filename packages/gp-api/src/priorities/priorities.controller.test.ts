@@ -67,6 +67,31 @@ describe('priorities controller', () => {
 
   // The detail page reads this route on every render; it shipped without a
   // handler once and every priority detail page 404'd.
+  it('puts a priority the agent has not worked on the first step', async () => {
+    const created = await service.client.post<Priority>(
+      PRIORITIES_PATH,
+      { title: 'Housing', description: 'Build more homes' },
+      eoHeaders(),
+    )
+    expect(created.data.currentStep).toBe('define')
+
+    const status = await service.client.get<{ currentStep: string | null }>(
+      `/v1/priorities/${created.data.id}/status`,
+      eoHeaders(),
+    )
+    expect(status.data.currentStep).toBe('define')
+
+    await service.prisma.priority.update({
+      where: { id: created.data.id },
+      data: { status: { version: 1, steps: [] }, currentStep: null },
+    })
+    const settled = await service.client.get<Priority>(
+      `/v1/priorities/${created.data.id}`,
+      eoHeaders(),
+    )
+    expect(settled.data.currentStep).toBeNull()
+  })
+
   it('reads one priority by id, and 404s for another office', async () => {
     const created = await service.client.post<Priority>(
       PRIORITIES_PATH,

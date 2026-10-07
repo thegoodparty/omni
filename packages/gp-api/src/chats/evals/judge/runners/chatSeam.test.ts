@@ -12,12 +12,23 @@ import {
   type StreamTextFn,
 } from '@/llm/services/llm.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import type { S3Service } from '@/vendors/aws/services/s3.service'
+import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
+import { BriefingArtifactCacheService } from '@/chats/briefing-chats/services/briefingArtifactCache.service'
+import type {
+  BriefingContextResult,
+  BriefingContextService,
+} from '@/chats/briefing-chats/services/briefingContext.service'
+import type { BriefingNotesService } from '@/chats/briefing-chats/services/briefingNotes.service'
+import { todayInTimezone } from '@/chats/briefing-chats/services/systemPromptBuilder'
+import { HENDERSONVILLE_FIXTURE } from '@/chats/briefing-chats/evals/fixtures/hendersonvilleBriefing.fixture'
 import { SPEND_ENV, SPEND_VALUE } from '../config'
 import {
   UnpinnableSqlError,
   assertTestProcess,
   buildTrace,
   configDigest,
+  installBriefingFixture,
   installLlmCapture,
   instrumentDatabricksProvider,
   instrumentTools,
@@ -155,6 +166,15 @@ describe('traceErrorText', () => {
     expect(text).toContain('[digits]')
     expect(text).not.toContain('0199f4aa')
     expect(text).not.toContain('a.b@x.org')
+  })
+
+  // Cut first and a secret straddling the bound leaves a fragment too short
+  // for its shape to match, so it is stored in the clear.
+  it('redacts the whole error before it cuts', () => {
+    const text = traceErrorText(
+      new Error(`${'a '.repeat(92)}sk-ant-zzzzzzzzzzzz`),
+    )
+    expect(text).not.toMatch(/zz/)
   })
 
   it('bounds a vendor error that dumps a whole response body', () => {
@@ -1037,5 +1057,154 @@ describe('readTurnTokens across several turns', () => {
 
     expect(one.tokens).toBeUndefined()
     expect(one.turnsPriced).toBe(0)
+  })
+})
+
+// THE BRIEFING SEAM, against the real classes. The patch is on both
+// prototypes, so an instance of anything else would prove nothing about the
+// instance the briefing route holds.
+describe('installBriefingFixture', () => {
+  const JUDGE_BUCKET = 'judge-fixture-briefings'
+  const FIXTURE = {
+    bucket: JUDGE_BUCKET,
+    artifactContent: '{"judge":"fixture"}',
+    today: '2026-05-14',
+  }
+
+  const cacheOver = (s3Reads: string[]): BriefingArtifactCacheService =>
+    new BriefingArtifactCacheService(
+      {
+        getFile: async (bucket: string, key: string) => {
+          s3Reads.push(`${bucket}/${key}`)
+          return 's3 body'
+        },
+      } as unknown as S3Service,
+      createMockLogger(),
+    )
+
+  // A context whose briefing lives in `bucket`. Everything else is the
+  // prompt evals' fixture, which is enough for toContext to run for real.
+  const handlerOver = (bucket: string): BriefingAnnotationHandler => {
+    const loaded = {
+      annotation: HENDERSONVILLE_FIXTURE.annotation,
+      briefing: { ...HENDERSONVILLE_FIXTURE.briefing, artifactBucket: bucket },
+      artifactContent: HENDERSONVILLE_FIXTURE.artifactContent,
+      user: HENDERSONVILLE_FIXTURE.user,
+      office: HENDERSONVILLE_FIXTURE.office,
+    } as BriefingContextResult
+    return new BriefingAnnotationHandler(
+      {
+        loadContext: async () => loaded,
+        loadContextByConversation: async () => loaded,
+      } as unknown as BriefingContextService,
+      {
+        countNotesForUser: async () => 0,
+      } as unknown as BriefingNotesService,
+    )
+  }
+
+  const realToday = todayInTimezone(
+    HENDERSONVILLE_FIXTURE.briefing.meetingTimezone,
+  )
+
+  it('serves the fixture for its bucket without reaching S3', async () => {
+    const s3Reads: string[] = []
+    const cache = cacheOver(s3Reads)
+    const seam = installBriefingFixture(FIXTURE)
+    try {
+      expect(
+        await cache.get(JUDGE_BUCKET, 'judge-fixture/a/briefing.json'),
+      ).toBe(FIXTURE.artifactContent)
+      expect(s3Reads).toEqual([])
+      // Any other bucket is still S3's, so a briefing nobody seeded is never
+      // handed the judge's artifact.
+      expect(await cache.get('briefing-artifacts', 'office/x.json')).toBe(
+        's3 body',
+      )
+      expect(s3Reads).toEqual(['briefing-artifacts/office/x.json'])
+    } finally {
+      seam.restore()
+    }
+  })
+
+  it('pins today on a judge briefing, through both context entries', async () => {
+    // Unreachable as a test of the pin if the real date happened to equal it.
+    expect(realToday).not.toBe(FIXTURE.today)
+    const handler = handlerOver(JUDGE_BUCKET)
+    const seam = installBriefingFixture(FIXTURE)
+    try {
+      expect((await handler.loadContext('conv', 42)).today).toBe(FIXTURE.today)
+      expect((await handler.loadContextForAnnotation('ann', 42)).today).toBe(
+        FIXTURE.today,
+      )
+    } finally {
+      seam.restore()
+    }
+  })
+
+  it('leaves the date of a briefing it did not seed alone', async () => {
+    const handler = handlerOver('briefing-artifacts')
+    const seam = installBriefingFixture(FIXTURE)
+    try {
+      expect((await handler.loadContext('conv', 42)).today).toBe(realToday)
+    } finally {
+      seam.restore()
+    }
+  })
+
+  it('puts both prototypes back on restore', async () => {
+    const s3Reads: string[] = []
+    const cache = cacheOver(s3Reads)
+    const handler = handlerOver(JUDGE_BUCKET)
+    installBriefingFixture(FIXTURE).restore()
+
+    expect(await cache.get(JUDGE_BUCKET, 'k')).toBe('s3 body')
+    expect(s3Reads).toEqual([`${JUDGE_BUCKET}/k`])
+    expect((await handler.loadContext('conv', 42)).today).toBe(realToday)
+    expect((await handler.loadContextForAnnotation('ann', 42)).today).toBe(
+      realToday,
+    )
+  })
+
+  // Restore releases the claim, so the next case of the sweep can install.
+  it('can be installed again once restored', () => {
+    installBriefingFixture(FIXTURE).restore()
+    let again: ReturnType<typeof installBriefingFixture> | undefined
+    expect(() => {
+      again = installBriefingFixture(FIXTURE)
+    }).not.toThrow()
+    again?.restore()
+  })
+
+  // Two overlapping installs would restore out of order and leave a patch on
+  // the class for the life of the process.
+  it('refuses a second install while one is in place', () => {
+    const seam = installBriefingFixture(FIXTURE)
+    try {
+      expect(() => installBriefingFixture(FIXTURE)).toThrow('already installed')
+    } finally {
+      seam.restore()
+    }
+  })
+
+  it('refuses outside a test process, and patches nothing', async () => {
+    const vitestFlag = process.env.VITEST
+    const nodeEnv = process.env.NODE_ENV
+    delete process.env.VITEST
+    process.env.NODE_ENV = 'production'
+    try {
+      expect(() => installBriefingFixture(FIXTURE)).toThrow(
+        'may only run in a test process',
+      )
+    } finally {
+      if (vitestFlag === undefined) delete process.env.VITEST
+      else process.env.VITEST = vitestFlag
+      if (nodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = nodeEnv
+    }
+    const s3Reads: string[] = []
+    expect(await cacheOver(s3Reads).get(JUDGE_BUCKET, 'k')).toBe('s3 body')
+    // Claimable, which it would not be if the refusal had recorded it.
+    installBriefingFixture(FIXTURE).restore()
   })
 })
