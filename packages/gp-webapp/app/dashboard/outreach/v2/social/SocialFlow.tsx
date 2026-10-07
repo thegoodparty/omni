@@ -260,9 +260,10 @@ export const SocialFlow = ({
   // Guards against an out-of-order response (or one from a closed flow)
   // clobbering a newer draft.
   const draftRequestRef = useRef(0)
-  // The last draft call, so Try again repeats what failed (a Regenerate or
-  // an Improve) rather than guessing from the purpose.
-  const lastDraftRef = useRef<(() => void) | null>(null)
+  // Whether the last draft call was an Improve, so Try again repeats the
+  // kind of call that failed (a Regenerate or an Improve) with what is on
+  // screen now, such as instructions edited since.
+  const lastDraftWasImproveRef = useRef(false)
 
   const draftMutation = useMutation({
     mutationFn: (input: SocialFlowDraftInput) => surface.endpoints.draft(input),
@@ -417,14 +418,7 @@ export const SocialFlow = ({
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
-    lastDraftRef.current = () =>
-      requestDraft(
-        nextPurpose,
-        nextTone,
-        priorDraft,
-        priorOwnWords,
-        currentDraft,
-      )
+    lastDraftWasImproveRef.current = currentDraft !== undefined
     draftMutation.mutate(
       {
         purpose: nextPurpose,
@@ -634,8 +628,8 @@ export const SocialFlow = ({
           canUndo={undoText !== null}
           onUndo={handleUndo}
           onRetry={() =>
-            lastDraftRef.current
-              ? lastDraftRef.current()
+            lastDraftWasImproveRef.current
+              ? handleImprove()
               : requestDraft(purpose, tone, draft, ownWords)
           }
           isCustomPurpose={purpose === 'custom'}

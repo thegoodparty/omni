@@ -412,9 +412,10 @@ export const PhoneBankingFlow = ({
   // Guards against an out-of-order draft response (or one from a closed
   // flow) clobbering a newer draft — same convention as SocialFlow.
   const draftRequestRef = useRef(0)
-  // The last draft call, so Try again repeats what failed (a Regenerate or
-  // an Improve) rather than guessing from the purpose.
-  const lastDraftRef = useRef<(() => void) | null>(null)
+  // Whether the last draft call was an Improve, so Try again repeats the
+  // kind of call that failed (a Regenerate or an Improve) with what is on
+  // screen now, such as instructions edited since.
+  const lastDraftWasImproveRef = useRef(false)
 
   // Reference equality against the Win singleton default, not a purpose
   // check: recommended lists are Win-only (the endpoint 400s an eo- org
@@ -554,8 +555,7 @@ export const PhoneBankingFlow = ({
       // which the reset above has not flushed yet, and this effect cannot
       // depend on a closure that is fresh every render.
       const requestId = ++draftRequestRef.current
-      // Try again falls back to a fresh draft, which this is.
-      lastDraftRef.current = null
+      lastDraftWasImproveRef.current = false
       draftMutate(
         { purpose: carriedPurpose, tone: 'warm' },
         {
@@ -671,14 +671,7 @@ export const PhoneBankingFlow = ({
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
-    lastDraftRef.current = () =>
-      requestDraft(
-        nextPurpose,
-        nextTone,
-        currentDraft,
-        previousDraft,
-        instructionsOverride,
-      )
+    lastDraftWasImproveRef.current = currentDraft !== undefined
     const trimmedInstructions = instructionsOverride.trim()
     // Read here and passed as a variable, the way `instructions` is: the
     // question is what a community-input effort exists to ask, so the script
@@ -1181,8 +1174,8 @@ export const PhoneBankingFlow = ({
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           onRetry={() =>
-            lastDraftRef.current
-              ? lastDraftRef.current()
+            lastDraftWasImproveRef.current
+              ? requestDraft(purpose, tone, script.trim())
               : requestDraft(
                   purpose,
                   tone,

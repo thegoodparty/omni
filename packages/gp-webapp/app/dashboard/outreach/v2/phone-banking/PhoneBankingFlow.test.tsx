@@ -843,6 +843,11 @@ describe('PhoneBankingFlow', () => {
       await screen.findByText(/We couldn.t draft your script just now/),
     ).toBeInTheDocument()
 
+    // Instructions written after the failure ride the retry.
+    await user.type(
+      screen.getByLabelText('Instructions for the AI'),
+      'mention the school levy',
+    )
     await user.click(screen.getByRole('button', { name: 'Try again' }))
 
     await waitFor(() => expect(draftCalls).toHaveLength(3))
@@ -850,6 +855,7 @@ describe('PhoneBankingFlow', () => {
       purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'My own words',
+      instructions: 'mention the school levy',
     })
   })
 

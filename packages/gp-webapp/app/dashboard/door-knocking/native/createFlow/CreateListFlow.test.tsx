@@ -863,12 +863,17 @@ describe('CreateListFlow', () => {
       await screen.findByText(/We couldn.t write your talking points/),
     ).toBeInTheDocument()
 
+    // Instructions written after the failure ride the retry.
+    fireEvent.change(screen.getByLabelText('Instructions for the AI'), {
+      target: { value: 'mention the school levy' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
     // The retry is the same Improve request, not a fresh draft: the
     // candidate's edited words ride along again rather than being dropped.
     await waitFor(() => expect(bodies).toHaveLength(3))
     expect(bodies[2]?.currentDraft).toBe(bodies[1]?.currentDraft)
+    expect(bodies[2]?.instructions).toBe('mention the school levy')
     expect(bodies[2]?.currentDraft).toContain(edited)
   })
 
