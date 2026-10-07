@@ -15,7 +15,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   IconButton,
-  XMarkIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -558,40 +557,9 @@ const NextTaskCard = ({
               >
                 <div className="flex flex-col gap-1 px-6 py-5">
                   {/* No overline: the title leads. See design-memory learned.md. */}
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-opensans text-lg font-medium text-card-foreground">
-                      {frontTask.title}
-                    </h3>
-                    {/* The choice is the confirmation: put it off, or (for a
-                        task the race can do without) set it aside for good. */}
-                    {!leaving && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <IconButton
-                            type="button"
-                            variant="ghost"
-                            size="small"
-                            aria-label="Skip this task"
-                            className="-mt-1 -mr-2 shrink-0"
-                          >
-                            <XMarkIcon className="size-5" aria-hidden />
-                          </IconButton>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onSelect={() => skipFront('later')}>
-                            {snoozeLabel(shownDate(frontTask))}
-                          </DropdownMenuItem>
-                          {canSetTaskAsideForGood(frontTask.title) && (
-                            <DropdownMenuItem
-                              onSelect={() => skipFront('notForMe')}
-                            >
-                              Don’t suggest it again
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
+                  <h3 className="font-opensans text-lg font-medium text-card-foreground">
+                    {frontTask.title}
+                  </h3>
                   <p className="text-muted-foreground text-sm">
                     {frontTask.description}
                   </p>
@@ -660,7 +628,7 @@ const NextTaskCard = ({
                           type="button"
                           variant="ghost"
                           size="medium"
-                          className="w-full sm:ml-auto sm:w-auto"
+                          className="w-full sm:w-auto"
                           onClick={() =>
                             chat.discussTask(discussTaskMessage(frontTask))
                           }
@@ -668,6 +636,37 @@ const NextTaskCard = ({
                           <MessagesSquareIcon className="size-4" aria-hidden />
                           Ask about this
                         </Button>
+                      )}
+                      {/* Skip sits apart, at the end of the row: the choice
+                          is the confirmation, put it off or (for a task the
+                          race can do without) set it aside for good. */}
+                      {!leaving && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="medium"
+                              className="w-full sm:ml-auto sm:w-auto"
+                            >
+                              Skip
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onSelect={() => skipFront('later')}
+                            >
+                              {snoozeLabel(shownDate(frontTask))}
+                            </DropdownMenuItem>
+                            {canSetTaskAsideForGood(frontTask.title) && (
+                              <DropdownMenuItem
+                                onSelect={() => skipFront('notForMe')}
+                              >
+                                Don’t suggest it again
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
                     </>
                   </div>

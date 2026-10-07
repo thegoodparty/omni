@@ -645,9 +645,7 @@ describe('CampaignManagerHome marking a task done', () => {
     expect(
       await screen.findByRole('heading', { level: 3, name: 'Get your EIN' }),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Skip this task' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
   })
 
   it('completes on the first press, without asking to confirm', async () => {
@@ -691,9 +689,7 @@ describe('CampaignManagerHome skipping a task', () => {
     const user = userEvent.setup()
     renderHome()
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Skip this task' }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Skip' }))
     expect(
       await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
@@ -718,9 +714,7 @@ describe('CampaignManagerHome skipping a task', () => {
     const user = userEvent.setup()
     renderHome()
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Skip this task' }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Skip' }))
     // Its date is the state's deadline, which we don't know, so the
     // snooze isn't capped to it.
     expect(
@@ -742,9 +736,7 @@ describe('CampaignManagerHome skipping a task', () => {
     const user = userEvent.setup()
     renderHome()
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Skip this task' }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Skip' }))
     expect(
       await screen.findByRole('menuitem', { name: 'Show on Oct 10' }),
     ).toBeInTheDocument()
