@@ -1,5 +1,5 @@
 import { useTestService } from '@/test-service'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { asSchema } from 'ai'
 import { addMinutes, formatISO } from 'date-fns'
@@ -14,6 +14,7 @@ import {
 } from '@goodparty_org/contracts'
 import { PrioritySource } from '../../generated/prisma'
 import { PriorityStatusService } from './priorityStatus.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { UpdatePriorityStatusInputSchema } from '../schemas/priorityStatus.schema'
 
 const service = useTestService()
@@ -316,6 +317,121 @@ describe('PriorityStatusService.applyUpdate', () => {
     expect(stepOf(result.status, 'define').updatedAt).toBe(definedAt)
     expect(stepOf(result.status, 'evidence').updatedAt).toBeDefined()
     expect(stepOf(result.status, 'options').updatedAt).toBeUndefined()
+  })
+})
+
+describe('PriorityStatusService analytics', () => {
+  const spyTrack = () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+    track.mockClear()
+    return track
+  }
+
+  it('fires a step state change for the office user', async () => {
+    const id = await createPriority()
+    const track = spyTrack()
+
+    await statusService.applyUpdate(id, {
+      steps: [
+        { id: 'define', state: 'settled', summary: 'Rents, not stock' },
+        { id: 'evidence', state: 'active' },
+      ],
+      nextAction: 'Pull the numbers',
+    })
+
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      'Priorities - Step State Changed',
+      expect.objectContaining({
+        priorityId: id,
+        trigger: 'agent',
+        stepId: 'define',
+        stepNumber: 1,
+        fromState: 'open',
+        toState: 'settled',
+      }),
+    )
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      'Priorities - Step State Changed',
+      expect.objectContaining({ stepId: 'evidence', toState: 'active' }),
+    )
+    expect(track).toHaveBeenCalledTimes(2)
+  })
+
+  it('fires nothing when only a summary changes', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'settled', summary: 'Rents' }],
+      nextAction: 'Pull the numbers',
+    })
+    const track = spyTrack()
+
+    await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'settled', summary: 'Rents mostly' }],
+      nextAction: 'Pull the numbers',
+    })
+
+    expect(track).not.toHaveBeenCalled()
+  })
+
+  it('fires plan completed once every step is settled', async () => {
+    const id = await createPriority()
+    const track = spyTrack()
+
+    await statusService.applyUpdate(id, {
+      steps: PRIORITY_STEP_IDS.map((stepId) => ({
+        id: stepId,
+        state: 'settled' as const,
+        summary: `${stepId} done`,
+      })),
+      nextAction: '',
+    })
+
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      'Priorities - Plan Completed',
+      expect.objectContaining({ priorityId: id, trigger: 'agent' }),
+    )
+  })
+
+  it('fires a check state change when a check is recorded', async () => {
+    const id = await createPriority()
+    const track = spyTrack()
+
+    await statusService.applyUpdate(
+      id,
+      {
+        steps: [
+          {
+            id: 'define',
+            state: 'settled',
+            summary: 'Rents, not stock',
+            check: {
+              state: 'asked',
+              who: 'Renters near the transit line',
+              question: 'Is rent the thing pushing you out?',
+            },
+          },
+        ],
+        nextAction: 'Send the check',
+      },
+      true,
+    )
+
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      'Priorities - Check State Changed',
+      expect.objectContaining({
+        priorityId: id,
+        stepId: 'define',
+        side: 'main',
+        fromState: null,
+        toState: 'asked',
+      }),
+    )
   })
 })
 

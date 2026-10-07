@@ -211,6 +211,7 @@ Download Voter File Success,download_voter_file_success,66519ef3b964345000414bc3
 Download Voter File attempt,download_voter_file_attempt,66519ef3b964345000414bc3cb8b3e1b71e1e8fd,,2024-07-10,tomer@goodparty.org,e8ff914684d44730c937d55ce128e81b57f3d0af,https://github.com/thegoodparty/omni/pull/886,2026-07-20,tomer@goodparty.org,2026-07-20,,,,,2026-07-27T12:04:25
 Experiment Viewed,experiment_viewed,,,,,,,,,,,,,,2026-06-30T20:12:33
 Invalid Party,invalid_party,f4290f167ee16aaaed0299d64c48ae8a3452eeb3,,2024-06-13,tomer@goodparty.org,85954771b6d545e35af77bf5ca3ae86e9cbdb80d,https://github.com/thegoodparty/gp-webapp/pull/1790,2026-05-05,5633757+dealvz@users.noreply.github.com,2026-05-05,,,,,2026-06-30T20:12:33
+Issue Capture - Synthesis Completed,issue_capture_synthesis_completed,,https://github.com/thegoodparty/omni/pull/2368,2026-10-02,,,,,,2026-10-02,,,2026-10-02T09:41:04,,
 Navigation - Dashboard: Click AI Assistant,navigation_dashboard_click_ai_assistant,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,1a56730282e3effe99704f71b79ac9d6a7204c78,https://github.com/thegoodparty/omni/pull/1033,2026-07-27,5633757+dealvz@users.noreply.github.com,2026-07-27,,,,,2026-07-28T22:45:44
 Navigation - Dashboard: Click Briefings,navigation_dashboard_click_briefings,78fc2e5a4d266437bd11d674cc5a10c5c841a44d,https://github.com/thegoodparty/gp-webapp/pull/1683,2026-04-09,stephtea@users.noreply.github.com,,,,,2026-04-09,1,,,,2026-06-30T20:12:33
 Navigation - Dashboard: Click Campaign Plan,navigation_dashboard_click_campaign_plan,cf6bb487eb93a12b82b9ed9191693db58f3810f4,https://github.com/thegoodparty/omni/pull/54,2026-06-10,6290668+feliksalbright@users.noreply.github.com,,,,,2026-06-10,1,,,,2026-06-30T20:12:33
@@ -398,6 +399,14 @@ Polls - Poll Results Issue Details Viewed,polls_poll_results_issue_details_viewe
 Polls - Poll Results Overview Viewed,polls_poll_results_overview_viewed,24d9f8f48bfc6f173af3257d28bb7c35fc2d5c0f,https://github.com/thegoodparty/gp-webapp/pull/1135,2025-11-11,swain.molster@gmail.com,,,,,2025-11-11,1,,,,2026-06-30T20:12:33
 Polls - Schedule Poll Completed,polls_schedule_poll_completed,446ad6a04274cf3799c0d7cd0347e596cb313a49,https://github.com/thegoodparty/gp-webapp/pull/1230,2025-12-10,swain.molster@gmail.com,,,,,2026-02-08,1,,,,2026-06-30T20:12:33
 Polls - Schedule Poll Viewed,polls_schedule_poll_viewed,446ad6a04274cf3799c0d7cd0347e596cb313a49,https://github.com/thegoodparty/gp-webapp/pull/1230,2025-12-10,swain.molster@gmail.com,,,,,2026-02-08,1,,,,2026-06-30T20:12:33
+Priorities - Check State Changed,priorities_check_state_changed,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:42
+Priorities - List Viewed,priorities_list_viewed,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:41
+Priorities - Message Sent,priorities_message_sent,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:41
+Priorities - Plan Completed,priorities_plan_completed,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:42
+Priorities - Priority Archived,priorities_priority_archived,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:42
+Priorities - Priority Created,priorities_priority_created,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:41
+Priorities - Priority Viewed,priorities_priority_viewed,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:41
+Priorities - Step State Changed,priorities_step_state_changed,,https://github.com/thegoodparty/omni/pull/2538,2026-10-07,,,,,,2026-10-07,,,,,2026-10-07T18:48:42
 Pro Upgrade - Banner Clicked,pro_upgrade_banner_clicked,9b9ae6ba999029817aacdea6d2e6cb4ec9e4dcd8,https://github.com/thegoodparty/omni/pull/2342,2026-10-01,bryan@goodparty.org,,,,,2026-10-01,1,,,,2026-10-05T11:08:13
 Pro Upgrade - Banner Viewed,pro_upgrade_banner_viewed,54770c93280dd2e2b0febcaa23ac3d73028287f7,https://github.com/thegoodparty/gp-webapp/pull/2001,2026-06-08,tomer@goodparty.org,,,,,2026-06-08,1,,,,2026-06-30T20:12:33
 Pro Upgrade - Banner: Click Get Pro,pro_upgrade_banner_click_get_pro,54770c93280dd2e2b0febcaa23ac3d73028287f7,https://github.com/thegoodparty/gp-webapp/pull/2001,2026-06-08,tomer@goodparty.org,,,,,2026-06-08,1,,,,2026-06-30T20:12:33
@@ -692,4 +701,3 @@ screen,screen,,,,,,,,,,,,,,2026-06-30T20:12:33
 session_end,session_end,,,,,,,,,,,,,,2026-06-30T20:12:33
 session_start,session_start,,,,,,,,,,,,,,2026-06-30T20:12:33
 usersnap_submission,usersnap_submission,634a1c354de73cca6e6a0393dbdd0ac6dc3c7ae2,https://github.com/thegoodparty/gp-webapp/pull/293,2024-10-04,snayak00@gmail.com,e256bd33a54df1a412dcbe055be41d284f5ce195,https://github.com/thegoodparty/gp-webapp/pull/1495,2026-03-02,bryan@mac.lan,2026-03-02,,,,,2026-06-30T20:12:33
-Issue Capture - Synthesis Completed,issue_capture_synthesis_completed,,https://github.com/thegoodparty/omni/pull/2368,2026-10-02,,,,,,2026-10-02,,,2026-10-02T09:41:04

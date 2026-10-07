@@ -60,6 +60,7 @@ export class PrioritiesServiceAdapter implements PrioritiesToolPort {
       input.electedOfficeId,
       { title: input.title, description: input.description },
       PrioritySource.user_stated,
+      'chief_of_staff',
     )
     return toRecord(row)
   }
@@ -76,7 +77,11 @@ export class PrioritiesServiceAdapter implements PrioritiesToolPort {
   }
 
   async archive(electedOfficeId: string, id: string): Promise<void> {
-    const archived = await this.priorities.archive(id, electedOfficeId)
+    const archived = await this.priorities.archive(
+      id,
+      electedOfficeId,
+      'chief_of_staff',
+    )
     if (!archived) throw new NotFoundException('Priority not found')
   }
 }

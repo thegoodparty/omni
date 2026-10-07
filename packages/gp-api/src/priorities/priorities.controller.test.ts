@@ -1,8 +1,9 @@
 import { useTestService } from '@/test-service'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { Priority } from '@goodparty_org/contracts'
+import { AnalyticsService } from '@/analytics/analytics.service'
 
 const service = useTestService()
 
@@ -63,6 +64,42 @@ describe('priorities controller', () => {
       eoHeaders(),
     )
     expect(afterDelete.data).toHaveLength(0)
+  })
+
+  it('tracks a create and an archive from the priorities page', async () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+
+    const created = await service.client.post<Priority>(
+      PRIORITIES_PATH,
+      { title: 'Housing', description: 'Build more homes' },
+      eoHeaders(),
+    )
+    await service.client.delete(
+      `/v1/priorities/${created.data.id}`,
+      eoHeaders(),
+    )
+
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      'Priorities - Priority Created',
+      {
+        organizationSlug: eoOrgSlug,
+        priorityId: created.data.id,
+        source: 'user_stated',
+        surface: 'priorities_page',
+      },
+    )
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      'Priorities - Priority Archived',
+      {
+        organizationSlug: eoOrgSlug,
+        priorityId: created.data.id,
+        surface: 'priorities_page',
+      },
+    )
   })
 
   // The detail page reads this route on every render; it shipped without a
