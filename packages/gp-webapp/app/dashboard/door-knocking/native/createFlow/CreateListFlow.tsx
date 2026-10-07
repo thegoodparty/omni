@@ -1795,10 +1795,11 @@ export default function CreateListFlow({
               purposes={purposes}
               selected={purpose}
               onSelect={(next) => {
+                // A draft that failed for another purpose is not this one's
+                // to retry. The same purpose keeps it, since nothing would
+                // re-draft for it on arrival.
+                if (next !== purpose) draft.reset()
                 setPurpose(next)
-                // A draft that failed for the old purpose is not this one's
-                // to retry.
-                draft.reset()
                 // The question step's Continue only guards emptiness, so a
                 // question typed for an earlier community-input pick would
                 // otherwise ride along as this campaign's.

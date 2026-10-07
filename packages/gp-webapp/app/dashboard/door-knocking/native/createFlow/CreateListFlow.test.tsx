@@ -844,6 +844,39 @@ describe('CreateListFlow', () => {
     ).not.toBeInTheDocument()
   })
 
+  // Picking the same purpose again re-drafts nothing on arrival, so its
+  // failed draft keeps the error card and its Try again.
+  it('keeps the draft error when the same purpose is picked again', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Back'))
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    await screen.findByRole('combobox', { name: 'All lists' })
+    fireEvent.click(screen.getByLabelText('Back'))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+  })
+
   // Try again has to repeat the call that failed rather than guessing from
   // the purpose. An Improve carries the candidate's own edited words as
   // `currentDraft`, so a Try again that fell back to a fresh draft would
