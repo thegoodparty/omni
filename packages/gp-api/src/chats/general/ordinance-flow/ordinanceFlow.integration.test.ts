@@ -268,6 +268,7 @@ describe('ordinance_flow chat (integration)', () => {
           name: 'brave_search',
           input: { query },
           output,
+          toolCallId: 'test-tool-call',
         })
       }
       return {

@@ -1,6 +1,7 @@
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool, LlmStreamUsage } from '@/llm/services/llm.service'
 import type { ChatAnchor } from '@goodparty_org/contracts'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 
 // Params a client sends to resolve a conversation. Scope is always present;
 // the rest is scope-specific. The default resolution keys on the authed user +
@@ -73,10 +74,21 @@ export interface ChatScopeHandler<
     model: string,
   ) => void | Promise<void>
   // Optional post-generation hook: given the full assembled assistant text on a
-  // clean finish, return a line to append (e.g. the CoS professional-advice
-  // disclaimer) or null to append nothing. The shared stream service streams it
-  // as the final text chunk and persists it with the turn.
-  finalizeAssistantText?: (text: string) => string | null
+  // clean finish and the turn's tool calls with their results, return a line to
+  // append (a guardrail backstop line) or null to append nothing. The shared
+  // stream service streams it as the final text chunk and persists it with the
+  // turn. A handler that only needs the text may declare one parameter.
+  finalizeAssistantText?: (text: string, turn: FinalizeTurn) => string | null
 }
+
+// Narrows a handler to one that declares the finish-time hook, so a caller
+// can invoke it as a method (keeping `this`) without a non-null assertion.
+export const hasFinalizeAssistantText = <TContext extends object>(
+  handler: ChatScopeHandler<TContext>,
+): handler is ChatScopeHandler<TContext> & {
+  finalizeAssistantText: NonNullable<
+    ChatScopeHandler<TContext>['finalizeAssistantText']
+  >
+} => typeof handler.finalizeAssistantText === 'function'
 
 export const CHAT_SCOPE_HANDLERS = 'CHAT_SCOPE_HANDLERS'

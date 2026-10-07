@@ -12,7 +12,7 @@ export const PROFESSIONAL_ADVICE_DISCLAIMER =
 
 // The exact failure from the CoS eval qual review: statute citations,
 // explicit legal/criminal liability, and formal-complaint filing language.
-const ADVICE_SIGNALS: RegExp[] = [
+export const ADVICE_SIGNALS: RegExp[] = [
   /§/,
   /\bRCW\b/,
   /\bU\.S\.C\./,
@@ -27,7 +27,7 @@ const ADVICE_SIGNALS: RegExp[] = [
 // Tier-3 prompt line working). Kept to phrasings that read as a disclaimer, not
 // incidental prose ("consult a colleague") — a rare missed dedup is harmless,
 // a suppressed-but-needed disclaimer is not.
-const DISCLAIMER_PRESENT: RegExp[] = [
+export const DISCLAIMER_PRESENT: RegExp[] = [
   /\b(?:not|isn'?t|is not) a substitute for\b/i,
   /\bqualified professional\b/i,
   /\bseek (?:professional|legal|medical|financial|tax) (?:advice|counsel|help)\b/i,

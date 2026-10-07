@@ -15,6 +15,10 @@
         "outDir": "dist"
       },
       {
+        "include": "chats/general/services/guardrailLines.json",
+        "outDir": "dist"
+      },
+      {
         "include": "generated/prisma/**/*.node",
         "outDir": "dist",
         "watchAssets": false
