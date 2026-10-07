@@ -262,17 +262,19 @@
  */
 
 /* Keyboard focus must always be visible (WCAG 2.4.7). :focus-visible only
-   matches keyboard navigation, so a mouse click never shows it. Styleguide
-   components (anything with a data-slot) draw their own focus ring; every
-   other element gets this outline, in the same focus blue at the same weight.
-   In @layer base so an element that draws its own ring can still turn the
-   outline off with a utility (outline-none); unlayered CSS would beat it. */
+   matches keyboard navigation, so a mouse click never shows it. Every focused
+   element gets this outline, in the focus blue the styleguide rings use, so
+   nothing is left without one. A component that draws its own ring opts out
+   with outline-none, as the styleguide's do; that only works because this
+   sits in @layer base, since unlayered CSS would beat the utility. Menus,
+   popovers and dialogs (their -content parts) take focus when they open and
+   are not a control, so they are left alone. */
 @layer base {
   * {
     outline: none;
   }
 
-  *:focus-visible:not([data-slot]) {
+  *:focus-visible:not([data-slot$='-content']) {
     outline: 3px solid
       color-mix(in srgb, var(--semantic-border-focus) 50%, transparent);
     outline-offset: 1px;
