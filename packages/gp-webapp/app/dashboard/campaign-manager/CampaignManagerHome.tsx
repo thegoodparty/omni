@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import NextTaskCard from '../campaign-plan/components/campaignStrategy/NextTaskCard'
+import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
+import { useNewTrackerTasks } from '../campaign-plan/components/campaignStrategy/useNewTrackerTasks'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import { FIRST_LANDING_PARAM } from './homeHeadlines'
@@ -25,6 +28,12 @@ export default function CampaignManagerHome({
 }): React.JSX.Element {
   const router = useRouter()
   const pathname = usePathname()
+  const [campaign] = useCampaign()
+  const { tasks } = useTrackerTasks()
+  // Tasks land in the background; Home says what was added and links to it.
+  useNewTrackerTasks(tasks, campaign?.id, {
+    onSeePlan: () => router.push('/dashboard/campaign-plan'),
+  })
   const searchParams = useSearchParams()
   // Read once, so the greeting survives the param being stripped below.
   const [firstLanding] = useState(

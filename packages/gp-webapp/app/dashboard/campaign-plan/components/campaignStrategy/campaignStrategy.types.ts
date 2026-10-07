@@ -46,6 +46,8 @@ export interface CampaignStrategyTask {
   // task. A snooze that has run out reads as null.
   setAside: TrackerTaskSkipReason | null
   snoozedUntil: string | null
+  // Added since this browser last showed the plan; marked for one visit.
+  isNew?: boolean
 }
 
 export interface CampaignStrategyGroup {

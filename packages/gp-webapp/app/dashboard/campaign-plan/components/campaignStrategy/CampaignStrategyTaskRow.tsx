@@ -232,6 +232,7 @@ const CampaignStrategyTaskRow = ({
               Do this next
             </Badge>
           )}
+          {task.isNew && !task.isNext && <Badge variant="outline">New</Badge>}
           {task.proRequired && (
             <Badge className="border-transparent bg-secondary text-secondary-foreground">
               Pro

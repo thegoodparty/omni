@@ -35,6 +35,15 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 55, details: {}, electionDate: null }],
 }))
 const mockTrackEvent = vi.fn()
+const mockSuccessSnackbar = vi.fn()
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: mockSuccessSnackbar,
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: (...args: unknown[]) => mockTrackEvent(...args),
@@ -224,12 +233,44 @@ describe('CampaignStrategySection — completing tasks', () => {
   })
 })
 
-describe('CampaignStrategySection — generation banner', () => {
-  it('shows the generating banner while a run is in flight', () => {
-    mockIsGenerating = true
+describe('CampaignStrategySection — tasks arriving in the background', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    mockSuccessSnackbar.mockClear()
+  })
+
+  it('shows what it has, with nothing to wait on, while more are on the way', () => {
+    mockTasks.mockReturnValue(
+      settled([task({ id: 't1', isDefaultTask: true })]),
+    )
+    render(<CampaignStrategySection />)
+    expect(screen.queryByText(/Finding local events/)).not.toBeInTheDocument()
+  })
+
+  it('says what was added since the plan was last shown, and marks it New', () => {
+    window.localStorage.setItem(
+      'tracker-known-tasks:55',
+      JSON.stringify(['t1']),
+    )
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 't1', title: 'Get your EIN' }),
+        task({ id: 't2', title: 'Attend the town hall' }),
+      ]),
+    )
+    render(<CampaignStrategySection />)
+
+    expect(mockSuccessSnackbar).toHaveBeenCalledWith(
+      'Added to your plan: Attend the town hall',
+      expect.objectContaining({ action: undefined }),
+    )
+    expect(screen.getByText('New')).toBeInTheDocument()
+  })
+
+  it('stays quiet the first time it sees a campaign', () => {
     mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
     render(<CampaignStrategySection />)
-    expect(screen.getByText(/Finding local events/)).toBeInTheDocument()
+    expect(mockSuccessSnackbar).not.toHaveBeenCalled()
   })
 })
 

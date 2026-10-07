@@ -58,6 +58,12 @@ cards the candidate checks off. Feature overview + backend:
   that is put off or set aside the next one (`canBeNext`), so the card and the
   list always agree. The rules (snooze length, the due-date cap, which tasks
   are required) live in contracts' `TrackerTaskSkip.ts`, shared with gp-api.
+- **New tasks are announced, not waited for.** Personalized tasks land in the
+  background (minutes after onboarding, then weekly), so the plan shows no
+  spinner for them. `useNewTrackerTasks` (on Home and the plan) remembers per
+  campaign which task ids this browser already knew, toasts what was added
+  ("Added to your plan: …", with "See in plan" from Home), and the plan marks
+  those rows New for one visit. A campaign's first read seeds silently.
 - **Completion is optimistic.** `useToggleTrackerTaskComplete` writes the
   row's `completed` into the cache before the request lands (rolled back on
   error), so the next-step card can bring the next task forward the moment
@@ -70,8 +76,7 @@ cards the candidate checks off. Feature overview + backend:
   a new generation (a higher dynamic `max(week)`) rather than emptying the list,
   so `isTrackerGenerating` can't see it — the hook captures the pre-dispatch
   generation as a baseline, reports `isGenerating` until a dynamic row past that
-  baseline lands, and fast-polls (`POLL_INTERVAL_MS`) meanwhile. The section
-  shows the existing generating banner while `isGeneratingDynamic || isGenerating`.
+  baseline lands, and fast-polls (`POLL_INTERVAL_MS`) meanwhile.
   Note the run is async (a CAP dispatch); on localhost the agent infra usually
   isn't running, so nothing lands — this is primarily a deployed dev/qa affordance.
 

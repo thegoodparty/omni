@@ -6,13 +6,10 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Card, Stepper, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
-import {
-  useGenerateTrackerTasks,
-  useSetTrackerTaskAside,
-  useTrackerTasks,
-} from './useTrackerTasks'
+import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
+import { useNewTrackerTasks } from './useNewTrackerTasks'
 import {
   discussTaskMessage,
   taskAction,
@@ -36,8 +33,7 @@ const CampaignStrategySection = ({
   bodyEnd?: React.ReactNode
 }): React.JSX.Element => {
   const [campaign] = useCampaign()
-  const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
-  const { isGenerating } = useGenerateTrackerTasks()
+  const { tasks, isPending, isError } = useTrackerTasks()
   const router = useRouter()
   // "Start outreach" links into the hub rather than opening a flow here: the
   // hub owns the one mount of each channel flow and the gate in front of it,
@@ -71,14 +67,26 @@ const CampaignStrategySection = ({
   // Next week pulled forward from the next-step card, so the list marks the
   // same next task and its week navigator opens there.
   const headStartWeek = useHeadStartWeek()
+  // Tasks that arrived in the background since the plan was last shown: the
+  // candidate is told what was added, and the rows say New for this visit.
+  const newTaskIds = useNewTrackerTasks(tasks, campaign?.id, { markSeen: true })
   // Render only from persisted rows. null until the first generation lands.
   const strategy = useMemo(() => {
     if (tasks.length === 0) return null
     const electionDate = electionDateIso
       ? new Date(electionDateIso.replace(/-/g, '/'))
       : null
-    return buildTrackerStrategy(tasks, { electionDate, headStartWeek })
-  }, [tasks, electionDateIso, headStartWeek])
+    const built = buildTrackerStrategy(tasks, { electionDate, headStartWeek })
+    for (const phase of built.phases) {
+      for (const task of [
+        ...phase.groups.flatMap((group) => group.tasks),
+        ...(phase.weeks ?? []).flatMap((week) => week.tasks),
+      ]) {
+        task.isNew = newTaskIds.has(task.id)
+      }
+    }
+    return built
+  }, [tasks, electionDateIso, headStartWeek, newTaskIds])
 
   // Fires only once `strategy` exists, so it means "the candidate actually saw
   // their tasks" — not merely that the route loaded (the page view already
@@ -215,15 +223,6 @@ const CampaignStrategySection = ({
             </div>
           </div>
           <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10">
-            {(isGeneratingDynamic || isGenerating) && (
-              <Card className="mb-4 flex items-center gap-3 p-4">
-                <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
-                <p className="text-muted-foreground text-sm">
-                  Finding local events and personalizing the rest of your weekly
-                  tasks. They will appear here automatically in a few minutes.
-                </p>
-              </Card>
-            )}
             <Accordion
               type="multiple"
               value={openValue}
