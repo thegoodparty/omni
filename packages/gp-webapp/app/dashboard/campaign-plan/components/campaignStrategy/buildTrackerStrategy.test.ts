@@ -412,10 +412,7 @@ describe('buildTrackerStrategy with tasks set aside', () => {
   const today = startOfDay(new Date('2026-01-15'))
   const nextIds = (data: ReturnType<typeof buildTrackerStrategy>) =>
     data.phases
-      .flatMap((p) => [
-        ...p.groups.flatMap((g) => g.tasks),
-        ...(p.weeks ?? []).flatMap((w) => w.tasks),
-      ])
+      .flatMap((p) => p.groups.flatMap((g) => g.tasks))
       .filter((t) => t.isNext)
       .map((t) => t.id)
 
@@ -494,5 +491,26 @@ describe('buildTrackerStrategy order', () => {
         row({ id: 'd', phase: 'launch', date: '2026-01-05' }),
       ]),
     ).toEqual(['a', 'b', 'd'])
+  })
+})
+
+describe('buildTrackerStrategy active list', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+
+  it('lists last week through next week as one list, leaving older weeks out', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'old', phase: 'active', date: '2025-12-29' }),
+        row({ id: 'last', phase: 'active', date: '2026-01-06' }),
+        row({ id: 'this', phase: 'active', date: '2026-01-13' }),
+        row({ id: 'next', phase: 'active', date: '2026-01-20' }),
+        row({ id: 'later', phase: 'active', date: '2026-01-27' }),
+      ],
+      { electionDate: null, today },
+    )
+    const listed = data.phases
+      .find((p) => p.key === 'active')
+      ?.groups.flatMap((g) => g.tasks.map((t) => t.id))
+    expect(listed).toEqual(['last', 'this', 'next'])
   })
 })

@@ -382,19 +382,19 @@ describe('CampaignStrategySection — head start', () => {
     }),
   ]
 
-  it('opens on this week while the candidate has not asked for a head start', () => {
+  it('lists this week and next week together, like every other phase', () => {
     mockTasks.mockReturnValue(settled(weeks))
     render(<CampaignStrategySection />)
 
-    expect(screen.getByText('Oct 5 - Oct 11')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next week' })).toBeNull()
+    expect(screen.getByText('Next week task')).toBeInTheDocument()
   })
 
-  it('opens on next week, with its first task next, after a head start', () => {
+  it('marks next week’s first task next after a head start', () => {
     window.localStorage.setItem('next-task-head-start', '2026-10-12')
     mockTasks.mockReturnValue(settled(weeks))
     const { container } = render(<CampaignStrategySection />)
 
-    expect(screen.getByText('Oct 12 - Oct 18')).toBeInTheDocument()
     expect(container.querySelector('[data-next-task]')?.textContent).toContain(
       'Next week task',
     )

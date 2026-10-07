@@ -65,10 +65,10 @@ any open task past it reads as overdue.
 - **Dynamic tasks and events** land a few minutes later when the first agent
   run completes, with no spinner to wait on; the candidate is told what was
   added.
-- **Launch** shows **all** of its tasks at once. The **Active
-  campaign** phase is a **week navigator**: one Monday-Sunday week at a time,
-  with controls to step one week back (to review) or one week forward (next
-  week's plan, once that Thursday's generation lands), but no further.
+- Every phase shows **all** of its tasks at once, open work by date and
+  finished work after it. The **Active campaign** list spans last week
+  through next week (next week's plan lands with that Thursday's
+  generation).
 - GOTV tasks stay hidden behind a window message until the election is within
   **30 days**.
 - If the candidate **loses their primary**, the outreach sends disappear and no
@@ -318,7 +318,7 @@ dispatch limit:
 Output: up to **12** prioritized tasks plus up to **3** real local events, drawn
 from the ~20 non-outreach dynamic catalog (no text/robocall). The model selects,
 ranks, personalizes, and finds events; it does **not** set gates, caps, or the
-outreach schedule. The GOTV 30-day window and the Active-phase week navigator
+outreach schedule. The GOTV 30-day window and the Active phase's week span
 stay deterministic in gp-api / webapp.
 
 `onExperimentRunCompleted` loads the artifact, drops any `text`/`robocall` rows
@@ -410,8 +410,7 @@ The table below is the cross-package file index:
   tasks; GOTV is gated to the final 30 days. The **Active** phase is built
   separately by `buildActiveWeeks`, which buckets every active task (all
   generations, not just the latest) into Monday-Sunday weeks and flags the week
-  containing today; `CampaignStrategyPhase` renders it as a navigator bounded to
-  the current week ±1. Dates are parsed at **local** midnight (matching the date
+  containing today; the page lists the current week ±1 as one list. Dates are parsed at **local** midnight (matching the date
   chip) so a UTC-midnight task can't land in the wrong calendar week.
 - `useTrackerTasks.ts` polls fast (20s) while dynamic tasks are still
   generating, then drops to a slow background poll (so a weekly regen is picked
@@ -511,6 +510,5 @@ The design doc (`scratch/campaign-tracker-v3/`, since removed) proposed a weekly
    the agent pick text/robocall sends like any other dynamic task. They are now
    the 7 fixed sends from the plan's general-election contact schedule,
    materialized at bootstrap and suppressed on a lost primary. This keeps the
-   compliance-sensitive outreach cadence out of the model's hands. The Active
-   phase also moved from a flat list to a one-week-at-a-time navigator (current
-   week ±1), and weekly generation moved from Sunday to Thursday.
+   compliance-sensitive outreach cadence out of the model's hands. Weekly
+   generation moved from Sunday to Thursday.

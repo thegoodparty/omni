@@ -106,18 +106,10 @@ const CampaignStrategySection = ({
     if (!strategy || !campaign?.id) return
     if (trackedCampaignRef.current === campaign.id) return
     trackedCampaignRef.current = campaign.id
-    // The Active phase carries its tasks in `weeks` with `groups` emptied, and
-    // its navigator opens on the current week (falling back to the last). Count
-    // that one week rather than every week: `weeks` accumulates all generations,
-    // so summing them would make taskCount climb week over week no matter what
-    // the candidate is actually looking at.
-    const rendered = strategy.phases.flatMap((phase) => {
-      if (!phase.weeks) return phase.groups.flatMap((group) => group.tasks)
-      const open =
-        phase.weeks.find((week) => week.isCurrent) ??
-        phase.weeks[phase.weeks.length - 1]
-      return open?.tasks ?? []
-    })
+    // Every phase lists its tasks in `groups`, the Active phase included.
+    const rendered = strategy.phases.flatMap((phase) =>
+      phase.groups.flatMap((group) => group.tasks),
+    )
     trackEvent(EVENTS.Dashboard.CampaignPlan.CampaignTrackerViewed, {
       taskCount: rendered.length,
       tasksCompleted: rendered.filter((task) => task.completed).length,

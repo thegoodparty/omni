@@ -15,15 +15,15 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 | `buildTrackerStrategy.ts`     | Builds the render shape from persisted rows (the only path).                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then the accordion. Renders only from persisted rows.                                                                                                                                                                                                                                                                                                                                                                              |
 | `CampaignStrategyTaskRow.tsx` | One task card (date chip, channel icon, completion toggle).                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `CampaignStrategyPhase.tsx`   | A phase accordion item; the Active phase renders the `WeekNavigator` (one Mon-Sun week, back/forward one).                                                                                                                                                                                                                                                                                                                                                                                        |
+| `CampaignStrategyPhase.tsx`   | A phase accordion item: its tasks as one list, the Active phase included.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `campaignStrategy.types.ts`   | Render-shape types (`CampaignStrategyPhase`, `…Week`, `…Task`).                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## Patterns / non-obvious logic
 
 - **Render only the latest generation.** The backend appends each weekly run as
   a new `week`; `buildTrackerStrategy` filters dynamic rows to `max(week)` (plus
-  the non-generational static rows). The Active week navigator (`buildActiveWeeks`)
-  shows, per week, that week's dynamic-latest-gen tasks plus the deterministic
+  the non-generational static rows). The Active phase (`buildActiveWeeks`)
+  takes, per week, that week's dynamic-latest-gen tasks plus the deterministic
   `isDefaultTask` outreach dated in it. The gp-api weekly digest mirrors that
   active-week set (dynamic + text/robocall outreach, not the setup checklist), so
   keep the two in sync or the page and the email disagree.
@@ -34,22 +34,23 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   "happening now" (active) is date-driven (the first non-empty phase still in
   play). Empty intermediate phases are skipped so they can't strand a later
   populated phase as `upcoming`.
-- **Launch renders all its tasks; Active is a week navigator.** No
-  progressive-reveal cap (the weekly digest is what caps at 3). The Active phase
-  is built by `buildActiveWeeks`: it buckets every active task (all generations,
-  not just `max(week)`) into Monday-Sunday weeks, flags the week containing
-  today, and `CampaignStrategyPhase`'s `WeekNavigator` shows one week at a time,
-  bounded to the current week ±1 (older generations stay out of reach). GOTV is
-  the one gated phase: hidden behind a window message until the election is
-  within 30 days. Both the navigator window and the GOTV gate are deterministic
-  here, not in the agent.
+- **Every phase renders all its tasks as one list.** No progressive-reveal
+  cap (the weekly digest is what caps at 3). The Active phase is built by
+  `buildActiveWeeks`, which buckets every active task (all generations, not
+  just `max(week)`) into Monday-Sunday weeks and flags the week containing
+  today. The weeks still decide the next task and the finished week; the list
+  spans last week through next week (older generations stay out, since each
+  weekly run supersedes the one before), or every week once the election has
+  passed. GOTV is the one gated phase: hidden behind a window message until
+  the election is within 30 days. Both the list's span and the GOTV gate are
+  deterministic here, not in the agent.
 - **The section renders only from persisted rows.** `CampaignPlanView` renders
   it for every campaign; there is no client-catalog fallback and no story gate
   upstream. When the fetch settles with no rows the section shows a "setting up
   your tracker" state (bootstrap in flight).
 - **Head start.** Once this week has no open task, the next-step card offers
   next week's: `buildTrackerStrategy`'s `headStartWeek` marks next week's
-  first open task `isNext`, and the week navigator opens on it. The choice
+  first open task `isNext`, in the plan's list as on the card. The choice
   lives in the browser (`useHeadStartWeek`, shared by the card and the list)
   and only counts for next week, so it expires when the calendar gets there.
 - **Skipping is saved on the server.** The next task's Skip (on the card and
@@ -99,7 +100,7 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   and `buildActiveWeeks` (`localMidnight`) slice to the date portion before the
   Safari-safe dash->slash parse. This is not just Safari-safety: a raw
   `new Date(isoUtc)` is UTC midnight, which in US timezones is the _previous_ day
-  locally, so the week navigator would bucket a task into the wrong calendar week
+  locally, so `buildActiveWeeks` would bucket a task into the wrong calendar week
   (and disagree with its own date chip). Keep any new date parsing tolerant of
   both shapes and anchored to local midnight.
 - `useTrackerTasks` can't tell "generation failed/never-dispatched" from "still
