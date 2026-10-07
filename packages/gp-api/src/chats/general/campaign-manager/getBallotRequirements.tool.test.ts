@@ -12,6 +12,8 @@ const build = (
   const tool = buildGetBallotRequirementsTool({
     elections: { fetchFilingFeeByRaceHash },
     raceId: 'br-hash-1',
+    filingPeriodStart: '2026-09-01',
+    filingPeriodEnd: '2026-09-15',
   })
   // execute() is typed Promise<unknown> so the tool stays assignable to the
   // erased registry; cast once here rather than at every call site.
@@ -42,8 +44,27 @@ describe('buildGetBallotRequirementsTool', () => {
       filingOfficeAddress: '1 Main St, Springfield, IL 62701',
       filingPhoneNumber: '555-0100',
       paperworkInstructions: 'File with the county clerk.',
+      filingPeriodStart: '2026-09-01',
+      filingPeriodEnd: '2026-09-15',
       noDataFound: false,
     })
+  })
+
+  it('returns the filing window on record even when BallotReady has nothing', async () => {
+    const { run } = build(null)
+
+    expect(await run()).toMatchObject({
+      filingPeriodStart: '2026-09-01',
+      filingPeriodEnd: '2026-09-15',
+      noDataFound: true,
+    })
+  })
+
+  it('does not promise deadline answers it cannot look up', () => {
+    const { tool } = build(null)
+
+    expect(tool.description).not.toContain('or deadlines')
+    expect(tool.description).toContain('filingPeriodEnd')
   })
 
   it('does not leak the extraction source (audit-only field)', async () => {

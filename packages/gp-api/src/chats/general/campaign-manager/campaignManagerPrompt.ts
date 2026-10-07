@@ -20,6 +20,42 @@ import { WIN_TEXT_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.to
 
 export type { BallotStatus }
 
+// A window from BallotReady's milestone feed, yyyy-MM-dd strings; a side is
+// null when the feed holds only the other one.
+export interface LiveWindow {
+  start: string | null
+  end: string | null
+}
+
+// What the live election sources say about the race, as the handler read them
+// today. Three sources, kept apart because the block names each one: the
+// dates come from election-api's strategy context (BallotReady's ingested
+// elections), the windows from a live BallotReady call, and the vote targets
+// from election-api's model.
+export interface LiveRaceData {
+  generalElectionDate: string | null
+  primaryElectionDate: string | null
+  // Null as a whole when the BallotReady call failed or the race has no
+  // election linked; null per window when the feed has no milestones of that
+  // kind.
+  milestones: {
+    voterRegistration: LiveWindow | null
+    earlyVoting: LiveWindow | null
+    ballotRequest: LiveWindow | null
+  } | null
+  // 0 where the model has no estimate (the service collapses null to 0).
+  winNumber: number
+  voterContactGoal: number
+}
+
+// The outcome of today's lookup. "none" names the field on the record the
+// lookup needed and did not have, decided before any call is made;
+// "unavailable" is a call that was made today and failed or timed out.
+export type LiveRace =
+  | { status: 'ok'; data: LiveRaceData }
+  | { status: 'unavailable' }
+  | { status: 'none'; reason: 'no-election-date' | 'no-race' }
+
 // Compact, grounded context the manager agent reasons over. Assembled by the
 // handler's loadContext from the candidate's campaign and top tracker tasks.
 export interface CampaignManagerContext {
@@ -53,6 +89,10 @@ export interface CampaignManagerContext {
   // From the campaign row, where someone has recorded how a contest went.
   primaryResult: string | null
   didWin: boolean | null
+  // The live sources' view of the race, cut once per campaign per local day
+  // by the handler, rendered under its own source tags so the model can tell
+  // it from the record above.
+  liveRace: LiveRace
   // What the candidate answered in onboarding's "Are you already on the
   // ballot?" step. Null when they never answered (pre-dates the step, or came
   // in another way), which is not the same as "not on the ballot".
@@ -173,24 +213,34 @@ const openingWords = (start: Date, today: Date): string =>
   `Filing ${differenceInCalendarDays(start, today) < 0 ? 'opened' : 'opens'} ` +
   dateWithCount(start, today)
 
-const filingPeriodWords = (
-  ctx: CampaignManagerContext,
+// "opens Monday, ... (in 42 days), closes Friday, ... (in 60 days)": each side
+// the source holds, in the past tense once it is behind the candidate. Null
+// when the source holds neither side. Plural verbs for a plural label.
+const windowWords = (
+  startIso: string | null,
+  endIso: string | null,
   today: Date,
-): string => {
-  const start = parseDay(ctx.filingPeriodStart)
-  const end = parseDay(ctx.filingPeriodEnd)
-  if (!start && !end) return 'none'
+  plural = false,
+): string | null => {
+  const start = parseDay(startIso)
+  const end = parseDay(endIso)
+  if (!start && !end) return null
   const parts: string[] = []
   if (start) {
     const past = differenceInCalendarDays(start, today) < 0
-    parts.push(`${past ? 'opened' : 'opens'} ${dateWithCount(start, today)}`)
+    const verb = past ? 'opened' : plural ? 'open' : 'opens'
+    parts.push(`${verb} ${dateWithCount(start, today)}`)
   }
   if (end) {
     const past = differenceInCalendarDays(end, today) < 0
-    parts.push(`${past ? 'closed' : 'closes'} ${dateWithCount(end, today)}`)
+    const verb = past ? 'closed' : plural ? 'close' : 'closes'
+    parts.push(`${verb} ${dateWithCount(end, today)}`)
   }
   return parts.join(', ')
 }
+
+const filingPeriodWords = (ctx: CampaignManagerContext, today: Date): string =>
+  windowWords(ctx.filingPeriodStart, ctx.filingPeriodEnd, today) ?? 'none'
 
 // The race dates as stored, each written out with its signed count from the
 // candidate's day, and "none" where the record is empty, so a missing date is
@@ -249,6 +299,109 @@ const raceContext = (ctx: CampaignManagerContext): string => {
     )
   }
   return `The candidate's race:\n${[...lines, ...dates].join('\n')}`
+}
+
+// Source tags, one per fact, so nothing in the block reads as fresher or more
+// authoritative than it is: "fetched today" is true of the retrieval, and the
+// tag says where each fact came from.
+const LIVE_DATE_TAG = '(election data)'
+const LIVE_WINDOW_TAG = '(BallotReady)'
+const LIVE_ESTIMATE_TAG = '(model estimate)'
+
+const LIVE_WINDOWS = [
+  { key: 'voterRegistration', label: 'Voter registration', plural: false },
+  { key: 'earlyVoting', label: 'Early voting', plural: false },
+  { key: 'ballotRequest', label: 'Mail ballot requests', plural: true },
+] as const
+
+const LIVE_NONE: Record<
+  Extract<LiveRace, { status: 'none' }>['reason'],
+  string
+> = {
+  'no-election-date':
+    'No current race data: the campaign record has no election date to look ' +
+    'the race up by.',
+  'no-race':
+    'No current race data: no BallotReady race is linked to this campaign.',
+}
+
+// The record, captured once, and the live sources, read today, can name
+// different days for the same contest. The line states both, says what the
+// conflict means for the reply, and picks neither. Compared as days, so a
+// formatting difference never reads as a disagreement.
+const disagreementLine = (
+  what: string,
+  recorded: Date | null,
+  live: Date | null,
+): string | null => {
+  if (!recorded || !live) return null
+  if (differenceInCalendarDays(recorded, live) === 0) return null
+  return (
+    'The campaign record, captured when the candidate set up the race, and ' +
+    `the election data fetched today disagree on the ${what}: the record ` +
+    `says ${format(recorded, LONG_DATE)}; the election data says ` +
+    `${format(live, LONG_DATE)}. Do not resolve this by assumption. If the ` +
+    'correct date would change your guidance, ask the candidate to clarify ' +
+    'or verify it before planning around either date.'
+  )
+}
+
+// What the live sources say today, after the record. Every window renders,
+// closed ones included: a registration window that closed last week is the
+// fact that stops "go register voters this weekend", so the test of a fact's
+// place here is whether it can change the advice, not whether it is past.
+const liveRaceBlock = (ctx: CampaignManagerContext): string => {
+  const live = ctx.liveRace
+  if (live.status === 'unavailable') {
+    return 'Current race data was not available today.'
+  }
+  if (live.status === 'none') return LIVE_NONE[live.reason]
+  const today = todayFor(ctx)
+  const { data } = live
+  const general = parseDay(data.generalElectionDate)
+  const primary = parseDay(data.primaryElectionDate)
+  const lines = [
+    'Current race data, fetched today:',
+    `General election date: ${general ? dateWithCount(general, today) : 'none'} ${LIVE_DATE_TAG}`,
+    `Primary election date: ${primary ? dateWithCount(primary, today) : 'none'} ${LIVE_DATE_TAG}`,
+  ]
+  if (data.milestones) {
+    for (const w of LIVE_WINDOWS) {
+      const window = data.milestones[w.key]
+      const words = window
+        ? windowWords(window.start, window.end, today, w.plural)
+        : null
+      lines.push(
+        `${w.label}: ${words ?? 'no window on file'} ${LIVE_WINDOW_TAG}`,
+      )
+    }
+  } else {
+    lines.push(
+      'Voter registration, early voting, mail ballot windows: not available ' +
+        `today ${LIVE_WINDOW_TAG}`,
+    )
+  }
+  const estimates: string[] = []
+  if (data.winNumber > 0) {
+    estimates.push(
+      `Votes needed to win: about ${data.winNumber.toLocaleString('en-US')} ${LIVE_ESTIMATE_TAG}.`,
+    )
+  }
+  if (data.voterContactGoal > 0) {
+    estimates.push(
+      `Voter contact goal: about ${data.voterContactGoal.toLocaleString('en-US')} ${LIVE_ESTIMATE_TAG}.`,
+    )
+  }
+  if (estimates.length > 0) lines.push(estimates.join(' '))
+  const conflicts = [
+    disagreementLine('election date', parseDay(ctx.electionDate), general),
+    disagreementLine(
+      'primary date',
+      parseDay(ctx.primaryElectionDate),
+      primary,
+    ),
+  ].filter((line): line is string => line !== null)
+  return [...lines, ...conflicts].join('\n')
 }
 
 const tasksBlock = (ctx: CampaignManagerContext): string =>
@@ -719,6 +872,7 @@ export const buildCampaignManagerSystemPrompt = (
     ROLE,
     todayLine(ctx.state, ctx.now),
     raceContext(ctx),
+    liveRaceBlock(ctx),
     ballotStatusBlock(ctx),
     storyBlock(ctx),
     planBlock(ctx),

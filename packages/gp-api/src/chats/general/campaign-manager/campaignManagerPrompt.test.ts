@@ -3,6 +3,7 @@ import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
   LEGAL_LINE,
+  type LiveRaceData,
 } from './campaignManagerPrompt'
 import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import type { Organization } from '../../../generated/prisma'
@@ -21,6 +22,7 @@ const ctx = (
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  liveRace: { status: 'none', reason: 'no-race' },
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
@@ -244,6 +246,159 @@ describe('buildCampaignManagerSystemPrompt', () => {
         'Election date on record: Tuesday, November 3, 2026 (today)',
       )
       expect(electionDay).not.toContain('Result on record')
+    })
+
+    // The proposal's worked example: a candidate whose record and the live
+    // sources agree, on 2026-10-05, with a registration window already closed.
+    const LIVE: LiveRaceData = {
+      generalElectionDate: '2026-11-03',
+      primaryElectionDate: null,
+      milestones: {
+        voterRegistration: { start: null, end: '2026-10-02' },
+        earlyVoting: { start: '2026-10-24', end: '2026-11-01' },
+        ballotRequest: { start: null, end: '2026-10-24' },
+      },
+      winNumber: 1234,
+      voterContactGoal: 4936,
+    }
+    const liveCtx = (
+      data: Partial<LiveRaceData> = {},
+      over: Partial<CampaignManagerContext> = {},
+    ): CampaignManagerContext =>
+      ctx({
+        state: 'IL',
+        now: at('2026-10-05'),
+        liveRace: { status: 'ok', data: { ...LIVE, ...data } },
+        ...over,
+      })
+
+    describe('current race data', () => {
+      it('renders each live fact under its own source tag', () => {
+        const prompt = buildCampaignManagerSystemPrompt(liveCtx())
+        expect(prompt).toContain(
+          'Current race data, fetched today:\n' +
+            'General election date: Tuesday, November 3, 2026 (in 29 days) (election data)\n' +
+            'Primary election date: none (election data)\n' +
+            'Voter registration: closed Friday, October 2, 2026 (3 days ago) (BallotReady)\n' +
+            'Early voting: opens Saturday, October 24, 2026 (in 19 days), closes Sunday, November 1, 2026 (in 27 days) (BallotReady)\n' +
+            'Mail ballot requests: close Saturday, October 24, 2026 (in 19 days) (BallotReady)\n' +
+            'Votes needed to win: about 1,234 (model estimate). Voter contact goal: about 4,936 (model estimate).',
+        )
+        expect(prompt).not.toContain('disagree')
+      })
+
+      it('places the live block after the record and before the ballot status', () => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          liveCtx({}, { ballotStatus: 'on-ballot' }),
+        )
+        const record = prompt.indexOf('Election date on record')
+        const live = prompt.indexOf('Current race data, fetched today:')
+        const status = prompt.indexOf('When the candidate signed up')
+        expect(record).toBeGreaterThan(-1)
+        expect(live).toBeGreaterThan(record)
+        expect(status).toBeGreaterThan(live)
+      })
+
+      it('states both dates and the consequence when the record and the live election date disagree', () => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          liveCtx(
+            { generalElectionDate: '2027-02-23', primaryElectionDate: null },
+            { electionDate: '2027-04-06' },
+          ),
+        )
+        expect(prompt).toContain(
+          'The campaign record, captured when the candidate set up the race, ' +
+            'and the election data fetched today disagree on the election ' +
+            'date: the record says Tuesday, April 6, 2027; the election data ' +
+            'says Tuesday, February 23, 2027. Do not resolve this by ' +
+            'assumption. If the correct date would change your guidance, ask ' +
+            'the candidate to clarify or verify it before planning around ' +
+            'either date.',
+        )
+      })
+
+      it('does the same for the primary date', () => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          liveCtx(
+            { primaryElectionDate: '2026-05-19' },
+            { primaryElectionDate: '2026-03-17' },
+          ),
+        )
+        expect(prompt).toContain(
+          'disagree on the primary date: the record says Tuesday, March 17, ' +
+            '2026; the election data says Tuesday, May 19, 2026.',
+        )
+        expect(prompt).not.toContain('disagree on the election date')
+      })
+
+      it('states a live primary the record lacks as a fact, not a disagreement', () => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          liveCtx({ primaryElectionDate: '2026-05-19' }),
+        )
+        expect(prompt).toContain(
+          'Primary election date: Tuesday, May 19, 2026 (139 days ago) (election data)',
+        )
+        expect(prompt).toContain('Primary date on record: none')
+        expect(prompt).not.toContain('disagree')
+      })
+
+      it('says when the feed has no window of a kind, and when no windows came back', () => {
+        const noEarlyVoting = buildCampaignManagerSystemPrompt(
+          liveCtx({
+            milestones: {
+              voterRegistration: { start: '2026-09-01', end: '2026-10-19' },
+              earlyVoting: null,
+              ballotRequest: null,
+            },
+          }),
+        )
+        expect(noEarlyVoting).toContain(
+          'Voter registration: opened Tuesday, September 1, 2026 (34 days ago), closes Monday, October 19, 2026 (in 14 days) (BallotReady)',
+        )
+        expect(noEarlyVoting).toContain(
+          'Early voting: no window on file (BallotReady)',
+        )
+        const none = buildCampaignManagerSystemPrompt(
+          liveCtx({ milestones: null }),
+        )
+        expect(none).toContain(
+          'Voter registration, early voting, mail ballot windows: not available today (BallotReady)',
+        )
+        expect(none).not.toContain('Early voting:')
+      })
+
+      it('drops the estimates when the model has none', () => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          liveCtx({ winNumber: 0, voterContactGoal: 0 }),
+        )
+        expect(prompt).not.toContain('Votes needed to win')
+        expect(prompt).not.toContain('Voter contact goal')
+        expect(prompt).not.toContain('model estimate')
+      })
+
+      it('names the field the lookup needed when there was none to make', () => {
+        const noDate = buildCampaignManagerSystemPrompt(
+          ctx({ liveRace: { status: 'none', reason: 'no-election-date' } }),
+        )
+        expect(noDate).toContain(
+          'No current race data: the campaign record has no election date to look the race up by.',
+        )
+        const noRace = buildCampaignManagerSystemPrompt(
+          ctx({ liveRace: { status: 'none', reason: 'no-race' } }),
+        )
+        expect(noRace).toContain(
+          'No current race data: no BallotReady race is linked to this campaign.',
+        )
+        const unavailable = buildCampaignManagerSystemPrompt(
+          ctx({ liveRace: { status: 'unavailable' } }),
+        )
+        expect(unavailable).toContain(
+          'Current race data was not available today.',
+        )
+        for (const prompt of [noDate, noRace, unavailable]) {
+          expect(prompt).not.toContain('fetched today')
+        }
+      })
     })
 
     it('shows the filing window for a candidate already on the ballot', () => {
