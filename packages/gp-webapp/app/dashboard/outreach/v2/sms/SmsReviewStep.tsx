@@ -116,7 +116,8 @@ export const SmsReviewStep = ({
   onComplete,
 }: SmsReviewStepProps) => {
   const [campaign] = useCampaign()
-  const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
+  const { checkoutSession, error, setError, fetchClientSecret } =
+    useCheckoutSession()
   const [preview, setPreview] = useState(false)
   const [isRedeeming, setIsRedeeming] = useState(false)
   const [payError, setPayError] = useState(false)
@@ -189,6 +190,10 @@ export const SmsReviewStep = ({
   }
 
   const handlePaidComplete = async (sessionId: string) => {
+    // Reached only after Stripe confirmed the card, so a decline shown from
+    // an earlier attempt is stale while the flow moves to the success screen.
+    setCardError(null)
+    setError(null)
     const response = await completeCheckoutSession(sessionId)
     if (!response.ok) {
       const parsed = purchaseErrorSchema.safeParse(response.data)

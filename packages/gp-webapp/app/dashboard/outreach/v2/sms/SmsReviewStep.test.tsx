@@ -1,15 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
 import { mswServer } from 'helpers/test-utils/api-mocking'
 import { SmsReviewStep } from './SmsReviewStep'
 
 // What the mocked Stripe form reports as its live total once mounted; null
-// means Stripe has not priced the session yet.
-const { live } = vi.hoisted(() => ({
-  live: { dollars: null as number | null },
-}))
+// means Stripe has not priced the session yet. `providerError` stands in for
+// the session provider's error slot, which the real CheckoutForm sets
+// alongside its onError callback.
+const { live, providerError } = vi.hoisted(() => {
+  const listeners = new Set<() => void>()
+  const providerError = {
+    value: null as string | null,
+    set: (next: string | null) => {
+      providerError.value = next
+      listeners.forEach((notify) => notify())
+    },
+    subscribe: (notify: () => void) => {
+      listeners.add(notify)
+      return () => listeners.delete(notify)
+    },
+  }
+  return { live: { dollars: null as number | null }, providerError }
+})
 
 const DECLINE = 'Your card has insufficient funds. Try a different card.'
 
@@ -27,18 +42,23 @@ vi.mock('app/dashboard/purchase/components/CheckoutPayment', async () => {
     useEffect(() => {
       if (live.dollars !== null) onTotalChange?.(live.dollars)
     }, [onTotalChange])
-    // Mirrors CheckoutForm: the card is confirmed, then onSuccess runs, and
+    // Mirrors CheckoutForm: every error sets the provider's error and then
+    // calls onError; the card is confirmed, then onSuccess runs, and
     // anything it throws reaches the same onError a decline does.
+    const fail = (message: string) => {
+      providerError.set(message)
+      onPaymentError?.(message)
+    }
     const complete = async () => {
       try {
         await onPaymentSuccess?.('cs_test')
       } catch (err) {
-        onPaymentError?.(err instanceof Error ? err.message : String(err))
+        fail(err instanceof Error ? err.message : String(err))
       }
     }
     return (
       <div data-testid="checkout-payment">
-        <button type="button" onClick={() => onPaymentError?.(DECLINE)}>
+        <button type="button" onClick={() => fail(DECLINE)}>
           Decline the card
         </button>
         <button type="button" onClick={() => void complete()}>
@@ -50,19 +70,35 @@ vi.mock('app/dashboard/purchase/components/CheckoutPayment', async () => {
   return { default: CheckoutPaymentStub }
 })
 
-vi.mock('app/dashboard/purchase/components/CheckoutSessionProvider', () => ({
-  useCheckoutSession: () => ({
-    checkoutSession: { id: 'cs_test', clientSecret: 'secret', amount: 1197.42 },
-    error: null,
-    fetchClientSecret: vi.fn().mockResolvedValue('secret'),
-  }),
-}))
+vi.mock(
+  'app/dashboard/purchase/components/CheckoutSessionProvider',
+  async () => {
+    const { useSyncExternalStore } = await import('react')
+    return {
+      useCheckoutSession: () => ({
+        checkoutSession: {
+          id: 'cs_test',
+          clientSecret: 'secret',
+          amount: 1197.42,
+        },
+        error: useSyncExternalStore(
+          providerError.subscribe,
+          () => providerError.value,
+        ),
+        setError: providerError.set,
+        fetchClientSecret: vi.fn().mockResolvedValue('secret'),
+      }),
+    }
+  },
+)
 
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ hasFreeTextsOffer: false }],
 }))
 
-const renderStep = () =>
+const renderStep = (
+  overrides: Partial<ComponentProps<typeof SmsReviewStep>> = {},
+) =>
   render(
     <SmsReviewStep
       isServe={false}
@@ -81,11 +117,13 @@ const renderStep = () =>
       preparing={false}
       prepareError={false}
       onComplete={vi.fn()}
+      {...overrides}
     />,
   )
 
 beforeEach(() => {
   live.dollars = null
+  providerError.value = null
 })
 
 describe('SmsReviewStep totals', () => {
@@ -120,6 +158,27 @@ describe('SmsReviewStep card declines', () => {
       screen.queryByText('Failed to initialize purchase'),
     ).not.toBeInTheDocument()
     expect(screen.getByText('$1197.42')).toBeInTheDocument()
+  })
+
+  it('clears the decline alert once a retry goes through', async () => {
+    mswServer.use(
+      http.post('/api/v1/payments/purchase/complete-checkout-session', () =>
+        HttpResponse.json({}),
+      ),
+    )
+    // The success transition is whatever the flow does after completion; a
+    // promise that never settles keeps the step on screen during it.
+    renderStep({ onComplete: () => new Promise<void>(() => undefined) })
+    await screen.findByTestId('checkout-payment')
+    fireEvent.click(screen.getByRole('button', { name: 'Decline the card' }))
+    expect(await screen.findByText(DECLINE)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete purchase' }))
+
+    await waitFor(() =>
+      expect(screen.queryByText(DECLINE)).not.toBeInTheDocument(),
+    )
+    expect(screen.getByTestId('checkout-payment')).toBeInTheDocument()
   })
 
   it('shows the purchase error, not the card decline, when completion fails after the charge', async () => {
