@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion, EmptyState, Spinner, Stepper, cn } from '@styleguide'
+import { Accordion, EmptyState, Progress, Spinner, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
@@ -182,33 +182,52 @@ const CampaignStrategySection = ({
                 one called out. */}
             <div className="bg-card rounded-xl border">
               <div className="bg-card sticky top-0 z-20 rounded-t-xl border-b border-border px-6 pt-5 pb-4">
-                <Stepper
-                  currentStep={currentIndex + 1}
-                  totalSteps={phases.length}
-                  barClassName="h-2"
-                />
+                {/* One progress bar per phase, filled by the share of its
+                    tasks that are done (not-for-me tasks don't count against
+                    it); the phase happening now keeps its bold label. */}
                 <ol
-                  className="mt-2 grid gap-3"
+                  className="grid gap-3"
                   style={{
                     gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))`,
                   }}
                 >
-                  {phases.map((phase, index) => (
-                    <li
-                      key={phase.key}
-                      aria-current={index === currentIndex ? 'step' : undefined}
-                      className={cn(
-                        'truncate text-xs',
-                        index === currentIndex
-                          ? 'font-semibold text-primary'
-                          : index < currentIndex
-                            ? 'text-foreground'
-                            : 'text-muted-foreground',
-                      )}
-                    >
-                      {phase.title}
-                    </li>
-                  ))}
+                  {phases.map((phase, index) => {
+                    const counted = phase.groups
+                      .flatMap((group) => group.tasks)
+                      .filter((task) => task.setAside === null)
+                    const done = counted.filter((task) => task.completed).length
+                    return (
+                      <li
+                        key={phase.key}
+                        aria-current={
+                          index === currentIndex ? 'step' : undefined
+                        }
+                        className="flex min-w-0 flex-col gap-2"
+                      >
+                        <Progress
+                          value={
+                            counted.length > 0
+                              ? (done / counted.length) * 100
+                              : 0
+                          }
+                          aria-label={`${phase.title}: ${done} of ${counted.length} done`}
+                          className="h-2"
+                        />
+                        <span
+                          className={cn(
+                            'truncate text-xs',
+                            index === currentIndex
+                              ? 'font-semibold text-primary'
+                              : index < currentIndex
+                                ? 'text-foreground'
+                                : 'text-muted-foreground',
+                          )}
+                        >
+                          {phase.title}
+                        </span>
+                      </li>
+                    )
+                  })}
                 </ol>
               </div>
               <Accordion

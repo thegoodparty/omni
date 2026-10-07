@@ -400,3 +400,20 @@ describe('CampaignStrategySection — head start', () => {
     )
   })
 })
+
+describe('CampaignStrategySection — phase progress', () => {
+  it('fills each phase’s bar by its done tasks, leaving out not-for-me ones', () => {
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 'a', phase: 'launch', completed: true }),
+        task({ id: 'b', phase: 'launch' }),
+        task({ id: 'c', phase: 'launch', skipReason: 'notForMe' }),
+      ]),
+    )
+    render(<CampaignStrategySection />)
+
+    expect(
+      screen.getByRole('progressbar', { name: 'Launch: 1 of 2 done' }),
+    ).toBeInTheDocument()
+  })
+})
