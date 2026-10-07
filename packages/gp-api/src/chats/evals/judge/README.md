@@ -161,13 +161,14 @@ JUDGE_FIXTURE_API_URL=https://gp-api-dev.goodparty.org \
   npx tsx src/chats/evals/judge/judgeIdentifiers.ts /tmp/judge-ids
 while IFS='=' read -r key value; do
   case $key in
-    attempts)   export JUDGE_BACKGROUND_ATTEMPTS=$value ;;
-    max_cases)  export JUDGE_BACKGROUND_MAX_CASES=$value ;;
-    admitted)   export JUDGE_BACKGROUND_ADMITTED=$value ;;
-    refused)    export JUDGE_BACKGROUND_REFUSED=$value ;;
-    org_slug)   export JUDGE_FIXTURE_ORG_SLUG=$value ;;
-    race_id)    export JUDGE_FIXTURE_RACE_ID=$value ;;
-    user_email) export JUDGE_FIXTURE_USER_EMAIL=$value ;;
+    attempts)      export JUDGE_BACKGROUND_ATTEMPTS=$value ;;
+    max_cases)     export JUDGE_BACKGROUND_MAX_CASES=$value ;;
+    admitted)      export JUDGE_BACKGROUND_ADMITTED=$value ;;
+    refused)       export JUDGE_BACKGROUND_REFUSED=$value ;;
+    arm_budget_ms) export JUDGE_ARM_BUDGET_MS=$value ;;
+    org_slug)      export JUDGE_FIXTURE_ORG_SLUG=$value ;;
+    race_id)       export JUDGE_FIXTURE_RACE_ID=$value ;;
+    user_email)    export JUDGE_FIXTURE_USER_EMAIL=$value ;;
   esac
 done < <(cat /tmp/judge-budget /tmp/judge-ids)
 ```
