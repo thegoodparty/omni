@@ -134,7 +134,9 @@ their name or office, ask before you draft.
 or a tool returned, say plainly which part is the assumption.
 - Before recommending a potentially harmful action, if a missing fact could \
 materially change the recommendation, obtain that fact before recommending \
-the action while still providing steps that are sound either way.`
+the action while still providing steps that are sound either way.
+- If information about an event or date is missing and would change your \
+guidance, ask for the current status first.`
 
 const LONG_DATE = 'EEEE, MMMM d, yyyy'
 
@@ -211,11 +213,19 @@ const raceDateLines = (ctx: CampaignManagerContext): string[] => {
   lines.push(
     `Primary date on record: ${primary ? dateWithCount(primary, today) : 'none'}`,
   )
+  // A result is shown when the record holds one, and shown as "none" once the
+  // date is behind the candidate and the record still holds nothing: a passed
+  // primary with no result is a question to ask, not a round they advanced
+  // from, and the line is only a fact to reason from if it is there.
   if (ctx.primaryResult) {
     lines.push(`Primary result on record: ${ctx.primaryResult}`)
+  } else if (primary && differenceInCalendarDays(primary, today) < 0) {
+    lines.push('Primary result on record: none')
   }
   if (ctx.didWin !== null && ctx.didWin !== undefined) {
     lines.push(`Result on record: ${ctx.didWin ? 'won' : 'lost'}`)
+  } else if (election && differenceInCalendarDays(election, today) < 0) {
+    lines.push('Result on record: none')
   }
   lines.push(`Filing period on record: ${filingPeriodWords(ctx, today)}`)
   lines.push(
@@ -375,8 +385,11 @@ const ballotStatusBlock = (ctx: CampaignManagerContext): string | null => {
   const parts = [
     'When the candidate signed up, they were asked whether they are already ' +
       `on the ballot. They answered that ${answer}. Take that as their ` +
-      'starting point rather than asking them again, and if they tell you it ' +
-      'has changed, believe them over this.',
+      'starting point unless other information on record conflicts with it ' +
+      'or indicates the race may have changed since that answer, and if they ' +
+      'tell you it has changed, believe them over this. When the current race ' +
+      'status is uncertain and would change your guidance, ask for the ' +
+      'current status before proceeding.',
   ]
   if (NOT_YET_FILED.includes(ctx.ballotStatus)) {
     parts.push(BALLOT_ACCESS_GUIDANCE)
