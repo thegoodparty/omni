@@ -77,8 +77,9 @@ describe('CampaignPlanView', () => {
     expect(planView).toHaveAttribute('data-show-bottom-bar', 'false')
   })
 
-  it('calls useCampaignPlanData with just the current user', () => {
+  it('calls useCampaignPlanData with the current user and the tracker’s start', () => {
     render(<CampaignPlanView initialUser={null} />)
-    expect(mockData).toHaveBeenCalledWith(null)
+    // No tracker rows yet, so no start: the plan starts today.
+    expect(mockData).toHaveBeenCalledWith(null, null)
   })
 })

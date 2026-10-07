@@ -1,4 +1,5 @@
 import { CAMPAIGN_TASK_CATALOG } from './CampaignTaskCatalog.data'
+import { VOTER_CONTACT_SCHEDULE } from './VoterContactSchedule.data'
 import type {
   CampaignStrategyPhaseKey,
   TaskTiming,
@@ -100,6 +101,33 @@ export const phaseForDate = (
 ): CampaignTimelinePhase =>
   date < windows.active ? 'launch' : date < windows.gotv ? 'active' : 'gotv'
 
+// When each of the plan's voter-contact sends goes out. A send still ahead
+// when the plan starts keeps its date, counted back from the election. A
+// late joiner's sends that were already past move up, in order, into the time
+// before the next send still ahead (or election day): the first on the start
+// day, then a week apart, closer if there isn't room. Shared by the tracker
+// and the plan document, so they never disagree.
+export const voterContactSendDate = (
+  catalogId: string,
+  election: Date,
+  start: Date,
+): Date | null => {
+  const sends = VOTER_CONTACT_SCHEDULE.map((send) => ({
+    id: send.catalogId as string,
+    date: plusDays(election, -send.daysBeforeElection),
+  }))
+  const send = sends.find((candidate) => candidate.id === catalogId)
+  if (!send) return null
+  const past = sends.filter((candidate) => candidate.date < start)
+  const index = past.findIndex((candidate) => candidate.id === catalogId)
+  if (index === -1) return send.date
+  const next =
+    sends.find((candidate) => candidate.date >= start)?.date ?? election
+  const roomDays = Math.floor((next.getTime() - start.getTime()) / DAY_MS)
+  const stepDays = Math.max(0, Math.min(7, Math.floor(roomDays / past.length)))
+  return plusDays(start, index * stepDays)
+}
+
 // The date a catalog task gets on the timeline. Election-relative work is
 // dated from the election, as before. Setup work lands early in Launch and
 // going-public work in its last two weeks, rather than a fixed number of
@@ -107,11 +135,16 @@ export const phaseForDate = (
 // or recurring work) sits at the start of its phase: it has to have a date to
 // be stored, but it isn't a due date (see hasKnownTrackerDate).
 export const resolveTrackerTaskDate = (
-  task: { timing: TaskTiming; phase: CampaignStrategyPhaseKey },
+  task: { id?: string; timing: TaskTiming; phase: CampaignStrategyPhaseKey },
   windows: CampaignPhaseWindows,
 ): Date => {
   const { timing } = task
   const { start, active, election } = windows
+  // The voter-contact sends follow their own schedule, compressed for a late
+  // joiner rather than dated before the plan began.
+  const send =
+    task.id && election ? voterContactSendDate(task.id, election, start) : null
+  if (send) return send
   // The last day of Launch, for work that has to land inside it.
   const lastLaunchDay = later(start, plusDays(active, -1))
   switch (timing.kind) {

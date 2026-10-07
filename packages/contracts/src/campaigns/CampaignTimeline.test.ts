@@ -5,6 +5,7 @@ import {
   phaseForDate,
   resolveTrackerTaskDate,
   trackerTimelineStart,
+  voterContactSendDate,
 } from './CampaignTimeline'
 
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
@@ -112,5 +113,36 @@ describe('trackerTimelineStart', () => {
         { title: 'Canvass', date: '2026-01-01', isDefaultTask: false },
       ]),
     ).toBeNull()
+  })
+})
+
+describe('voterContactSendDate', () => {
+  it('keeps a send on schedule when the plan started before it', () => {
+    expect(
+      voterContactSendDate('introduction-text', election, day('2026-01-05')),
+    ).toEqual(day('2026-09-08'))
+  })
+
+  it('compresses a late joiner’s past sends, in order, before the next one', () => {
+    const start = day('2026-10-07')
+    const date = (id: string) => voterContactSendDate(id, election, start)
+    expect(date('introduction-text')).toEqual(day('2026-10-07'))
+    expect(date('introduction-robocall')).toEqual(day('2026-10-10'))
+    expect(date('persuasion-robocall')).toEqual(day('2026-10-16'))
+    expect(date('early-voting-text')).toEqual(day('2026-10-20'))
+  })
+
+  it('dates a voter-contact task through the tracker resolver too', () => {
+    const windows = campaignPhaseWindows(day('2026-10-07'), election)
+    expect(
+      resolveTrackerTaskDate(
+        {
+          id: 'introduction-text',
+          timing: { kind: 'electionRelative', offset: 56, unit: 'days' },
+          phase: 'launch',
+        },
+        windows,
+      ),
+    ).toEqual(day('2026-10-07'))
   })
 })

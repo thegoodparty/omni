@@ -18,6 +18,8 @@ import PlanView, {
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
+import { useTrackerTasks } from './campaignStrategy/useTrackerTasks'
+import { trackerTimelineStart } from '@goodparty_org/contracts'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
 
@@ -38,7 +40,12 @@ const CampaignPlanView = ({
   initialUser,
 }: CampaignPlanViewProps): React.JSX.Element => {
   const router = useRouter()
-  const data = useCampaignPlanData(initialUser)
+  // The plan's contact schedule starts where the tracker's timeline does.
+  const { tasks } = useTrackerTasks()
+  const data = useCampaignPlanData(
+    initialUser,
+    trackerTimelineStart(tasks)?.toISOString() ?? null,
+  )
   const { campaignId, strategy, media } = data
   const [heroDownloading, setHeroDownloading] = useState(false)
 

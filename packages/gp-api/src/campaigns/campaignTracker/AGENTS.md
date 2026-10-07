@@ -23,9 +23,14 @@ overview: `docs/features/campaign-tracker-v3.md`.
   task's timing into a date inside its phase's window, counted back from the
   election. Rows dated before that, or before the candidate changed their
   race, are moved on read: `alignTrackerTaskDates` runs (best-effort) before
-  the GET returns, on open default rows whose timing is signup-relative.
-  Election-relative rows (the outreach sends, GOTV dates) are never moved,
-  since a send may already be scheduled from one.
+  the GET returns, on open default rows whose timing is signup-relative,
+  and on the voter-contact sends. A send still ahead keeps its
+  election-relative date; a late joiner's sends already past at the start
+  are compressed into the time before the next one (`voterContactSendDate`),
+  and the plan document uses the same rule. The CAS outreach post reads these
+  row dates, so a new Pro campaign's ClickUp tasks match; one already posted
+  keeps the dates it was sent with. Other election-relative rows (the GOTV
+  dates) are never moved.
 
 - **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
   a task aside: `later` sets `snoozedUntil` (`trackerTaskSnoozeUntil`: three

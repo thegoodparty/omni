@@ -423,6 +423,7 @@ export {
   resolveTrackerTaskDate,
   timelinePhase,
   trackerTimelineStart,
+  voterContactSendDate,
   type CampaignPhaseWindows,
   type CampaignTimelinePhase,
 } from './campaigns/CampaignTimeline'

@@ -27,6 +27,7 @@ import {
   resolveTrackerTaskDate,
   trackerTaskSnoozeUntil,
   trackerTimelineStart,
+  VOTER_CONTACT_SCHEDULE,
   type TaskTiming,
   type TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
@@ -95,6 +96,11 @@ const trackerArtifactSchema = z.object({
 // Campaign Tracker tasks live in their own table (campaign_tracker_tasks) so the
 // new tracker coexists with existing users' campaign_task rows. The completion
 // flow mirrors CampaignTasksService against the new model.
+// The plan's voter-contact sends, which follow their own compressed schedule.
+const VOTER_CONTACT_IDS = new Set<string>(
+  VOTER_CONTACT_SCHEDULE.map((send) => send.catalogId),
+)
+
 // The timing kinds dated from the timeline's start rather than the election,
 // which alignTrackerTaskDates keeps on the timeline.
 const TIMELINE_DATED_KINDS = new Set<TaskTiming['kind']>([
@@ -357,9 +363,9 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   // Default rows are dated once, when the tracker starts. Bring the open ones
   // back onto the campaign's timeline on read, so rows dated by the old
   // signup-relative rules, or before the candidate changed their race, land
-  // in the right phase. Election-relative rows (the outreach sends, the GOTV
-  // dates) are left alone: they were always dated from the election, and a
-  // send may already be scheduled from one.
+  // in the right phase. The voter-contact sends move too, so a late joiner's
+  // past-due sends are compressed into the time ahead of them. Other
+  // election-relative rows (the GOTV dates) were always right and stay.
   async alignTrackerTaskDates(campaign: Campaign): Promise<number> {
     const rows = await this.model.findMany({
       where: { campaignId: campaign.id, isDefaultTask: true },
@@ -382,7 +388,15 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       const entry = CAMPAIGN_TASK_CATALOG.find(
         (task) => task.title === row.title,
       )
-      if (!entry || !TIMELINE_DATED_KINDS.has(entry.timing.kind)) return []
+      if (
+        !entry ||
+        !(
+          TIMELINE_DATED_KINDS.has(entry.timing.kind) ||
+          VOTER_CONTACT_IDS.has(entry.id)
+        )
+      ) {
+        return []
+      }
       const date = startOfDay(resolveTrackerTaskDate(entry, windows))
       return date.getTime() === row.date.getTime()
         ? []
