@@ -237,3 +237,69 @@ describe('a done task’s menu', () => {
     expect(onToggleComplete).toHaveBeenCalledWith('t4', false)
   })
 })
+
+describe('the order of a task’s menu', () => {
+  const base = {
+    id: 't5',
+    title: 'Open a campaign bank account',
+    description: '',
+    channel: 'general',
+    date: '2099-02-03T00:00:00.000Z',
+    param: null,
+    href: null,
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: true,
+    completed: false,
+    setAside: null,
+    snoozedUntil: null,
+  } as const
+
+  const menuLabels = async (
+    props: Partial<React.ComponentProps<typeof CampaignStrategyTaskRow>>,
+  ) => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={base}
+          onToggleComplete={vi.fn()}
+          onDiscuss={vi.fn()}
+          onSetAside={vi.fn()}
+          {...props}
+        />
+      </ul>,
+    )
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'More options' }))
+    return (await screen.findAllByRole('menuitem')).map(
+      (item) => item.textContent,
+    )
+  }
+
+  it('leads with marking it done, then asking about it, when it has no action', async () => {
+    expect(await menuLabels({})).toEqual([
+      'Mark as done',
+      'Ask about this',
+      'Show in 3 days',
+      'Don’t suggest it again',
+    ])
+  })
+
+  it('leads with the task’s own action when it has one', async () => {
+    expect(
+      await menuLabels({
+        task: { ...base, isNext: false },
+        getAction: () => ({
+          label: 'Plan your door knocking',
+          href: '/dashboard/door-knocking',
+          external: false,
+        }),
+      }),
+      // An in-app action closes the task itself, so there's no Mark as done.
+    ).toEqual(['Plan your door knocking', 'Ask about this'])
+  })
+})

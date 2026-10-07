@@ -120,7 +120,9 @@ const CampaignStrategyTaskRow = ({
   // The "Do this next" row leads with its action as a real button, like the
   // next-task card; every other row keeps it in the menu.
   const actionInRow = Boolean(action && task.isNext)
-  const openTaskItems = [
+  // The task's own action: the mapped one, or for rows without one, starting
+  // outreach or opening its link.
+  const actionItems = [
     ...(action && !actionInRow
       ? [
           {
@@ -132,9 +134,6 @@ const CampaignStrategyTaskRow = ({
             },
           },
         ]
-      : []),
-    ...(onDiscuss
-      ? [{ label: 'Ask about this', onClick: () => onDiscuss(task) }]
       : []),
     ...(!getAction &&
     !href &&
@@ -159,10 +158,28 @@ const CampaignStrategyTaskRow = ({
           },
         ]
       : []),
+  ]
+  const markDoneItems =
+    onToggleComplete && !completesItself
+      ? [
+          {
+            label: 'Mark as done',
+            onClick: () => onToggleComplete(task.id, true),
+          },
+        ]
+      : []
+  // The main action leads, then asking about it; with no action of its own,
+  // marking it done is the main action.
+  const openTaskItems = [
+    ...(actionItems.length > 0 ? actionItems : markDoneItems),
+    ...(onDiscuss
+      ? [{ label: 'Ask about this', onClick: () => onDiscuss(task) }]
+      : []),
+    ...(actionItems.length > 0 ? markDoneItems : []),
     ...(onSetAside && task.isNext && !task.completed
       ? [
           {
-            label: snoozeLabel(task.date),
+            label: snoozeLabel(task.dateKnown === false ? null : task.date),
             onClick: () => onSetAside(task, 'later'),
           },
           ...(canSetTaskAsideForGood(task.title)
@@ -177,14 +194,6 @@ const CampaignStrategyTaskRow = ({
       : []),
     ...(onSetAside && task.setAside
       ? [{ label: 'Bring it back', onClick: () => onSetAside(task, null) }]
-      : []),
-    ...(onToggleComplete && !completesItself
-      ? [
-          {
-            label: 'Mark as done',
-            onClick: () => onToggleComplete(task.id, true),
-          },
-        ]
       : []),
   ]
   // A done task has nothing left to do, so its menu only undoes that.

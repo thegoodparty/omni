@@ -171,7 +171,7 @@ export const PhaseStatus = ({
     <span className="text-success-700 text-sm font-semibold">Done</span>
   ) : null
 
-// One phase as a standalone card. Title and summary stay visible when collapsed; objective/category groups and task rows
+// One phase as a section of the timeline card. Title and summary stay visible when collapsed; objective/category groups and task rows
 // run edge to edge so dividers and highlights reach the card sides.
 const CampaignStrategyPhase = ({
   phase,
@@ -184,7 +184,7 @@ const CampaignStrategyPhase = ({
   <AccordionItem
     id={`phase-${phase.key}`}
     value={phase.key}
-    className="bg-card overflow-hidden rounded-xl border px-0 shadow-sm"
+    className="overflow-hidden px-0"
   >
     <AccordionTrigger className="px-6 py-5 hover:no-underline">
       <span className="flex flex-1 flex-col gap-1 text-left">

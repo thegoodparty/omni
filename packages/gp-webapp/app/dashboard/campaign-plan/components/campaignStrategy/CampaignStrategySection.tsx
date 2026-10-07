@@ -26,11 +26,10 @@ import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 // story cohort (see CampaignPlanView) — there is no client-catalog fallback.
 // While the tracker is bootstrapping (no rows yet) it shows a setup state.
 const CampaignStrategySection = ({
-  bodyEnd,
+  bodyStart,
 }: {
-  // Rendered in the scrolling body under the phases (the plan's Summary), so
-  // the sticky footer of phases ahead stays below it.
-  bodyEnd?: React.ReactNode
+  // Rendered above the timeline card (the plan's Executive Summary entry).
+  bodyStart?: React.ReactNode
 }): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError } = useTrackerTasks()
@@ -184,71 +183,71 @@ const CampaignStrategySection = ({
         />
       ) : (
         <>
-          {/* Sticky phase progress, full width under the page bar: the four
-              phases as one bar, each labelled, the current one called out. */}
-          <div className="sticky top-0 z-20 w-full border-b border-border bg-background">
-            <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-4">
-              <Stepper
-                currentStep={currentIndex + 1}
-                totalSteps={phases.length}
-                barClassName="h-2"
-              />
-              <ol
-                className="mt-2 grid gap-3"
-                style={{
-                  gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))`,
-                }}
-              >
-                {phases.map((phase, index) => (
-                  <li
-                    key={phase.key}
-                    aria-current={index === currentIndex ? 'step' : undefined}
-                    className={cn(
-                      'truncate text-xs',
-                      index === currentIndex
-                        ? 'font-semibold text-primary'
-                        : index < currentIndex
-                          ? 'text-foreground'
-                          : 'text-muted-foreground',
-                    )}
-                  >
-                    {phase.title}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
           <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10">
-            <Accordion
-              type="multiple"
-              value={openValue}
-              onValueChange={setOpenKeys}
-              className="space-y-4"
-            >
-              {phases.map((phase) => (
-                <CampaignStrategyPhase
-                  key={phase.key}
-                  phase={phase}
-                  onToggleComplete={onToggleComplete}
-                  onStartOutreach={openOutreachFlow}
-                  getAction={(task) =>
-                    taskAction(
-                      tasks.find((row) => row.id === task.id),
-                      'plan',
-                    )
-                  }
-                  onSetAside={(task, reason) =>
-                    setAside.mutate({ id: task.id, reason })
-                  }
-                  onDiscuss={
-                    chat
-                      ? (task) => chat.discussTask(discussTaskMessage(task))
-                      : undefined
-                  }
+            {bodyStart}
+            {/* One long card: the timeline bar at its top, sticking as the
+                phases scroll under it, each phase labelled and the current
+                one called out. */}
+            <div className="bg-card rounded-xl border">
+              <div className="bg-card sticky top-0 z-20 rounded-t-xl border-b border-border px-6 pt-5 pb-4">
+                <Stepper
+                  currentStep={currentIndex + 1}
+                  totalSteps={phases.length}
+                  barClassName="h-2"
                 />
-              ))}
-            </Accordion>
-            {bodyEnd}
+                <ol
+                  className="mt-2 grid gap-3"
+                  style={{
+                    gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {phases.map((phase, index) => (
+                    <li
+                      key={phase.key}
+                      aria-current={index === currentIndex ? 'step' : undefined}
+                      className={cn(
+                        'truncate text-xs',
+                        index === currentIndex
+                          ? 'font-semibold text-primary'
+                          : index < currentIndex
+                            ? 'text-foreground'
+                            : 'text-muted-foreground',
+                      )}
+                    >
+                      {phase.title}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              <Accordion
+                type="multiple"
+                value={openValue}
+                onValueChange={setOpenKeys}
+              >
+                {phases.map((phase) => (
+                  <CampaignStrategyPhase
+                    key={phase.key}
+                    phase={phase}
+                    onToggleComplete={onToggleComplete}
+                    onStartOutreach={openOutreachFlow}
+                    getAction={(task) =>
+                      taskAction(
+                        tasks.find((row) => row.id === task.id),
+                        'plan',
+                      )
+                    }
+                    onSetAside={(task, reason) =>
+                      setAside.mutate({ id: task.id, reason })
+                    }
+                    onDiscuss={
+                      chat
+                        ? (task) => chat.discussTask(discussTaskMessage(task))
+                        : undefined
+                    }
+                  />
+                ))}
+              </Accordion>
+            </div>
           </div>
         </>
       )}

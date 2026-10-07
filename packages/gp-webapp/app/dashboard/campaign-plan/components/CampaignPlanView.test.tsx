@@ -19,8 +19,8 @@ vi.mock('app/onboarding/success/pdf/downloadCampaignPlanPdf', () => ({
 }))
 // The Summary card rides into the tracker's body, so the stub renders it.
 vi.mock('./campaignStrategy/CampaignStrategySection', () => ({
-  default: ({ bodyEnd }: { bodyEnd?: React.ReactNode }) => (
-    <div data-testid="tracker-section">{bodyEnd}</div>
+  default: ({ bodyStart }: { bodyStart?: React.ReactNode }) => (
+    <div data-testid="tracker-section">{bodyStart}</div>
   ),
 }))
 vi.mock('./CampaignTrackerHero', () => ({
@@ -62,14 +62,17 @@ describe('CampaignPlanView', () => {
     mockData.mockReturnValue(planData())
   })
 
-  it('renders the tracker with the plan folded under it, bottom bar hidden', async () => {
+  it('opens the whole plan in a modal from the Executive Summary card, bottom bar hidden', async () => {
     render(<CampaignPlanView initialUser={null} />)
     expect(screen.getByTestId('tracker-section')).toBeInTheDocument()
-    // The plan starts folded into its card; open it to reach the plan.
+    // The plan stays closed behind its card until the card is opened.
     expect(screen.queryByTestId('plan-view')).not.toBeInTheDocument()
     await userEvent.click(
       screen.getByRole('button', { name: /executive summary/i }),
     )
+    expect(
+      screen.getByRole('dialog', { name: 'Executive summary' }),
+    ).toBeInTheDocument()
     const planView = screen.getByTestId('plan-view')
     expect(planView).toHaveAttribute('data-show-hero', 'false')
     // The tracker hides the plan's bottom bar so it doesn't overlap the

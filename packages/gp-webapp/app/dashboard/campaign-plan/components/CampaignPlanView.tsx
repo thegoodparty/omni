@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { User } from 'helpers/types'
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
   Button,
+  ChevronRightIcon,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
   DownloadIcon,
 } from '@styleguide'
 import PlanView, {
@@ -134,78 +136,78 @@ const CampaignPlanView = ({
     router.push('/dashboard')
   }
 
-  // The page is the tracker itself: a sticky phase progress bar, the phases up
-  // to the one in focus, the full plan folded into a Summary card under them,
-  // and the phases still ahead in a sticky footer. The old headline, next-step
-  // band and tracker intro are gone; the PDF lives inside the Summary.
+  // The page opens on the Executive Summary, a card that opens the whole plan
+  // in a modal, then the plan's timeline: one long card whose phase bar sticks
+  // to the top as the phases scroll under it.
   return (
     <div className="w-full">
       <CampaignStrategySection
-        bodyEnd={
-          /* The full plan folds into one card in the phases' style: closed,
-             it names the plan; open, it offers the PDF and its sections are
-             pills. */
-          <div className="mt-4">
-            <Accordion type="single" collapsible>
-              <AccordionItem
-                value="plan"
-                className="bg-card relative rounded-xl border px-0 shadow-sm"
-              >
-                <AccordionTrigger className="py-5 pr-6 pl-6 hover:no-underline">
-                  <span className="flex flex-1 flex-col gap-1 text-left">
-                    <span className="text-base font-semibold">
-                      Executive Summary
-                    </span>
-                    <span className="text-muted-foreground text-sm font-normal">
-                      This is the whole plan in one view. If you read nothing
-                      else, read this.
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                {/* Under the description, outside the fold: the PDF is reachable
-                    without opening the plan. A sibling of the trigger, since a button
-                    can't nest in its own button. */}
-                <div className="px-6 pb-5">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="small"
-                    onClick={handleHeroDownload}
-                    loading={heroDownloading}
-                    disabled={!data.planReady}
-                    className="w-full sm:w-auto"
-                  >
-                    <DownloadIcon className="size-4" aria-hidden />
-                    Download PDF
-                  </Button>
-                </div>
-                <AccordionContent className="border-border border-t pt-6 data-[state=open]:overflow-visible">
-                  <PlanView
-                    showHero={false}
-                    showBottomDownload={false}
-                    showBottomBar={false}
-                    plan={data.plan}
-                    planReady={data.planReady}
-                    state={data.state}
-                    strategyState={data.strategyState}
-                    pressOutletsState={data.pressOutletsState}
-                    voterInsightsContext={data.voterInsightsContext}
-                    onDownload={handleDownload}
-                    onShared={handleShared}
-                    onContinue={handleContinue}
-                    showConfetti={false}
-                    rootClassName="bg-transparent"
-                    contentClassName="px-6 !pt-0 !pb-6"
-                    bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
-                    navVariant="pills"
-                    // Pins just under the tracker's sticky phase bar (~73px).
-                    navStickyTop={73}
-                    scrollToTopOnMount={false}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
+        bodyStart={
+          <Dialog>
+            <DialogTrigger className="bg-card hover:bg-muted/50 mb-4 flex w-full items-center gap-4 rounded-xl border px-6 py-5 text-left transition-colors">
+              <span className="flex flex-1 flex-col gap-1">
+                <span className="text-base font-semibold">
+                  Executive Summary
+                </span>
+                <span className="text-muted-foreground text-sm">
+                  This is the whole plan in one view. If you read nothing else,
+                  read this.
+                </span>
+              </span>
+              <ChevronRightIcon
+                className="text-muted-foreground size-5 shrink-0"
+                aria-hidden
+              />
+            </DialogTrigger>
+            {/* Fills most of the screen: the title, close and the section
+                pills stay fixed at the top while the plan scrolls under them. */}
+            <DialogContent className="flex h-[calc(100dvh-2rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+              <div className="border-border flex items-center gap-3 border-b py-4 pr-14 pl-6">
+                <DialogTitle className="flex-1 text-lg font-semibold">
+                  Executive summary
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                  The whole campaign plan in one view.
+                </DialogDescription>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  onClick={handleHeroDownload}
+                  loading={heroDownloading}
+                  disabled={!data.planReady}
+                >
+                  <DownloadIcon className="size-4" aria-hidden />
+                  Download PDF
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <PlanView
+                  showHero={false}
+                  showBottomDownload={false}
+                  showBottomBar={false}
+                  plan={data.plan}
+                  planReady={data.planReady}
+                  state={data.state}
+                  strategyState={data.strategyState}
+                  pressOutletsState={data.pressOutletsState}
+                  voterInsightsContext={data.voterInsightsContext}
+                  onDownload={handleDownload}
+                  onShared={handleShared}
+                  onContinue={handleContinue}
+                  showConfetti={false}
+                  rootClassName="bg-transparent"
+                  contentClassName="px-6 !pt-0 !pb-6"
+                  bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
+                  navVariant="pills"
+                  // The pills stick to the top of the modal's scroll area,
+                  // right under its title.
+                  navStickyTop={0}
+                  scrollToTopOnMount={false}
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
         }
       />
     </div>
