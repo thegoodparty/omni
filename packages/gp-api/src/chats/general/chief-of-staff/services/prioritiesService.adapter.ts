@@ -4,8 +4,9 @@ import {
   PriorityStepIdSchema,
   parsePriorityStatus,
 } from '@goodparty_org/contracts'
-import { PrioritySource } from '@/generated/prisma'
+import { Priority, PrioritySource } from '@/generated/prisma'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
+import { currentStepOf } from '@/priorities/util/priority.util'
 import {
   CreatePriorityInput,
   PrioritiesToolPort,
@@ -28,15 +29,11 @@ const toRecord = (row: PriorityRow): PriorityRecord => ({
   archivedAt: row.archivedAt ? formatISO(row.archivedAt) : null,
 })
 
-type PriorityFlowRow = {
-  status: Parameters<typeof parsePriorityStatus>[0]
-  currentStep: string | null
-  nextAction: string | null
-}
+type PriorityFlowRow = Pick<Priority, 'status' | 'currentStep' | 'nextAction'>
 
 const toFlowState = (row: PriorityFlowRow): PriorityFlowState => {
   const status = parsePriorityStatus(row.status)
-  const currentStep = PriorityStepIdSchema.safeParse(row.currentStep)
+  const currentStep = PriorityStepIdSchema.safeParse(currentStepOf(row))
   return {
     currentStep: currentStep.success ? currentStep.data : null,
     nextAction: row.nextAction,

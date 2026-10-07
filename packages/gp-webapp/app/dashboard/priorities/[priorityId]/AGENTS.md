@@ -51,6 +51,13 @@ brand-new thread gets one hidden kickoff so the official arrives at a
 conversation that has already started; it is filtered out of the transcript on
 both send and reload.
 
+Leaving mid-turn aborts the stream, but the server finishes the turn and saves
+it. A transcript that loads ending on the official's turn (most often the
+kickoff, when someone backs out within seconds) is a reply still being written,
+so the workspace shows "Thinking..." and polls `listMessages` until it lands,
+on the shared engine's doneless commit-poll budget. It never sends a second
+kickoff, which would leave two in the thread.
+
 ## The rail moves in three passes, and the last one is the truth
 
 1. **`tool_call update_priority_status`** — `applyStatusUpdate` runs the
