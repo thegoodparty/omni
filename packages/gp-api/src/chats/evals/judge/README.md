@@ -1134,3 +1134,4 @@ exactly this reason.
 
 Run the typecheck, not just the tests: vitest uses SWC and does not
 typecheck, so a tsc-only error passes the suite and fails CI.
+
