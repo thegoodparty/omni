@@ -15,6 +15,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { differenceInMilliseconds, formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
@@ -78,6 +79,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     @Inject(forwardRef(() => CampaignTasksService))
     private readonly campaignTasks: WrapperType<CampaignTasksService>,
     private readonly trackerTasks: CampaignTrackerTasksService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -1202,7 +1204,47 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       await this.crm.trackCampaign(id)
     }
 
+    void this.generatePlanOnLaunch(id)
+
     return true
+  }
+
+  // Every onboarding flow converges on launch, so this is the one place a
+  // plan is guaranteed to start. The webapp's pre-warm only fires from the
+  // first-time flow's story exit; the follow-on flow a returning candidate
+  // takes never called it, and that candidate finished signup with no plan,
+  // no tracker and no weekly email. Best-effort and not awaited: generation
+  // reads the race from election-api before it dispatches, and a refusal
+  // (no race yet, election-api down) or a slow upstream must neither fail
+  // nor hold the launch that just succeeded. The service's own dedup makes
+  // the pre-warm plus this a single run.
+  //
+  // CampaignStrategyService is resolved lazily via ModuleRef rather than
+  // injected: it depends on CampaignTrackerTasksService from this module, so
+  // importing CampaignStrategyModule here would close a cycle. The import is
+  // lazy too, not just the lookup: a top-level import put this file on an
+  // import cycle with the strategy service's own dependencies, and whichever
+  // test entry loaded this file first saw one of them as undefined when Nest
+  // read the strategy constructor's metadata.
+  private async generatePlanOnLaunch(campaignId: number): Promise<void> {
+    try {
+      const { CampaignStrategyService } =
+        await import('@/campaignStrategy/services/campaignStrategy.service.js')
+      const strategy = this.moduleRef.get(CampaignStrategyService, {
+        strict: false,
+      })
+      const campaign = await this.model.findUnique({
+        where: { id: campaignId },
+        include: { user: true },
+      })
+      if (!campaign) return
+      await strategy.getOrGenerateStrategicLandscape(campaign)
+    } catch (err) {
+      this.logger.warn(
+        { err, campaignId },
+        'Plan generation at launch did not start',
+      )
+    }
   }
 
   async findSlug(user: User, suffix?: string) {

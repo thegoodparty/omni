@@ -453,6 +453,14 @@ candidate's saved `draft` row in place (`draftOutreachId`) and discarding its
 id would send the re-entry into a 409. Robocall runs the same shape through its own contract
 (`POST /v1/outreach/robocall` + the pay step's authorization hold).
 
+The pay step's Stripe session comes from `CheckoutSessionProvider`
+(`app/dashboard/purchase/components/`). When gp-api refuses to create it, the
+provider shows the 4xx `message` as-is (Stripe's own validation text
+included); a 5xx or a non-JSON edge response keeps the generic "Failed to
+create checkout session", and every report to Sentry carries the HTTP status.
+It used to read a `data.error` field gp-api never sends, so every refusal
+reached the candidate and Sentry as that one generic line (2026-10-06).
+
 ## Gotchas
 
 ### Shared
