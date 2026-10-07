@@ -73,16 +73,22 @@ const webSearchStub: LlmTool = {
   }),
 }
 
-const buildTools = (ballotData: BallotData | null): Record<string, LlmTool> => {
+const buildTools = (
+  ballotData: BallotData | null,
+  ctx: CampaignManagerContext,
+): Record<string, LlmTool> => {
   const tools: Record<string, LlmTool> = { web_search: webSearchStub }
   if (ballotData !== null) {
     // The REAL tool, so the eval exercises its real description and its
-    // noDataFound derivation, with only the upstream call stubbed.
+    // noDataFound derivation, with only the upstream call stubbed. The filing
+    // window is bound from the case's context, as the handler binds it.
     tools.get_ballot_requirements = buildGetBallotRequirementsTool({
       elections: {
         fetchFilingFeeByRaceHash: () => Promise.resolve(ballotData),
       } as unknown as Pick<ElectionsService, 'fetchFilingFeeByRaceHash'>,
       raceId: 'br-hash-springfield-ward-3',
+      filingPeriodStart: ctx.filingPeriodStart,
+      filingPeriodEnd: ctx.filingPeriodEnd,
     })
   }
   return tools
@@ -102,6 +108,7 @@ const ask = async (
     messages,
     tools: buildTools(
       c.ballotData === undefined ? BALLOT_DATA_FULL : c.ballotData,
+      ctx,
     ),
     temperature: 0,
     maxOutputTokens: 700,

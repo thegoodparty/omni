@@ -3,7 +3,12 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
-import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
+import { PinoLogger } from 'nestjs-pino'
+import {
+  type Campaign,
+  ChatMessageRole,
+  ChatScope,
+} from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
@@ -25,7 +30,9 @@ import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
   LEGAL_LINE,
+  type LiveRace,
 } from './campaignManagerPrompt'
+import { localDay } from '../services/todayLine'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 import type {
@@ -151,6 +158,31 @@ const EMPTY_STORY_STATE: StoryState = {
 // disagree about whether the manager can search.
 const webSearchAvailable = (): boolean => !!process.env.ANTHROPIC_API_KEY
 
+// Live race data is cut once per campaign per local day: the first turn of
+// the day fetches it and every later turn that day, in any of the campaign's
+// conversations, reuses it. The lookup fans out to election-api and
+// BallotReady, so it races a timer and a slow day degrades to "unavailable"
+// instead of holding the turn.
+const LIVE_RACE_TIMEOUT_MS = 3_000
+
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`timed out after ${ms} ms`)),
+      ms,
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
+  })
+
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
   candidateName: '',
@@ -163,6 +195,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  liveRace: { status: 'none', reason: 'no-election-date' },
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
@@ -193,6 +226,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   // and a turn that runs out of steps ends without presenting anything.
   readonly maxSteps = 15
 
+  // One entry per campaign: the day it was cut and what came back. Replaced
+  // when the campaign's local day moves on; never holds an unavailable
+  // outcome, so the next turn after a failure tries again.
+  private readonly liveRaceByCampaign = new Map<
+    number,
+    { day: string; value: LiveRace }
+  >()
+
   constructor(
     private readonly store: GeneralChatStoreService,
     private readonly campaigns: CampaignsService,
@@ -214,7 +255,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly elections?: ElectionsService,
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
-  ) {}
+    @Optional()
+    private readonly logger?: PinoLogger,
+  ) {
+    this.logger?.setContext(CampaignManagerHandler.name)
+  }
 
   // The manager runs the shared session model (one fresh conversation per
   // open, resume by opening a past one from history), so it has no
@@ -325,6 +370,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // on one signal, same as crmToolsEnabled itself.
     const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
+    const liveRace = await this.resolveLiveRace(
+      campaign,
+      localDay(details.state ?? null),
+    )
+
     return {
       candidateFirstName: campaign.user?.firstName ?? null,
       candidateName,
@@ -341,6 +391,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       primaryElectionDate: details.primaryElectionDate ?? null,
       primaryResult: campaign.primaryResult ?? null,
       didWin: campaign.didWin ?? null,
+      liveRace,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,
       filingPeriodEnd: details.filingPeriodsEnd ?? null,
@@ -362,6 +413,73 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       helpCenterToolEnabled: !!this.helpCenter,
       story,
       plan,
+    }
+  }
+
+  // The record is checked first, as read this turn, so a campaign that gains
+  // a race today is looked up today and the two "none" outcomes never cost a
+  // call. The service returns a bare null for a missing election date, a
+  // missing race, and an upstream failure alike, which is why the checks
+  // live here rather than on its result. The trade: its position-based
+  // fallback for a campaign without a race hash is skipped, and that path
+  // cannot produce dates or windows, only a win number.
+  private async resolveLiveRace(
+    campaign: Campaign,
+    day: string,
+  ): Promise<LiveRace> {
+    const details = campaign.details
+    if (!details.electionDate) {
+      return { status: 'none', reason: 'no-election-date' }
+    }
+    if (!details.raceId) return { status: 'none', reason: 'no-race' }
+    const cached = this.liveRaceByCampaign.get(campaign.id)
+    if (cached && cached.day === day) return cached.value
+    const started = Date.now()
+    const value = await this.fetchLiveRace(campaign)
+    this.logger?.info(
+      {
+        campaignId: campaign.id,
+        status: value.status,
+        ms: Date.now() - started,
+      },
+      'campaign manager live race data fetched',
+    )
+    if (value.status === 'ok') {
+      this.liveRaceByCampaign.set(campaign.id, { day, value })
+    }
+    return value
+  }
+
+  private async fetchLiveRace(campaign: Campaign): Promise<LiveRace> {
+    try {
+      const metrics = await withTimeout(
+        this.campaigns.fetchLiveRaceTargetMetrics(campaign),
+        LIVE_RACE_TIMEOUT_MS,
+      )
+      if (!metrics) return { status: 'unavailable' }
+      const m = metrics.milestones
+      return {
+        status: 'ok',
+        data: {
+          generalElectionDate: metrics.generalElectionDate,
+          primaryElectionDate: metrics.primaryElectionDate,
+          milestones: m
+            ? {
+                voterRegistration: m.voter_registration,
+                earlyVoting: m.early_voting,
+                ballotRequest: m.request_ballot,
+              }
+            : null,
+          winNumber: metrics.winNumber,
+          voterContactGoal: metrics.voterContactGoal,
+        },
+      }
+    } catch (error) {
+      this.logger?.warn(
+        { error, campaignId: campaign.id },
+        'campaign manager live race data lookup failed',
+      )
+      return { status: 'unavailable' }
     }
   }
 
@@ -424,6 +542,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.get_ballot_requirements = buildGetBallotRequirementsTool({
         elections: this.elections,
         raceId: ctx.raceId,
+        filingPeriodStart: ctx.filingPeriodStart,
+        filingPeriodEnd: ctx.filingPeriodEnd,
       })
     }
 
