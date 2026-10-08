@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { statementIdCollector } from './peopleDbxStatement.client'
+import { statementCollector } from './peopleDbxStatement.client'
 import { VOTER_READ_MESSAGE, VoterReadLogService } from './voterReadLog.service'
 
 const DISTRICT_ID = '11111111-2222-3333-4444-555555555555'
@@ -26,7 +26,7 @@ describe('VoterReadLogService', () => {
     await expect(measure(async () => 'rows')).resolves.toBe('rows')
   })
 
-  it('logs op, districtId, elapsed ms and statement ids', async () => {
+  it('logs op, districtId, elapsed ms, statement ids and statement sizes', async () => {
     const entry = await measure(async () => 'rows').then(
       () => info.mock.calls[0]?.[0] as Record<string, unknown>,
     )
@@ -37,22 +37,24 @@ describe('VoterReadLogService', () => {
       districtId: DISTRICT_ID,
       dbxMs: expect.any(Number),
       statementIds: [],
+      statementBytes: [],
     })
   })
 
-  // The join key for warehouse-side latency attribution. One operation can
-  // issue several statements -- a list is a count plus a page -- so this has
-  // to accumulate, not overwrite.
-  it('collects every statement id the read issued, in order', async () => {
+  // The join key for warehouse-side latency attribution, and the size beside
+  // it. One operation can issue several statements -- a list is a count plus a
+  // page -- so this has to accumulate, not overwrite.
+  it('collects every statement the read issued, in order, with its size', async () => {
     await measure(async () => {
-      statementIdCollector.getStore()?.push('stmt-count')
+      statementCollector.getStore()?.push({ id: 'stmt-count', bytes: 420 })
       await Promise.resolve()
-      statementIdCollector.getStore()?.push('stmt-page')
+      statementCollector.getStore()?.push({ id: 'stmt-page', bytes: 1_200_000 })
       return 'rows'
     })
 
     expect(info.mock.calls[0]?.[0]).toMatchObject({
       statementIds: ['stmt-count', 'stmt-page'],
+      statementBytes: [420, 1_200_000],
     })
   })
 
@@ -60,7 +62,9 @@ describe('VoterReadLogService', () => {
   // needs, so the line survives the failure even though the error propagates.
   it('logs the read and rethrows when it fails', async () => {
     const failing = measure(async () => {
-      statementIdCollector.getStore()?.push('stmt-doomed')
+      statementCollector
+        .getStore()
+        ?.push({ id: 'stmt-doomed', bytes: 7_400_000 })
       throw new Error('warehouse unavailable')
     })
 
@@ -71,6 +75,10 @@ describe('VoterReadLogService', () => {
         op: 'list',
         districtId: DISTRICT_ID,
         statementIds: ['stmt-doomed'],
+        // The size of the statement that failed is the whole point of keeping
+        // the line on the error path: a 7MB statement is a planning cost, not
+        // a cold warehouse.
+        statementBytes: [7_400_000],
         err: expect.any(Error),
       }),
       VOTER_READ_MESSAGE,
@@ -86,7 +94,7 @@ describe('VoterReadLogService', () => {
         districtId: DISTRICT_ID,
         read: async () => {
           await Promise.resolve()
-          statementIdCollector.getStore()?.push(id)
+          statementCollector.getStore()?.push({ id, bytes: 1 })
           return id
         },
       })

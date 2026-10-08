@@ -997,8 +997,9 @@ who is not choosing an audience at all; the pack's own timeout sentence is
 correctly capacity-neutral, and it is the one that never reaches a user.
 
 To check a suspected timeout in Grafana, every voter read logs one line at
-`people-db voter read` with flat `op`, `districtId`, `dbxMs` and `statementIds`
-fields (`VoterReadLogService`), emitted on the failure path too — deliberately,
+`people-db voter read` with flat `op`, `districtId`, `dbxMs`, `statementIds`
+and `statementBytes` fields (`VoterReadLogService`), emitted on the failure
+path too — deliberately,
 so cold-start attribution is not biased toward the reads that were already
 fast. The door-knocking create is `op="dk-evaluate"`; the map download is the
 pack build.

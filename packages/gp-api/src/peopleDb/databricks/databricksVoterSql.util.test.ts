@@ -522,15 +522,53 @@ describe('buildVoterFiltersSql', () => {
   it('lowercases override id sets too', () => {
     const include = ['AAAAAAAA-1111-4111-8111-111111111111']
     const exclude = ['BBBBBBBB-2222-4222-8222-222222222222']
-    const sql = buildVoterFiltersSql(createBag(), noFilters(), undefined, {
-      include,
-      exclude,
-    })
+    const sql = buildVoterFiltersSql(
+      createBag(),
+      parseFilters({ voterStatus: { in: ['Super'] } }),
+      { include, exclude },
+    )
 
     expect(sql).toContain(include[0]?.toLowerCase())
     expect(sql).toContain(exclude[0]?.toLowerCase())
     expect(sql).not.toContain('AAAAAAAA')
     expect(sql).not.toContain('BBBBBBBB')
+  })
+
+  // Every id that survives composition is inlined into the statement text, and
+  // the warehouse's planning cost scales with how many there are, so an id the
+  // OR would have let through anyway must not be sent on the exclude side too.
+  it('drops an id present on both override sides from the exclude side', () => {
+    const both = '11111111-1111-4111-8111-111111111111'
+    const onlyExcluded = '22222222-2222-4222-8222-222222222222'
+    const sql = buildVoterFiltersSql(
+      createBag(),
+      parseFilters({ voterStatus: { in: ['Super'] } }),
+      { include: [both], exclude: [both, onlyExcluded] },
+    )
+
+    expect(sql).toBe(
+      `((v.\`Voter_Status\` IN (:p0) AND v.\`id\` NOT IN ('${onlyExcluded}'))` +
+        ` OR v.\`id\` IN ('${both}'))`,
+    )
+  })
+
+  // An identical id SET has to produce identical statement TEXT: the warehouse
+  // serves a repeat of a byte-identical statement from its result cache, and
+  // these sets arrive in Postgres `GROUP BY` order, which is not stable across
+  // tasks. Incident 105: the same saved list read 0.6s, 21s and 64s.
+  it('inlines an id set in a stable order whatever order it arrives in', () => {
+    const ids = [
+      '33333333-3333-4333-8333-333333333333',
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+    ]
+    const sqlFor = (values: string[]) =>
+      buildVoterFiltersSql(createBag(), parseFilters({ id: { notIn: values } }))
+
+    expect(sqlFor(ids)).toBe(sqlFor([...ids].reverse()))
+    expect(sqlFor(ids)).toBe(
+      `v.\`id\` NOT IN ('${ids[1]}', '${ids[2]}', '${ids[0]}')`,
+    )
   })
 
   // The uuid shape is what makes interpolating an id set safe, so it is
@@ -582,13 +620,37 @@ describe('buildVoterFiltersSql', () => {
     expect(bag.params).toEqual([{ name: 'p0', value: 'Super', type: 'STRING' }])
   })
 
-  it('composes contactsMadeIdOverrides as its own top-level clause', () => {
-    const include = ['11111111-1111-1111-1111-111111111111']
+  // The contacts-made shape: "0 contacts" plus some non-zero buckets excludes
+  // everyone contacted UNLESS their bucket is selected. There is no base clause
+  // to scope it to, so once the two sides are disjoint the include side is
+  // already implied and a single NOT IN says the same thing in half the bytes.
+  it('collapses contactsMadeIdOverrides into one NOT IN set', () => {
+    const selectedBucket = '11111111-1111-4111-8111-111111111111'
+    const otherBucket = '22222222-2222-4222-8222-222222222222'
     const bag = createBag()
-    const sql = buildVoterFiltersSql(bag, noFilters(), undefined, { include })
+    const sql = buildVoterFiltersSql(bag, noFilters(), undefined, {
+      include: [selectedBucket],
+      exclude: [selectedBucket, otherBucket],
+    })
 
-    expect(sql).toBe(`(TRUE OR v.\`id\` IN ('${include[0]}'))`)
+    expect(sql).toBe(`v.\`id\` NOT IN ('${otherBucket}')`)
     expect(bag.params).toEqual([])
+  })
+
+  // Selecting EVERY bucket is no constraint at all, and used to send every
+  // contacted person's id twice to say so.
+  it('emits no clause when every excluded id is also included', () => {
+    const everyone = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+    ]
+
+    expect(
+      buildVoterFiltersSql(createBag(), noFilters(), undefined, {
+        include: everyone,
+        exclude: everyone,
+      }),
+    ).toBeNull()
   })
 
   it('returns null when nothing is filtered', () => {

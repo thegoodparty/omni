@@ -4,7 +4,8 @@ import {
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
-  statementIdCollector,
+  type DbxStatementRecord,
+  statementCollector,
 } from './peopleDbxStatement.client'
 import type { DbxStatement } from './databricksVoterSql.util'
 import { PEOPLE_DBX_HOSTNAME, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
@@ -404,9 +405,11 @@ describe('PeopleDbxStatementClient', () => {
   })
 
   // The statement id is the join key from a slow request in Loki to query
-  // history, so it has to survive the failure paths -- a statement that times
-  // out never settles, and those are the requests worth chasing.
-  it('records the statement id even when the statement fails', async () => {
+  // history, and the byte size is what says whether a slow one was a big
+  // statement or a slow warehouse. Both have to survive the failure paths -- a
+  // statement that times out never settles, and those are the requests worth
+  // chasing.
+  it('records the statement id and its size even when the statement fails', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         statement_id: '01ef-timeout',
@@ -414,11 +417,14 @@ describe('PeopleDbxStatementClient', () => {
       }),
     )
 
-    const ids: string[] = []
+    const sql = `SELECT 1 WHERE id NOT IN ('${'a'.repeat(400)}')`
+    const statements: DbxStatementRecord[] = []
     await expect(
-      statementIdCollector.run(ids, () => client.query(stmt('SELECT 1'))),
+      statementCollector.run(statements, () => client.query(stmt(sql))),
     ).rejects.toThrow()
 
-    expect(ids).toEqual(['01ef-timeout'])
+    expect(statements).toEqual([
+      { id: '01ef-timeout', bytes: Buffer.byteLength(sql, 'utf8') },
+    ])
   })
 })

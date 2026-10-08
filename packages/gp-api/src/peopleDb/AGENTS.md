@@ -22,12 +22,13 @@ call, collects the statement ids it issued, and emits one flat
 a window of them. Flat rather than nested because LogQL cannot unwrap nested
 json without a parser expression per field.
 
-| field          |                                                    |
-| -------------- | -------------------------------------------------- |
-| `op`           | which read (table below)                           |
-| `districtId`   | the district the read was scoped to                |
-| `dbxMs`        | wall-clock ms for the whole operation              |
-| `statementIds` | every Databricks statement id the operation issued |
+| field            |                                                        |
+| ---------------- | ------------------------------------------------------ |
+| `op`             | which read (table below)                               |
+| `districtId`     | the district the read was scoped to                    |
+| `dbxMs`          | wall-clock ms for the whole operation                  |
+| `statementIds`   | every Databricks statement id the operation issued     |
+| `statementBytes` | how many bytes of SQL each of those statements carried |
 
 `statementIds` is an array, not a scalar, and is collected **per operation**:
 `list` issues a count and a page, `stats` issues a voter scan and a census
@@ -38,6 +39,26 @@ an id without the read path threading one back. It is the join key for
 warehouse-side latency attribution (statement duration, queue time, cold
 starts), so a new read path that bypasses the client will log an empty array
 and silently drop out of that analysis.
+
+`statementBytes` is the same array, positionally. It exists because id sets
+are **inlined** into the statement text rather than bound (the Statement
+Execution API has no array parameter type), so two reads of the same route can
+differ by four orders of magnitude in planning cost with nothing else to tell
+them apart: a saved list that filters on prior contacts carries every contacted
+person's id, and planning a statement with thousands of literals costs tens of
+seconds where the same scan without them costs under a second. A slow read is
+either a big statement or a slow warehouse, and this is the field that says
+which. The same number is on the `databricks.statement` span as
+`databricks.statement_bytes`.
+
+**Inlined id sets are sorted** (`normalizeIds` in
+`databricks/databricksVoterSql.util.ts`), and that is not cosmetic. The
+warehouse serves a repeat of a byte-identical statement out of its result cache
+in well under a second, these sets arrive in Postgres `GROUP BY` order, which
+is not stable across tasks, and the voter mart only changes monthly. Unsorted,
+two gp-api tasks resolving the same membership emitted different text and each
+paid full planning cost. Anything new that inlines ids goes through the same
+helper.
 
 A failed read still logs the line, at `warn` with the error attached: a
 statement that timed out is exactly the sample a cold-start attribution needs,

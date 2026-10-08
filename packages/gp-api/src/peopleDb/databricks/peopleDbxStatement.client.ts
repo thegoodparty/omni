@@ -87,19 +87,24 @@ const tokenResponseSchema = z.object({
 
 type StatementResponse = z.infer<typeof statementResponseSchema>
 
-// Statement ids for whatever runs inside the current async context. The read
-// log carries them so a slow request in Loki can be joined to Databricks query
-// history, where the wait-before-compilation actually shows up. Threading an
-// id back through every builder and service signature would have touched six
-// call sites to carry a diagnostic; this stays out of the shapes entirely.
-export const statementIdCollector = new AsyncLocalStorage<string[]>()
+// What ran inside the current async context: the statement id, so a slow
+// request in Loki can be joined to Databricks query history where the
+// wait-before-compilation shows up, and how many bytes of SQL we sent, which
+// is the one number that separates a sub-second voter read from a minute-long
+// one (id sets are inlined, so a statement can be megabytes of literals and
+// nothing else in telemetry says so). Threading these back through every
+// builder and service signature would have touched six call sites to carry a
+// diagnostic; this stays out of the shapes entirely.
+export type DbxStatementRecord = { id: string; bytes: number }
+
+export const statementCollector = new AsyncLocalStorage<DbxStatementRecord[]>()
 
 // Recorded at SUBMIT, not on completion: a statement that times out or fails
 // throws before it ever settles, and those are the requests the join key
 // exists to chase. The id is assigned by the submit response, so it is already
 // known by then.
-const recordStatementId = (id?: string): void => {
-  if (id) statementIdCollector.getStore()?.push(id)
+const recordStatement = (bytes: number, id?: string): void => {
+  if (id) statementCollector.getStore()?.push({ id, bytes })
 }
 
 export type PeopleDbxRows = {
@@ -195,17 +200,20 @@ export class PeopleDbxStatementClient {
     const config = this.config()
     return this.statementSpan(config, 'INLINE', async (span) => {
       const startedAt = Date.now()
-      const first = await this.post(config, statement, {
-        statement: statement.sql,
-        catalog: PEOPLE_DBX_CATALOG,
-        schema: PEOPLE_DBX_SCHEMA,
-        format: 'JSON_ARRAY',
-        disposition: 'INLINE',
-        wait_timeout: '30s',
-        on_wait_timeout: 'CONTINUE',
-      })
-      recordStatementId(first.statement_id)
-      this.markStatementId(span, first.statement_id)
+      const first = await this.post(
+        config,
+        statement,
+        {
+          statement: statement.sql,
+          catalog: PEOPLE_DBX_CATALOG,
+          schema: PEOPLE_DBX_SCHEMA,
+          format: 'JSON_ARRAY',
+          disposition: 'INLINE',
+          wait_timeout: '30s',
+          on_wait_timeout: 'CONTINUE',
+        },
+        span,
+      )
       const settled = await this.awaitCompletion(config, first, startedAt)
       const columns =
         settled.manifest?.schema?.columns.map((column) => column.name) ?? []
@@ -243,16 +251,19 @@ export class PeopleDbxStatementClient {
     span: Span,
   ): Promise<PeopleDbxCsvExport> {
     const startedAt = Date.now()
-    const first = await this.post(config, statement, {
-      statement: statement.sql,
-      catalog: PEOPLE_DBX_CATALOG,
-      schema: PEOPLE_DBX_SCHEMA,
-      format: 'CSV',
-      disposition: 'EXTERNAL_LINKS',
-      wait_timeout: '0s',
-    })
-    recordStatementId(first.statement_id)
-    this.markStatementId(span, first.statement_id)
+    const first = await this.post(
+      config,
+      statement,
+      {
+        statement: statement.sql,
+        catalog: PEOPLE_DBX_CATALOG,
+        schema: PEOPLE_DBX_SCHEMA,
+        format: 'CSV',
+        disposition: 'EXTERNAL_LINKS',
+        wait_timeout: '0s',
+      },
+      span,
+    )
     const settled = await this.awaitCompletion(config, first, startedAt)
     span.setAttributes({
       'databricks.row_count': settled.manifest?.total_row_count ?? 0,
@@ -302,8 +313,10 @@ export class PeopleDbxStatementClient {
   // voter read — would still read as an unexplained gap in the trace.
   //
   // Deliberately NOT carrying the SQL: statements inline id sets up to the 16MB
-  // ceiling, and span attributes are not the place for that. `statementIds` on
-  // the read log remains the join key into Databricks query history.
+  // ceiling, and span attributes are not the place for that. Its SIZE is here
+  // (`databricks.statement_bytes`), because that is what a plan cost tracks,
+  // and `statementIds` on the read log remains the join key into Databricks
+  // query history.
   private statementSpan<T>(
     config: PeopleDbxConfig,
     disposition: 'INLINE' | 'EXTERNAL_LINKS',
@@ -339,7 +352,8 @@ export class PeopleDbxStatementClient {
     )
   }
 
-  private markStatementId(span: Span, statementId?: string): void {
+  private markStatement(span: Span, bytes: number, statementId?: string): void {
+    span.setAttribute('databricks.statement_bytes', bytes)
     if (statementId) span.setAttribute('databricks.statement_id', statementId)
   }
 
@@ -391,6 +405,7 @@ export class PeopleDbxStatementClient {
     config: PeopleDbxConfig,
     statement: DbxStatement,
     body: Record<string, string>,
+    span: Span,
   ): Promise<StatementResponse> {
     const bytes = Buffer.byteLength(body.statement ?? '', 'utf8')
     if (bytes > MAX_STATEMENT_BYTES) {
@@ -406,7 +421,12 @@ export class PeopleDbxStatementClient {
       body,
       statement.params,
     )
-    return statementResponseSchema.parse(await response.json())
+    const parsed = statementResponseSchema.parse(await response.json())
+    // Size and id are recorded together, on the submit that produced them, so
+    // a timed-out read still carries both.
+    recordStatement(bytes, parsed.statement_id)
+    this.markStatement(span, bytes, parsed.statement_id)
+    return parsed
   }
 
   private async fetchJson<T extends z.ZodTypeAny>(
