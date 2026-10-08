@@ -834,6 +834,19 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   firing the `CompliancePinSent` event is the CV status scan's
   `applyCvDetection` job (see its section above), **not** this read — the read only
   displays, so a candidate who never opens the app is still detected + nudged.
+- **When the live CV read gives nothing usable, the page falls back to the recorded
+  status, not to null.** `resolvePeerlyCvState` degrades on two paths — the
+  `retrieve_cv` call throwing, and a `verification_status` the contract enum does not
+  recognise — and both now return `lastRecordedCvState`: `peerlyCvStatus` /
+  `pinDeliveryMethod` / `pinDeliveryDestination` as the nightly poll last mirrored
+  them, masked the same way. Returning `null` there is read by the FE as "no PIN
+  issued yet" and hides the PIN-entry screen, so a vendor read failure took the
+  screen away from a candidate who already had their PIN: on 2026-10-02 Campaign
+  Verify answered 403 for a batch of identities and campaign 313026 — approved since
+  July — loaded the page five times with no CV status on it (incident 103). A stale
+  value cannot mislead in the dangerous direction: `persistObservedCvStatus` refuses
+  to overwrite a recorded status with null and CV statuses do not move backwards, so
+  the mirror is either current or behind on a record that has since progressed.
 - **A `rejected` record is not necessarily dead, and the admin Retry button is a
   silent no-op on one** — see "Recovering a rejected record" above before touching
   one.
