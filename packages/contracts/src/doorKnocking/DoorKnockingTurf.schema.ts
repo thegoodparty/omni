@@ -171,10 +171,14 @@ const QUESTION_MESSAGE = {
   path: ['communityInputQuestion'],
 }
 
-export const CreateDoorKnockingTurfSchema =
-  CreateDoorKnockingTurfFields.strict()
-    .refine(walkSettingsTogether, WALK_SETTINGS_MESSAGE)
-    .refine(questionTravelsWithPurpose, QUESTION_MESSAGE)
+// Win takes the Campaign Manager card's key alone; its card puts out no
+// priority check. Like Serve's link, only a new campaign's anchor carries it.
+export const CreateDoorKnockingTurfSchema = CreateDoorKnockingTurfFields.extend(
+  { proposalKey: z.string().uuid().optional() },
+)
+  .strict()
+  .refine(walkSettingsTogether, WALK_SETTINGS_MESSAGE)
+  .refine(questionTravelsWithPurpose, QUESTION_MESSAGE)
 
 export type CreateDoorKnockingTurf = z.infer<
   typeof CreateDoorKnockingTurfSchema

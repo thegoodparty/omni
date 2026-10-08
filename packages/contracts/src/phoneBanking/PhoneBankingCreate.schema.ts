@@ -73,6 +73,9 @@ export const PhoneBankingCreateSchema = z
     voterFileFilterId: z.number().int().positive(),
     purpose: PhoneBankingPurposeSchema,
     communityInputQuestion: communityInputQuestionSchema,
+    // The Campaign Manager card this list was started from. Win carries the
+    // key alone: its card puts out no priority check.
+    proposalKey: z.string().uuid().optional(),
   })
   .strict()
   .refine(questionMatchesPurpose.check, questionMatchesPurpose.params)

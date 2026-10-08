@@ -123,14 +123,15 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
       )
       return data.assets
     },
-    save: async ({ name, purpose, draftMessage, assets }) => {
-      // Named, not rest-spread: a proposal link is a Serve chat card's, and
-      // Win's save never carries one, whatever fields the link grows.
+    save: async ({ name, purpose, draftMessage, assets, proposalKey }) => {
+      // Named, not rest-spread: Win's save takes a Campaign Manager card's
+      // key alone, never the rest of a Serve link.
       const { data } = await clientRequest('POST /v1/outreach/social', {
         name,
         purpose,
         draftMessage,
         assets,
+        ...(proposalKey !== undefined && { proposalKey }),
       } as SocialSaveRequest)
       return data
     },
