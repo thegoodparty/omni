@@ -170,6 +170,8 @@ All atomic messages with multi-cluster assignments (k=5 through k=50):
 
 The pipeline also groups issue-capture memos for gp-api. gp-api uploads `feedback-input/<runId>.csv`, and the bucket notification on that prefix starts the run: the trigger Lambda passes `SOURCE_TYPE` `constituent_feedback`, `SOURCE_ID` from the filename (gp-api's run id) and `PUBLISH_TOP_N` 10. A file under `input/` is always a poll run.
 
+A feedback run doesn't know which product (Win or Serve) it came from, so it names clusters with the hosted Braintrust prompt `feedback-cluster-analysis` instead of `cluster-analysis` (the poll prompt) -- product-neutral wording, canvasser notes instead of survey messages. `ClusterAnalyzer` picks the slug from `SOURCE_TYPE` via the orchestrator; see `shared/docs/braintrust.md`.
+
 To re-run one by hand, POST this body to `/serve/messages/process`:
 
 ```json

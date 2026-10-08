@@ -18,6 +18,10 @@ project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from serve.hierarchical_discovery.stages.cluster_analyzer import (
+    CLUSTER_ANALYSIS_PROMPT_NAME,
+    FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME,
+)
 from serve.v1_pipeline.adapters.clustering_adapter import ClusteringAdapter
 
 # Import models
@@ -32,11 +36,6 @@ from shared.logger import get_logger
 logger = get_logger(__name__)
 
 POLL_SOURCE_TYPE = "poll"
-
-# The prompt `ClusterAnalyzer` loads (serve/hierarchical_discovery/stages/
-# cluster_analyzer.py) to name each cluster's theme, via the shared
-# BraintrustClient singleton the clustering stage runs through.
-CLUSTER_ANALYSIS_PROMPT_NAME = "cluster-analysis"
 
 # A theme is something more than one person raised. Polls keep the configured floor.
 FEEDBACK_MIN_UNIQUE_RESPONDENTS = 2
@@ -60,6 +59,16 @@ class V1PipelineOrchestrator:
 
         self.source_type = os.getenv("SOURCE_TYPE") or POLL_SOURCE_TYPE
         self.source_id = os.getenv("SOURCE_ID", "")
+
+        # The hosted Braintrust prompt `ClusterAnalyzer` loads (serve/
+        # hierarchical_discovery/stages/cluster_analyzer.py) to name each
+        # cluster's theme -- feedback runs get product-neutral wording since
+        # nothing here says whether this is a Win or a Serve run.
+        self.theme_prompt_name = (
+            CLUSTER_ANALYSIS_PROMPT_NAME
+            if self.source_type == POLL_SOURCE_TYPE
+            else FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME
+        )
 
         # Initialize components
         self.input_dir: str | None = None
@@ -179,7 +188,7 @@ class V1PipelineOrchestrator:
 
             # Initialize clusterer if enabled
             if self.config.get("clustering", {}).get("enabled", True):
-                self.clusterer = ClusteringAdapter()
+                self.clusterer = ClusteringAdapter(theme_prompt_name=self.theme_prompt_name)
 
             # Initialize SQS publisher if enabled
             if self.config.get("sqs_events", {}).get("enabled", False):
@@ -447,7 +456,9 @@ class V1PipelineOrchestrator:
 
                 # Set by ClusterAnalyzer during Stage 2 if clustering ran at
                 # all; absent (None) otherwise, e.g. zero substantive clusters.
-                prompt_source = get_client().get_prompt_source(CLUSTER_ANALYSIS_PROMPT_NAME)
+                # Reads the slug this run actually used, so a feedback run's
+                # fallback is reported too.
+                prompt_source = get_client().get_prompt_source(self.theme_prompt_name)
 
                 if self.source_type != POLL_SOURCE_TYPE:
                     sqs_stats = await self.sqs_publisher.publish_feedback_completion(

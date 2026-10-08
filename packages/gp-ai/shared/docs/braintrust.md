@@ -27,6 +27,13 @@ Each folder in gp-ai maps to a Braintrust project. Pass the project name in code
 | `serve/analyze_texts` | `analyze-texts` |
 | `hubspot_ddhq_match` | `hubspot-ddhq-match` |
 
+Within `hierarchical-discovery`, `ClusterAnalyzer` loads one of two prompt slugs
+to name a cluster's theme, picked by the v1_pipeline orchestrator from the
+run's `SOURCE_TYPE`: `cluster-analysis` for poll runs (SMS poll replies), and
+`feedback-cluster-analysis` for issue-capture feedback runs (canvasser notes,
+product-neutral wording since the run doesn't know Win vs. Serve) -- see
+`serve/v1_pipeline/README.md` § Feedback source.
+
 ## Usage
 
 ```python
