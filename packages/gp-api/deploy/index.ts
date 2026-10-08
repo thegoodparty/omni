@@ -7,6 +7,10 @@ import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
+import {
+  createPreviewSharedAlb,
+  PREVIEW_SHARED_ALB_NAME,
+} from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
@@ -21,10 +25,6 @@ export = async () => {
     | 'preview'
     | 'dev'
     | 'prod'
-  const imageUri = config.require('imageUri')
-
-  const prNumber =
-    environment === 'preview' ? config.require('prNumber') : undefined
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
@@ -34,6 +34,14 @@ export = async () => {
     private: ['subnet-053357b931f0524d4', 'subnet-0bb591861f72dcb7f'],
   }
   const vpcSecurityGroupIds = ['sg-01de8d67b0f0ec787']
+
+  const previewCertificateArn =
+    'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786'
+
+  const imageUri = config.require('imageUri')
+
+  const prNumber =
+    environment === 'preview' ? config.require('prNumber') : undefined
 
   const stage = {
     preview: `pr-${prNumber}`,
@@ -77,14 +85,22 @@ export = async () => {
     throw new Error('DB_PASSWORD must be set in the secret.')
   }
 
+  // The task role and task definition below name these queues by string
+  // rather than through the resources' outputs. An SQS create waits ~25s for
+  // its attributes to settle, and the DLQ-then-queue chain put ~50s in front
+  // of the ECS service on every new preview. Nothing in the task needs the
+  // queues until it has booted, by which time they exist.
+  const dlqName = `${stage}-DLQ.fifo`
+  const queueName = `${stage}-Queue.fifo`
+
   const dlq = new aws.sqs.Queue('main-dlq', {
-    name: `${stage}-DLQ.fifo`,
+    name: dlqName,
     fifoQueue: true,
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  const queue = new aws.sqs.Queue('main-queue', {
-    name: `${stage}-Queue.fifo`,
+  new aws.sqs.Queue('main-queue', {
+    name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
@@ -332,6 +348,12 @@ export = async () => {
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
   // docker-entrypoint.sh) instead of provisioning a cluster per PR.
   if (environment === 'dev') {
+    createPreviewSharedAlb({
+      vpcId,
+      publicSubnetIds: vpcSubnetIds.public,
+      hostedZoneId,
+      certificateArn: previewCertificateArn,
+    })
     createPreviewSharedCluster({
       vpcId,
       privateSubnetIds: vpcSubnetIds.private,
@@ -339,6 +361,18 @@ export = async () => {
       dbPassword: secret.DB_PASSWORD,
     })
   }
+
+  // Falls back to a per-PR ALB while the shared one does not exist (until
+  // the dev stack has deployed it), so previews keep deploying.
+  const sharedPreviewListener =
+    environment === 'preview'
+      ? await aws.lb
+          .getLoadBalancer({ name: PREVIEW_SHARED_ALB_NAME })
+          .then((lb) =>
+            aws.lb.getListener({ loadBalancerArn: lb.arn, port: 443 }),
+          )
+          .catch(() => undefined)
+      : undefined
 
   const sharedPreviewCluster = skipPerPrRds
     ? await aws.rds.getCluster({
@@ -434,14 +468,9 @@ export = async () => {
     dev: 'agent-dispatch-dev.fifo',
     prod: 'agent-dispatch-prod.fifo',
   })
-  const staticQueueArns = [agentDispatchQueueName]
-    .filter((name): name is string => name !== '')
+  const taskRoleQueueArns = [queueName, dlqName, agentDispatchQueueName]
+    .filter((name) => name !== '')
     .map((name) => `arn:aws:sqs:${region}:${accountId}:${name}`)
-  const taskRoleQueueArns: pulumi.Input<string>[] = [
-    queue.arn,
-    dlq.arn,
-    ...staticQueueArns,
-  ]
 
   // The curated local-dev bundle POST /v1/dev-env/bundle vends. Dev only:
   // preview and prod never get the id, so the endpoint stays dark there even
@@ -510,9 +539,9 @@ export = async () => {
     privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain,
+    sharedPreviewListenerArn: sharedPreviewListener?.arn,
     certificateArn: select({
-      preview:
-        'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786',
+      preview: previewCertificateArn,
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
@@ -542,7 +571,7 @@ export = async () => {
       }),
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
-      SQS_QUEUE: queue.name,
+      SQS_QUEUE: queueName,
       // Where the per-send button in a fulfilment Slack message points. Not
       // select()-ed by environment on purpose: gp-admin is a single
       // deployment fronting dev and prod (see gp-webapp/appEnv.ts, which
