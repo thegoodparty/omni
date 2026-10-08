@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  UNRECORDED_TOOL_ERROR,
   capToolErrorDetails,
   errorClass,
   publicToolName,
@@ -128,6 +129,14 @@ describe('toolErrorDetail bounds', () => {
 // THE PUBLIC VOCABULARY. Anything this returns can land on a public page, so
 // every class is built from a captured token alone, never the message.
 describe('errorClass', () => {
+  it('names a chat tool error the stream carried no text for', () => {
+    expect(
+      errorClass(
+        toolErrorDetail('get_briefing', UNRECORDED_TOOL_ERROR).message,
+      ),
+    ).toBe('unrecorded')
+  })
+
   it.each([
     ['Exit code 2\nsomething went wrong', 'exit code 2'],
     ["Exit code 1\nTraceback ...\nKeyError: 'PARAMS_JSON'", 'KeyError'],

@@ -18,8 +18,9 @@ import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
 import { formatPlan, selectAgents } from './cli'
 import { estimateAgent } from './planCost'
 import { identifierOutputLines } from './judgeIdentifiers'
-import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { ARM_AWS_ENV } from './awsCredentials'
+import { CANDIDATE_API_URL_ENV } from './captureArm'
+import { JUDGE_CLERK_SECRET_ENV } from './runners/judgeAccount'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 import { JUDGE_PREFIX } from './records'
 
@@ -41,12 +42,11 @@ const WORKFLOW = path.resolve(
 )
 
 // The commands that start a judge process, matched on the invocation rather
-// than on the variable name: two other steps mention `$SWEEP_SUITE` and
+// than on the variable name: two other steps mention `$ARM_ENTRY` and
 // `$JUDGING_ENTRY` while checking they exist, and those spend nothing.
-const SPENDING_COMMANDS = [
-  'npx vitest run "$SWEEP_SUITE"',
-  'npx tsx "$JUDGING_ENTRY"',
-]
+const SPENDING_COMMANDS = ['npx tsx "$ARM_ENTRY"', 'npx tsx "$JUDGING_ENTRY"']
+
+const KEY_ENV = 'ANTHROPIC_API_KEY'
 
 interface Step {
   name: string
@@ -146,21 +146,12 @@ describe('judge.yml spend switches', () => {
     expect(missing).toEqual([])
   })
 
-  // THE KEY TRAVELS UNDER A DIFFERENT NAME ON EACH HALF, and the two names
-  // are not interchangeable. The arms run under vitest, whose config applies
-  // `.env.test` over the process environment, and `.env.test` defines
-  // ANTHROPIC_API_KEY as a stub — so the real key has to arrive under a name
-  // that file does not define and be moved into place by modelKey.ts. The
-  // judging step is tsx, nothing loads over it, and it reads the key
-  // directly. The first live sweep set ANTHROPIC_API_KEY on the arms, which
-  // satisfied the previous version of this test and failed every model call
-  // with `invalid x-api-key`.
+  // THE ARMS HOLD NO MODEL KEY. A chat arm drives a deployed gp-api, which
+  // answers with its own key, and a background arm dispatches to Fargate.
+  // Only the judging step calls a model from this job.
   //
-  // DERIVED FROM THE COMMAND, not from a list of step names. A fourth step
-  // running the arm suite under a name nobody added to an allowlist would
-  // otherwise be filtered out of every assertion below, and the only test to
-  // complain would be the step-name one — which a developer clears by adding
-  // the name, never noticing that the key checks skipped it.
+  // DERIVED FROM THE COMMAND, not from a list of step names, so a third step
+  // running the arm entry under a name nobody listed is still checked.
   const [ARM_COMMAND, JUDGING_COMMAND] = SPENDING_COMMANDS
   const arms = spending.filter((step) => step.body.includes(ARM_COMMAND ?? ''))
   const judging = spending.filter((step) =>
@@ -168,27 +159,30 @@ describe('judge.yml spend switches', () => {
   )
 
   // The value, not only the name. `${{ secrets.ANTHROPIC_API_KEY_OLD }}` and
-  // `${{ vars.ANTHROPIC_API_KEY }}` both satisfy a name-only check, and the
-  // preflight step reads the correct secret itself — so a wrong expression
-  // here is only discovered after both arms have been billed.
+  // `${{ vars.ANTHROPIC_API_KEY }}` both satisfy a name-only check.
   const SECRET = '${{ secrets.ANTHROPIC_API_KEY }}'
 
-  it('passes the real key to both arms under the arm name', () => {
-    expect(arms).toHaveLength(2)
-    expect(arms.map((step) => envValue(step.body, ARM_KEY_ENV))).toEqual([
-      SECRET,
-      SECRET,
-    ])
-  })
-
-  it('does not set ANTHROPIC_API_KEY on an arm, where it is dead', () => {
+  it('gives no arm an Anthropic key under either name', () => {
     // Asserted first, because an absence cannot fail by the subject being
     // empty: `arms` filtered down to nothing would satisfy the rest for free.
     expect(arms).toHaveLength(2)
-    const shadowed = arms
-      .filter((step) => setsEnv(step.body, KEY_ENV))
+    const keyed = arms
+      .filter(
+        (step) =>
+          setsEnv(step.body, KEY_ENV) ||
+          setsEnv(step.body, 'JUDGE_ANTHROPIC_API_KEY'),
+      )
       .map((step) => step.name)
-    expect(shadowed).toEqual([])
+    expect(keyed).toEqual([])
+  })
+
+  it('passes the dev Clerk secret to both arms under the arm name', () => {
+    expect(
+      arms.map((step) => envValue(step.body, JUDGE_CLERK_SECRET_ENV)),
+    ).toEqual([
+      '${{ secrets.CLERK_SECRET_KEY }}',
+      '${{ secrets.CLERK_SECRET_KEY }}',
+    ])
   })
 
   it('passes the real key to the judging step under its own name', () => {
@@ -643,71 +637,38 @@ describe('judge.yml keeps records in the private bucket', () => {
   })
 })
 
-// THE BASE ARM RUNS THE BASE REF'S CODE, not this branch's. The workflow is
-// resolved from the default branch, so it exports the arm key name to both
-// arms — but only a suite that calls `restoreRealModelKey` moves that into
-// the name the SDK reads, and `.env.test`'s stub shadows the direct name on
-// the base side exactly as it does on the candidate side. A ref predating the
-// handoff therefore authenticates with the stub and fails every turn, after
-// the OTHER arm has been billed in full. Both sides are refused before any
-// install; these tests are what keep the sentinel the workflow greps for and
-// the call the suite actually makes from drifting apart.
-describe('judge.yml refuses a ref that cannot reach the model', () => {
+// THE BASE ARM RUNS THE BASE REF'S CODE, not this branch's, so a base ref
+// without the arm entry cannot capture an arm at all. Refused before the
+// base install and before either arm spends, as the candidate side is refused
+// in the plan job before the comment promises a sweep.
+describe('judge.yml refuses a ref without the arm entry', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
-  // Workflow-level `env:` sits at two spaces, not the ten a step's entry
-  // does, so this needs its own matcher rather than `envValue`.
-  const sentinel = /^ {2}ARM_KEY_CALL: (.+)$/m.exec(yaml)?.[1]
+  const entry = /^ {2}ARM_ENTRY: (.+)$/m.exec(yaml)?.[1]
 
-  it('declares the sentinel at the workflow level', () => {
-    // Not inside a job: the plan job and the sweep job both read it, and a
-    // job-scoped value would be invisible to one of them.
-    expect(sentinel).toBeDefined()
-  })
-
-  // DERIVED FROM THE FUNCTION, not merely compared against the suite's text.
-  // "Does the suite contain the sentinel" is satisfied by any substring the
-  // file happens to carry — `import`, `const`, a brace — and a sentinel that
-  // loose makes the guard pass for every ref forever, which is the whole
-  // failure mode it exists to prevent. Reading the name off the function also
-  // means a rename breaks in one place.
-  it('greps for the call the arm suite makes, spelled exactly', () => {
-    expect(sentinel).toBe(`${restoreRealModelKey.name}()`)
-    const suite = readFileSync(
-      path.resolve(__dirname, 'sweep.eval.test.ts'),
-      'utf8',
-    )
-    expect(suite).toContain(sentinel)
+  it('names the arm entry at the workflow level, and it exists', () => {
+    expect(entry).toBe('src/chats/evals/judge/captureArm.ts')
+    expect(
+      readFileSync(path.resolve(__dirname, 'captureArm.ts'), 'utf8'),
+    ).toContain('require.main === module')
   })
 
   it('checks the base ref in the step that creates its worktree', () => {
     const base = steps.find((step) =>
       step.name.startsWith('Check out the base arm'),
     )
-    expect(base).toBeDefined()
-    // Both halves: the sentinel is useless without the read, and the read is
-    // useless without the grep.
-    expect(base?.body).toContain('grep -qF "$ARM_KEY_CALL"')
-    expect(base?.body).toContain(
-      'git cat-file -p "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE"',
-    )
-    expect(base?.body).toMatch(/::error::.*does not call \$ARM_KEY_CALL/)
+    expect(base?.body).toContain('"origin/$BASE_REF:$WORKSPACE/$ARM_ENTRY"')
+    expect(base?.body).toMatch(/::error::.*does not carry/)
   })
 
-  // THE CANDIDATE SIDE, which is the expensive direction: the base arm runs
-  // first, so a head that predates the handoff means a fully paid base arm
-  // and then a candidate that fails every turn. Refused in the plan job,
-  // before the comment promises a sweep.
   it('checks the candidate ref before the plan promises a sweep', () => {
     const cli = steps.find((step) =>
       step.name.startsWith('Check the judge CLI'),
     )
-    expect(cli?.body).toContain('grep -qF "$ARM_KEY_CALL" "$SWEEP_SUITE"')
+    expect(cli?.body).toContain('[ -f "$ARM_ENTRY" ]')
     expect(cli?.body).toContain('sweep_capable=false')
   })
 
-  // BEFORE THE MONEY. A guard that runs after an arm has dialled is worth
-  // nothing, and step order inside a job is the only thing deciding that.
   it('refuses before either arm spends', () => {
     const names = steps.map((step) => step.name)
     const guard = names.findIndex((name) =>
@@ -716,6 +677,78 @@ describe('judge.yml refuses a ref that cannot reach the model', () => {
     const firstSpend = names.findIndex((name) => name.startsWith('Capture the'))
     expect(guard).toBeGreaterThan(-1)
     expect(firstSpend).toBeGreaterThan(guard)
+  })
+})
+
+// THE CANDIDATE'S CHAT AGENTS DRIVE THE PR'S PREVIEW, and only once it serves
+// the candidate. A URL handed over before then would judge whatever the
+// preview last deployed, and the record would name the wrong commit.
+describe("judge.yml drives the candidate's chat agents on its preview", () => {
+  const workflows = path.dirname(WORKFLOW)
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const wait = steps.find(
+    (step) => step.name === "Wait for the PR's gp-api preview",
+  )
+  const arm = (name: string) => steps.find((step) => step.name === name)
+
+  // Before either arm, so a preview that never comes costs nothing.
+  it('waits before either arm', () => {
+    const at = names.indexOf("Wait for the PR's gp-api preview")
+    expect(at).toBeGreaterThan(-1)
+    expect(at).toBeLessThan(names.indexOf('Capture the base arm'))
+    expect(at).toBeLessThan(names.indexOf('Capture the candidate arm'))
+  })
+
+  // A preview that never comes must fail the chat half alone: background
+  // agents on both arms still run.
+  it('fails only the chat half when the preview never comes', () => {
+    expect(wait?.body).toMatch(/^ {8}id: preview$/m)
+    expect(wait?.body).toMatch(/^ {8}continue-on-error: true$/m)
+    expect(wait?.body).toContain('::error::the chat arm cannot run')
+  })
+
+  it("waits for gp-api's preview deploy, then for a merge of the candidate", () => {
+    expect(wait?.body).toContain("job_name='Deploy PR preview'")
+    expect(wait?.body).toContain('workflows/gp-api.yml/runs?head_sha=')
+    expect(wait?.body).toContain('https://pr-$PR_NUMBER.preview.goodparty.org')
+    expect(wait?.body).toContain('commits/$served')
+    expect(wait?.body).toContain('grep -qx "$CANDIDATE_SHA"')
+    expect(wait?.body).toContain('echo "api_url=$api_base" >> "$GITHUB_OUTPUT"')
+  })
+
+  // Both arms, because the base arm refuses chat without it too.
+  it('hands the preview URL to both arms', () => {
+    for (const name of ['Capture the base arm', 'Capture the candidate arm']) {
+      expect(envValue(arm(name)?.body ?? '', CANDIDATE_API_URL_ENV)).toBe(
+        '${{ steps.preview.outputs.api_url }}',
+      )
+    }
+  })
+
+  it('may read the gp-api runs it waits on', () => {
+    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
+    expect(sweepJob).toMatch(/^ {6}actions: read$/m)
+  })
+
+  // A called workflow cannot ask for more than its caller grants; GitHub
+  // refuses the whole run at startup if it does.
+  it('is granted that read by both callers', () => {
+    for (const caller of ['judge-request.yml', 'judge-comment.yml']) {
+      expect(readFileSync(path.join(workflows, caller), 'utf8')).toMatch(
+        /^ {6}actions: read\n {4}uses: \.\/\.github\/workflows\/judge\.yml$/m,
+      )
+    }
+  })
+
+  it('declares the Clerk secret, and both callers pass it', () => {
+    expect(yaml).toMatch(/^ {6}CLERK_SECRET_KEY:\n {8}required: false$/m)
+    for (const caller of ['judge-request.yml', 'judge-comment.yml']) {
+      expect(readFileSync(path.join(workflows, caller), 'utf8')).toMatch(
+        /^ {6}CLERK_SECRET_KEY: \$\{\{ secrets\.CLERK_SECRET_KEY \}\}$/m,
+      )
+    }
   })
 })
 
@@ -729,7 +762,7 @@ describe('judge.yml tells both arms where a background run goes', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
   const arms = steps.filter((step) =>
-    step.body.includes('npx vitest run "$SWEEP_SUITE"'),
+    step.body.includes('npx tsx "$ARM_ENTRY"'),
   )
   const resolver = steps.find((step) =>
     step.name.startsWith('Resolve where a background dispatch goes'),
@@ -1917,7 +1950,7 @@ describe('the arms reach AWS on the role, not on the stub', () => {
       })
       .filter((client) => client.any > 0)
     expect(found).toEqual([
-      { file: 'sweep.eval.test.ts', any: 2, exact: 2 },
+      { file: 'captureArm.ts', any: 2, exact: 2 },
       { file: 'sweepEnv.ts', any: 1, exact: 1 },
     ])
   })

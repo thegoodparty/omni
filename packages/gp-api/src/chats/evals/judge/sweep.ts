@@ -63,7 +63,6 @@ import {
   unpinnedMartReads,
   type AgentIdenticalConfig,
   type Refusal,
-  type SeededTranscripts,
   type StoredRulings,
   type SweepReport,
 } from './report'
@@ -75,17 +74,9 @@ import {
   type SweepEnv,
 } from './sweepEnv'
 
-// STEP 3 OF THREE, and the only one that is not a vitest suite.
-//
-// The arms are captured by `sweep.eval.test.ts`, twice, in two worktrees —
-// that suite has to be vitest because `useTestService()` registers hooks to
-// stand up Postgres and the app. This step needs none of that: it reads both
-// arms' stored records and runs pure functions over them, so it runs under
-// `tsx` and the workflow can invoke it as a command.
-//
-// Which is the point. Pure functions living in a vitest file cannot be called
-// from a workflow step cleanly, and a "test" that is really a program is how
-// a job ends up green having done nothing.
+// STEP 3 OF THREE. The arms are captured by `captureArm.ts`, twice, in two
+// worktrees; this step reads both arms' stored records and runs pure
+// functions over them.
 
 export interface JudgingDeps {
   store: RecordStore
@@ -344,7 +335,6 @@ export const judgeSweep = async (
   // because it fails the sweep: see exitCode below.
   const judgeFailures: string[] = []
   const placeholderCases: string[] = []
-  const seededTranscripts: SeededTranscripts[] = []
   const identical: IdenticalOutputs[] = []
   const identicalConfigs: AgentIdenticalConfig[] = []
   const identicalOutputsReported: string[] = []
@@ -375,24 +365,6 @@ export const judgeSweep = async (
       )
     ) {
       placeholderCases.push(agentId)
-    }
-
-    // Unioned across the arms rather than read off one of them: the two are
-    // separate checkouts, and an arm whose ref predates the field records
-    // nothing at all. Marking the union means a case either arm seeded is
-    // reported, which is the safe direction — the risk being warned about is
-    // reading a seeded verdict as an unseeded one.
-    const seededCaseIds = [
-      ...new Set(
-        manifests.flatMap((m) =>
-          m.agents
-            .filter((a) => a.agentId === agentId)
-            .flatMap((a) => a.seededTranscriptCases ?? []),
-        ),
-      ),
-    ].sort()
-    if (seededCaseIds.length > 0) {
-      seededTranscripts.push({ agentId, caseIds: seededCaseIds })
     }
 
     // Refused rather than defaulted when the list cannot be read. Defaulting
@@ -571,7 +543,6 @@ export const judgeSweep = async (
       hoursToMilliseconds(config.armGap.maxHours),
     ),
     ...(placeholderCases.length > 0 && { placeholderCases }),
-    ...(seededTranscripts.length > 0 && { seededTranscripts }),
     // Reported whatever the count, because "4 of 22 pairs matched" is
     // evidence beside a verdict and it is the number that makes a dropped
     // candidate obvious.

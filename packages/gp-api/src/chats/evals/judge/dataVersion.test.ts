@@ -11,7 +11,7 @@ import {
   serveMartTable,
   type MartHistoryPort,
 } from './dataVersion'
-import { UnpinnableSqlError } from './runners/chatSeam'
+import { UnpinnableSqlError } from './deltaVersion'
 
 // STUBBED AT THE CLIENT BOUNDARY, never at the network. The Serve Databricks
 // service principal is dead in this checkout (OPError: invalid_client) and

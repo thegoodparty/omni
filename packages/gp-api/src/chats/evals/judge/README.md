@@ -65,8 +65,9 @@ for both arms' case lists. The numbers and their evidence are in
 split into each arm's agent runs and the judge panel, beside the estimate.
 Every record counts, including pairs excluded for an error and agents the
 judge refused, because those runs were billed too. A run that recorded no
-cost (a background run cancelled at its own timeout) or a panel call that
-failed makes the total a lower bound, and the report says "at least" and why
+cost (a background run cancelled at its own timeout, or a chat run whose
+usage gp-api did not report) or a panel call that failed makes the total a
+lower bound, and the report says "at least" and why
 rather than printing a low number as if it were measured. The reasons are a
 fixed set: no cost recorded (a background run cancelled at its own timeout),
 a model `pricing.ts` has no rates for, or a failed panel call. The closing summary
@@ -81,69 +82,90 @@ running throws away what that sweep already spent, and no verdict comes out.
 
 ## Running a sweep: THREE PROCESSES, NOT ONE
 
-This is the shape of the whole thing, and it is forced rather than chosen. An
-arm is a worktree, two worktrees are two module graphs, and one Node process
-cannot import both. So a sweep is three invocations:
+An arm is a worktree, two worktrees are two module graphs, and one Node
+process cannot import both. So a sweep is three invocations:
 
-| Step | Command                                                                       | Where                          |
-| ---- | ----------------------------------------------------------------------------- | ------------------------------ |
-| 1    | `JUDGE_ARM=base npx vitest run src/chats/evals/judge/sweep.eval.test.ts`      | the **base** worktree          |
-| 2    | `JUDGE_ARM=candidate npx vitest run src/chats/evals/judge/sweep.eval.test.ts` | the **candidate** worktree     |
-| 3    | `npx tsx src/chats/evals/judge/sweep.ts`                                      | either — it only reads records |
+| Step | Command                                         | Where                          |
+| ---- | ----------------------------------------------- | ------------------------------ |
+| 1    | `JUDGE_ARM=base npx tsx src/chats/evals/judge/captureArm.ts`      | the **base** worktree          |
+| 2    | `JUDGE_ARM=candidate npx tsx src/chats/evals/judge/captureArm.ts` | the **candidate** worktree     |
+| 3    | `npx tsx src/chats/evals/judge/sweep.ts`        | either — it only reads records |
 
-Steps 1 and 2 must be vitest: `useTestService()` registers
-`beforeAll`/`beforeEach`/`afterAll` to stand up the Postgres container and the
-authenticated app, and those hooks exist only inside a vitest process. Step 3
-must NOT be: it is pure functions over stored records, and pure functions in a
-vitest file cannot be invoked from a workflow step cleanly.
+**Neither arm boots gp-api.** A chat agent is driven over HTTP against a
+deployed gp-api, as a black box: the base arm talks to dev
+(`https://gp-api-dev.goodparty.org`), the candidate arm to the PR's preview
+(`https://pr-<PR number>.preview.goodparty.org`). The app has no judge route,
+header or hook; the arm uses the routes the webapp uses. A background agent
+is staged in S3 and dispatched over SQS, as it always was. So "the base arm"
+for chat means whatever dev serves when the arm runs, which is `main` once it
+has deployed, not necessarily the base worktree's commit. Each chat record
+names the commit the deployment actually served (`GET /v1/version`).
 
 `.github/workflows/judge.yml` drives all three. The arms meet in the record
-store and nowhere else.
+store and nowhere else. Before the candidate arm, when a chat agent is in the
+sweep, the workflow waits for gp-api.yml's "Deploy PR preview" job to succeed
+for the PR head and then for the preview to serve a merge commit whose
+parents include it. A preview that never comes fails the chat half by name
+and leaves the candidate's background agents running.
 
-**Configuration comes from the environment, not argv**, because a test file has
-no argv. Every value is Zod-validated up front and a missing one is a sentence
-naming it.
+**A chat agent has no free path.** A deployed gp-api answers with the real
+model, so when `JUDGE_SPEND` is not exactly `true` every chat agent is skipped
+by name in the arm's manifest before any HTTP call. A background dispatch
+refuses without it too, so a dry run exercises the arms' wiring and the
+judging step's canned panel, and nothing else.
+
+**Configuration comes from the environment, not argv.** Every value is
+Zod-validated up front and a missing one is a sentence naming it.
 
 | Variable                                                                                 | Steps | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ---------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JUDGE_ARM`                                                                              | 1, 2  | `base` or `candidate`. **Absent means the suite skips**, so `npm run verify` does not drive an agent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `JUDGE_ARM`                                                                              | 1, 2  | `base` or `candidate`. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `JUDGE_SWEEP_ID`                                                                         | all   | The directory the two arms meet in. Must be identical in all three.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `JUDGE_AGENTS`                                                                           | all   | Comma-separated agent ids.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `JUDGE_BASE_REF`                                                                         | 1, 2  | The base branch name, for `variant.ref`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `JUDGE_CANDIDATE_SHA`                                                                    | 1, 2  | The PR head commit the plan priced.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `JUDGE_ARM_COMMIT`                                                                       | 1, 2  | HEAD of _this_ checkout. On the candidate arm it must equal `JUDGE_CANDIDATE_SHA`, or the checkout is not the commit under test.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `JUDGE_ARM_COMMIT`                                                                       | 1, 2  | HEAD of _this_ checkout. On the candidate arm it must equal `JUDGE_CANDIDATE_SHA`, or the checkout is not the commit under test. A chat record's `variant.commit` is the commit the deployment served instead.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `JUDGE_BASE_API_URL`                                                                     | 1     | The gp-api the base arm's chat agents drive. Defaults to `https://gp-api-dev.goodparty.org`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `JUDGE_CANDIDATE_API_URL`                                                                | 1, 2  | The gp-api the candidate arm's chat agents drive: the PR's preview, set by judge.yml once it serves the candidate. No default; without it every chat agent is skipped by name, on BOTH arms, so the base arm never pays for chat records nothing can pair with.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `JUDGE_CLERK_SECRET_KEY`                                                                 | 1, 2  | The dev Clerk instance's secret key (previews share the instance). Each chat case makes a throwaway test user with it; without it every chat agent is skipped by name. judge.yml passes the `CLERK_SECRET_KEY` repository secret.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `JUDGE_RECORDS_DIR`                                                                      | all   | A local directory. Exactly one of this and the bucket.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `JUDGE_RECORDS_BUCKET`                                                                   | all   | An S3 bucket. What CI uses — see below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `JUDGE_SPEND`                                                                            | all   | Only the exact string `true` calls a real model. Anything else uses a canned reply, which is how the pipeline is exercised for nothing. **Step 3 spends too** — one panel call per judgeable pair, per seat — so all three must agree; step 3 refuses a setting that differs from what the arms' manifests recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `JUDGE_DATA_VERSION`                                                                     | 1, 2  | The Delta version both arms read. Resolved ONCE by `dataVersion.ts` in a `sweep` step of its own, before either arm runs, and published as a step output both arms read: an arm that looked up "current" itself would look it up an hour after the other and get a different answer. Empty when the mart could not be read — no credential, a dead one, a history the warehouse will not hand over — which reads here as "not pinned". The sweep then proceeds against the live mart rather than refusing, because most agents never query it, and `report.ts` names every run that queried the mart anyway.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `JUDGE_SPEND`                                                                            | all   | Only the exact string `true` spends. Anything else skips every chat agent by name, refuses every background dispatch, and gives the panel a canned reply. **Step 3 spends too** — one panel call per judgeable pair, per seat — so all three must agree; step 3 refuses a setting that differs from what the arms' manifests recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `JUDGE_DATA_VERSION`                                                                     | 1, 2  | The voter mart's Delta version, resolved ONCE by `dataVersion.ts` in a `sweep` step of its own before either arm runs, and stamped on background records. A chat arm cannot pin the SQL a deployed gp-api runs, so chat records carry none. Empty when the mart could not be read, which reads here as "not pinned".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2  | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. Every admitted run starts at once and the arm is done when the slowest is, so an agent is admitted when one of its runs fits the arm on whichever arm is slower and its runs fit the `config.background.maxInFlight` slots left; one missing from the base ref is refused before anyone pays. The same step refuses, by name, a chat agent the base ref cannot run (blocked in its `agents.ts`, or with no case list there): the base arm would skip it and the candidate arm would pay for every turn with nothing to pair. Against a base ref whose arm still walks runs one after another (no `BACKGROUND_WALKS_CONCURRENTLY` in its `sweepArm.ts`), admission spends the arm's wall clock down run by run instead. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
-| `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL`          | 1, 2  | The identifiers six background case lists cannot carry, resolved ONCE by `judgeIdentifiers.ts` for both arms: a `judge-` slug from the sweep id, a BallotReady race id, a reserved address. The three agents that read gp-api use the fixed `judge-fixture` slug instead. Empty reads as "not resolved", and every background agent is then refused by name before anything is staged. See [Six background agents need identifiers a case list cannot carry](#six-background-agents-need-identifiers-a-case-list-cannot-carry).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `JUDGE_SELECTION`                                                                        | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `JUDGE_ANTHROPIC_API_KEY`                                                                | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `JUDGE_AWS_ACCESS_KEY_ID` / `JUDGE_AWS_SECRET_ACCESS_KEY` / `JUDGE_AWS_SESSION_TOKEN`    | 1, 2  | The credentials for staging and dispatching a background agent, under these names for the same reason as the key above: `.env.test` stubs `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, so credentials exported under the SDK's own names arrive as a stub key, and AWS refuses it. `awsCredentials.ts` hands them to the judge's own S3 and SQS clients and nothing else; the app under test keeps the stubs. judge.yml passes the role's; locally, export these to run a background agent. Not needed for a chat-only sweep.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `AI_MODELS`                                                                              | 3     | LlmService refuses to construct without it. It is the default fallback chain, which the panel never reaches — each seat pins its own model — so step 3 derives it from `panel.seats` when the environment has not set it. Steps 1 and 2 get it from `.env.test`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL`          | 1, 2  | The identifiers six background case lists cannot carry, resolved ONCE by `judgeIdentifiers.ts` for both arms: a `judge-` slug from the sweep id, a BallotReady race id, a reserved address. The three agents that read gp-api use the fixed `judge-fixture` slug instead. The race id also goes on `campaign_assistant`'s test campaign. Empty reads as "not resolved", and every background agent is then refused by name before anything is staged. See [Six background agents need identifiers a case list cannot carry](#six-background-agents-need-identifiers-a-case-list-cannot-carry).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `JUDGE_SELECTION`                                                                        | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead. Resolved once by judge.yml's `select` step and read by all three processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `JUDGE_AWS_ACCESS_KEY_ID` / `JUDGE_AWS_SECRET_ACCESS_KEY` / `JUDGE_AWS_SESSION_TOKEN`    | 1, 2  | The credentials for staging and dispatching a background agent. `awsCredentials.ts` hands them to the judge's own S3 and SQS clients and nothing else. judge.yml passes the role's; locally, export these to run a background agent. Not needed for a chat-only sweep.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `AI_MODELS`                                                                              | 3     | LlmService refuses to construct without it. It is the default fallback chain, which the panel never reaches — each seat pins its own model — so step 3 derives it from `panel.seats` when the environment has not set it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `JUDGE_CANDIDATE_REF`                                                                    | 1, 2  | Optional. The head ref name, for readability.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `JUDGE_PR_NUMBER`                                                                        | all   | Optional.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-Exercise it locally, free, in one checkout:
+The arms hold no model key. A chat agent answers from the deployment's own
+key; the judging step reads `ANTHROPIC_API_KEY` itself.
+
+Exercise the pipeline locally, in one checkout. Without `JUDGE_SPEND=true`
+this spends nothing, and every chat agent is skipped by name in each arm's
+manifest:
 
 ```bash
 export JUDGE_SWEEP_ID=local-1 JUDGE_AGENTS=chief_of_staff \
        JUDGE_BASE_REF=main JUDGE_RECORDS_DIR=/tmp/judge \
        JUDGE_CANDIDATE_SHA=$(git rev-parse HEAD)
 JUDGE_ARM=base      JUDGE_ARM_COMMIT=$(git rev-parse HEAD~1) \
-  npx vitest run src/chats/evals/judge/sweep.eval.test.ts
+  npx tsx src/chats/evals/judge/captureArm.ts
 JUDGE_ARM=candidate JUDGE_ARM_COMMIT=$JUDGE_CANDIDATE_SHA \
-  npx vitest run src/chats/evals/judge/sweep.eval.test.ts
+  npx tsx src/chats/evals/judge/captureArm.ts
 npx tsx src/chats/evals/judge/sweep.ts
 ```
 
-To make that recipe spend, add `JUDGE_SPEND=true` **and** export
-`JUDGE_ANTHROPIC_API_KEY` in the same shell. Without the second one the arms
-refuse to start rather than authenticating with the stub.
+To drive the chat agents, add `JUDGE_SPEND=true`, `JUDGE_CLERK_SECRET_KEY`
+(the dev Clerk secret) and a deployment for each arm:
+`JUDGE_BASE_API_URL` defaults to dev, and `JUDGE_CANDIDATE_API_URL` can be a
+PR preview, dev again, or `http://localhost:3000` for a local gp-api that uses
+the dev Clerk instance. Step 3 also needs `ANTHROPIC_API_KEY` to spend.
 
-Step 3 will **refuse**, because one checkout gives both arms the same
-`configDigest`. That is the refusal working, not a failure. Add
+Two arms against one deployment give both arms the same `configDigest`, so
+step 3 will **refuse**. That is the refusal working, not a failure. Add
 `JUDGE_SELECTION=explicit` to all three to get a report instead, with a
 qualifier saying the arms were configured alike — which is what the workflow
 does for a request that named its agents.
@@ -174,18 +196,15 @@ done < <(cat /tmp/judge-budget /tmp/judge-ids)
 ```
 
 `BASE_DIR` is the base checkout's repo root; in one checkout it is this one.
-Then run the three steps above with `JUDGE_SPEND=true`, the Anthropic key and
-the `JUDGE_AWS_*` credentials, since a background agent dispatches for real.
+Then run the three steps above with `JUDGE_SPEND=true` and the `JUDGE_AWS_*`
+credentials, since a background agent dispatches for real.
 
-**Vitest exiting 0 does not mean the agent ran.** An arm that is missing any of
-these skips the agent and records why in its manifest,
-`$JUDGE_RECORDS_DIR/_judge/<sweepId>/manifests/<arm>.json` under `skipped`.
-Read that before reading step 3's report.
-
-The arm log often ends in a Peerly stack trace. It is the test app's Peerly
-client trying to log in at boot (`@Timeout(0)` on
-`PeerlyHttpService.authenticate`) with `.env.test`'s stub credentials, and no
-judged agent calls Peerly. It is noise, not the failure.
+**An arm exiting 0 means it captured what it could.** It exits 1 when an agent
+it could have captured was skipped, when the store disagrees with its
+manifest, or when no record is judgeable. An agent skipped by design — a
+chat agent on a dry run, an agent the budget refused — is listed in the log
+and in the manifest, `$JUDGE_RECORDS_DIR/_judge/<sweepId>/manifests/<arm>.json`
+under `skipped`. Read that before reading step 3's report.
 
 ## The arms are sequential, and the TDD says otherwise
 
@@ -211,9 +230,8 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `fixtures/records.ts`                                  | Synthetic records, one pair per shape the layers above a runner must handle.   |
 | `cli.ts`                                               | Agent selection and `--dry-run`. Plans a sweep; does not run one.              |
 | `pricing.ts`                                           | Versioned token rates. Re-derive cost from here; never compare stored dollars. |
-| `runners/chat.ts`                                      | Drives one real chat case — one turn or several — and emits one record.        |
-| `runners/seedTranscript.ts`                            | Writes a prior transcript through the store path the live turn reads.          |
-| `runners/briefingFixture.ts`                           | The briefing a briefing chat case is asked about, and its pinned `today`.      |
+| `runners/chatHttp.ts`                                  | Drives one chat case against a deployed gp-api over HTTP and emits one record. |
+| `runners/judgeAccount.ts`                              | The throwaway Clerk test user per case, and the scope state made through the user routes. |
 | `cases.ts`                                             | Loads and validates one agent's case list.                                     |
 | `cases/*.json`                                         | The case lists themselves. One per agent — see below.                          |
 | `caseParams.ts`                                        | The placeholder vocabulary, its substitution, and the pre-dispatch guard.      |
@@ -221,7 +239,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `judgeFixtureIdentity.ts` / `judgeFixtureSeed.ts`      | The dev account the three gp-api readers run as, and the rows that seed it.    |
 | `records.ts`                                           | The record store: local directory or S3, behind one narrow interface. Also holds each sweep's per-case rulings. |
 | `sweepArm.ts`                                          | Walks a case list for **one** arm. The runner is injected.                     |
-| `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.         |
+| `captureArm.ts`                                        | Steps 1 and 2: wires `sweepArm` to the chat and background runners.            |
 | `sweep.ts`                                             | Step 3: reads both arms, judges, scores, reports.                              |
 | `armGap.ts`                                            | The distance between the two captures.                                         |
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
@@ -282,59 +300,83 @@ from any of them is a statement about the pipeline and not about the agent.
 That holds for a wired agent too, which is why the coverage line counts the
 wired ones on placeholder inputs separately. A case list is not a verdict.
 
-**A chat question has to be answerable against the state the harness seeds,
-and the seed is what decides which tools register.** A scope handler
+**A chat question has to be answerable against the state the arm sets up,
+and that state is what decides which tools register.** A scope handler
 assembles its tool set from its context, so a row left out does not merely
-thin an answer — it takes a tool off the model's list. `runners/seedChatOrg.ts`
-creates one organization per case, with `positionId` set, plus per scope: a
-Pro campaign carrying `details` and a `raceId` (`campaign_assistant`), an
-ordinance and an `OrdinanceCodeRecord` placing the agent in Judge City WA
-(`ordinance_flow`), a priority (`priority_flow`), a meeting briefing and one
-note on it (`briefing_annotation`), or an elected office alone
-(`chief_of_staff`). It still seeds no contacts or community issues.
+thin an answer — it takes a tool off the model's list.
+`runners/judgeAccount.ts` makes one throwaway account per case and attempt,
+through the deployment's own routes and nothing else:
+
+1. A Clerk user on the dev instance (previews share it), with a
+   `qa-<uuid>@goodparty.org` address so gp-api treats it as a test user; a
+   session token minted for an hour; then `GET /v1/users/me`, which
+   provisions the gp-api user. Clerk calls are throttled to a fifth of the
+   instance's 100 requests per 10 seconds, which e2e runs share. Every Clerk
+   user is deleted when the arm ends, best effort; the gp-api rows stay on
+   the deployment as test-user data.
+2. Per scope:
+   - `chief_of_staff`: `POST /v1/elected-office` with a `customPositionName`
+     of Council Member, and nothing else.
+   - `priority_flow`: the office, then `POST /v1/priorities`, and the chat is
+     anchored on that priority.
+   - `ordinance_flow`: the office, then `POST /v1/ordinances` (a new
+     ordinance), and the chat is anchored on it at `clarify`, the step a new
+     ordinance starts on.
+   - `briefing_annotation`: the office, a briefing through
+     `POST /v1/meetings/briefings/seed`, one note on it through
+     `POST /v1/meetings/:date/briefing/annotations`, then the chat (below).
+   - `campaign_assistant`: `POST /v1/campaigns` with fixed `details` carrying
+     the race id the sweep resolved as `JUDGE_FIXTURE_RACE_ID`, when it
+     resolved one, then `POST /v1/campaigns/mine/test-set-pro`.
+
+**What the routes cannot reproduce**, compared with the in-process seed this
+replaced (and with what some case lists' `note` fields still describe):
+
+- **No position or district.** A self-service office has no BallotReady
+  position, so `organization.positionId` is null and no district resolves.
+  The constituent-data tools stay unregistered on every scope, as they were
+  in CI before for lack of a Databricks credential.
+- **No `OrdinanceCodeRecord`.** No user route writes one, so
+  `ordinance_flow` does not know its jurisdiction and `get_code_source`
+  answers `no_record`.
+- **No pinned `today` on briefing chat.** The prompt renders
+  `todayInTimezone(meetingTimezone)`, so two arms captured either side of
+  midnight in New York read two different days.
+- **Not the exact Hendersonville artifact.** The seed route takes at most
+  five items, each a title, a summary, a budget line and three talking
+  points, and builds its own artifact around them. `JUDGE_BRIEFING_SEED`
+  ports the Hendersonville meeting into four items with a fixed meeting date.
+- **No raceId when the sweep resolved none**, so `get_ballot_requirements`
+  does not register on `campaign_assistant` that sweep.
+
+None of this seeds contacts or community issues.
 
 **Briefing chat is opened the way the webapp opens it.** Its conversation is
-created with its annotation, in one transaction, by `POST /v1/briefing-chats
-{meetingDate, anchor}`, and each turn goes to
-`/v1/briefing-chats/:annotationId/messages`. The registry's `POST /v1/chats`
-refuses the scope on purpose, so the runner uses the briefing routes rather
-than teaching the registry a second way in; the handler that answers is the
-same instance the registry holds. Two inputs of that turn cannot come from the
-database, and `installBriefingFixture` in `runners/chatSeam.ts` supplies both
-for the seeded bucket only, refusing outside a test process:
+created with its annotation by `POST /v1/briefing-chats {meetingDate,
+anchor}`, and each turn goes to `/v1/briefing-chats/:annotationId/messages`.
+The registry's `POST /v1/chats` refuses the scope on purpose. Each case has
+its own account and its own office, so the route's lookup by meeting date and
+the caller's office finds that case's briefing and nothing else. The chat
+opens on the whole briefing.
 
-- **The artifact.** Production reads it from S3 by the bucket and key on the
-  `MeetingBriefing` row. The seam serves `runners/briefingFixture.ts` instead:
-  the Hendersonville meeting the briefing prompt evals use, as the
-  `BriefingSchema` JSON the pipeline writes, so `get_artifacts` and highlights
-  work the way they do in production.
-- **Today.** The prompt says `Today is <date in the meeting's timezone>`, so
-  two arms captured either side of midnight there would read two different
-  prompts for one branch. The seam pins it to a fixed day, five days before
-  the meeting. It is in the system prompt, so the config digest covers it like
-  everything else the agent reads.
+**What a chat record is built from.** Each turn is posted and its SSE stream
+read to the end (a request timeout of 330s, above the route's own 300s). The
+`tool_call` frames are the trace and the tool-call count. A tool that failed
+streams a `tool_call` and never a `tool_result`, so a call left unanswered
+when the turn ends is a tool error, recorded in `toolErrorDetails` with the
+error class `unrecorded`, because the error text does not cross the wire.
+Native web search is run by the provider, which streams no result for it, so
+it is never counted as one; calling it sets `liveWeb`. After each turn the
+runner reads the conversation back (`GET /v1/chats/:id` or
+`GET /v1/briefing-chats/:annotationId`) for the persisted assistant text, by
+the id the `done` frame names, and for the conversation's `usage` (see the
+cost section). `variant.commit` is what `GET /v1/version` served, and
+`configDigest` is `deploy:<that commit>`: the rendered prompt is not on the
+wire, so two arms are told apart by what they deployed. `toolQueries` is
+empty and no `dataVersion` is recorded, because the SQL runs inside the
+deployment.
 
-Every case in an arm seeds its own office for the one judge user, but the
-briefing route finds a briefing by meeting date and the caller's office, which
-assumes one office per user. So the briefing seed deletes the earlier cases'
-judge briefings on the fixture date first; otherwise a later case would be
-routed onto an earlier briefing and continue its conversation. The district,
-by contrast, is resolved from the briefing's own organization, which is the
-one this case seeded, so `accountState.district` works on briefing chat the
-way it does on the other Serve scopes.
-
-`query_constituent_data` and `describe_constituent_data` stay unregistered on
-every run this harness makes, but **that is now a deployment gap rather than a
-seeding one.** The one gate that lived in our own database — a missing
-`organization.positionId`, which `resolveByOrgSlug` refuses on before it asks
-anything else — is seeded. The two that remain are not rows anyone could seed:
-the position itself lives in election-api, read over HTTP, and the provider
-factory returns null without a Databricks credential. Both are absent locally
-and in CI, so the pair registers the moment a credentialed deployment drives
-this same seed, which `runners/seedChatOrg.tools.integration.test.ts` proves
-against the real handler and the real resolver.
-
-A question that needs state nobody seeded produces "I don't have that" on
+A question that needs state nobody set up produces "I don't have that" on
 **both** arms, which is a tie that measures nothing. Each chat list's `note`
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
@@ -367,8 +409,8 @@ uv run --with jsonschema --with referencing python   # Draft7Validator
 `district_issue_pulse`'s whole `input_schema` is one such `$ref`, and it
 resolves to four required properties rather than none.
 
-A chat case's `question` is one turn (see the next section for the case fields
-that go past one), and the questions are not invented from scratch where a
+A chat case's `question` is one turn (see the next section for a case that
+goes past one), and the questions are not invented from scratch where a
 suite already exists. The Chief of Staff golden bench
 (`src/chats/general/chief-of-staff/evals/cases`), the Campaign Manager eval
 suites (`src/chats/general/campaign-manager/evals`) and the ordinance-flow
@@ -389,31 +431,18 @@ People in these files are fictional placeholders in the house style
 `Test Official`), because this repo is public. States, cities, office titles
 and L2 voter file column names are real.
 
-## Four things a chat case can say beyond one question
+## A chat case can be several turns
 
-`ChatCaseSchema` grew four optional fields so a case list can express the
-formats a bench is actually written in. **Every one of them is optional and a
-list that uses none behaves exactly as before** — the lists in `cases/`
-needed no editing for any of this.
-
-| Field             | What it does                                                       |
-| ----------------- | ------------------------------------------------------------------ |
-| `turns`           | Several USER turns, posted in order to ONE conversation.           |
-| `priorTranscript` | A transcript written onto the record before the first driven turn. |
-| `toolFailure`     | One named tool, forced to `error` or `timeout`.                    |
-| `accountState`    | A closed set of states that gate tool registration.                |
-
-`question` is still valid on its own and is still what every authored list
-uses; `turns` is the general spelling of the same thing, and a case must carry
-exactly one of the two.
+`ChatCaseSchema` has one optional field beyond `question`: `turns`, several
+USER turns posted in order to ONE conversation. `question` is still valid on
+its own and is still what every authored list uses; `turns` is the general
+spelling of the same thing, and a case must carry exactly one of the two.
 
 **The case object is `.strict()`, and that is not the same as requiring
-anything.** Every field is optional, which is what an older base ref needs.
-What strict adds is that a MISSPELLED field name is refused rather than
-stripped: a `priorTranscipt` would otherwise be dropped on BOTH arms, the case
-would run with no condition applied, and the pair would compare happily and be
-reported as a verdict. The nested directives are strict for the same reason and
-catch a typo inside one; this is what catches the directive's own name.
+anything.** Both spellings are optional, which is what an older base ref
+needs. What strict adds is that a MISSPELLED field name is refused rather
+than stripped, so a typo cannot silently change what a case asks on both
+arms.
 
 **Several user turns, and nothing hand-builds the history.** The runner posts
 each turn to the same `conversationId`, so turn two is answered against turn
@@ -442,159 +471,22 @@ the conversation continues. It marks the case `blocked` even if a later turn
 recovered, because a conversation that had to recover is the behavior being
 compared.
 
-**A seeded prior transcript reaches the store, because no route writes an
-assistant message.** The assistant row is produced by the stream as a side
-effect of a turn, so there is no HTTP way to put one on the record.
-`runners/seedTranscript.ts` therefore writes directly — but every rule it
-writes by is borrowed rather than restated:
-`ChatStoreService.appendUserMessageIfAlive` for the user row (the same call
-`ChatStreamService.run` makes, alive check included), `assistantRowToPersist`
-for the decision `persistAssistantText` makes about what an assistant turn
-stores, `ChatStoreService.appendMessage` for the write both end in, and
-`toJsonPayload` for the conversion a streamed tool call makes on its way to the
-same column. A hand-built row would be the wrong shape in ways nobody would
-notice, and the model's context would then differ from production while the
-verdict claimed to be about the agent we ship.
-
-`persistAssistantText` itself stays **private**. It is the one write in the
-chat stack with no ownership check on it, and what a seeder needs is the rules,
-not the ability to put an assistant row into an arbitrary conversation — so
-only the rules were lifted out, and the seeder makes the ownership check once
-before it writes anything.
-
-What reaches the model is narrower than it looks: `toLlmMessages` replays a
-history row's `role` and `content` and **nothing else**. Segments are not
-replayed, so a seeded tool call changes what the client would render and what a
-reader of the record sees, not the model's context. Nor can a seeded turn carry
-a tool _result_ — production streams the result to the client and persists only
-the call. What DOES change the model's context is a leading ASSISTANT row,
-which `toLlmMessages` folds into the system prompt rather than sending as an
-invalid leading turn.
-
-**So a transcript has to be one a conversation could have produced, and the
-schema enforces it: it opens on a user turn and never puts two assistant rows
-together.** The fold takes only the FIRST leading assistant row, so either
-shape leaves an assistant row where the provider requires a user one, and that
-arrives as a stream error after the conversation is open and a turn has been
-attempted — the spend everything else here refuses before. `campaign_assistant`
-is what makes this load-bearing rather than theoretical: its `seedConversation`
-writes a scripted opener before the seeder runs, so with the rule that opener
-is the row that gets folded and the seeded transcript follows it legally.
-Without it, an author's leading assistant row is the second one and the turn
-dies. The fold is also a reason not to want one: it is injected as "You already
-greeted the candidate with: …", which is a greeting claim rather than a reply,
-and on a Serve scope calls an elected official a candidate.
-
-**`anchor` is not a substitute for a transcript, and it is worth knowing which
-you need.** `POST /v1/chats` stores the anchor on the conversation and the
-scope's `loadContext` reads it back, so an anchor attaches the conversation to
-an existing domain resource — an ordinance at a step, a priority, a community
-issue — and that context reaches the system prompt and the tool set. It puts no
-prior messages on the record. So a case that needs "the agent is working on an
-existing ordinance at the draft step" needs an anchor (and
-`accountState.ordinanceStep`), not a synthetic transcript; only a case that
-needs the agent to have already SAID something needs `priorTranscript`. The one
-scope that seeds a message of its own is `campaign_assistant`, whose
-`seedConversation` writes a scripted opener.
-
-**A forced failure is honoured at the seam that already wrapped every tool.**
-`instrumentTools` called the real `execute` and recorded the outcome; a
-directive replaces that call and pushes the same outcome a genuine failure
-pushes. The real tool is NOT run — an ordinance `present_*` tool commits its
-own record, and a case that says the tool failed must not leave that write
-behind. `timeout` reproduces the OUTCOME of a timeout (a tool step that
-rejected, which the AI SDK turns into a tool-error result while the loop
-answers with less information) rather than a real wall-clock hang: a hang would
-cost the route's whole 300s stream timeout per case and arrive as an infraError
-with no answer to compare.
-
-\*\*The mark covers a seeded transcript and not the other two conditions, which
-is a judgement rather than an omission. A forced tool failure already separates
-itself more strongly than a report line could: `isComparable()` is false for
-it on a chat run, so the pair never reaches a delta at all. And an account state is a state
-production really produces — a campaign without Pro, an organization without a
-position — seeded through the same rows the app writes, so a verdict under one
-is a verdict about a real account. Only the transcript is a context the harness
-authored and production would not have built.
-
-One consequence to read before authoring these:\*\* `isComparable()` is false
-for any chat run that hit a tool error, so a forced-failure pair resolves CAN'T SAY
-rather than entering the delta. Telling an injected failure from an incidental
-one needs a field `record.ts` does not have, and `record.ts` is the frozen
-cross-track contract — so that is a change to review, not a drive-by. Until
-then a forced-failure case buys the two arms' stored answers and traces side by
-side, not a scored delta.
-
-**An account state is a closed set, and the set is read off the handlers.**
-Tool registration is the only thing about an account the model can see, so the
-states worth naming are the ones that gate it: `pro` (campaignManager gates the
-whole CRM and voter-file family on `ctx.isPro !== false`), `district`
-(`organization.positionId`, the half of the district gate that lives in our own
-database), `campaignDetails` (the blob carrying `raceId`, which
-`get_ballot_requirements` registers on) and `ordinanceStep` (each step past
-clarify carries its own `present_*` tools). `briefingHighlight` is the one
-that gates no tool: like `ordinanceStep` it picks what the conversation is
-anchored on, here a highlighted passage instead of the whole briefing, which
-the briefing prompt renders differently. `.strict()` keeps it closed: an
-open bag of column overrides would let a case list seed a state no deployment
-can produce, and the verdict would be about an agent we do not ship.
-
-`district` is the one whose effect cannot be measured here. It gates only the
-constituent-data pair, and the provider factory returns null without a
-Databricks credential — so the pair is unregistered locally and in CI whatever
-`positionId` says, and the digest is identical either way. The same deployment
-gap the case-list notes already record. What is ours is the row, and the runner
-asserts it.
-
-**Every refusal happens before a turn is driven.** A chat turn costs real
-money, so: the schema refuses an undefined state or an unimplemented failure
-mode at case-list load; `seedOptionsFor` refuses a state the scope has no row
-for before anything is seeded; `assertTranscriptFits` refuses a transcript the
-route's 40-message replay window would drop; and `assertSeededAccountState`
-reads the three rows back and refuses a state the seed does not match, because
-the state is seeded by the runner's CALLER and a caller that forgot would
-produce a record claiming a condition the agent was never under.
-
-The one check that cannot be static is the forced-failure tool name: the tool
-set is assembled by the scope handler from its context, so no list here could
-be right for every seed. It is checked at the LLM seam, against the names the
-turn actually offered — still before the model is called, so a refused
-directive costs nothing. It is both **thrown** (which is what keeps the model
-from being called) and **recorded on the capture** (which is what lets the
-runner name it): the chat route catches a throw out of `streamChatCompletion`
-and writes an error chunk, so on the throw alone the run would come back as an
-ordinary infraError and the unhonourable directive would be invisible.
-
-**Adding one of these fields to an EXISTING list is the one operational
-catch.** A `turns`-shaped case fails an older base ref's schema outright, and
+**Adding `turns` to an EXISTING list is the one operational catch.** A
+`turns`-shaped case fails an older base ref's schema outright, and
 `loadCaseList` throws inside `captureArm`'s per-agent try — so that arm skips
 the WHOLE agent, not just the case, and the candidate arm's already-paid
 records for its other cases have nothing to pair against. It fails loud, and
-the reason reaches the report. But it means `question` plus a new field is the
-gentler way to extend a list until the base ref carries this change, and a
-fresh list for a new bench is gentler still.
-
-**A seeded case is marked all the way to the report**, the road
-`placeholderCases` already travels: the case list, then
-`ArmAgent.seededTranscriptCases` in the arm manifest, then
-`SweepReport.seededTranscripts`, then one line in the rendered report. The
-record carries it too, inside `input.value.seededTranscript`. The manifest
-field is **optional**, which is why `MANIFEST_SCHEMA_VERSION` did not move for
-it: the base arm writes its manifest with the base ref's copy of `records.ts`,
-and a required field would read as a corrupt manifest rather than as version
-skew. `sweep.ts` unions the mark across both arms for the same reason — an arm
-whose ref predates the field records nothing at all.
+the reason reaches the report. But it means a fresh list for a new bench is
+the gentler way to add one until the base ref carries it.
 
 **Nothing here needs a version marker, and the reason is the input payload.**
-A case using none of the new fields records
-`{ kind: 'question', value: <the question> }`, byte-identical to before. A case
-using ANY of them records `{ kind: 'transcript', value: { turns, ... } }`. So
-if an older base ref parsed the same list with an older schema, stripped the
-field it does not know and drove a plainer run, the two arms' inputs no longer
-match and `MismatchedInputError` refuses the pair — rather than comparing two
+A `question` case records `{ kind: 'question', value: <the question> }`. A
+`turns` case records `{ kind: 'transcript', value: { turns } }`, and the
+transcript schema is strict too: a payload carrying a field this build does
+not know renders as whole-value JSON, so the two arms' inputs no longer match
+and `MismatchedInputError` refuses the pair — rather than comparing two
 different conditions and reporting the difference as a verdict about the
-branch. A case carrying only `turns` fails the older ref's schema outright,
-which surfaces as a named skip in that arm's manifest. Both are loud.
+branch.
 
 ## A background case can ask its own questions
 
@@ -645,9 +537,9 @@ so the agent never sees either one.
 ```
 
 - **`condition`** says what the case planted in or took out of `params`. It
-  is added to the judge's shared input as a last line, `Condition: ...`, the
-  same way a chat case's `toolFailure` is. The background rubric tells the
-  judge to decide first whether each run handled the condition. A run that
+  is added to the judge's shared input as a last line, `Condition: ...`. The
+  background rubric tells the judge to decide first whether each run handled
+  the condition. A run that
   reads better but ignores the condition counts as worse. Up to
   2,000 characters, trimmed, never empty.
 - **`scored: false`** makes the case a control. It runs and is judged like
@@ -806,8 +698,11 @@ pairs are ordinary and the count is what makes a dropped candidate obvious.
 **Both of them are a money guard, so a request that named its agents gets a
 qualifier instead.** What they exist to stop is an accidental sweep — `auto`
 picking an agent up because a README in its directory moved — and not a
-deliberate one. `configDigest` is `sha256(renderedSystemPrompt +
-sortedToolNames)`, so a branch that changes only the model, the provider, the
+deliberate one. A background `configDigest` is the hash of the manifest and
+instruction. A chat one is `deploy:<served commit>`, because a deployed
+gp-api does not put its prompt on the wire: two arms on different deployments
+always differ, so the chat refusal fires only when both arms drove the same
+commit. The background digest is a hash of what the agent reads, so a branch that changes only the model, the provider, the
 sampling settings or the code behind a tool whose name did not move hashes
 identically on both arms, and evaluating a model swap is one of the most
 obvious reasons to reach for this harness. Identical outputs everywhere have a
@@ -924,14 +819,12 @@ that is a change to the contract and it goes through review. Two tracks
 inventing the same field differently is the failure this structure exists to
 prevent.
 
-**Never call a real agent.** No track in this build spends money; real runs
-come after the merge. `RUN_LLM_EVALS=1` is not for this code.
-
-That is enforced, not just asked for. A run with no `script` would be
-answered by the real, paid model, and a forgotten field type-checks cleanly —
-so the paid path takes two deliberate acts: `realModel: true` on the request
-**and** `JUDGE_SPEND=1` in the process. Omit either and the run throws before
-anything is patched.
+**Never call a real agent from a test.** `RUN_LLM_EVALS=1` is not for this
+code. The runners take their HTTP and AWS ports as arguments, so their tests
+drive a fake deployment and a fake queue. A real chat or background run needs
+`JUDGE_SPEND=true` in the arm's process: without it every chat agent is
+skipped by name before any HTTP call, and a background dispatch throws before
+anything is staged.
 
 ## Cost is re-derived, never compared as stored
 
@@ -948,6 +841,16 @@ keeps its status and its answer and loses only its cost line. This is a live
 path, not a hypothetical — every chat scope declares a `claude-opus-4-7`
 fallback that `pricing.ts` has no rates for.
 
+**An absent cost is unmeasured, never re-priced from the tokens.** A runner
+leaves `cost` off a run it would not stand behind a figure for, so the tokens
+beside it are zero or partial. A black-box chat run whose usage gp-api did
+not report is the common case: zero tokens, no cost, and a model the client
+never saw (`unobserved`). If any run in an agent's measured pairs has no
+cost, the report's `- cost difference per run pair:` line reads `unmeasured`
+with the count, rather than a $0 delta, and the actual-cost total counts the
+run as unmeasured and says "at least". Neither path throws on a model
+`pricing.ts` does not know.
+
 **Compare with `priceUsd()` from `pricing.ts`. Do not compare
 `usdAtCapture` between two records.** A cached base arm can predate its
 candidate by months, so comparing two stored figures measures Anthropic's
@@ -962,6 +865,21 @@ rather than pricing a cache read at the full input rate, because doing so
 overstates it by roughly ten times and would silently invalidate every
 stored comparison. Switching caching on therefore fails loudly and needs
 rates added to `pricing.ts`.
+
+A chat record's counts come from the conversation's `usage`, which
+`GET /v1/chats/:conversationId` and `GET /v1/briefing-chats/:annotationId`
+return beside the messages: `{ complete, byModel: [{ model, inputTokens,
+outputTokens }] }`, summed over every assistant message by the model that
+answered, and written before the stream's `done` frame. The runner reads it
+after the last turn. It prices the run only when `complete` is true and one
+model answered the whole conversation: then `variant.model` is that model,
+the tokens are its counts (cache counts zero) and the cost comes from
+`priceUsd`. Otherwise the tokens are zero, the cost is absent, the trace says
+why, and `variant.model` is the one model if there was one and `unobserved`
+if not. A deployment that predates the field reports nothing, and the run is
+recorded as unmeasured. `campaign_assistant` writes a scripted opener as an
+assistant message; if the deployment records no usage for it, that
+conversation is never complete and its runs are never priced.
 
 A background record's counts come from the `type: result` line of the run's
 `conversation.jsonl`, under `usage`: `input_tokens`, `output_tokens`,
@@ -1073,9 +991,11 @@ lets a name through whenever it has the right shape (`MariaGonzalezError`,
   built-in (Bash, Read, WebSearch, Agent, ...) or a broker MCP tool on
   `KNOWN_BROKER_TOOLS` (e.g. `mcp__broker__GET_community_issues`). It is a
   list of names, not a pattern, because a model can invent a well-shaped
-  `mcp__broker__GET_jane_doe_voter_record`. For chat, a tool gp-api
-  registered, which the runner checks before it writes. Anything else is
-  `unknown`, and both runners store it that way.
+  `mcp__broker__GET_jane_doe_voter_record`. For chat, a name with the shape
+  gp-api gives its tools (`CHAT_TOOL`), taken from the `tool_call` frame the
+  deployment streamed. Anything else is `unknown`, and both runners store it
+  that way. A chat tool error's text never crosses the wire, so its class is
+  `unrecorded`.
 
   **Adding an @McpTool route?** `knownBrokerTools.db.test.ts` fails until
   `KNOWN_BROKER_TOOLS` in `toolErrorDetails.ts` matches the tools gp-api
@@ -1111,7 +1031,8 @@ by curling the broker from Bash, so its SQL is buried inside a shell command
 string rather than in a structured `sql` tool argument, and only a structured
 one is collected — regexing SQL back out of a shell string would put something
 that is not the agent's verbatim query into a field whose entire value is being
-verbatim. The chat agents, which call a real SQL tool, do populate it.
+verbatim. A chat record's is empty too: its SQL runs inside the deployment the
+arm drives, and nothing on the wire carries it.
 
 ## Verify
 
@@ -1119,9 +1040,11 @@ verbatim. The chat agents, which call a real SQL tool, do populate it.
 npx vitest run src/chats/evals            # from packages/gp-api
 npm run verify -w packages/gp-api         # what CI runs, unfiltered
 
-# Both entry points AS COMMANDS, which is the only way to catch a missing
-# entry point. The judging entry exits 1 and names the missing variable.
+# The entry points AS COMMANDS, which is the only way to catch a missing
+# entry point. The arm and judging entries exit 1 and name the missing
+# variable.
 npx tsx src/chats/evals/judge/cli.ts --agents=all --dry-run
+npx tsx src/chats/evals/judge/captureArm.ts
 npx tsx src/chats/evals/judge/sweep.ts
 ```
 

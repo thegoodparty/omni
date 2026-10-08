@@ -2,15 +2,12 @@ import { basename } from 'node:path'
 import { AGENTS, type AgentEntry } from './agents'
 import {
   describeIssues,
-  isChatCase,
   loadCaseList,
-  usesSeededTranscript,
   type CaseList,
   type JudgeCase,
 } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { selectAgents } from './cli'
-import { ARM_KEY_ENV } from './modelKey'
 import { isoUtc, RunRecordSchema, type RunRecord } from './record'
 import {
   MANIFEST_SCHEMA_VERSION,
@@ -81,10 +78,6 @@ const SECRET_SHAPES: readonly [RegExp, string][] = [
 // So the known secret-bearing variables are redacted by VALUE as well.
 const SECRET_VARS: readonly string[] = [
   'ANTHROPIC_API_KEY',
-  // The name the real key reaches a spending arm under; see modelKey.ts. On
-  // a dry run ANTHROPIC_API_KEY still holds the stub, so redacting that one
-  // alone would redact the stub and leave the real value in the clear.
-  ARM_KEY_ENV,
   'DATABRICKS_CLIENT_SECRET',
   'DATABRICKS_CLIENT_ID',
   'DATABASE_URL',
@@ -206,9 +199,6 @@ const captureAgent = async (
       err instanceof Error ? err : new Error(String(err)),
     )
   }
-  const seeded = list.cases
-    .filter((one) => isChatCase(one) && usesSeededTranscript(one))
-    .map((one) => one.caseId)
   return {
     agentId: agent.agentId,
     // The basename, not the absolute path it was read from: the manifest is
@@ -216,7 +206,6 @@ const captureAgent = async (
     // nobody's business.
     caseList: basename(list.source),
     placeholderCases: list.placeholder,
-    ...(seeded.length > 0 && { seededTranscriptCases: seeded }),
     cases: list.cases.length,
     attempts: attemptsPerCase,
     recordsWritten: progress.recordsWritten,
@@ -300,7 +289,7 @@ const walkCases = async (
   const requests = requestsFor(env, agent, list, attemptsPerCase)
   if (agent.shape !== 'background') {
     // One at a time. A chat case runs inside this process against the test
-    // app and its one database, and a seeded transcript is per case.
+    // app and its one database.
     for (const request of requests) await runOne(deps, request, progress)
     return
   }

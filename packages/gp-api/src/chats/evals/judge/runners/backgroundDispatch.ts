@@ -450,8 +450,8 @@ export const caseLoaderFor = (
 // WHAT THE ARM ACTUALLY CALLS, so that CI executes the wiring rather than
 // only the helper.
 //
-// `sweep.eval.test.ts` is `describe.skipIf(!sweepRequested)` — dead text in
-// CI — so while it built these arguments inline, reverting them to the chat
+// The old vitest arm suite was `describe.skipIf(!sweepRequested)` — dead
+// text in CI — so while it built these arguments inline, reverting them to the chat
 // budget left the whole suite green. That is the same gap that let a swapped
 // bucket and a hardcoded agent id through twice before.
 //
@@ -476,8 +476,7 @@ export const armCaseLoader = (
 // THE TWO THINGS AN ARM HANDS captureArm FROM ITS RESOLVED ENVIRONMENT, built
 // in one place that CI executes.
 //
-// They lived inline in `sweep.eval.test.ts`, which is `describe.skipIf` and
-// never runs in CI, and two mistakes there passed the whole suite: building
+// They lived inline in the old vitest arm suite, which never ran in CI, and two mistakes there passed the whole suite: building
 // the loader once PER AGENT, which gives every agent a fresh budget and
 // undoes the spend-down; and leaving `config` off captureArm's deps, so
 // attempts fall back to the default while the cap uses the resolved budget —
