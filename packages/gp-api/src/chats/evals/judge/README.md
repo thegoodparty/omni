@@ -250,7 +250,7 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: every judgeable agent, and all but one are placeholders
+## Case lists: every judgeable agent, and all but two are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
@@ -275,8 +275,10 @@ bypasses permission prompts, so a judge arm of it would make real writes
 against a real organization. A case list for it would be inputs for a sweep
 that must not run.
 
-**All but one are `placeholder: true`.** The exception is
-`race_opponent_summary.json`, a real bench of eight probes and a control. Each other background list is
+**All but two are `placeholder: true`.** The exceptions are
+`race_opponent_summary.json`, a real bench of eight probes and a control, and
+`race_opponent_actions.json`, nine probes and a control built from the summary
+agent's own outputs over that bench. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody wrote them to test the agent, so a verdict drawn
@@ -341,10 +343,11 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, and `gates.minCases` is 20.** So a corpus verdict over one
-of these lists resolves CAN'T SAY however the judge voted — the floor was set
-from measured agent non-determinism (three identical Chief of Staff turns gave
-6, 4 and 2 tool steps) and eight runs measure that rather than the branch.
+**Eight cases each, nine and ten on the two real lists, and `gates.minCases`
+is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
+the judge voted — the floor was set from measured agent non-determinism (three
+identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
+short measures that rather than the branch.
 Eight is one clean baseline plus seven single-axis variations, which is what
 one change can author honestly across twenty agents. **Whether to grow every
 list to 20 or to lower the floor is still open.** Do not read the shortfall as
@@ -728,8 +731,9 @@ judge a probe without its condition, and the report would mention neither.
 `BackgroundCaseSchema` is `.strict()` for the same reason `ChatCaseSchema` is:
 if a misspelled `scored` were stripped, the control would be scored silently.
 
-`race_opponent_summary.json` marks Melecia's `control` as `scored: false`.
-None of her probes has a `condition` yet. Those strings are hers to write.
+`race_opponent_summary.json` and `race_opponent_actions.json` each mark their
+`control` as `scored: false`, and every probe in both carries a `condition`
+and two or three `dimensions`.
 
 ## The judge sees each background agent's output contract
 
