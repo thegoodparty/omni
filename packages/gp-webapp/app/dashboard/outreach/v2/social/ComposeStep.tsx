@@ -13,6 +13,7 @@ import {
   FilterPill,
   FilterPillGroup,
   IconButton,
+  seamlessFieldHost,
   TokenField,
 } from '@styleguide'
 import {
@@ -147,7 +148,7 @@ export const ComposeStep = ({
           </Card>
         )}
 
-        <Card className="gap-3 p-4">
+        <Card className={cn('gap-3 p-4', seamlessFieldHost)}>
           <TokenField
             value={draft}
             onChange={onDraftChange}

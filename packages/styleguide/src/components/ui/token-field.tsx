@@ -178,6 +178,7 @@ function TokenField({
       ...(ariaInvalid ? { 'aria-invalid': 'true' } : {}),
       ...(readOnly ? { 'aria-readonly': 'true' } : {}),
       ...(placeholder ? { 'aria-placeholder': placeholder } : {}),
+      'data-variant': variant,
       class: cn(
         textareaVariants(variant),
         'block min-h-16 whitespace-pre-wrap break-words',

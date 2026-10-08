@@ -19,6 +19,7 @@ import {
   IconButton,
   Input,
   Label,
+  seamlessFieldHost,
   TokenField,
   type TokenSpec,
 } from '@styleguide'
@@ -194,7 +195,7 @@ export const ScriptStep = ({
           </Card>
         )}
 
-        <Card className="gap-3 p-4">
+        <Card className={cn('gap-3 p-4', seamlessFieldHost)}>
           <TokenField
             value={script}
             onChange={onScriptChange}

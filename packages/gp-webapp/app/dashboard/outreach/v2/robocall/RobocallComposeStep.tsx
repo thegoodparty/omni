@@ -16,6 +16,7 @@ import {
   FilterPillGroup,
   IconButton,
   type ProtectedSpec,
+  seamlessFieldHost,
   TokenField,
 } from '@styleguide'
 import {
@@ -212,7 +213,7 @@ export const RobocallComposeStep = ({
             </Card>
           )}
 
-          <Card className="gap-2 p-4">
+          <Card className={cn('gap-2 p-4', seamlessFieldHost)}>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Read this on your recording
             </p>

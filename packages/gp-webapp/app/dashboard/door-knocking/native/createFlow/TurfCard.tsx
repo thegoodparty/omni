@@ -146,7 +146,9 @@ export const TurfCard = ({
             control. A bordered input in a list of five rows reads as a form
             to fill in; this reads as a name you can correct, which is what
             it is. The focus ring is the only affordance, and it only shows
-            once somebody is actually in it.
+            once somebody is actually in it. It is drawn on the card rather
+            than the input: an unpadded input's ring hugs the letters, and
+            the card is the turf being named.
 
             Uncontrolled via `defaultValue`, keyed on the turf, so typing
             does not round-trip through the draft on every keystroke and a
@@ -159,7 +161,8 @@ export const TurfCard = ({
             aria-label={noun === 'turf' ? 'Turf name' : 'Shape name'}
             placeholder={unnamedLabel}
             maxLength={MAX_TURF_NAME_LENGTH}
-            className="min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent p-0 text-sm font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground focus:ring-2 focus:ring-primary-focus"
+            data-turf-name=""
+            className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-sm font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground"
             onClick={(event) => event.stopPropagation()}
             onBlur={(event) => commitRename(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -230,8 +233,10 @@ export const TurfCard = ({
       <div
         ref={rootRef}
         data-turf-card=""
-        className={`flex flex-col overflow-clip rounded-lg border bg-background ${
-          error ? 'border-destructive' : selected ? '' : 'border-border'
+        className={`flex flex-col overflow-clip rounded-lg border bg-background has-[[data-turf-name]:focus-visible]:ring-[3px] ${
+          error
+            ? 'border-destructive has-[[data-turf-name]:focus-visible]:ring-destructive-focus'
+            : `has-[[data-turf-name]:focus-visible]:ring-components-input-focus ${selected ? '' : 'border-border'}`
         }`}
         // The open card is drawn in the turf's OWN colour rather than in the
         // brand's, so the card and the ring it is about are the same object
