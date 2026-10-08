@@ -182,8 +182,8 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   records.
 - **`read_past_outreach` / `present_past_outreach`** — recent sends with reply
   counts (`PriorityFlowOutreachService`), and a card of chosen sends. Chief of
-  Staff reads an office's by `organizationSlug`, per office and per priority;
-  Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
+  Staff reads an office's by `organizationSlug` with `campaignId` null, per
+  office and per priority; Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
   by slug, since an org can hold a campaign and an office at once. The card
   picks its detail route, results route and outreach hub from the surface's
   mode.

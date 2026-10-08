@@ -57,6 +57,9 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     const rows = await this.findMany({
       where: {
         organizationSlug,
+        // An org can hold a Campaign and an ElectedOffice at once, and a
+        // Win row carries the slug too; only campaignId null is the office's.
+        campaignId: null,
         // `not` alone compiles to SQL `<>`, which drops every NULL row. Nearly
         // all outreach has no priority, so that silently emptied the list.
         ...(priorityId === null
