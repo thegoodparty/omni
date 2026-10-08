@@ -53,7 +53,9 @@ result = traced_llm_call(
     tags=["production", "v1"]  # Optional: tags for filtering in UI
 )
 
-# Load prompts from Braintrust (with local fallback)
+# Load prompts from Braintrust (with local fallback). Hosted prompts render in
+# strict mode: a placeholder the variables do not cover raises, and the call
+# falls back to fallback_prompt with a warning instead of sending blanks.
 prompt = load_prompt_from_braintrust(
     prompt_name="cluster-analysis-v1",
     fallback_prompt="Analyze this: {input}",
