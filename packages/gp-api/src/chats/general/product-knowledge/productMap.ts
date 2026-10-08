@@ -453,8 +453,9 @@ export const areasForMode = (mode: ProductMode): ProductArea[] =>
   PRODUCT_AREAS.filter((a) => a.modes.includes(mode))
 
 // The area a dashboard URL is on, by the most specific path that holds it.
-// Only real routes take part, a bracketed segment matches any one segment,
-// and the home tab matches only exactly, since every page sits under it.
+// Only real routes take part, never an alias (its label never renders), a
+// bracketed segment matches any one segment, and the home tab matches only
+// exactly, since every page sits under it.
 export const areaForPath = (
   mode: ProductMode,
   pathname: string,
@@ -469,7 +470,10 @@ export const areaForPath = (
   }
   return (
     areasForMode(mode)
-      .filter((area) => area.path.startsWith('/') && matches(area.path))
+      .filter(
+        (area) =>
+          !area.aliasOf && area.path.startsWith('/') && matches(area.path),
+      )
       .sort((a, b) => b.path.length - a.path.length)[0] ?? null
   )
 }

@@ -29,6 +29,10 @@ describe('areaForPath', () => {
     ).toBe('/dashboard/issue-capture/[outreachId]/review')
   })
 
+  it('names the tab users see, never an alias of it', () => {
+    expect(areaForPath('win', '/dashboard/profile')?.name).toBe('Profile')
+  })
+
   it('never matches a path outside the dashboard', () => {
     expect(areaForPath('win', '/login')).toBeNull()
   })
