@@ -5,6 +5,7 @@ import {
   ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL,
 } from './ordinanceFlowPrompt'
 import { OrdinanceFlowContext } from './ordinanceFlowContext.service'
+import { guardrailLine } from '../../services/guardrailLines'
 
 const baseCtx = (
   overrides: Partial<OrdinanceFlowContext> = {},
@@ -55,6 +56,58 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
     expect(prompt).toContain('City Council Member')
     expect(prompt).toContain('Reduce late-night construction noise')
+  })
+
+  describe('guardrails and the legal caution', () => {
+    const municipal = (step: OrdinanceFlowContext['step'] = 'clarify') =>
+      buildOrdinanceFlowSystemPrompt({ ctx: baseCtx({ step }), toolNames: [] })
+    const bill = (step: OrdinanceFlowContext['step'] = 'clarify') =>
+      buildOrdinanceFlowSystemPrompt({
+        ctx: baseCtx({ step, officeLevel: 'STATE' }),
+        toolNames: [],
+      })
+
+    it('asks for the decline line inside the reply, not as the whole reply', () => {
+      for (const prompt of [municipal(), bill()]) {
+        expect(prompt).toContain('give this line in its place')
+        expect(prompt).toContain('give the line in place of the rest')
+        expect(prompt).toContain('someone may be in danger')
+        expect(prompt).toContain('what you can do for them')
+        expect(prompt).not.toContain('nothing else')
+      }
+      expect(municipal()).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
+      expect(bill()).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL)
+    })
+
+    // Guards against the text being inlined in the prompt again.
+    it('reads both declines from the shared guardrail module', () => {
+      expect(ORDINANCE_FLOW_GUARDRAIL_DECLINE).toBe(
+        guardrailLine('scope_decline', 'ordinance_flow', 'municipal'),
+      )
+      expect(ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL).toBe(
+        guardrailLine('scope_decline', 'ordinance_flow', 'bill'),
+      )
+    })
+
+    it('asks for the legal line on every step but drafting', () => {
+      const legal = guardrailLine('legal_advice', 'ordinance_flow')
+      const steps = [
+        'intro',
+        'clarify',
+        'authority',
+        'current_law',
+        'comparables',
+        'review',
+      ] as const
+      for (const step of steps) {
+        expect(municipal(step)).toContain('LEGAL CAUTION')
+        expect(municipal(step)).toContain(legal)
+        expect(bill(step)).toContain(legal)
+      }
+      expect(municipal('draft')).not.toContain('LEGAL CAUTION')
+      expect(municipal('draft')).not.toContain(legal)
+      expect(bill('draft')).not.toContain(legal)
+    })
   })
 
   it('forbids reciting unverified legal specifics on every step, in prose', () => {
