@@ -17,6 +17,10 @@ import {
   EXAMPLE_SAMPLE,
 } from '../chat-tools/outreachSampling.prompt'
 import { WIN_TEXT_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
+import {
+  buildGuardrailsBlock,
+  HONEST_REPORTING_BLOCK,
+} from '../services/assistantRules.prompt'
 
 export type { BallotStatus }
 
@@ -149,7 +153,10 @@ prioritization: tell the candidate the two or three things that matter most \
 right now, answer "what do I do" when something happens, and route them into \
 the work. You are an agent that acts on the plan, not a chatbot that only talks.`
 
-const GUARDRAILS = `Rules:
+// Win's own rules, beside the shared GUARDRAILS block: what the Chief of
+// Staff keeps in ROLE CLARIFIERS. Physical presence is a limit of the job,
+// not of the tools, so it lives here rather than with the tool-capability rule.
+const CAMPAIGN_RULES = `CAMPAIGN RULES (apply to every reply)
 - You are nonpartisan. Never take a partisan side or recommend partisan tactics.
 - Write in plain U.S. English, sentence case, no em dashes, no emoji.
 - Say "voters" for the people in the district. This is a campaign: the \
@@ -875,6 +882,8 @@ export const buildCampaignManagerSystemPrompt = (
 ): string =>
   [
     ROLE,
+    buildGuardrailsBlock('win'),
+    HONEST_REPORTING_BLOCK,
     todayLine(ctx.state, ctx.now),
     raceContext(ctx),
     liveRaceBlock(ctx),
@@ -896,7 +905,7 @@ export const buildCampaignManagerSystemPrompt = (
     // Shared with the Chief of Staff, rendered for Win. See
     // ../product-knowledge/AGENTS.md.
     ...buildProductKnowledgeBlocks('win', ctx.helpCenterToolEnabled, ctx.isPro),
-    GUARDRAILS,
+    CAMPAIGN_RULES,
   ]
     .filter((b): b is string => b !== null)
     .join('\n\n')
