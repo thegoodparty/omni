@@ -15,14 +15,20 @@ import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { TONE_STYLES } from '../util/messageTone.util'
 import {
+  describeMarkerMiss,
+  improveCorrectionTurns,
   maskProtectedParts,
   PROTECTED_MARKER_RULE,
   restoreProtectedParts,
 } from '../util/smsProtectedImprove.util'
 
-// One retry, as on SMS: a reply that drops or reorders a marker is usually a
-// one-off, and a second miss is better reported than looped on.
-const IMPROVE_ATTEMPTS = 2
+// Three tries, as on SMS: the polish, then two corrections that tell the
+// model what its last reply got wrong.
+const IMPROVE_ATTEMPTS = 3
+
+// A correction wants obedience, not invention.
+const IMPROVE_FIRST_TEMPERATURE = 0.8
+const IMPROVE_CORRECTION_TEMPERATURE = 0.2
 
 const PURPOSE_GOALS: Record<RobocallPurpose, string> = {
   introduce_myself: 'introduce the candidate to voters for the first time',
@@ -204,8 +210,8 @@ export class OutreachRobocallGenerationService {
   // Improve rewrites the whole script, so the name the candidate gives and
   // the disclosure line are swapped for markers the model must return as
   // they are, and put back after. A reply that drops, repeats or reorders
-  // one is retried once, then refused, never sent on with the disclosure
-  // changed.
+  // one is sent back to the model with what it got wrong and asked again,
+  // then refused, never sent on with the disclosure changed.
   private async improve(
     currentDraft: string,
     context: string[],
@@ -232,13 +238,16 @@ export class OutreachRobocallGenerationService {
         ].join('\n'),
       },
     ]
-    for (let attempt = 0; attempt < IMPROVE_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= IMPROVE_ATTEMPTS; attempt++) {
       let reply: string
       try {
         const { object } = await this.llm.jsonCompletion({
           messages,
           schema: DraftSchema,
-          temperature: 0.8,
+          temperature:
+            attempt === 1
+              ? IMPROVE_FIRST_TEMPERATURE
+              : IMPROVE_CORRECTION_TEMPERATURE,
           maxTokens: 1024,
           userId,
         })
@@ -247,18 +256,33 @@ export class OutreachRobocallGenerationService {
         this.logger.error({ err }, 'Robocall script generation failed')
         throw new BadGatewayException('Robocall script generation failed')
       }
+      const markerMiss = describeMarkerMiss(reply, locked)
       const restored = restoreProtectedParts(reply, locked)
       // Never cut a long reply to fit: the disclosure is the script's last
       // line, so truncation would take it off. Over the limit is a miss.
       if (restored !== null && restored.length <= ROBOCALL_SCRIPT_MAX_LENGTH) {
+        if (attempt > 1) {
+          this.logger.info(
+            { attempt },
+            'Robocall improve recovered after a correction',
+          )
+        }
         return restored
       }
+      const problem =
+        markerMiss ??
+        `with the required text put back it runs ${restored?.length ?? 0} ` +
+          `characters, over the ${ROBOCALL_SCRIPT_MAX_LENGTH} a script can ` +
+          'be — cut words you chose, never a marker'
       this.logger.warn(
-        { attempt },
-        restored === null
+        { attempt, markerMiss, restoredLength: restored?.length },
+        markerMiss !== null
           ? 'Robocall improve reply changed a locked part; retrying'
           : 'Robocall improve reply came back over the limit; retrying',
       )
+      // The same prompt sent twice is only the same dice rolled twice: the
+      // model is told what its reply broke before it tries again.
+      messages.push(...improveCorrectionTurns(reply, problem))
     }
     throw new BadGatewayException('Robocall script generation failed')
   }

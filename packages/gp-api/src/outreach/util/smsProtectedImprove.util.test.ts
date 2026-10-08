@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { deriveSmsProtectedParts } from '@goodparty_org/contracts'
 import {
+  describeMarkerMiss,
+  improveCorrectionTurns,
   maskProtectedParts,
   restoreProtectedParts,
 } from './smsProtectedImprove.util'
@@ -114,5 +116,52 @@ describe('restoreProtectedParts', () => {
     ['invents a marker', 'Hi ⟦1⟧, ⟦2⟧ here. ⟦3⟧ ⟦4⟧ ⟦5⟧'],
   ])('refuses a reply that %s', (_, reply) => {
     expect(restoreProtectedParts(reply, maskedScript().locked)).toBeNull()
+  })
+})
+
+// The sentence a refused reply is sent back with, and the one an operator
+// reads in the log line. It names marker positions only: the locked text is
+// the candidate's message and never belongs in a log.
+describe('describeMarkerMiss', () => {
+  it('is null when every marker returns exactly once, in order', () => {
+    expect(
+      describeMarkerMiss(
+        "Hi ⟦1⟧! It's ⟦2⟧. Vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
+        maskedScript().locked,
+      ),
+    ).toBeNull()
+  })
+
+  it('names what came back and what was required', () => {
+    const miss = describeMarkerMiss(
+      'Hi ⟦1⟧, ⟦2⟧ here. ⟦4⟧',
+      maskedScript().locked,
+    )
+    expect(miss).toContain('came back with ⟦1⟧ ⟦2⟧ ⟦4⟧')
+    expect(miss).toContain('carry ⟦1⟧ ⟦2⟧ ⟦3⟧ ⟦4⟧')
+    for (const text of ['Sarah Chen', 'Paid for by', 'Reply STOP']) {
+      expect(miss).not.toContain(text)
+    }
+  })
+
+  it('says so when the reply carries no markers at all', () => {
+    expect(describeMarkerMiss('A polished message.', ['a', 'b'])).toContain(
+      'came back with no markers at all',
+    )
+  })
+})
+
+describe('improveCorrectionTurns', () => {
+  it('quotes the refused reply back as the model\u2019s own turn', () => {
+    const [assistant, user] = improveCorrectionTurns(
+      'the refused draft',
+      'it dropped a marker',
+    )
+    expect(assistant).toEqual({
+      role: 'assistant',
+      content: 'the refused draft',
+    })
+    expect(user?.role).toBe('user')
+    expect(user?.content).toContain('it dropped a marker')
   })
 })
