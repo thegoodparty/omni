@@ -1022,6 +1022,23 @@ export class ChatStreamService {
           }
         }
       }
+      // Written before the done frame so a client that reads the conversation
+      // right after done sees this turn priced.
+      if (cleanFinish && persistedId !== undefined) {
+        try {
+          const usage = await result.usage
+          await this.store.recordAssistantUsage(persistedId, {
+            model: result.model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          })
+        } catch (usageErr) {
+          this.logger.error(
+            { err: usageErr, conversationId: args.conversationId },
+            'failed to write assistant message usage',
+          )
+        }
+      }
       // Meter usage only on a clean finish; a partial/aborted turn's usage is
       // unreliable. Guarded so metering never breaks the turn.
       if (cleanFinish && args.onUsage) {

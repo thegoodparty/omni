@@ -1154,6 +1154,8 @@ describe('CampaignManagerHandler.seedConversation', () => {
       conversationId: 'new-1',
       role: ChatMessageRole.assistant,
       content: buildCampaignManagerGreeting('Dana'),
+      inputTokens: 0,
+      outputTokens: 0,
     })
   })
 

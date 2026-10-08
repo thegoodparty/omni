@@ -22,6 +22,13 @@ model ChatMessage {
   /// collide. See src/chats/CLIENT_HOOKUP.md for the client contract.
   clientMessageId String? @map("client_message_id")
 
+  /// Token usage of the LLM call that produced an assistant turn; null on
+  /// user rows. Rows written without an LLM call record 0 tokens and a null
+  /// model, so null inputTokens means the spend is unknown.
+  model        String? @map("model")
+  inputTokens  Int?    @map("input_tokens")
+  outputTokens Int?    @map("output_tokens")
+
   createdAt DateTime @default(now()) @map("created_at")
 
   segments ChatMessageSegment[]
