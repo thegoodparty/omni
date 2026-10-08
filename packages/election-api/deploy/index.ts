@@ -124,8 +124,11 @@ export = async () => {
       AWS_REGION: 'us-west-2',
       // Per-task Prisma pool size. The default of 10 exhausted under gp-api
       // fan-out bursts (P2024 "Timed out fetching a connection" → 502s on the
-      // org list); 2 prod tasks x 25 = 50 connections, well within Aurora
-      // Serverless v2 capacity.
+      // org list); 6 prod tasks x 25 = 150 connections, within Aurora
+      // Serverless v2 capacity — it carried 175 during the 2026-10-05 burst
+      // without trouble. Raising the pool further does not help a CPU-bound
+      // task: in that outage the pool timed out because the event loop was
+      // saturated, not because Postgres was busy.
       PRISMA_CONNECTION_LIMIT: select({ dev: '10', prod: '25' }),
     },
     permissions: [
