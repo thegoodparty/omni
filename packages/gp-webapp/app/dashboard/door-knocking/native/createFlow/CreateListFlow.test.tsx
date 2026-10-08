@@ -2735,7 +2735,7 @@ describe('CreateListFlow multi-turf save', () => {
     props: Partial<ComponentProps<typeof CreateListFlow>>,
   ) => {
     const onJoinSaveStateChange = vi.fn()
-    const { rerender, container } = render(
+    const { rerender, container, unmount } = render(
       <CreateListFlow
         {...baseProps}
         {...props}
@@ -2765,7 +2765,7 @@ describe('CreateListFlow multi-turf save', () => {
           onJoinSaveStateChange={onJoinSaveStateChange}
         />,
       )
-    return { pressSave, leaveMap, onJoinSaveStateChange, container }
+    return { pressSave, leaveMap, onJoinSaveStateChange, container, unmount }
   }
 
   it('joins an existing campaign when its drawing surface is saved', async () => {
@@ -2800,6 +2800,28 @@ describe('CreateListFlow multi-turf save', () => {
     )
     expect(baseProps.onClose).not.toHaveBeenCalled()
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('never deletes the campaign’s list when a save fails and is left', async () => {
+    mockBatch({ failSecond: true })
+    const deletes = vi.fn()
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', () => {
+      deletes()
+      return { status: 200, data: {} }
+    })
+    const { pressSave, onJoinSaveStateChange, unmount } = renderOnMap(joinProps)
+
+    pressSave()
+    await waitFor(() =>
+      expect(onJoinSaveStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ error: expect.any(String) }),
+      ),
+    )
+    unmount()
+    // The cleanup's request is fire-and-forget, so give it time to land.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(deletes).not.toHaveBeenCalled()
   })
 
   it('goes back to the campaign when its drawing surface closes', () => {

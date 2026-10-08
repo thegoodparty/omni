@@ -303,6 +303,22 @@ export class DoorKnockingCreateService extends createPrismaBase(
         'Campaign anchor outreach not found in this scope',
       )
     }
+    // A campaign is finished once every turf in it is, so a finished anchor
+    // alone is not refused: its siblings can still be live. The drawer offers
+    // Add turf on exactly this condition.
+    const openTurfs = await this.client.outreach.count({
+      where: {
+        OR: [
+          { id: input.campaignOutreachId },
+          { campaignOutreachId: input.campaignOutreachId },
+        ],
+        archivedAt: null,
+        status: { not: OutreachStatus.completed },
+      },
+    })
+    if (openTurfs === 0) {
+      throw new BadRequestException('Campaign is already done')
+    }
     const { voterFileFilterId, purpose, communityInputQuestion } =
       anchor.doorKnockingTurf
     return {

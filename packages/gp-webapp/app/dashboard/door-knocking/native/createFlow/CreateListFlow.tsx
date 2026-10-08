@@ -1274,7 +1274,11 @@ export default function CreateListFlow({
           })
         }
       }
-      if (savedListId === null) createdFilterIdRef.current = filterId
+      // A joining turf's list is the CAMPAIGN's, not one this flow minted,
+      // and the cleanup behind this ref deletes what it holds.
+      if (savedListId === null && !joining) {
+        createdFilterIdRef.current = filterId
+      }
 
       // One turf's create body. Every field but the four per-turf ones is
       // the campaign's and identical across the batch: they share an

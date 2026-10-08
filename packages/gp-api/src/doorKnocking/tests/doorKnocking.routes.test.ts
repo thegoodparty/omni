@@ -2138,6 +2138,42 @@ describe('door-knocking routes', () => {
         expect(envelope.script).toBe(talkingPoints)
       })
 
+      it('refuses to join a campaign whose every turf is done', async () => {
+        const anchorRes = await postTurf({ name: 'Turf 1' })
+        const anchor = await envelopeFor(anchorRes.data.id)
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+        })
+        const sibling = await envelopeFor(siblingRes.data.id)
+        await service.prisma.outreach.updateMany({
+          where: { id: { in: [anchor.id, sibling.id] } },
+          data: { status: OutreachStatus.completed },
+        })
+
+        const joinRes = await postTurf({
+          name: 'Turf 3',
+          campaignOutreachId: anchor.id,
+        })
+        expect(joinRes.status).toBe(400)
+      })
+
+      it('joins a campaign whose first turf is done but not the rest', async () => {
+        const anchorRes = await postTurf({ name: 'Turf 1' })
+        const anchor = await envelopeFor(anchorRes.data.id)
+        await postTurf({ name: 'Turf 2', campaignOutreachId: anchor.id })
+        await service.prisma.outreach.update({
+          where: { id: anchor.id },
+          data: { status: OutreachStatus.completed },
+        })
+
+        const joinRes = await postTurf({
+          name: 'Turf 3',
+          campaignOutreachId: anchor.id,
+        })
+        expect(joinRes.status).toBe(201)
+      })
+
       it('refuses to join an archived campaign', async () => {
         const anchorRes = await postTurf({ name: 'Turf 1' })
         const anchor = await envelopeFor(anchorRes.data.id)
