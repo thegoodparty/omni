@@ -568,57 +568,6 @@ describe('judgeSweep', () => {
     expect(result.markdown).toContain('**Placeholder inputs:** chief_of_staff')
   })
 
-  // The mark has to survive the same three hops the placeholder flag does:
-  // case list, arm manifest, report. Unioned across the arms, because the two
-  // are separate checkouts and an arm whose ref predates the field records
-  // nothing at all — so reading one arm would under-report.
-  it('warns when a verdict rests on a seeded transcript', async () => {
-    const store = await seeded(cases(2), [
-      manifest('base', {
-        agents: [
-          {
-            agentId: 'chief_of_staff',
-            caseList: 'chief_of_staff.json',
-            placeholderCases: false,
-            seededTranscriptCases: ['mid-conversation'],
-            cases: 2,
-            attempts: 1,
-            recordsWritten: 2,
-          },
-        ],
-      }),
-      // The candidate arm says nothing, which is what an older ref writes.
-      // Both arms: the store holds two cases, so both manifests say two.
-      manifest('candidate', {
-        agents: [
-          {
-            agentId: 'chief_of_staff',
-            caseList: 'chief_of_staff.json',
-            placeholderCases: false,
-            cases: 2,
-            attempts: 1,
-            recordsWritten: 2,
-          },
-        ],
-      }),
-    ])
-    const result = await run(store)
-    expect(result.report.seededTranscripts).toEqual([
-      { agentId: 'chief_of_staff', caseIds: ['mid-conversation'] },
-    ])
-    expect(result.markdown).toContain(
-      '**Seeded transcripts:** chief_of_staff (mid-conversation)',
-    )
-  })
-
-  it('says nothing about seeded transcripts when none were used', async () => {
-    const result = await run(
-      await seeded(cases(2), [manifest('base'), manifest('candidate')]),
-    )
-    expect(result.report.seededTranscripts).toBeUndefined()
-    expect(result.markdown).not.toContain('Seeded transcripts')
-  })
-
   // The judge reports, it does not gate. A WORSE verdict is a finding, and a
   // non-zero exit would turn the judge into a required check nobody asked
   // for.

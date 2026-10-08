@@ -405,6 +405,33 @@ describe('the measured layer', () => {
     expect(report).toContain('not read from the records stored dollars')
   })
 
+  // A black-box chat run whose usage gp-api never reported carries no cost,
+  // zero tokens and a model nobody priced. The line has to say unmeasured,
+  // not print a $0 difference and not throw on the model.
+  it('prints the cost difference as unmeasured when runs recorded no cost', async () => {
+    const unreported = sweepRecords(2).map((record): RunRecord => {
+      const { cost: _cost, ...telemetry } = record.telemetry
+      return {
+        ...record,
+        variant: { ...record.variant, model: 'unobserved' },
+        telemetry: {
+          ...telemetry,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
+      }
+    })
+    const report = renderReport({
+      agents: [await pipeline(unreported)],
+      registry: REGISTRY,
+    })
+    expect(report).toContain(
+      '- cost difference per run pair: unmeasured — 4 run(s) recorded no ' +
+        'cost, so the difference is unmeasured rather than priced from ' +
+        'their token counts',
+    )
+    expect(report).not.toContain('+0.0000 USD')
+  })
+
   it('says so when the arms were priced under different tables', async () => {
     // `cost` is optional on a record; this test is about two arms priced
     // under different tables, so a fixture with no cost at all is a broken
@@ -811,61 +838,6 @@ describe('a reduced judge panel', () => {
     expect(at.unpinned).toBeLessThan(at.degraded)
     expect(at.degraded).toBeLessThan(at.identical)
     expect(at.identical).toBeLessThan(at.footer)
-  })
-})
-
-// A warning that always appears is a warning readers learn to skip, so this
-// block has to be absent on the ordinary report and present on the one it
-// qualifies. Absence cannot fail by itself, so the pair is asserted together
-// and a renderer that always printed was tried against both.
-describe('the seeded-transcript warning', () => {
-  it('names the agent and the cases whose context was written for it', async () => {
-    const report = renderReport({
-      agents: [await pipeline(sweepRecords(25))],
-      registry: REGISTRY,
-      seededTranscripts: [
-        { agentId: 'chief_of_staff', caseIds: ['mid-conversation', 'follow'] },
-      ],
-    })
-    expect(report).toContain(
-      '**Seeded transcripts:** chief_of_staff (follow, mid-conversation)',
-    )
-    expect(report).toContain('production did not build the whole context')
-  })
-
-  it('prints nothing when production built every context', async () => {
-    expect(
-      renderReport({
-        agents: [await pipeline(sweepRecords(25))],
-        registry: REGISTRY,
-      }),
-    ).not.toContain('Seeded transcripts')
-  })
-
-  // Beside the placeholder warning rather than at the foot: both qualify what
-  // the verdicts above can be read to mean, and a reader who stops after the
-  // first agent section has to have seen whichever applies.
-  it('sits with the placeholder warning, ahead of the refusals', async () => {
-    const report = renderReport({
-      agents: [await pipeline(sweepRecords(25))],
-      registry: REGISTRY,
-      placeholderCases: ['chief_of_staff'],
-      seededTranscripts: [
-        { agentId: 'chief_of_staff', caseIds: ['mid-conversation'] },
-      ],
-      refusals: [{ agentId: 'campaign_assistant', reason: 'identical' }],
-    })
-    const lines = report.split('\n')
-    const placeholderAt = lines.findIndex((line) =>
-      line.includes('Placeholder inputs'),
-    )
-    const seededAt = lines.findIndex((line) =>
-      line.includes('Seeded transcripts'),
-    )
-    const refusalAt = lines.findIndex((line) => line.includes('— refused'))
-    expect(placeholderAt).toBeGreaterThan(-1)
-    expect(seededAt).toBe(placeholderAt + 2)
-    expect(refusalAt).toBeGreaterThan(seededAt)
   })
 })
 

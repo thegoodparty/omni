@@ -912,6 +912,45 @@ describe('the measured layer', () => {
     expect(result.label).toBe("CAN'T SAY")
   })
 
+  // A black-box chat run whose usage gp-api never reported: no cost, zero
+  // tokens, a model the client never saw. Re-pricing its zero tokens on a
+  // known model would print a $0 delta nobody measured.
+  it('reports cost as unmeasured when a run recorded no cost', () => {
+    const unreported = (record: RunRecord, model: string): RunRecord => {
+      const { cost: _cost, ...telemetry } = record.telemetry
+      return {
+        ...record,
+        variant: { ...record.variant, model },
+        telemetry: {
+          ...telemetry,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
+      }
+    }
+    for (const model of ['unobserved', BASE.variant.model]) {
+      const agent = normalizeAgent(
+        [unreported(BASE, model), unreported(CANDIDATE, model)],
+        () => 0,
+      )
+      const result = score([], noFloor(), agent)
+      expect(result.evidence.costUsd, model).toBeNull()
+      expect(result.evidence.unpriceableReason, model).toBe(
+        '2 run(s) recorded no cost, so the difference is unmeasured ' +
+          'rather than priced from their token counts',
+      )
+    }
+  })
+
+  // One arm unpriced is enough: a delta against a $0 arm is the same
+  // fiction from the other side.
+  it('reports cost as unmeasured when only one arm recorded none', () => {
+    const { cost: _cost, ...telemetry } = CANDIDATE.telemetry
+    const agent = normalizeAgent([BASE, { ...CANDIDATE, telemetry }], () => 0)
+    const result = score([], noFloor(), agent)
+    expect(result.evidence.costUsd).toBeNull()
+    expect(result.evidence.unpriceableReason).toMatch(/^1 run\(s\) recorded/)
+  })
+
   // A run that died has a timeout for a latency, which would swamp the
   // mean. A tool error is different: the run finished, and the tool-error
   // delta is exactly the kind of thing worth surfacing.

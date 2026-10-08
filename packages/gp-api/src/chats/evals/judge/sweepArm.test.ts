@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AgentEntry } from './agents'
-import { ARM_KEY_ENV } from './modelKey'
 import type { CaseList } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { CHAT_PAIR } from './fixtures/records'
@@ -144,12 +143,9 @@ describe('scrubReason', () => {
   // EVERY NAME THE LIST CLAIMS TO COVER, because a reason travels through a
   // file into another process and from there into a job summary and S3 — so
   // a name missing from SECRET_VARS is a plaintext credential in a public
-  // log, not a cosmetic gap. ARM_KEY_ENV is the one that matters most: on a
-  // dry run the direct name still holds the stub, so redacting that alone
-  // would redact the stub and leave the real value in the clear.
+  // log, not a cosmetic gap.
   it.each([
     'ANTHROPIC_API_KEY',
-    ARM_KEY_ENV,
     'DATABRICKS_CLIENT_SECRET',
     'DATABRICKS_CLIENT_ID',
     'DATABASE_URL',
@@ -568,47 +564,6 @@ describe('captureArm', () => {
       [COS],
     )
     expect(manifest.agents[0]?.placeholderCases).toBe(true)
-  })
-
-  // The same road the placeholder flag travels, and for the same reason: a
-  // verdict where the harness wrote half the conversation is not the same
-  // claim as one where the routes wrote all of it.
-  it('names the cases that seeded a prior transcript', async () => {
-    const manifest = await captureArm(
-      await deps({
-        config: oneAttempt,
-        loadCases: () => ({
-          ...caseList(3),
-          cases: [
-            { caseId: 'plain', question: 'q0' },
-            {
-              caseId: 'mid-conversation',
-              question: 'q1',
-              priorTranscript: [{ role: 'user' as const, content: 'earlier' }],
-            },
-            { caseId: 'also-plain', question: 'q2' },
-          ],
-        }),
-      }),
-      env(),
-      [COS],
-    )
-    expect(manifest.agents[0]?.seededTranscriptCases).toEqual([
-      'mid-conversation',
-    ])
-  })
-
-  // ABSENT, not an empty list. The field is optional so a base ref predating
-  // it can still write a manifest this build parses, and "absent" has to mean
-  // the same thing on both roads into it.
-  it('leaves the field off a list that seeded nothing', async () => {
-    const manifest = await captureArm(
-      await deps({ config: oneAttempt, loadCases: () => caseList(2) }),
-      env(),
-      [COS],
-    )
-    expect(manifest.agents[0]?.seededTranscriptCases).toBeUndefined()
-    expect('seededTranscriptCases' in (manifest.agents[0] ?? {})).toBe(false)
   })
 
   // The runner needs to know whether to call a real model, and the default has

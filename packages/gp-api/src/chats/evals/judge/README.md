@@ -65,8 +65,9 @@ for both arms' case lists. The numbers and their evidence are in
 split into each arm's agent runs and the judge panel, beside the estimate.
 Every record counts, including pairs excluded for an error and agents the
 judge refused, because those runs were billed too. A run that recorded no
-cost (a background run cancelled at its own timeout) or a panel call that
-failed makes the total a lower bound, and the report says "at least" and why
+cost (a background run cancelled at its own timeout, or a chat run whose
+usage gp-api did not report) or a panel call that failed makes the total a
+lower bound, and the report says "at least" and why
 rather than printing a low number as if it were measured. The reasons are a
 fixed set: no cost recorded (a background run cancelled at its own timeout),
 a model `pricing.ts` has no rates for, or a failed panel call. The closing summary
@@ -408,8 +409,8 @@ uv run --with jsonschema --with referencing python   # Draft7Validator
 `district_issue_pulse`'s whole `input_schema` is one such `$ref`, and it
 resolves to four required properties rather than none.
 
-A chat case's `question` is one turn (see the next section for the case fields
-that go past one), and the questions are not invented from scratch where a
+A chat case's `question` is one turn (see the next section for a case that
+goes past one), and the questions are not invented from scratch where a
 suite already exists. The Chief of Staff golden bench
 (`src/chats/general/chief-of-staff/evals/cases`), the Campaign Manager eval
 suites (`src/chats/general/campaign-manager/evals`) and the ordinance-flow
@@ -430,31 +431,18 @@ People in these files are fictional placeholders in the house style
 `Test Official`), because this repo is public. States, cities, office titles
 and L2 voter file column names are real.
 
-## Four things a chat case can say beyond one question
+## A chat case can be several turns
 
-`ChatCaseSchema` grew four optional fields so a case list can express the
-formats a bench is actually written in. **Every one of them is optional and a
-list that uses none behaves exactly as before** — the lists in `cases/`
-needed no editing for any of this.
-
-| Field             | What it does                                                       |
-| ----------------- | ------------------------------------------------------------------ |
-| `turns`           | Several USER turns, posted in order to ONE conversation.           |
-| `priorTranscript` | A transcript written onto the record before the first driven turn. |
-| `toolFailure`     | One named tool, forced to `error` or `timeout`.                    |
-| `accountState`    | A closed set of states that gate tool registration.                |
-
-`question` is still valid on its own and is still what every authored list
-uses; `turns` is the general spelling of the same thing, and a case must carry
-exactly one of the two.
+`ChatCaseSchema` has one optional field beyond `question`: `turns`, several
+USER turns posted in order to ONE conversation. `question` is still valid on
+its own and is still what every authored list uses; `turns` is the general
+spelling of the same thing, and a case must carry exactly one of the two.
 
 **The case object is `.strict()`, and that is not the same as requiring
-anything.** Every field is optional, which is what an older base ref needs.
-What strict adds is that a MISSPELLED field name is refused rather than
-stripped: a `priorTranscipt` would otherwise be dropped on BOTH arms, the case
-would run with no condition applied, and the pair would compare happily and be
-reported as a verdict. The nested directives are strict for the same reason and
-catch a typo inside one; this is what catches the directive's own name.
+anything.** Both spellings are optional, which is what an older base ref
+needs. What strict adds is that a MISSPELLED field name is refused rather
+than stripped, so a typo cannot silently change what a case asks on both
+arms.
 
 **Several user turns, and nothing hand-builds the history.** The runner posts
 each turn to the same `conversationId`, so turn two is answered against turn
@@ -483,159 +471,22 @@ the conversation continues. It marks the case `blocked` even if a later turn
 recovered, because a conversation that had to recover is the behavior being
 compared.
 
-**A seeded prior transcript reaches the store, because no route writes an
-assistant message.** The assistant row is produced by the stream as a side
-effect of a turn, so there is no HTTP way to put one on the record.
-`runners/seedTranscript.ts` therefore writes directly — but every rule it
-writes by is borrowed rather than restated:
-`ChatStoreService.appendUserMessageIfAlive` for the user row (the same call
-`ChatStreamService.run` makes, alive check included), `assistantRowToPersist`
-for the decision `persistAssistantText` makes about what an assistant turn
-stores, `ChatStoreService.appendMessage` for the write both end in, and
-`toJsonPayload` for the conversion a streamed tool call makes on its way to the
-same column. A hand-built row would be the wrong shape in ways nobody would
-notice, and the model's context would then differ from production while the
-verdict claimed to be about the agent we ship.
-
-`persistAssistantText` itself stays **private**. It is the one write in the
-chat stack with no ownership check on it, and what a seeder needs is the rules,
-not the ability to put an assistant row into an arbitrary conversation — so
-only the rules were lifted out, and the seeder makes the ownership check once
-before it writes anything.
-
-What reaches the model is narrower than it looks: `toLlmMessages` replays a
-history row's `role` and `content` and **nothing else**. Segments are not
-replayed, so a seeded tool call changes what the client would render and what a
-reader of the record sees, not the model's context. Nor can a seeded turn carry
-a tool _result_ — production streams the result to the client and persists only
-the call. What DOES change the model's context is a leading ASSISTANT row,
-which `toLlmMessages` folds into the system prompt rather than sending as an
-invalid leading turn.
-
-**So a transcript has to be one a conversation could have produced, and the
-schema enforces it: it opens on a user turn and never puts two assistant rows
-together.** The fold takes only the FIRST leading assistant row, so either
-shape leaves an assistant row where the provider requires a user one, and that
-arrives as a stream error after the conversation is open and a turn has been
-attempted — the spend everything else here refuses before. `campaign_assistant`
-is what makes this load-bearing rather than theoretical: its `seedConversation`
-writes a scripted opener before the seeder runs, so with the rule that opener
-is the row that gets folded and the seeded transcript follows it legally.
-Without it, an author's leading assistant row is the second one and the turn
-dies. The fold is also a reason not to want one: it is injected as "You already
-greeted the candidate with: …", which is a greeting claim rather than a reply,
-and on a Serve scope calls an elected official a candidate.
-
-**`anchor` is not a substitute for a transcript, and it is worth knowing which
-you need.** `POST /v1/chats` stores the anchor on the conversation and the
-scope's `loadContext` reads it back, so an anchor attaches the conversation to
-an existing domain resource — an ordinance at a step, a priority, a community
-issue — and that context reaches the system prompt and the tool set. It puts no
-prior messages on the record. So a case that needs "the agent is working on an
-existing ordinance at the draft step" needs an anchor (and
-`accountState.ordinanceStep`), not a synthetic transcript; only a case that
-needs the agent to have already SAID something needs `priorTranscript`. The one
-scope that seeds a message of its own is `campaign_assistant`, whose
-`seedConversation` writes a scripted opener.
-
-**A forced failure is honoured at the seam that already wrapped every tool.**
-`instrumentTools` called the real `execute` and recorded the outcome; a
-directive replaces that call and pushes the same outcome a genuine failure
-pushes. The real tool is NOT run — an ordinance `present_*` tool commits its
-own record, and a case that says the tool failed must not leave that write
-behind. `timeout` reproduces the OUTCOME of a timeout (a tool step that
-rejected, which the AI SDK turns into a tool-error result while the loop
-answers with less information) rather than a real wall-clock hang: a hang would
-cost the route's whole 300s stream timeout per case and arrive as an infraError
-with no answer to compare.
-
-\*\*The mark covers a seeded transcript and not the other two conditions, which
-is a judgement rather than an omission. A forced tool failure already separates
-itself more strongly than a report line could: `isComparable()` is false for
-it on a chat run, so the pair never reaches a delta at all. And an account state is a state
-production really produces — a campaign without Pro, an organization without a
-position — seeded through the same rows the app writes, so a verdict under one
-is a verdict about a real account. Only the transcript is a context the harness
-authored and production would not have built.
-
-One consequence to read before authoring these:\*\* `isComparable()` is false
-for any chat run that hit a tool error, so a forced-failure pair resolves CAN'T SAY
-rather than entering the delta. Telling an injected failure from an incidental
-one needs a field `record.ts` does not have, and `record.ts` is the frozen
-cross-track contract — so that is a change to review, not a drive-by. Until
-then a forced-failure case buys the two arms' stored answers and traces side by
-side, not a scored delta.
-
-**An account state is a closed set, and the set is read off the handlers.**
-Tool registration is the only thing about an account the model can see, so the
-states worth naming are the ones that gate it: `pro` (campaignManager gates the
-whole CRM and voter-file family on `ctx.isPro !== false`), `district`
-(`organization.positionId`, the half of the district gate that lives in our own
-database), `campaignDetails` (the blob carrying `raceId`, which
-`get_ballot_requirements` registers on) and `ordinanceStep` (each step past
-clarify carries its own `present_*` tools). `briefingHighlight` is the one
-that gates no tool: like `ordinanceStep` it picks what the conversation is
-anchored on, here a highlighted passage instead of the whole briefing, which
-the briefing prompt renders differently. `.strict()` keeps it closed: an
-open bag of column overrides would let a case list seed a state no deployment
-can produce, and the verdict would be about an agent we do not ship.
-
-`district` is the one whose effect cannot be measured here. It gates only the
-constituent-data pair, and the provider factory returns null without a
-Databricks credential — so the pair is unregistered locally and in CI whatever
-`positionId` says, and the digest is identical either way. The same deployment
-gap the case-list notes already record. What is ours is the row, and the runner
-asserts it.
-
-**Every refusal happens before a turn is driven.** A chat turn costs real
-money, so: the schema refuses an undefined state or an unimplemented failure
-mode at case-list load; `seedOptionsFor` refuses a state the scope has no row
-for before anything is seeded; `assertTranscriptFits` refuses a transcript the
-route's 40-message replay window would drop; and `assertSeededAccountState`
-reads the three rows back and refuses a state the seed does not match, because
-the state is seeded by the runner's CALLER and a caller that forgot would
-produce a record claiming a condition the agent was never under.
-
-The one check that cannot be static is the forced-failure tool name: the tool
-set is assembled by the scope handler from its context, so no list here could
-be right for every seed. It is checked at the LLM seam, against the names the
-turn actually offered — still before the model is called, so a refused
-directive costs nothing. It is both **thrown** (which is what keeps the model
-from being called) and **recorded on the capture** (which is what lets the
-runner name it): the chat route catches a throw out of `streamChatCompletion`
-and writes an error chunk, so on the throw alone the run would come back as an
-ordinary infraError and the unhonourable directive would be invisible.
-
-**Adding one of these fields to an EXISTING list is the one operational
-catch.** A `turns`-shaped case fails an older base ref's schema outright, and
+**Adding `turns` to an EXISTING list is the one operational catch.** A
+`turns`-shaped case fails an older base ref's schema outright, and
 `loadCaseList` throws inside `captureArm`'s per-agent try — so that arm skips
 the WHOLE agent, not just the case, and the candidate arm's already-paid
 records for its other cases have nothing to pair against. It fails loud, and
-the reason reaches the report. But it means `question` plus a new field is the
-gentler way to extend a list until the base ref carries this change, and a
-fresh list for a new bench is gentler still.
-
-**A seeded case is marked all the way to the report**, the road
-`placeholderCases` already travels: the case list, then
-`ArmAgent.seededTranscriptCases` in the arm manifest, then
-`SweepReport.seededTranscripts`, then one line in the rendered report. The
-record carries it too, inside `input.value.seededTranscript`. The manifest
-field is **optional**, which is why `MANIFEST_SCHEMA_VERSION` did not move for
-it: the base arm writes its manifest with the base ref's copy of `records.ts`,
-and a required field would read as a corrupt manifest rather than as version
-skew. `sweep.ts` unions the mark across both arms for the same reason — an arm
-whose ref predates the field records nothing at all.
+the reason reaches the report. But it means a fresh list for a new bench is
+the gentler way to add one until the base ref carries it.
 
 **Nothing here needs a version marker, and the reason is the input payload.**
-A case using none of the new fields records
-`{ kind: 'question', value: <the question> }`, byte-identical to before. A case
-using ANY of them records `{ kind: 'transcript', value: { turns, ... } }`. So
-if an older base ref parsed the same list with an older schema, stripped the
-field it does not know and drove a plainer run, the two arms' inputs no longer
-match and `MismatchedInputError` refuses the pair — rather than comparing two
+A `question` case records `{ kind: 'question', value: <the question> }`. A
+`turns` case records `{ kind: 'transcript', value: { turns } }`, and the
+transcript schema is strict too: a payload carrying a field this build does
+not know renders as whole-value JSON, so the two arms' inputs no longer match
+and `MismatchedInputError` refuses the pair — rather than comparing two
 different conditions and reporting the difference as a verdict about the
-branch. A case carrying only `turns` fails the older ref's schema outright,
-which surfaces as a named skip in that arm's manifest. Both are loud.
+branch.
 
 ## A background case can ask its own questions
 
@@ -686,9 +537,9 @@ so the agent never sees either one.
 ```
 
 - **`condition`** says what the case planted in or took out of `params`. It
-  is added to the judge's shared input as a last line, `Condition: ...`, the
-  same way a chat case's `toolFailure` is. The background rubric tells the
-  judge to decide first whether each run handled the condition. A run that
+  is added to the judge's shared input as a last line, `Condition: ...`. The
+  background rubric tells the judge to decide first whether each run handled
+  the condition. A run that
   reads better but ignores the condition counts as worse. Up to
   2,000 characters, trimmed, never empty.
 - **`scored: false`** makes the case a control. It runs and is judged like
@@ -989,6 +840,16 @@ evidence, measured evidence never gates a verdict, so an unpriceable run
 keeps its status and its answer and loses only its cost line. This is a live
 path, not a hypothetical — every chat scope declares a `claude-opus-4-7`
 fallback that `pricing.ts` has no rates for.
+
+**An absent cost is unmeasured, never re-priced from the tokens.** A runner
+leaves `cost` off a run it would not stand behind a figure for, so the tokens
+beside it are zero or partial. A black-box chat run whose usage gp-api did
+not report is the common case: zero tokens, no cost, and a model the client
+never saw (`unobserved`). If any run in an agent's measured pairs has no
+cost, the report's `- cost difference per run pair:` line reads `unmeasured`
+with the count, rather than a $0 delta, and the actual-cost total counts the
+run as unmeasured and says "at least". Neither path throws on a model
+`pricing.ts` does not know.
 
 **Compare with `priceUsd()` from `pricing.ts`. Do not compare
 `usdAtCapture` between two records.** A cached base arm can predate its

@@ -14,8 +14,9 @@ import type { RunRecord } from './record'
 // Why a run has no figure. A closed set, because each one becomes a fixed
 // sentence in a public summary and nothing from the record reaches it.
 //
-//   noCostRecorded  no stored cost and no token counts: what a background
-//                   run cancelled at its own timeout leaves behind.
+//   noCostRecorded  no stored cost: what a background run cancelled at its
+//                   own timeout leaves behind, and a chat run whose usage
+//                   gp-api did not report.
 //   unpricedModel   tokens, but on a model pricing.ts has no rates for: a
 //                   chat turn that fell back to a model nobody priced.
 export type UnmeasuredReason = 'noCostRecorded' | 'unpricedModel'
@@ -79,14 +80,18 @@ export const NO_JUDGE_SPEND: JudgeSpend = {
 // stores 0 with a trace note saying it is unmeasured (runners/background.ts
 // `unmeasuredCost`), and no real model call is free, so 0 falls through to
 // the tokens and then to a reason.
+//
+// An ABSENT cost is never priced from the tokens. A runner leaves it off when
+// it would not stand behind a figure, so the tokens beside it are zero or
+// partial, and pricing them prints a low total as if measured.
 export const runCostUsd = (record: RunRecord): number | UnmeasuredReason => {
-  const stored = record.telemetry.cost?.usdAtCapture
-  if (stored !== undefined && stored > 0) return stored
-  const { tokens } = record.telemetry
+  const { cost, tokens } = record.telemetry
+  if (cost !== undefined && cost.usdAtCapture > 0) return cost.usdAtCapture
   if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0)
     return 'noCostRecorded'
   try {
-    return priceUsd(tokens, record.variant.model)
+    const usd = priceUsd(tokens, record.variant.model)
+    return cost === undefined ? 'noCostRecorded' : usd
   } catch (err) {
     if (err instanceof UnpriceableRunError) return 'unpricedModel'
     throw err
@@ -231,8 +236,8 @@ const armCell = (arm: ArmSpend): string => {
 
 const UNMEASURED_REASON_TEXT: Readonly<Record<UnmeasuredReason, string>> = {
   noCostRecorded:
-    'recorded no cost and no token counts, which is what a background run ' +
-    'cancelled at its own timeout looks like',
+    'recorded no cost, which is what a background run cancelled at its own ' +
+    'timeout, or a chat run whose usage gp-api did not report, looks like',
   unpricedModel: 'ran on a model pricing.ts has no rates for',
 }
 
