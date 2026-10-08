@@ -429,7 +429,9 @@ export const caseLoaderFor = (
     if (admitted === undefined) {
       // Refused BEFORE deducting, so a refused agent leaves its share for
       // the ones after it.
-      const runs = cases.length * attemptsPerCase
+      // A local run walks the list's own attempts when it sets them (see
+      // attemptsFor), so the slots are spent at that count.
+      const runs = cases.length * (list.attemptsPerCase ?? attemptsPerCase)
       const why = waveRefusal(
         runs,
         pollTimeoutMs(config),

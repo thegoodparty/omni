@@ -503,7 +503,12 @@ export const selectSwapped = (
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
 ): NormalizedCase[] => {
-  const { enabled, fraction } = config.orderSwap
+  const { enabled } = config.orderSwap
+  // One agent's cases per call, so one shape: background takes its own share.
+  const fraction =
+    cases[0]?.payload.agentShape === 'background'
+      ? (config.orderSwap.backgroundFraction ?? config.orderSwap.fraction)
+      : config.orderSwap.fraction
   if (!enabled || fraction <= 0 || cases.length === 0) return []
   const stride = Math.max(1, Math.round(1 / fraction))
   return [...cases]
