@@ -18,6 +18,7 @@ flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; sh
 | `[outreachId]/components/SummarizeButton.tsx`            | "Summarize what we heard" and its refusals                     |
 | `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                   |
 | `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members              |
+| `[outreachId]/components/DownloadNotesLink.tsx`          | Plain link to the CSV export, next to Every note / the pre-summary notes |
 | `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                             |
 | `[outreachId]/review/page.tsx`                           | "Notes to review": the effort's unconfirmed memos              |
 | `[outreachId]/review/components/PendingMemoList.tsx`     | The review list, its retry and its typed re-record             |
@@ -84,6 +85,15 @@ fires on the press, refused or not.
   representative or statistically significant.
   `WhatWeHeardPage.test.tsx` and `ThemeDetailPage.test.tsx` assert all three
   across every state.
+- **Download notes is a plain link, not a fetch.** `DownloadNotesLink`
+  points straight at gp-api's `GET efforts/:outreachId/export` through the
+  `/api/v1/...` proxy, with the `download` attribute, so the browser saves
+  the CSV the same way `polls/[id]/components/DownloadResults.tsx` does for
+  poll responses. It names no product noun ("Download notes"), so it needs
+  no Serve variant. Hidden when the effort has no notes yet; shown next to
+  "Every note" once there is a summary, and next to the pre-summary note
+  list (`UnderFloorList`) before there is one. The CSV holds every note on
+  the effort, not the report's 200-note display cap.
 - **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same.
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and

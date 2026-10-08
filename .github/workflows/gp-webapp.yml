@@ -441,7 +441,18 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
-        run: npx playwright install --with-deps chromium
+        # --with-deps runs apt, and a mirror that stops responding makes apt wait
+        # forever until the job is cancelled. Time out a stalled download rather
+        # than the whole install (the mirror can be slow and still finish), and
+        # wait for the dpkg lock so a retry does not fail on a leftover apt.
+        timeout-minutes: 20
+        run: |
+          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "300";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "Playwright install attempt $attempt failed"
+          done
+          exit 1
 
       # Each shard runs its file subset and emits a blob report the E2E summary
       # job merges; --reporter=blob deliberately overrides the config's

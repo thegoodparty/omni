@@ -11,6 +11,7 @@ import {
   type PrioritySource,
 } from '@goodparty_org/contracts'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import AddPriorityForm from './AddPriorityForm'
 import {
   archivePriority,
@@ -74,6 +75,21 @@ const PrioritiesHub = ({
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const changedHere = useRef(false)
+
+  useEffect(() => {
+    const bySource = (source: PrioritySource) =>
+      priorities.filter((p) => p.source === source).length
+    trackEvent(EVENTS.Priorities.ListViewed, {
+      priorityCount: priorities.length,
+      userStatedCount: bySource('user_stated'),
+      communityIssueCount: bySource('community_issue'),
+      winImportCount: bySource('win_import'),
+      plansReadyCount: priorities.filter((p) => !p.currentStep).length,
+      seedIssueCount: seedIssues.filter((issue) => !issue.prioritized).length,
+    })
+    // Once per visit, on what the page rendered with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Back to this page renders from Next's router cache, which still holds the
   // list as it was first loaded: a priority added since is missing, so the row

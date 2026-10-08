@@ -24,6 +24,7 @@ import type { StoryState } from '@/campaignStory/services/campaignStoryState.ser
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import type { ElectionsService } from '@/elections/services/elections.service'
+import type { RaceTargetMetrics } from '@/elections/types/elections.types'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
@@ -61,6 +62,7 @@ const ctxWith = (
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  liveRace: { status: 'none', reason: 'no-race' },
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
@@ -429,6 +431,13 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
       ctxWith({ helpCenterToolEnabled: true }),
     )
     expect(Object.keys(tools)).not.toContain('search_help_center')
+  })
+})
+
+describe('CampaignManagerHandler.buildTools — ask_clarify_question', () => {
+  it('registers ask_clarify_question', () => {
+    const tools = buildHandler().buildTools(ctxWith({}))
+    expect(Object.keys(tools)).toContain('ask_clarify_question')
   })
 })
 
@@ -938,6 +947,189 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     const toolNames = Object.keys(handler.buildTools(ctx))
     expect(toolNames).not.toContain('count_contacts')
     expect(toolNames).not.toContain('crud_saved_filters')
+  })
+})
+
+describe('CampaignManagerHandler.loadContext — live race data', () => {
+  const RECORD = {
+    state: 'IL',
+    electionDate: '2026-11-03',
+    raceId: 'br-hash-1',
+  }
+  const METRICS = {
+    generalElectionDate: '2026-11-03',
+    primaryElectionDate: null,
+    milestones: {
+      voter_registration: { start: null, end: '2026-10-06' },
+      early_voting: { start: '2026-10-19', end: '2026-11-02' },
+      request_ballot: null,
+    },
+    winNumber: 1234,
+    voterContactGoal: 4936,
+  } as unknown as RaceTargetMetrics
+  const EXPECTED = {
+    status: 'ok',
+    data: {
+      generalElectionDate: '2026-11-03',
+      primaryElectionDate: null,
+      milestones: {
+        voterRegistration: { start: null, end: '2026-10-06' },
+        earlyVoting: { start: '2026-10-19', end: '2026-11-02' },
+        ballotRequest: null,
+      },
+      winNumber: 1234,
+      voterContactGoal: 4936,
+    },
+  }
+
+  const buildLiveHandler = (
+    details: Record<string, unknown>,
+    fetchLiveRaceTargetMetrics: () => Promise<RaceTargetMetrics | null>,
+  ) => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: 'live-race-org' }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const fetchLive = vi.fn(fetchLiveRaceTargetMetrics)
+    const campaigns = {
+      fetchLiveRaceTargetMetrics: fetchLive,
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({ id: 5, details, data: {}, user: null }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    const handler = new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+    return { handler, fetchLive }
+  }
+
+  it('skips the lookup when the record has no election date', async () => {
+    const { handler, fetchLive } = buildLiveHandler(
+      { state: 'IL', raceId: 'br-hash-1' },
+      () => Promise.resolve(METRICS),
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.liveRace).toEqual({ status: 'none', reason: 'no-election-date' })
+    expect(fetchLive).not.toHaveBeenCalled()
+  })
+
+  it('skips the lookup when no race is linked', async () => {
+    const { handler, fetchLive } = buildLiveHandler(
+      { state: 'IL', electionDate: '2026-11-03' },
+      () => Promise.resolve(METRICS),
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.liveRace).toEqual({ status: 'none', reason: 'no-race' })
+    expect(fetchLive).not.toHaveBeenCalled()
+  })
+
+  it('maps the live metrics and renders them, cut once for the day', async () => {
+    const { handler, fetchLive } = buildLiveHandler(RECORD, () =>
+      Promise.resolve(METRICS),
+    )
+    const first = await handler.loadContext('c1', 7)
+    const second = await handler.loadContext('c1', 7)
+    expect(first.liveRace).toEqual(EXPECTED)
+    expect(second.liveRace).toEqual(EXPECTED)
+    expect(fetchLive).toHaveBeenCalledTimes(1)
+    expect(handler.buildSystemPrompt(first)).toContain(
+      'Current race data, fetched today:',
+    )
+  })
+
+  it('cuts the data again when the local day moves on', async () => {
+    vi.useFakeTimers()
+    try {
+      const { handler, fetchLive } = buildLiveHandler(RECORD, () =>
+        Promise.resolve(METRICS),
+      )
+      vi.setSystemTime(new Date('2026-10-05T17:00:00.000Z'))
+      await handler.loadContext('c1', 7)
+      vi.setSystemTime(new Date('2026-10-05T23:00:00.000Z'))
+      await handler.loadContext('c1', 7)
+      expect(fetchLive).toHaveBeenCalledTimes(1)
+      vi.setSystemTime(new Date('2026-10-06T17:00:00.000Z'))
+      await handler.loadContext('c1', 7)
+      expect(fetchLive).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reads a null or failed lookup as unavailable and tries again next turn', async () => {
+    let calls = 0
+    const { handler, fetchLive } = buildLiveHandler(RECORD, () => {
+      calls += 1
+      if (calls === 1) return Promise.resolve(null)
+      if (calls === 2) return Promise.reject(new Error('upstream down'))
+      return Promise.resolve(METRICS)
+    })
+    expect((await handler.loadContext('c1', 7)).liveRace).toEqual({
+      status: 'unavailable',
+    })
+    expect((await handler.loadContext('c1', 7)).liveRace).toEqual({
+      status: 'unavailable',
+    })
+    expect((await handler.loadContext('c1', 7)).liveRace).toEqual(EXPECTED)
+    expect(fetchLive).toHaveBeenCalledTimes(3)
+  })
+
+  it('reads a lookup that never resolves as unavailable after the timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const { handler } = buildLiveHandler(
+        RECORD,
+        () => new Promise<RaceTargetMetrics | null>(() => undefined),
+      )
+      const loading = handler.loadContext('c1', 7)
+      await vi.advanceTimersByTimeAsync(3_001)
+      expect((await loading).liveRace).toEqual({ status: 'unavailable' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('binds the filing window on record into get_ballot_requirements', async () => {
+    const elections = {
+      fetchFilingFeeByRaceHash: vi.fn(() => Promise.resolve(null)),
+    } as unknown as ElectionsService
+    const handler = new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      elections,
+    )
+    const tools = handler.buildTools(
+      ctxWith({
+        raceId: 'br-hash-1',
+        filingPeriodStart: '2026-09-01',
+        filingPeriodEnd: '2026-09-15',
+      }),
+    )
+    const tool = tools.get_ballot_requirements as {
+      execute: (input: unknown) => Promise<unknown>
+    }
+    expect(await tool.execute({})).toMatchObject({
+      filingPeriodStart: '2026-09-01',
+      filingPeriodEnd: '2026-09-15',
+      noDataFound: true,
+    })
   })
 })
 

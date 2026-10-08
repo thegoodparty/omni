@@ -44,6 +44,11 @@ export const OUTREACH_MESSAGE_RULES = [
   "- The official's first name and office are in your context. If either is missing, ask before you present, rather than writing a placeholder.",
 ].join('\n')
 
+// The model kept building the last item of a numbered list it had just
+// written when the user picked "#1": the item it wrote most about wins.
+export const PICKED_OPTION_RULE =
+  '- When the user picks from a list you gave earlier, by number or by name ("#1", "the first one", "the survey one"), go back to that list and build exactly that item, even if you wrote more about a later one. Name the item in a few words before you call the tool, so a wrong pick shows before the card does.'
+
 // Only a phone banking proposal can be completed from the card. A social post
 // has no platform in the proposal shape, and a text lands behind Stripe as an
 // unpaid draft, so a Send button on either would promise something that does

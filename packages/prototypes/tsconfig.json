@@ -9,9 +9,8 @@
         "name": "next"
       }
     ],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["app/*"],
+      "@/*": ["./app/*"],
       "@styleguide": ["../styleguide/src"],
       "@styleguide/*": ["../styleguide/src/*"]
     },

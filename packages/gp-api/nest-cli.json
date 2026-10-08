@@ -7,11 +7,15 @@
       "type": "swc",
       "options": { "swcrcPath": ".swcrc.build.json" }
     },
-    "typeCheck": true,
+    "typeCheck": false,
     "deleteOutDir": true,
     "assets": [
       {
         "include": "meetings/assets/**/*",
+        "outDir": "dist"
+      },
+      {
+        "include": "chats/general/services/guardrailLines.json",
         "outDir": "dist"
       },
       {

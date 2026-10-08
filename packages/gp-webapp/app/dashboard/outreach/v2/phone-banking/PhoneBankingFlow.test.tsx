@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { Editor } from '@tiptap/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { PHONE_BANKING_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import type {
   PhoneBankingCreate,
   PhoneBankingScriptDraftRequest,
@@ -814,6 +815,112 @@ describe('PhoneBankingFlow', () => {
       ).not.toBeInTheDocument(),
     )
   })
+
+  // Custom never drafts, so only the purpose-change reset, not a keystroke,
+  // can clear a stale error carried over from a different purpose.
+  it('clears the draft error when switching to a custom purpose', async () => {
+    api.mock('POST /v1/outreach/phone-banking/draft', {
+      status: 502,
+      data: { message: 'Phone banking draft generation failed' },
+    })
+    openFlow()
+    await advanceToScript()
+    expect(
+      await screen.findByText(/We couldn.t draft your script just now/),
+    ).toBeInTheDocument()
+
+    // script -> who -> purpose.
+    await user.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
+    await screen.findByText('Write my own script')
+
+    // Custom never drafts, so switching to it and picking the audience again
+    // (backing off who discards the prior selection) returns to the script
+    // step with no new draft call to clear the stale error on its own.
+    await user.click(screen.getByText('Write my own script'))
+    await pickSavedListAndContinue('Likely Dems')
+
+    // Custom textarea shows and the stale error card is gone.
+    expect(
+      await screen.findByRole('textbox', { name: 'Call script' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We couldn.t draft your script just now/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('Try again repeats an Improve that failed', async () => {
+    const draftCalls: PhoneBankingScriptDraftRequest[] = []
+    api.mock('POST /v1/outreach/phone-banking/draft', ({ body }) => {
+      draftCalls.push(body)
+      // The first call is the purpose's fresh draft; the second is the
+      // candidate's Improve with AI click, which fails once.
+      if (draftCalls.length === 2) {
+        return {
+          status: 502,
+          data: { message: 'Phone banking draft generation failed' },
+        }
+      }
+      return { status: 200, data: { draft: draftFor(body) } }
+    })
+    openFlow()
+    await advanceToScript()
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+
+    typeScript('My own words')
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+
+    expect(
+      await screen.findByText(/We couldn.t draft your script just now/),
+    ).toBeInTheDocument()
+
+    // Instructions written after the failure ride the retry.
+    await user.type(
+      screen.getByLabelText('Instructions for the AI'),
+      'mention the school levy',
+    )
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(draftCalls).toHaveLength(3))
+    expect(draftCalls[2]).toMatchObject({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'My own words',
+      instructions: 'mention the school levy',
+    })
+  })
+
+  it('warns as the field nears its length limit and says when it reaches it', async () => {
+    mockDraft()
+    openFlow()
+    await advanceToScript()
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+
+    const nearLimitLength = Math.round(PHONE_BANKING_SCRIPT_MAX_LENGTH * 0.95)
+    typeScript('a'.repeat(nearLimitLength))
+    expect(
+      await screen.findByText(
+        `${PHONE_BANKING_SCRIPT_MAX_LENGTH - nearLimitLength} characters left`,
+      ),
+    ).toBeInTheDocument()
+
+    typeScript('a'.repeat(PHONE_BANKING_SCRIPT_MAX_LENGTH))
+    expect(
+      await screen.findByText(
+        `You've reached the ${PHONE_BANKING_SCRIPT_MAX_LENGTH.toLocaleString()}-character limit.`,
+      ),
+    ).toBeInTheDocument()
+
+    const belowWarnLength = Math.round(PHONE_BANKING_SCRIPT_MAX_LENGTH * 0.5)
+    typeScript('a'.repeat(belowWarnLength))
+    await waitFor(() =>
+      expect(screen.queryByText(/characters left/)).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/character limit/)).not.toBeInTheDocument()
+  })
+
   it('sends trimmed instructions on Regenerate and Improve with AI, omitting them when blank', async () => {
     const draftCalls = mockDraft()
     openFlow()
@@ -872,7 +979,7 @@ describe('PhoneBankingFlow', () => {
     })
   })
 
-  it('omits previousDraft on a tone change after the candidate manually edited the script, so their edits are never told to diverge from', async () => {
+  it("polishes the candidate's own script in a new tone rather than replacing it", async () => {
     const draftCalls = mockDraft()
     openFlow()
     await advanceToScript()
@@ -884,25 +991,25 @@ describe('PhoneBankingFlow', () => {
 
     await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(2))
-    expect(draftCalls[1]).toMatchObject({ tone: 'direct' })
-    expect(draftCalls[1]).not.toHaveProperty('previousDraft')
-
-    // A later tone change, with no further edits since that AI draft
-    // landed, goes back to sending previousDraft — the guard is per-edit,
-    // not sticky for the rest of the session.
+    expect(draftCalls[1]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'direct',
+      currentDraft: 'My hand-edited script',
+    })
     await waitFor(() =>
-      expect(scriptText()).toBe(
-        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
-      ),
+      expect(scriptText()).toBe('Improved (direct): My hand-edited script'),
     )
+
+    // A polish is still the candidate's words, so the next tone polishes
+    // that in turn.
     await user.click(screen.getByRole('radio', { name: /Urgent/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(3))
-    expect(draftCalls[2]).toMatchObject({
+    expect(draftCalls[2]).toEqual({
+      purpose: 'introduce_myself',
       tone: 'urgent',
-      previousDraft: draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
+      currentDraft: 'Improved (direct): My hand-edited script',
     })
   })
-
   it('clears instructions on a purpose re-pick, so the immediate draft for the new purpose omits them', async () => {
     const draftCalls = mockDraft()
     openFlow()

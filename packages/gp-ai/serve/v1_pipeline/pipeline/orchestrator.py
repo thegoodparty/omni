@@ -18,6 +18,10 @@ project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from serve.hierarchical_discovery.stages.cluster_analyzer import (
+    CLUSTER_ANALYSIS_PROMPT_NAME,
+    FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME,
+)
 from serve.v1_pipeline.adapters.clustering_adapter import ClusteringAdapter
 
 # Import models
@@ -26,6 +30,7 @@ from serve.v1_pipeline.models.unified_record import (
     PipelineResult,
     UnifiedCampaignRecord,
 )
+from shared.braintrust import get_client
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -54,6 +59,16 @@ class V1PipelineOrchestrator:
 
         self.source_type = os.getenv("SOURCE_TYPE") or POLL_SOURCE_TYPE
         self.source_id = os.getenv("SOURCE_ID", "")
+
+        # The hosted Braintrust prompt `ClusterAnalyzer` loads (serve/
+        # hierarchical_discovery/stages/cluster_analyzer.py) to name each
+        # cluster's theme -- feedback runs get product-neutral wording since
+        # nothing here says whether this is a Win or a Serve run.
+        self.theme_prompt_name = (
+            CLUSTER_ANALYSIS_PROMPT_NAME
+            if self.source_type == POLL_SOURCE_TYPE
+            else FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME
+        )
 
         # Initialize components
         self.input_dir: str | None = None
@@ -173,7 +188,7 @@ class V1PipelineOrchestrator:
 
             # Initialize clusterer if enabled
             if self.config.get("clustering", {}).get("enabled", True):
-                self.clusterer = ClusteringAdapter()
+                self.clusterer = ClusteringAdapter(theme_prompt_name=self.theme_prompt_name)
 
             # Initialize SQS publisher if enabled
             if self.config.get("sqs_events", {}).get("enabled", False):
@@ -439,14 +454,26 @@ class V1PipelineOrchestrator:
                 logger.info("💾 Stage 4: Event Publishing")
                 sqs_start = time.time()
 
+                # Set by ClusterAnalyzer during Stage 2 if clustering ran at
+                # all; absent (None) otherwise, e.g. zero substantive clusters.
+                # Reads the slug this run actually used, so a feedback run's
+                # fallback is reported too.
+                prompt_source = get_client().get_prompt_source(self.theme_prompt_name)
+
                 if self.source_type != POLL_SOURCE_TYPE:
                     sqs_stats = await self.sqs_publisher.publish_feedback_completion(
-                        source_type=self.source_type, source_id=self.source_id, unified_records=unified_records
+                        source_type=self.source_type,
+                        source_id=self.source_id,
+                        unified_records=unified_records,
+                        prompt_source=prompt_source,
                     )
                 else:
                     poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
                     sqs_stats = await self.sqs_publisher.publish_poll_completion(
-                        poll_ids=poll_ids, unified_records=unified_records, campaign_name=campaign_name
+                        poll_ids=poll_ids,
+                        unified_records=unified_records,
+                        campaign_name=campaign_name,
+                        prompt_source=prompt_source,
                     )
 
                 sqs_time = time.time() - sqs_start

@@ -374,6 +374,35 @@ export const GLOBAL_ALERTS: Alert[] = [
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
   },
+  {
+    slug: 'shared-synthesis-prompt-fallback',
+    name: '[Shared] Synthesis fell back to the in-repo theme prompt',
+    type: 'log',
+    // The polls and issue-feedback synthesis pipeline (packages/gp-ai) loads
+    // its cluster-naming prompt from Braintrust in strict mode: a hosted
+    // placeholder the code does not supply raises, and the pipeline falls
+    // back to its in-repo prompt and still completes the run — themes still
+    // land, so nothing on screen looks wrong. The consumer logs this one
+    // line, from both handlePollAnalysisComplete and the
+    // feedbackSynthesisComplete case, whichever product the run was for.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Synthesis run used the in-repo theme prompt"',
+      '[5m]))',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    // Pinned to the vector's own width rather than the 600s default: this
+    // event is rare and the default would bill 10x ingest for a 5m window
+    // when 5x covers it exactly.
+    timeRangeSeconds: 300,
+    message: [
+      'A polls (Serve) or issue-feedback (Win and Serve) synthesis run named its cluster themes from the in-repo fallback prompt instead of the hosted Braintrust one, in the last 5 minutes. The run still produced themes from the older in-repo prompt — nothing in the report looks wrong, so this is the only signal.',
+      'Click *View in Grafana* to find the line (search "Synthesis run used the in-repo theme prompt") for the pollId, or the sourceType and sourceId, naming the run. Then compare the hosted Braintrust prompt `cluster-analysis` (project `hierarchical-discovery`) placeholders against the variables `cluster_analyzer.py` (packages/gp-ai/serve/hierarchical_discovery/stages) actually supplies — a placeholder the hosted prompt asks for that those variables do not cover is what raises in strict mode and triggers the fallback.',
+    ].join('\n\n'),
+    notify: BOTH,
+  },
   // ------ Serve Alerts ------ //
   {
     slug: 'serve-background-job-failed',

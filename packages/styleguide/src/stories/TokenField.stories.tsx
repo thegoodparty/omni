@@ -32,19 +32,19 @@ const SMS_SPANS: ProtectedSpec[] = [
   {
     id: 'candidate_name',
     text: 'Sarah Chen',
-    reason: 'Your name has to appear in the message. You can reword the rest.',
+    reason:
+      "Your name stays so people know who's texting, but you can reword anything around it.",
   },
   {
     id: 'paid_for_by',
     text: 'Paid for by Friends of Sarah Chen',
-    reason:
-      'Campaign finance rules require this line. You can write around it.',
+    reason: 'The law requires this line, but you can write around it.',
   },
   {
     id: 'opt_out',
     text: 'Reply STOP to opt out.',
     reason:
-      'Every text has to offer a way to opt out. You can write around this line.',
+      'Every text has to offer a way to opt out, but you can write around it.',
   },
 ]
 
@@ -52,36 +52,25 @@ const SMS_MESSAGE = `Hello {first_name}, it's Sarah Chen, running for city counc
 
 Paid for by Friends of Sarah Chen. Reply STOP to opt out.`
 
+// The robocall locks as the product does: the name the candidate gives,
+// and the closing disclosure line as one unit.
 const ROBOCALL_SPANS: ProtectedSpec[] = [
   {
     id: 'candidate_name',
     text: 'Sarah Chen',
     reason:
-      'A recorded call has to say who you are and what you are running for.',
+      "A recorded call has to say who's calling, but you can reword the rest.",
   },
   {
-    id: 'candidacy',
-    text: 'candidate for city council',
-    reason:
-      'A recorded call has to say who you are and what you are running for.',
-  },
-  {
-    id: 'paid_for_by',
-    text: 'Paid for by Friends of Sarah Chen',
-    reason:
-      'Campaign finance rules require this line. You can write around it.',
-  },
-  {
-    id: 'callback',
-    text: '(555) 010-2030',
-    reason:
-      'A recorded call has to give a callback number. Read it as written.',
+    id: 'disclosure',
+    text: 'Paid for by Sarah Chen, 555-010-2030.',
+    reason: 'The law requires this line, read exactly as written.',
   },
 ]
 
-const ROBOCALL_SCRIPT = `Hi, this is Sarah Chen, candidate for city council. I'm calling to ask for your vote on November 3.
+const ROBOCALL_SCRIPT = `Hi, this is Sarah Chen. I'm calling to ask for your vote on November 3.
 
-Paid for by Friends of Sarah Chen. Call us back at (555) 010-2030.`
+Paid for by Sarah Chen, 555-010-2030.`
 
 // The composer's own arrangement: the field seamless inside a card, and the
 // blocked edit's reason in a status region under it. The shake and tint are

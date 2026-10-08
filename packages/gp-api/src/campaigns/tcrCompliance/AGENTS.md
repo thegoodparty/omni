@@ -526,6 +526,14 @@ section removed their contribution to `stuckCount` along with it.
   attempt; the 400 is what stops the retries.
 - Strips leading `www.` from `Domain.name` so Peerly's brand `website`/`email` use the
   apex domain, matching the legacy `create()` path.
+- **`committeeName` must be a real name, not a placeholder.** It is copied verbatim
+  into the Peerly brand's `displayName`/`companyName`, the approve-time sample texts,
+  and the SMS "Paid for by" footer, and Peerly can only fix a bad value by hand once
+  the PIN is out (identity 11541044 arrived as "N/A", ENG-11228). `CommitteeNameSchema`
+  in `@goodparty_org/contracts` rejects a normalized match against a placeholder list
+  (`n/a`, `none`, `self`, `tbd`, punctuation-only, ...) and is shared by the create
+  schemas, the admin rename body, and the webapp's `validateRegistrationForm` via
+  `isPlaceholderCommitteeName`, so the field errors before any request is made.
 - **`filing_url` must be an official election filing.** CampaignVerify verifies the
   candidate against the URL, so a goodparty.org page or the candidate's own campaign
   site forces CV to contact the election authority by hand for the real filed contact

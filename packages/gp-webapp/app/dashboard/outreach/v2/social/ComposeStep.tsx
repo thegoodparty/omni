@@ -1,7 +1,11 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
+import {
+  SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
+  SOCIAL_TONE_VALUES,
+  type SocialTone,
+} from '@goodparty_org/contracts'
 import {
   Button,
   Card,
@@ -22,6 +26,7 @@ import {
   SunIcon,
   TargetIcon,
 } from '@styleguide/components/ui/icons'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { Intro } from './Intro'
 
@@ -48,6 +53,8 @@ interface ComposeStepProps {
   // Polishes the user's own words in place — available for every purpose,
   // including custom (the custom guard only blocks fresh generation).
   onImprove: () => void
+  // Repeats the call that failed, Regenerate or Improve.
+  onRetry: () => void
   // Improve appears only once the user has typed/dictated something —
   // never from tone-preset-only interaction (same precursor state as Undo).
   canImprove: boolean
@@ -68,6 +75,7 @@ export const ComposeStep = ({
   onDraftChange,
   onRegenerate,
   onImprove,
+  onRetry,
   canImprove,
   isDrafting,
   isDraftError,
@@ -133,11 +141,7 @@ export const ComposeStep = ({
               We couldn&apos;t draft your message just now. Try again, or write
               your own below.
             </p>
-            <Button
-              type="button"
-              size="small"
-              onClick={isCustomPurpose ? onImprove : onRegenerate}
-            >
+            <Button type="button" size="small" onClick={onRetry}>
               Try again
             </Button>
           </Card>
@@ -156,9 +160,13 @@ export const ComposeStep = ({
                 : 'Write your message…'
             }
             aria-label="Draft message"
-            maxLength={2000}
+            maxLength={SOCIAL_DRAFT_MESSAGE_MAX_LENGTH}
             variant="seamless"
             className="min-h-[140px]"
+          />
+          <LengthCounter
+            length={draft.length}
+            max={SOCIAL_DRAFT_MESSAGE_MAX_LENGTH}
           />
           <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
             {canUndo && (

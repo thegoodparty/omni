@@ -1,5 +1,6 @@
 import { COMMUNITY_INPUT_QUESTION_MAX_LENGTH } from '@goodparty_org/contracts'
 import { Textarea } from '@styleguide'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 
 // Shared by the phone-banking flow and the door-knocking create flow, which
 // ask the same thing in the same words. Both are reached only from the
@@ -58,6 +59,11 @@ export const CommunityInputQuestionStep = ({
         placeholder={copy.placeholder}
         rows={3}
         onChange={(e) => onChange(e.target.value)}
+      />
+      <LengthCounter
+        className="mt-2"
+        length={question.length}
+        max={COMMUNITY_INPUT_QUESTION_MAX_LENGTH}
       />
     </div>
   )

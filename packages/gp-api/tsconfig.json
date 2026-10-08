@@ -4,15 +4,17 @@
   "compilerOptions": {
     "module": "NodeNext",
     "outDir": "./dist",
-    "baseUrl": "./",
     "paths": {
-      "@/*": ["src/*"],
-      "@e2e-tests/*": ["e2e-tests/*"],
+      "@/*": ["./src/*"],
+      "@e2e-tests/*": ["./e2e-tests/*"],
       // The SDK ships dist/index.d.ts ("typings") but its "exports" map has
       // no "types" condition, so NodeNext can't find its declarations.
       "@geoapify/route-planner-sdk": [
         "../../node_modules/@geoapify/route-planner-sdk/dist/index.d.ts"
-      ]
+      ],
+      // Bare 'src/...' imports used to resolve through baseUrl, which TS 7
+      // removed. Unmatched specifiers still fall back to node_modules.
+      "*": ["./*"]
     },
     "preserveWatchOutput": true,
     "noImplicitAny": true,

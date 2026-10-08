@@ -74,14 +74,19 @@ plus TCPA revocation rights, which is not the same thing, and in a compliance
 product for candidates an overclaim is a trust problem. Give each span its own
 accurate reason:
 
-| Span                     | Message                                                                   |
-| ------------------------ | ------------------------------------------------------------------------- |
-| opt-out                  | Every text has to offer a way to opt out. You can write around this line. |
-| paid for by              | Campaign finance rules require this line. You can write around it.        |
-| `{first_name}` (atom)    | The first name tag is required. You can move it, not remove it.           |
-| candidate name           | Your name has to appear in the message. You can reword the rest.          |
-| robocall name and office | A recorded call has to say who you are and what you are running for.      |
-| robocall callback number | A recorded call has to give a callback number. Read it as written.        |
+| Span                | Message                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| opt-out             | Every text has to offer a way to opt out, but you can write around it.               |
+| paid for by         | The law requires this line, but you can write around it.                             |
+| `{first_name}`      | Keep the first name so each person sees their own.                                   |
+| candidate name      | Your name stays so people know who's texting, but you can reword anything around it. |
+| anything else       | This part is required, but you can reword anything around it.                        |
+| robocall name       | A recorded call has to say who's calling, but you can reword the rest.               |
+| robocall disclosure | The law requires this line, read exactly as written.                                 |
+
+Each says why the part stays and what the candidate can still do, in one
+sentence. The SMS strings are shared by Win and Serve, so none names a
+campaign, a voter or a candidate.
 
 ### Partial overlap is the one real design detail
 

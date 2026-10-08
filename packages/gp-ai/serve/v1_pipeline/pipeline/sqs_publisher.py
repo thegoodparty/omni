@@ -24,6 +24,7 @@ from serve.v1_pipeline.models.events import (
     PollIssueAnalysisData,
 )
 from serve.v1_pipeline.models.unified_record import UnifiedCampaignRecord
+from shared.braintrust import PromptSource
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -105,6 +106,7 @@ class SQSEventPublisher:
         poll_ids: list[str],
         unified_records: list[UnifiedCampaignRecord],
         campaign_name: str = "",
+        prompt_source: PromptSource | None = None,
     ) -> dict[str, Any]:
         responses_location = self._compute_responses_location(campaign_name)
 
@@ -142,7 +144,9 @@ class SQSEventPublisher:
                 unique_respondents = 0
                 logger.info(f"Poll {poll_id}: 0 records, sending empty completion")
 
-            event = self._build_complete_event(poll_id, unique_respondents, poll_issues, responses_location)
+            event = self._build_complete_event(
+                poll_id, unique_respondents, poll_issues, responses_location, prompt_source
+            )
             all_events.append(event.to_json())
 
             if self.publish_to_sqs:
@@ -154,7 +158,11 @@ class SQSEventPublisher:
         return {"polls_processed": len(poll_ids), "complete_events_sent": len(poll_ids)}
 
     async def publish_feedback_completion(
-        self, source_type: str, source_id: str, unified_records: list[UnifiedCampaignRecord]
+        self,
+        source_type: str,
+        source_id: str,
+        unified_records: list[UnifiedCampaignRecord],
+        prompt_source: PromptSource | None = None,
     ) -> dict[str, Any]:
         cluster_stats = self._aggregate_cluster_stats(unified_records)
         issues = [
@@ -179,6 +187,7 @@ class SQSEventPublisher:
                 totalResponses=unique_respondents,
                 responsesLocation=None,
                 issues=issues,
+                promptSource=prompt_source,
             )
         )
         if self.publish_to_sqs:
@@ -248,12 +257,21 @@ class SQSEventPublisher:
         return ranked[: self.top_n]
 
     def _build_complete_event(
-        self, poll_id: str, total_responses: int, issues: list[PollIssueAnalysisData], responses_location: str = ""
+        self,
+        poll_id: str,
+        total_responses: int,
+        issues: list[PollIssueAnalysisData],
+        responses_location: str = "",
+        prompt_source: PromptSource | None = None,
     ) -> PollAnalysisCompleteEvent:
         return PollAnalysisCompleteEvent(
             type="pollAnalysisComplete",
             data=PollAnalysisCompleteData(
-                pollId=poll_id, totalResponses=total_responses, responsesLocation=responses_location, issues=issues
+                pollId=poll_id,
+                totalResponses=total_responses,
+                responsesLocation=responses_location,
+                issues=issues,
+                promptSource=prompt_source,
             ),
         )
 

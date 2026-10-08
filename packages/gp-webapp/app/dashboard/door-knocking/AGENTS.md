@@ -17,7 +17,7 @@ caption explains route mechanics such as turf locking or purchased directions.
 | `print/walkFacts.ts` + `routeCounts.ts`                     | The stop/door/people sentence both paper surfaces quote                   |
 | `native/doorScriptContent.ts` + `DoorScript.tsx`            | The card read at a door: openers, and the two things under them           |
 | `native/talkingPointsCard.ts`                               | The five-section card: what is stored, what is composed                   |
-| `native/createFlow/TalkingPointsStep.tsx`                   | Wizard step where the card is drafted, edited and frozen                  |
+| `native/createFlow/TalkingPointsStep.tsx`                   | Wizard step where the card is drafted, edited and frozen. Try again repeats the kind of call that failed (Regenerate or Improve) with what is on screen, and each section shows the shared `LengthCounter` near its limit |
 | `native/turfDrafts.ts`                                      | A turf cut but not bought: the type, its canvas adapter, its name         |
 | `native/createFlow/TurfPanel.tsx`                           | The drawing surface's controls: right sidebar at `lg`, bottom sheet below |
 | `native/createFlow/TurfDraftCard.tsx`                       | One unbought turf, stacked under the draw step's preview                  |

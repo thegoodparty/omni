@@ -14,7 +14,11 @@ import {
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
-import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
+import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
+import {
+  OUTREACH_MESSAGE_RULES,
+  PICKED_OPTION_RULE,
+} from '../../chat-tools/presentOutreachProposal.tool'
 import {
   buildSampleSizingRules,
   EXAMPLE_AUDIENCE,
@@ -269,14 +273,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
 const cardRulesBlock = (toolNames: string[]): string | null => {
   const has = (name: string): boolean => toolNames.includes(name)
   const lines = [
-    ...(has('ask_clarify_question')
-      ? [
-          '- Set `multiSelect` on `ask_clarify_question` when more than one answer can be true, such as options they could pursue together or symptoms of one problem. Leave it off when the answers rule each other out.',
-          '- When the user has to pick between real options, ask with `ask_clarify_question`, one question at a time, never as a list in prose. Put the question and options only in the call.',
-          '- Never end a message with an either/or or a pick-one question in prose. A "Yes" back tells you nothing. When the user has to choose, call `ask_clarify_question`.',
-          '- The app shows the question above its options, so never write it, or any rewording of it, as chat text. Anything before the call is context that never ends in a question. If no context is needed, write nothing and just call the tool.',
-        ]
-      : []),
+    ...(has('ask_clarify_question') ? CLARIFY_QUESTION_RULES : []),
     '- A card speaks for itself. Say in one line why it matters and never restate what is on it.',
     ...(has('present_constituents') && has('present_outside_contact')
       ? [
@@ -298,7 +295,13 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
             (has('read_past_outreach')
               ? ' Call `read_past_outreach` first so you can say what came back last time.'
               : ''),
+          PICKED_OPTION_RULE,
           OUTREACH_MESSAGE_RULES,
+        ]
+      : []),
+    ...(has('present_outreach_proposal') && has('ask_clarify_question')
+      ? [
+          '- When you recommend more than one piece of outreach (a sequence of texts, a text and a call), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
         ]
       : []),
   ]

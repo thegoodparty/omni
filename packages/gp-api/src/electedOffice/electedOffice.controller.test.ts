@@ -4,6 +4,7 @@ import {
   AUTH_PROVIDER_TOKEN,
   AuthProvider,
 } from '@/authentication/interfaces/auth-provider.interface'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -489,9 +490,23 @@ describe('ElectedOfficeController', () => {
       expect(electedOffice?.campaignId).toBeNull()
     })
 
-    it('creates a campaign-less elected office with office identity from the body when there is no organization', async () => {
+    it("resolves a ballotReadyPositionId from the body to election-api's own position id when there is no organization", async () => {
       // No x-organization-slug header → no organization context, so the office
-      // identity must come from the request body.
+      // identity comes from the request body. positionId must be election-api's
+      // id, never the BallotReady id verbatim — later reads (e.g. getPositionById)
+      // reject a BallotReady id.
+      const electionsService = service.app.get(ElectionsService)
+      vi.spyOn(
+        electionsService,
+        'getPositionByBallotReadyId',
+      ).mockResolvedValue({
+        id: 'election-api-pos-from-body',
+        brPositionId: 'br-pos-from-body',
+        brDatabaseId: 'br-db-from-body',
+        state: 'TX',
+        name: 'Mayor',
+      })
+
       const result = await service.client.post('/v1/elected-office', {
         swornInDate: '2024-01-15',
         ballotReadyPositionId: 'br-pos-from-body',
@@ -502,7 +517,42 @@ describe('ElectedOfficeController', () => {
       const organization = await service.prisma.organization.findUnique({
         where: { slug: `eo-${result.data.id}` },
       })
-      expect(organization?.positionId).toBe('br-pos-from-body')
+      expect(organization?.positionId).toBe('election-api-pos-from-body')
+    })
+
+    it('rejects a ballotReadyPositionId from the body that election-api cannot resolve', async () => {
+      const electionsService = service.app.get(ElectionsService)
+      vi.spyOn(
+        electionsService,
+        'getPositionByBallotReadyId',
+      ).mockResolvedValue(null)
+
+      const result = await service.client.post('/v1/elected-office', {
+        swornInDate: '2024-01-15',
+        ballotReadyPositionId: 'br-pos-unknown',
+      })
+
+      expect(result.status).toBe(400)
+
+      const offices = await service.prisma.electedOffice.findMany({
+        where: { userId: service.user.id },
+      })
+      expect(offices).toHaveLength(0)
+    })
+
+    it('stores a null positionId and the custom name when there is no organization and no ballotReadyPositionId', async () => {
+      const result = await service.client.post('/v1/elected-office', {
+        swornInDate: '2024-01-15',
+        customPositionName: 'Water District Director',
+      })
+
+      expect(result.status).toBe(200)
+
+      const organization = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${result.data.id}` },
+      })
+      expect(organization?.positionId).toBeNull()
+      expect(organization?.customPositionName).toBe('Water District Director')
     })
 
     it('rejects an elected office whose term overlaps an existing one', async () => {

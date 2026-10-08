@@ -17,6 +17,7 @@ import {
   ToggleGroupItem,
   cn,
 } from '@styleguide'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 
 // Rendered for a candidate's canvasser and an elected official's, so the copy
 // is mode-keyed (docs/product-vocabulary.md) and the Serve branch is where the
@@ -202,9 +203,13 @@ export default function IssueCaptureConfirmCard({
     setDrafts((current) => current.filter((_, i) => i !== index))
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-components-input-border p-4">
+    // No border of its own: it takes the ladder's place in the door's sheet,
+    // which draws the ladder unboxed, and the review list already frames it.
+    <div className="flex flex-col gap-4">
       <div>
-        <p className="text-sm font-semibold text-foreground">{copy.heading}</p>
+        <h3 className="text-base font-semibold text-foreground">
+          {copy.heading}
+        </h3>
         <p className="mt-1 text-sm text-muted-foreground">
           {proposed === null
             ? copy.empty
@@ -230,10 +235,16 @@ export default function IssueCaptureConfirmCard({
           >
             <div>
               <div className="flex items-center justify-between gap-2">
-                <span className={QUESTION_LABEL_CLASSNAME}>{copy.issue}</span>
+                <span className={QUESTION_LABEL_CLASSNAME}>
+                  {drafts.length > 1 ? name : copy.issue}
+                </span>
                 <Button
                   variant="ghost"
                   size="small"
+                  // Pulled into the label row's height and onto the input's
+                  // right edge, so the ghost padding does not push the row
+                  // taller than the other labels or inset the word.
+                  className="-my-2 -mr-4 text-muted-foreground"
                   disabled={saving}
                   aria-label={copy.removeFor(draft.issueLabel.trim() || name)}
                   onClick={() => remove(index)}
@@ -247,6 +258,11 @@ export default function IssueCaptureConfirmCard({
                 maxLength={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
                 placeholder={copy.issuePlaceholder}
                 onChange={(e) => update(index, { issueLabel: e.target.value })}
+              />
+              <LengthCounter
+                className="mt-1"
+                length={draft.issueLabel.length}
+                max={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
               />
             </div>
 

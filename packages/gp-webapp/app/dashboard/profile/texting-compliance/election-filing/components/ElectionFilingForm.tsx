@@ -1,7 +1,11 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FormDataProvider, FormDataState } from '@shared/hooks/useFormData'
+import {
+  FormDataProvider,
+  FormDataState,
+  useFormData,
+} from '@shared/hooks/useFormData'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { apiRoutes } from 'gpApi/routes'
@@ -24,6 +28,13 @@ import TextingComplianceRegistrationForm, {
   validateRegistrationForm,
   type FormVariant,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
+import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
+import {
+  clearVerificationDraft,
+  readVerificationDraft,
+  saveVerificationDraft,
+  type VerificationDraft,
+} from 'app/dashboard/campaign-verification/verificationDraft'
 
 const validateAgenticForm = (data: FormDataState) =>
   validateRegistrationForm(data, { requireWebsite: false })
@@ -43,9 +54,28 @@ interface ElectionFilingFormProps {
   // default.
   variant?: FormVariant
   onBack?: () => void
+  // Keep unsubmitted input in this browser and restore it on return. Only
+  // campaign verification opts in.
+  persistDraft?: boolean
 }
 
-export default function ElectionFilingForm({
+// The draft is keyed by campaign and read once, on mount. A body mounted
+// before the campaign resolves would read nothing and then save the empty
+// form over the stored draft, so wait for the campaign, and remount if it
+// changes.
+const ElectionFilingForm = (
+  props: ElectionFilingFormProps,
+): React.JSX.Element => {
+  const [campaign] = useCampaign()
+  if (props.persistDraft && !campaign) {
+    return <div className="text-sm text-muted-foreground">Loading…</div>
+  }
+  return <ElectionFilingFormBody key={campaign?.id} {...props} />
+}
+
+export default ElectionFilingForm
+
+const ElectionFilingFormBody = ({
   onSubmitted,
   title,
   caption,
@@ -53,11 +83,20 @@ export default function ElectionFilingForm({
   contactCaption,
   variant,
   onBack,
-}: ElectionFilingFormProps): React.JSX.Element {
+  persistDraft = false,
+}: ElectionFilingFormProps): React.JSX.Element => {
   const queryClient = useQueryClient()
   const [user, , userLoading] = useUser()
   const [campaign] = useCampaign()
   const { errorSnackbar, successSnackbar } = useSnackbar()
+  const draftCampaignId = persistDraft ? campaign?.id : undefined
+  // Read once: the profile hook seeds from it once, and the filing fields
+  // only use it as the provider's initial state.
+  const [draft] = useState<VerificationDraft | null>(() =>
+    draftCampaignId === undefined
+      ? null
+      : readVerificationDraft(draftCampaignId),
+  )
 
   const [loading, setLoading] = useState(false)
   const [hasSubmissionError, setHasSubmissionError] = useState(false)
@@ -89,7 +128,10 @@ export default function ElectionFilingForm({
   // onSaved is a no-op: the save is chained inside handleFormSubmit (via the
   // boolean handleSubmit result), not followed by navigation like the other
   // consumers.
-  const profileForm = useCandidateProfileForm({ onSaved: () => undefined })
+  const profileForm = useCandidateProfileForm({
+    onSaved: () => undefined,
+    draft: draft?.profile,
+  })
 
   const ready =
     !userLoading && Boolean(user) && Boolean(campaign) && needsProfile !== null
@@ -142,6 +184,7 @@ export default function ElectionFilingForm({
         email: formData.email,
         dlcComplianceStatus: 'Pending',
       })
+      if (draftCampaignId !== undefined) clearVerificationDraft(draftCampaignId)
       successSnackbar('Election filing submitted')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY }),
@@ -161,9 +204,21 @@ export default function ElectionFilingForm({
 
   return ready ? (
     <FormDataProvider
-      initialState={getInitialFormState(campaign)}
+      initialState={withDraft(getInitialFormState(campaign), draft?.filing)}
       validator={validateAgenticForm}
     >
+      {draftCampaignId !== undefined && (
+        <DraftSaver
+          campaignId={draftCampaignId}
+          // Not until the hook has seeded: before that bio is '' and would
+          // overwrite the stored draft.
+          profile={
+            needsProfile && profileForm.initialBio !== null
+              ? { bio: profileForm.bio, issues: profileForm.issues }
+              : undefined
+          }
+        />
+      )}
       <TextingComplianceRegistrationForm
         onSubmit={handleFormSubmit}
         loading={loading}
@@ -223,6 +278,38 @@ export default function ElectionFilingForm({
   ) : (
     <div className="text-sm text-muted-foreground">Loading…</div>
   )
+}
+
+const DraftSaver = ({
+  campaignId,
+  profile,
+}: {
+  campaignId: number
+  profile: VerificationDraft['profile']
+}): null => {
+  const { formData } = useFormData()
+  const bio = profile?.bio
+  const issues = profile?.issues
+  useEffect(() => {
+    saveVerificationDraft(campaignId, {
+      filing: formData,
+      ...(bio !== undefined && issues && { profile: { bio, issues } }),
+    })
+  }, [campaignId, formData, bio, issues])
+  return null
+}
+
+// A valid EIN on the campaign wins over a drafted one: the verification
+// variant hides the field when the campaign already has it, so a drafted
+// value could never be seen or corrected there.
+const withDraft = (
+  initial: FormDataState,
+  draftFiling: FormDataState | undefined,
+): FormDataState => {
+  if (!draftFiling) return initial
+  const merged = { ...initial, ...draftFiling }
+  if (checkEinSanity(String(initial.ein ?? '')).valid) merged.ein = initial.ein
+  return merged
 }
 
 // Email and phone are intentionally left blank rather than seeded from the

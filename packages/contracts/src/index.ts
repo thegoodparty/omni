@@ -548,6 +548,11 @@ export {
   UpdateCommitteeNameOutputSchema,
   type UpdateCommitteeNameOutput,
 } from './campaigns/UpdateCommitteeName.schema'
+export {
+  COMMITTEE_NAME_PLACEHOLDER_MESSAGE,
+  CommitteeNameSchema,
+  isPlaceholderCommitteeName,
+} from './campaigns/CommitteeName.schema'
 
 export {
   UpdateFilingUrlSchema,

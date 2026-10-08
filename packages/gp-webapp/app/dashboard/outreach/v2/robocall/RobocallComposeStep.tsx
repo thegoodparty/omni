@@ -33,13 +33,15 @@ import {
   Trash2Icon,
   UploadIcon,
 } from '@styleguide/components/ui/icons'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import { Intro } from '../social/Intro'
 import { type RobocallRecorder } from './useRobocallRecorder'
 
 // Why each locked part cannot change, shown when an edit runs into it.
 const LOCK_REASONS: Record<RobocallProtectedPart['rule'], string> = {
-  candidate_name: 'Your name has to stay in the script.',
-  disclosure: 'The line saying who paid for the call has to stay as written.',
+  candidate_name:
+    "A recorded call has to say who's calling, but you can reword the rest.",
+  disclosure: 'The law requires this line, read exactly as written.',
 }
 
 const TONE_LABELS: Record<SocialTone, string> = {
@@ -86,6 +88,7 @@ interface RobocallComposeStepProps {
   // Save uploads the recording to S3, then marks it saved; while it runs the
   // Save button shows a spinner, and a failure surfaces uploadError.
   onSaveRecording: () => void
+  scriptChangedSinceRecording: boolean
   isUploading: boolean
   uploadError: string | null
   // Compliance gate on the saved recording: while checking, a spinner; a
@@ -115,6 +118,7 @@ export const RobocallComposeStep = ({
   recorder,
   maxSeconds,
   onSaveRecording,
+  scriptChangedSinceRecording,
   isUploading,
   uploadError,
   complianceChecking,
@@ -232,6 +236,10 @@ export const RobocallComposeStep = ({
               variant="seamless"
               className="min-h-[120px]"
             />
+            <LengthCounter
+              length={script.length}
+              max={ROBOCALL_SCRIPT_MAX_LENGTH}
+            />
             <p
               data-vaul-no-drag
               className="select-text text-xs text-muted-foreground"
@@ -337,6 +345,13 @@ export const RobocallComposeStep = ({
               complianceError
             }
           />
+
+          {scriptChangedSinceRecording && (
+            <p className="text-xs text-muted-foreground">
+              Your script changed after you recorded, so re-record if you want
+              them to match.
+            </p>
+          )}
 
           {(recorder.error || uploadError) && (
             <p className="text-sm text-destructive">

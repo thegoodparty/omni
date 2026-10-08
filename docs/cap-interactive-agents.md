@@ -90,7 +90,10 @@ methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
 
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
-messages, calls `streamChatCompletion`, and pumps deltas/tool events through a
+messages (an assistant turn replays as its text, plus a `[Card you showed: …]`
+line with the args of each `present_*` or `ask_clarify_question` call, so the
+model remembers what its cards held; other tool calls do not replay), calls
+`streamChatCompletion`, and pumps deltas/tool events through a
 backpressure-bounded `ChunkQueue` (max 256). While a turn is open the service also
 emits a `{ type: 'ping' }` keep-alive every 15s (`CHAT_STREAM_HEARTBEAT_MS`) —
 tool-arg generation (e.g. an ordinance draft body) streams nothing else for
@@ -196,6 +199,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   never person rows and never geometry. The flag says only that a shape is
   on the list, because a holder can draw one from the transcript's own map
   card — see **A drawn boundary reaches the conversation** below.
+- **`ask_clarify_question`** — a no-op presenter shared by Campaign Manager
+  and Chief of Staff: the call is the question, rendered as a single- or
+  multi-select card, and the answer comes back as an ordinary user turn. Both
+  prompts carry the same `CLARIFY_QUESTION_RULES` (`chat-tools/`), so a choice
+  never goes out as prose on one assistant and as a card on the other.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
