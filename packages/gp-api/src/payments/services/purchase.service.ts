@@ -190,7 +190,14 @@ export class PurchaseService {
       amount,
       productName,
       productDescription,
-      allowPromoCodes: true,
+      // Promo codes are disabled on a manual-capture hold: a Stripe promo
+      // applied at checkout shrinks the PaymentIntent amount, which recordHold
+      // would stamp as authorizedAmountInCents — breaking the hold invariant
+      // (the hold must be the FULL undiscounted amount so a later capture,
+      // clamped to the hold, can never silently undercharge). Every
+      // immediate-capture checkout (flag off, all non-TEXT purchases) keeps
+      // promo-code support.
+      allowPromoCodes: !manualCapture,
       returnUrl,
       manualCapture,
       metadata: {

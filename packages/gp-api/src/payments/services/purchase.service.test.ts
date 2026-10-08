@@ -229,11 +229,16 @@ describe('PurchaseService', () => {
         metadata: { campaignId: mockCampaign.id },
       })
 
+      // Promo codes are disabled on a hold: a Stripe promo would shrink the
+      // PaymentIntent amount and corrupt the recorded hold ceiling.
       expect(
         mockStripeService.createCustomCheckoutSession,
       ).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ manualCapture: true }),
+        expect.objectContaining({
+          manualCapture: true,
+          allowPromoCodes: false,
+        }),
       )
     })
 
@@ -259,11 +264,15 @@ describe('PurchaseService', () => {
         metadata: { campaignId: mockCampaign.id },
       })
 
+      // An immediate-capture checkout keeps promo-code support.
       expect(
         mockStripeService.createCustomCheckoutSession,
       ).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ manualCapture: false }),
+        expect.objectContaining({
+          manualCapture: false,
+          allowPromoCodes: true,
+        }),
       )
     })
 
