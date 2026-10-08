@@ -873,11 +873,118 @@ describe('a seat does not inherit the service retry budget', () => {
   })
 })
 
+// Melecia's per-run field: did each run reach the outcome the case's
+// handledWhen sentence describes. Asked only on a case that carries one.
+describe('the handled field', () => {
+  const asked = (normalized: NormalizedCase): NormalizedCase => ({
+    ...normalized,
+    payload: {
+      ...normalized.payload,
+      handledWhen: 'the run says the two sources disagree',
+    },
+  })
+  const withHandled = (x: string, y: string): JsonValue => ({
+    ...(reply() as Record<string, JsonValue>),
+    handled: { X: x, Y: y },
+  })
+
+  it('is required exactly when the case carries the sentence', () => {
+    const dims = DEFAULT_JUDGE_CONFIG.dimensions
+    expect(caseVerdictSchemaFor(dims, true).safeParse(reply()).success).toBe(
+      false,
+    )
+    expect(
+      caseVerdictSchemaFor(dims, true).safeParse(withHandled('yes', 'no'))
+        .success,
+    ).toBe(true)
+    expect(
+      JSON.stringify(sentSchema(DEFAULT_JUDGE_CONFIG.dimensions)),
+    ).not.toContain('handled')
+  })
+
+  // The quote per run rides in the one evidence list, so the grammar stays
+  // inside the API's limit, and lands on `handled`, not on the overall.
+  it('keeps the handled evidence on handled', () => {
+    const parsed = caseVerdictSchemaFor(
+      DEFAULT_JUDGE_CONFIG.dimensions,
+      true,
+    ).parse({
+      ...(withHandled('yes', 'no') as Record<string, JsonValue>),
+      evidence: [
+        { dimension: 'handled', loc: 'X.final', quote: 'q', note: '' },
+        { dimension: 'overall', loc: 'Y.final', quote: 'o', note: '' },
+      ],
+    })
+    expect(parsed.handled).toEqual({
+      X: 'yes',
+      Y: 'no',
+      evidence: [{ loc: 'X.final', quote: 'q' }],
+    })
+    expect(parsed.overall.evidence).toEqual([{ loc: 'Y.final', quote: 'o' }])
+  })
+
+  it('reserves its name from the case dimensions', async () => {
+    const normalized = asked(blindCase(BASE, CANDIDATE, X_IS_BASE))
+    await expect(
+      judgeCase(
+        fake([reply()]).llm,
+        plan({
+          ...normalized,
+          payload: {
+            ...normalized.payload,
+            caseDimensions: [{ name: 'handled', question: 'q?' }],
+          },
+        }),
+        DEFAULT_JUDGE_CONFIG,
+      ),
+    ).rejects.toThrow(CaseDimensionCollisionError)
+  })
+
+  it('refuses a value outside yes, partly and no', () => {
+    expect(
+      caseVerdictSchemaFor(DEFAULT_JUDGE_CONFIG.dimensions, true).safeParse(
+        withHandled('not_applicable', 'yes'),
+      ).success,
+    ).toBe(false)
+  })
+
+  it('asks the question only on a case that carries the sentence', async () => {
+    const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const { llm, calls } = fake([reply(), withHandled('yes', 'yes')])
+    await judgeCase(llm, plan(normalized), DEFAULT_JUDGE_CONFIG)
+    await judgeCase(llm, plan(asked(normalized)), DEFAULT_JUDGE_CONFIG)
+    const text = (i: number) =>
+      (calls[i]?.messages ?? []).map((m) => String(m.content)).join('\n')
+    expect(text(0)).not.toContain('`handled`')
+    expect(text(1)).toContain('In\n`handled`, answer yes, partly or no')
+    expect(text(1)).toContain('short quote per run under the name handled.')
+  })
+
+  // One seat that saw a run miss the outcome is a finding about that run.
+  it('takes the least handled answer any seat gave', async () => {
+    const normalized = asked(blindCase(BASE, CANDIDATE, X_IS_BASE))
+    const { llm } = fake([
+      withHandled('yes', 'yes'),
+      withHandled('partly', 'yes'),
+    ])
+    const judgment = graded(
+      await judgeCase(llm, plan(normalized), {
+        ...DEFAULT_JUDGE_CONFIG,
+        panel: { seats: ['a', 'b'], temperature: 0 },
+      }),
+    )
+    expect(judgment.handled).toEqual({ X: 'partly', Y: 'yes' })
+  })
+})
+
 // The JSON Schema the panel's request carries: the AI SDK converts a zod 4
 // schema with exactly this call (provider-utils `zod4Schema`), input io
 // because the model writes the input side of every transform.
-const sentSchema = (dimensions: readonly string[]): unknown =>
-  z.toJSONSchema(caseVerdictSchemaFor(dimensions), {
+const sentSchema = (
+  dimensions: readonly string[],
+  asksHandled = false,
+): unknown =>
+  z.toJSONSchema(caseVerdictSchemaFor(dimensions, asksHandled), {
     target: 'draft-7',
     io: 'input',
   })
@@ -923,8 +1030,8 @@ describe('the panel schema fits the API limits', () => {
     return counts
   }
 
-  const sentFor = (dimensions: readonly string[]) =>
-    countParameters(sentSchema(dimensions))
+  const sentFor = (dimensions: readonly string[], asksHandled = false) =>
+    countParameters(sentSchema(dimensions, asksHandled))
 
   const caseDimensions = Array.from(
     { length: MAX_CASE_DIMENSIONS },
@@ -932,10 +1039,10 @@ describe('the panel schema fits the API limits', () => {
   )
 
   it('stays under both limits with the most dimensions a case may add', () => {
-    const counts = sentFor([
-      ...DEFAULT_JUDGE_CONFIG.dimensions,
-      ...caseDimensions,
-    ])
+    const counts = sentFor(
+      [...DEFAULT_JUDGE_CONFIG.dimensions, ...caseDimensions],
+      true,
+    )
     expect(counts.optional).toBeLessThanOrEqual(API_OPTIONAL_LIMIT)
     expect(counts.unions).toBeLessThanOrEqual(API_UNION_LIMIT)
   })
@@ -954,6 +1061,14 @@ describe('the panel schema fits the API limits', () => {
     )) {
       expect(['string', 'boolean', 'number']).toContain(property.type)
     }
+  })
+
+  // Handled is asked on top of everything else on a probe case, so it may
+  // add nothing to either count either.
+  it('costs nothing to ask handled', () => {
+    expect(
+      sentFor([...DEFAULT_JUDGE_CONFIG.dimensions, ...caseDimensions], true),
+    ).toEqual(sentFor([...DEFAULT_JUDGE_CONFIG.dimensions, ...caseDimensions]))
   })
 
   // The stronger property, and the one that keeps the limit from coming

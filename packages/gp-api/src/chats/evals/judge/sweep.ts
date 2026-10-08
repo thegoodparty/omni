@@ -530,8 +530,16 @@ export const judgeSweep = async (
         })
         continue
       }
+      const { handling, ...scored } = scoreAgent(
+        { normalized, judgments, unscoredCaseIds },
+        config,
+      )
       scores.push({
-        ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
+        ...scored,
+        // Dropped when no model was called: the canned judge answers `no`
+        // for every run, and a section of shared failures nobody judged
+        // would read as a finding.
+        ...(env.spends && handling !== undefined && { handling }),
         ...(controls.scoredAnyway !== undefined && {
           controlsScoredAnyway: controls.scoredAnyway,
         }),
@@ -767,6 +775,13 @@ export const cannedVerdict = (
   overall: { reasoning: CANNED_REASONING, verdict: 'cannot_determine' },
 })
 
+// Whether the panel schema asks the per-run `handled` question, which it
+// does exactly when the case carries a handling sentence.
+const asksHandled = (schema: z.ZodType): boolean => {
+  const wire = schema instanceof z.ZodPipe ? schema.in : schema
+  return wire instanceof z.ZodObject && 'handled' in wire.shape
+}
+
 // The dimension keys a panel schema requires, read off the schema itself: the
 // canned judge is handed nothing else, and a case with its own dimensions
 // requires keys the config does not name.
@@ -789,8 +804,15 @@ export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   // judgment — which reads as a broken judge and is how the first version of
   // this got every case wrong while still printing a report.
   jsonCompletion: async ({ schema }) => ({
+    // `no` for both runs because nothing read either one; the report under a
+    // canned judge already says no model was called.
     object: schema.parse(
-      toWireVerdict(cannedVerdict(config, requiredDimensions(schema, config))),
+      toWireVerdict({
+        ...cannedVerdict(config, requiredDimensions(schema, config)),
+        ...(asksHandled(schema) && {
+          handled: { X: 'no' as const, Y: 'no' as const },
+        }),
+      }),
     ),
     tokens: 0,
     model: 'canned-judge',
