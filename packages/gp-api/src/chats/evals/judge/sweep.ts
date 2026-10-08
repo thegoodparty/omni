@@ -605,6 +605,12 @@ export const emitReport = (
   if (summary !== undefined && summary !== '') {
     appendFileSync(summary, `${markdown}\n`, 'utf8')
   }
+  // A copy judge.yml hands to the job that posts the verdict on the PR, which
+  // cannot read this step's summary.
+  const copy = env.JUDGE_REPORT_FILE
+  if (copy !== undefined && copy !== '') {
+    appendFileSync(copy, `${markdown}\n`, 'utf8')
+  }
 }
 
 // The total, as a step output, for the closing summary table that sits under

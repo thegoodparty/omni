@@ -2071,9 +2071,23 @@ jobs:
           # The panel's key. The arms hold none: their chat agents answer
           # from a deployed gp-api's own key.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # A copy of the report for the `verdict` job to post on the PR.
+          JUDGE_REPORT_FILE: ${{ runner.temp }}/judge-report/report.md
         run: |
           set -euo pipefail
+          mkdir -p "$(dirname "$JUDGE_REPORT_FILE")"
           npx tsx "$JUDGING_ENTRY"
+
+      # The report is the public part of a sweep, the same text the run log
+      # and summary already show. The records stay out of artifacts.
+      - name: Keep the report for the PR
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: judge-report
+          path: ${{ runner.temp }}/judge-report/report.md
+          if-no-files-found: ignore
+          retention-days: 3
 
       # What was swept and where to look, and deliberately NOT the arms' own
       # stdout. Two reasons, either sufficient. It is a program's output going
@@ -2082,28 +2096,9 @@ jobs:
       # judging step from the stored records rather than from whatever the arms
       # happened to print.
       #
-      # A RECORDED SILENCE, AND THE ONE WITH A DEBT ATTACHED. This step writes
-      # only to `$GITHUB_STEP_SUMMARY`, which is the shape of the bug the plan
-      # job has now been fixed for three times — so it is spelled out here
-      # rather than left to be rediscovered. It stays silent because this job
-      # holds `contents: read` and no `pull-requests` write on purpose: it is
-      # the job that runs the branch's own code with the Anthropic key, and
-      # widening its token to post a comment is a worse trade than the silence.
-      # The plan comment has already told the thread "this is a live sweep, it
-      # starts now", and every way this job can end — a missing key, a base ref
-      # without the suite, a failing capture, a judging step that refuses —
-      # ends red.
-      #
-      # THE DEBT, and the arms-and-judging shape has sharpened rather than
-      # settled it. The verdict now exists: the judging step writes it into
-      # this job's step summary from the stored records, so there is no report
-      # track left to wait on. What is still missing is that the summary is not
-      # the thread. On a live run the thread is told the sweep started and is
-      # never told how it ended, and a reader who only ever sees the PR has to
-      # know to open the run. Closing it means a poster with a
-      # `pull-requests: write` token, and this job is deliberately not the job
-      # to hold one — so it belongs in a separate job downstream of this one,
-      # reading what the judging step wrote.
+      # This step writes only to the run summary. The thread hears the outcome
+      # from the `verdict` job below, which holds the pull-requests token this
+      # job deliberately does not.
       - name: Summarise the sweep
         if: always()
         env:
@@ -2164,3 +2159,72 @@ jobs:
             echo 'kept: they carry the agents'"'"' answers and generated SQL, and omni is'
             echo 'public, so they wait for the private bucket rather than an artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # THE VERDICT ON THE THREAD. A separate job because the sweep runs the
+  # branch's own code with the Anthropic key and so holds no token that can
+  # write to pull requests. This one checks out nothing and runs no code from
+  # the branch: it reads the report the judging step saved and posts it, or
+  # says the sweep ended without one.
+  verdict:
+    name: Post the verdict
+    needs: [plan, sweep]
+    if: >-
+      always()
+      && needs.sweep.result != 'skipped'
+      && inputs.pr_number != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Fetch the report
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: judge-report
+          path: ${{ runner.temp }}/judge-report
+
+      - name: Post the verdict
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          SWEEP_RESULT: ${{ needs.sweep.result }}
+          REPORT_PATH: ${{ runner.temp }}/judge-report/report.md
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const fs = require('fs')
+            const issue_number = Number(process.env.PR_NUMBER)
+            if (!Number.isInteger(issue_number) || issue_number <= 0) return
+            const runUrl = process.env.RUN_URL
+            const report = fs.existsSync(process.env.REPORT_PATH)
+              ? fs.readFileSync(process.env.REPORT_PATH, 'utf8').trim()
+              : ''
+            // GitHub refuses a comment over 65536 characters.
+            const LIMIT = 60000
+            const body = report
+              ? [
+                  '<!-- universal-judge-verdict -->',
+                  report.length > LIMIT
+                    ? `${report.slice(0, LIMIT)}\n\n_Cut short; the full report is in [the run](${runUrl})._`
+                    : report,
+                  '',
+                  `[Workflow run](${runUrl})`,
+                ].join('\n')
+              : [
+                  '<!-- universal-judge-verdict -->',
+                  '## Universal Judge',
+                  '',
+                  `**The sweep ended without a verdict** (sweep job: ${process.env.SWEEP_RESULT}). Why is in [the run](${runUrl}).`,
+                ].join('\n')
+            try {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number,
+                body,
+              })
+            } catch (err) {
+              // A locked or deleted PR cannot take a comment; the verdict is
+              // still in the run summary.
+              core.warning(`Could not post the verdict on #${issue_number}: ${err.message}`)
+            }

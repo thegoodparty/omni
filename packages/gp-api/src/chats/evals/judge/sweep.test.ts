@@ -774,6 +774,13 @@ describe('emitReport', () => {
     expect(await readFile(file, 'utf8')).toBe(`${BODY}\na second step\n`)
   })
 
+  it('also writes the copy judge.yml posts on the PR', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'judge-report-'))
+    const file = path.join(dir, 'report.md')
+    emit(BODY, { JUDGE_REPORT_FILE: file })
+    expect(await readFile(file, 'utf8')).toBe(`${BODY}\n`)
+  })
+
   // Locally there is no summary file, and `appendFileSync` on undefined or on
   // '' throws — so the guard is the only reason running the judging entry
   // outside Actions prints a report instead of dying after it.
