@@ -346,7 +346,7 @@ export type Judgment = GradedJudgment | UngradedJudgment
 // https://goodparty.clickup.com/90132012119/docs/2ky4jq2q-154253/2ky4jq2q-139173
 // ---------------------------------------------------------------------------
 
-export const RUBRIC_VERSION = 'uj-rubric-0.6'
+export const RUBRIC_VERSION = 'uj-rubric-0.7'
 
 const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
   chat: [
@@ -367,6 +367,11 @@ const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
     'whether each run handled that condition appropriately. A run that',
     'reads better but ignores or is misled by the condition is worse than',
     'one that handles it.',
+    'When the shared input lists an output contract, a field it requires is',
+    'never an unrequested addition, and a run missing a required field is',
+    'worse for it. When it says the runs may have had different contracts, a',
+    'field required by only one of them is neither an addition nor an',
+    'omission.',
   ].join(' '),
 }
 

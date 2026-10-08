@@ -246,6 +246,21 @@ describe('what reaches the model', () => {
     expect(calls[0]?.messages[0]?.content).not.toContain('Condition:')
   })
 
+  // A required section was scored as an "unrequested addition" before the
+  // judge was shown the contract and told what the contract means.
+  it('tells an artifact judge a required field is never an addition', async () => {
+    const [bgBase, bgCandidate] = BACKGROUND_PAIR
+    const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const background = blindCase(bgBase, bgCandidate, X_IS_BASE)
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(chat), DEFAULT_JUDGE_CONFIG)
+    await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
+    expect(calls[1]?.messages[0]?.content).toMatch(
+      /output contract.*never an unrequested addition.*missing a required/s,
+    )
+    expect(calls[0]?.messages[0]?.content).not.toContain('output contract')
+  })
+
   // The dimension set is config, so a trace dimension switched on later
   // must reach the prompt without a code change.
   it('asks for exactly the configured dimensions', async () => {

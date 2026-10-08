@@ -72,6 +72,23 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     return this.withReplyCounts(rows, 'office')
   }
 
+  // A campaign's sends, by campaignId: an org can hold a Campaign and an
+  // ElectedOffice at once, so its slug alone would mix in the office's sends.
+  async forCampaign(
+    campaignId: number,
+    channel?: OutreachType,
+  ): Promise<PastOutreachRow[]> {
+    const rows = await this.findMany({
+      where: {
+        campaignId,
+        ...(channel === undefined ? {} : { outreachType: channel }),
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      take: MAX_ROWS,
+    })
+    return this.withReplyCounts(rows, 'office')
+  }
+
   // Whether every one of these sends put out this side of this priority's
   // check. Only then is a proposal for that side a wider sample of the same
   // ask rather than the same people asked twice.

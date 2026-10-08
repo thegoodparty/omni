@@ -180,6 +180,13 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
+- **`read_past_outreach` / `present_past_outreach`** — recent sends with reply
+  counts (`PriorityFlowOutreachService`), and a card of chosen sends. Chief of
+  Staff reads an office's by `organizationSlug`, per office and per priority;
+  Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
+  by slug, since an org can hold a campaign and an office at once. The card
+  picks its detail route, results route and outreach hub from the surface's
+  mode.
 - **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
@@ -202,6 +209,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   never person rows and never geometry. The flag says only that a shape is
   on the list, because a holder can draw one from the transcript's own map
   card — see **A drawn boundary reaches the conversation** below.
+- **`ask_clarify_question`** — a no-op presenter shared by Campaign Manager
+  and Chief of Staff: the call is the question, rendered as a single- or
+  multi-select card, and the answer comes back as an ordinary user turn. Both
+  prompts carry the same `CLARIFY_QUESTION_RULES` (`chat-tools/`), so a choice
+  never goes out as prose on one assistant and as a card on the other.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers

@@ -17,6 +17,7 @@ import {
   EXAMPLE_AUDIENCE,
   EXAMPLE_SAMPLE,
 } from '../chat-tools/outreachSampling.prompt'
+import { CLARIFY_QUESTION_RULES } from '../chat-tools/askClarifyQuestion.tool'
 import {
   PICKED_OPTION_RULE,
   WIN_TEXT_MESSAGE_RULES,
@@ -883,6 +884,32 @@ export const currentPageBlock = (area: ProductArea): string =>
     `- Read "here", "this page" and "this" as ${area.name}. Bring the page up only when it bears on what they asked; never open by naming it.`,
   ].join('\n')
 
+const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
+  toolNames.includes('read_past_outreach')
+    ? [
+        "PAST OUTREACH (apply whenever the campaign's earlier sends bear on the answer):",
+        '- When the candidate asks how a send did, or before you propose a text, call read_past_outreach and quote what came back: how many voters, how many replied, when it went. Never guess at a result you can read.',
+        ...(toolNames.includes('present_past_outreach')
+          ? [
+              '- When what came back last time is the point you are making, show those sends with present_past_outreach, with one line on why they matter. The card opens each send in Voter Outreach, so do not restate its numbers.',
+            ]
+          : []),
+      ].join('\n')
+    : null
+
+const clarifyQuestionBlock = (toolNames: readonly string[]): string | null =>
+  toolNames.includes('ask_clarify_question')
+    ? [
+        'QUESTIONS (apply whenever the candidate has to choose):',
+        ...CLARIFY_QUESTION_RULES,
+        ...(toolNames.includes('present_outreach_proposal')
+          ? [
+              '- When you recommend more than one text (a sequence, or texts to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per text, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
+            ]
+          : []),
+      ].join('\n')
+    : null
+
 export const buildCampaignManagerSystemPrompt = (
   ctx: CampaignManagerContext,
   toolNames: readonly string[] = [],
@@ -899,6 +926,8 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     outreachSamplingBlock(toolNames),
+    pastOutreachBlock(toolNames),
+    clarifyQuestionBlock(toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
     LEGAL_AND_COMPLIANCE_RULES,

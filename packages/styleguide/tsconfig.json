@@ -4,7 +4,6 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "module": "esnext",
     "moduleResolution": "bundler",
-    "baseUrl": ".",
     "paths": {
       "@styleguide": ["./src"],
       "@styleguide/*": ["./src/*"]

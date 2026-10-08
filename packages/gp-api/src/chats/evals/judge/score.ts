@@ -1,3 +1,4 @@
+import type { ContractNote } from './outputContract'
 import { bootstrapCi, createRng, mean, type Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
@@ -218,6 +219,9 @@ export interface AgentScore {
   // Cases the candidate's list marks `scored: false` that were scored anyway,
   // because the base ref's list does not hold them out or could not be read.
   controlsScoredAnyway?: ControlsScoredAnyway
+  // Set when a background agent was judged without its output contract,
+  // because the manifest requires no top-level field or could not be read.
+  outputContractNote?: ContractNote
 }
 
 export interface ControlsScoredAnyway {

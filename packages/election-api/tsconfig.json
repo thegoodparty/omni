@@ -1,15 +1,19 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "CommonJS",
+    "module": "node20",
+    "moduleResolution": "node16",
+    "types": ["node"],
     "outDir": "./dist",
     "rootDir": ".",
-    "baseUrl": "./",
+    "paths": {
+      "*": ["./*"]
+    },
     "noImplicitAny": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "exclude": ["deploy"]
+  "exclude": ["deploy", "dist"]
 }
