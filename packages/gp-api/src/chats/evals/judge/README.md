@@ -685,10 +685,10 @@ condition, not a sample, so one read of it is the whole evidence for that
 condition, and a judge call costs cents against a run's dollars. An order
 flip then shows as disagreement rather than as one confident wrong call.
 Chat keeps the one-in-five subsample (`orderSwap.fraction`). The
-position-consistency gate is unchanged: below `minSwappedPairs` (10) swapped
-pairs the rate is reported with its denominator and gates nothing, so a three
-case sweep reports it and a nine case, three attempt bench (27 pairs) is
-gated by it.
+position-consistency gate never fires for a background agent: CI walks at
+most `maxCases` (3) scored cases at up to 3 attempts, so at most 9 swapped
+pairs, under `minSwappedPairs` (10). The rate is reported with its
+denominator and gates nothing. Controls are swapped too but stay out of it.
 
 **A list may set its own attempts.** A background case list can carry
 `attemptsPerCase` in its header, up to `MAX_LIST_ATTEMPTS_PER_CASE` (3) in
