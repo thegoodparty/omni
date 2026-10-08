@@ -77,7 +77,6 @@ export interface CampaignStrategyPhase {
   key: CampaignStrategyPhaseKey
   title: string
   status: CampaignStrategyPhaseStatus
-  summary: string
   groups: CampaignStrategyGroup[]
   gate?: CampaignStrategyGate
   // The active phase renders as a week navigator (one Mon-Sun week at a time,

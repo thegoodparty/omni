@@ -1218,6 +1218,7 @@ export const RobocallFlow = ({
           script={script}
           campaignName={campaignName}
           campaignPlanDueDate={campaignPlanDueDate}
+          trackerTaskId={tracker?.trackerTaskId}
           audienceName={audience.selectedList?.name ?? 'your list'}
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}

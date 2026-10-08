@@ -5,7 +5,7 @@ import { render } from 'helpers/test-utils/render'
 import { MoreMenu } from './MoreMenu'
 
 vi.mock('@styleguide/components/ui/icons', () => ({
-  EllipsisVerticalIcon: ({ className }: { className?: string }) => (
+  MoreHorizontalIcon: ({ className }: { className?: string }) => (
     <svg data-testid="ellipsis-icon" className={className} />
   ),
 }))

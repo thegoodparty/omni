@@ -38,15 +38,49 @@ export const trackerOrigin = (
 // shipped with a completion toggle and no event at all. `trackerTaskId` is
 // what joins a completed task to the outreach it produced — see
 // docs/features/voter-outreach-analytics.md.
+// Where a task action was taken: Home's card (`campaign_manager`, the same
+// value the outreach flows use for Home) or the plan page.
+export type TaskActionSource = 'campaign_manager' | 'campaign_plan'
+
+export type TaskAction =
+  | 'start'
+  | 'ask'
+  | 'put_off'
+  | 'not_for_me'
+  | 'bring_back'
+  | 'mark_not_done'
+
+// The one place a non-completion task choice is recorded, so Home and the
+// plan report it in the same shape. Completion has its own event above.
+export const trackTaskAction = (
+  task: CampaignTrackerTask | undefined,
+  action: TaskAction,
+  source: TaskActionSource,
+  cta?: string,
+): void => {
+  if (!task) return
+  trackEvent(EVENTS.Dashboard.CampaignPlan.TaskActionTaken, {
+    trackerTaskId: task.id,
+    medium: outreachChannel(task.flowType ?? ''),
+    ...(task.phase ? { phase: task.phase } : {}),
+    action,
+    source,
+    ...(cta ? { cta } : {}),
+  })
+}
+
 export const useCompleteTrackerTask = (
   tasks: CampaignTrackerTask[],
   {
+    source,
     onCompleted,
   }: {
+    // Which page the completion happened on.
+    source: TaskActionSource
     // Called once a completion is committed (after the count, for outreach),
     // so a surface can celebrate it. Never for a cancelled count.
     onCompleted?: (id: string) => void
-  } = {},
+  },
 ): {
   onToggleComplete: (id: string, completed: boolean) => void
   countModal: React.JSX.Element | null
@@ -60,6 +94,7 @@ export const useCompleteTrackerTask = (
       trackerTaskId: task.id,
       medium: outreachChannel(task.flowType ?? ''),
       ...(task.phase ? { phase: task.phase } : {}),
+      source,
     })
   }
 

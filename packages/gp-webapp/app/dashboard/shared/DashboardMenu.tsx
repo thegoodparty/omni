@@ -259,7 +259,7 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   label: NAV_LABELS.campaignPlan,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
-  v2Icon: NAV_HEADER_ICONS.scroll,
+  v2Icon: NAV_HEADER_ICONS.checklist,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }

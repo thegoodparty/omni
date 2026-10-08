@@ -1,13 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion, EmptyState, Progress, Spinner, cn } from '@styleguide'
+import { EmptyState, Progress, Spinner, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
-import { trackerOrigin, useCompleteTrackerTask } from './useCompleteTrackerTask'
+import {
+  trackTaskAction,
+  trackerOrigin,
+  useCompleteTrackerTask,
+} from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 import { useNewTrackerTasks } from './useNewTrackerTasks'
 import {
@@ -51,7 +55,10 @@ const CampaignStrategySection = ({
     },
     [router, tasks],
   )
-  const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks)
+  const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks, {
+    source: 'campaign_plan',
+  })
+  const rowFor = (id: string) => tasks.find((row) => row.id === id)
   const chat = useCampaignManagerChat()
   const setAside = useSetTrackerTaskAside()
 
@@ -119,39 +126,51 @@ const CampaignStrategySection = ({
     })
   }, [strategy, campaign?.id])
 
-  // The phase in focus opens on arrival: the one "happening now", unless a
-  // link names another (`?phase=launch`). Every other phase starts closed.
+  // A link can name a phase to land on (`?phase=gotv`).
   const linkedPhase = CampaignStrategyPhaseKeySchema.safeParse(
     typeof window === 'undefined'
       ? null
       : new URLSearchParams(window.location.search).get('phase'),
   )
   const phases = strategy?.phases ?? []
-  const currentIndex = Math.max(
-    0,
-    phases.findIndex((phase) => phase.status === 'active'),
-  )
-  const focusKey =
-    linkedPhase.success &&
-    phases.some((phase) => phase.key === linkedPhase.data)
-      ? linkedPhase.data
-      : phases[currentIndex]?.key
-  const [openKeys, setOpenKeys] = useState<string[] | null>(null)
-  const openValue = openKeys ?? (focusKey ? [focusKey] : [])
+  const currentIndex = phases.findIndex((phase) => phase.status === 'active')
+  // Each phase's bar measures its done tasks; not-for-me ones don't count
+  // against it.
+  const sections = phases.map((phase) => {
+    const counted = phase.groups
+      .flatMap((group) => group.tasks)
+      .filter((task) => task.setAside === null)
+    return {
+      phase,
+      total: counted.length,
+      done: counted.filter((task) => task.completed).length,
+    }
+  })
+  const jumpTo = (key: string) => {
+    document
+      .getElementById(`phase-${key}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
-  // On arrival, bring the "Do this next" row into view so the candidate lands
-  // on what to do now; fall back to the phase in focus. Once per mount.
+  // On arrival, go to the phase a link names, else bring the "Do this next"
+  // row into view so the candidate lands on what to do now. Once per mount.
   const scrolledRef = useRef(false)
   useEffect(() => {
     if (scrolledRef.current || !strategy) return
     scrolledRef.current = true
+    const linked = linkedPhase.success ? linkedPhase.data : null
     requestAnimationFrame(() => {
-      const target =
-        document.querySelector('[data-next-task="true"]') ??
-        (focusKey ? document.getElementById(`phase-${focusKey}`) : null)
-      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (linked) {
+        document
+          .getElementById(`phase-${linked}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+      document
+        .querySelector('[data-next-task="true"]')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
-  }, [strategy, focusKey])
+  }, [strategy, linkedPhase.success, linkedPhase.data])
 
   return (
     <section>
@@ -177,87 +196,112 @@ const CampaignStrategySection = ({
         <>
           <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10">
             {bodyStart}
-            {/* One long card: the timeline bar at its top, sticking as the
-                phases scroll under it, each phase labelled and the current
-                one called out. */}
-            <div className="bg-card rounded-xl border">
-              <div className="bg-card sticky top-0 z-20 rounded-t-xl border-b border-border px-6 pt-5 pb-4">
-                {/* One progress bar per phase, filled by the share of its
-                    tasks that are done (not-for-me tasks don't count against
-                    it); the phase happening now keeps its bold label. */}
-                <ol
-                  className="grid gap-3"
-                  style={{
-                    gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))`,
-                  }}
-                >
-                  {phases.map((phase, index) => {
-                    const counted = phase.groups
-                      .flatMap((group) => group.tasks)
-                      .filter((task) => task.setAside === null)
-                    const done = counted.filter((task) => task.completed).length
-                    return (
-                      <li
-                        key={phase.key}
-                        aria-current={
-                          index === currentIndex ? 'step' : undefined
-                        }
-                        className="flex min-w-0 flex-col gap-2"
+            {/* One long card. Each phase is a heading that sticks to the
+                top while its tasks scroll, and the phases still ahead wait
+                at the bottom, tapped to jump there. */}
+            <div className="bg-card rounded-xl border [--plan-phase:2.25rem] sm:[--plan-phase:2.75rem]">
+              {sections.map((section, index) => (
+                <Fragment key={section.phase.key}>
+                  {/* Sticky at the top while its phase scrolls, and at the
+                        bottom (stacked above the later ones) until it
+                        arrives. Siblings, not nested in their sections, so
+                        each can stick past its own phase. */}
+                  <h3
+                    className="sticky z-20"
+                    style={{
+                      top: 0,
+                      bottom: `calc(var(--chat-dock-height, 0px) + ${sections.length - 1 - index} * var(--plan-phase))`,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => jumpTo(section.phase.key)}
+                      aria-label={`${section.phase.title}, ${section.done} of ${section.total} done`}
+                      aria-current={index === currentIndex ? 'step' : undefined}
+                      className={cn(
+                        'bg-muted hover:shadow-[inset_0_0_0_9999px_rgb(0_0_0/0.04)] focus-visible:ring-primary-focus flex h-(--plan-phase) w-full items-center gap-4 border-y border-border px-4 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-inset sm:px-6',
+                        // The first sits on the card's own top edge.
+                        index === 0 && 'rounded-t-xl border-t-0',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'shrink-0 text-sm font-semibold',
+                          index === currentIndex
+                            ? 'text-primary'
+                            : 'text-foreground',
+                        )}
                       >
-                        <Progress
-                          value={
-                            counted.length > 0
-                              ? (done / counted.length) * 100
-                              : 0
-                          }
-                          aria-label={`${phase.title}: ${done} of ${counted.length} done`}
-                          className="h-2"
-                        />
-                        <span
-                          className={cn(
-                            'truncate text-xs',
-                            index === currentIndex
-                              ? 'font-semibold text-primary'
-                              : index < currentIndex
-                                ? 'text-foreground'
-                                : 'text-muted-foreground',
-                          )}
-                        >
-                          {phase.title}
-                        </span>
-                      </li>
-                    )
-                  })}
-                </ol>
-              </div>
-              <Accordion
-                type="multiple"
-                value={openValue}
-                onValueChange={setOpenKeys}
-              >
-                {phases.map((phase) => (
-                  <CampaignStrategyPhase
-                    key={phase.key}
-                    phase={phase}
-                    onToggleComplete={onToggleComplete}
-                    onStartOutreach={openOutreachFlow}
-                    getAction={(task) =>
-                      taskAction(
-                        tasks.find((row) => row.id === task.id),
-                        'plan',
-                      )
-                    }
-                    onSetAside={(task, reason) =>
-                      setAside.mutate({ id: task.id, reason })
-                    }
-                    onDiscuss={
-                      chat
-                        ? (task) => chat.discussTask(discussTaskMessage(task))
-                        : undefined
-                    }
-                  />
-                ))}
-              </Accordion>
+                        {section.phase.title}
+                      </span>
+                      <Progress
+                        aria-hidden
+                        value={
+                          section.total > 0
+                            ? (section.done / section.total) * 100
+                            : 0
+                        }
+                        className="h-2 flex-1"
+                      />
+                    </button>
+                  </h3>
+                  <section
+                    id={`phase-${section.phase.key}`}
+                    aria-label={section.phase.title}
+                    className="scroll-mt-(--plan-phase)"
+                  >
+                    <CampaignStrategyPhase
+                      phase={section.phase}
+                      onToggleComplete={(id, completed) => {
+                        // Completing reports itself, with its source; an
+                        // undo is a choice worth seeing too.
+                        if (!completed) {
+                          trackTaskAction(
+                            rowFor(id),
+                            'mark_not_done',
+                            'campaign_plan',
+                          )
+                        }
+                        onToggleComplete(id, completed)
+                      }}
+                      onStartOutreach={openOutreachFlow}
+                      getAction={(task) => taskAction(rowFor(task.id), 'plan')}
+                      onSetAside={(task, reason) => {
+                        trackTaskAction(
+                          rowFor(task.id),
+                          reason === 'later'
+                            ? 'put_off'
+                            : reason === 'notForMe'
+                              ? 'not_for_me'
+                              : 'bring_back',
+                          'campaign_plan',
+                        )
+                        setAside.mutate({ id: task.id, reason })
+                      }}
+                      onActionTaken={(task, label) =>
+                        trackTaskAction(
+                          rowFor(task.id),
+                          'start',
+                          'campaign_plan',
+                          label,
+                        )
+                      }
+                      onDiscuss={
+                        chat
+                          ? (task) => {
+                              trackTaskAction(
+                                rowFor(task.id),
+                                'ask',
+                                'campaign_plan',
+                              )
+                              chat.discussTask(discussTaskMessage(task))
+                            }
+                          : undefined
+                      }
+                    />
+                  </section>
+                </Fragment>
+              ))}
             </div>
           </div>
         </>

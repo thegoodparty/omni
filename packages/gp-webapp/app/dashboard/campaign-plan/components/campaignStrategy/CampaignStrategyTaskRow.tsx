@@ -1,7 +1,6 @@
 'use client'
 
 import { differenceInCalendarDays, format, startOfDay } from 'date-fns'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MoreMenu } from 'app/shared/utils/MoreMenu'
 import {
@@ -12,15 +11,10 @@ import {
 } from '@goodparty_org/contracts'
 import {
   Badge,
-  Button,
   CalendarIcon,
   CheckIcon,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  CircleSlash2Icon,
   LockIcon,
-  MessagesSquareIcon,
   cn,
 } from '@styleguide'
 import type {
@@ -52,6 +46,8 @@ interface CampaignStrategyTaskRowProps {
     task: CampaignStrategyTask,
     reason: TrackerTaskSkipReason | null,
   ) => void
+  // Told when the task's own action is chosen from the menu, for analytics.
+  onActionTaken?: (task: CampaignStrategyTask, label: string) => void
 }
 
 // The catalog fallback passes date-only strings ("2026-07-11"); the tracker
@@ -105,6 +101,7 @@ const CampaignStrategyTaskRow = ({
   onDiscuss,
   getAction,
   onSetAside,
+  onActionTaken,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
@@ -117,17 +114,15 @@ const CampaignStrategyTaskRow = ({
   // Same rule as the next-task card: work done on our own screens should close
   // itself, so only offline tasks and external links get a manual toggle.
   const completesItself = Boolean(resolvedAction && !resolvedAction.external)
-  // The "Do this next" row leads with its action as a real button, like the
-  // next-task card; every other row keeps it in the menu.
-  const actionInRow = Boolean(action && task.isNext)
   // The task's own action: the mapped one, or for rows without one, starting
   // outreach or opening its link.
   const actionItems = [
-    ...(action && !actionInRow
+    ...(action
       ? [
           {
             label: action.label,
             onClick: () => {
+              onActionTaken?.(task, action.label)
               if (action.external)
                 window.open(action.href, '_blank', 'noreferrer')
               else router.push(action.href)
@@ -201,9 +196,6 @@ const CampaignStrategyTaskRow = ({
       : []
     : openTaskItems
 
-  // The next task opens up like the Home card: its buttons in place of the
-  // menu. Every other row keeps its actions in the menu.
-  const showButtons = task.isNext && !task.completed
   // One line says where the task stands, in the spot the date takes on an
   // open task: done, not for me, or when it's due. Words and an icon, so it
   // never rests on color alone.
@@ -213,10 +205,9 @@ const CampaignStrategyTaskRow = ({
   return (
     <li
       // The plan page scrolls this row into view on arrival.
-      data-next-task={showButtons ? true : undefined}
+      data-next-task={task.isNext && !task.completed ? true : undefined}
       className={cn(
         'border-border flex gap-4 border-t px-6 py-4 first:border-t-0',
-        task.isNext && 'bg-primary/5',
       )}
     >
       {/* Title, description, then the date, in the Home card's order. */}
@@ -224,35 +215,34 @@ const CampaignStrategyTaskRow = ({
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={cn(
-              'text-sm font-semibold',
+              'text-base font-semibold',
               (task.completed || task.setAside) && 'text-muted-foreground',
             )}
           >
             {task.title}
           </span>
-          {task.isNext && (
-            <Badge className="border-transparent bg-primary/10 text-primary">
-              Do this next
-            </Badge>
-          )}
-          {task.isNew && !task.isNext && <Badge variant="outline">New</Badge>}
+          {task.isNew && <Badge variant="outline">New</Badge>}
         </div>
         <p className="text-muted-foreground text-sm">{task.description}</p>
         {task.param && (
           <p className="text-muted-foreground text-xs">{task.param}</p>
         )}
         {task.completed ? (
-          <p className="text-success-dark mt-1 flex items-center gap-1.5 text-sm">
+          // Finished work recedes: the same muted gray as its title.
+          <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-sm">
             <CheckIcon className="size-4 shrink-0" aria-hidden />
             Done
           </p>
         ) : task.setAside ? (
-          <p className="text-muted-foreground mt-1 text-sm">Not for me</p>
+          <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-sm">
+            <CircleSlash2Icon className="size-4 shrink-0" aria-hidden />
+            Not for me
+          </p>
         ) : (
           due && (
             <p
               className={cn(
-                'mt-1 flex items-center gap-1.5 text-sm',
+                'mt-2 flex items-center gap-1.5 text-sm',
                 due.urgent ? 'text-warning-dark' : 'text-muted-foreground',
               )}
             >
@@ -267,100 +257,10 @@ const CampaignStrategyTaskRow = ({
             Unlocks after {task.unlocksAfter}
           </p>
         )}
-        {showButtons && (
-          // The main action leads, full width on a phone, with the quiet ones
-          // small and sharing one row under it; on wider screens every
-          // button sits in a single row (sm:contents), as on the Home card.
-          <div className="flex flex-col gap-2 pt-5 sm:flex-row sm:flex-wrap sm:items-center">
-            {action && (
-              <Button asChild size="medium" className="w-full sm:w-auto">
-                {action.external ? (
-                  <a href={action.href} target="_blank" rel="noreferrer">
-                    {action.label}
-                  </a>
-                ) : (
-                  <Link href={action.href}>{action.label}</Link>
-                )}
-              </Button>
-            )}
-            {!action && onToggleComplete && !completesItself && (
-              <Button
-                type="button"
-                size="medium"
-                className="w-full sm:w-auto"
-                onClick={() => onToggleComplete(task.id, true)}
-              >
-                <CheckIcon className="size-4" aria-hidden />
-                Mark done
-              </Button>
-            )}
-            <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-              {action && onToggleComplete && !completesItself && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="medium"
-                  className="max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
-                  onClick={() => onToggleComplete(task.id, true)}
-                >
-                  <CheckIcon className="size-4" aria-hidden />
-                  Mark done
-                </Button>
-              )}
-              {onDiscuss && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="medium"
-                  className="max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
-                  onClick={() => onDiscuss(task)}
-                >
-                  <MessagesSquareIcon
-                    className={cn(
-                      'size-4',
-                      action && !completesItself && 'max-[399px]:hidden',
-                    )}
-                    aria-hidden
-                  />
-                  Ask about this
-                </Button>
-              )}
-              {onSetAside && (putOff || notForMe) && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="medium"
-                      className="max-sm:flex-1 sm:ml-auto max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
-                    >
-                      Skip
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {putOff && (
-                      <DropdownMenuItem
-                        onSelect={() => onSetAside(task, 'later')}
-                      >
-                        {PUT_OFF_LABEL}
-                      </DropdownMenuItem>
-                    )}
-                    {notForMe && (
-                      <DropdownMenuItem
-                        onSelect={() => onSetAside(task, 'notForMe')}
-                      >
-                        Not for me
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
-          </div>
-        )}
       </div>
-      {!showButtons && menuItems.length > 0 && (
-        <div className="shrink-0">
+      {/* Nudged to center the 20px icon on the title's 24px line. */}
+      {menuItems.length > 0 && (
+        <div className="shrink-0 pt-0.5">
           <MoreMenu menuItems={menuItems} />
         </div>
       )}

@@ -38,7 +38,10 @@ import {
   PUT_OFF_LABEL,
   taskDueLabel,
 } from './CampaignStrategyTaskRow'
-import { useCompleteTrackerTask } from './useCompleteTrackerTask'
+import {
+  trackTaskAction,
+  useCompleteTrackerTask,
+} from './useCompleteTrackerTask'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import {
   canPutOffTask,
@@ -162,9 +165,17 @@ export const taskAction = (
     }
   }
   if (row.flowType === 'doorKnocking') {
+    const params = new URLSearchParams({
+      create: '1',
+      source: surface === 'manager' ? 'campaign_manager' : 'campaign_plan',
+    })
+    if (tracker) {
+      params.set('trackerTaskId', tracker.trackerTaskId)
+      params.set('phase', tracker.phase)
+    }
     return {
       label: 'Plan your door knocking',
-      href: '/dashboard/door-knocking',
+      href: `/dashboard/door-knocking?${params.toString()}`,
       external: false,
     }
   }
@@ -284,6 +295,7 @@ const NextTaskCard = ({
   // Whatever comes forward next rises into place, then settles.
   const [arriving, setArriving] = useState(false)
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks, {
+    source: 'campaign_manager',
     onCompleted: (id) =>
       setLeaving({ id, stage: 'celebrate', direction: 'up' }),
   })
@@ -395,10 +407,9 @@ const NextTaskCard = ({
   const action = taskAction(frontRow, surface)
 
   // A task done inside the product (its action opens one of our own screens)
-  // should close itself when that work happens, so it offers no manual "Mark
-  // as done". Only the story task does so today; outreach still needs the
-  // backend to close the task it was launched from. Offline work and external
-  // links keep the button, since we can't see them.
+  // closes itself when that work happens (the story when it's finished, the
+  // outreach ones once scheduled), so it offers no manual "Mark done".
+  // Offline work and external links keep the button, since we can't see them.
   const completesItself = Boolean(action && !action.external)
   const markDone = () => {
     if (!frontTask) return
@@ -437,6 +448,11 @@ const NextTaskCard = ({
   )
   const skipFront = (reason: 'later' | 'notForMe') => {
     if (!frontTask) return
+    trackTaskAction(
+      frontRow,
+      reason === 'later' ? 'put_off' : 'not_for_me',
+      'campaign_manager',
+    )
     setLeaving({ id: frontTask.id, stage: 'exit', direction: 'down' })
     setAside.mutate({ id: frontTask.id, reason })
   }
@@ -592,6 +608,14 @@ const NextTaskCard = ({
                               href={action.href}
                               target="_blank"
                               rel="noreferrer"
+                              onClick={() =>
+                                trackTaskAction(
+                                  frontRow,
+                                  'start',
+                                  'campaign_manager',
+                                  action.label,
+                                )
+                              }
                             >
                               {action.label}
                               <ExternalLinkIcon
@@ -600,7 +624,19 @@ const NextTaskCard = ({
                               />
                             </a>
                           ) : (
-                            <Link href={action.href}>{action.label}</Link>
+                            <Link
+                              href={action.href}
+                              onClick={() =>
+                                trackTaskAction(
+                                  frontRow,
+                                  'start',
+                                  'campaign_manager',
+                                  action.label,
+                                )
+                              }
+                            >
+                              {action.label}
+                            </Link>
                           )}
                         </Button>
                       )}
@@ -613,9 +649,14 @@ const NextTaskCard = ({
                             variant="ghost"
                             size="medium"
                             className="max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
-                            onClick={() =>
+                            onClick={() => {
+                              trackTaskAction(
+                                frontRow,
+                                'ask',
+                                'campaign_manager',
+                              )
                               chat.discussTask(discussTaskMessage(frontTask))
-                            }
+                            }}
                           >
                             {/* On the narrowest phones a third quiet button
                                 leaves no room for the icon. */}

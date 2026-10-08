@@ -118,7 +118,7 @@ describe('setting a task aside from the plan', () => {
     setAside: null,
   } as const
 
-  it('offers the next task’s two ways to set it aside', async () => {
+  it('offers the next task’s two ways to set it aside, in its menu', async () => {
     const onSetAside = vi.fn()
     render(
       <ul>
@@ -126,11 +126,9 @@ describe('setting a task aside from the plan', () => {
       </ul>,
     )
     const user = userEvent.setup()
-    // The next task shows its buttons, not a menu; Skip opens the choices.
-    expect(
-      screen.queryByRole('button', { name: 'More options' }),
-    ).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    // On the plan the next task looks like any other: its choices are in
+    // its menu.
+    await user.click(screen.getByRole('button', { name: 'More options' }))
     expect(
       await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
@@ -306,7 +304,7 @@ describe('the order of a task’s menu', () => {
 })
 
 describe('the next task’s row', () => {
-  it('reads title, description, date, then shows the Home card’s buttons', () => {
+  it('reads title, description, date, with no badge or buttons of its own', async () => {
     render(
       <ul>
         <CampaignStrategyTaskRow
@@ -339,8 +337,15 @@ describe('the next task’s row', () => {
       text.indexOf('Apply free'),
     )
     expect(text.indexOf('Apply free')).toBeLessThan(text.indexOf('Due Feb 3'))
-    for (const name of ['Mark done', 'Ask about this', 'Skip']) {
-      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    expect(screen.queryByText('Do this next')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Mark done' }),
+    ).not.toBeInTheDocument()
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'More options' }))
+    for (const name of ['Mark done', 'Ask about this', 'Show in 3 days']) {
+      expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument()
     }
   })
 })

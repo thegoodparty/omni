@@ -318,6 +318,9 @@ interface CreateListFlowProps {
   // from `?campaignOutreachId=` on the URL — the drawer's "Add another
   // turf" affordance is what sets it.
   campaignOutreachId?: number
+  // The campaign-plan task the walk was started from. Rides on a new
+  // campaign's anchor turf only, so the task is marked done once.
+  trackerTaskId?: string
   // A priority chat card's link (`?proposalKey=` and friends). Rides on the
   // Serve create of a new campaign's anchor turf only, so the walk puts that
   // card's check out.
@@ -444,6 +447,7 @@ export default function CreateListFlow({
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
+  trackerTaskId,
   proposalLink,
   turfDrafts,
   draftStats,
@@ -1337,6 +1341,7 @@ export default function CreateListFlow({
         // them its siblings. The server validates the id is a door-knocking
         // Outreach in the same Win/Serve scope before writing.
         ...(anchorId !== undefined ? { campaignOutreachId: anchorId } : {}),
+        ...(anchorId === undefined && trackerTaskId ? { trackerTaskId } : {}),
         // What the campaign is called, as against what this turf is called.
         // Sent on every turf: the server ignores it for one joining an
         // existing campaign (that campaign owns its own name), and writes it

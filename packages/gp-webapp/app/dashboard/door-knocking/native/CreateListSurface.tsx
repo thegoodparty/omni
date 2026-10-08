@@ -315,6 +315,9 @@ export interface CreateListSurfaceProps {
   // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
+  // The campaign-plan task the walk was started from. Threaded straight
+  // through to the create.
+  trackerTaskId?: string
   // The turfs cut in this sitting but not yet paid for. Owned by the page
   // because the canvas draws them; threaded down so the draw step can list
   // them and the save can buy a route for each.
@@ -367,6 +370,7 @@ export default function CreateListSurface({
   onPreselectApplied,
   siblingTurfs,
   campaignOutreachId,
+  trackerTaskId,
   turfDrafts,
   draftStats,
   onSelectDraft,
@@ -576,6 +580,7 @@ export default function CreateListSurface({
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
+      trackerTaskId={trackerTaskId}
       turfDrafts={turfDrafts}
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}

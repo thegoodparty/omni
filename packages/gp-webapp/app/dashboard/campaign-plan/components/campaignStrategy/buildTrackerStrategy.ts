@@ -33,22 +33,18 @@ import type {
 export const PHASE_META: {
   key: CampaignStrategyPhaseKey
   title: string
-  summary: string
 }[] = [
   {
     key: 'launch',
     title: 'Launch',
-    summary: 'Set up your campaign, then introduce yourself to voters.',
   },
   {
     key: 'active',
     title: 'Active campaign',
-    summary: 'Identify your supporters, then persuade the undecideds.',
   },
   {
     key: 'gotv',
     title: 'Get out the vote',
-    summary: 'Push your supporters to actually vote.',
   },
 ]
 
@@ -293,7 +289,6 @@ export const buildTrackerStrategy = (
     return {
       key: meta.key,
       title: meta.title,
-      summary: meta.summary,
       status: 'upcoming' as CampaignStrategyPhaseStatus,
       groups: phaseTasks.length
         ? [{ key: 'all', label: '', tasks: phaseTasks }]

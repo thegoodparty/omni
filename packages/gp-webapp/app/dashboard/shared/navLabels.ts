@@ -4,6 +4,7 @@ import {
   ClipboardListIcon,
   FlagIcon,
   HouseIcon,
+  ListChecksIcon,
   MegaphoneIcon,
   ScrollTextIcon,
   SendIcon,
@@ -22,6 +23,7 @@ import {
 export const NAV_HEADER_ICONS = {
   sparkles: SparklesIcon,
   clipboard: ClipboardListIcon,
+  checklist: ListChecksIcon,
   flag: FlagIcon,
   scroll: ScrollTextIcon,
   send: SendIcon,

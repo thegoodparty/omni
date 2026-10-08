@@ -16,6 +16,7 @@ import {
   CampaignTaskType,
   ExperimentRun,
   ExperimentRunStatus,
+  OutreachStatus,
   Prisma,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -72,6 +73,15 @@ import {
 } from '../campaignTracker.consts'
 
 type TrackerParams = AgentJobContracts['campaign_tracker_tasks']['Input']
+
+// Outreach in these states hasn't been scheduled, so it completes no task.
+const NOT_SCHEDULED_OUTREACH_STATUSES: OutreachStatus[] = [
+  OutreachStatus.draft,
+  OutreachStatus.pending_payment,
+  OutreachStatus.canceled,
+  OutreachStatus.denied,
+  OutreachStatus.failed,
+]
 
 // Runtime guard over the CAP artifact — the manifest output_schema in Zod form.
 const trackerArtifactSchema = z.object({
@@ -343,6 +353,47 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       data: { completed: true },
     })
     return count > 0
+  }
+
+  // A task whose button launched an outreach (a text, a robocall, a call
+  // list, a social post, door knocking) is done once that outreach is
+  // scheduled: the candidate did the work, and sending it is on us. The
+  // outreach carries the task's id from the flow; this ticks the task on the
+  // next read and clears the link in the same transaction, so it happens
+  // once and a later "Mark not done" sticks. Until it is paid for (or while
+  // it is a draft, or once it is canceled, denied or failed) it is not
+  // scheduled, and the task stays open.
+  async completeTasksWithScheduledOutreach(
+    campaign: Campaign,
+  ): Promise<number> {
+    const sends = await this.client.outreach.findMany({
+      where: {
+        campaignId: campaign.id,
+        trackerTaskId: { not: null },
+        status: { notIn: NOT_SCHEDULED_OUTREACH_STATUSES },
+      },
+      select: { id: true, trackerTaskId: true },
+    })
+    if (sends.length === 0) return 0
+
+    const taskIds = sends.flatMap((send) =>
+      send.trackerTaskId ? [send.trackerTaskId] : [],
+    )
+    return this.client.$transaction(async (tx) => {
+      const { count } = await tx.campaignTrackerTask.updateMany({
+        where: {
+          campaignId: campaign.id,
+          id: { in: taskIds },
+          completed: false,
+        },
+        data: { completed: true },
+      })
+      await tx.outreach.updateMany({
+        where: { id: { in: sends.map((send) => send.id) } },
+        data: { trackerTaskId: null },
+      })
+      return count
+    })
   }
 
   // Remove the deterministic outreach (text/robocall) rows. Called from the

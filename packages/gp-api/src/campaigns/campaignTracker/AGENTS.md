@@ -92,6 +92,16 @@ overview: `docs/features/campaign-tracker-v3.md`.
   campaign's original anchor from its earliest pre-launch row rather than
   taking a fresh one, so the row lands with its siblings instead of a week out
   from today.
+- **A task its button finishes closes itself once the work is scheduled.**
+  The button that opens a text, robocall, call list, social post or door
+  knocking flow passes the task's id (`trackerTaskId`), and the create stores
+  it on the outreach row (`Outreach.trackerTaskId`; door knocking on the
+  anchor turf's envelope only). `completeTasksWithScheduledOutreach` runs on
+  the GET: an outreach past `draft`/`pending_payment` (and not canceled,
+  denied or failed) ticks its task and has its link cleared in the same
+  transaction, so it happens once and a later "Mark not done" sticks. Only
+  that campaign's tasks can be ticked, so a stray id does nothing. Work
+  started anywhere else carries no id and leaves the task alone.
 - **Ballot access is gated on the candidate's ballot stage.** The catalog's
   `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
   materialization for a candidate who answered onboarding's "Are you already on

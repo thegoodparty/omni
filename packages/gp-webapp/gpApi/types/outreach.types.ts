@@ -40,6 +40,11 @@ export interface CreateOutreachPayload {
   audienceRequest?: string | null
   phoneListId?: number
   campaignPlanDueDate?: string
+  /**
+   * The campaign-plan task this text was started from. The task list marks
+   * it done once the text is scheduled.
+   */
+  trackerTaskId?: string
   textCount?: number
   billableTextCount?: number
   /**

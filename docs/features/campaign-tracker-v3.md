@@ -416,7 +416,7 @@ The table below is the cross-package file index:
   up) with a fast-poll budget cap.
 - `CampaignStrategySection.tsx` renders only from persisted tracker rows
   (loading / error / a "setting up your tracker" state while bootstrap is in
-  flight, then the accordion). There is **no** client-side catalog fallback.
+  flight, then the phases). There is **no** client-side catalog fallback.
   `CampaignPlanView` renders it unconditionally, so a no-rows state means
   bootstrap hasn't landed yet.
 - `CampaignPlanView.tsx` renders the tracker hero + `CampaignStrategySection`

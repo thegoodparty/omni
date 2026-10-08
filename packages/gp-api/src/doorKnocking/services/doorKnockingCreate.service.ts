@@ -471,6 +471,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
               ...scope,
               outreachType: OutreachType.nativeDoorKnocking,
               status: OutreachStatus.in_progress,
+              trackerTaskId: input.trackerTaskId,
               // The CAMPAIGN's title, not this turf's — history surfaces read
               // the anchor envelope and never a sibling, so this column is
               // where a campaign is named. Written on every sibling too, so

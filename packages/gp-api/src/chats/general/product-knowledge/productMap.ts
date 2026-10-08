@@ -149,7 +149,7 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
-    does: 'The campaign as a timeline of tasks in three phases (Launch, Active campaign, Get out the vote), with the full written plan under the Campaign strategy card at the top. Every candidate gets one; finishing the Campaign Story personalizes it. Skip on the next task offers Show in 3 days (never past its due date) or, for anything but ballot access, Not for me; either can be brought back with Bring it back in the task menu.',
+    does: 'The campaign as a timeline of tasks in three phases (Launch, Active campaign, Get out the vote), with the full written plan under the Campaign strategy card at the top. Every candidate gets one; finishing the Campaign Story personalizes it. A task started from its own button (a text, a robocall, a call list, a social post, door knocking) is marked done on its own once that outreach is scheduled. Skip on the next task offers Show in 3 days (never past its due date) or, for anything but ballot access, Not for me; either can be brought back with Bring it back in the task menu.',
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {

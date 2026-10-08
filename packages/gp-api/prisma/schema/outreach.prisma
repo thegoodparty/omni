@@ -48,6 +48,10 @@ model Outreach {
   // after the create that carried them.
   priorityStepId                    String?                            @map("priority_step_id")
   priorityCheckSide                 String?                            @map("priority_check_side")
+  // The campaign plan task this outreach was launched from, when it was. The
+  // task list marks that task done once the outreach is scheduled, then
+  // clears this, so a later "Mark not done" on the task sticks.
+  trackerTaskId                     String?                            @map("tracker_task_id")
   createdAt                         DateTime                           @default(now())
   updatedAt                         DateTime                           @updatedAt
   // Nullable so a Serve elected-office org (no campaign row) can persist an

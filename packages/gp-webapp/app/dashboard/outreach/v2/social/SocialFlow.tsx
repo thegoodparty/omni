@@ -73,6 +73,9 @@ interface SocialFlowSaveInput extends ProposalLink {
   purpose: SocialFlowPurpose
   draftMessage: string
   assets: SocialAsset[]
+  // Win only: the campaign-plan task the flow was opened from, which the
+  // task list marks done once the post is saved.
+  trackerTaskId?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -123,7 +126,7 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
       )
       return data.assets
     },
-    save: async ({ name, purpose, draftMessage, assets }) => {
+    save: async ({ name, purpose, draftMessage, assets, trackerTaskId }) => {
       // Named, not rest-spread: a proposal link is a Serve chat card's, and
       // Win's save never carries one, whatever fields the link grows.
       const { data } = await clientRequest('POST /v1/outreach/social', {
@@ -131,6 +134,7 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
         purpose,
         draftMessage,
         assets,
+        trackerTaskId,
       } as SocialSaveRequest)
       return data
     },
@@ -297,6 +301,9 @@ export const SocialFlow = ({
         purpose: purpose as SocialFlowPurpose,
         draftMessage: draft.trim(),
         assets: assets as SocialAsset[],
+        ...(tracker && !surface.isServe
+          ? { trackerTaskId: tracker.trackerTaskId }
+          : {}),
         ...prefill?.proposalLink,
       }),
     onSuccess: (detail) => {

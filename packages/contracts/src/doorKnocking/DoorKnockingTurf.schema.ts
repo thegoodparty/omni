@@ -79,6 +79,10 @@ const CreateDoorKnockingTurfFields = z.object({
   geoPoly: GeoJsonPolygonSchema,
   mode: DoorKnockingModeSchema.optional(),
   loop: z.boolean().optional(),
+  // The campaign-plan task the flow was opened from, sent on the anchor turf
+  // only. Stored on the walk's outreach so the task list can mark that task
+  // done.
+  trackerTaskId: z.string().min(1).optional(),
   // The goal the candidate picked on the wizard's first step. It has always
   // been asked and never persisted — until now it decided a suggested list
   // name and was dropped on submit.

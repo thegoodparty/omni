@@ -66,6 +66,9 @@ export class CreateOutreachSchema extends createZodDto(
           'campaignPlanDueDate must be a valid calendar date',
         )
         .optional(),
+      // The campaign-plan task the flow was opened from. Stored on the row so
+      // the task list can mark that task done once the text is scheduled.
+      trackerTaskId: z.string().min(1).optional(),
       // Metadata for the CAS Slack message, persisted so a payment-webhook
       // finalize can rebuild the notification after the request is gone.
       textCount: z.coerce.number().int().nonnegative().optional(),

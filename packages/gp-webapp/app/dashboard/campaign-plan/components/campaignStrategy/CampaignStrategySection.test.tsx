@@ -83,22 +83,14 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   ...over,
 })
 
-// A done row's undo lives in its "More options" menu; the next task, which
-// these tests complete, shows Mark done as a button.
+// Every row's actions, the next task's included, live in its "More options"
+// menu.
 const chooseFromMenu = async (
   user: ReturnType<typeof userEvent.setup>,
   item: string,
 ) => {
   await user.click(screen.getByRole('button', { name: 'More options' }))
   await user.click(await screen.findByRole('menuitem', { name: item }))
-}
-
-// The phase in focus opens on its own; open Launch only if it is closed, so
-// the helper never toggles an open phase shut.
-const openLaunch = async (user: ReturnType<typeof userEvent.setup>) => {
-  const trigger = screen.getByRole('button', { name: /^Launch/ })
-  if (trigger.getAttribute('aria-expanded') !== 'true')
-    await user.click(trigger)
 }
 
 const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
@@ -123,9 +115,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
-    await openLaunch(user)
-
-    await user.click(screen.getByRole('button', { name: 'Mark done' }))
+    await chooseFromMenu(user, 'Mark done')
     expect(mockToggle).not.toHaveBeenCalled()
     expect(screen.getByText('count-modal:events')).toBeInTheDocument()
 
@@ -153,9 +143,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
-    await openLaunch(user)
-
-    await user.click(screen.getByRole('button', { name: 'Mark done' }))
+    await chooseFromMenu(user, 'Mark done')
     // Still pending the count, so nothing is reported yet — the candidate can
     // still cancel out of the modal.
     expect(
@@ -167,7 +155,12 @@ describe('CampaignStrategySection — completing tasks', () => {
     await user.click(screen.getByRole('button', { name: 'submit-count' }))
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.Dashboard.CampaignPlan.TaskCompleted,
-      { trackerTaskId: 't1', medium: 'event', phase: 'launch' },
+      {
+        trackerTaskId: 't1',
+        medium: 'event',
+        phase: 'launch',
+        source: 'campaign_plan',
+      },
     )
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.Dashboard.VoterContact.CampaignCompleted,
@@ -206,10 +199,18 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
-    await openLaunch(user)
 
     await chooseFromMenu(user, 'Mark not done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't3', completed: false })
+    // An undo isn't a completion, but it is a choice the plan reports.
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskActionTaken,
+      expect.objectContaining({
+        trackerTaskId: 't3',
+        action: 'mark_not_done',
+        source: 'campaign_plan',
+      }),
+    )
     expect(
       mockTrackEvent.mock.calls.filter(
         ([name]) => name === EVENTS.Dashboard.CampaignPlan.TaskCompleted,
@@ -226,9 +227,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
-    await openLaunch(user)
-
-    await user.click(screen.getByRole('button', { name: 'Mark done' }))
+    await chooseFromMenu(user, 'Mark done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
   })
@@ -236,7 +235,6 @@ describe('CampaignStrategySection — completing tasks', () => {
 
 describe('CampaignStrategySection — tasks arriving in the background', () => {
   beforeEach(() => {
-    window.localStorage.clear()
     mockSuccessSnackbar.mockClear()
   })
 
@@ -360,10 +358,8 @@ describe('CampaignStrategySection — head start', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-08T12:00:00'))
-    window.localStorage.clear()
     return () => {
       vi.useRealTimers()
-      window.localStorage.clear()
     }
   })
 
@@ -401,7 +397,28 @@ describe('CampaignStrategySection — head start', () => {
   })
 })
 
-describe('CampaignStrategySection — phase progress', () => {
+describe('CampaignStrategySection — task action analytics', () => {
+  it('reports setting a task aside from the plan, and where', async () => {
+    const user = userEvent.setup()
+    mockTasks.mockReturnValue(
+      settled([task({ id: 't9', title: 'Host a meet-and-greet' })]),
+    )
+    render(<CampaignStrategySection />)
+
+    await chooseFromMenu(user, 'Not for me')
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskActionTaken,
+      expect.objectContaining({
+        trackerTaskId: 't9',
+        action: 'not_for_me',
+        source: 'campaign_plan',
+      }),
+    )
+  })
+})
+
+describe('CampaignStrategySection — phase headings', () => {
   it('fills each phase’s bar by its done tasks, leaving out not-for-me ones', () => {
     mockTasks.mockReturnValue(
       settled([
@@ -413,7 +430,23 @@ describe('CampaignStrategySection — phase progress', () => {
     render(<CampaignStrategySection />)
 
     expect(
-      screen.getByRole('progressbar', { name: 'Launch: 1 of 2 done' }),
+      screen.getByRole('button', { name: 'Launch, 1 of 2 done' }),
+    ).toBeInTheDocument()
+  })
+
+  it('lists every phase at once, each under its own heading', () => {
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 'a', phase: 'launch', title: 'Launch task' }),
+        task({ id: 'b', phase: 'active', title: 'Active task' }),
+      ]),
+    )
+    render(<CampaignStrategySection />)
+
+    expect(screen.getByText('Launch task')).toBeInTheDocument()
+    expect(screen.getByText('Active task')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: /^Active campaign/ }),
     ).toBeInTheDocument()
   })
 })

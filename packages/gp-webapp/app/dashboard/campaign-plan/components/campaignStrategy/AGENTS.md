@@ -13,13 +13,21 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `useTrackerTasks.ts`          | Fetches `/campaigns/tracker-tasks`; exposes `isGeneratingDynamic`; fast-polls (20s) while the tracker is _settling_ (`isTrackerSettling`: no rows yet **or** static-only with dynamic still generating), slow background poll after, with a fast-poll budget cap; refetches on mount + window focus (and polls in the background) so navigating to the tab surfaces freshly materialized rows without a manual refresh. Also exports `useGenerateTrackerTasks` (the manual override — see below). |
 | `buildTrackerStrategy.ts`     | Builds the render shape from persisted rows (the only path).                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then the accordion. Renders only from persisted rows.                                                                                                                                                                                                                                                                                                                                                                              |
+| `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then the phases. Renders only from persisted rows.                                                                                                                                                                                                                                                                                                                                                                                 |
 | `CampaignStrategyTaskRow.tsx` | One task card (date chip, channel icon, completion toggle).                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `CampaignStrategyPhase.tsx`   | A phase accordion item: its tasks as one list, the Active phase included.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `CampaignStrategyPhase.tsx`   | One phase's body under its sticky heading: its summary, then its tasks.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `campaignStrategy.types.ts`   | Render-shape types (`CampaignStrategyPhase`, `…Week`, `…Task`).                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## Patterns / non-obvious logic
 
+- **Phase headings stick at both ends.** Each phase's heading (name, a
+  progress bar of done over not-set-aside tasks) sticks to the top while its tasks scroll,
+  and the phases still ahead stack at the bottom, above the chat dock (its
+  height comes from `--chat-dock-height`, set by `FooterChatBar`), until
+  they arrive; tapping one scrolls there. The headings are siblings of their
+  sections, not inside them, because a sticky element only sticks within its
+  parent. `?phase=` scrolls to a
+  phase on arrival.
 - **Render only the latest generation.** The backend appends each weekly run as
   a new `week`; `buildTrackerStrategy` filters dynamic rows to `max(week)` (plus
   the non-generational static rows). The Active phase (`buildActiveWeeks`)
@@ -27,6 +35,11 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   `isDefaultTask` outreach dated in it. The gp-api weekly digest mirrors that
   active-week set (dynamic + text/robocall outreach, not the setup checklist), so
   keep the two in sync or the page and the email disagree.
+- **Work done through a task's button closes the task.** `taskAction` puts
+  the task's id on the flow's URL (`trackerTaskId` + `phase`), each flow
+  sends it with the record it creates, and gp-api ticks the task once that
+  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). Those
+  tasks offer no manual "Mark done" in place of their button.
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.
@@ -62,8 +75,9 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   shared with gp-api. `buildTrackerStrategy` never makes a not-for-me task
   the next one (`canBeNext`).
 - **A row's date line is its status line.** Open tasks show when they're due
-  (orange and in words when soon or overdue); a done task says Done, a
-  set-aside one Not for me. Titles go muted, never struck through. Every
+  (orange and in words when soon or overdue); a done task says Done (check
+  icon), a set-aside one Not for me (circle-slash icon), both in the same
+  muted gray as their titles. Titles go muted, never struck through. Every
   task shows its date, and any open task past it reads as overdue.
 - **Open work first.** `compareTasks` sorts open tasks by date, then done and
   not-for-me tasks by date, in every phase and week. The order comes from a

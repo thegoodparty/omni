@@ -87,7 +87,7 @@ const Section = ({
 // Stable DOM anchors for each section, keyed by the shared manifest. These
 // ids never change with display numbering — only the visible "Section N"
 // label and nav number shift when Strategic Landscape drops out.
-const SECTION_DOM_ID: Record<PlanSectionKey, string> = {
+export const SECTION_DOM_ID: Record<PlanSectionKey, string> = {
   executiveSummary: 'plan-section-1',
   strategicLandscape: 'plan-section-2',
   electoralGoals: 'plan-section-3',

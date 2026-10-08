@@ -61,6 +61,16 @@ export class CampaignTrackerController {
           'campaign story task sync failed, serving tasks as-is',
         ),
       )
+    // A task whose outreach has since been scheduled is done. Best-effort
+    // for the same reason.
+    await this.trackerTasksService
+      .completeTasksWithScheduledOutreach(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'scheduled outreach task sync failed, serving tasks as-is',
+        ),
+      )
     // Rows dated before the plan became a timeline (or before the race
     // changed) move onto it. Best-effort for the same reason.
     await this.trackerTasksService

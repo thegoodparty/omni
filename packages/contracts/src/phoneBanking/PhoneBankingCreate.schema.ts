@@ -73,6 +73,9 @@ export const PhoneBankingCreateSchema = z
     voterFileFilterId: z.number().int().positive(),
     purpose: PhoneBankingPurposeSchema,
     communityInputQuestion: communityInputQuestionSchema,
+    // The campaign-plan task the flow was opened from. Stored on the list's
+    // outreach so the task list can mark that task done.
+    trackerTaskId: z.string().min(1).optional(),
   })
   .strict()
   .refine(questionMatchesPurpose.check, questionMatchesPurpose.params)

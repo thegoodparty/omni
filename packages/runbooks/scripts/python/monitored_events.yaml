@@ -915,3 +915,4 @@ relabels:
   - {event: "Win - Opponent Upgrade Viewed", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponent Upgrade Viewed", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
   - {event: "Win - Opponents Manually Added", surface: "know-your-opponent", display_name: "Know Your Opponent - Opponents Manually Added", reason: "Product name in the prefix; fires only on Know Your Opponent", date: "2026-10-03"}
 intents:
+  - {event: "Outreach - Campaign Completed", intent: moved, to: "packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/useCompleteTrackerTask.tsx", reason: "The voter-count window is now shared by the plan and Home's next-task card through useCompleteTrackerTask; same activity, same event", date: "2026-10-08"}

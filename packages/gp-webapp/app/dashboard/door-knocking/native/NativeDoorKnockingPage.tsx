@@ -132,6 +132,8 @@ interface NativeDoorKnockingPageProps {
   // and used to fetch the sibling turfs whose colors seed the picker's
   // default and whose count decides the "Turf N" name default.
   campaignOutreachId?: number
+  // The campaign-plan task the walk was started from, carried onto its create.
+  trackerTaskId?: string
   // A priority chat card's link, carried onto the walk's create.
   proposalLink?: ProposalLink
   // Where the `?create=1` link was pressed.
@@ -177,6 +179,7 @@ export default function NativeDoorKnockingPage({
   fromOutreachId,
   openCreateFlow,
   campaignOutreachId,
+  trackerTaskId,
   proposalLink,
   createSource,
 }: NativeDoorKnockingPageProps) {
@@ -1557,6 +1560,7 @@ export default function NativeDoorKnockingPage({
                   }
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
+                  trackerTaskId={trackerTaskId}
                   {...(proposalLink && { proposalLink })}
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}

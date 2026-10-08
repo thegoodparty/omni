@@ -317,6 +317,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         textCount: createOutreachDto.textCount,
         billableTextCount: createOutreachDto.billableTextCount,
         campaignPlanDueDate: createOutreachDto.campaignPlanDueDate,
+        trackerTaskId: createOutreachDto.trackerTaskId,
         script: resolvedScriptText,
         message: resolvedScriptText,
         name,
