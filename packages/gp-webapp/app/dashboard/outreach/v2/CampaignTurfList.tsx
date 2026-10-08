@@ -56,7 +56,9 @@ export const CampaignTurfList = ({
   onTurfCompleted,
 }: CampaignTurfListProps) => {
   const query = useQuery(campaignTurfsQueryOptions(anchorOutreachId))
-  const turfs = query.data ?? []
+  // Newest first, so the turfs just added from the map lead the list. Ids
+  // are assigned in creation order, which a batch shares a timestamp for.
+  const turfs = [...(query.data ?? [])].sort((a, b) => b.id - a.id)
 
   return (
     <DetailsSection

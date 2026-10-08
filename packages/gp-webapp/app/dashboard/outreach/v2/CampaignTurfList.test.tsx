@@ -214,6 +214,21 @@ describe('CampaignTurfList', () => {
 
   // The drawer's `onInteractOutside` guard depends on this, and it is
   // invisible from inside this component.
+  it('lists the newest turf first', async () => {
+    mockTurfs([
+      turf({ id: 12, name: 'First' }),
+      turf({ id: 14, name: 'Third' }),
+      turf({ id: 13, name: 'Second' }),
+    ])
+    renderList()
+
+    await screen.findByText('First')
+    const names = screen
+      .getAllByText(/^(First|Second|Third)$/)
+      .map((node) => node.textContent)
+    expect(names).toEqual(['Third', 'Second', 'First'])
+  })
+
   it('names the knock press for whether the turf has a route', async () => {
     // The route is bought at the first knock, so an unrouted press does
     // something the others do not: it plans one, and asks walking or

@@ -2751,6 +2751,9 @@ describe('CreateListFlow multi-turf save', () => {
     const { turfs } = mockBatch()
 
     saveFromSurface(joinProps)
+    // Nothing flashes between the map and the drawer: the draw step and its
+    // stepper stay off screen while the save runs.
+    expect(screen.queryByRole('button', { name: /Saving turfs/ })).toBeNull()
     await waitFor(() => expect(baseProps.onClose).toHaveBeenCalled())
 
     // Both are siblings of the campaign, attached to its audience, and

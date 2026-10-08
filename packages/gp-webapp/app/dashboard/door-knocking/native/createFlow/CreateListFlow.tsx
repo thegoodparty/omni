@@ -1551,8 +1551,8 @@ export default function CreateListFlow({
 
   // Joining a campaign has no draw step to come back to: the drawing
   // surface is the whole flow. So leaving it is the decision. Save with
-  // turfs on it writes them, and the draw step only shows while that write
-  // is running or if it fails, with its retry. Leaving with nothing on it,
+  // turfs on it writes them, and the draw step only shows if that write
+  // fails, with its retry. Leaving with nothing on it,
   // Cancel included, goes back to the campaign. A turf over the stop cap
   // stays on the draw step, where its card says why.
   const wasFullScreen = useRef(drawFullScreen)
@@ -1583,6 +1583,20 @@ export default function CreateListFlow({
     // component stays mounted across the hand-off — only its return value
     // changes — so a ref is enough to remember that it has happened.
     resumedRef.current = true
+    return null
+  }
+  // Joining a campaign, the draw step has nothing to say while the save
+  // runs: flashing it between the map and the campaign's drawer read as a
+  // step the candidate had not been shown. It appears only when it has
+  // something to act on — a failed write, a turf over the cap, or the gate.
+  if (
+    joining &&
+    stage === 'draw' &&
+    !gateOpen &&
+    !save.isError &&
+    partialFailure === null &&
+    overCapDrafts.length === 0
+  ) {
     return null
   }
 
