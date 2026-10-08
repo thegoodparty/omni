@@ -258,15 +258,33 @@ export class PurchaseService {
     if (session.payment_status === 'unpaid') {
       // A Win SMS hold-billing checkout authorizes a manual-capture hold, which
       // completes the session 'unpaid' because the funds are HELD, not captured
-      // — that is NOT the ACH "settles later" case this deferral exists for. An
-      // authorized hold (PI already requires_capture) is ready to fulfill now;
-      // its capture is a later slice. Detected narrowly (flag + TEXT) so every
-      // other unpaid session still defers, and inert when the flag is off (no
-      // session is manual-capture, so none reach requires_capture here).
+      // — NOT the ACH "settles later" case the deferral below exists for.
+      // Detected narrowly (flag + TEXT) so every other unpaid session still
+      // defers, and inert when the flag is off.
       const isWinSmsHold =
         isWinSmsHoldBillingEnabled() &&
         session.metadata?.purchaseType === PurchaseType.TEXT
-      if (!isWinSmsHold || !(await this.isManualCaptureAuthorized(session))) {
+      if (isWinSmsHold) {
+        // A manual-capture hold emits NO follow-up event (there is no
+        // async_payment_succeeded for a card authorization), so DEFERRING here
+        // would strand the send forever: the funds would sit held with no
+        // `authorized` satellite row and nothing to retrigger fulfillment. Once
+        // the PI is authorized (requires_capture) fulfill now; while it is still
+        // the transient not-yet-authorized state, THROW so
+        // checkout.session.completed redelivers. The authorization is
+        // synchronous at checkout, so a redelivery resolves it; a genuinely
+        // never-authorized session just exhausts Stripe's bounded retries and
+        // the hold auto-releases (no money taken). A plain Error (not a
+        // BadRequestException) is what the webhook handler treats as retryable
+        // rather than a permanent content rejection it would ack.
+        if (!(await this.isManualCaptureAuthorized(session))) {
+          throw new Error(
+            `Win SMS hold not yet authorized for checkout session ` +
+              `${dto.checkoutSessionId}; forcing webhook redelivery`,
+          )
+        }
+        // requires_capture: a usable hold — fall through to fulfillment.
+      } else {
         this.logger.info({
           sessionId: dto.checkoutSessionId,
           paymentStatus: session.payment_status,

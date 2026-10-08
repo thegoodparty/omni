@@ -701,7 +701,11 @@ describe('PurchaseService', () => {
       )
     })
 
-    it('still defers an unpaid session whose PI has not authorized (flag on)', async () => {
+    // A manual-capture hold has no async follow-up event, so deferring would
+    // strand the send forever. While the PI is not yet requires_capture, THROW
+    // (not defer) so checkout.session.completed redelivers and fulfills once the
+    // synchronous authorization lands.
+    it('throws (forcing retry) for a Win-SMS hold whose PI is not yet requires_capture (flag on)', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       const sessionId = 'cs_test_hold_pending'
       service.registerCheckoutSessionPostPurchaseHandler(
@@ -722,12 +726,40 @@ describe('PurchaseService', () => {
         mockPaymentIntent({ id: 'pi_pending', status: 'processing' }),
       )
 
+      await expect(
+        service.completeCheckoutSession({ checkoutSessionId: sessionId }),
+      ).rejects.toThrow(/not yet authorized/)
+      expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
+    })
+
+    // A genuine delayed-notification (ACH) session is a non-hold unpaid session:
+    // it must keep deferring (an async_payment_succeeded re-enters later), never
+    // throw. Flag off keeps it out of the hold branch entirely.
+    it('still defers a non-hold unpaid session (ACH / flag off), never throws', async () => {
+      const sessionId = 'cs_test_ach_unpaid'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.TEXT,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'unpaid',
+          payment_intent: 'pi_ach',
+          metadata: { purchaseType: PurchaseType.TEXT, userId: '1' },
+        }),
+      )
+
       const result = await service.completeCheckoutSession({
         checkoutSessionId: sessionId,
       })
 
       expect(result.deferred).toBe(true)
       expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
+      // Non-hold path never re-reads the PI to probe for a hold.
+      expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
     })
 
     it('fulfills a session a promotion code covered in full', async () => {
