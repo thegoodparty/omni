@@ -203,13 +203,23 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # SWC emit only. `npm run build` also runs a full `tsc --noEmit`, which
+      # took ~80s of this job and changes nothing in dist/. The Checks job
+      # already type-checks the same commit and gates merge through Validate,
+      # so here it only delayed the preview. Contracts were built by
+      # setup-node-workspace above, so `npm run build`'s rebuild is skipped too.
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
-        run: npm run build -w ${{ env.WORKSPACE }}
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx nest build
 
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
         uses: docker/setup-buildx-action@v3
+        with:
+          # The runner is thrown away after the job; tearing the builder down
+          # cost 10-20s of post-job time for nothing.
+          cleanup: false
 
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
