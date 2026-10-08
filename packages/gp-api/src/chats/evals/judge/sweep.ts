@@ -18,6 +18,12 @@ import {
   type JudgeSpend,
 } from './actualCost'
 import { AGENTS, type AgentEntry } from './agents'
+import {
+  contractFor,
+  readOutputContracts,
+  withOutputContract,
+  type ContractRead,
+} from './outputContract'
 import { armGap, windowOf } from './armGap'
 import { createRng } from './bootstrap'
 import {
@@ -108,6 +114,10 @@ export interface JudgingDeps {
   baseControls?: (agent: AgentEntry) => ReadonlySet<string> | null
   // The plan job's estimate, printed beside what was actually spent.
   estimateUsd?: string
+  // A background agent's required output fields, from this checkout's
+  // manifest and the base ref's. Injected so a test need not stand a manifest
+  // on disk.
+  outputContract?: (agent: AgentEntry) => ContractRead
 }
 
 // Only a background list carries either field, so a chat agent costs no read.
@@ -295,6 +305,9 @@ export const judgeSweep = async (
   const registry = deps.registry ?? AGENTS
   const loadCases = deps.loadCases ?? loadCaseList
   const caseJudging = deps.caseJudging ?? readCaseJudging
+  const outputContract =
+    deps.outputContract ??
+    ((agent: AgentEntry) => readOutputContracts(agent.agentId, env.baseDir))
   const baseControls =
     deps.baseControls ??
     ((agent: AgentEntry) => readBaseControls(env.baseDir, agent))
@@ -430,6 +443,12 @@ export const judgeSweep = async (
       candidateControls.size === 0 ? new Set() : baseControls(entry),
     )
     const unscoredCaseIds = controls.unscored
+    // Never a refusal: an agent whose manifest names no contract is judged
+    // without the line, and the report says so.
+    const contract =
+      entry.shape === 'background'
+        ? contractFor(outputContract(entry))
+        : { lines: null }
 
     try {
       // Refuses two arms that hashed to the same config unless the request
@@ -437,7 +456,13 @@ export const judgeSweep = async (
       // nothing to compare and a sweep would have spent money proving two
       // identical things identical.
       const normalized = withCaseDimensions(
-        withConditions(normalizeAgent(forAgent, rng, config, options), judging),
+        withConditions(
+          withOutputContract(
+            normalizeAgent(forAgent, rng, config, options),
+            contract.lines,
+          ),
+          judging,
+        ),
         caseDimensionsByCase(entry, loadCases),
       )
       if (normalized.identicalConfig !== null) {
@@ -504,6 +529,9 @@ export const judgeSweep = async (
         ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
         ...(controls.scoredAnyway !== undefined && {
           controlsScoredAnyway: controls.scoredAnyway,
+        }),
+        ...(contract.note !== undefined && {
+          outputContractNote: contract.note,
         }),
       })
     } catch (err) {
