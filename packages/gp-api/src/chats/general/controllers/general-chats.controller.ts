@@ -47,6 +47,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
 import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
+import { summarizeConversationUsage } from '@/chats/services/conversationUsage.util'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
   ChatConversationSchema,
@@ -273,6 +274,7 @@ export class GeneralChatsController {
           }),
         }
       }),
+      usage: summarizeConversationUsage(messages),
     }
   }
 

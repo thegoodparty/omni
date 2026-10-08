@@ -297,7 +297,10 @@ Two storage shapes:
 
 - **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
   `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
-  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable), and
+  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable
+  except the assistant turn's `model`/`inputTokens`/`outputTokens`, stamped by
+  `chatStream.service.ts` after a clean finish and before `done`, and summed
+  into the `usage` field of both conversation GETs), and
   `ChatMessageSegment` (`ordinal` + `kind ∈ {text, tool}`, created only when a turn
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on

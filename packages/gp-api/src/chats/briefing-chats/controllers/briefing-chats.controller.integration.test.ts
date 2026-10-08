@@ -19,6 +19,7 @@ import {
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { LlmService, LlmStreamResult } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 
@@ -103,6 +104,24 @@ const buildStream = (
     if (hook) await hook()
     for (const c of chunks) yield c
   },
+})
+
+const pricedTurn = (
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): LlmStreamResult => ({
+  textStream: (async function* () {
+    yield 'A priced reply.'
+  })(),
+  finalText: Promise.resolve('A priced reply.'),
+  toolCalls: Promise.resolve([]),
+  usage: Promise.resolve({
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+  }),
+  model,
 })
 
 const parseSseFrames = (
@@ -716,6 +735,59 @@ describe('BriefingChatsController (integration)', () => {
       expect(messages[0]?.content).toBe('seeded user message')
       expect(messages[1]?.role).toBe(ChatMessageRole.assistant)
       expect(messages[1]?.content).toBe('seeded assistant reply')
+    })
+
+    it('returns an empty, complete usage when nothing has been answered', async () => {
+      const res = await service.client.get(
+        `/v1/briefing-chats/${fixtures.annotation.id}`,
+      )
+
+      expect(res.data.usage).toEqual({ complete: true, byModel: [] })
+    })
+
+    it('returns the summed usage of streamed turns', async () => {
+      vi.mocked(chatStream.stream).mockRestore()
+      vi.spyOn(service.app.get(LlmService), 'streamChatCompletion')
+        .mockResolvedValueOnce(pricedTurn('claude-sonnet-4-6', 1000, 200))
+        .mockResolvedValueOnce(pricedTurn('claude-sonnet-4-6', 1500, 300))
+
+      for (const content of ['first question', 'second question']) {
+        const sent = await service.client.post(
+          `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
+          { content },
+        )
+        expect(String(sent.data)).toContain('"type":"done"')
+      }
+
+      const res = await service.client.get(
+        `/v1/briefing-chats/${fixtures.annotation.id}`,
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.usage).toEqual({
+        complete: true,
+        byModel: [
+          {
+            model: 'claude-sonnet-4-6',
+            inputTokens: 2500,
+            outputTokens: 500,
+          },
+        ],
+      })
+    })
+
+    it('is incomplete when an assistant message has no recorded usage', async () => {
+      await chatStore.appendMessage({
+        conversationId: fixtures.conversation.id,
+        role: ChatMessageRole.assistant,
+        content: 'An interrupted reply.',
+      })
+
+      const res = await service.client.get(
+        `/v1/briefing-chats/${fixtures.annotation.id}`,
+      )
+
+      expect(res.data.usage).toEqual({ complete: false, byModel: [] })
     })
 
     it('returns 401 when Authorization is invalid', async () => {

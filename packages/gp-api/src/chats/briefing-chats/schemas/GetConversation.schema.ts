@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { zDate } from '@goodparty_org/contracts'
+import { ChatConversationUsageSchema, zDate } from '@goodparty_org/contracts'
 
 export const getConversationSchema = z.object({
   conversationId: z.string(),
@@ -11,6 +11,7 @@ export const getConversationSchema = z.object({
       createdAt: zDate(),
     }),
   ),
+  usage: ChatConversationUsageSchema,
 })
 
 export type GetConversationResponse = z.infer<typeof getConversationSchema>
