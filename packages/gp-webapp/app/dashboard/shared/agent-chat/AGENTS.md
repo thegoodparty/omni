@@ -223,8 +223,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   compliance modal). Phone banking and door knocking take a free campaign
   to their own pitch (`phone-bank`, `door`); social is free and opens for
   anyone. Outreach Pro gating is fully rolled out, so the card
-  does not read the `outreach-pro-gating-v2` flag. The button waits until
-  the campaign and registration have loaded. The card's
+  does not read the `outreach-pro-gating-v2` flag. A text's button waits
+  until the campaign and registration have loaded; the other channels wait
+  for the campaign alone (`winResolved`). The card's
   `proposalKey` rides Win's `POST /v1/outreach` create, and
   `GET /v1/outreach/by-proposal-key/:proposalKey` resolves it once paid.
   The key rides a fresh draft only, never a resume: a draft built in build

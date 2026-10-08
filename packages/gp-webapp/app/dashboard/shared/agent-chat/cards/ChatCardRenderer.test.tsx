@@ -12,6 +12,7 @@ const flows = vi.hoisted(() => ({
   open: vi.fn(),
   textAvailable: true,
   textResolved: true,
+  winResolved: true,
 }))
 vi.mock('./proposalFlows', () => ({
   ProposalFlowsProvider: ({ children }: { children: React.ReactNode }) =>
@@ -23,6 +24,7 @@ afterEach(() => {
   flows.mode = 'serve'
   flows.textAvailable = true
   flows.textResolved = true
+  flows.winResolved = true
 })
 
 const PROPOSAL_KEY = '3f2c1a90-1111-4222-8333-444455556666'
@@ -230,6 +232,18 @@ describe('OutreachProposalCard in Campaign Manager', () => {
     expect(
       await screen.findByRole('button', { name: 'Start the text' }),
     ).toBeDisabled()
+  })
+
+  it('does not hold another channel on the texting registration', async () => {
+    mockNotSent()
+    flows.mode = 'win'
+    flows.textResolved = false
+
+    renderCard(proposalCard({ channel: 'social' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Start the post' }),
+    ).toBeEnabled()
   })
 
   it('opens any channel from a Win card', async () => {

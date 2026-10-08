@@ -68,6 +68,9 @@ type ProposalFlows = {
   // text flow to open. On Win, whether the text gate has what it reads.
   textAvailable: boolean
   textResolved: boolean
+  // On Win, whether the campaign the Pro gate reads has loaded. The other
+  // channels need nothing more, so they do not wait on the registration.
+  winResolved: boolean
 }
 
 const ProposalFlowsContext = createContext<ProposalFlows | null>(null)
@@ -146,6 +149,7 @@ const useWinOutreachGate = (enabled: boolean) => {
 
   return {
     ready: enabled && Boolean(campaign) && (!isPro || !isPending),
+    campaignReady: enabled && Boolean(campaign),
     run,
     tcrCompliance,
     modals: enabled ? (
@@ -293,8 +297,17 @@ export const ProposalFlowsProvider = ({
       listen,
       textAvailable: mode === 'win' || (sms.ready && sms.enabled),
       textResolved: mode === 'win' ? winText.ready : sms.ready,
+      winResolved: winText.campaignReady,
     }),
-    [mode, open, listen, sms.ready, sms.enabled, winText.ready],
+    [
+      mode,
+      open,
+      listen,
+      sms.ready,
+      sms.enabled,
+      winText.ready,
+      winText.campaignReady,
+    ],
   )
 
   const proposal = opened?.proposal

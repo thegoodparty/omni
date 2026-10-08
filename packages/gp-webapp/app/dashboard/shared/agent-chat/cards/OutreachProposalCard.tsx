@@ -110,9 +110,16 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
           type="button"
           size="small"
           className="shrink-0"
-          // Win's gate reads the campaign and its texting registration
-          // first, and a press before they arrive would gate on neither.
-          disabled={!flows || (mode === 'win' && !flows.textResolved)}
+          // Win's gate reads the campaign first, and a text its texting
+          // registration too; a press before they arrive would gate on
+          // neither.
+          disabled={
+            !flows ||
+            (mode === 'win' &&
+              !(proposal.channel === 'text'
+                ? flows.textResolved
+                : flows.winResolved))
+          }
           onClick={() => flows?.open(proposal, priorityId)}
         >
           {PROPOSAL_CTA[mode][proposal.channel]}
