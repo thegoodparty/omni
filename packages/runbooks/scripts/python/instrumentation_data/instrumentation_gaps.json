@@ -28,12 +28,12 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215": {
-    "dashboard_question": "How often do users submit a bug/error report from the briefing annotation sheet?",
+    "dashboard_question": "How often do users submit a bug report via the briefing annotation sheet?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215",
-    "judge_reason": "Submit button for a bug report form with no visible tracking of the submit action or outcome.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "The Submit button is the primary action of this sheet and has no visible tracking call for submission or outcome.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx",
     "prior_ruling": {
       "disposition": "accepted",
@@ -41,18 +41,18 @@
       "reason": "Bug-report submit success and failure is worth tracking as briefing-quality feedback.",
       "ruled_on": "2026-08-06"
     },
-    "rank": 1,
+    "rank": 2,
     "reason": "",
-    "rubric_rule": "primary CTA / outcome (form submit)",
+    "rubric_rule": "primary CTA / form submit",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet": {
-    "dashboard_question": "How many bug report submissions succeed vs error out?",
+    "dashboard_question": "How often do bug-report submissions succeed vs fail in the annotation sheet?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet",
-    "judge_reason": "handleSubmit creates a bug report and surfaces an error message on failure, but no success/error event is fired.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "handleSubmit creates a bug report (an outcome) and handles error states, but no event fires on success or failure.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx",
     "prior_ruling": {
       "disposition": "accepted",
@@ -60,9 +60,9 @@
       "reason": "Bug-report submit success and failure is worth tracking as briefing-quality feedback.",
       "ruled_on": "2026-08-06"
     },
-    "rank": 1,
+    "rank": 2,
     "reason": "",
-    "rubric_rule": "primary CTA / outcome (form submit) + blocker/error",
+    "rubric_rule": "form submit / outcome",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit": {
@@ -81,12 +81,12 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog": {
-    "dashboard_question": "How many notes-intake submissions succeed vs fail?",
+    "dashboard_question": "How often do users successfully submit notes via the Add Notes dialog, and how often does it fail?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog",
-    "judge_reason": "handleSubmit saves staged notes and surfaces a submit error, but no completion or error event is tracked.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "handleSubmit is the primary action producing the outcome (notes saved) with explicit success/error paths, but no tracking call is present.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx",
     "prior_ruling": {
       "disposition": "accepted",
@@ -94,9 +94,9 @@
       "reason": "Notes intake is the primary briefing input; worth splitting by intake mode (Type / Camera / Upload) since the three cards have different failure modes.",
       "ruled_on": "2026-08-06"
     },
-    "rank": 1,
+    "rank": 2,
     "reason": "",
-    "rubric_rule": "primary CTA / outcome (form submit) + blocker/error",
+    "rubric_rule": "form submit / outcome",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit": {
@@ -115,12 +115,12 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77": {
-    "dashboard_question": "How often do users save/update their 'running against' opponent details?",
+    "dashboard_question": "How often do users save their 'running against' opponent details?",
     "disposition": "new",
     "first_seen": "2026-10-05",
     "id": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77",
-    "judge_reason": "Form submit handler saves opponent info with no tracking of this save action.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "handleSubmit is the primary form submission that persists campaign-details data, with no tracking call.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx",
     "prior_ruling": {
       "disposition": "dismissed",
@@ -130,7 +130,7 @@
     },
     "rank": 2,
     "reason": "",
-    "rubric_rule": "primary CTA / outcome (form submit)",
+    "rubric_rule": "primary CTA / form submit",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/campaign-manager/CampaignManagerTasks.tsx#form_submit": {
@@ -305,16 +305,16 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit": {
-    "dashboard_question": "How many ordinance bug reports are submitted?",
+    "dashboard_question": "How often do users submit a bug report on an ordinance draft?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit",
-    "judge_reason": "submitBugReport creates a bug report and shows a success snackbar but fires no analytics event.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "submitBugReport is a user-triggered outcome-producing action (bug report submitted) with no tracking call.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx",
     "rank": 2,
     "reason": "",
-    "rubric_rule": "primary CTA / outcome (form submit)",
+    "rubric_rule": "form submit / outcome",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit": {
@@ -348,16 +348,16 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit": {
-    "dashboard_question": "How many messages are sent in the ordinance flow chat, and what is the open-to-send drop-off?",
+    "dashboard_question": "How often do users send messages in the ordinance flow chat?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit",
-    "judge_reason": "Sending a chat message is explicitly called out as real engagement to track (open + send), with no visible tracking here.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "Sending a chat message is explicitly called out as real engagement to track, not chrome, and no tracking call is visible here.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx",
     "rank": 2,
     "reason": "",
-    "rubric_rule": "AI chat message sent (exception to chrome skip)",
+    "rubric_rule": "chat message sent (explicit exception to chrome skip)",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceStepper.tsx#wizard_stage": {
@@ -419,12 +419,12 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L112": {
-    "dashboard_question": "How many users successfully name and save a recommended audience list?",
+    "dashboard_question": "How often do users complete naming a recommended audience list?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L112",
-    "judge_reason": "Continue button drives handleSubmit, the core outcome-producing action of creating a recommended list; no visible tracking.",
-    "last_seen": "2026-10-01",
+    "judge_reason": "The Continue button triggers handleSubmit, the primary action of this drawer, with no visible tracking.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx",
     "prior_ruling": {
       "disposition": "new",
@@ -434,7 +434,7 @@
     },
     "rank": 2,
     "reason": "",
-    "rubric_rule": "primary CTA / outcome",
+    "rubric_rule": "primary CTA / form submit",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L88": {
@@ -522,16 +522,16 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710": {
-    "dashboard_question": "How many robocall payment authorizations succeed vs fail at card confirmation?",
+    "dashboard_question": "How often do users successfully save a payment method and authorize a robocall payment, and where do they fail?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710",
-    "judge_reason": "Payment confirm/authorize flow with explicit error states but no tracked outcome events for this money-moving action; per rubric payment confirmations are high-value backend/frontend events.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "This handles a Stripe payment card setup and authorization submit with explicit error paths but no tracking of attempt, error, or success; payment flows are a rubric-named server-truth/outcome case worth prioritizing.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx",
     "rank": 1,
     "reason": "",
-    "rubric_rule": "payment confirmation - outcome/blocker",
+    "rubric_rule": "payment confirmation / outcome",
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage": {
@@ -582,16 +582,16 @@
     "surface_type": "wizard_stage"
   },
   "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage": {
-    "dashboard_question": "Where do users drop off in the poll creation wizard, by stage?",
+    "dashboard_question": "Where in the poll-creation wizard do users drop off, by step?",
     "disposition": "new",
     "first_seen": "2026-10-01",
     "id": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage",
-    "judge_reason": "FormContent/StepIndicator shell for a multi-step poll creation wizard with Back/Next controls but no Viewed/Completed events per stage visible.",
-    "last_seen": "2026-10-05",
+    "judge_reason": "This is the shared chrome for a multi-step poll creation wizard with a StepIndicator and Back/Next, but no Viewed/Completed events are fired per stage.",
+    "last_seen": "2026-10-08",
     "location": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx",
     "rank": 0,
     "reason": "",
-    "rubric_rule": "multi-step flow: URL-stable stage Viewed/Completed",
+    "rubric_rule": "multi-step flow stage",
     "surface_type": "wizard_stage"
   },
   "packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage": {
