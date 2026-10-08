@@ -16,6 +16,7 @@ import {
   EXAMPLE_AUDIENCE,
   EXAMPLE_SAMPLE,
 } from '../chat-tools/outreachSampling.prompt'
+import { CLARIFY_QUESTION_RULES } from '../chat-tools/askClarifyQuestion.tool'
 import {
   PICKED_OPTION_RULE,
   WIN_TEXT_MESSAGE_RULES,
@@ -886,6 +887,19 @@ const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
       ].join('\n')
     : null
 
+const clarifyQuestionBlock = (toolNames: readonly string[]): string | null =>
+  toolNames.includes('ask_clarify_question')
+    ? [
+        'QUESTIONS (apply whenever the candidate has to choose):',
+        ...CLARIFY_QUESTION_RULES,
+        ...(toolNames.includes('present_outreach_proposal')
+          ? [
+              '- When you recommend more than one text (a sequence, or texts to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per text, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
+            ]
+          : []),
+      ].join('\n')
+    : null
+
 export const buildCampaignManagerSystemPrompt = (
   ctx: CampaignManagerContext,
   toolNames: readonly string[] = [],
@@ -903,6 +917,7 @@ export const buildCampaignManagerSystemPrompt = (
     crmToolsBlock(ctx),
     outreachSamplingBlock(toolNames),
     pastOutreachBlock(toolNames),
+    clarifyQuestionBlock(toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
     LEGAL_AND_COMPLIANCE_RULES,

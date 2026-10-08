@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3500 --turbopack",
     "dev:link": "next dev -p 3500",
-    "build": "next build",
+    "build": "next typegen && tsc --noEmit && next build",
     "start": "next start -p 3500",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -45,7 +45,7 @@
     "react-hook-form": "^7.71.1",
     "react-icons": "^5.5.0",
     "tailwindcss": "^4.2.3",
-    "zod": "4.0.17"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
@@ -70,7 +70,7 @@
     "globals": "^16.5.0",
     "jsdom": "^27.4.0",
     "prettier": "^3.4.2",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.50.0",
     "vitest": "^4.0.18"
   },

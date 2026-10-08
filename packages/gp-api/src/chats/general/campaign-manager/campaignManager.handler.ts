@@ -60,6 +60,7 @@ import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHando
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -564,6 +565,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.present_past_outreach =
         buildCampaignManagerPresentPastOutreachTool()
     }
+    tools.ask_clarify_question = buildAskClarifyQuestionTool()
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,
     // once complete, kick off plan + tracker generation. Registered whenever

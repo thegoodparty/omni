@@ -25,6 +25,10 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      // Root @hookform/resolvers would otherwise type zodResolver against the hoisted zod 3.25 copy, not gp-admin's zod.
+      "zod/v4/core": [
+        "./node_modules/zod/v4/core"
       ]
     }
   },
