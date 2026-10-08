@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Annotation, ChatScope, MeetingBriefing } from '../../generated/prisma'
 import { z } from 'zod'
 import type { LlmTool } from '@/llm/services/llm.service'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 import {
   buildDistrictInsightsTool,
   type MandatoryFilter,
@@ -15,6 +16,15 @@ import {
 import { buildGetArtifactsTool } from '@/llm/tools/getArtifacts.tool'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
+import {
+  composeAppendix,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '@/chats/general/services/guardrailBackstops'
+import {
+  ADVICE_SIGNALS,
+  SECTION_MARK_SIGNAL,
+} from '@/chats/general/services/professionalAdviceCheck'
 import type {
   ChatScopeHandler,
   ResolveConversationResult,
@@ -46,6 +56,15 @@ export const BRIEFING_CHAT_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
 ] as const
+
+// Briefing replies describe agenda items whose material cites code sections
+// ("item 2 amends § 5.04"), which is a summary, not a legal reading, so the
+// bare section mark is not a signal on this chat. A named statute in a
+// summary ("per RCW 35A.33") still draws the line: it points the reader at
+// law, and the audit found no summary shape where that misled.
+const BRIEFING_LEGAL_SIGNALS = ADVICE_SIGNALS.filter(
+  (re) => re !== SECTION_MARK_SIGNAL,
+)
 
 // Braintrust filters key on this name, and it predates the registry's
 // `${scope}-chat-stream` default, so the handler carries it explicitly.
@@ -188,6 +207,16 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
 
   buildTools(ctx: BriefingChatContext): Record<string, LlmTool> {
     return this.assembleTools(ctx)
+  }
+
+  // A statute reading the model left uncautioned gets the legal line, and a
+  // district_insights result that dropped small cells gets the count note
+  // when the reply did not say so itself.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'briefing_chat', BRIEFING_LEGAL_SIGNALS),
+      smallCountBackstop(text, 'briefing_chat', turn.toolEvents),
+    ])
   }
 
   private async toContext(

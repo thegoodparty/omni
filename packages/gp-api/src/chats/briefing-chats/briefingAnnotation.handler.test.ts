@@ -23,8 +23,10 @@ import type { BriefingNotesService } from './services/briefingNotes.service'
 import type { DistrictResolverService } from './services/districtResolver.service'
 import {
   buildSystemPrompt,
+  GUARDRAIL_DECLINE,
   todayInTimezone,
 } from './services/systemPromptBuilder'
+import { guardrailLine } from '@/chats/general/services/guardrailLines'
 import { HENDERSONVILLE_FIXTURE } from './evals/fixtures/hendersonvilleBriefing.fixture'
 
 const USER_ID = 42
@@ -134,6 +136,84 @@ describe('BriefingAnnotationHandler', () => {
     expect(handler.models.every((m) => m.startsWith('claude'))).toBe(true)
     // Braintrust filters key on this; the registry default would rename it.
     expect(handler.traceName).toBe('briefing-chat-stream')
+  })
+
+  describe('finalizeAssistantText', () => {
+    const LEGAL = guardrailLine('legal_advice', 'briefing_chat')
+    const SMALL = guardrailLine('small_count', 'briefing_chat')
+    const STATUTE = 'Under RCW 35.21.766 the council can act.'
+    const noTools = { toolEvents: [] }
+    const suppressed = (rowsSuppressed: number) => ({
+      toolEvents: [
+        {
+          toolCallId: 'call-district',
+          name: 'district_insights',
+          args: {},
+          status: 'returned' as const,
+          result: { rows: [], rowsSuppressed },
+        },
+      ],
+    })
+
+    it('ends an uncautioned statute reading with the legal line', () => {
+      expect(buildHandler().finalizeAssistantText(STATUTE, noTools)).toBe(
+        `\n\n${LEGAL}`,
+      )
+    })
+
+    it('adds no second caution when the reply already carries the legal line', () => {
+      expect(
+        buildHandler().finalizeAssistantText(`${STATUTE} ${LEGAL}`, noTools),
+      ).toBe(null)
+    })
+
+    it('lets an agenda summary cite a code section without the line', () => {
+      expect(
+        buildHandler().finalizeAssistantText(
+          'Item 2 amends Chapter 5 § 5.04 of the municipal code to raise the fee.',
+          noTools,
+        ),
+      ).toBe(null)
+    })
+
+    it('notes suppressed counts after a district_insights result dropped rows', () => {
+      expect(
+        buildHandler().finalizeAssistantText(
+          'Most precincts skew older.',
+          suppressed(3),
+        ),
+      ).toBe(`\n\n${SMALL}`)
+    })
+
+    it('does not repeat the count note the reply already carries', () => {
+      expect(
+        buildHandler().finalizeAssistantText(
+          `Most precincts skew older. ${SMALL}`,
+          suppressed(3),
+        ),
+      ).toBe(null)
+    })
+
+    it('adds no count note when nothing was suppressed', () => {
+      expect(
+        buildHandler().finalizeAssistantText(
+          'Most precincts skew older.',
+          suppressed(0),
+        ),
+      ).toBe(null)
+    })
+
+    it('puts the caution before the count note', () => {
+      expect(buildHandler().finalizeAssistantText(STATUTE, suppressed(2))).toBe(
+        `\n\n${LEGAL}\n\n${SMALL}`,
+      )
+    })
+
+    it('adds nothing to a decline', () => {
+      expect(
+        buildHandler().finalizeAssistantText(GUARDRAIL_DECLINE, noTools),
+      ).toBe(null)
+    })
   })
 
   it('renders a prompt byte-identical to the pure builder on the fixture', () => {

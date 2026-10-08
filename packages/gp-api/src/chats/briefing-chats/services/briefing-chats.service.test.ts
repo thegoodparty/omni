@@ -16,6 +16,7 @@ import type {
   FinalizeTurn,
   StreamArgs,
 } from '@/chats/services/chatStream.service'
+import { guardrailLine } from '@/chats/general/services/guardrailLines'
 import { ChatStreamService } from '@/chats/services/chatStream.service'
 import type {
   Artifact,
@@ -299,7 +300,27 @@ describe('BriefingChatsService', () => {
       ])
     })
 
-    it('omits finalizeText while the handler has no finalizeAssistantText', async () => {
+    it("forwards the handler's own finalizeAssistantText by default", async () => {
+      await consume(
+        svc.sendMessage({
+          annotationId: ANNOTATION_ID,
+          userId: USER_ID,
+          userMessage: 'hi',
+        }),
+      )
+
+      const text = 'Under RCW 35.21.766 the council can act.'
+      const turn: FinalizeTurn = { toolEvents: [] }
+      const forwarded = chatStream.lastArgs?.finalizeText?.(text, turn)
+      expect(forwarded).toBe(svc.handler.finalizeAssistantText(text, turn))
+      expect(forwarded).toBe(
+        `\n\n${guardrailLine('legal_advice', 'briefing_chat')}`,
+      )
+    })
+
+    it('omits finalizeText when the handler has no finalizeAssistantText', async () => {
+      Object.assign(svc.handler, { finalizeAssistantText: undefined })
+
       await consume(
         svc.sendMessage({
           annotationId: ANNOTATION_ID,

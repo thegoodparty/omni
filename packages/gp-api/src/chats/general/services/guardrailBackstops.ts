@@ -18,9 +18,6 @@ import { ADVICE_SIGNALS, DISCLAIMER_PRESENT } from './professionalAdviceCheck'
 
 const HANDOFF_TOOL_NAME = 'compose_handoff'
 
-const hasAdviceSignal = (text: string): boolean =>
-  ADVICE_SIGNALS.some((re) => re.test(text))
-
 const carriesLine = (
   text: string,
   id: 'legal_advice' | 'professional_advice',
@@ -35,12 +32,16 @@ export const hasCautionLine = (text: string, chat: GuardrailChat): boolean =>
   carriesLine(text, 'legal_advice', chat) ||
   carriesLine(text, 'professional_advice', chat)
 
+// A chat may pass a narrower signal list when one of the shared signals is
+// ordinary prose on that surface (the briefing chat quotes agenda material
+// that cites code sections); the shared list itself does not change.
 export const legalAdviceBackstop = (
   text: string,
   chat: GuardrailChat,
+  signals: readonly RegExp[] = ADVICE_SIGNALS,
 ): string | null => {
   if (!text.trim()) return null
-  if (!hasAdviceSignal(text)) return null
+  if (!signals.some((re) => re.test(text))) return null
   if (hasCautionLine(text, chat)) return null
   return tryGuardrailLine('legal_advice', chat)
 }

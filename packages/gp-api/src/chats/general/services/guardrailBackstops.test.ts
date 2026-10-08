@@ -8,6 +8,7 @@ import {
   smallCountBackstop,
 } from './guardrailBackstops'
 import { guardrailLine } from './guardrailLines'
+import { ADVICE_SIGNALS, SECTION_MARK_SIGNAL } from './professionalAdviceCheck'
 
 const LEGAL = guardrailLine('legal_advice', 'chief_of_staff')
 const PROFESSIONAL = guardrailLine('professional_advice', 'chief_of_staff')
@@ -46,6 +47,22 @@ const unpaired = (name: string, result: unknown): TurnToolEvent => ({
 })
 
 describe('legalAdviceBackstop', () => {
+  it('honors a narrower signal list from the caller', () => {
+    const noSectionMark = ADVICE_SIGNALS.filter(
+      (re) => re !== SECTION_MARK_SIGNAL,
+    )
+    expect(
+      legalAdviceBackstop(
+        'See § 5.04 for the fee.',
+        'briefing_chat',
+        noSectionMark,
+      ),
+    ).toBeNull()
+    expect(
+      legalAdviceBackstop('See RCW 42.30.110.', 'briefing_chat', noSectionMark),
+    ).toBe(guardrailLine('legal_advice', 'briefing_chat'))
+  })
+
   it('appends the legal line on a statute citation with no caution', () => {
     expect(
       legalAdviceBackstop(
