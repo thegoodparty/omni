@@ -1,140 +1,146 @@
 import { describe, expect, it } from 'vitest'
-import {
-  composeCta,
-  composeTalkingPointsBullets,
-  DEPARTURE_NOTE,
-  parseTalkingPoints,
-  serializeTalkingPoints,
-} from './talkingPointsCard'
+import { DEPARTURE_NOTE, readTalkingPoints } from './talkingPointsCard'
 
-const lines = {
-  engagementQuestion: 'What would you fix around here first?',
-  context: 'Fix our roads with a real maintenance plan, not patchwork.',
-  cta: 'Point them to janedoe.org to learn more.',
-  ask: 'Ask whether we can count on them in November.',
-}
+const close = { text: DEPARTURE_NOTE, bullet: true }
 
-describe('serializeTalkingPoints', () => {
-  it('writes the four sections in card order', () => {
-    expect(serializeTalkingPoints(lines).split('\n')).toEqual([
-      lines.engagementQuestion,
-      lines.context,
-      lines.cta,
-      lines.ask,
-    ])
-  })
+// A row frozen before free text: question, context, call to action, ask.
+const LEGACY = [
+  'What would you fix around here first?',
+  'Fix our roads with a real maintenance plan, not patchwork.',
+  'Point them to sarahchen.org to learn more.',
+  'Ask whether we can count on them in November.',
+].join('\n')
 
-  it('round-trips', () => {
-    expect(parseTalkingPoints(serializeTalkingPoints(lines))).toEqual(lines)
-  })
-})
-
-// The delimiter cannot survive inside a section. The model's lines are
-// collapsed server-side, but the step's four boxes are textareas — a typed
-// Return or a pasted paragraph is the real source of one, and it would make
-// a five-line card that `parseTalkingPoints` has to reject whole.
-describe('serializeTalkingPoints', () => {
-  it('collapses a section that contains a newline', () => {
-    const stored = serializeTalkingPoints({
-      ...lines,
-      context: 'Fix the roads.\nAnd the sidewalks.',
-    })
-
-    expect(stored.split('\n')).toHaveLength(4)
-    expect(stored.split('\n')[1]).toBe('Fix the roads. And the sidewalks.')
-  })
-
-  it('collapses runs of whitespace and trims the ends', () => {
-    const stored = serializeTalkingPoints({
-      ...lines,
-      ask: '  Ask   them\t\tin November.  ',
-    })
-
-    expect(stored.split('\n')[3]).toBe('Ask them in November.')
-  })
-})
-
-describe('parseTalkingPoints', () => {
-  // Every list created before this shipped, which is what the door has to fall
-  // back to the static script for.
+describe('readTalkingPoints', () => {
+  // Every list created before the points step, and every candidate who left
+  // the box blank. The walk falls back to the issue stances for these.
   it('is null for a list with no stored card', () => {
-    expect(parseTalkingPoints(null)).toBeNull()
-    expect(parseTalkingPoints(undefined)).toBeNull()
-    expect(parseTalkingPoints('')).toBeNull()
+    expect(readTalkingPoints(null)).toBeNull()
+    expect(readTalkingPoints(undefined)).toBeNull()
+    expect(readTalkingPoints('')).toBeNull()
+    expect(readTalkingPoints('  \n\n  \n')).toBeNull()
   })
 
-  // A phone-banking or SMS script that landed on this column is prose, not
-  // four lines. Rendering its first paragraph as an engagement question would
-  // be worse than falling back.
-  it('is null for anything that is not four lines', () => {
-    expect(parseTalkingPoints('Hi, this is Jane calling about…')).toBeNull()
-    expect(parseTalkingPoints('one\ntwo\nthree')).toBeNull()
-    expect(parseTalkingPoints('one\ntwo\nthree\nfour\nfive')).toBeNull()
+  it('is null for markers with nothing after them', () => {
+    expect(readTalkingPoints('• \n•')).toBeNull()
   })
 
-  it('is null for four blank lines', () => {
-    expect(parseTalkingPoints('\n\n\n')).toBeNull()
-  })
+  describe('a legacy four-line row', () => {
+    // Old walk lists are not migrated, so they read exactly as they always did.
+    it('reads the four lines as bullets, then the close', () => {
+      expect(readTalkingPoints(LEGACY)).toEqual([
+        {
+          text: 'What would you fix around here first?',
+          bullet: true,
+        },
+        {
+          text: 'Fix our roads with a real maintenance plan, not patchwork.',
+          bullet: true,
+        },
+        { text: 'Point them to sarahchen.org to learn more.', bullet: true },
+        {
+          text: 'Ask whether we can count on them in November.',
+          bullet: true,
+        },
+        close,
+      ])
+    })
 
-  // A campaign with no website has no call to action to name. That is a blank
-  // section, not a bad row, so the other three still reach the door.
-  it('keeps a blank section rather than rejecting the card', () => {
-    const parsed = parseTalkingPoints('Question?\nContext.\n\nAsk.')
-
-    expect(parsed).toEqual({
-      engagementQuestion: 'Question?',
-      context: 'Context.',
-      cta: '',
-      ask: 'Ask.',
+    // A campaign with no website on file stored a blank call to action.
+    it('drops a blank section', () => {
+      expect(readTalkingPoints('Question?\nContext.\n\nAsk.')).toEqual([
+        { text: 'Question?', bullet: true },
+        { text: 'Context.', bullet: true },
+        { text: 'Ask.', bullet: true },
+        close,
+      ])
     })
   })
-})
 
-describe('composeCta', () => {
-  it('names the website without its scheme, which nobody says out loud', () => {
-    expect(composeCta('https://janedoe.org')).toBe(
-      'Point them to janedoe.org to learn more — no commitment needed.',
-    )
-    expect(composeCta('http://janedoe.org')).toContain('janedoe.org')
-  })
+  describe('free text', () => {
+    it('reads drafted bullets without their markers, then the close', () => {
+      const stored = [
+        '• Ask what they would fix first.',
+        '• Mention the road maintenance plan.',
+        '• Invite them to the town hall on Tuesday.',
+        '• Ask if we can count on their vote.',
+        '• Offer a yard sign.',
+      ].join('\n')
 
-  it('is empty when there is no website on file', () => {
-    expect(composeCta(null)).toBe('')
-    expect(composeCta(undefined)).toBe('')
-    expect(composeCta('  ')).toBe('')
-  })
-})
+      expect(readTalkingPoints(stored)).toEqual([
+        { text: 'Ask what they would fix first.', bullet: true },
+        { text: 'Mention the road maintenance plan.', bullet: true },
+        { text: 'Invite them to the town hall on Tuesday.', bullet: true },
+        { text: 'Ask if we can count on their vote.', bullet: true },
+        { text: 'Offer a yard sign.', bullet: true },
+        close,
+      ])
+    })
 
-describe('composeTalkingPointsBullets', () => {
-  it('reads as the stored four followed by the close', () => {
-    expect(composeTalkingPointsBullets(lines)).toEqual([
-      lines.engagementQuestion,
-      lines.context,
-      lines.cta,
-      lines.ask,
-      DEPARTURE_NOTE,
-    ])
-  })
+    // A four-line draft is still free text once any line carries a marker.
+    it('reads four lines with a marker as free text', () => {
+      expect(readTalkingPoints('• One.\nTwo.\nThree.\nFour.')).toEqual([
+        { text: 'One.', bullet: true },
+        { text: 'Two.', bullet: false },
+        { text: 'Three.', bullet: false },
+        { text: 'Four.', bullet: false },
+        close,
+      ])
+    })
 
-  // A blank section drops out rather than printing an empty bullet at a door.
-  it('drops a blank section', () => {
-    expect(composeTalkingPointsBullets({ ...lines, cta: '' })).toEqual([
-      lines.engagementQuestion,
-      lines.context,
-      lines.ask,
-      DEPARTURE_NOTE,
-    ])
-  })
+    it('keeps bullets and sentences in the order written', () => {
+      const stored = [
+        'I am knocking about the roads.',
+        '• Ask what they would fix first.',
+        '• Mention the maintenance plan.',
+        'Thank them either way.',
+        '• Offer a yard sign.',
+      ].join('\n')
 
-  // The close is a constant, so it is there even for a card with nothing else.
-  it('always closes', () => {
-    expect(
-      composeTalkingPointsBullets({
-        engagementQuestion: '',
-        context: '',
-        cta: '',
-        ask: '',
-      }),
-    ).toEqual([DEPARTURE_NOTE])
+      expect(readTalkingPoints(stored)).toEqual([
+        { text: 'I am knocking about the roads.', bullet: false },
+        { text: 'Ask what they would fix first.', bullet: true },
+        { text: 'Mention the maintenance plan.', bullet: true },
+        { text: 'Thank them either way.', bullet: false },
+        { text: 'Offer a yard sign.', bullet: true },
+        close,
+      ])
+    })
+
+    it('reads a paragraph with no bullets as written', () => {
+      expect(
+        readTalkingPoints(
+          'Ask about the roads and listen. Then invite them to the town hall.',
+        ),
+      ).toEqual([
+        {
+          text: 'Ask about the roads and listen. Then invite them to the town hall.',
+          bullet: false,
+        },
+        close,
+      ])
+    })
+
+    it('drops blank lines and trims each line', () => {
+      expect(
+        readTalkingPoints('\n•   Ask about the roads.  \n\n\n  Then listen.\n'),
+      ).toEqual([
+        { text: 'Ask about the roads.', bullet: true },
+        { text: 'Then listen.', bullet: false },
+        close,
+      ])
+    })
+
+    // The accepted edge: four plain lines cannot be told apart from a legacy
+    // row, so they read as bullets. The words reach the door either way.
+    it('reads exactly four plain lines as a legacy row', () => {
+      expect(readTalkingPoints('One.\nTwo.\nThree.\nFour.')).toEqual([
+        { text: 'One.', bullet: true },
+        { text: 'Two.', bullet: true },
+        { text: 'Three.', bullet: true },
+        { text: 'Four.', bullet: true },
+        close,
+      ])
+    })
   })
 })

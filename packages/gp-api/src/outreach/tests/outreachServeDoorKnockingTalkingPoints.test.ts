@@ -1,6 +1,9 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import {
+  DOOR_KNOCKING_BULLET,
+  SERVE_OUTREACH_PURPOSE_VALUES,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -42,15 +45,16 @@ beforeEach(async () => {
 
 const eoHeaders = () => ({ headers: { 'x-organization-slug': eoOrgSlug } })
 
-const POINTS = {
-  engagementQuestion: 'What is working and not working on your street?',
-  context: 'The office is tracking road repairs district by district.',
-  ask: 'Ask what they want raised at the next council meeting.',
-}
+const POINTS = [
+  'Ask what is working and not working on their street.',
+  'The office is tracking road repairs district by district.',
+  'Repairs are scheduled from what residents report.',
+  'Ask what they want raised at the next council meeting.',
+]
 
 const mockPoints = () =>
   jsonCompletion.mockResolvedValue({
-    object: POINTS,
+    object: { points: POINTS },
     tokens: 50,
     inputTokens: 25,
     outputTokens: 25,
@@ -90,6 +94,9 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(promptOf('user')).toContain(
       SERVE_DOOR_KNOCKING_VOICE.purposePrompts[purpose],
+    )
+    expect(res.data.draft).toBe(
+      POINTS.map((point) => `${DOOR_KNOCKING_BULLET}${point}`).join('\n'),
     )
   })
 
@@ -174,17 +181,36 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(user).toContain('Where the elected official serves: Georgetown, TX.')
   })
 
-  // Serve's card differs from Win's in two sections, so the shape the model is
-  // handed has to differ too — an "ask them to vote" note would be wrong here.
+  // Serve's introduction differs from Win's, and so does whose goal the
+  // bullets carry: an "ask them to vote" note would be wrong here.
   it('states the Serve card shape', async () => {
     mockPoints()
 
     await postDraft(draftBody())
 
     const system = promptOf('system')
-    expect(system).toContain('five-section card')
     expect(system).toContain('"Hi, I\'m {name}, your {office}."')
-    expect(system).toContain('to ask of the constituent')
+    expect(system).toContain('a conversation with a constituent')
+    expect(system).toContain('about what the office is working toward')
+    expect(system).toContain('Write 4 or 5 bullets')
+  })
+
+  // An Improve keeps the official's own sentences as sentences.
+  it('polishes the official’s text without reshaping it', async () => {
+    const sentences = 'We fixed the bus line.\nTell us what is next.'
+    jsonCompletion.mockResolvedValue({
+      object: { draft: sentences },
+      tokens: 50,
+      inputTokens: 25,
+      outputTokens: 25,
+      model: 'claude-test',
+    })
+
+    const res = await postDraft(draftBody({ currentDraft: sentences }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(promptOf('system')).toContain('Keep the shape they wrote')
+    expect(res.data.draft).toBe(sentences)
   })
 
   // The Win rail's filter allowlist is not the Serve rail's: voter-file

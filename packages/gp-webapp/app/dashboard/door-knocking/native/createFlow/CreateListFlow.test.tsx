@@ -15,7 +15,7 @@ import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
-import { DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH } from '@goodparty_org/contracts'
+import { DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH } from '@goodparty_org/contracts'
 
 // The success screen's turf cards carry the assignee menu, which reads the
 // viewer's organization; these tests render without an OrganizationProvider,
@@ -651,16 +651,15 @@ describe('CreateListFlow', () => {
     expect(filterPosts).toBe(0)
   })
 
-  // A Regenerate reply can land after the candidate has started editing a
-  // different section than the one it is replacing — `onLineChange` bumps
-  // `draftRequestRef` and resets the pending draft mutation so that edit
-  // wins rather than being overwritten by the stale reply.
+  // A Regenerate reply can land after the candidate has started editing the
+  // talking points. `onTextChange` bumps `draftRequestRef` and resets the
+  // pending draft mutation so that edit wins rather than being overwritten by
+  // the stale reply.
   it('keeps a talking point typed while a reply is still in flight', async () => {
-    const POINTS = {
-      engagementQuestion: 'What would you fix around here first?',
-      context: 'Fix our roads with a real maintenance plan.',
-      ask: 'Ask whether we can count on them in November.',
-    }
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
     let release!: () => void
     const held = new Promise<void>((resolve) => {
       release = resolve
@@ -668,11 +667,11 @@ describe('CreateListFlow', () => {
     const answered = { done: false }
     api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
       if (body.previousDraft === undefined) {
-        return { status: 200, data: POINTS }
+        return { status: 200, data: { draft: DRAFT } }
       }
       await held
       answered.done = true
-      return { status: 200, data: { ...POINTS, context: 'The AI reply.' } }
+      return { status: 200, data: { draft: 'The AI reply.' } }
     })
 
     const { rerender } = await renderAtWho()
@@ -680,17 +679,17 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     rerender(<CreateListFlow {...baseProps} step="points" />)
 
-    const contextBox = () =>
-      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
     await waitFor(() =>
-      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
-        POINTS.context,
-      ),
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
     act(() => {
-      const { editor } = contextBox()
+      const { editor } = field()
       // One short of the doc's end, which is inside the last paragraph: the
       // doc boundary itself would open a new one.
       editor.commands.insertContentAt(
@@ -703,10 +702,10 @@ describe('CreateListFlow', () => {
     await waitFor(() => expect(answered.done).toBe(true))
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
 
-    expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
-      `${POINTS.context} Sarah Chen said the roads need work too.`,
+    expect(field().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${DRAFT} Sarah Chen said the roads need work too.`,
     )
-    expect(contextBox().editor.getText({ blockSeparator: '\n' })).not.toContain(
+    expect(field().editor.getText({ blockSeparator: '\n' })).not.toContain(
       'The AI reply.',
     )
   })
@@ -714,11 +713,10 @@ describe('CreateListFlow', () => {
   // A call the candidate edited past can still fail. Its error must not
   // come back over words they already fixed.
   it("keeps the candidate's words when a superseded call fails late", async () => {
-    const POINTS = {
-      engagementQuestion: 'What would you fix around here first?',
-      context: 'Fix our roads with a real maintenance plan.',
-      ask: 'Ask whether we can count on them in November.',
-    }
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
     let release!: () => void
     const held = new Promise<void>((resolve) => {
       release = resolve
@@ -726,7 +724,7 @@ describe('CreateListFlow', () => {
     const answered = { done: false }
     api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
       if (body.previousDraft === undefined) {
-        return { status: 200, data: POINTS }
+        return { status: 200, data: { draft: DRAFT } }
       }
       await held
       answered.done = true
@@ -741,12 +739,12 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     rerender(<CreateListFlow {...baseProps} step="points" />)
 
-    const contextBox = () =>
-      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
     await waitFor(() =>
-      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
-        POINTS.context,
-      ),
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
@@ -756,7 +754,7 @@ describe('CreateListFlow', () => {
       expect(screen.getByRole('button', { name: /Regenerate/ })).toBeDisabled(),
     )
     act(() => {
-      const { editor } = contextBox()
+      const { editor } = field()
       editor.commands.insertContentAt(
         editor.state.doc.content.size - 1,
         ' Sarah Chen said the roads need work too.',
@@ -770,8 +768,8 @@ describe('CreateListFlow', () => {
     expect(
       screen.queryByText(/We couldn.t write your talking points/),
     ).not.toBeInTheDocument()
-    expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
-      `${POINTS.context} Sarah Chen said the roads need work too.`,
+    expect(field().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${DRAFT} Sarah Chen said the roads need work too.`,
     )
   })
 
@@ -793,7 +791,9 @@ describe('CreateListFlow', () => {
     ).toBeInTheDocument()
 
     act(() => {
-      const { editor } = screen.getByLabelText('Context') as HTMLElement & {
+      const { editor } = screen.getByLabelText(
+        'Talking points',
+      ) as HTMLElement & {
         editor: Editor
       }
       editor.commands.insertContent('Sarah Chen wants safer streets.')
@@ -882,17 +882,16 @@ describe('CreateListFlow', () => {
   // `currentDraft`, so a Try again that fell back to a fresh draft would
   // throw those words away rather than retrying what they asked for.
   it('Try again repeats an Improve that failed', async () => {
-    const POINTS = {
-      engagementQuestion: 'What would you fix around here first?',
-      context: 'Fix our roads with a real maintenance plan.',
-      ask: 'Ask whether we can count on them in November.',
-    }
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
     const bodies: Array<{ currentDraft?: string; instructions?: string }> = []
     api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
       bodies.push(body)
       // First call is the initial draft on arrival. Second is the Improve
       // the candidate presses, which fails. Third is Try again's retry.
-      if (bodies.length === 1) return { status: 200, data: POINTS }
+      if (bodies.length === 1) return { status: 200, data: { draft: DRAFT } }
       if (bodies.length === 2) {
         return {
           status: 502,
@@ -901,7 +900,7 @@ describe('CreateListFlow', () => {
       }
       return {
         status: 200,
-        data: { ...POINTS, context: 'Edited by the retry.' },
+        data: { draft: 'Edited by the retry.' },
       }
     })
 
@@ -910,17 +909,17 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     rerender(<CreateListFlow {...baseProps} step="points" />)
 
-    const contextBox = () =>
-      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
     await waitFor(() =>
-      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
-        POINTS.context,
-      ),
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
     )
 
     const edited = 'Sarah Chen wants a real plan for the roads.'
     act(() => {
-      contextBox().editor.commands.setContent(edited)
+      field().editor.commands.setContent(edited)
     })
 
     fireEvent.click(screen.getByRole('button', { name: /Improve with AI/ }))
@@ -950,17 +949,14 @@ describe('CreateListFlow', () => {
 
   // A field with a hard limit warns before it is reached rather than
   // silently refusing keystrokes, and says so plainly once it is reached.
-  // Tested on one section (Context): the other three generated sections
-  // wire the same `LengthCounter` the same way.
   it('warns as the field nears its length limit and says when it reaches it', async () => {
-    const POINTS = {
-      engagementQuestion: 'What would you fix around here first?',
-      context: 'Fix our roads with a real maintenance plan.',
-      ask: 'Ask whether we can count on them in November.',
-    }
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
     api.mock('POST /v1/outreach/door-knocking/draft', {
       status: 200,
-      data: POINTS,
+      data: { draft: DRAFT },
     })
 
     const { rerender } = await renderAtWho()
@@ -968,19 +964,19 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     rerender(<CreateListFlow {...baseProps} step="points" />)
 
-    const contextBox = () =>
-      screen.getByLabelText('Context') as HTMLElement & { editor: Editor }
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
     await waitFor(() =>
-      expect(contextBox().editor.getText({ blockSeparator: '\n' })).toBe(
-        POINTS.context,
-      ),
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
     )
 
-    const max = DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH
+    const max = DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH
 
     // Below 90%: neither the warning nor the limit message shows.
     act(() => {
-      contextBox().editor.commands.setContent('a'.repeat(Math.floor(max * 0.5)))
+      field().editor.commands.setContent('a'.repeat(Math.floor(max * 0.5)))
     })
     expect(screen.queryByText(/characters left/)).toBeNull()
     expect(screen.queryByText(/character limit/)).toBeNull()
@@ -988,7 +984,7 @@ describe('CreateListFlow', () => {
     // 90%+ of the limit: the warning shows, naming how many are left.
     const nearLimit = Math.ceil(max * 0.95)
     act(() => {
-      contextBox().editor.commands.setContent('a'.repeat(nearLimit))
+      field().editor.commands.setContent('a'.repeat(nearLimit))
     })
     expect(
       screen.getByText(`${(max - nearLimit).toLocaleString()} characters left`),
@@ -996,7 +992,7 @@ describe('CreateListFlow', () => {
 
     // Exactly the limit: the warning is replaced by the reached message.
     act(() => {
-      contextBox().editor.commands.setContent('a'.repeat(max))
+      field().editor.commands.setContent('a'.repeat(max))
     })
     expect(
       screen.getByText(

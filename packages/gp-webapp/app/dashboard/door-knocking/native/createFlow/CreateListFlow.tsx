@@ -56,11 +56,6 @@ import {
   useDoorKnockingServeMode,
 } from '../doorKnockingSurface'
 import { buildIntro, buildServeIntro } from '../doorScriptContent'
-import {
-  composeCta,
-  serializeTalkingPoints,
-  type TalkingPointsLines,
-} from '../talkingPointsCard'
 import { TalkingPointsStep } from './TalkingPointsStep'
 import {
   flowStage,
@@ -395,22 +390,13 @@ const STAGE_META: Record<
     // this block is every stage's, and two stacked title/caption pairs is
     // what the points step briefly had.
     caption:
-      'Notes for this list — its goal and the people on it — to say in your ' +
-      'own words, not a script to read out. Edit anything that does not ' +
-      'sound like you.',
+      'Notes for this list to say in your own words, not a script to read out.',
   },
 }
 
 // The purpose union across both rails this one route serves — same
 // convention as PhoneBankingFlow's PhoneBankingFlowPurpose.
 type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
-
-const EMPTY_POINTS: TalkingPointsLines = {
-  engagementQuestion: '',
-  context: '',
-  cta: '',
-  ask: '',
-}
 
 export default function CreateListFlow({
   step,
@@ -484,8 +470,7 @@ export default function CreateListFlow({
     [drawnDrafts, draftStats],
   )
 
-  // For the talking-points step's composed sections only: the identity clause
-  // it previews, and the website its call to action is built from. The
+  // For the talking-points step's composed introduction only. The
   // candidate's name lives on the user, not the campaign.
   const [campaign] = useCampaign()
   const [user] = useUser()
@@ -578,11 +563,10 @@ export default function CreateListFlow({
     null,
   )
 
-  // The card the canvassers will read. Three of these four lines are the
-  // model's; `cta` is composed from the campaign's own website below and is
-  // editable but never regenerated.
-  const [points, setPoints] = useState<TalkingPointsLines>(EMPTY_POINTS)
-  // Whether the boxes hold unmodified AI output or text the candidate typed.
+  // The talking points the canvassers will read: free text, which a fresh
+  // draft fills with bullets and the candidate may reshape however they like.
+  const [talkingPoints, setTalkingPoints] = useState('')
+  // Whether the field holds unmodified AI output or text the candidate typed.
   // It decides whether a regenerate is allowed to send the current text as
   // `previousDraft`. Once they have edited, their own words are not something
   // the model should be told to diverge from — an explicit Regenerate still
@@ -1045,8 +1029,9 @@ export default function CreateListFlow({
     setName(suggestion)
   }, [step, purpose, purposeNameSuggestion, siblingTurfs])
 
-  // The card's two composed sections, previewed on the step so the candidate
-  // reviews five sections rather than the four they can edit.
+  // The introduction and goodbye the app writes, previewed around the field
+  // so the candidate sees the whole conversation they are writing the middle
+  // of.
   //
   // The identity clause is the candidate's own — it is rebuilt at the door for
   // whoever is reading, so a volunteer's card names the candidate instead.
@@ -1055,20 +1040,6 @@ export default function CreateListFlow({
   const previewIntro = serveMode
     ? buildServeIntro(user, officeName)
     : buildIntro(user, campaign)
-
-  // Section 3, composed rather than generated: the URL is real data, and a
-  // model asked to phrase this line could invent one just as easily. Seeded
-  // once the campaign record loads, and never overwritten afterwards — a
-  // candidate who edited or cleared it meant to.
-  const ctaSeededRef = useRef(false)
-  const composedCta = composeCta(campaign?.details?.website)
-  useEffect(() => {
-    if (ctaSeededRef.current || !composedCta) return
-    ctaSeededRef.current = true
-    setPoints((current) =>
-      current.cta.trim() === '' ? { ...current, cta: composedCta } : current,
-    )
-  }, [composedCta])
 
   // Deliberately narrower than what the address preview sends, and narrower
   // than the list being walked: the pills only.
@@ -1126,10 +1097,6 @@ export default function CreateListFlow({
 
   // Every path into the model goes through here: first draft, Regenerate,
   // Improve with AI, and the error card's Try again.
-  //
-  // `cta` is deliberately absent from both the request and the response. It is
-  // composed from the campaign's website, so the model neither writes it nor
-  // is shown it — the prompt bans URLs outright.
   const requestDraft = (
     nextPurpose: CreateFlowPurpose | null,
     currentDraft?: string,
@@ -1144,8 +1111,8 @@ export default function CreateListFlow({
     lastDraftWasImproveRef.current = currentDraft !== undefined
     const trimmed = instructions.trim()
     // Read here and passed as a variable, the way `instructions` is: the
-    // question is what a community-input effort exists to ask, so the card's
-    // ask has to be written from it rather than from a generic prompt.
+    // question is what a community-input effort exists to ask, so the talking
+    // points have to be written from it rather than from a generic prompt.
     const askedQuestion = purposeAsksQuestion(nextPurpose)
       ? question.trim()
       : ''
@@ -1164,39 +1131,19 @@ export default function CreateListFlow({
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
-          setPoints((current) => ({ ...current, ...generated }))
+          setTalkingPoints(generated.draft)
           setPointsManuallyEdited(false)
         },
       },
     )
   }
 
-  // The three generated lines as one block, in card order — what the endpoint
-  // takes as `currentDraft` (polish this) or `previousDraft` (do not repeat
-  // this). The composed CTA is excluded: it is not the model's to polish.
-  const generatedBlock = () =>
-    [points.engagementQuestion, points.context, points.ask]
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .join('\n')
-
-  // Nothing worth freezing if every section a person wrote is blank — a draft
-  // that failed and was skipped past should leave the list with no card rather
-  // than three newlines, which is what `parseTalkingPoints` would have to
-  // reject later.
-  //
-  // The composed CTA deliberately does not count. It is seeded from the
-  // campaign record the moment that loads, so counting it would make this true
-  // for every candidate with a website on file — and a failed draft would then
-  // freeze a "card" whose only line is the website. At the door that is worse
-  // than no card at all: `useDoorScript` treats any stored card as the
-  // candidate's answer and drops the issue stances it would otherwise show,
-  // so the walk would lose the stances and gain one URL.
-  const hasPoints = [
-    points.engagementQuestion,
-    points.context,
-    points.ask,
-  ].some((line) => line.trim().length > 0)
+  // What the endpoint takes as `currentDraft` (polish this) or
+  // `previousDraft` (do not repeat this), and what the create stores. Blank
+  // is no card at all: a draft that failed and was skipped past leaves the
+  // list with nothing stored, so the walk falls back to the issue stances.
+  const trimmedPoints = talkingPoints.trim()
+  const hasPoints = trimmedPoints.length > 0
 
   // Drafted on arrival at the step, not on the purpose pick four steps
   // earlier: the audience is not settled until `who`, and a draft written
@@ -1330,7 +1277,7 @@ export default function CreateListFlow({
         // everyone works from the same plan. Both optional server-side, so a
         // flow that skipped the points step still creates a turf.
         ...(purpose ? { purpose } : {}),
-        ...(hasPoints ? { talkingPoints: serializeTalkingPoints(points) } : {}),
+        ...(hasPoints ? { talkingPoints: trimmedPoints } : {}),
         ...(asksQuestion ? { communityInputQuestion: question.trim() } : {}),
         // Absent on the very first turf of a new campaign, which is what
         // makes that row the anchor; set on every other, which is what makes
@@ -1983,15 +1930,15 @@ export default function CreateListFlow({
               // The name they gave the list one step ago, which says more about
               // who is being walked than any summary of the pills would.
               audienceLabel={name.trim() || 'this list'}
-              lines={points}
-              onLineChange={(key, value) => {
+              text={talkingPoints}
+              onTextChange={(value) => {
                 // An edit wins over a reply still in flight, which would
                 // otherwise land on top of it. Dropping the call also clears
                 // a failed one's error.
                 draftRequestRef.current += 1
                 if (draft.isPending || draft.isError) draft.reset()
                 setPointsManuallyEdited(true)
-                setPoints((current) => ({ ...current, [key]: value }))
+                setTalkingPoints(value)
               }}
               instructions={instructions}
               onInstructionsChange={setInstructions}
@@ -1999,22 +1946,18 @@ export default function CreateListFlow({
               // rejected text always rides along as `previousDraft` — that is
               // what stops the re-roll converging on the thing just turned down.
               onRegenerate={() =>
-                requestDraft(purpose, undefined, generatedBlock() || undefined)
+                requestDraft(purpose, undefined, trimmedPoints || undefined)
               }
-              onImprove={() => requestDraft(purpose, generatedBlock())}
+              onImprove={() => requestDraft(purpose, trimmedPoints)}
               // Nothing to polish until something is written, and a purpose the
               // candidate is writing themselves has only this path.
-              canImprove={generatedBlock().length > 0}
+              canImprove={hasPoints}
               isDrafting={draft.isPending}
               isDraftError={draft.isError}
               onRetry={() =>
                 lastDraftWasImproveRef.current
-                  ? requestDraft(purpose, generatedBlock())
-                  : requestDraft(
-                      purpose,
-                      undefined,
-                      generatedBlock() || undefined,
-                    )
+                  ? requestDraft(purpose, trimmedPoints)
+                  : requestDraft(purpose, undefined, trimmedPoints || undefined)
               }
               isCustomPurpose={purpose === 'custom'}
             />

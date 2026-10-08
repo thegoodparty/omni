@@ -4,7 +4,8 @@ import {
   Injectable,
 } from '@nestjs/common'
 import {
-  DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
+  DOOR_KNOCKING_BULLET,
+  DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
   type DoorKnockingTalkingPointsDraftResponse,
   type OutreachEventDetails,
   type DoorKnockingTalkingPointsPurpose,
@@ -17,33 +18,26 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { eventDetailsContext } from '../util/eventDetails.util'
 
-// Door-knocking talking points: the five-section card a canvasser reads at a
-// door, of which this service writes three lines.
+// Door-knocking talking points: free text a canvasser reads between the
+// introduction and the goodbye, both of which the app writes at the door.
 //
-// The template is product's own (Door Knocking Script.docx) and the full plan
-// is in docs/features/door-knocking-talking-points.md. In short:
+// A fresh draft is 4 or 5 bullets, assembled here from a list the model
+// returns, so every line starts with DOOR_KNOCKING_BULLET whatever the model
+// did. An Improve polishes whatever the candidate wrote and keeps its shape:
+// bullets stay bullets, sentences stay sentences.
 //
-//   1a Introduction — identity   composed at render
-//   1b Introduction — question   GENERATED
-//   2  Context                   GENERATED
-//   3  Call to action            composed at create from campaign.details
-//   4  Ask                       GENERATED
-//   5  Departure                 composed at render (a constant)
-//
-// The split is not about effort. The identity clause is where being wrong
-// means a volunteer claiming to be the candidate, and the CTA is where a model
-// that can phrase a URL can also invent one. Those two need no judgement to
-// get right, so nothing is asked of a model that might get them wrong.
+// The introduction is the app's because it is where being wrong means a
+// volunteer claiming to be the candidate; nothing here may write a name, an
+// office or a URL. See gp-api/docs/door-knocking.md.
 
 // The rule stated first, because it is the one the other channels' prompts
 // would get exactly backwards. Phone banking and SMS produce text a person
 // reads out; this produces notes a person reads FROM.
 const NOTES_NOT_DIALOGUE_RULE =
   'These are BULLET NOTES a canvasser glances at on a doorstep and then ' +
-  'says in their own words — never lines to recite. Do not write ' +
-  'dialogue. Do not open with a greeting. Do not address the resident in ' +
-  'the second person. Write what the canvasser needs to REMEMBER, not ' +
-  'what they should say verbatim.'
+  'says in their own words, never lines to recite. Do not write dialogue. ' +
+  'Write what the canvasser needs to REMEMBER, not what they should say ' +
+  'verbatim.'
 
 // The single highest-leverage sentence in this prompt, lifted from the SMS
 // one. The bullet format makes it MORE load-bearing rather than less: a note
@@ -52,12 +46,18 @@ const NOTES_NOT_DIALOGUE_RULE =
 const CONCRETE_HOW_RULE =
   'Name the concrete HOW, not just the topic ("Fix our roads with a real ' +
   'maintenance plan, not patchwork", never just "Fix our roads"). A note ' +
-  'that names only a subject is a failure — the canvasser cannot expand it ' +
+  'that names only a subject is a failure: the canvasser cannot expand it ' +
   'without inventing something.'
+
+// The model imitates its prompt, so the prompt strings themselves carry no
+// em dashes either.
+const STYLE_RULE =
+  'Plain spoken English in sentence case. No em dashes, no emoji, no ' +
+  'jargon.'
 
 // Nouns that differ by rail. Every rule below that names the person is a
 // function of these, because a serve prompt that says "candidate" or
-// "campaign" has leaked win framing into constituent service — the same
+// "campaign" has leaked win framing into constituent service, the same
 // isolation the serve controller enforces on the data side.
 interface SubjectNouns {
   // Possessive, without the article: "candidate's" / "official's".
@@ -65,24 +65,37 @@ interface SubjectNouns {
   // The prompt block those materials arrive in, so the rule names what the
   // model can actually see.
   materials: string
-  // Where the app's composed call-to-action line comes from.
-  record: string
+  // Whose goal the bullets carry: "the campaign" / "the office".
+  effort: string
 }
 
 const WIN_NOUNS: SubjectNouns = {
   possessive: "candidate's",
   materials: 'campaign materials',
-  record: "campaign's own record",
+  effort: 'the campaign',
 }
 
 const SERVE_NOUNS: SubjectNouns = {
   possessive: "official's",
   materials: "official's own materials",
-  record: "office's own record",
+  effort: 'the office',
 }
 
+// The bullets are written once for the whole list and read at every door, so
+// they are about what the effort is asking for. A bullet about the person at
+// the door is a guess about a stranger.
+const goalNotVoterRule = ({ effort }: SubjectNouns): string =>
+  `Every bullet is about what ${effort} is working toward or asking for, ` +
+  'never about the person who answers the door.'
+
+// The app writes both ends of the conversation, so a model greeting would be
+// said twice.
+const NO_GREETING_RULE =
+  'No greeting, no introduction, no thank-you and no goodbye: the app ' +
+  'writes the introduction and the goodbye.'
+
 const inventionBanRule = ({ materials }: SubjectNouns): string =>
-  `Ground every line in the ${materials} when they are ` +
+  `Ground every bullet in the ${materials} when they are ` +
   'provided; never invent policy positions, issue stances, endorsements, ' +
   'statistics, dates, places, or events the materials do not contain. With ' +
   'no materials, stay issue-neutral and write about listening rather than ' +
@@ -96,44 +109,45 @@ const inventionBanRule = ({ materials }: SubjectNouns): string =>
 const audienceUseRule = ({ possessive }: SubjectNouns): string =>
   `The audience description tells you which of the ${possessive} existing ` +
   'priorities to LEAD WITH. It is NOT a fact about the person who answers ' +
-  'the door, and nothing you write may assert, imply, or allude to it — no ' +
+  'the door, and nothing you write may assert, imply, or allude to it: no ' +
   '"as a homeowner", no "for families like yours", no "at your age". The ' +
   'canvasser does not know who is behind the door, and a resident told what ' +
   'a list says about them hears surveillance, not outreach.'
 
 // An event invite's date, time and place arrive as event details from the
-// flow, so nothing on this card is ever a blank to fill.
+// flow, so nothing in the talking points is ever a blank to fill.
 const BRACKETS_RULE =
   'Never write a bracketed placeholder. An event date, time or place ' +
   'comes only from the event details given below; without them, leave the ' +
   'logistics out, and never invent a specific date, time or place.'
 
-const noLinksRule = ({ record }: SubjectNouns): string =>
-  'Never write a URL, a web address, a phone number, or a QR code. The ' +
-  `card's call-to-action line is composed from the ${record} ` +
-  'and is not yours to write.'
+const NO_LINKS_RULE =
+  'Never write a URL, a web address, a phone number, or a QR code.'
 
-const LENGTH_RULE =
-  'Each of the three lines is ONE idea, at most about 30 words. This is ' +
-  'read while a door is opening.'
+const BULLETS_RULE =
+  'Write 4 or 5 bullets, in the order a conversation at the door would ' +
+  'reach them. Each bullet is ONE action or idea, at most about 25 words, ' +
+  'because it is read while a door is opening. Return each bullet as plain ' +
+  'text, with no bullet marker, number or dash in front of it.'
 
 // What every per-purpose steer below has in common, stated once rather than
 // nine times. The shape of a door ask is not a per-purpose question: it is
 // one thing, answerable where the resident is standing, and small enough
 // that "yes" costs them nothing they have to think about. Two asks in one
-// line is the common failure — "vote early and take a yard sign" gets a nod
+// bullet is the common failure: "vote early and take a yard sign" gets a nod
 // and neither.
 const ASK_RULE =
-  'The ask is ONE request and no more, answerable where the resident is ' +
-  'standing — nothing to fetch, sign up for, or think over first. Never ' +
-  'stack two requests into it. Where the purpose below seeks a commitment, ' +
-  'the ask is a yes-or-no the canvasser can record, never softened into a ' +
-  'statement. Where the purpose is listening, it is a single question, and ' +
-  'asking for a commitment anyway is the failure.'
+  'Exactly one bullet is the ask: ONE request and no more, answerable ' +
+  'where the resident is standing, with nothing to fetch, sign up for, or ' +
+  'think over first. Never stack two requests into it. Where the purpose ' +
+  'below seeks a commitment, the ask is a yes-or-no the canvasser can ' +
+  'record, never softened into a statement. Where the purpose is ' +
+  'listening, it is a single question, and asking for a commitment anyway ' +
+  'is the failure.'
 
 const instructionsPriorityRule = ({ possessive }: SubjectNouns): string =>
   `If the ${possessive} own instructions are given below, follow them as long ` +
-  'as they do not conflict with the rules above — never invent a date, ' +
+  'as they do not conflict with the rules above: never invent a date, ' +
   'place, or fact even if instructed to, and never assert anything about ' +
   'the audience even if instructed to.'
 
@@ -148,21 +162,20 @@ export interface DoorKnockingVoiceConfig<TPurpose extends string> {
   // The rail's nouns, so the audience block's rule reads in the same voice as
   // the system prompt that already states it.
   nouns: SubjectNouns
-  // How the template's five sections are described back to the model, so it
-  // knows the shape of the conversation its three lines sit inside without
-  // writing the other two. The wording differs by rail because the composed
-  // identity clause does ("running for" is a claim about a ballot an elected
-  // official is not on).
+  // What the app says around the talking points, described back to the model
+  // so it does not write either end. The wording differs by rail because the
+  // composed introduction does ("running for" is a claim about a ballot an
+  // elected official is not on).
   cardShape: string
 }
 
-// Steers, not text that ships. Each says what commitment the ask should aim
-// at and what the engagement question should open with; the model writes the
-// notes. That is the whole reason these can be prompt copy rather than the
-// per-purpose constants this feature first reached for — and why a wrong
-// steer shifts output rather than putting words in a canvasser's mouth,
-// unlike the shipped per-purpose copy that robocall and phone banking had to
-// correct in #1379 (see doorKnockingPurposes.ts and its Serve twin).
+// Steers, not text that ships. Each says what the bullets should cover and
+// what commitment the ask should aim at; the model writes the notes. That is
+// the whole reason these can be prompt copy rather than the per-purpose
+// constants this feature first reached for, and why a wrong steer shifts
+// output rather than putting words in a canvasser's mouth, unlike the shipped
+// per-purpose copy that robocall and phone banking had to correct in #1379
+// (see doorKnockingPurposes.ts and its Serve twin).
 //
 // Written here rather than waited on: engineering's read of what each goal
 // asks for at a door, cheap to change once the eval set has been graded.
@@ -170,43 +183,40 @@ export interface DoorKnockingVoiceConfig<TPurpose extends string> {
 // per-purpose job is to say which one.
 const WIN_PURPOSE_PROMPTS: Record<DoorKnockingTalkingPointsPurpose, string> = {
   introduce_myself:
-    'Purpose: a first introduction. The ask is whether the resident would ' +
-    'like to hear from the campaign again — a yes-or-no about staying in ' +
-    'touch, never a request for support from someone who just learned the ' +
-    'name. The engagement question invites them to name what they care ' +
-    'about locally.',
+    'Purpose: a first introduction. The bullets cover what the candidate ' +
+    'will work on. One bullet asks what the resident cares about locally. ' +
+    'The ask is whether they would like to hear from the campaign again, a ' +
+    'yes-or-no about staying in touch, never a request for support from ' +
+    'someone who just learned the name.',
   persuade_voters:
-    'Purpose: persuasion. The ask is for their vote, once and plainly — ' +
-    'whether the candidate can count on them. The engagement question is ' +
-    'open-ended and about what matters most to them, so the canvasser ' +
-    'listens before connecting anything to it.',
+    'Purpose: persuasion. One bullet asks an open-ended question about what ' +
+    'matters most to them, so the canvasser listens before connecting ' +
+    'anything to it. The ask is for their vote, once and plainly: whether ' +
+    'the candidate can count on them.',
   event_invite:
-    'Purpose: an event invitation. The ask carries the date, time and ' +
-    'place from the event details below, as given, and asks the resident ' +
-    'to come. The engagement question is a light opener about the ' +
-    'neighborhood, not about the event.',
+    'Purpose: an event invitation. The bullets say what the event is for. ' +
+    'The ask carries the date, time and place from the event details below, ' +
+    'as given, and asks the resident to come.',
   early_voting:
-    'Purpose: early voting. The ask is a commitment to vote early — better ' +
-    'as a specific day than as "sometime during early voting", since a ' +
-    'named day is the one a person keeps — and it names the window only if ' +
-    'a real one is given below. The engagement question checks whether the ' +
-    'resident already knows their early-voting options, phrased as a ' +
-    'question and never as an assertion about dates.',
+    'Purpose: early voting. One bullet checks whether the resident already ' +
+    'knows their early-voting options, phrased as a question and never as ' +
+    'an assertion about dates. The ask is a commitment to vote early, ' +
+    'better as a specific day than as "sometime during early voting", since ' +
+    'a named day is the one a person keeps, and it names the window only if ' +
+    'a real one is given below.',
   election_day_turnout:
-    'Purpose: election day turnout. The ask is a commitment to vote on ' +
-    'election day, naming the date only if a real one is given below. The ' +
-    'engagement question asks whether they have a plan for getting there — ' +
-    'when in the day, or how — because a plan is what turns a yes into a ' +
-    'vote.',
+    'Purpose: election day turnout. One bullet asks whether they have a ' +
+    'plan for getting there, when in the day or how, because a plan is what ' +
+    'turns a yes into a vote. The ask is a commitment to vote on election ' +
+    'day, naming the date only if a real one is given below.',
   community_input:
     'Purpose: listening. There is no commitment to seek: the ask is one ' +
-    'question about what the candidate should be working on, and the whole ' +
-    'card reads as an invitation to talk rather than a pitch. The ' +
-    'engagement question is the most open one on this list.',
-  // Never freshly generated — see the guard in generateDraft.
+    'question about what the candidate should be working on, and every ' +
+    'bullet reads as an invitation to talk rather than a pitch.',
+  // Never freshly generated: see the guard in generateDraft.
   custom:
-    'Purpose: the candidate wrote these points themselves. Adapt what they ' +
-    'wrote into the three bullet notes without adding claims of your own.',
+    'Purpose: the candidate wrote these points themselves. Polish what they ' +
+    'wrote without adding claims of your own.',
 }
 
 const SERVE_PURPOSE_PROMPTS: Record<
@@ -214,66 +224,52 @@ const SERVE_PURPOSE_PROMPTS: Record<
   string
 > = {
   introduce_myself:
-    'Purpose: a first introduction from the office. The ask is whether the ' +
-    'constituent would like to hear from the office again — a yes-or-no ' +
-    'about staying in touch, never a request for support. The engagement ' +
-    'question invites them to name what they care about locally.',
+    'Purpose: a first introduction from the office. The bullets cover what ' +
+    'the office is working on. One bullet asks what the constituent cares ' +
+    'about locally. The ask is whether they would like to hear from the ' +
+    'office again, a yes-or-no about staying in touch, never a request for ' +
+    'support.',
   explain_decision:
-    'Purpose: explaining a recent decision. This is a listening purpose: ' +
-    "the ask is one question inviting the constituent's reaction, never a " +
-    'request for support for the decision. The engagement question asks ' +
-    'whether they have heard about it — never assert what they know or ' +
-    'think of it.',
+    'Purpose: explaining a recent decision. The bullets say what was ' +
+    'decided and why, as the materials below give it. One bullet asks ' +
+    'whether they have heard about it; never assert what they know or think ' +
+    'of it. This is a listening purpose: the ask is one question inviting ' +
+    "the constituent's reaction, never a request for support for the " +
+    'decision.',
   event_invite:
-    'Purpose: an event invitation. The ask carries the date, time and ' +
-    'place from the event details below, as given, and asks the ' +
-    'constituent to come. The engagement question is a light opener ' +
-    'about the neighborhood, not about the event.',
+    'Purpose: an event invitation. The bullets say what the event is for. ' +
+    'The ask carries the date, time and place from the event details below, ' +
+    'as given, and asks the constituent to come.',
   community_input:
     'Purpose: listening. There is no commitment to seek: the ask is one ' +
-    'question about what the office should be working on, and the whole ' +
-    'card reads as an invitation to talk rather than a pitch. The ' +
-    'engagement question is the most open one on this list.',
+    'question about what the office should be working on, and every bullet ' +
+    'reads as an invitation to talk rather than a pitch.',
   share_resource:
-    'Purpose: sharing a service or program. The ask is whether they would ' +
-    'like the details of it — a yes-or-no, and never a sign-up at the door ' +
-    '— and it names only a program the materials below actually describe. ' +
-    'The engagement question asks whether they have run into the need it ' +
-    'addresses.',
+    'Purpose: sharing a service or program. One bullet asks whether they ' +
+    'have run into the need it addresses. The ask is whether they would ' +
+    'like the details of it, a yes-or-no and never a sign-up at the door, ' +
+    'and it names only a program the materials below actually describe.',
   custom:
-    'Purpose: the official wrote these points themselves. Adapt what they ' +
-    'wrote into the three bullet notes without adding claims of their own.',
+    'Purpose: the official wrote these points themselves. Polish what they ' +
+    'wrote without adding claims of their own.',
 }
 
 const WIN_CARD_SHAPE = [
-  'The canvasser reads a five-section card. You are writing THREE of the',
-  'five; the other two are composed by the app from campaign records and',
-  'are not yours to write:',
-  '  1. Introduction — the app writes "Hi, I\'m {name}, running for',
-  '     {office}." or the volunteer equivalent. YOU write the short',
-  '     engagement question that follows it.',
-  '  2. Context — YOU write this: why this candidate, in one idea.',
-  '  3. Call to action — the app writes this from the campaign record.',
-  '  4. Ask — YOU write this: the one thing to ask of the resident.',
-  '  5. Departure — the app writes a fixed thank-you.',
+  'At each door the app first says "Hi, I\'m {name}, running for {office}."',
+  'or the volunteer equivalent, then the canvasser works from the talking',
+  'points, then the app closes with a thank-you and goodbye. You write only',
+  'the talking points in between.',
 ].join('\n')
 
 const SERVE_CARD_SHAPE = [
-  'The canvasser reads a five-section card. You are writing THREE of the',
-  "five; the other two are composed by the app from the office's own",
-  'records and are not yours to write:',
-  '  1. Introduction — the app writes "Hi, I\'m {name}, your {office}." or',
-  '     the volunteer equivalent. YOU write the short engagement question',
-  '     that follows it.',
-  '  2. Context — YOU write this: why this office is at the door, in one',
-  '     idea.',
-  "  3. Call to action — the app writes this from the office's record.",
-  '  4. Ask — YOU write this: the one thing to ask of the constituent.',
-  '  5. Departure — the app writes a fixed thank-you.',
+  'At each door the app first says "Hi, I\'m {name}, your {office}." or the',
+  'volunteer equivalent, then the canvasser works from the talking points,',
+  'then the app closes with a thank-you and goodbye. You write only the',
+  'talking points in between, for a conversation with a constituent.',
 ].join('\n')
 
 // Read after "You are ". Serve's omits the word "campaign" entirely, matching
-// every other serve prompt in this module — the person already holds the
+// every other serve prompt in this module: the person already holds the
 // office, and framing their constituent-service walk as campaign work is the
 // win/serve leak these prompts exist to avoid.
 const WIN_PERSONA =
@@ -294,15 +290,19 @@ const draftSystemPrompt = (
     '',
     'Rules:',
     `- ${NOTES_NOT_DIALOGUE_RULE}`,
+    `- ${BULLETS_RULE}`,
+    `- ${goalNotVoterRule(nouns)}`,
+    `- ${NO_GREETING_RULE}`,
     `- ${CONCRETE_HOW_RULE}`,
     `- ${inventionBanRule(nouns)}`,
     `- ${audienceUseRule(nouns)}`,
     `- ${ASK_RULE}`,
-    '- The context line is EVERGREEN: no dates, no deadlines, no events.',
-    '  A list is walked over weeks, and the ask is where a date belongs.',
+    '- Every bullet but the ask is EVERGREEN: no dates, no deadlines, no',
+    '  events. A list is walked over weeks, and the ask is where a date',
+    '  belongs.',
     `- ${BRACKETS_RULE}`,
-    `- ${noLinksRule(nouns)}`,
-    `- ${LENGTH_RULE}`,
+    `- ${NO_LINKS_RULE}`,
+    `- ${STYLE_RULE}`,
     `- ${instructionsPriorityRule(nouns)}`,
     '- Stay strictly non-partisan. No party labels, no attacks, no',
     '  opponents named.',
@@ -321,25 +321,26 @@ const improveSystemPrompt = (
     cardShape,
     '',
     'Rules:',
+    '- Keep the shape they wrote. If they wrote bullet points, return bullet',
+    '  points; if they wrote sentences, return sentences. Never turn one into',
+    '  the other. Keep their line breaks, and keep any marker a line starts',
+    '  with (such as "•") exactly as written.',
     '- Every concrete detail in the original MUST appear in your output:',
     '  places, events, names, numbers, and the ask. Dropping one is a',
     '  failure.',
-    `- ${NOTES_NOT_DIALOGUE_RULE} If the original is written as dialogue,`,
-    '  compress it into notes.',
-    `- ${CONCRETE_HOW_RULE}`,
     '- Never add facts, positions, endorsements, statistics, dates, places,',
-    `  or events the original does not contain — the ${nouns.materials},`,
+    `  or events the original does not contain. The ${nouns.materials},`,
     '  where provided, are context for accuracy, not a source of new',
     '  content in a polish.',
+    '- Keep it about as long as the original.',
     `- ${audienceUseRule(nouns)}`,
-    `- ${ASK_RULE} If the original stacks two, keep the one the`,
-    '  purpose below names and drop the other.',
     `- ${BRACKETS_RULE} Strip any bracket the original contains and`,
     '  write around the gap in plain language.',
-    `- ${noLinksRule(nouns)} Remove any that appear in the original.`,
-    `- ${LENGTH_RULE}`,
+    `- ${NO_LINKS_RULE} Remove any that appear in the original.`,
+    `- ${STYLE_RULE}`,
     `- ${instructionsPriorityRule(nouns)}`,
     '- Stay strictly non-partisan. No party labels, no attacks.',
+    '- Return the polished text as one string.',
   ].join('\n')
 
 export const WIN_DOOR_KNOCKING_VOICE: DoorKnockingVoiceConfig<DoorKnockingTalkingPointsPurpose> =
@@ -396,31 +397,63 @@ export interface DoorKnockingDraftInput<TPurpose extends string> {
   event?: OutreachEventDetails
 }
 
-// No .max() on the three lines, deliberately: an instructions-driven result
-// can land a few characters over the budget, and a hard max would fail Zod ->
+// One bullet's budget: about 25 words with room to spare, so a phone screen
+// holds the whole list.
+const BULLET_MAX_LENGTH = 200
+
+// No .max() on the strings, deliberately: an instructions-driven result can
+// land a few characters over the budget, and a hard max would fail Zod ->
 // be caught -> 502, turning a recoverable output into an unrecoverable error.
-// Robocall hit exactly this. The trim below enforces the cap instead, and the
-// response schema enforces it again at the wire.
-const DraftSchema = z.object({
-  engagementQuestion: z.string().min(1),
-  context: z.string().min(1),
-  ask: z.string().min(1),
+// Robocall hit exactly this. The trims below enforce the caps instead, and
+// the response schema enforces the total again at the wire.
+// The prompt asks for 4 or 5. A reply with a few more or fewer is still a
+// usable draft the candidate edits, so it is kept (capped at MAX_BULLETS)
+// rather than failed as a 502, for the same reason as the note above.
+const MAX_BULLETS = 5
+const BulletsSchema = z.object({
+  points: z.array(z.string()).min(1),
 })
 
-// Each section must come back as ONE line, because the wizard stores the four
-// card lines newline-separated on `Outreach.script`. A model that wraps a long
-// context line, or emits its own "- " bullet marker, would otherwise split one
-// section into two at the door. Collapsing whitespace here is what makes that
-// encoding safe, rather than trusting the prompt's length rule to hold.
-const asSingleLine = (line: string): string =>
-  line
-    .replace(/^[-•*\s]+/, '')
+const ImproveSchema = z.object({
+  draft: z.string().min(1),
+})
+
+// Each bullet must come back as ONE line, because the draft is the bullets
+// newline-separated. A model that wraps a long bullet, or adds its own marker,
+// would otherwise split one bullet into two or print "• - Fix" at the door.
+const asBulletText = (point: string): string =>
+  point
     .replace(/\s+/g, ' ')
     .trim()
+    .replace(/^(?:[-•*]\s*|\d+[.)]\s+)+/, '')
+    .trim()
 
-// Safety net for a line that lands over budget. Cuts at the last sentence
-// boundary rather than mid-word, falling back a step at a time. Exported for
-// unit testing.
+// Deploy compatibility, to delete once a release has settled: a webapp tab
+// from before free text still reads the three sections it used to edit. The
+// current webapp reads only `draft`.
+const legacySections = (
+  draft: string,
+): Omit<DoorKnockingTalkingPointsDraftResponse, 'draft'> => {
+  const marker = DOOR_KNOCKING_BULLET.trim()
+  const lines = draft
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim()
+      return trimmed.startsWith(marker)
+        ? trimmed.slice(marker.length).trim()
+        : trimmed
+    })
+    .filter((line) => line.length > 0)
+  return {
+    engagementQuestion: lines[0] ?? '',
+    context: lines.slice(1, -1).join(' '),
+    ask: lines.length > 1 ? lines[lines.length - 1] : '',
+  }
+}
+
+// Safety net for text that lands over budget. Cuts at the last sentence or
+// line boundary rather than mid-word, falling back a step at a time. Exported
+// for unit testing.
 export const trimLineToSentenceBoundary = (
   line: string,
   maxLength: number,
@@ -429,12 +462,15 @@ export const trimLineToSentenceBoundary = (
 
   const truncated = line.slice(0, maxLength)
 
-  const lastStop = Math.max(
-    truncated.lastIndexOf('. '),
-    truncated.lastIndexOf('? '),
-    truncated.lastIndexOf('! '),
-  )
-  if (lastStop > 0) return truncated.slice(0, lastStop + 1).trimEnd()
+  const sentenceEnd =
+    Math.max(
+      truncated.lastIndexOf('. '),
+      truncated.lastIndexOf('? '),
+      truncated.lastIndexOf('! '),
+    ) + 1
+  const lineEnd = truncated.lastIndexOf('\n')
+  const boundary = Math.max(sentenceEnd, lineEnd)
+  if (boundary > 0) return truncated.slice(0, boundary).trimEnd()
 
   const atWord = truncated.replace(/\s+\S*$/, '').trimEnd()
   if (atWord.length > 0) return atWord
@@ -464,9 +500,9 @@ export class OutreachDoorKnockingGenerationService {
   //
   // Fenced for the reason every other piece of user text here is: it is
   // typed by a person and must read as quoted material, not as further
-  // instructions to the prompt. The ask is the field it governs — the whole
-  // point of the community-input purpose is that the door closes on this
-  // question rather than on a generic one — so the rule sits beside it.
+  // instructions to the prompt. The ask is the bullet it governs: the whole
+  // point of the community-input purpose is that the conversation closes on
+  // this question rather than on a generic one, so the rule sits beside it.
   private buildQuestionContext(question?: string): string[] {
     if (!question) return []
     return [
@@ -476,15 +512,15 @@ export class OutreachDoorKnockingGenerationService {
       // candidate should work on, which is the ask this field exists to
       // replace. Without a stated precedence the two instructions simply
       // conflict.
-      'This is what "ask" must put to the resident, in place of the general ' +
-        'question described above. Keep what it asks exactly. You may word ' +
-        'it to invite them to say more, but do not widen it into a general ' +
-        'what-matters-to-you question and do not answer it yourself.',
+      'One bullet must put this question to the resident, in place of the ' +
+        'general question described above. Keep what it asks exactly. You ' +
+        'may word it to invite them to say more, but do not widen it into a ' +
+        'general what-matters-to-you question and do not answer it yourself.',
     ]
   }
 
   // The audience block, restated beside the description it governs rather than
-  // left to the system prompt alone — the constraint travels with the data.
+  // left to the system prompt alone: the constraint travels with the data.
   // Both come from `audienceUseRule`, so the two cannot drift.
   //
   // Absent entirely when the filter says nothing this feature may act on:
@@ -538,73 +574,109 @@ export class OutreachDoorKnockingGenerationService {
       ...this.buildAudienceContext(audienceDescription, voice),
     ]
 
-    const messages: LlmMessage[] = input.currentDraft
-      ? [
-          { role: 'system', content: voice.improveSystemPrompt },
-          {
-            role: 'user',
-            content: [
-              ...context,
-              // Surface-neutral wording (never "candidate"/"official") so the
-              // shared path does not leak Win framing onto Serve.
-              ...fenced(
-                'The existing talking points to polish:',
-                input.currentDraft,
-              ),
-              'Polish the talking points.',
-              ...this.instructionsBlock(input.instructions, voice),
-            ].join('\n'),
-          },
-        ]
-      : [
-          { role: 'system', content: voice.draftSystemPrompt },
-          {
-            role: 'user',
-            content: [
-              ...context,
-              ...eventDetailsContext(input.purpose, input.event),
-              ...(input.previousDraft
-                ? [
-                    ...fenced(
-                      `The talking points ${this.lowerFirst(voice.subjectFallback)} just rejected:`,
-                      input.previousDraft,
-                    ),
-                    `${voice.subjectFallback} rejected these. Write ` +
-                      'noticeably different notes: a different engagement ' +
-                      'question, a different angle in the context line, and ' +
-                      `different supporting details from the ${voice.materialsLabel}. ` +
-                      'Do not reuse their distinctive phrases.',
-                  ]
-                : []),
-              'Write the talking points.',
-              ...this.instructionsBlock(input.instructions, voice),
-            ].join('\n'),
-          },
-        ]
-
     try {
-      const { object } = await this.llm.jsonCompletion({
-        messages,
-        schema: DraftSchema,
-        // High enough that Regenerate re-rolls produce different notes.
-        temperature: 0.8,
-        maxTokens: 512,
-        userId,
-      })
-      const line = (value: string): string =>
-        trimLineToSentenceBoundary(
-          asSingleLine(value),
-          DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
-        )
-      return {
-        engagementQuestion: line(object.engagementQuestion),
-        context: line(object.context),
-        ask: line(object.ask),
-      }
+      const draft = input.currentDraft
+        ? await this.improve(context, input, voice, userId)
+        : await this.writeBullets(context, input, voice, userId)
+      return { draft, ...legacySections(draft) }
     } catch (err) {
       this.logger.error({ err }, 'Door knocking talking points failed')
       throw new BadGatewayException('Talking points generation failed')
     }
+  }
+
+  private async writeBullets<TPurpose extends string>(
+    context: string[],
+    input: DoorKnockingDraftInput<TPurpose>,
+    voice: DoorKnockingVoiceConfig<TPurpose>,
+    userId: string,
+  ): Promise<string> {
+    const messages: LlmMessage[] = [
+      { role: 'system', content: voice.draftSystemPrompt },
+      {
+        role: 'user',
+        content: [
+          ...context,
+          ...eventDetailsContext(input.purpose, input.event),
+          ...(input.previousDraft
+            ? [
+                ...fenced(
+                  `The talking points ${this.lowerFirst(voice.subjectFallback)} just rejected:`,
+                  input.previousDraft,
+                ),
+                `${voice.subjectFallback} rejected these. Write ` +
+                  'noticeably different notes: a different angle and ' +
+                  `different supporting details from the ${voice.materialsLabel}. ` +
+                  'Do not reuse their distinctive phrases.',
+              ]
+            : []),
+          'Write the talking points.',
+          ...this.instructionsBlock(input.instructions, voice),
+        ].join('\n'),
+      },
+    ]
+
+    const { object } = await this.llm.jsonCompletion({
+      messages,
+      schema: BulletsSchema,
+      // High enough that Regenerate re-rolls produce different notes.
+      temperature: 0.8,
+      maxTokens: 512,
+      userId,
+    })
+    const bullets = object.points
+      .map((point) =>
+        trimLineToSentenceBoundary(asBulletText(point), BULLET_MAX_LENGTH),
+      )
+      .filter((point) => point.length > 0)
+      .slice(0, MAX_BULLETS)
+    if (bullets.length === 0) {
+      throw new Error('Talking points came back empty')
+    }
+    return bullets.map((point) => `${DOOR_KNOCKING_BULLET}${point}`).join('\n')
+  }
+
+  private async improve<TPurpose extends string>(
+    context: string[],
+    input: DoorKnockingDraftInput<TPurpose>,
+    voice: DoorKnockingVoiceConfig<TPurpose>,
+    userId: string,
+  ): Promise<string> {
+    const messages: LlmMessage[] = [
+      { role: 'system', content: voice.improveSystemPrompt },
+      {
+        role: 'user',
+        content: [
+          ...context,
+          // Surface-neutral wording (never "candidate"/"official") so the
+          // shared path does not leak Win framing onto Serve.
+          ...fenced(
+            'The existing talking points to polish:',
+            input.currentDraft ?? '',
+          ),
+          'Polish the talking points.',
+          ...this.instructionsBlock(input.instructions, voice),
+        ].join('\n'),
+      },
+    ]
+
+    const { object } = await this.llm.jsonCompletion({
+      messages,
+      schema: ImproveSchema,
+      temperature: 0.8,
+      // The whole field can be DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH
+      // characters, which 512 tokens would cut short.
+      maxTokens: 1024,
+      userId,
+    })
+    const draft = trimLineToSentenceBoundary(
+      object.draft.replace(/\r\n?/g, '\n').trim(),
+      DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
+    )
+    if (draft.length === 0) {
+      throw new Error('Polished talking points came back empty')
+    }
+    return draft
   }
 
   private lowerFirst(value: string): string {
@@ -618,7 +690,7 @@ export class OutreachDoorKnockingGenerationService {
     if (!instructions) return []
     return fenced(
       `${voice.subjectFallback}'s own instructions for these talking ` +
-        'points — follow them as long as they do not conflict with the ' +
+        'points. Follow them as long as they do not conflict with the ' +
         'rules above:',
       instructions,
     )
