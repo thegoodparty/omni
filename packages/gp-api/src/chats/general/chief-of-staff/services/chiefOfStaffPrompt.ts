@@ -14,7 +14,10 @@ import {
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
-import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
+import {
+  OUTREACH_MESSAGE_RULES,
+  PICKED_OPTION_RULE,
+} from '../../chat-tools/presentOutreachProposal.tool'
 import {
   buildSampleSizingRules,
   EXAMPLE_AUDIENCE,
@@ -298,6 +301,7 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
             (has('read_past_outreach')
               ? ' Call `read_past_outreach` first so you can say what came back last time.'
               : ''),
+          PICKED_OPTION_RULE,
           OUTREACH_MESSAGE_RULES,
         ]
       : []),

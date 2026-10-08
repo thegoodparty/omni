@@ -8,6 +8,7 @@ import {
   ChatConversation,
   ChatMessage,
   ChatMessageRole,
+  ChatMessageSegmentKind,
   ChatScope,
 } from '../../generated/prisma'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
@@ -81,6 +82,7 @@ class FakeChatStore {
     role: ChatMessageRole
     content: string
     createdAt?: Date
+    segments?: PersistedSegment[]
   }): ChatMessage {
     const row: ChatMessage = {
       id: `seed-${this.nextMessageId++}`,
@@ -89,6 +91,7 @@ class FakeChatStore {
       content: args.content,
       clientMessageId: null,
       createdAt: args.createdAt ?? new Date(),
+      segments: args.segments ?? [],
     } as unknown as ChatMessage
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
@@ -169,6 +172,7 @@ class FakeChatStore {
       content: args.content,
       clientMessageId: args.clientMessageId ?? null,
       createdAt: new Date(),
+      segments: args.segments ?? [],
     } as unknown as ChatMessage
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
@@ -724,6 +728,95 @@ describe('ChatStreamService', () => {
       const sent = firstOrThrow(llm.calls).options.messages
       const userMessages = sent.filter((m) => m.role === 'user')
       expect(userMessages.length).toBeLessThanOrEqual(MAX_CHAT_HISTORY_MESSAGES)
+    })
+  })
+
+  describe('card replay', () => {
+    const seedTurns = (segments: PersistedSegment[], content: string) => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.user,
+        content: 'plan some texts',
+      })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content,
+        segments,
+      })
+    }
+    const sentMessages = async () => {
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+      await collect(service.stream(baseStreamArgs({ userMessage: 'do #1' })))
+      return firstOrThrow(llm.calls).options.messages
+    }
+
+    it('replays what a card held, in order with the text', async () => {
+      seedTurns(
+        [
+          { kind: ChatMessageSegmentKind.text, text: 'Here is #1.' },
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'present_outreach_proposal',
+            payload: { channel: 'text', message: 'Code fixes start Monday' },
+          },
+          { kind: ChatMessageSegmentKind.text, text: 'Send when ready.' },
+        ],
+        'Here is #1.Send when ready.',
+      )
+
+      const sent = await sentMessages()
+
+      const assistant = sent.find((m) => m.role === 'assistant')
+      expect(assistant?.content).toBe(
+        'Here is #1.\n\n[Card you showed: present_outreach_proposal ' +
+          '{"channel":"text","message":"Code fixes start Monday"}]' +
+          '\n\nSend when ready.',
+      )
+      expect(String(firstOrThrow(sent).content)).toContain(
+        'record a card the app drew for you',
+      )
+    })
+
+    it('replays a card-only turn instead of dropping it', async () => {
+      seedTurns(
+        [
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'ask_clarify_question',
+            payload: { question: 'Which first?' },
+          },
+        ],
+        '',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        '[Card you showed: ask_clarify_question {"question":"Which first?"}]',
+      )
+    })
+
+    it('leaves turns with only non-card tools as their text', async () => {
+      seedTurns(
+        [
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'count_contacts',
+            payload: { filters: [] },
+          },
+          { kind: ChatMessageSegmentKind.text, text: '1,200 people.' },
+        ],
+        '1,200 people.',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        '1,200 people.',
+      )
+      expect(String(firstOrThrow(sent).content)).not.toContain('record a card')
     })
   })
 

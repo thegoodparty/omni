@@ -20,7 +20,11 @@ import {
   LlmTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
-import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
+import {
+  ChatMessageWithSegments,
+  ChatStoreService,
+  PersistedSegment,
+} from './chatStore.prisma'
 import {
   ATTACHMENT_SCOPES,
   ChatAttachmentsService,
@@ -215,9 +219,42 @@ const roleToOpenAiRole = (
   role: ChatMessageRole,
 ): 'user' | 'assistant' | 'system' | 'tool' => role
 
+// Only a turn's text replays on its own, so without these notes the model
+// cannot recall what it put on a card: the message, the audience, the options.
+// A later "do #1" or "change that text" was then answered against a card it
+// had forgotten.
+const CARD_NOTE_PREFIX = '[Card you showed:'
+
+const isCardTool = (toolName: string | null): boolean =>
+  toolName !== null &&
+  (toolName.startsWith('present_') || toolName === 'ask_clarify_question')
+
+const replayAssistantContent = (m: ChatMessageWithSegments): string =>
+  m.segments.some(
+    (s) => s.kind === ChatMessageSegmentKind.tool && isCardTool(s.toolName),
+  )
+    ? m.segments
+        .map((s) =>
+          s.kind === ChatMessageSegmentKind.text
+            ? (s.text ?? '')
+            : s.kind === ChatMessageSegmentKind.tool && isCardTool(s.toolName)
+              ? `\n\n${CARD_NOTE_PREFIX} ${s.toolName} ` +
+                `${JSON.stringify(s.payload)}]\n\n`
+              : '',
+        )
+        .join('')
+        .trim()
+    : m.content
+
+const CARD_NOTE_SYSTEM_LINE =
+  `Lines in your earlier replies that start with "${CARD_NOTE_PREFIX}" ` +
+  'record a card the app drew for you, with what was on it. The user saw ' +
+  'the card, not that line. Never write such a line yourself; to show a ' +
+  'card, call its tool.'
+
 const toLlmMessages = (
   systemPrompt: string,
-  history: ChatMessage[],
+  history: ChatMessageWithSegments[],
 ): LlmMessage[] => {
   // A scope may seed an assistant greeting as the conversation's first message
   // (Campaign Manager) so it persists and replays. Anthropic requires the
@@ -228,27 +265,39 @@ const toLlmMessages = (
   const [first, ...tail] = history
   const leadingGreeting =
     first?.role === ChatMessageRole.assistant ? first : null
-  const system = leadingGreeting
+  const greeted = leadingGreeting
     ? `${systemPrompt}\n\nYou already greeted the candidate with:\n${leadingGreeting.content}`
     : systemPrompt
   const rest = leadingGreeting ? tail : history
 
+  const replayed = rest.map((m) => ({
+    role: roleToOpenAiRole(m.role),
+    content:
+      m.role === ChatMessageRole.assistant
+        ? replayAssistantContent(m)
+        : m.content,
+  }))
+  const hasCardNote = replayed.some(
+    (m) => m.role === 'assistant' && m.content.includes(CARD_NOTE_PREFIX),
+  )
+  const system = hasCardNote
+    ? `${greeted}\n\n${CARD_NOTE_SYSTEM_LINE}`
+    : greeted
+
   const out: LlmMessage[] = [{ role: 'system', content: system }]
-  for (const m of rest) {
-    const role = roleToOpenAiRole(m.role)
-    if (role === 'system') {
+  for (const m of replayed) {
+    if (m.role === 'system') {
       out.push({ role: 'system', content: m.content })
       continue
     }
-    if (role === 'user') {
+    if (m.role === 'user') {
       out.push({ role: 'user', content: m.content })
       continue
     }
-    if (role === 'assistant') {
-      // A widget-only turn persists with empty content (its tool segments
-      // aren't replayed to the model). Sending `{content: ''}` makes Anthropic
-      // reject the turn ("text content blocks must be non-empty"), so drop
-      // empty-content assistant turns from the replayed history.
+    if (m.role === 'assistant') {
+      // A widget-only turn with no card to describe still has empty content.
+      // Sending `{content: ''}` makes Anthropic reject the turn ("text content
+      // blocks must be non-empty"), so drop it from the replayed history.
       if (m.content.length === 0) continue
       out.push({ role: 'assistant', content: m.content })
       continue

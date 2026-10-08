@@ -16,7 +16,10 @@ import {
   EXAMPLE_AUDIENCE,
   EXAMPLE_SAMPLE,
 } from '../chat-tools/outreachSampling.prompt'
-import { WIN_TEXT_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
+import {
+  PICKED_OPTION_RULE,
+  WIN_TEXT_MESSAGE_RULES,
+} from '../chat-tools/presentOutreachProposal.tool'
 
 export type { BallotStatus }
 
@@ -723,6 +726,7 @@ const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
           card: true,
         }),
         '- Present the text with present_outreach_proposal once the message is final: the filter you counted with as audienceFilters, count as every voter it matched with a cell phone, a short listName, channel text, and the message. Do not save a list for it with crud_saved_filters: the list is saved when the candidate starts the text from the card. Only a text goes on a card here; describe phone banking, door knocking or a social post in your reply.',
+        PICKED_OPTION_RULE,
         WIN_TEXT_MESSAGE_RULES,
       ].join('\n')
     : null
