@@ -518,6 +518,44 @@ describe('provenance', () => {
   })
 })
 
+// Values, classes and case ids only: the quotes behind them are private.
+describe('condition handling', () => {
+  it('prints each case with both orders and its class', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          handling: [
+            {
+              caseId: 't2-conflict',
+              attempt: 1,
+              base: { primary: 'yes', swapped: 'partly' },
+              candidate: { primary: 'no', swapped: 'no' },
+              class: 'sharedFailure',
+            },
+          ],
+        },
+      ],
+    })
+    expect(report).toContain(
+      'Condition handling: 0 both handled, 1 shared failure(s), 0 ' +
+        'regression(s), 0 improvement(s), over 1 case pair(s).',
+    )
+    expect(report).toContain(
+      '- t2-conflict attempt 1: base yes / partly (orders disagree), ' +
+        'candidate no / no: shared failure',
+    )
+  })
+
+  it('prints nothing for an agent no case asked', async () => {
+    const score = await pipeline(sweepRecords(3))
+    expect(renderReport({ agents: [score] })).not.toContain(
+      'Condition handling',
+    )
+  })
+})
+
 // A control prints both orders and what they say together, because the one
 // thing a control shows beyond noise is a position preference.
 describe('controls', () => {

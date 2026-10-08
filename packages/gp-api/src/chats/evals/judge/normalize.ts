@@ -52,6 +52,10 @@ export interface JudgePayload {
   // judging step from its case list, never read off a record, so both slots
   // are asked the same ones. See CaseDimensionSchema.
   caseDimensions?: readonly CaseDimension[]
+  // The case's "a run handles this when …" sentence. Its presence is what
+  // makes the judge answer `handled` per run; the text itself is already in
+  // `sharedInput`. Attached the way a condition is, so both slots get it.
+  handledWhen?: string
 }
 
 export interface NormalizedCase {
@@ -651,11 +655,18 @@ export const withConditions = (
   judgeable: normalized.judgeable.map((one) => {
     const condition = judging.get(one.caseId)?.condition
     if (condition === undefined) return one
+    const handledWhen = judging.get(one.caseId)?.handledWhen
     return {
       ...one,
       payload: {
         ...one.payload,
-        sharedInput: `${one.payload.sharedInput}\n\nCondition: ${condition}`,
+        sharedInput:
+          `${one.payload.sharedInput}\n\nCondition: ${condition}` +
+          (handledWhen === undefined
+            ? ''
+            : '\nFor this case, a run handles the condition when: ' +
+              handledWhen),
+        ...(handledWhen !== undefined && { handledWhen }),
       },
     }
   }),

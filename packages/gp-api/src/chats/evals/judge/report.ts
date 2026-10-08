@@ -1,4 +1,9 @@
 import {
+  ordersDisagree,
+  type ArmHandling,
+  type HandlingClass,
+} from './handling'
+import {
   actualCostLines,
   formatTotal,
   type ActualCost,
@@ -258,6 +263,40 @@ const contractNoteLines = (score: AgentScore): string[] =>
     ? []
     : [CONTRACT_NOTES[score.outputContractNote], '']
 
+const HANDLING_CLASSES: Readonly<Record<HandlingClass, string>> = {
+  bothHandled: 'both handled',
+  sharedFailure: 'shared failure',
+  regression: 'regression (the base handled it, the candidate did not)',
+  improvement: 'improvement (the candidate handled it, the base did not)',
+}
+
+const armText = (arm: ArmHandling): string =>
+  [arm.primary, arm.swapped].filter((v) => v !== undefined).join(' / ') +
+  (ordersDisagree(arm) ? ' (orders disagree)' : '')
+
+// Values and case ids only. The judge's quotes and locations are in the
+// private rulings file: they quote the agent's output, and this is public.
+const handlingLines = (score: AgentScore): string[] => {
+  const handling = score.handling ?? []
+  if (handling.length === 0) return []
+  const count = (c: HandlingClass): number =>
+    handling.filter((h) => h.class === c).length
+  return [
+    `Condition handling: ${count('bothHandled')} both handled, ` +
+      `${count('sharedFailure')} shared failure(s), ${count('regression')} ` +
+      `regression(s), ${count('improvement')} improvement(s), over ` +
+      `${handling.length} case pair(s). Judged per run against each case's ` +
+      'handledWhen; partly, and a value that changes with the order, count ' +
+      'as not handled. Not part of the verdict above.',
+    ...handling.map(
+      (h) =>
+        `- ${h.caseId} attempt ${h.attempt}: base ${armText(h.base)}, ` +
+        `candidate ${armText(h.candidate)}: ${HANDLING_CLASSES[h.class]}`,
+    ),
+    '',
+  ]
+}
+
 const controlLines = (score: AgentScore): string[] => {
   const anyway =
     score.controlsScoredAnyway === undefined
@@ -492,6 +531,7 @@ const agentSection = (
     lines.push('')
   }
 
+  lines.push(...handlingLines(score))
   lines.push(...controlLines(score))
   lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))

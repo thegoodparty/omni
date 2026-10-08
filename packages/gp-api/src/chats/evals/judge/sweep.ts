@@ -770,6 +770,13 @@ export const cannedVerdict = (
 // The dimension keys a panel schema requires, read off the schema itself: the
 // canned judge is handed nothing else, and a case with its own dimensions
 // requires keys the config does not name.
+// Whether the panel schema asks the per-run `handled` question, which it
+// does exactly when the case carries a handling sentence.
+const asksHandled = (schema: z.ZodType): boolean => {
+  const wire = schema instanceof z.ZodPipe ? schema.in : schema
+  return wire instanceof z.ZodObject && 'handled' in wire.shape
+}
+
 const requiredDimensions = (
   schema: z.ZodType,
   config: JudgeConfig,
@@ -789,8 +796,15 @@ export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   // judgment — which reads as a broken judge and is how the first version of
   // this got every case wrong while still printing a report.
   jsonCompletion: async ({ schema }) => ({
+    // `no` for both runs because nothing read either one; the report under a
+    // canned judge already says no model was called.
     object: schema.parse(
-      toWireVerdict(cannedVerdict(config, requiredDimensions(schema, config))),
+      toWireVerdict({
+        ...cannedVerdict(config, requiredDimensions(schema, config)),
+        ...(asksHandled(schema) && {
+          handled: { X: 'no' as const, Y: 'no' as const },
+        }),
+      }),
     ),
     tokens: 0,
     model: 'canned-judge',

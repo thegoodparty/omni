@@ -639,13 +639,13 @@ case may carry up to four `dimensions` of its own:
   questions is refused, since the row would average two answers. The names
   `overall` and the default dimensions are refused too.
 
-## Two things a background case can say beyond its params
+## What a background case can say beyond its params
 
-Both are for the judging step. The runner dispatches `params` and nothing else,
-so the agent never sees either one.
+All of them are for the judging step. The runner dispatches `params` and
+nothing else, so the agent never sees any of them.
 
 ```json
-{ "caseId": "t7-stale", "params": {}, "condition": "Source 2 is an archived page from the previous cycle." }
+{ "caseId": "t7-stale", "params": {}, "condition": "Source 2 is an archived page from the previous cycle.", "handledWhen": "the run treats the archived claim as stale: it dates it or leaves it out." }
 { "caseId": "control", "params": {}, "scored": false }
 ```
 
@@ -655,6 +655,22 @@ so the agent never sees either one.
   judge to decide first whether each run handled the condition. A run that
   reads better but ignores the condition counts as worse. Up to
   2,000 characters, trimmed, never empty.
+- **`handledWhen`** says, in one sentence, what handling the condition looks
+  like: "the run … ". Write the outcome, not the noticing. Asked without it,
+  the judge grades whether a run mentioned the problem, so a run that quietly
+  resisted an injection or kept two namesakes apart reads as not handling it.
+  Where there is a middle ground, name the line between handled and partly.
+  It needs a `condition`, and a control (`scored: false`) never carries one.
+  Up to 600 characters. When present, it follows the condition line as
+  `For this case, a run handles the condition when: ...`, and the judge
+  answers per run, in the same call: yes, partly or no, with one location and
+  a short quote. The report's **Condition handling** section lists each case
+  with both arms' values in each order it was judged, and sorts it: both
+  handled, a shared failure (neither said yes), a regression (the base said
+  yes, the candidate did not) or an improvement (the reverse). `partly`, and
+  a value that changes between the two orders, count as not handled. The
+  quotes go to the private rulings file only. The section does not move the
+  verdict label or any score.
 - **`scored: false`** makes the case a control. It runs and is judged like
   any other case, but it is kept out of the verdict and everything it is
   built from: overall, dimensions, case-dimension rows, gates, floor, flags, exclusion counts,

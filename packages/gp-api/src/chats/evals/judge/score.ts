@@ -1,4 +1,5 @@
 import type { ContractNote } from './outputContract'
+import { conditionHandling, type CaseHandling } from './handling'
 import { bootstrapCi, createRng, mean, type Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
@@ -222,6 +223,9 @@ export interface AgentScore {
   // Set when a background agent was judged without its output contract,
   // because the manifest requires no top-level field or could not be read.
   outputContractNote?: ContractNote
+  // Per case, whether each arm reached the outcome its `handledWhen`
+  // sentence describes. Absent when no case carries one. Not in the label.
+  handling?: readonly CaseHandling[]
 }
 
 export interface ControlsScoredAnyway {
@@ -1013,5 +1017,13 @@ export const scoreAgent = (
     evidence: measure(allPairs),
     ci: candidateWithCi?.candidate.ci ?? null,
     controls: controlReadings(all, allJudgments, unscored),
+    ...handlingOf(judgments),
   }
+}
+
+const handlingOf = (
+  judgments: readonly Judgment[],
+): { handling?: readonly CaseHandling[] } => {
+  const handling = conditionHandling(judgments)
+  return handling.length === 0 ? {} : { handling }
 }
