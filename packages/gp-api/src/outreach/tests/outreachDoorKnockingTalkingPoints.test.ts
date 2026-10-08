@@ -664,6 +664,31 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     expect(res.data.draft.split('\n')).toHaveLength(kept)
   })
 
+  // A reply that is only markers or whitespace is nothing to put on the
+  // card, so it fails like a failed call rather than storing a blank draft.
+  it.each([
+    {
+      name: 'every bullet is only a marker',
+      mock: () => mockPoints(['-', '•', '   ']),
+      body: {},
+    },
+    {
+      name: 'a polish comes back blank',
+      mock: () => mockPolish('   '),
+      body: { currentDraft: 'Fix the roads.' },
+    },
+  ])('502s when $name', async ({ mock, body }) => {
+    mock()
+
+    const res = await service.client.post(
+      '/v1/outreach/door-knocking/draft',
+      draftBody(body),
+      { ...orgHeaders(), validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+
   it('502s when the model call fails', async () => {
     jsonCompletion.mockRejectedValue(new Error('boom'))
 
