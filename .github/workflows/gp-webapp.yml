@@ -141,9 +141,11 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "target=preview" >> "$GITHUB_OUTPUT"
-            # Full-stack: gp-api deploys a per-PR preview stack on every PR, so
-            # always bake the per-PR backend into the webapp preview.
-            echo "api_base=https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org" >> "$GITHUB_OUTPUT"
+            # TEMPORARY, revert before merge (PR #2548): the preview talks to
+            # the dev API so the team can review it signed in with their own
+            # dev accounts. The per-PR backend has an empty database, which
+            # sends everyone to onboarding. E2E fails while this is in.
+            echo "api_base=https://gp-api-dev.goodparty.org" >> "$GITHUB_OUTPUT"
           else
             echo "target=preview" >> "$GITHUB_OUTPUT"
             echo "branch=main" >> "$GITHUB_OUTPUT"

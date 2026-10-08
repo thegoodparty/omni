@@ -35,7 +35,13 @@ const ThemeDetails = ({
           <p className="text-sm text-foreground">{theme.details}</p>
         </CardContent>
       </Card>
-      <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+      {/* On the page's gray canvas, so the split sits in a card the way it
+          sits in the theme's card on the report. */}
+      <Card>
+        <CardContent>
+          <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+        </CardContent>
+      </Card>
       {theme.desiredOutcomes.length > 0 && (
         <Card>
           <CardContent className="flex flex-col gap-2">

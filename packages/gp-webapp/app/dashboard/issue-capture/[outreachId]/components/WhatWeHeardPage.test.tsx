@@ -17,12 +17,35 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+// A disabled Summarize says why in its tooltip, which opens on the focusable
+// wrapper the styleguide's disabled-tooltip pattern puts around it.
+const expectReason = async (text: string) => {
+  const trigger = await waitFor(() => {
+    const wrapper = screen
+      .getByRole('button', { name: 'Summarize notes' })
+      .closest('[data-slot="tooltip-trigger"]')
+    expect(wrapper).not.toBeNull()
+    return wrapper as HTMLElement
+  })
+  fireEvent.focus(trigger)
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(text)
+}
+
 // The real layout pulls in the user, the campaign and the nav, none of which
 // this page's states depend on.
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <div>
+      <div data-testid="nav-header">{navHeader?.label}</div>
+      {children}
+    </div>
   ),
 }))
 
@@ -240,6 +263,48 @@ describe('WhatWeHeardPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('names the outreach in the title bar, the way the hub names it', async () => {
+    mockReport(report())
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: OUTREACH_ID,
+        createdAt: new Date('2026-08-10T00:00:00Z'),
+        updatedAt: new Date('2026-08-10T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'nativePhoneBanking',
+        projectId: null,
+        name: 'Introduction calls',
+        status: null,
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: null,
+        doorKnockingRouteId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+      },
+    })
+    renderPage()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('nav-header')).toHaveTextContent(
+        'Introduction calls',
+      ),
+    )
+  })
+
   it('links back to the outreach hub with this effort open', async () => {
     mockReport(report())
     renderPage()
@@ -291,7 +356,7 @@ describe('WhatWeHeardPage', () => {
         screen.getByText('He thinks the new bike lanes slow down deliveries.'),
       ).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: 'Summarize what we heard' }),
+        screen.queryByRole('button', { name: 'Summarize notes' }),
       ).toBeNull()
     })
 
@@ -355,9 +420,7 @@ describe('WhatWeHeardPage', () => {
       expect(
         await screen.findByRole('heading', { name: 'What people said so far' }),
       ).toBeInTheDocument()
-      expect(
-        screen.getByText('Themes appear after 5 confirmed notes.'),
-      ).toBeInTheDocument()
+      await expectReason('Themes appear after 5 confirmed notes.')
       expect(
         screen.getByText(
           'She wants the storm drains on Elm cleared before winter.',
@@ -365,9 +428,9 @@ describe('WhatWeHeardPage', () => {
       ).toBeInTheDocument()
       expect(screen.queryByRole('link', { name: /see details/i })).toBeNull()
       expect(screen.queryByText('Street flooding')).toBeNull()
-      // Pressing it could only come back with the line above.
+      // Pressing it could only come back with the reason above.
       expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
     })
 
@@ -385,9 +448,7 @@ describe('WhatWeHeardPage', () => {
       )
       renderPage()
 
-      expect(
-        await screen.findByText('Themes appear after 8 confirmed notes.'),
-      ).toBeInTheDocument()
+      await expectReason('Themes appear after 8 confirmed notes.')
     })
 
     it('marks a note nobody has reviewed', async () => {
@@ -496,7 +557,7 @@ describe('WhatWeHeardPage', () => {
         await screen.findByText("We couldn't summarize this time."),
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeEnabled()
       expect(screen.getByText('Street flooding')).toBeInTheDocument()
     })
@@ -537,7 +598,7 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
 
       expect(
@@ -570,14 +631,12 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
 
+      await expectReason('Themes appear after 5 confirmed notes.')
       expect(
-        await screen.findByText('Themes appear after 5 confirmed notes.'),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
     })
 
@@ -590,16 +649,14 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
 
+      await expectReason(
+        'This was summarized a few minutes ago. Try again later.',
+      )
       expect(
-        await screen.findByText(
-          'This was summarized a few minutes ago. Try again later.',
-        ),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
     })
 
@@ -621,9 +678,9 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
-      await screen.findByText(
+      await expectReason(
         'This was summarized a few minutes ago. Try again later.',
       )
       // A refusal changes nothing on the report, so it is not re-read.
@@ -637,7 +694,7 @@ describe('WhatWeHeardPage', () => {
 
       await waitFor(() =>
         expect(
-          screen.getByRole('button', { name: 'Summarize what we heard' }),
+          screen.getByRole('button', { name: 'Summarize notes' }),
         ).toBeEnabled(),
       )
       expect(reads).toBe(2)
@@ -675,12 +732,12 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
-      await screen.findByText('Themes appear after 5 confirmed notes.')
+      await expectReason('Themes appear after 5 confirmed notes.')
       await waitFor(() => expect(reads).toBe(2))
       expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
 
       await act(async () => {
@@ -691,7 +748,7 @@ describe('WhatWeHeardPage', () => {
 
       await waitFor(() =>
         expect(
-          screen.getByRole('button', { name: 'Summarize what we heard' }),
+          screen.getByRole('button', { name: 'Summarize notes' }),
         ).toBeEnabled(),
       )
       expect(

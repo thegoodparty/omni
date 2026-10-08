@@ -93,6 +93,7 @@ const formWith = (
     entryId={ENTRY_ID}
     entrySeq={1}
     personId="person-1"
+    personName="Alex Solo"
     interaction={interaction}
     householdHasOthersUnlogged={false}
     isServe={isServe}
@@ -692,6 +693,7 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
         entryId={ENTRY_ID}
         entrySeq={1}
         personId="person-1"
+        personName="Alex Solo"
         interaction={interaction}
         householdHasOthersUnlogged={false}
         isServe
@@ -731,6 +733,7 @@ describe('PhoneBankingOutcomeForm drafts', () => {
         entryId={ENTRY_ID}
         entrySeq={1}
         personId="person-1"
+        personName="Alex Solo"
         interaction={null}
         householdHasOthersUnlogged={false}
         isServe

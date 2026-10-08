@@ -24,7 +24,12 @@ const ReportCaption = ({
           {', '}
           <Link
             href={`/dashboard/issue-capture/${outreachId}/review`}
-            className="underline"
+            // The styleguide's link colour and an underline, so the one
+            // clause that goes somewhere reads as a link. `underline!`
+            // because globals.css strips text-decoration from every anchor
+            // inside the dashboard's sidebar wrapper with an unlayered rule,
+            // which outranks the plain utility.
+            className="text-link underline! underline-offset-4"
           >
             {copy.waitingForReview(denominators.pending)}
           </Link>

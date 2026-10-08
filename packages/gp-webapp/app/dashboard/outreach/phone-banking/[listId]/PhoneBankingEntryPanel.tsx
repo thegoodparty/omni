@@ -291,6 +291,7 @@ export default function PhoneBankingEntryPanel({
           entryId={entry.id}
           entrySeq={entry.seq}
           personId={person.personId}
+          personName={person.name}
           interaction={person.interaction}
           householdHasOthersUnlogged={householdHasOthersUnlogged}
           isServe={isServe}
@@ -304,8 +305,8 @@ export default function PhoneBankingEntryPanel({
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="flex h-[85dvh] max-h-[85dvh] flex-col overflow-hidden p-0">
-          <DrawerHandle />
+        <DrawerContent className="flex h-[92dvh] flex-col overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:max-h-[92dvh]">
+          <DrawerHandle className="mt-3 h-1.5 w-[120px]" />
           <DrawerHeader className="sr-only">
             <DrawerTitle>{person.name}</DrawerTitle>
           </DrawerHeader>

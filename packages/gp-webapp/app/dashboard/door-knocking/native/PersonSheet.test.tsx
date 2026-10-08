@@ -322,7 +322,7 @@ describe('PersonSheet layout', () => {
       expect.arrayContaining([
         'max-lg:inset-x-0',
         'max-lg:bottom-0',
-        'max-lg:max-h-[85dvh]',
+        'max-lg:max-h-[92dvh]',
         'lg:right-0',
         'lg:top-0',
         'lg:w-[430px]',

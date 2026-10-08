@@ -34,7 +34,14 @@ import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
-import IssueCaptureConfirmCard, {
+import {
+  PanelDrawer,
+  PanelDrawerBody,
+  PanelDrawerFooter,
+  PanelDrawerHeader,
+} from './PanelDrawer'
+import {
+  IssueCaptureConfirmStep,
   wasCorrected,
 } from './IssueCaptureConfirmCard'
 import {
@@ -140,6 +147,14 @@ interface RecordKnockFormProps {
   // answers back.
   drafts?: UnsavedDrafts<KnockDraft>
 }
+
+// The walk's route sheet opens to 92dvh and the door's panel matches it, so
+// every step over them does too: drawers stacked at different heights read
+// as a step that came up short. The styleguide caps a bottom drawer at 80vh
+// through a direction-scoped variant a plain `max-h-*` cannot outrank, so the
+// cap is restated in that variant.
+const DOOR_STEP_DRAWER_CLASSNAME =
+  'h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]'
 
 const ChoiceRow = <T extends string>({
   label,
@@ -262,9 +277,14 @@ export default function RecordKnockForm({
       else drafts?.set(draftKey, draft)
     }
   }, [drafts, draftKey])
+  // Whether this door's knock has landed, as state so the step drawer closes
+  // on it. `unsavedRef` answers the same question for the unmount, which reads
+  // a ref because it runs after the last render.
+  const [saved, setSaved] = useState(false)
   const markSaved = () => {
     unsavedRef.current = { saved: true, draft: null }
     drafts?.clear(draftKey)
+    setSaved(true)
   }
   const dictation = useDictationAppend({
     analyticsLabel: 'door_knocking_note',
@@ -546,6 +566,7 @@ export default function RecordKnockForm({
     offline.discard()
     unsavedRef.current = { saved: false, draft: null }
     drafts?.clear(draftKey)
+    setSaved(false)
   }
 
   const save = () => {
@@ -584,114 +605,144 @@ export default function RecordKnockForm({
     record.mutate(input)
   }
 
-  // The knock is already saved by the time this renders, so the ladder is
-  // replaced rather than added to: every question on it has been answered and
-  // leaving them on screen would invite a correction that no longer has
-  // anywhere to go.
-  if (captured !== null) {
-    return (
-      <IssueCaptureConfirmCard
-        proposed={captured.proposed}
-        saving={confirm.isPending}
-        isServe={serveMode}
-        onConfirm={(issues) => confirm.mutate(issues)}
-        onSkip={() => {
-          trackEvent(EVENTS.IssueCapture.MemoSkipped, {
-            channel: 'doorKnocking',
-            product,
-          })
-          advance()
-        }}
-      />
-    )
+  // The step stays up from Save until the confirm step replaces it. `saved`
+  // flips inside the knock's own success handler, which still awaits the
+  // queue before it hands the memo to capture, so reading `saved` alone
+  // closed the step and reopened it a beat later.
+  const busy = record.isPending || capture.isPending
+  const stepOpen = outcome !== undefined && (!saved || busy)
+  // The knock is already saved once a memo comes back, so the ladder is
+  // replaced by the confirm step rather than added to: every question on it
+  // has been answered, and leaving them on screen would invite a correction
+  // that no longer has anywhere to go. Both are steps of one frame.
+  const frameOpen = stepOpen || captured !== null
+  const skipConfirm = () => {
+    trackEvent(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'doorKnocking',
+      product,
+    })
+    advance()
   }
+
+  // Changing the outcome drops the answers underneath it but keeps the note.
+  // Collapsing a row discards answers it would otherwise re-offer pre-filled
+  // and unnoticed; it never discards text the canvasser typed, which stays in
+  // state and comes back with the field.
+  const outcomeRow = (
+    <ChoiceRow
+      label={OUTCOME_QUESTION}
+      options={ANSWER_OPTIONS}
+      value={outcome}
+      onChange={(value) => {
+        setSaved(false)
+        setOutcome(value)
+        setEngagement(undefined)
+        setSupportAnswer(undefined)
+        setWillVote(undefined)
+        setFollowUp(undefined)
+      }}
+    />
+  )
 
   return (
     // No card of its own. The canvas draws the ladder straight into the sticky
-    // log bar with 16px between groups — the bordered box around it read as a
-    // ninth card in a panel whose eight cards are all reference material, when
-    // this is the only thing on the surface a canvasser acts on.
+    // log bar — the bordered box around it read as a ninth card in a panel
+    // whose eight cards are all reference material, when this is the only
+    // thing on the surface a canvasser acts on. Only its first question stays
+    // there: answering it opens the rest of the ladder over the sheet at the
+    // sheet's size, so on a phone the questions get the whole surface and Save
+    // stays pinned in view instead of pushing the sheet's body to a sliver.
+    // Dismissing that step is a step back, and takes its answers with it.
     <div className="flex flex-col gap-4">
-      <ChoiceRow
-        label={OUTCOME_QUESTION}
-        options={ANSWER_OPTIONS}
-        value={outcome}
-        // Changing the outcome drops the answers underneath it but keeps the
-        // note. Collapsing a row discards answers it would otherwise re-offer
-        // pre-filled and unnoticed; it never discards text the canvasser
-        // typed, which stays in state and comes back with the field.
-        onChange={(value) => {
-          setOutcome(value)
-          setEngagement(undefined)
-          setSupportAnswer(undefined)
-          setWillVote(undefined)
-          setFollowUp(undefined)
-        }}
-      />
+      {/* Moves into the step while it is open, which covers this bar, so the
+          question is never on the page twice. */}
+      {!frameOpen && outcomeRow}
+      {frameOpen && (
+        <PanelDrawer
+          sheetClassName="sm:max-w-[430px]"
+          drawerClassName={DOOR_STEP_DRAWER_CLASSNAME}
+          hasDescription={captured !== null}
+          onDismiss={captured !== null ? skipConfirm : reset}
+          busy={captured !== null ? confirm.isPending : busy}
+        >
+          {captured !== null ? (
+            <IssueCaptureConfirmStep
+              key={captured.id}
+              proposed={captured.proposed}
+              saving={confirm.isPending}
+              isServe={serveMode}
+              onConfirm={(issues) => confirm.mutate(issues)}
+              onSkip={skipConfirm}
+            />
+          ) : (
+            <>
+              <PanelDrawerHeader title={target.name ?? 'Name unavailable'} />
+              <PanelDrawerBody>
+                {outcomeRow}
 
-      {/* Each question stays on screen once it has been answered. The walk
+                {/* Each question stays on screen once it has been answered. The walk
           expands downward rather than replacing a step with the next one: the
           answer a canvasser most wants to check before saving is the one they
           gave two taps ago. */}
-      {opened && (
-        <ChoiceRow
-          label={ENGAGEMENT_QUESTION}
-          options={engagementOptions(serveMode)}
-          value={engagement}
-          onChange={(value) => {
-            setEngagement(value)
-            if (value !== 'answered') {
-              setSupportAnswer(undefined)
-              setWillVote(undefined)
-              setFollowUp(undefined)
-            }
-          }}
-        />
-      )}
+                {opened && (
+                  <ChoiceRow
+                    label={ENGAGEMENT_QUESTION}
+                    options={engagementOptions(serveMode)}
+                    value={engagement}
+                    onChange={(value) => {
+                      setEngagement(value)
+                      if (value !== 'answered') {
+                        setSupportAnswer(undefined)
+                        setWillVote(undefined)
+                        setFollowUp(undefined)
+                      }
+                    }}
+                  />
+                )}
 
-      {/* The engaged branch is the one place the two surfaces ask different
+                {/* The engaged branch is the one place the two surfaces ask different
           things, and they ask a different NUMBER of things: Win asks support
           and then turnout, Serve asks whether anything is owed afterwards.
           Everything above and below this is shared, because how a door
           answered and what the canvasser wrote down are the same questions
           whoever is knocking. */}
-      {engaged && !serveMode && (
-        <ChoiceRow
-          label={SUPPORT_QUESTION}
-          options={SUPPORT_OPTIONS}
-          value={supportAnswer}
-          onChange={(value) => {
-            setSupportAnswer(value)
-            // Clearing support collapses the will-vote row, and its answer has
-            // to go with it: otherwise answering support again reopens the row
-            // already filled in with a response the canvasser never gave on
-            // this pass, and Save lights up on that ghost. A support answer
-            // that is only *changed* keeps it, because the row never leaves
-            // the screen and turnout doesn't depend on who they support.
-            if (!value) setWillVote(undefined)
-          }}
-        />
-      )}
+                {engaged && !serveMode && (
+                  <ChoiceRow
+                    label={SUPPORT_QUESTION}
+                    options={SUPPORT_OPTIONS}
+                    value={supportAnswer}
+                    onChange={(value) => {
+                      setSupportAnswer(value)
+                      // Clearing support collapses the will-vote row, and its answer has
+                      // to go with it: otherwise answering support again reopens the row
+                      // already filled in with a response the canvasser never gave on
+                      // this pass, and Save lights up on that ghost. A support answer
+                      // that is only *changed* keeps it, because the row never leaves
+                      // the screen and turnout doesn't depend on who they support.
+                      if (!value) setWillVote(undefined)
+                    }}
+                  />
+                )}
 
-      {engaged && serveMode && (
-        <ChoiceRow
-          label={FOLLOW_UP_QUESTION}
-          options={FOLLOW_UP_OPTIONS}
-          value={followUp}
-          onChange={setFollowUp}
-        />
-      )}
+                {engaged && serveMode && (
+                  <ChoiceRow
+                    label={FOLLOW_UP_QUESTION}
+                    options={FOLLOW_UP_OPTIONS}
+                    value={followUp}
+                    onChange={setFollowUp}
+                  />
+                )}
 
-      {engaged && supportAnswer && (
-        <ChoiceRow
-          label={WILL_VOTE_QUESTION}
-          options={WILL_VOTE_OPTIONS}
-          value={willVote}
-          onChange={setWillVote}
-        />
-      )}
+                {engaged && supportAnswer && (
+                  <ChoiceRow
+                    label={WILL_VOTE_QUESTION}
+                    options={WILL_VOTE_OPTIONS}
+                    value={willVote}
+                    onChange={setWillVote}
+                  />
+                )}
 
-      {/* Last on every branch, and it arrives with Save: `complete` is exactly
+                {/* Last on every branch, and it arrives with Save: `complete` is exactly
           "this branch has nothing left to ask", so the note is always the final
           thing offered and never a thing standing between two questions. On the
           engaged branch that keeps it after will-vote, where it already sat; on
@@ -700,72 +751,79 @@ export default function RecordKnockForm({
           prototype having no field there is the one part of its layout we
           overruled. Never required: `complete` doesn't consult it, so Save is
           live the moment the questions are done. */}
-      {complete && (
-        <div>
-          <span className={QUESTION_LABEL_CLASSNAME}>{NOTE_QUESTION}</span>
-          <div className="relative mt-2">
-            <Textarea
-              value={note}
-              maxLength={NOTE_MAX_LENGTH}
-              // The canvas's placeholder. It asks for the thing worth writing
-              // down and promises the tidying-up, which is what gets a sentence
-              // typed one-handed at a door; "Notes (optional)" only named the
-              // field and told the canvasser they could skip it.
-              placeholder={
-                capturesIssues
-                  ? NOTE_PLACEHOLDER.capture[product]
-                  : NOTE_PLACEHOLDER.note
-              }
-              rows={3}
-              className="min-h-20 pr-12"
-              onChange={(e) => setNote(e.target.value)}
-            />
-            <DictationMicButton
-              dictation={offline.mic}
-              idleLabel="Dictate note"
-              recordingLabel="Stop dictation"
-              disabled={record.isPending}
-            />
-          </div>
-          {offline.audio !== null && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {OFFLINE_MEMO_COPY.recorded}
-            </p>
+                {complete && (
+                  <div>
+                    <span className={QUESTION_LABEL_CLASSNAME}>
+                      {NOTE_QUESTION}
+                    </span>
+                    <div className="relative mt-2">
+                      <Textarea
+                        value={note}
+                        maxLength={NOTE_MAX_LENGTH}
+                        // The canvas's placeholder. It asks for the thing worth writing
+                        // down and promises the tidying-up, which is what gets a sentence
+                        // typed one-handed at a door; "Notes (optional)" only named the
+                        // field and told the canvasser they could skip it.
+                        placeholder={
+                          capturesIssues
+                            ? NOTE_PLACEHOLDER.capture[product]
+                            : NOTE_PLACEHOLDER.note
+                        }
+                        rows={3}
+                        className="min-h-20 pr-12"
+                        onChange={(e) => setNote(e.target.value)}
+                      />
+                      <DictationMicButton
+                        dictation={offline.mic}
+                        idleLabel="Dictate note"
+                        recordingLabel="Stop dictation"
+                        disabled={record.isPending}
+                      />
+                    </div>
+                    {offline.audio !== null && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {OFFLINE_MEMO_COPY.recorded}
+                      </p>
+                    )}
+                    <DictationFeedback dictation={offline.mic} />
+                  </div>
+                )}
+              </PanelDrawerBody>
+              {complete && (
+                <PanelDrawerFooter>
+                  {/* A network error with capture on is being held on the
+                    phone, not a failed save; `holdFailed` says so if holding
+                    fails too. */}
+                  {((record.isError &&
+                    !(captureEnabled && isNetworkError(record.error))) ||
+                    holdFailed) && (
+                    <p className="text-sm text-destructive">
+                      Saving failed — your answers are still here, try again.
+                    </p>
+                  )}
+                  {/* The canvas's `panelActions`: a full-width default Save
+                    stacked above a full-width outline Cancel, 8px apart.
+                    Stacked and not side by side — Save is the whole point of
+                    the step and a two-up row halves the target it presents to
+                    a thumb. */}
+                  <Button className="w-full" disabled={busy} onClick={save}>
+                    {busy ? 'Saving…' : 'Save'}
+                  </Button>
+                  {/* Clears the walkthrough and closes the step — the way back
+                    from three taps down the wrong branch. */}
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={reset}
+                  >
+                    Cancel
+                  </Button>
+                </PanelDrawerFooter>
+              )}
+            </>
           )}
-          <DictationFeedback dictation={offline.mic} />
-        </div>
-      )}
-
-      {/* A network error with capture on is being held on the phone, not a
-          failed save; `holdFailed` says so if holding fails too. */}
-      {((record.isError && !(captureEnabled && isNetworkError(record.error))) ||
-        holdFailed) && (
-        <p className="text-sm text-destructive">
-          Saving failed — your answers are still here, try again.
-        </p>
-      )}
-
-      {/* The canvas's `panelActions`: a full-width default Save stacked above a
-          full-width outline Cancel, 8px apart. Stacked and not side by side —
-          Save is the whole point of the panel and a two-up row halves the target
-          it presents to a thumb; the canvas draws the same pair the same way in
-          its note editor. */}
-      {complete && (
-        <div className="flex flex-col gap-2">
-          <Button className="w-full" disabled={record.isPending} onClick={save}>
-            {record.isPending ? 'Saving…' : 'Save'}
-          </Button>
-          {/* Clears the walkthrough without closing the door's sheet — the way
-              back from three taps down the wrong branch. */}
-          <Button
-            className="w-full"
-            variant="outline"
-            disabled={record.isPending}
-            onClick={reset}
-          >
-            Cancel
-          </Button>
-        </div>
+        </PanelDrawer>
       )}
     </div>
   )
