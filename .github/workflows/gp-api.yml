@@ -158,23 +158,18 @@ jobs:
   # Intentionally no needs: validate — the preview deploy runs in parallel with
   # validation so the webapp e2e (which waits on this job) starts sooner. A
   # preview stack of code that fails validate is acceptable; the PR can't merge.
-  preview:
-    name: Deploy PR preview
+  #
+  # The image build is its own job so a new push can cancel it. Only `pulumi up`
+  # is unsafe to kill. When build and deploy shared one never-cancelled job, each
+  # push queued behind the previous push's whole build and deploy (~10 min on
+  # PR #2563) before it could even check out.
+  preview-image:
+    name: Build PR preview image
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Keyed on the full preview stack name so deploy, teardown
-    # (gp-api-teardown-preview.yml), and the cron cleanup destroy
-    # (gp-api-cleanup-preview.yml) all serialize on the same stack and never
-    # run concurrent Pulumi operations against it.
-    #
-    # cancel-in-progress stays false even though the check jobs above now
-    # cancel. A superseded preview has to be allowed to finish its `pulumi up`:
-    # killed mid-operation it leaves a state lock behind, and the stack's ALB
-    # sits stranded against the account's ELB quota until the next cron destroy
-    # clears the lock and retries.
     concurrency:
-      group: gp-api-preview-gp-api-pr-${{ github.event.number }}
-      cancel-in-progress: false
+      group: gp-api-preview-image-pr-${{ github.event.number }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v5
         with:
@@ -240,8 +235,64 @@ jobs:
           cache-from: type=gha,scope=gp-api
           cache-to: type=gha,mode=max,scope=gp-api
 
+  preview:
+    name: Deploy PR preview
+    needs: [preview-image]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # Keyed on the full preview stack name so deploy, teardown
+    # (gp-api-teardown-preview.yml), and the cron cleanup destroy
+    # (gp-api-cleanup-preview.yml) all serialize on the same stack and never
+    # run concurrent Pulumi operations against it.
+    #
+    # cancel-in-progress stays false even though the check jobs above now
+    # cancel. A superseded preview has to be allowed to finish its `pulumi up`:
+    # killed mid-operation it leaves a state lock behind, and the stack's ALB
+    # sits stranded against the account's ELB quota until the next cron destroy
+    # clears the lock and retries.
+    concurrency:
+      group: gp-api-preview-gp-api-pr-${{ github.event.number }}
+      cancel-in-progress: false
+    steps:
+      # The image job finished before the PR moved on, so this run is about to
+      # deploy a commit nobody will look at while the next push waits on this
+      # group. Stand down instead; the newer run deploys the head.
+      - name: Skip if the PR has moved on
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.number }}" --jq .head.sha || echo "")
+          if [ -n "$current" ] && [ "$current" != "$RUN_HEAD" ]; then
+            echo "::notice::PR head is now $current, not $RUN_HEAD; skipping this superseded preview deploy."
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.head.outputs.superseded != 'true'
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        if: steps.head.outputs.superseded != 'true'
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      - name: Configure AWS Credentials
+        if: steps.head.outputs.superseded != 'true'
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Deploy preview stack (Pulumi)
         id: pulumi
+        if: steps.head.outputs.superseded != 'true'
         uses: ./.github/actions/pulumi-deploy
         with:
           working-directory: ${{ env.WORKSPACE }}
@@ -267,6 +318,7 @@ jobs:
       # gp-webapp "E2E Wait" failure blaming a deploy that reported green, which
       # sends you re-running the one job that cannot fix it.
       - name: Verify the preview is serving this commit
+        if: steps.head.outputs.superseded != 'true'
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.sha }}
