@@ -49,13 +49,16 @@ import { IMAGE_ACCEPT, IMAGE_MAX_BYTES } from './smsCompose.util'
 // Partial because link_shortener forbids text rather than requiring it, so
 // nothing is ever locked for it.
 const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
-  first_name_token: 'Keep the first name. Each person sees their own.',
-  candidate_name: 'Your name has to stay in the message.',
-  paid_for_by: 'The "Paid for by" line has to stay in the message.',
-  opt_out_line: 'The opt-out line has to stay in the message.',
+  first_name_token: 'Keep the first name so each person sees their own.',
+  candidate_name:
+    "Your name stays so people know who's texting, but you can reword anything around it.",
+  paid_for_by: 'The law requires this line, but you can write around it.',
+  opt_out_line:
+    'Every text has to offer a way to opt out, but you can write around it.',
 }
 
-const LOCKED_FALLBACK = 'This part has to stay in the message.'
+const LOCKED_FALLBACK =
+  'This part is required, but you can reword anything around it.'
 const FIRST_NAME_TAG = MERGE_TAGS[0]
 
 const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([

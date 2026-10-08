@@ -1016,7 +1016,7 @@ describe('SmsFlow', () => {
       })
 
       expect(await screen.findByRole('status')).toHaveTextContent(
-        'The opt-out line has to stay in the message.',
+        'Every text has to offer a way to opt out, but you can write around it.',
       )
       expect(editor.getText()).toContain('Reply STOP to opt out.')
     })
