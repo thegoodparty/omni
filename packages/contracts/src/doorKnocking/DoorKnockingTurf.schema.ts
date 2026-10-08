@@ -104,10 +104,12 @@ const CreateDoorKnockingTurfFields = z.object({
     .min(1)
     .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
     .optional(),
-  // The generated talking points, frozen with the list.
+  // The talking points, drafted and then edited by the candidate, frozen with
+  // the list.
   //
-  // Plain text, one line per section, landing on the `Outreach.script`
-  // column that every other channel already uses for exactly this. Sent by
+  // Free text, where a line starting with DOOR_KNOCKING_BULLET is a bullet,
+  // landing on the `Outreach.script` column that every other channel already
+  // uses for exactly this. Sent by
   // the client rather than generated here because generation is a separate,
   // stateless draft endpoint — the create transaction already carries a paid
   // Geoapify round trip inside a 120-second window, and an LLM call has no
