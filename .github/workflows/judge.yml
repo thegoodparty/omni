@@ -2207,9 +2207,19 @@ jobs:
               : ''
             // GitHub refuses a comment over 65536 characters.
             const LIMIT = 60000
+            // A sweep that failed after writing part of its report still
+            // posts it, under a warning that it may be incomplete.
+            const warning =
+              process.env.SWEEP_RESULT === 'success'
+                ? []
+                : [
+                    `> **The sweep job ended as ${process.env.SWEEP_RESULT}, so this report may be incomplete.** Details are in [the run](${runUrl}).`,
+                    '',
+                  ]
             const body = report
               ? [
                   '<!-- universal-judge-verdict -->',
+                  ...warning,
                   report.length > LIMIT
                     ? `${report.slice(0, LIMIT)}\n\n_Cut short; the full report is in [the run](${runUrl})._`
                     : report,

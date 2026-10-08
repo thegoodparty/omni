@@ -2034,6 +2034,11 @@ describe('judge.yml posts the verdict on the PR', () => {
     expect(verdictJob).toContain('issues.createComment')
   })
 
+  it('warns when a failed sweep left a partial report', () => {
+    expect(verdictJob).toContain("process.env.SWEEP_RESULT === 'success'")
+    expect(verdictJob).toContain('so this report may be incomplete')
+  })
+
   it('keeps the pull-requests token away from the sweep job', () => {
     expect(sweepJob.length).toBeGreaterThan(0)
     expect(sweepJob).not.toMatch(/^ {6}pull-requests: write$/m)
