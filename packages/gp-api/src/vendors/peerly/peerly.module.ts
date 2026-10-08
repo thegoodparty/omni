@@ -3,6 +3,7 @@ import { forwardRef, Module } from '@nestjs/common'
 import { JwtModule } from '@nestjs/jwt'
 import { AiModule } from 'src/ai/ai.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { CronModule } from '@/cron/cron.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
@@ -16,6 +17,7 @@ import { SlackModule } from '../slack/slack.module'
 import { P2pController } from './p2p.controller'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
 import { PeerlyAccountService } from './services/peerlyAccount.service'
+import { PeerlyBalanceWatchService } from './services/peerlyBalanceWatch.service'
 import { PeerlyErrorHandlingService } from './services/peerlyErrorHandling.service'
 import { PeerlyHttpService } from './services/peerlyHttp.service'
 import { PeerlyIdentityService } from './services/peerlyIdentity.service'
@@ -30,6 +32,7 @@ import { PeerlyTestListService } from './services/peerlyTestList.service'
 @Module({
   imports: [
     ClerkModule,
+    CronModule,
     HttpModule,
     JwtModule,
     AiModule,
@@ -49,6 +52,7 @@ import { PeerlyTestListService } from './services/peerlyTestList.service'
     PeerlyErrorHandlingService,
     PeerlyHttpService,
     PeerlyAccountService,
+    PeerlyBalanceWatchService,
     PeerlyIdentityService,
     PeerlyPhoneListService,
     PeerlyPhoneListCaptureService,
