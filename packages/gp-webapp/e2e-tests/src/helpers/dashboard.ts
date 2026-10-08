@@ -1,20 +1,16 @@
 import { type Page, expect } from '@playwright/test'
 
 // The /dashboard/election-result h1 (still shown once the election has
-// passed — unrelated to campaign-story), or CampaignManagerTasks' "Your top
-// priorities this week" h2 — the one heading CampaignManagerHome always
-// renders, regardless of task-loading state. Shared so the dashboard and
-// mobile specs query it the same way instead of each redefining the locator.
+// passed — unrelated to campaign-story), or Home's "Home" h1 — the one heading
+// Home always renders, whether or not its plan has tasks yet. Home renders it
+// twice (the desktop title bar and the mobile top bar), one hidden per
+// breakpoint, so match the visible one. Shared so the dashboard and mobile
+// specs query it the same way instead of each redefining the locator.
 export const dashboardGreetingHeading = (page: Page) =>
   page
     .getByRole('heading', { level: 1 })
-    .filter({ hasText: /until|General|Primary|Election|concluded/ })
-    .or(
-      page.getByRole('heading', {
-        level: 2,
-        name: /your top priorities this week/i,
-      }),
-    )
+    .filter({ hasText: /until|General|Primary|Election|concluded|^Home$/ })
+    .filter({ visible: true })
     .first()
 
 // A task detail modal (e.g. the awareness "Fundraising ask" sheet) occasionally
