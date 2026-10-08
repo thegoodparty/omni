@@ -120,7 +120,42 @@ runs:
         fi
 
         vercel build "${BUILD_ARGS[@]}"
-        DEPLOY_URL="$(vercel deploy "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
+
+        # RETRIED, because this step is one HTTP upload and it is the only part
+        # of the deploy that can fail for reasons that have nothing to do with
+        # the code. `--archive=tgz` posts the whole build output as a single
+        # ~80MB body, and on 2026-09-29 (PR #2189) it came back as a bare
+        # `Error: fetch failed` immediately after `Uploading [====]
+        # (79.3MB/79.3MB)` — a clean build, the upload finished, and the CLI
+        # exited 1 with nothing to read. That failed the whole job on a diff
+        # that touched no frontend file, and the same composite action deploys
+        # production from the release train, where a transient socket error
+        # fails a release.
+        #
+        # Safe to repeat: Vercel deployments are immutable and created fresh per
+        # invocation, and aliasing happens below against whichever URL we end up
+        # holding, so the worst case of a retry after an upload that actually
+        # landed is one orphaned preview deployment. Bounded at 3 so a real,
+        # deterministic failure (bad token, rejected project) still fails the
+        # job in well under a minute rather than looping.
+        #
+        # Only `vercel deploy` is wrapped. `vercel build` is where a broken
+        # change fails, and retrying that would hide the failures this job
+        # exists to catch.
+        DEPLOY_URL=''
+        for attempt in 1 2 3; do
+          if DEPLOY_OUTPUT="$(vercel deploy "${DEPLOY_ARGS[@]}")"; then
+            DEPLOY_URL="$(printf '%s\n' "$DEPLOY_OUTPUT" | awk 'NF { line=$0 } END { print line }')"
+            break
+          fi
+          if [ "$attempt" = 3 ]; then
+            echo "vercel deploy failed on all 3 attempts" >&2
+            exit 1
+          fi
+          echo "vercel deploy failed (attempt ${attempt}/3), retrying in 15s" >&2
+          sleep 15
+        done
+
         case "$DEPLOY_URL" in
           http*) ;;
           *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
