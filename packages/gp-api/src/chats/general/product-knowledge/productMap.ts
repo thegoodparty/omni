@@ -453,6 +453,32 @@ export const PRODUCT_AREAS: ProductArea[] = [
 export const areasForMode = (mode: ProductMode): ProductArea[] =>
   PRODUCT_AREAS.filter((a) => a.modes.includes(mode))
 
+// The area a dashboard URL is on, by the most specific path that holds it.
+// Only real routes take part, never an alias (its label never renders), a
+// bracketed segment matches any one segment, and the home tab matches only
+// exactly, since every page sits under it.
+export const areaForPath = (
+  mode: ProductMode,
+  pathname: string,
+): ProductArea | null => {
+  const matches = (path: string): boolean => {
+    const pattern = new RegExp(
+      `^${path.replace(/\[[^/\]]+\]/g, '[^/]+')}${
+        path === '/dashboard' ? '' : '(/.*)?'
+      }$`,
+    )
+    return pattern.test(pathname)
+  }
+  return (
+    areasForMode(mode)
+      .filter(
+        (area) =>
+          !area.aliasOf && area.path.startsWith('/') && matches(area.path),
+      )
+      .sort((a, b) => b.path.length - a.path.length)[0] ?? null
+  )
+}
+
 // What chat cannot reach. Every line here is something a user has assumed the
 // chat does. Stating them is what keeps the assistant from inventing a reason
 // a save "did not go through" and sending someone to check a setting that had

@@ -435,6 +435,19 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
   })
 })
 
+describe('CampaignManagerHandler.describePage', () => {
+  it('names the Win page a message was sent from', () => {
+    const block = buildHandler().describePage('/dashboard/contacts/lists/3')
+    expect(block).toContain('CURRENT PAGE')
+    expect(block).toContain('Voter Data (/dashboard/contacts)')
+  })
+
+  it('says nothing for a path the product map does not know', () => {
+    expect(buildHandler().describePage('/dashboard/not-a-page')).toBeNull()
+    expect(buildHandler().describePage('/dashboard/briefings')).toBeNull()
+  })
+})
+
 describe('CampaignManagerHandler.buildTools — past outreach', () => {
   const withOutreach = () =>
     new CampaignManagerHandler(

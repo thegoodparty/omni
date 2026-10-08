@@ -60,6 +60,9 @@ export interface ChatScopeHandler<
   ) => Promise<void>
   loadContext: (conversationId: string, userId: number) => Promise<TContext>
   buildSystemPrompt: (ctx: TContext) => string
+  // Optional: what to tell the model about the page this turn was sent from,
+  // or null to say nothing. Appended to the system prompt for that turn only.
+  describePage?: (pagePath: string, ctx: TContext) => string | null
   buildTools: (ctx: TContext) => Record<string, LlmTool>
   // Optional pre-LLM hook: return a deterministic assistant reply for a
   // recognized message (e.g. a kickoff sentinel) to skip the model; return

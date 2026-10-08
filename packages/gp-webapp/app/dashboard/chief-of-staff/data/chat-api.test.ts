@@ -192,6 +192,7 @@ describe('chiefOfStaffChatApi', () => {
       expect(JSON.parse(init.body as string)).toEqual({
         content: 'hi',
         clientMessageId: 'uuid-1',
+        pagePath: window.location.pathname,
       })
     })
 

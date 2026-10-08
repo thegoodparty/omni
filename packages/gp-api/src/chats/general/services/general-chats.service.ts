@@ -59,6 +59,7 @@ export interface SendMessageArgs {
   signal?: AbortSignal
   clientMessageId?: string
   attachmentIds?: string[]
+  pagePath?: string
 }
 
 const toTitle = (message: string): string => {
@@ -308,7 +309,12 @@ export class GeneralChatsService {
         )
       }
 
-      const systemPrompt = handler.buildSystemPrompt(ctx)
+      const page = args.pagePath
+        ? (handler.describePage?.(args.pagePath, ctx) ?? null)
+        : null
+      const systemPrompt = page
+        ? `${handler.buildSystemPrompt(ctx)}\n\n${page}`
+        : handler.buildSystemPrompt(ctx)
       const tools = handler.buildTools(ctx)
 
       const finalizing = hasFinalizeAssistantText(handler) ? handler : null
