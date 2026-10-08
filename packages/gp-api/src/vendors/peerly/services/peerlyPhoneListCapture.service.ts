@@ -121,11 +121,22 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
   // Stamps the numeric Peerly list id and advances the row to `ready` the
   // first time the status endpoint (either route — token or buildId) sees
   // the list ACTIVE. Guarded on peerlyListId IS NULL so a repeat poll after
-  // the first success is a no-op rather than a re-write.
-  async stampPeerlyListId(token: string, peerlyListId: number): Promise<void> {
+  // the first success is a no-op rather than a re-write. `leadsLoaded` is the
+  // stable count observed at this ready transition — the durable billable
+  // count the Win SMS hold-capture reads so it never re-fetches a vendor
+  // count that could read a still-loading list.
+  async stampPeerlyListId(
+    token: string,
+    peerlyListId: number,
+    leadsLoaded: number,
+  ): Promise<void> {
     await this.model.updateMany({
       where: { token, peerlyListId: null },
-      data: { peerlyListId, buildStatus: PhoneListBuildStatus.ready },
+      data: {
+        peerlyListId,
+        leadsLoaded,
+        buildStatus: PhoneListBuildStatus.ready,
+      },
     })
   }
 

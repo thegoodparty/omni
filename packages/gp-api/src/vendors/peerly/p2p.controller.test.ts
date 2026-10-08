@@ -250,6 +250,7 @@ describe('P2pController', () => {
       expect(mockPeerlyPhoneListCapture.stampPeerlyListId).toHaveBeenCalledWith(
         'test-token',
         123,
+        500,
       )
     })
 
@@ -546,6 +547,7 @@ describe('P2pController', () => {
       expect(mockPeerlyPhoneListCapture.stampPeerlyListId).toHaveBeenCalledWith(
         'peerly-token',
         123,
+        500,
       )
     })
 

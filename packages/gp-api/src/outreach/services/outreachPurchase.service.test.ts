@@ -12,6 +12,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
+import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { OutreachPurchaseHandlerService } from './outreachPurchase.service'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -42,6 +43,10 @@ const mockP2pSmsHold = {
   recordHold: vi.fn(),
 } as unknown as OutreachP2pSmsHoldService
 
+const mockP2pSmsCapture = {
+  captureHold: vi.fn(),
+} as unknown as OutreachP2pSmsCaptureService
+
 const mockLogger = createMockLogger()
 
 const service = new OutreachPurchaseHandlerService(
@@ -50,6 +55,7 @@ const service = new OutreachPurchaseHandlerService(
   mockPeerlyPhoneListService,
   mockPeerlyPhoneListCapture,
   mockP2pSmsHold,
+  mockP2pSmsCapture,
   mockLogger,
 )
 
@@ -73,6 +79,7 @@ const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   buildError: null,
   requestSnapshot: null,
   lastSeenLeadsLoaded: null,
+  leadsLoaded: null,
   buildAttempts: 0,
   excludedOptedOutCount: 0,
   excludedDuplicatePhoneCount: 0,

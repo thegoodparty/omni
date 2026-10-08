@@ -13,6 +13,7 @@ import {
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
+import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
@@ -23,6 +24,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly p2pSmsHold: OutreachP2pSmsHoldService,
+    private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachPurchaseHandlerService.name)
@@ -412,6 +414,31 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         `Failed to redeem free texts offer for campaign ${campaignId} after payment ${paymentIntentId}:`,
       )
       throw error
+    }
+
+    // CAPTURE edge (a): attempt the capture only AFTER finalize and the
+    // free-texts redemption have run — the discount is read at capture from the
+    // per-send stamp (`billableTextCount`) that `markFreeTextsConsumed` writes
+    // in the block above, so capturing earlier would miss an eligible campaign's
+    // discount and overcharge. If the build is already `ready` (the common
+    // ordering — the list is built before checkout), this captures now;
+    // otherwise it no-ops and the build-ready edge or the backstop sweep fires
+    // once the list finishes. Best-effort: a capture failure must not fail the
+    // webhook (finalize already ran, and the backstop re-captures), and it runs
+    // last so it can never strand the send setup. Self-gated on the flag.
+    if (
+      isWinSmsHoldBillingEnabled() &&
+      outreachId &&
+      paymentIntentId.startsWith('cs_')
+    ) {
+      try {
+        await this.p2pSmsCapture.captureHold(outreachId)
+      } catch (error) {
+        this.logger.error(
+          { error, outreachId },
+          'win sms capture (post-hold edge) failed; backstop sweep will retry',
+        )
+      }
     }
   }
 }

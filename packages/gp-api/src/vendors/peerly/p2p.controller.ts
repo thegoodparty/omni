@@ -234,7 +234,7 @@ export class P2pController {
     // successful poll — an unstamped capture row degrades to the
     // materialization fallback, which is the designed behavior.
     await this.peerlyPhoneListCapture
-      .stampPeerlyListId(token, listId)
+      .stampPeerlyListId(token, listId, detailsResponse.leads_loaded)
       .catch((err: Error) =>
         this.logger.warn(
           { err, token, listId },
