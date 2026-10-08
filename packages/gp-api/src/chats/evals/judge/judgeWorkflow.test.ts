@@ -2001,3 +2001,46 @@ describe('judge workflows stay under the expression length limit', () => {
     },
   )
 })
+
+// The verdict reaches the PR from a job that runs no branch code, because the
+// job that does run it holds the Anthropic key and no pull-requests token.
+describe('judge.yml posts the verdict on the PR', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const sweepJob = yaml.slice(
+    yaml.indexOf('\n  sweep:'),
+    yaml.indexOf('\n  verdict:'),
+  )
+  const verdictJob = yaml.slice(yaml.indexOf('\n  verdict:'))
+
+  it('saves the report where the verdict job can fetch it', () => {
+    const judging = stepsOf(yaml).find(
+      (step) => step.name === 'Judge both arms',
+    )
+    expect(judging?.body).toContain(
+      `trap 'cp "$GITHUB_STEP_SUMMARY" "$REPORT_FILE" 2>/dev/null || true' EXIT`,
+    )
+    const keep = stepsOf(yaml).find(
+      (step) => step.name === 'Keep the report for the PR',
+    )
+    expect(keep?.body).toContain('actions/upload-artifact')
+    expect(keep?.body).toContain('name: judge-report')
+  })
+
+  it('posts from a job that checks out and runs nothing from the branch', () => {
+    expect(verdictJob).toMatch(/^ {4}needs: \[plan, sweep\]$/m)
+    expect(verdictJob).toMatch(/^ {6}pull-requests: write$/m)
+    expect(verdictJob).not.toContain('actions/checkout')
+    expect(verdictJob).not.toContain('npx ')
+    expect(verdictJob).toContain('issues.createComment')
+  })
+
+  it('warns when a failed sweep left a partial report', () => {
+    expect(verdictJob).toContain("process.env.SWEEP_RESULT === 'success'")
+    expect(verdictJob).toContain('so this report may be incomplete')
+  })
+
+  it('keeps the pull-requests token away from the sweep job', () => {
+    expect(sweepJob.length).toBeGreaterThan(0)
+    expect(sweepJob).not.toMatch(/^ {6}pull-requests: write$/m)
+  })
+})
