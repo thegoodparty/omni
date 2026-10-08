@@ -886,11 +886,18 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   // caller can fire a one-time side effect (e.g. auto-dispatching opponent
   // collection) only on the genuine false->true transition and not on a no-op
   // re-write of an already-Pro campaign.
+  //
+  // `data` is any other scalar the caller wants committed with the flip (the
+  // admin console sends isVerified/didWin/tier in the same request). It rides
+  // the same statement so a failure anywhere in here leaves neither half
+  // written; a second update after the commit would be exactly the partial
+  // state this method exists to rule out.
   async setIsPro(
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-  ): Promise<{ becamePro: boolean }> {
+    data: Omit<Prisma.CampaignUpdateInput, 'isPro' | 'hasFreeTextsOffer'> = {},
+  ): Promise<{ becamePro: boolean; campaign: Campaign }> {
     // The transition detection (read prior isPro) and the write must serialize:
     // Stripe delivers webhooks at-least-once, so two concurrent deliveries for
     // the same subscription could otherwise both read isPro=false, both compute
@@ -936,6 +943,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         const campaign = await tx.campaign.update({
           where: { id: campaignId },
           data: {
+            ...data,
             isPro,
             ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
           },
@@ -1008,7 +1016,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       await this.crm.trackCampaign(campaignId)
     }
 
-    return { becamePro: isBecomingProFirstTime }
+    return { becamePro: isBecomingProFirstTime, campaign }
   }
 
   async checkFreeTextsEligibility(campaignId: number): Promise<boolean> {

@@ -785,6 +785,42 @@ describe('CampaignsService.setIsPro', () => {
     expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
   })
 
+  // The admin console sends isVerified/didWin/tier with the Pro toggle. A
+  // second update after the flip's commit would leave the campaign Pro with
+  // none of them written whenever that update failed; in the same statement
+  // they land together or not at all.
+  it("commits the caller's other fields with the flip, or rolls them back with it", async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = buildService()
+
+    await failDetailsWrites()
+    await expect(
+      campaigns.setIsPro(campaign.id, true, false, { isVerified: true }),
+    ).rejects.toThrow('details write failed')
+    const rolledBack = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(rolledBack.isPro).toBe(false)
+    expect(rolledBack.isVerified).toBeNull()
+
+    await allowDetailsWrites()
+    const { becamePro, campaign: returned } = await campaigns.setIsPro(
+      campaign.id,
+      true,
+      false,
+      { isVerified: true },
+    )
+
+    expect(becamePro).toBe(true)
+    expect(returned.isPro).toBe(true)
+    expect(returned.isVerified).toBe(true)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isVerified).toBe(true)
+    expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
+  })
+
   // The same fact stated as the mechanism rather than the consequence: one
   // commit, so a failed stamp takes the flip with it and there is no half
   // state for a redelivery to misread.
