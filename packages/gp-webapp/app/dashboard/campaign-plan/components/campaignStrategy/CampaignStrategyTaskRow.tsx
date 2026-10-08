@@ -268,7 +268,10 @@ const CampaignStrategyTaskRow = ({
           </p>
         )}
         {showButtons && (
-          <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
+          // The main action leads, full width on a phone, with the quiet ones
+          // small and sharing one row under it; on wider screens every
+          // button sits in a single row (sm:contents), as on the Home card.
+          <div className="flex flex-col gap-2 pt-5 sm:flex-row sm:flex-wrap sm:items-center">
             {action && (
               <Button asChild size="medium" className="w-full sm:w-auto">
                 {action.external ? (
@@ -280,10 +283,9 @@ const CampaignStrategyTaskRow = ({
                 )}
               </Button>
             )}
-            {onToggleComplete && !completesItself && (
+            {!action && onToggleComplete && !completesItself && (
               <Button
                 type="button"
-                variant={action ? 'outline' : 'default'}
                 size="medium"
                 className="w-full sm:w-auto"
                 onClick={() => onToggleComplete(task.id, true)}
@@ -292,48 +294,68 @@ const CampaignStrategyTaskRow = ({
                 Mark done
               </Button>
             )}
-            {onDiscuss && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="medium"
-                className="w-full sm:w-auto"
-                onClick={() => onDiscuss(task)}
-              >
-                <MessagesSquareIcon className="size-4" aria-hidden />
-                Ask about this
-              </Button>
-            )}
-            {onSetAside && (putOff || notForMe) && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="medium"
-                    className="w-full sm:ml-auto sm:w-auto"
-                  >
-                    Skip
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {putOff && (
-                    <DropdownMenuItem
-                      onSelect={() => onSetAside(task, 'later')}
+            <div className="flex items-center gap-2 sm:contents">
+              {action && onToggleComplete && !completesItself && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="medium"
+                  className="max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
+                  onClick={() => onToggleComplete(task.id, true)}
+                >
+                  <CheckIcon className="size-4" aria-hidden />
+                  Mark done
+                </Button>
+              )}
+              {onDiscuss && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="medium"
+                  className="max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
+                  onClick={() => onDiscuss(task)}
+                >
+                  <MessagesSquareIcon
+                    className={cn(
+                      'size-4',
+                      action && !completesItself && 'max-[399px]:hidden',
+                    )}
+                    aria-hidden
+                  />
+                  Ask about this
+                </Button>
+              )}
+              {onSetAside && (putOff || notForMe) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="medium"
+                      className="max-sm:flex-1 sm:ml-auto max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
                     >
-                      {PUT_OFF_LABEL}
-                    </DropdownMenuItem>
-                  )}
-                  {notForMe && (
-                    <DropdownMenuItem
-                      onSelect={() => onSetAside(task, 'notForMe')}
-                    >
-                      Not for me
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+                      Skip
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {putOff && (
+                      <DropdownMenuItem
+                        onSelect={() => onSetAside(task, 'later')}
+                      >
+                        {PUT_OFF_LABEL}
+                      </DropdownMenuItem>
+                    )}
+                    {notForMe && (
+                      <DropdownMenuItem
+                        onSelect={() => onSetAside(task, 'notForMe')}
+                      >
+                        Not for me
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           </div>
         )}
       </div>

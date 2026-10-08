@@ -90,6 +90,11 @@ const followingTasks = (
     .filter((task) => !task.completed && task.setAside === null)
 }
 
+// The main action on a phone: full width. The quiet buttons drop to
+// Button's small size there (h-8, px-4, py-2, text-sm), applied by class
+// because the buttons only stack below sm, narrower than useIsMobile's cutoff.
+const PRIMARY_ON_PHONE = 'w-full sm:w-auto'
+
 // Mark done: the confetti bursts, then the card lifts off the top of the
 // stack while the one behind it rises into place, all on one axis. A skipped
 // card drops down and out instead, so the two never read the same.
@@ -401,6 +406,35 @@ const NextTaskCard = ({
     // Outreach asks for its voter count first, inside onToggleComplete.
     onToggleComplete(frontTask.id, true)
   }
+  // Mark done leads when the task has no action of its own, and joins the
+  // quiet row when it does.
+  const renderMarkDone = (primary: boolean) => (
+    <Button
+      type="button"
+      variant={primary ? 'default' : 'outline'}
+      size="medium"
+      // Primary spans the card on a phone; in the quiet row it shares it, at
+      // the small size.
+      className={
+        primary
+          ? PRIMARY_ON_PHONE
+          : 'max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm'
+      }
+      onClick={markDone}
+    >
+      <ConfettiBurst
+        play={
+          !!frontTask &&
+          leaving?.id === frontTask.id &&
+          leaving.direction === 'up'
+        }
+        style={{ width: 16, height: 16 }}
+      >
+        <CheckIcon className="size-4" aria-hidden />
+      </ConfettiBurst>
+      Mark done
+    </Button>
+  )
   const skipFront = (reason: 'later' | 'notForMe') => {
     if (!frontTask) return
     setLeaving({ id: frontTask.id, stage: 'exit', direction: 'down' })
@@ -542,13 +576,16 @@ const NextTaskCard = ({
                       {due.label}
                     </p>
                   )}
-                  <div className="flex flex-col gap-2 pt-3 sm:flex-row sm:flex-wrap">
+                  {/* The main action leads, full width on a phone. The quiet
+                      ones share one row under it there, and on wider screens
+                      every button sits in a single row (sm:contents). */}
+                  <div className="flex flex-col gap-2 pt-5 sm:flex-row sm:flex-wrap sm:items-center">
                     <>
                       {action && (
                         <Button
                           asChild
                           size="medium"
-                          className="w-full sm:w-auto"
+                          className={PRIMARY_ON_PHONE}
                         >
                           {action.external ? (
                             <a
@@ -567,75 +604,69 @@ const NextTaskCard = ({
                           )}
                         </Button>
                       )}
-                      {!completesItself && (
-                        <Button
-                          type="button"
-                          variant={action ? 'outline' : 'default'}
-                          size="medium"
-                          className="w-full sm:w-auto"
-                          onClick={markDone}
-                        >
-                          <ConfettiBurst
-                            play={
-                              leaving?.id === frontTask.id &&
-                              leaving.direction === 'up'
+                      {!action && !completesItself && renderMarkDone(true)}
+                      <div className="flex items-center gap-2 sm:contents">
+                        {action && !completesItself && renderMarkDone(false)}
+                        {chat && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="medium"
+                            className="max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
+                            onClick={() =>
+                              chat.discussTask(discussTaskMessage(frontTask))
                             }
-                            style={{ width: 16, height: 16 }}
                           >
-                            <CheckIcon className="size-4" aria-hidden />
-                          </ConfettiBurst>
-                          Mark done
-                        </Button>
-                      )}
-                      {chat && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="medium"
-                          className="w-full sm:w-auto"
-                          onClick={() =>
-                            chat.discussTask(discussTaskMessage(frontTask))
-                          }
-                        >
-                          <MessagesSquareIcon className="size-4" aria-hidden />
-                          Ask about this
-                        </Button>
-                      )}
-                      {/* Skip sits apart, at the end of the row: the choice
+                            {/* On the narrowest phones a third quiet button
+                                leaves no room for the icon. */}
+                            <MessagesSquareIcon
+                              className={cn(
+                                'size-4',
+                                action &&
+                                  !completesItself &&
+                                  'max-[399px]:hidden',
+                              )}
+                              aria-hidden
+                            />
+                            Ask about this
+                          </Button>
+                        )}
+                        {/* Skip sits apart, at the end of the row: the choice
                           is the confirmation, put it off or (for a task the
                           race can do without) set it aside for good. */}
-                      {!leaving &&
-                        (canPutOffTask(frontTask.title) ||
-                          canSetTaskAsideForGood(frontTask.title)) && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="medium"
-                                className="w-full sm:ml-auto sm:w-auto"
-                              >
-                                Skip
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {canPutOffTask(frontTask.title) && (
-                                <DropdownMenuItem
-                                  onSelect={() => skipFront('later')}
+                        {!leaving &&
+                          (canPutOffTask(frontTask.title) ||
+                            canSetTaskAsideForGood(frontTask.title)) && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="medium"
+                                  className="max-sm:flex-1 sm:ml-auto max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
                                 >
-                                  {PUT_OFF_LABEL}
-                                </DropdownMenuItem>
-                              )}
-                              {canSetTaskAsideForGood(frontTask.title) && (
-                                <DropdownMenuItem
-                                  onSelect={() => skipFront('notForMe')}
-                                >
-                                  Not for me
-                                </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
+                                  Skip
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {canPutOffTask(frontTask.title) && (
+                                  <DropdownMenuItem
+                                    onSelect={() => skipFront('later')}
+                                  >
+                                    {PUT_OFF_LABEL}
+                                  </DropdownMenuItem>
+                                )}
+                                {canSetTaskAsideForGood(frontTask.title) && (
+                                  <DropdownMenuItem
+                                    onSelect={() => skipFront('notForMe')}
+                                  >
+                                    Not for me
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                      </div>
                     </>
                   </div>
                 </div>
