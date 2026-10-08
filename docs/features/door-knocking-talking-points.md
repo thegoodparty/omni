@@ -23,19 +23,22 @@ campaign in general.
 
 ## The card
 
-At the door the card has three parts:
+A list saved with free text stores the whole card, from how to open to how to
+close, and the walk shows exactly those lines. The opening and the close are
+bullets like any other ("Open warm, thank them for the time.", "Close by asking
+if they want updates."), so the candidate can edit them.
 
-| Part               | Origin                                | Why                                                                                                                                                |
-| ------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Introduction       | Composed at render by the app         | Depends on who is reading. Wrong output here is the worst failure in the feature (a volunteer claiming to be the candidate), so no model writes it |
-| Talking points     | Stored with the list                  | Drafted by the model, edited by the candidate in the wizard                                                                                        |
-| Thanks and goodbye | Composed at render (`DEPARTURE_NOTE`) | The same however the conversation went, so it is a constant                                                                                        |
+They are written as notes in the third person ("Say what Renee is already
+doing"), never as "I", so the same card works for the candidate and for a
+volunteer. That is what lets the walk drop the composed introduction: a note
+cannot make a volunteer claim to be the candidate the way a scripted "Hi, I'm"
+line could.
 
-The introduction and goodbye depend on _who is reading the card_, not on which
-list it is, so they cannot be frozen at create time by a candidate on a laptop
-and then read by a volunteer on a doorstep. `useDoorScript` composes the
-introduction from the live user, campaign and role (candidate, team member,
-volunteer, Serve official) on every walk.
+Lists frozen before free text stored only the middle of the card. The walk
+still frames those with the introduction `useDoorScript` composes for whoever
+is reading (candidate, team member, volunteer, Serve official) and closes them
+with `DEPARTURE_NOTE`. A list with no stored card falls back to the composed
+introduction and the candidate's issue stances.
 
 There is no website call-to-action line. The model never writes a URL, phone
 number or QR code.
@@ -69,8 +72,11 @@ still something the candidate can edit. Only an empty result is a failure.
 Each bullet is one action or idea, about 25 words at most, about what the
 campaign (or, on Serve, the office) is working toward or asking for, never
 about the person who answers the door. Plain spoken English in sentence case,
-no em dashes, no emoji. No greeting, introduction, thank-you or goodbye,
-because the app writes both ends.
+no em dashes, no emoji. The first bullet is how to open and the last is how to
+close, which is where the ask goes, both written as notes rather than a
+scripted greeting or goodbye. The candidate (or official) is named by first
+name in the third person, never as "I", because a volunteer reads the card
+too.
 
 **Improve keeps the candidate's shape.** It is a light polish of whatever is in
 the field: bullets stay bullets, sentences stay sentences, line breaks and line
@@ -146,10 +152,8 @@ The wizard's `points` stage (`createFlow/TalkingPointsStep.tsx`, wired in
 are settled and the paid route purchase stays last. The draft is requested on
 arrival at the step.
 
-The step shows the whole card: the introduction as a read-only preview (built
-with the same builders `useDoorScript` uses, so the preview cannot drift), one
-editable talking-points field, and the goodbye as a read-only preview. The field
-has a length counter against `DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH` (2000)
+The step shows one editable talking-points field and nothing else in the box:
+the opening and the close are bullets in it. The field has a length counter against `DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH` (2000)
 and is read-only only while the first draft is loading. Around it: Regenerate,
 an instructions input, Improve with AI, dictation, an error card with Try again,
 and a request-id guard so a stale reply never lands on top of an edit.
@@ -183,12 +187,19 @@ into the card's lines, each `{ text, bullet }`:
 3. **Empty or absent.** Null, and `useDoorScript` falls back to the candidate's
    own issue stances, as it does for lists created before the step existed.
 
-Cases 1 and 2 close with `DEPARTURE_NOTE` as a bullet. `DoorScript.tsx` groups
+Case 1 is framed with the composed introduction and closes with
+`DEPARTURE_NOTE` as a bullet. Case 2 carries its own opening and close, so the
+walk shows it as written with no introduction above it and nothing appended.
+`DoorScript.tsx` groups
 consecutive bullets into one list and renders other lines as paragraphs.
 
 **Accepted edge:** new free text that is exactly four plain lines, none
-bulleted, is indistinguishable from a legacy row and shows as four bullets. The
-words are the same either way.
+bulleted, is indistinguishable from a legacy row and shows as four bullets
+inside the composed frame. The words are the same either way.
+
+Lists saved between the free-text release and this one hold bullets with no
+opening or close of their own, and now show without the composed frame. They
+are hours old at most, so they are not special-cased.
 
 Stored points replace the issue stances rather than joining them, and the
 stances query is not spent when a list has points.
@@ -275,5 +286,6 @@ there is no surface to edit them from afterwards. Persisting `purpose` keeps
 that open without a later migration.
 
 **Serve is in scope.** The Serve prompt never says "candidate" or "campaign",
-and the composed introduction never introduces a sitting official as a
-candidate for their own seat, the mistake `buildServeIntro` exists to prevent.
+and a legacy card's composed introduction never introduces a sitting official
+as a candidate for their own seat, the mistake `buildServeIntro` exists to
+prevent.

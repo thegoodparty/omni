@@ -6,14 +6,14 @@ import { DOOR_KNOCKING_BULLET } from '@goodparty_org/contracts'
 // Source: Door Knocking Script.docx (product), and
 // docs/features/door-knocking-talking-points.md for why the split falls here.
 //
-//   Introduction      composed at render (buildIntro et al.)
-//   Talking points    STORED, AI-drafted bullets the candidate may reshape
-//   Departure/thanks  composed at render (the constant below)
+// A list saved with free text stores the whole card: the opening and the close
+// are bullets like any other, written as notes in the third person so they
+// read the same for the candidate and a volunteer. The walk shows exactly
+// those lines.
 //
-// The two composed parts depend on WHO IS READING the card, not on which list
-// it is, so they cannot be frozen at create time by a candidate on a laptop
-// and then read by a volunteer on a doorstep. Everything stored is
-// list-specific and candidate-editable.
+// A list frozen before free text stored only the middle, so the walk still
+// frames it with the composed introduction (buildIntro et al.) and the
+// departure note below.
 
 // One line of the card as read at a door. A bullet is a line the candidate (or
 // the draft) started with the bullet marker; anything else is a sentence they
@@ -23,8 +23,8 @@ export interface TalkingPoint {
   bullet: boolean
 }
 
-// The template says the close is constant regardless of how the conversation
-// went, so it is a constant.
+// The close a legacy card is framed with, constant however the conversation
+// went.
 //
 // Written in the note register the drafted lines use, not as a line to recite:
 // thank them, say the support matters, leave the channel open.
@@ -39,16 +39,22 @@ const BULLET_MARKER = DOOR_KNOCKING_BULLET.trim()
 // not migrated, so the walk keeps reading them the way it always has.
 const LEGACY_LINE_COUNT = 4
 
-// The stored card as the walk reads it, closed with DEPARTURE_NOTE as a
-// bullet. Null for a list with nothing stored, so the caller falls back to the
-// candidate's issue stances.
+export interface StoredTalkingPoints {
+  points: TalkingPoint[]
+  // A card from before free text, which the walk frames with the composed
+  // introduction and closes with DEPARTURE_NOTE.
+  legacy: boolean
+}
+
+// The stored card as the walk reads it. Null for a list with nothing stored,
+// so the caller falls back to the candidate's issue stances.
 //
 // Accepted edge: new free text that happens to be exactly four plain lines,
 // none of them bulleted, is indistinguishable from a legacy row and is read as
-// one, so its sentences show as bullets. The words are the same either way.
+// one, so its sentences show as bullets inside the composed frame.
 export const readTalkingPoints = (
   stored: string | null | undefined,
-): TalkingPoint[] | null => {
+): StoredTalkingPoints | null => {
   if (!stored) return null
   const lines = stored.split(/\r?\n/).map((line) => line.trim())
   const nonBlank = lines.filter((line) => line.length > 0)
@@ -70,5 +76,10 @@ export const readTalkingPoints = (
         .filter((point) => point.text.length > 0)
   if (points.length === 0) return null
 
-  return [...points, { text: DEPARTURE_NOTE, bullet: true }]
+  return isLegacy
+    ? {
+        points: [...points, { text: DEPARTURE_NOTE, bullet: true }],
+        legacy: true,
+      }
+    : { points, legacy: false }
 }

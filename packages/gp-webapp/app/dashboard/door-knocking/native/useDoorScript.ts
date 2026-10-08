@@ -64,7 +64,11 @@ export const useDoorScript = (
 
   // Null for a list with no stored card, which means "fall back to the static
   // build": what every list created before the points step needs.
-  const points = readTalkingPoints(storedPoints) ?? []
+  const stored = readTalkingPoints(storedPoints)
+  const points = stored?.points ?? []
+  // A free-text card carries its own opening, so a composed introduction on
+  // top of it would open the conversation twice.
+  const ownOpening = stored !== null && !stored.legacy
 
   const positionsQuery = useQuery({
     queryKey: ['campaign-positions', campaignId],
@@ -101,7 +105,9 @@ export const useDoorScript = (
   // exists to prevent on the other side.
   if (canvasser.isVolunteer) {
     return {
-      intro: buildVolunteerIntro(user, canvasser.representing, serveMode),
+      intro: ownOpening
+        ? ''
+        : buildVolunteerIntro(user, canvasser.representing, serveMode),
       // The stances under the opener are the candidate's own, read from an
       // endpoint a volunteer cannot call — which is the whole reason the
       // stored points ride the route payload instead. A volunteer on a list
@@ -113,12 +119,17 @@ export const useDoorScript = (
   }
 
   if (serveMode) {
-    return { intro: buildServeIntro(user, officeName), issues: [], points }
+    return {
+      intro: ownOpening ? '' : buildServeIntro(user, officeName),
+      issues: [],
+      points,
+    }
   }
 
   return {
-    intro:
-      role && role !== 'owner'
+    intro: ownOpening
+      ? ''
+      : role && role !== 'owner'
         ? buildTeamMemberIntro(user, {
             name: campaign?.ownerName ?? '',
             office: campaign?.positionName ?? campaign?.office ?? '',

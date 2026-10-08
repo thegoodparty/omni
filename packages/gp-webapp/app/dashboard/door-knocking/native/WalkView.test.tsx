@@ -3204,7 +3204,8 @@ describe('WalkView notes', () => {
         'I live two streets over, so I see the same potholes.',
       ).tagName,
     ).toBe('P')
-    expect(within(card).getByText(DEPARTURE_NOTE)).toBeInTheDocument()
+    expect(within(card).queryByText(DEPARTURE_NOTE)).toBeNull()
+    expect(within(card).queryByText(/^Hi, I'm/)).toBeNull()
     expect(within(card).queryByText(/•/)).toBeNull()
   })
 

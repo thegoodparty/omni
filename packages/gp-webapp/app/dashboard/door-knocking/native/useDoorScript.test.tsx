@@ -432,8 +432,9 @@ describe('useDoorScript', () => {
     })
 
     // A card written after free text: drafted bullets the candidate may have
-    // mixed with their own sentences.
-    it('reads free text as bullets and sentences, and closes', () => {
+    // mixed with their own sentences. It carries its own opening and close, so
+    // nothing is composed around it.
+    it('reads free text exactly as written, with no opener or close', () => {
       const { result } = renderHook(
         () =>
           useDoorScript(
@@ -442,13 +443,41 @@ describe('useDoorScript', () => {
         { wrapper },
       )
 
+      expect(result.current.intro).toBe('')
       expect(result.current.points).toEqual([
         { text: 'I am knocking about the roads.', bullet: false },
         bullet('Ask what they would fix first.'),
-        bullet(DEPARTURE_NOTE),
       ])
       expect(result.current.issues).toEqual([])
       expect(clientRequestMock).not.toHaveBeenCalled()
+    })
+
+    // The opening is a note in the third person, so a volunteer and an
+    // official's canvasser read it as written too.
+    it.each([
+      [
+        'a volunteer',
+        () => {
+          useCampaignMock.mockReturnValue([null])
+          useDoorKnockingCanvasserMock.mockReturnValue({
+            isVolunteer: true,
+            representing: { name: 'Jane Doe', office: 'City Council' },
+          })
+        },
+      ],
+      ['an official', () => useDoorKnockingServeModeMock.mockReturnValue(true)],
+    ])('composes no opener over free text for %s', (_, arrange) => {
+      arrange()
+
+      const { result } = renderHook(
+        () => useDoorScript('• Open warm, thank them for the time.'),
+        { wrapper },
+      )
+
+      expect(result.current.intro).toBe('')
+      expect(result.current.points).toEqual([
+        bullet('Open warm, thank them for the time.'),
+      ])
     })
 
     // A blank section drops out rather than printing an empty bullet at a
