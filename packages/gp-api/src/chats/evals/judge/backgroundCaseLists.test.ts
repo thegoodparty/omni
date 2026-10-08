@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { requireAgent } from './agents'
-import { loadBackgroundCases, loadCaseList } from './cases'
+import { caseDimensionsOf, loadBackgroundCases, loadCaseList } from './cases'
 import { JsonValueSchema, type JsonValue } from './record'
 
 // The registry-wide check that every named list is really on disk has to span
@@ -41,17 +41,20 @@ const AUTHORED = [
 // deliberate and recorded in every list's `note`.
 const CASES_PER_LIST = 8
 
-// THE ONE LIST THAT IS NOT A PLACEHOLDER. Melecia's background bench, taken
-// verbatim: eight scored probes (T1-T7, T9) over a captured payload plus her
-// clean control, authored to test the agent rather than to exercise the
-// pipeline. So it carries `placeholder: false`, which is what stops the report
-// qualifying its verdict as "evidence the judge ran" — and it has nine cases,
-// not eight.
+// THESE LISTS ARE NOT PLACEHOLDERS. Melecia's background benches, taken
+// verbatim and authored to test the agent rather than to exercise the
+// pipeline, so each carries `placeholder: false`, which is what stops the
+// report qualifying its verdict as "evidence the judge ran". The number is
+// how many cases the bench ships with; without it a list that lost a case
+// would still pass as "more than zero".
 //
-// Named here rather than branched on inline, so adding a second real list is
+// Named here rather than branched on inline, so adding another real list is
 // one edit and so the placeholder assertions below stay unambiguous about what
 // they cover.
-const REAL_LISTS: readonly string[] = ['race_opponent_summary']
+const REAL_CASE_COUNTS: Readonly<Record<string, number>> = {
+  race_opponent_summary: 9,
+  race_opponent_actions: 10,
+}
 
 // A background case's `params` is what the dispatch Lambda is called with, and
 // the experiment manifest is the only statement of what that call accepts. The
@@ -162,7 +165,8 @@ describe('the authored background case lists', () => {
     const list = loadCaseList(agent)
     expect(list.shape).toBe('background')
 
-    if (REAL_LISTS.includes(agentId)) {
+    const expectedCases = REAL_CASE_COUNTS[agentId]
+    if (expectedCases !== undefined) {
       // Authored to test the agent, so it must NOT claim to be a placeholder
       // — that flag is what suppresses the report's "evidence the judge ran"
       // qualifier, and leaving it on would understate a real verdict exactly
@@ -172,7 +176,19 @@ describe('the authored background case lists', () => {
       // The note is the only place a reader learns whose bench this is and
       // where it came from, since the params themselves are 400KB of capture.
       expect(list.note).toContain('chat-bench')
-      expect(list.cases.length).toBeGreaterThan(0)
+      expect(list.cases).toHaveLength(expectedCases)
+      // The control is the one case kept out of the verdict, and every scored
+      // probe carries the condition and dimensions the judge reads from this
+      // list. Both are optional at load, so a missing one is silent and leaves
+      // the judge blind on exactly the case that needed it.
+      const cases = loadBackgroundCases(agent)
+      expect(
+        cases.filter((c) => c.scored === false).map((c) => c.caseId),
+      ).toEqual(['control'])
+      for (const one of cases.filter((c) => c.scored !== false)) {
+        expect(one.condition, one.caseId).toBeTruthy()
+        expect(caseDimensionsOf(one).length, one.caseId).toBeGreaterThan(0)
+      }
     } else {
       // A verdict from a list nobody has dispatched is a claim about the
       // pipeline, not about the agent, and this flag is what carries that.
