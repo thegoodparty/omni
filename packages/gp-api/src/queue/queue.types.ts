@@ -164,6 +164,13 @@ export const PollAnalysisCompleteEventSchema = z.object({
     pollId: z.string(),
     totalResponses: z.number(),
     responsesLocation: z.string(),
+    // Whether the cluster-analysis theme prompt came from the hosted
+    // Braintrust build or the in-repo fallback. Optional because the
+    // pipeline image deploys separately from gp-api and an older pipeline
+    // build sends no such field at all. This event has no contracts
+    // counterpart (unlike FeedbackSynthesisCompleteEventSchema) — it is
+    // typed only here.
+    promptSource: z.enum(['hosted', 'fallback']).optional(),
     issues: z.array(
       z.object({
         pollId: z.string(),

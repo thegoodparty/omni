@@ -13,6 +13,7 @@ from shared.braintrust import (
     flush_logs,
     is_enabled,
     get_client,
+    get_prompt_source,
     trace_pipeline,
 )
 
@@ -302,6 +303,90 @@ class TestLoadPromptFromBraintrust:
             )
 
             assert result == "System message\nUser message"
+
+
+class TestPromptSource:
+    def test_unset_before_load_prompt_is_called(self, no_api_key):
+        init_braintrust(project="test")
+
+        assert get_prompt_source("never-loaded") is None
+
+    def test_fallback_when_disabled(self, no_api_key):
+        init_braintrust(project="test")
+
+        load_prompt_from_braintrust(prompt_name="cluster-analysis", fallback_prompt="fallback")
+
+        assert get_prompt_source("cluster-analysis") == "fallback"
+
+    def test_fallback_when_prompt_not_found(self, monkeypatch):
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")
+
+        mock_braintrust = MagicMock()
+        mock_braintrust.init_logger.return_value = MagicMock()
+        mock_braintrust.load_prompt.return_value = None
+
+        with patch.dict("sys.modules", {"braintrust": mock_braintrust}):
+            BraintrustClient.reset_instance()
+            init_braintrust(project="test")
+
+            load_prompt_from_braintrust(prompt_name="cluster-analysis", fallback_prompt="fallback")
+
+            assert get_prompt_source("cluster-analysis") == "fallback"
+
+    def test_fallback_when_strict_build_raises(self, monkeypatch):
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")
+
+        mock_prompt = MagicMock()
+        mock_prompt.build.side_effect = ValueError("Template rendering failed: Could not find key 'messages'")
+        mock_braintrust = MagicMock()
+        mock_braintrust.init_logger.return_value = MagicMock()
+        mock_braintrust.load_prompt.return_value = mock_prompt
+
+        with patch.dict("sys.modules", {"braintrust": mock_braintrust}):
+            BraintrustClient.reset_instance()
+            init_braintrust(project="test")
+
+            load_prompt_from_braintrust(prompt_name="cluster-analysis", fallback_prompt="fallback")
+
+            assert get_prompt_source("cluster-analysis") == "fallback"
+
+    def test_hosted_when_build_succeeds(self, monkeypatch):
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")
+
+        mock_prompt = MagicMock()
+        mock_prompt.build.return_value = "Prompt from Braintrust"
+        mock_braintrust = MagicMock()
+        mock_braintrust.init_logger.return_value = MagicMock()
+        mock_braintrust.load_prompt.return_value = mock_prompt
+
+        with patch.dict("sys.modules", {"braintrust": mock_braintrust}):
+            BraintrustClient.reset_instance()
+            init_braintrust(project="test")
+
+            load_prompt_from_braintrust(prompt_name="cluster-analysis", fallback_prompt="fallback")
+
+            assert get_prompt_source("cluster-analysis") == "hosted"
+
+    def test_tracks_sources_per_prompt_name_independently(self, monkeypatch):
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")
+
+        mock_prompt = MagicMock()
+        mock_prompt.build.return_value = "Prompt from Braintrust"
+        mock_braintrust = MagicMock()
+        mock_braintrust.init_logger.return_value = MagicMock()
+        mock_braintrust.load_prompt.side_effect = lambda project, slug: (
+            mock_prompt if slug == "found-prompt" else None
+        )
+
+        with patch.dict("sys.modules", {"braintrust": mock_braintrust}):
+            BraintrustClient.reset_instance()
+            init_braintrust(project="test")
+
+            load_prompt_from_braintrust(prompt_name="found-prompt", fallback_prompt="fallback")
+            load_prompt_from_braintrust(prompt_name="missing-prompt", fallback_prompt="fallback")
+
+            assert get_prompt_source("found-prompt") == "hosted"
+            assert get_prompt_source("missing-prompt") == "fallback"
 
 
 class TestSerializeOutput:
