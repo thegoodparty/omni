@@ -5,6 +5,7 @@ import {
   CardContent,
   ClipboardListIcon,
   MessageSquareIcon,
+  UsersIcon,
 } from '@styleguide'
 import { whatWeHeardCopy } from '../../../../copy'
 import StanceSplit from '../../../components/StanceSplit'
@@ -35,7 +36,17 @@ const ThemeDetails = ({
           <p className="text-sm text-foreground">{theme.details}</p>
         </CardContent>
       </Card>
-      <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+      <Card>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <UsersIcon size={18} aria-hidden="true" />
+            <h2 className="text-base font-semibold text-foreground">
+              {copy.stanceSplit}
+            </h2>
+          </div>
+          <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+        </CardContent>
+      </Card>
       {theme.desiredOutcomes.length > 0 && (
         <Card>
           <CardContent className="flex flex-col gap-2">
@@ -52,8 +63,12 @@ const ThemeDetails = ({
               aria-labelledby={wantsId}
               className="flex list-disc flex-col gap-1 pl-5 text-sm text-foreground"
             >
+              {/* `list-item`: globals.css makes every li under a data-slot
+                  a flex row, which takes its bullet away. */}
               {theme.desiredOutcomes.map((outcome) => (
-                <li key={outcome}>{outcome}</li>
+                <li key={outcome} className="list-item">
+                  {outcome}
+                </li>
               ))}
             </ul>
           </CardContent>
