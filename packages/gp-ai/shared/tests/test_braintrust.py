@@ -388,6 +388,31 @@ class TestPromptSource:
             assert get_prompt_source("found-prompt") == "hosted"
             assert get_prompt_source("missing-prompt") == "fallback"
 
+    def test_stays_fallback_once_recorded_even_if_a_later_call_renders_hosted(self, monkeypatch):
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")
+
+        mock_prompt = MagicMock()
+        # First cluster's build raises (strict mode, a missing placeholder);
+        # a later cluster's build for the same prompt name succeeds.
+        mock_prompt.build.side_effect = [
+            ValueError("Template rendering failed: Could not find key 'messages'"),
+            "Prompt from Braintrust",
+        ]
+        mock_braintrust = MagicMock()
+        mock_braintrust.init_logger.return_value = MagicMock()
+        mock_braintrust.load_prompt.return_value = mock_prompt
+
+        with patch.dict("sys.modules", {"braintrust": mock_braintrust}):
+            BraintrustClient.reset_instance()
+            init_braintrust(project="test")
+
+            load_prompt_from_braintrust(prompt_name="cluster-analysis", fallback_prompt="fallback")
+            assert get_prompt_source("cluster-analysis") == "fallback"
+
+            load_prompt_from_braintrust(prompt_name="cluster-analysis", fallback_prompt="fallback")
+
+            assert get_prompt_source("cluster-analysis") == "fallback"
+
 
 class TestSerializeOutput:
     def test_serialize_none(self, no_api_key):

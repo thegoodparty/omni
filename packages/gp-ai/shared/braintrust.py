@@ -314,7 +314,12 @@ class BraintrustClient:
                 return self._render_prompt(fallback_prompt, variables)
 
             rendered = prompt.build(**(variables or {}), strict=True)
-            self._prompt_sources[prompt_name] = 'hosted'
+            # Sticky to 'fallback': one run calls this many times for the
+            # same prompt name (once per cluster), and a single fallback
+            # among otherwise-hosted calls is exactly the case this exists
+            # to surface. Don't let a later hosted call paper over it.
+            if self._prompt_sources.get(prompt_name) != 'fallback':
+                self._prompt_sources[prompt_name] = 'hosted'
             return flatten_prompt_messages(rendered)
 
         except Exception as e:
@@ -323,8 +328,12 @@ class BraintrustClient:
             return self._render_prompt(fallback_prompt, variables)
 
     def get_prompt_source(self, prompt_name: str) -> Optional[PromptSource]:
-        """Where the last `load_prompt` call for this name got its prompt
-        from. None if `load_prompt` has never been called for it."""
+        """Where `load_prompt` got this name's prompt from, across every
+        call made for it since the client was (re)initialized. Sticky to
+        'fallback': a run calls `load_prompt` once per cluster for the same
+        prompt name, and once any of those calls falls back this stays
+        'fallback' even if a later call for the same name renders hosted.
+        None if `load_prompt` has never been called for it."""
         return self._prompt_sources.get(prompt_name)
 
     def _render_prompt(self, prompt: str, variables: Optional[Dict[str, Any]]) -> str:

@@ -62,12 +62,15 @@ prompt = load_prompt_from_braintrust(
     variables={"input": data}
 )
 
-# Which source the last load_prompt() call for this name used ("hosted" or
-# "fallback"), or None if it was never called. The v1_pipeline orchestrator
-# reads this for "cluster-analysis" and carries it onto the
-# pollAnalysisComplete / feedbackSynthesisComplete completion events as
-# promptSource, so a fallback is visible in gp-api's logs (which reach
-# Grafana, unlike this service's) and pages through the
+# Which source load_prompt() used for this name ("hosted" or "fallback"),
+# across every call made for it since the client was (re)initialized, or
+# None if it was never called. Sticky to "fallback": one run calls
+# load_prompt() once per cluster, and once any of those calls falls back
+# this stays "fallback" even if a later call for the same name renders
+# hosted. The v1_pipeline orchestrator reads this for "cluster-analysis"
+# and carries it onto the pollAnalysisComplete / feedbackSynthesisComplete
+# completion events as promptSource, so a fallback is visible in gp-api's
+# logs (which reach Grafana, unlike this service's) and pages through the
 # shared-synthesis-prompt-fallback alert there.
 source = get_client().get_prompt_source("cluster-analysis-v1")
 
