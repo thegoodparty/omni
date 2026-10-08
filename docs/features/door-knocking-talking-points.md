@@ -28,8 +28,8 @@ close, and the walk shows exactly those lines. The opening and the close are
 bullets like any other ("Open warm, thank them for the time.", "Close by asking
 if they want updates."), so the candidate can edit them.
 
-They are written as notes in the third person ("Say what Renee is already
-doing"), never as "I", so the same card works for the candidate and for a
+They are written as notes in the third person ("Say what the candidate is
+already doing", with their first name), never as "I", so the same card works for the candidate and for a
 volunteer. That is what lets the walk drop the composed introduction: a note
 cannot make a volunteer claim to be the candidate the way a scripted "Hi, I'm"
 line could.
@@ -193,9 +193,12 @@ walk shows it as written with no introduction above it and nothing appended.
 `DoorScript.tsx` groups
 consecutive bullets into one list and renders other lines as paragraphs.
 
-**Accepted edge:** new free text that is exactly four plain lines, none
-bulleted, is indistinguishable from a legacy row and shows as four bullets
-inside the composed frame. The words are the same either way.
+**Known edge:** new free text that is exactly four plain lines, none
+bulleted, is indistinguishable from a legacy row. It shows as four bullets
+inside the composed frame, so its own opening and close are repeated by the
+introduction and `DEPARTURE_NOTE`. It needs a candidate to delete every marker
+from a four-bullet draft. Telling legacy rows apart by when they were saved,
+rather than by shape, would need a field the route payload does not carry.
 
 Lists saved between the free-text release and this one hold bullets with no
 opening or close of their own, and now show without the composed frame. They

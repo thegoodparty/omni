@@ -466,6 +466,10 @@ describe('useDoorScript', () => {
         },
       ],
       ['an official', () => useDoorKnockingServeModeMock.mockReturnValue(true)],
+      [
+        'a team member',
+        () => useOrganizationRoleMock.mockReturnValue('campaignAdmin'),
+      ],
     ])('composes no opener over free text for %s', (_, arrange) => {
       arrange()
 

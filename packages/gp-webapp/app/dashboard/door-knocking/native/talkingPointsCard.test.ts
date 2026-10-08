@@ -64,7 +64,7 @@ describe('readTalkingPoints', () => {
   })
 
   describe('free text', () => {
-    it('reads drafted bullets without their markers, ', () => {
+    it('reads drafted bullets without their markers', () => {
       const stored = [
         '• Ask what they would fix first.',
         '• Mention the road maintenance plan.',

@@ -23,7 +23,8 @@ export interface DoorScriptCard {
   // The candidate's own issue stances, from the campaign issues editor. The
   // fallback card, for a list frozen before the wizard had a points step.
   issues: ScriptIssue[]
-  // The stored card's lines, closed by the departure note. Non-empty and
+  // The stored card's lines. A legacy card is closed by the departure note; a
+  // free-text card carries its own close. Non-empty and
   // `issues` empty, or the reverse, never both: two lists of advice at one
   // door is neither.
   points: TalkingPoint[]

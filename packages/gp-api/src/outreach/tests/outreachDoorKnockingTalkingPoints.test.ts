@@ -338,6 +338,8 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     expect(system).toContain('the last is how to close')
     expect(system).toContain('never a scripted greeting or goodbye')
     expect(system).toContain('in the third person')
+    expect(system).toContain('If no name is given, say "the candidate"')
+    expect(system).not.toContain('Renee')
     expect(system).not.toContain("Hi, I'm")
     expect(system).toContain('Never write a URL')
     expect(system).not.toMatch(/call.to.action/i)

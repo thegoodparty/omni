@@ -85,8 +85,8 @@ const SERVE_NOUNS: SubjectNouns = {
 // they are about what the effort is asking for. A bullet about the person at
 // the door is a guess about a stranger.
 const goalNotVoterRule = ({ effort }: SubjectNouns): string =>
-  `Every bullet is about what ${effort} is working toward or asking for, ` +
-  'never about the person who answers the door.'
+  `Every bullet but the opening is about what ${effort} is working toward ` +
+  'or asking for, never about the person who answers the door.'
 
 // The card has no composed frame around it, so the model writes both ends,
 // as notes like every other line.
@@ -95,10 +95,17 @@ const OPEN_AND_CLOSE_RULE =
   'the time.") and the last is how to close, which is where the ask goes. ' +
   'Write both as notes, never a scripted greeting or goodbye to recite.'
 
-const thirdPersonRule = ({ possessive }: SubjectNouns): string =>
-  `Refer to the ${possessive.replace("'s", '')} by first name, in the third ` +
-  'person ("Say what Renee is already doing"), never as "I": a volunteer ' +
-  'reads this card too.'
+// The example names nobody: a model copies an example name when the real one
+// is missing, and a volunteer would then say it at a door.
+const thirdPersonRule = ({ possessive }: SubjectNouns): string => {
+  const subject = possessive.replace("'s", '')
+  return (
+    `Refer to the ${subject} by first name, in the third person ("Say what ` +
+    `the ${subject} is already doing", with their first name), never as ` +
+    `"I": a volunteer reads this card too. If no name is given, say "the ` +
+    `${subject}".`
+  )
+}
 
 const inventionBanRule = ({ materials }: SubjectNouns): string =>
   `Ground every bullet in the ${materials} when they are ` +
@@ -168,10 +175,8 @@ export interface DoorKnockingVoiceConfig<TPurpose extends string> {
   // The rail's nouns, so the audience block's rule reads in the same voice as
   // the system prompt that already states it.
   nouns: SubjectNouns
-  // What the app says around the talking points, described back to the model
-  // so it does not write either end. The wording differs by rail because the
-  // composed introduction does ("running for" is a claim about a ballot an
-  // elected official is not on).
+  // What the card is, described to the model. The wording differs by rail
+  // because a Serve card is a conversation with a constituent.
   cardShape: string
 }
 
