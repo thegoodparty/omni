@@ -76,9 +76,18 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     // update (guarded on peerlyPhoneListId IS NULL), separate from the authorize
     // CAS below — so a webhook replay whose token now resolves backfills a link
     // that an earlier authorize left unset, which the pending_payment-guarded CAS
-    // could never add once the row is past pending_payment. A missing/unresolvable
-    // token is logged, not fatal: the build-before-pay flow still captures through
-    // the list once it is ready, and the hold itself is already placed.
+    // could never add once the row is past pending_payment.
+    //
+    // The link is provably set in practice: resolvePhoneListId looks the row up
+    // by its globally-@unique, immutable token, and resolveBilledContactCount
+    // already proved that token belongs to this campaign ({token, campaignId})
+    // and threw before the Stripe session was ever created — so by the time this
+    // webhook runs the row exists and the token still resolves. The only way to
+    // reach the null branch is deleting the PeerlyPhoneList between checkout and
+    // the webhook, which nothing does; it is logged (loud, observable) but not
+    // fatal, because an unlinked hold simply lapses and releases at the ~7-day
+    // Stripe auth with NO charge — the capture projectId gate never charges for a
+    // send that was not submitted.
     const peerlyPhoneListId = await this.resolvePhoneListId(phoneListToken)
     if (peerlyPhoneListId === null) {
       this.logger.warn(
