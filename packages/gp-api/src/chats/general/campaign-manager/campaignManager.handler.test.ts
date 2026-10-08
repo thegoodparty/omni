@@ -434,6 +434,13 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
   })
 })
 
+describe('CampaignManagerHandler.buildTools — ask_clarify_question', () => {
+  it('registers ask_clarify_question', () => {
+    const tools = buildHandler().buildTools(ctxWith({}))
+    expect(Object.keys(tools)).toContain('ask_clarify_question')
+  })
+})
+
 describe('CampaignManagerHandler.buildTools — compose_handoff', () => {
   it('registers compose_handoff', () => {
     const tools = buildHandler().buildTools(ctxWith({}))

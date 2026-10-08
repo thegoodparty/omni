@@ -199,6 +199,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   never person rows and never geometry. The flag says only that a shape is
   on the list, because a holder can draw one from the transcript's own map
   card — see **A drawn boundary reaches the conversation** below.
+- **`ask_clarify_question`** — a no-op presenter shared by Campaign Manager
+  and Chief of Staff: the call is the question, rendered as a single- or
+  multi-select card, and the answer comes back as an ordinary user turn. Both
+  prompts carry the same `CLARIFY_QUESTION_RULES` (`chat-tools/`), so a choice
+  never goes out as prose on one assistant and as a card on the other.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
