@@ -32,6 +32,7 @@ import {
 } from '../schemas/p2pPhoneListRequest.schema'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
+import { PhoneListState } from '../peerly.types'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Mirrors outreachMaterialization.service.ts's paging shape. Not shared as an
@@ -78,6 +79,35 @@ const P2P_PHONE_LIST_BUILD_MAX_ATTEMPTS = 3
 // changing this — see docs/scheduled-jobs.md.
 const P2P_PHONE_LIST_BUILD_SWEEP_CRON = '14,29,44,59 * * * *'
 const P2P_PHONE_LIST_BUILD_SWEEP_JOB = 'p2pPhoneListBuildStaleSweep'
+// Every 15 minutes, on digits the sibling sweep above (4/9) and the */5 and
+// top-of-hour herds don't use. The robocall 6-lane sweep family saturates the
+// minute space in this one process, so no slot is collision-free; this one at
+// least shares no instant with the sibling p2p sweep. grep -rn '@Cron(' before
+// changing — see docs/scheduled-jobs.md.
+const P2P_PHONE_LIST_FINISH_SWEEP_CRON = '8,23,38,53 * * * *'
+const P2P_PHONE_LIST_FINISH_SWEEP_JOB = 'p2pPhoneListFinishSweep'
+// A `processing` row untouched for this long is assumed stranded: the
+// candidate's browser poll — which would otherwise stamp it `ready` — has
+// stopped (the tab closed). Comfortably exceeds the browser poll interval so
+// the finisher never races a live poll: a still-loading list under active
+// poll keeps a fresh updatedAt (isLeadsLoadedStable writes each unstable
+// read) and so stays out of the sweep until the browser gives up.
+const P2P_PHONE_LIST_FINISH_STALE_MINUTES = 10
+// Caps the Peerly reads one sweep issues (up to 2 per row), so a backlog of
+// stranded rows can't make a single pass hammer the rate-limited vendor or
+// overrun the cron cadence; the remainder are finished on the next pass,
+// oldest first.
+const P2P_PHONE_LIST_FINISH_BATCH_SIZE = 100
+// Deploys the finisher runs on. dev as well as prod — unlike the robocall
+// sweeps it moves no money and sends nothing, only advancing a build to
+// `ready`, and the project's sendless dev validation needs it running on dev,
+// which a strict prod-only guard would silently prevent. NOT an exclusion of
+// `preview`: OTEL_SERVICE_ENVIRONMENT is `preview` on every PR-preview stack
+// at once (~25), so an ungated vendor sweep would fire ~25 identical passes
+// against one shared Peerly budget (docs/scheduled-jobs.md § Not prod-only).
+// Fail-closed: an absent/unexpected value (local, vitest) isn't in the set, so
+// it skips.
+const P2P_PHONE_LIST_FINISH_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
 
 // Peerly needs state, city, and zip for geo-targeting; null fields
 // produce blank CSV cells it counts as malformed leads. The people
@@ -382,6 +412,106 @@ export class P2pPhoneListUploadService {
       await this.peerlyPhoneListCapture.revertReclaimedBuilding(buildId)
       throw err
     }
+  }
+
+  // Server-side build finisher. Today a `processing` build only reaches
+  // `ready` (stable leads_loaded + the numeric Peerly list id stamped) when
+  // the candidate's browser polls the status route (p2p.controller.ts
+  // resolveListStatus). If the tab closes mid-build nothing finishes it and
+  // the list strands at `processing` forever. This sweep does the same Peerly
+  // read + stamp headless.
+  //
+  // No CronLockService, mirroring sweepStaleBuilding and
+  // OutreachRobocallStagingService.sweepRobocallStaging: the stamp is a
+  // single-owner CAS (stampPeerlyListId guards on peerlyListId IS NULL), so
+  // two replicas both reading ACTIVE stamp exactly once, and a concurrent
+  // browser poll can't double-stamp either. Gated to the dev+prod deploys
+  // (not every preview stack) because it reads a rate-limited vendor (Peerly);
+  // it runs on dev as well as prod since it moves no money and sends nothing,
+  // and sendless dev validation depends on it. process.env is read live so a
+  // test can stub the gate.
+  //
+  // Selection is bounded by a stale-age floor and a batch cap (see the two
+  // constants above) so the vendor reads stay bounded per pass. A row whose
+  // Peerly list never cleanly resolves (never ACTIVE, or ACTIVE with no
+  // list_id) is re-read each pass and left `processing` — the same end state
+  // it already has today, and a terminal-failure path for it is intentionally
+  // out of this slice's scope (which is producing `ready`), mirroring how the
+  // stale-building reaper and this finisher stay separate concerns.
+  @Cron(P2P_PHONE_LIST_FINISH_SWEEP_CRON, {
+    name: P2P_PHONE_LIST_FINISH_SWEEP_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepUnfinishedBuilds(): Promise<void> {
+    if (
+      !P2P_PHONE_LIST_FINISH_DEPLOY_ENVIRONMENTS.has(
+        process.env.OTEL_SERVICE_ENVIRONMENT ?? '',
+      )
+    ) {
+      return
+    }
+
+    const staleCutoff = subMinutes(
+      new Date(),
+      P2P_PHONE_LIST_FINISH_STALE_MINUTES,
+    )
+    const candidates =
+      await this.peerlyPhoneListCapture.findUnfinishedProcessing({
+        staleCutoff,
+        take: P2P_PHONE_LIST_FINISH_BATCH_SIZE,
+      })
+
+    for (const { id: buildId, token } of candidates) {
+      if (!token) continue
+      try {
+        await this.finishBuild(buildId, token)
+      } catch (err) {
+        // Per-record isolation: one build's Peerly failure must not abort
+        // finishing the rest. The next sweep retries it.
+        this.logger.error(
+          { err, buildId },
+          'p2pPhoneListBuild finish failed for a build; continuing sweep',
+        )
+      }
+    }
+  }
+
+  // Headless counterpart to p2p.controller.ts resolveListStatus: poll Peerly,
+  // and once the list is ACTIVE with a stable leads_loaded, stamp the numeric
+  // list id + `ready`. A not-yet-ACTIVE or still-loading list is left
+  // `processing` for a later pass (isLeadsLoadedStable records the reading so
+  // the next pass can compare the same value twice). Reuses the same
+  // capture-service helpers the browser route does rather than duplicating the
+  // stability/stamp logic.
+  private async finishBuild(buildId: string, token: string): Promise<void> {
+    const statusResponse =
+      await this.peerlyPhoneListService.checkPhoneListStatus(token)
+    if (!statusResponse) return
+    if (statusResponse.Data.list_state !== PhoneListState.ACTIVE) return
+
+    const listId = statusResponse.Data.list_id
+    if (!listId) {
+      // ACTIVE with no list_id is the one shape the browser route 502s on;
+      // here no caller is waiting, so log and leave it for the next pass.
+      this.logger.warn(
+        { buildId, token },
+        'Peerly reported ACTIVE with no list_id; leaving build processing',
+      )
+      return
+    }
+
+    const details =
+      await this.peerlyPhoneListService.getPhoneListDetails(listId)
+    const stable = await this.peerlyPhoneListCapture.isLeadsLoadedStable({
+      buildId,
+      leadsLoaded: details.leads_loaded,
+      leadsSupplied: details.leads_supplied,
+    })
+    if (!stable) return
+
+    // Single-owner CAS (peerlyListId IS NULL): a no-op if a browser poll or
+    // another replica stamped it first.
+    await this.peerlyPhoneListCapture.stampPeerlyListId(token, listId)
   }
 
   // FIFO group per build, so a build's own redeliveries/retries serialize
