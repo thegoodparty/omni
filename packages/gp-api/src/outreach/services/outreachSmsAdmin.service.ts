@@ -28,7 +28,6 @@ import {
   P2pSmsSettleState,
   Prisma,
 } from '../../generated/prisma'
-import { isWinSmsHoldBillingEnabled } from 'src/shared/util/winSmsHold.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
@@ -445,34 +444,40 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
     // Approval is what books canvassers, which is the vendor spend — so it is
     // the last gate before money is committed to the send. Two funding models
-    // reach this console:
+    // reach this console, told apart by whether the row has an OutreachP2pSms
+    // satellite — NOT by the flag:
     //
-    //  - HOLD MODEL (WIN_SMS_HOLD_BILLING on): the paid `cs_` checkout places a
-    //    manual-capture authorization HOLD and seeds an OutreachP2pSms
-    //    satellite. The funding marker (stripeCheckoutSessionId) is stamped at
-    //    AUTHORIZATION, not capture, so it CANNOT gate the send: an `authorized`
-    //    or `capturing` hold still carries the marker yet has taken no money,
-    //    and if it is never captured the hold lapses and the texts go out free.
-    //    Gate on the committed `captured` state instead — the satellite is the
-    //    source of truth (capture commits it under a CAS). Any other state is
-    //    non-approvable: `capturing` is money mid-flight (retry once it
-    //    commits), `authorized`/`hold_pending`/`pending_payment` is not yet
-    //    captured, and `voided`/`hold_failed`/`refunded` is a terminal
-    //    non-send.
+    //  - HOLD MODEL (the row has a satellite): the paid `cs_` checkout placed a
+    //    manual-capture authorization HOLD. The funding marker
+    //    (stripeCheckoutSessionId) is stamped at AUTHORIZATION, not capture, so
+    //    it CANNOT gate the send: an `authorized` or `capturing` hold still
+    //    carries the marker yet has taken no money, and if it is never captured
+    //    the hold lapses and the texts go out free. Gate on the committed
+    //    `captured` state instead — the satellite is the source of truth
+    //    (capture commits it under a CAS). Any other state is non-approvable:
+    //    `capturing` is money mid-flight (retry once it commits),
+    //    `authorized`/`hold_pending`/`pending_payment` is not yet captured, and
+    //    `voided`/`hold_failed`/`refunded` is a terminal non-send.
     //
-    //  - FUNDING-MARKER MODEL (flag off, or a free/forgiven send that took the
-    //    `free_confirmed_*` path and has no satellite): the paid checkout stamps
-    //    stripeCheckoutSessionId, a zero-amount redemption stamps
-    //    freePurchaseSessionId. Neither present means nothing funded the send,
-    //    so it is refused rather than read as "free".
+    //  - FUNDING-MARKER MODEL (no satellite — the whole flag-off/default
+    //    population, and every free/forgiven send on the `free_confirmed_*`
+    //    path): the paid checkout stamps stripeCheckoutSessionId, a zero-amount
+    //    redemption stamps freePurchaseSessionId. Neither present means nothing
+    //    funded the send, so it is refused rather than read as "free".
     //
-    // Reading the satellite only under the flag keeps this fully inert when off.
-    const holdSms = isWinSmsHoldBillingEnabled()
-      ? await this.client.outreachP2pSms.findUnique({
-          where: { outreachId },
-          select: { settleState: true },
-        })
-      : null
+    // The satellite read is UNCONDITIONAL, never flag-gated: a satellite exists
+    // only if the send went through the hold path, so an uncaptured hold must be
+    // blocked even on a flag rollback (flag ON at checkout, flipped OFF before
+    // approve) — gating this read on the flag would turn the kill switch itself
+    // into a free-send trigger (the read is skipped, the authorization-time
+    // marker passes, and an uncaptured hold sends). The flag still gates ENTRY
+    // into the hold model (checkout, recordHold, capture); only this gate's read
+    // is unconditional. A non-hold row has no satellite, so `holdSms` is null
+    // and the marker gate runs byte-for-byte as before.
+    const holdSms = await this.client.outreachP2pSms.findUnique({
+      where: { outreachId },
+      select: { settleState: true },
+    })
     if (holdSms) {
       if (holdSms.settleState !== P2pSmsSettleState.captured) {
         throw new BadRequestException(

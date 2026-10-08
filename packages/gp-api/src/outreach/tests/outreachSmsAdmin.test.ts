@@ -630,9 +630,11 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
     // Win SMS hold billing (WIN_SMS_HOLD_BILLING): a paid send is funded by a
     // manual-capture hold that is only money once CAPTURED. The funding marker
-    // is stamped at authorization, so the approve/send gate must read the
-    // committed `captured` state on the OutreachP2pSms satellite instead — no
-    // uncaptured hold can book canvassers. Flag off, this is fully inert.
+    // is stamped at authorization, so the approve/send gate reads the committed
+    // `captured` state on the OutreachP2pSms satellite instead — no uncaptured
+    // hold can book canvassers. The satellite read is SATELLITE-gated, not
+    // flag-gated: a row with a satellite is held to `captured` even on a flag
+    // rollback, and a row with no satellite stays on the funding-marker gate.
     describe('hold-billing approve gate', () => {
       const seedSatellite = (
         outreachId: number,
@@ -714,13 +716,51 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         expect(requestCanvassers).not.toHaveBeenCalled()
       })
 
-      it('is inert with the flag off: an uncaptured satellite still approves on the funding marker', async () => {
-        // Flag off (the default here, asserted for clarity): the funding-marker
-        // gate is unchanged, so a row with stripeCheckoutSessionId approves
-        // regardless of any satellite state.
+      it('blocks an uncaptured satellite even with the flag OFF (rollback hole)', async () => {
+        // The kill-switch-as-free-send hazard: the hold was placed with the
+        // flag ON (satellite seeded, stripeCheckoutSessionId stamped at
+        // authorization), then the flag was flipped OFF. A flag-gated read
+        // would skip the satellite, let the funding marker pass, and send an
+        // uncaptured hold for free. The satellite-gated read blocks it.
         vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
         const row = await seedOutreach()
         await seedSatellite(row.id, P2pSmsSettleState.authorized)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+        expect(JSON.stringify(res.data)).toContain('has not been captured')
+        expect(requestCanvassers).not.toHaveBeenCalled()
+        const untouched = await service.prisma.outreach.findFirstOrThrow({
+          where: { id: row.id },
+        })
+        expect(untouched.approvedAt).toBeNull()
+      })
+
+      it('approves a captured satellite with the flag OFF (rollback, already settled)', async () => {
+        // A hold captured before the rollback is real money committed — it must
+        // still be approvable with the flag off.
+        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+        const row = await seedOutreach()
+        await seedSatellite(row.id, P2pSmsSettleState.captured)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.CREATED)
+        expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      })
+
+      it('keeps the funding-marker gate for a non-hold row (no satellite) with the flag off', async () => {
+        // The whole default population: no satellite, flag off — byte-for-byte
+        // the pre-existing funding-marker behavior.
+        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+        const row = await seedOutreach()
 
         const res = await service.client.post(
           `/v1/outreach/admin/sms/${row.id}/approve`,
