@@ -398,7 +398,12 @@ export function createService({
       // task-def tags otherwise).
       propagateTags: 'TASK_DEFINITION',
       enableEcsManagedTags: true,
-      waitForSteadyState: true,
+      // Preview does not wait: gp-api.yml's "Verify the preview is serving
+      // this commit" step polls the commit the preview reports instead. ECS
+      // marked a deployment complete ~40s after the new task was already
+      // serving, and on a new service Pulumi returned before the app was up
+      // anyway.
+      waitForSteadyState: environment !== 'preview',
     },
     // Headroom, not a gate: a real crash-on-boot is caught by the deployment
     // circuit breaker, so the only thing a tight wait buys is a red deploy on a
