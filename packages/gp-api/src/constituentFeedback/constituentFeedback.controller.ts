@@ -12,6 +12,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UseInterceptors,
 } from '@nestjs/common'
 import {
@@ -52,6 +53,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { Organization, OrganizationRole, User } from '@/generated/prisma'
 import { ConstituentFeedbackService } from './services/constituentFeedback.service'
+import { FeedbackNotesExportService } from './services/feedbackNotesExport.service'
 import { FeedbackReportService } from './services/feedbackReport.service'
 import { FeedbackSeedService } from './services/feedbackSeed.service'
 import { FeedbackSynthesisService } from './services/feedbackSynthesis.service'
@@ -97,6 +99,7 @@ export class ConstituentFeedbackController {
     private readonly feedback: ConstituentFeedbackService,
     private readonly synthesis: FeedbackSynthesisService,
     private readonly reports: FeedbackReportService,
+    private readonly notesExport: FeedbackNotesExportService,
     private readonly tags: IssueTagService,
     private readonly seeds: FeedbackSeedService,
     private readonly features: FeaturesService,
@@ -260,6 +263,24 @@ export class ConstituentFeedbackController {
     await this.assertFeatureEnabled(user)
 
     return this.reports.effortReport({
+      organizationSlug: organization.slug,
+      outreachId,
+    })
+  }
+
+  // Every note on the effort as a CSV download, not just the report's
+  // 200-note display cap. Same access posture as the report: default
+  // (owner or campaign manager), no @ResponseSchema since this returns a
+  // file, not JSON.
+  @Get('efforts/:outreachId/export')
+  async exportNotes(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+  ): Promise<StreamableFile> {
+    await this.assertFeatureEnabled(user)
+
+    return this.notesExport.buildNotesCsv({
       organizationSlug: organization.slug,
       outreachId,
     })
