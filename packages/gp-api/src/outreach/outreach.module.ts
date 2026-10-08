@@ -95,6 +95,7 @@ import { OutreachServeComposeContextService } from './services/outreachServeComp
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
+import { OutreachP2pSmsHoldService } from './services/outreachP2pSmsHold.service'
 
 @Module({
   imports: [
@@ -237,6 +238,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachNotificationService,
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
+    OutreachP2pSmsHoldService,
     OutreachMaterializationService,
     OutreachAssignmentService,
   ],

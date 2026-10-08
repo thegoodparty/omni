@@ -17,6 +17,7 @@ import {
 import { CustomCheckoutSessionPayload, PaymentType } from '../payments.types'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PinoLogger } from 'nestjs-pino'
+import { isWinSmsHoldBillingEnabled } from 'src/shared/util/winSmsHold.util'
 import Stripe from 'stripe'
 
 const { WEBAPP_ROOT_URL } = process.env
@@ -167,14 +168,38 @@ export class PurchaseService {
       dto.returnUrl ||
       `${WEBAPP_ROOT_URL}/dashboard/purchase/complete?session_id={CHECKOUT_SESSION_ID}`
 
+    // Win p2p SMS hold billing: a p2p text checkout authorizes a manual-capture
+    // hold instead of charging immediately. Scoped to TEXT + p2p so Serve
+    // (SERVE_TEXT), polls, and domains keep immediate capture; `amount` is
+    // already the UNDISCOUNTED hold (the handler skips the free-texts discount
+    // under the flag), so the later capture can never exceed the hold.
+    const outreachType =
+      dto.metadata &&
+      typeof dto.metadata === 'object' &&
+      'outreachType' in dto.metadata
+        ? dto.metadata.outreachType
+        : undefined
+    const manualCapture =
+      dto.type === PurchaseType.TEXT &&
+      outreachType === 'p2p' &&
+      isWinSmsHoldBillingEnabled()
+
     const checkoutPayload: CustomCheckoutSessionPayload = {
       type: this.getPaymentType(dto.type),
       purchaseType: dto.type,
       amount,
       productName,
       productDescription,
-      allowPromoCodes: true,
+      // Promo codes are disabled on a manual-capture hold: a Stripe promo
+      // applied at checkout shrinks the PaymentIntent amount, which recordHold
+      // would stamp as authorizedAmountInCents — breaking the hold invariant
+      // (the hold must be the FULL undiscounted amount so a later capture,
+      // clamped to the hold, can never silently undercharge). Every
+      // immediate-capture checkout (flag off, all non-TEXT purchases) keeps
+      // promo-code support.
+      allowPromoCodes: !manualCapture,
       returnUrl,
+      manualCapture,
       metadata: {
         // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -238,16 +263,46 @@ export class PurchaseService {
     // "fulfill unless unpaid"). It carries no PaymentIntent, so the marker
     // below is skipped and the handlers' own claims are the only guard.
     if (session.payment_status === 'unpaid') {
-      this.logger.info({
-        sessionId: dto.checkoutSessionId,
-        paymentStatus: session.payment_status,
-        msg: 'Checkout session payment not confirmed — deferring fulfillment',
-      })
-      // `deferred` distinguishes this not-yet-paid case from a completed
-      // fulfillment (which also returns alreadyProcessed: false) so callers —
-      // e.g. the client redirect handler — can show a pending state instead of
-      // success.
-      return { alreadyProcessed: false, deferred: true }
+      // A Win SMS hold-billing checkout authorizes a manual-capture hold, which
+      // completes the session 'unpaid' because the funds are HELD, not captured
+      // — NOT the ACH "settles later" case the deferral below exists for.
+      // Detected narrowly (flag + TEXT) so every other unpaid session still
+      // defers, and inert when the flag is off.
+      const isWinSmsHold =
+        isWinSmsHoldBillingEnabled() &&
+        session.metadata?.purchaseType === PurchaseType.TEXT
+      if (isWinSmsHold) {
+        // A manual-capture hold emits NO follow-up event (there is no
+        // async_payment_succeeded for a card authorization), so DEFERRING here
+        // would strand the send forever: the funds would sit held with no
+        // `authorized` satellite row and nothing to retrigger fulfillment. Once
+        // the PI is authorized (requires_capture) fulfill now; while it is still
+        // the transient not-yet-authorized state, THROW so
+        // checkout.session.completed redelivers. The authorization is
+        // synchronous at checkout, so a redelivery resolves it; a genuinely
+        // never-authorized session just exhausts Stripe's bounded retries and
+        // the hold auto-releases (no money taken). A plain Error (not a
+        // BadRequestException) is what the webhook handler treats as retryable
+        // rather than a permanent content rejection it would ack.
+        if (!(await this.isManualCaptureAuthorized(session))) {
+          throw new Error(
+            `Win SMS hold not yet authorized for checkout session ` +
+              `${dto.checkoutSessionId}; forcing webhook redelivery`,
+          )
+        }
+        // requires_capture: a usable hold — fall through to fulfillment.
+      } else {
+        this.logger.info({
+          sessionId: dto.checkoutSessionId,
+          paymentStatus: session.payment_status,
+          msg: 'Checkout session payment not confirmed — deferring fulfillment',
+        })
+        // `deferred` distinguishes this not-yet-paid case from a completed
+        // fulfillment (which also returns alreadyProcessed: false) so callers —
+        // e.g. the client redirect handler — can show a pending state instead
+        // of success.
+        return { alreadyProcessed: false, deferred: true }
+      }
     }
 
     // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
@@ -296,6 +351,24 @@ export class PurchaseService {
     }
 
     return { alreadyProcessed: false, result }
+  }
+
+  // Whether a completed-but-'unpaid' session carries an authorized
+  // manual-capture hold (PI in requires_capture) rather than a payment still
+  // settling. Re-reads the live PaymentIntent — the authoritative money state,
+  // not the session's cached payment_status. A session with no PI, or a PI in
+  // any other state, is not a usable hold and must keep deferring.
+  private async isManualCaptureAuthorized(
+    session: Stripe.Checkout.Session,
+  ): Promise<boolean> {
+    const paymentIntentId =
+      typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent?.id
+    if (!paymentIntentId) return false
+    const paymentIntent =
+      await this.stripeService.retrievePaymentIntent(paymentIntentId)
+    return paymentIntent.status === 'requires_capture'
   }
 
   // The counterpart of the deferral in completeCheckoutSession: a
