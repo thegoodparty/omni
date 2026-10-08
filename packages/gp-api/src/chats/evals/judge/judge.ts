@@ -515,16 +515,31 @@ export const selectSwapped = (
     .filter((_, index) => index % stride === 0)
 }
 
+// CONTROLS ARE JUDGED IN BOTH ORDERS, every one of them, whatever the
+// subsample picks. A control pairs two runs of unchanged code, so the one
+// thing it can show beyond noise is whether the judge prefers a slot, and a
+// single order cannot show that. Controls are left out of the subsample's
+// input and swapped on their own, so a list gaining a control does not move
+// which scored pairs the subsample picks, and no control takes a swap that
+// counts toward minSwappedPairs.
 export const planJudgments = (
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  alwaysSwapped: ReadonlySet<string> = new Set(),
 ): PlannedJudgment[] => {
   const primary = cases.map((c) => ({
     key: { caseId: c.caseId, attempt: c.attempt, order: 'primary' as const },
     payload: c.payload,
     slotMap: c.slotMap,
   }))
-  const swapped = selectSwapped(cases, config).map((c) => {
+  const toSwap = [
+    ...selectSwapped(
+      cases.filter((c) => !alwaysSwapped.has(c.caseId)),
+      config,
+    ),
+    ...cases.filter((c) => alwaysSwapped.has(c.caseId)),
+  ]
+  const swapped = toSwap.map((c) => {
     const flipped = withSwappedSlots(c)
     return {
       key: {
@@ -766,9 +781,10 @@ export const judgeAll = async (
   llm: JsonJudgeModel,
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  alwaysSwapped: ReadonlySet<string> = new Set(),
 ): Promise<Judgment[]> => {
   const judgments: Judgment[] = []
-  for (const planned of planJudgments(cases, config)) {
+  for (const planned of planJudgments(cases, config, alwaysSwapped)) {
     judgments.push(await judgeCase(llm, planned, config))
   }
   return judgments

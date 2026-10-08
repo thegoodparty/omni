@@ -166,6 +166,13 @@ const plural = (count: number, one: string): string =>
 
 export interface EstimateSources {
   countCases: (agent: AgentEntry) => number
+  // Control cases (`scored: false`) past the cap, which both arms also walk
+  // when both lists hold them out. Counted from this branch's list alone, so
+  // the price is an upper bound: the base list can only lower it.
+  countControlsPastCap: (
+    agent: AgentEntry,
+    maxCases: number | undefined,
+  ) => number
   countTurns: (agent: AgentEntry) => number
   // The turns the BASE arm walks for a chat agent, from the base ref's own
   // list. Undefined when there is none, and this branch's count stands for
@@ -177,6 +184,12 @@ export interface EstimateSources {
 
 export const DEFAULT_SOURCES: EstimateSources = {
   countCases: (agent) => loadCaseList(agent).cases.length,
+  countControlsPastCap: (agent, maxCases) =>
+    maxCases === undefined
+      ? 0
+      : loadCaseList(agent)
+          .cases.slice(maxCases)
+          .filter((one) => 'scored' in one && one.scored === false).length,
   countTurns: (agent) => chatTurnsIn(loadCaseList(agent)),
   baseTurns: () => undefined,
   background: MEASURED_BACKGROUND_RUN_COST,
@@ -238,7 +251,9 @@ export const estimateAgent = (
     }
   }
   const { maxCases, attemptsPerCase } = config.background
-  const cases = Math.min(listed, maxCases ?? listed)
+  const capped = Math.min(listed, maxCases ?? listed)
+  const controls = from.countControlsPastCap(agent, maxCases)
+  const cases = capped + controls
   const run = backgroundRunCents(agent.agentId, from.background)
   const cents = ARMS * cases * attemptsPerCase * run.cents
   const source =
@@ -250,8 +265,10 @@ export const estimateAgent = (
     cents,
     basis: run.measured === undefined ? 'unmeasured' : 'measured',
     why:
-      `~${dollars(cents)} = ${ARMS} arms x ${cases} of ` +
-      `${plural(listed, 'case')} x ${plural(attemptsPerCase, 'attempt')} x ` +
+      `~${dollars(cents)} = ${ARMS} arms x ${capped} of ` +
+      `${plural(listed, 'case')}` +
+      (controls === 0 ? '' : ` + ${plural(controls, 'control')}`) +
+      ` x ${plural(attemptsPerCase, 'attempt')} x ` +
       `${dollars(run.cents)} a run (${source})`,
   }
 }

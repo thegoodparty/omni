@@ -223,6 +223,10 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // multi-line zod message; JSON.stringify keeps it to the single line
   // $GITHUB_OUTPUT needs.
   JUDGE_BACKGROUND_REFUSED: BLANK_IS_UNSET,
+  // Control cases past the cap that both arms walk, as one JSON object of
+  // agent ids to case ids, decided once by armBudget.ts. Under the same mode
+  // switch. See walkedCases for why the arm never decides this itself.
+  JUDGE_BACKGROUND_EXTRA_CASES: BLANK_IS_UNSET,
   // The arm's whole wall-clock budget, resolved once like the rest. It is the
   // last per-checkout value both arms have to agree on: the base arm's vitest
   // timeout is otherwise its own ref's constant, so a branch that raised it
@@ -315,6 +319,7 @@ export interface ArmEnv extends SweepEnv {
   // the arm decides admission itself by spending its own budget down.
   backgroundAdmitted?: ReadonlySet<string>
   backgroundRefused?: ReadonlyMap<string, string>
+  backgroundExtraCases?: ReadonlyMap<string, readonly string[]>
   armBudgetMs?: number
 }
 
@@ -440,6 +445,8 @@ export const parseArmEnv = (
         )
   const backgroundRefused =
     backgroundBudget === undefined ? undefined : refusedFrom(data)
+  const backgroundExtraCases =
+    backgroundBudget === undefined ? undefined : extraCasesFrom(data)
   const armBudgetMs =
     backgroundBudget === undefined || data.JUDGE_ARM_BUDGET_MS === undefined
       ? undefined
@@ -449,6 +456,7 @@ export const parseArmEnv = (
     ...(backgroundBudget !== undefined && { backgroundBudget }),
     ...(backgroundAdmitted !== undefined && { backgroundAdmitted }),
     ...(backgroundRefused !== undefined && { backgroundRefused }),
+    ...(backgroundExtraCases !== undefined && { backgroundExtraCases }),
     ...(armBudgetMs !== undefined && { armBudgetMs }),
     arm: data.JUDGE_ARM,
     baseRef: data.JUDGE_BASE_REF,
@@ -507,6 +515,7 @@ const backgroundBudgetFrom = (
       'JUDGE_BACKGROUND_MAX_CASES',
       'JUDGE_BACKGROUND_ADMITTED',
       'JUDGE_BACKGROUND_REFUSED',
+      'JUDGE_BACKGROUND_EXTRA_CASES',
       'JUDGE_ARM_BUDGET_MS',
     ] as const) {
       if (data[name] !== undefined) {
@@ -555,6 +564,38 @@ const refusedFrom = (data: ParsedArm): ReadonlyMap<string, string> => {
   if (!result.success) {
     throw new SweepEnvError(
       'JUDGE_BACKGROUND_REFUSED is not an object of agent ids to reasons',
+    )
+  }
+  return new Map(Object.entries(result.data))
+}
+
+const ExtraCasesSchema = z.record(z.string(), z.array(z.string().min(1)))
+
+const extraCasesFrom = (
+  data: ParsedArm,
+): ReadonlyMap<string, readonly string[]> => {
+  const raw = data.JUDGE_BACKGROUND_EXTRA_CASES
+  if (raw === undefined) return new Map()
+  const parseJson = (): ReturnType<
+    typeof ExtraCasesSchema.safeParse
+  > | null => {
+    try {
+      return ExtraCasesSchema.safeParse(JSON.parse(raw))
+    } catch {
+      return null
+    }
+  }
+  const result = parseJson()
+  if (result === null) {
+    throw new SweepEnvError(
+      'JUDGE_BACKGROUND_EXTRA_CASES is not JSON; the workflow resolves it ' +
+        'from the candidate, so this means that step printed something ' +
+        'unexpected',
+    )
+  }
+  if (!result.success) {
+    throw new SweepEnvError(
+      'JUDGE_BACKGROUND_EXTRA_CASES is not an object of agent ids to case ids',
     )
   }
   return new Map(Object.entries(result.data))

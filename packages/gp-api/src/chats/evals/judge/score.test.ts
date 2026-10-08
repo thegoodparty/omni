@@ -24,7 +24,13 @@ import {
   type NormalizedAgent,
   type SlotMap,
 } from './normalize'
-import { orient, scoreAgent, type AgentScore } from './score'
+import {
+  controlPosition,
+  orient,
+  scoreAgent,
+  type AgentScore,
+  type ControlReading,
+} from './score'
 import type { Cost, RunRecord } from './record'
 
 // `cost` is optional on a record, for the run nobody could price. These
@@ -1585,6 +1591,86 @@ describe('controls', () => {
     )
     expect(lost.exclusions.infraError).toBe(0)
     expect(lost.controls.map((c) => c.outcome)).toEqual(['not_judged'])
+  })
+
+  // BOTH ORDERS. The same pair with X and Y swapped: here the judge said X
+  // both times, and X was the base first and the candidate second, so it
+  // picked the slot rather than the output.
+  const X_IS_CANDIDATE = { X: 'candidate', Y: 'base' } as const
+  const bothOrders = scoreAgent(
+    {
+      normalized: agent,
+      judgments: [
+        ...judgments,
+        judgment({
+          caseId: 'control',
+          order: 'swapped',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'X',
+          magnitude: 'clear',
+        }),
+        // A swap of the scored probe that disagrees with its primary, so a
+        // consistency rate that counted the control would read 0.5, not 0.
+        judgment({
+          caseId: 'probe',
+          order: 'swapped',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'Y',
+        }),
+      ],
+      unscoredCaseIds: CONTROL,
+    },
+    { ...DEFAULT_JUDGE_CONFIG, ...noFloor() },
+  )
+
+  it('reads the swapped order beside the primary one', () => {
+    expect(bothOrders.controls).toEqual([
+      {
+        caseId: 'control',
+        attempt: 1,
+        outcome: 'base',
+        magnitude: 'strong',
+        swapped: { outcome: 'candidate', magnitude: 'clear' },
+      },
+    ])
+    const [reading] = bothOrders.controls
+    if (reading === undefined) throw new Error('one control')
+    expect(controlPosition(reading)).toBe('sameSlot')
+  })
+
+  it('leaves the control swap out of the consistency rate', () => {
+    expect(bothOrders.swappedPairs).toBe(1)
+    expect(bothOrders.positionConsistency).toBe(0)
+  })
+
+  it.each<
+    [string, ControlReading['outcome'], ControlReading['outcome'], string]
+  >([
+    ['the same call both ways', 'base', 'base', 'sameCall'],
+    ['a tie both ways', 'tie', 'tie', 'sameCall'],
+    ['opposite calls', 'candidate', 'base', 'sameSlot'],
+    ['a call and a tie', 'tie', 'base', 'changed'],
+    ['a verdict missing', 'ungraded', 'base', 'unread'],
+  ])('reads %s as %s', (_label, primary, swapped, position) => {
+    const reading: ControlReading = {
+      caseId: 'control',
+      attempt: 1,
+      outcome: primary,
+      magnitude: null,
+      swapped: { outcome: swapped, magnitude: null },
+    }
+    expect(controlPosition(reading)).toBe(position)
+  })
+
+  it('cannot compare orders when only one was judged', () => {
+    expect(
+      controlPosition({
+        caseId: 'control',
+        attempt: 1,
+        outcome: 'base',
+        magnitude: null,
+      }),
+    ).toBe('unread')
   })
 
   it('says a control that never reached the judge was not judged', () => {
