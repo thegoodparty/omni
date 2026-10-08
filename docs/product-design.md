@@ -170,8 +170,9 @@ competing versions, and none of them switches at 1024px:
   `PhoneBankingEntryPanel.tsx`.
 - Several "drawers" are built from `Sheet side="bottom"`, which doesn't swipe to
   close, for example `ShareBriefingDrawer.tsx` and `AddNotesDialog.tsx`.
-- The styleguide's `Sheet` (`packages/styleguide/src/components/ui/sheet.tsx`)
-  defaults to 75% width on mobile, not full screen.
+- The styleguide's side sheets (`Sheet` with `side="right"` or `side="left"`,
+  `packages/styleguide/src/components/ui/sheet.tsx`) default to 75% width on
+  mobile, not full screen. Bottom and top sheets are full width.
 
 If you're building or changing a drawer or dialog, close this gap first: put one
 component in the styleguide that switches with `useIsMobile`
