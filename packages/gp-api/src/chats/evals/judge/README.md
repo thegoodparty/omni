@@ -187,6 +187,21 @@ client trying to log in at boot (`@Timeout(0)` on
 `PeerlyHttpService.authenticate`) with `.env.test`'s stub credentials, and no
 judged agent calls Peerly. It is noise, not the failure.
 
+## Databricks access
+
+The chat arms and the data-version step read constituent data as the judge's
+own service principal, from the `JUDGE_DATABRICKS_CLIENT_ID` and
+`JUDGE_DATABRICKS_CLIENT_SECRET` repository secrets. That principal needs
+`USE CATALOG` on `goodparty_data_catalog`, `USE SCHEMA` on `mart_serve_agents`,
+`SELECT` on `serve_agent_voters`, and `CAN USE` on the SQL warehouse. Until
+those secrets exist, the callers fall back to the shared analytics principal,
+which has no grant on the catalog, so the data version is not pinned and
+constituent tools fail.
+
+Campaign Manager's Win credential (`WIN_DATABRICKS_*`) is not passed. The data
+version is read from the Serve mart and applied to every agent's tables, so
+the Win mart needs its own version before Campaign Manager can query it here.
+
 ## The arms are sequential, and the TDD says otherwise
 
 The TDD claims the orchestrator alternates arms in time — "base, candidate,
