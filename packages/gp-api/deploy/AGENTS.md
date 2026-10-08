@@ -22,6 +22,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                      |
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
+| `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
 
 ## Patterns
 
@@ -31,9 +32,17 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 - **App secrets are enumerated, not declared.** `index.ts` reads `GP_API_<ENV>` from Secrets Manager and wires every key it finds into the task definition's `secrets` block as `valueFrom`, so adding one needs no change in this directory — the key only has to exist in the blob, and the value never enters Pulumi state. The four `E2E_*` test-account keys are the exception: dev skips them and preview maps them to `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`CANDIDATE_EMAIL`/`CANDIDATE_PASSWORD` (falling back to the runner's env, with a warning, while they are absent from the blob). Never add a secret value as Pulumi config or a stack output. Full flow (and why you don't need AWS access for it): `docs/secrets.md`.
 - **All environments authenticate via the ECS task role** — no task carries static AWS keys. The AWS SDK's default credential chain resolves to the task role in every deployed task, so a task-role grant in `index.ts` is sufficient on its own. (Prod used to carry the legacy `gp-api` IAM user's static creds, which shadowed the task role and caused the 2026-07-29 contacts outage; those creds and the user were retired.)
 - **Docker image is tagged with `imageUri`** passed in from CI; `index.ts` reads it via `pulumi.Config()`. Local builds aren't deployable — push through the workflow.
-- **Preview deploys are tuned for wall time.** The PR job builds with SWC only (`typeCheck` off; the Checks job type-checks the same commit), runs `pulumi up --skip-preview`, and relies on the `Dockerfile` keeping the `npm ci` layer keyed on manifests alone, with only `COPY --link` after it. Putting a `RUN` or a workspace `dist/` copy above or after that layer brings back a full reinstall or a 600MB layer download on most builds.
+- **Preview deploys are tuned for wall time.** The PR job runs `nest build` without `npm run build`'s `tsc --noEmit` (the Checks job type-checks the same commit), runs `pulumi up --skip-preview`, and relies on the `Dockerfile` keeping the `npm ci` layer keyed on manifests alone, with only `COPY --link` after it. Putting a `RUN` or a workspace `dist/` copy above or after that layer brings back a full reinstall or a 600MB layer download on most builds.
 - **`npm run infra deploy <env>` is invoked by CI, not by hand.** A push to `main` runs `infra deploy dev`; `infra deploy prod` runs only from the release train's prod stage (`release.yml`, freeze-switch gated, with a manual `workflow_dispatch` fallback) once the commit is green on dev — never from a branch push. `npm run infra diff <env>` stays useful locally for previewing a change.
 - **Observability lives here, not just in app code.** Grafana dashboards/alerts are defined in `components/grafana.ts` and `components/alerting/`. App-side metric naming must line up with these.
+
+## Shared preview ALB (`components/preview-shared-alb.ts`)
+
+Every PR preview routes through one ALB, `gp-api-previews`. A preview stack creates only a target group and a host-header rule on its HTTPS listener (priority = PR number), and `*.preview.goodparty.org` resolves to it, so a new PR provisions no ALB and no DNS record. A per-PR ALB cost ~3 minutes to provision plus ~2 for its new record to resolve, on every new PR.
+
+- The **dev stack** owns it, the same as the shared preview cluster, so it deploys with `main`.
+- If the ALB is missing (before the first dev deploy that creates it), `index.ts` falls back to a per-PR ALB and DNS record, so previews keep deploying.
+- An ALB holds 100 listener rules by default, so ~100 concurrent previews is the ceiling before a quota raise. The stale-stack sweep keeps the count well under that.
 
 ## Shared preview cluster (`components/preview-shared-cluster.ts`)
 

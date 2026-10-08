@@ -19,6 +19,9 @@ export interface ServiceConfig {
   hostedZoneId: string
   domain: string
   certificateArn: string
+  // Set on preview stacks once the shared preview ALB exists: the preview
+  // then routes through a host-header rule on it instead of its own ALB.
+  sharedPreviewListenerArn?: string
 
   secrets: pulumi.Input<Record<string, pulumi.Input<string>>>
   environmentVariables: pulumi.Input<Record<string, pulumi.Input<string>>>
@@ -50,6 +53,7 @@ export function createService({
   hostedZoneId,
   domain,
   certificateArn,
+  sharedPreviewListenerArn,
   secrets,
   environmentVariables,
   permissions,
@@ -71,61 +75,7 @@ export function createService({
     { dependsOn },
   )
 
-  const albSecurityGroup = new aws.ec2.SecurityGroup('albSecurityGroup', {
-    name: select({
-      preview: `gp-api-preview-${stage}-sg`,
-      dev: 'gp-api-developLoadBalancerSecurityGroup-5ba8676',
-      prod: 'gp-api-masterLoadBalancerSecurityGroup-c8b2676',
-    }),
-    // This is false now, but these names are immutable :sob:
-    description: 'Managed by SST',
-    vpcId,
-    ingress: [
-      {
-        protocol: 'tcp',
-        fromPort: 80,
-        toPort: 80,
-        cidrBlocks: ['0.0.0.0/0'],
-        description: 'HTTP',
-      },
-      {
-        protocol: 'tcp',
-        fromPort: 443,
-        toPort: 443,
-        cidrBlocks: ['0.0.0.0/0'],
-        description: 'HTTPS',
-      },
-    ],
-    egress: [
-      {
-        protocol: '-1',
-        fromPort: 0,
-        toPort: 0,
-        cidrBlocks: ['0.0.0.0/0'],
-      },
-    ],
-  })
-
-  const loadBalancer = new aws.lb.LoadBalancer('loadBalancer', {
-    name: select({
-      preview: `gpapi-${stage}`,
-      dev: 'develop-gpapidevelopLoad',
-      prod: 'master-gpapimasterLoadBa',
-    }),
-    internal: false,
-    loadBalancerType: 'application',
-    securityGroups: [albSecurityGroup.id],
-    subnets: publicSubnetIds,
-    enableCrossZoneLoadBalancing: true,
-    // 5 minutes — large CSV exports (e.g. constituent contacts proxied from
-    // people-api) can stream for several minutes on slow consumer
-    // connections. The ALB severs any TCP connection idle longer than this,
-    // so we budget room for occasional backpressure stalls without dropping
-    // the download. Bytes ordinarily flow continuously.
-    idleTimeout: 300,
-  })
-
-  const targetGroup = new aws.lb.TargetGroup('targetGroup', {
+  const targetGroupArgs: aws.lb.TargetGroupArgs = {
     namePrefix: 'HTTP',
     port: 80,
     protocol: 'HTTP',
@@ -148,23 +98,128 @@ export function createService({
       unhealthyThreshold: 3,
       matcher: '200',
     },
-  })
+  }
 
-  new aws.lb.Listener('httpListener', {
-    loadBalancerArn: loadBalancer.arn,
-    port: 80,
-    protocol: 'HTTP',
-    defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
-  })
+  let targetGroup: aws.lb.TargetGroup
+  let listenerRule: aws.lb.ListenerRule | undefined
+  if (sharedPreviewListenerArn) {
+    // A fresh logical name: a stack moving off its own ALB gets a new target
+    // group here, since one target group cannot sit behind two load balancers
+    // while the old listeners are still being torn down.
+    targetGroup = new aws.lb.TargetGroup('previewTargetGroup', targetGroupArgs)
+    listenerRule = new aws.lb.ListenerRule('previewListenerRule', {
+      listenerArn: sharedPreviewListenerArn,
+      // PR numbers are unique, so they double as unique rule priorities.
+      priority: Number(stage.replace('pr-', '')),
+      conditions: [{ hostHeader: { values: [domain] } }],
+      actions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
+    })
+  } else {
+    const albSecurityGroup = new aws.ec2.SecurityGroup('albSecurityGroup', {
+      name: select({
+        preview: `gp-api-preview-${stage}-sg`,
+        dev: 'gp-api-developLoadBalancerSecurityGroup-5ba8676',
+        prod: 'gp-api-masterLoadBalancerSecurityGroup-c8b2676',
+      }),
+      // This is false now, but these names are immutable :sob:
+      description: 'Managed by SST',
+      vpcId,
+      ingress: [
+        {
+          protocol: 'tcp',
+          fromPort: 80,
+          toPort: 80,
+          cidrBlocks: ['0.0.0.0/0'],
+          description: 'HTTP',
+        },
+        {
+          protocol: 'tcp',
+          fromPort: 443,
+          toPort: 443,
+          cidrBlocks: ['0.0.0.0/0'],
+          description: 'HTTPS',
+        },
+      ],
+      egress: [
+        {
+          protocol: '-1',
+          fromPort: 0,
+          toPort: 0,
+          cidrBlocks: ['0.0.0.0/0'],
+        },
+      ],
+    })
 
-  new aws.lb.Listener('httpsListener', {
-    loadBalancerArn: loadBalancer.arn,
-    port: 443,
-    protocol: 'HTTPS',
-    certificateArn,
-    sslPolicy: 'ELBSecurityPolicy-TLS13-1-2-2021-06',
-    defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
-  })
+    const loadBalancer = new aws.lb.LoadBalancer('loadBalancer', {
+      name: select({
+        preview: `gpapi-${stage}`,
+        dev: 'develop-gpapidevelopLoad',
+        prod: 'master-gpapimasterLoadBa',
+      }),
+      internal: false,
+      loadBalancerType: 'application',
+      securityGroups: [albSecurityGroup.id],
+      subnets: publicSubnetIds,
+      enableCrossZoneLoadBalancing: true,
+      // 5 minutes — large CSV exports (e.g. constituent contacts proxied from
+      // people-api) can stream for several minutes on slow consumer
+      // connections. The ALB severs any TCP connection idle longer than this,
+      // so we budget room for occasional backpressure stalls without dropping
+      // the download. Bytes ordinarily flow continuously.
+      idleTimeout: 300,
+    })
+
+    targetGroup = new aws.lb.TargetGroup('targetGroup', targetGroupArgs)
+
+    new aws.lb.Listener('httpListener', {
+      loadBalancerArn: loadBalancer.arn,
+      port: 80,
+      protocol: 'HTTP',
+      defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
+    })
+
+    new aws.lb.Listener('httpsListener', {
+      loadBalancerArn: loadBalancer.arn,
+      port: 443,
+      protocol: 'HTTPS',
+      certificateArn,
+      sslPolicy: 'ELBSecurityPolicy-TLS13-1-2-2021-06',
+      defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
+    })
+    // Preview stacks are ephemeral and their per-PR DNS records routinely drift
+    // out of Pulumi state (e.g. a stack whose state was cleared while the record
+    // lingered in Route53), which makes a redeploy fail with "record already
+    // exists". Adopt/overwrite the existing record for preview so a drifted
+    // record self-heals; keep the fail-if-exists default for dev/prod.
+    const allowOverwrite = environment === 'preview'
+
+    new aws.route53.Record('dnsARecord', {
+      zoneId: hostedZoneId,
+      name: domain,
+      type: 'A',
+      allowOverwrite,
+      aliases: [
+        {
+          name: loadBalancer.dnsName,
+          zoneId: loadBalancer.zoneId,
+          evaluateTargetHealth: true,
+        },
+      ],
+    })
+    new aws.route53.Record('dnsAAAARecord', {
+      zoneId: hostedZoneId,
+      name: domain,
+      type: 'AAAA',
+      allowOverwrite,
+      aliases: [
+        {
+          name: loadBalancer.dnsName,
+          zoneId: loadBalancer.zoneId,
+          evaluateTargetHealth: true,
+        },
+      ],
+    })
+  }
 
   const logGroup = new aws.cloudwatch.LogGroup('logGroup', {
     name: `/sst/cluster/gp-${stage}-fargateCluster/gp-api-${stage}/gp-api-${stage}`,
@@ -345,42 +400,12 @@ export function createService({
     // Headroom, not a gate: a real crash-on-boot is caught by the deployment
     // circuit breaker, so the only thing a tight wait buys is a red deploy on a
     // service that stabilizes seconds later.
-    { customTimeouts: { create: '10m', update: '10m' } },
+    {
+      customTimeouts: { create: '10m', update: '10m' },
+      // ECS rejects a target group that no load balancer forwards to yet.
+      dependsOn: listenerRule ? [listenerRule] : [],
+    },
   )
-
-  // Preview stacks are ephemeral and their per-PR DNS records routinely drift
-  // out of Pulumi state (e.g. a stack whose state was cleared while the record
-  // lingered in Route53), which makes a redeploy fail with "record already
-  // exists". Adopt/overwrite the existing record for preview so a drifted
-  // record self-heals; keep the fail-if-exists default for dev/prod.
-  const allowOverwrite = environment === 'preview'
-
-  new aws.route53.Record('dnsARecord', {
-    zoneId: hostedZoneId,
-    name: domain,
-    type: 'A',
-    allowOverwrite,
-    aliases: [
-      {
-        name: loadBalancer.dnsName,
-        zoneId: loadBalancer.zoneId,
-        evaluateTargetHealth: true,
-      },
-    ],
-  })
-  new aws.route53.Record('dnsAAAARecord', {
-    zoneId: hostedZoneId,
-    name: domain,
-    type: 'AAAA',
-    allowOverwrite,
-    aliases: [
-      {
-        name: loadBalancer.dnsName,
-        zoneId: loadBalancer.zoneId,
-        evaluateTargetHealth: true,
-      },
-    ],
-  })
 
   return {
     url: pulumi.interpolate`https://${domain}`,

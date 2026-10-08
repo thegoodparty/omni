@@ -7,6 +7,10 @@ import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
+import {
+  createPreviewSharedAlb,
+  PREVIEW_SHARED_ALB_NAME,
+} from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
@@ -21,10 +25,6 @@ export = async () => {
     | 'preview'
     | 'dev'
     | 'prod'
-  const imageUri = config.require('imageUri')
-
-  const prNumber =
-    environment === 'preview' ? config.require('prNumber') : undefined
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
@@ -34,6 +34,14 @@ export = async () => {
     private: ['subnet-053357b931f0524d4', 'subnet-0bb591861f72dcb7f'],
   }
   const vpcSecurityGroupIds = ['sg-01de8d67b0f0ec787']
+
+  const previewCertificateArn =
+    'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786'
+
+  const imageUri = config.require('imageUri')
+
+  const prNumber =
+    environment === 'preview' ? config.require('prNumber') : undefined
 
   const stage = {
     preview: `pr-${prNumber}`,
@@ -332,6 +340,12 @@ export = async () => {
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
   // docker-entrypoint.sh) instead of provisioning a cluster per PR.
   if (environment === 'dev') {
+    createPreviewSharedAlb({
+      vpcId,
+      publicSubnetIds: vpcSubnetIds.public,
+      hostedZoneId,
+      certificateArn: previewCertificateArn,
+    })
     createPreviewSharedCluster({
       vpcId,
       privateSubnetIds: vpcSubnetIds.private,
@@ -339,6 +353,18 @@ export = async () => {
       dbPassword: secret.DB_PASSWORD,
     })
   }
+
+  // Falls back to a per-PR ALB while the shared one does not exist (until
+  // the dev stack has deployed it), so previews keep deploying.
+  const sharedPreviewListener =
+    environment === 'preview'
+      ? await aws.lb
+          .getLoadBalancer({ name: PREVIEW_SHARED_ALB_NAME })
+          .then((lb) =>
+            aws.lb.getListener({ loadBalancerArn: lb.arn, port: 443 }),
+          )
+          .catch(() => undefined)
+      : undefined
 
   const sharedPreviewCluster = skipPerPrRds
     ? await aws.rds.getCluster({
@@ -510,9 +536,9 @@ export = async () => {
     privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain,
+    sharedPreviewListenerArn: sharedPreviewListener?.arn,
     certificateArn: select({
-      preview:
-        'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786',
+      preview: previewCertificateArn,
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
