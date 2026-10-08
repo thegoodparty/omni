@@ -129,6 +129,35 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     })
   }
 
+  // Candidates for the server-side build finisher: a row Peerly has already
+  // accepted (`processing`, token minted) that no browser poll has advanced
+  // to `ready`, and that has sat untouched past `staleCutoff`. peerlyListId is
+  // always null for a `processing` row (stampPeerlyListId sets the id and
+  // `ready` together), but it is filtered explicitly so the finisher never
+  // re-reads an already-stamped list. token is always set on a `processing`
+  // row (recordUpload writes token + status together); the `not: null` filter
+  // lets the caller treat it as present. The `updatedAt` floor targets
+  // genuinely-stranded rows and keeps the finisher off rows a live browser is
+  // still polling — a still-loading list under active poll keeps a fresh
+  // updatedAt (isLeadsLoadedStable writes each unstable read). Oldest first
+  // and capped at `take` so one sweep issues a bounded number of Peerly reads.
+  findUnfinishedProcessing(params: {
+    staleCutoff: Date
+    take: number
+  }): Promise<{ id: string; token: string | null }[]> {
+    return this.model.findMany({
+      where: {
+        buildStatus: PhoneListBuildStatus.processing,
+        peerlyListId: null,
+        token: { not: null },
+        updatedAt: { lt: params.staleCutoff },
+      },
+      select: { id: true, token: true },
+      orderBy: { updatedAt: 'asc' },
+      take: params.take,
+    })
+  }
+
   // Recipients live on a sibling model to the one this service extends, so
   // they're read via `client` rather than the inherited `findMany`. Ordered
   // by id so skip/take pagination is stable across calls (unordered

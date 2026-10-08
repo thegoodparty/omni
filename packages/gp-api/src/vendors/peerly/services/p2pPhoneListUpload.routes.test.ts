@@ -1618,3 +1618,211 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
     })
   })
 })
+
+describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  // @updatedAt is client-managed, so a stranded (idle past the stale floor)
+  // row can only be simulated with a raw write to the underlying column —
+  // same trick as the async-build suite's ageBuildRow above.
+  const ageProcessingRow = (buildId: string, minutes: number) =>
+    service.prisma.$executeRaw`
+      UPDATE peerly_phone_list
+      SET updated_at = ${subMinutes(new Date(), minutes)}
+      WHERE id = ${buildId}
+    `
+
+  const createStrandedBuild = async (
+    campaignId: number,
+    token: string,
+    overrides: Record<string, unknown> = {},
+  ) => {
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId,
+        token,
+        buildStatus: 'processing',
+        ...overrides,
+      },
+    })
+    // Older than the 10-minute finish-stale floor: the browser poll has
+    // stopped (tab closed), which is the stranded case the finisher exists for.
+    await ageProcessingRow(build.id, 20)
+    return build
+  }
+
+  it('advances a processing build to ready — stamping the stable leads_loaded list id — with no browser poll', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    const campaign = await seedWinCampaign()
+    const build = await createStrandedBuild(campaign.id, 'finish-token')
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue({
+      Data: { list_state: 'ACTIVE', list_id: 999 },
+    } as never)
+    // leads_supplied === leads_loaded: fully loaded, so it stabilizes on the
+    // first ACTIVE read exactly like the browser route's fast path.
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'getPhoneListDetails',
+    ).mockResolvedValue({ leads_loaded: 25, leads_supplied: 25 } as never)
+
+    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: 999, buildStatus: 'ready' })
+  })
+
+  it('leaves a still-loading list processing, then stamps ready once it reads the same leads_loaded twice', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    const campaign = await seedWinCampaign()
+    const build = await createStrandedBuild(campaign.id, 'climbing-token')
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue({
+      Data: { list_state: 'ACTIVE', list_id: 888 },
+    } as never)
+    // Never equal to leads_supplied (500), so the only route to ready is two
+    // consecutive equal reads across sweeps — never the fast path.
+    const getDetails = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'getPhoneListDetails',
+    )
+    const finisher = service.app.get(P2pPhoneListUploadService)
+
+    getDetails.mockResolvedValueOnce({
+      leads_loaded: 300,
+      leads_supplied: 500,
+    } as never)
+    await finisher.sweepUnfinishedBuilds()
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: null, buildStatus: 'processing' })
+
+    // The unstable read wrote lastSeenLeadsLoaded, bumping updatedAt — which
+    // self-throttles the finisher: the row drops back out of the stale window
+    // until it ages again. Re-age it to model the next window elapsing.
+    await ageProcessingRow(build.id, 20)
+
+    // Same value as the previous sweep's reading — stable now, so it stamps.
+    getDetails.mockResolvedValueOnce({
+      leads_loaded: 300,
+      leads_supplied: 500,
+    } as never)
+    await finisher.sweepUnfinishedBuilds()
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: 888, buildStatus: 'ready' })
+  })
+
+  it('leaves a not-yet-ACTIVE list processing without reading details', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    const campaign = await seedWinCampaign()
+    const build = await createStrandedBuild(campaign.id, 'pending-token')
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue({
+      Data: { list_state: 'PROCESSING' },
+    } as never)
+    const getDetails = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'getPhoneListDetails',
+    )
+
+    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+
+    expect(getDetails).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: null, buildStatus: 'processing' })
+  })
+
+  it('leaves a fresh processing row alone — never races a browser poll inside the stale window', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    const campaign = await seedWinCampaign()
+    // A brand-new processing row (updatedAt = now) is inside the stale floor:
+    // the candidate's browser could still be polling it, so the finisher must
+    // skip it rather than issue a competing Peerly read.
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        token: 'fresh-token',
+        buildStatus: 'processing',
+      },
+    })
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
+
+    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+
+    expect(checkStatus).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: null, buildStatus: 'processing' })
+  })
+
+  it('runs on dev — advances a stranded build to ready (sendless dev validation needs it)', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+    const campaign = await seedWinCampaign()
+    const build = await createStrandedBuild(campaign.id, 'dev-token')
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue({
+      Data: { list_state: 'ACTIVE', list_id: 123 },
+    } as never)
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'getPhoneListDetails',
+    ).mockResolvedValue({ leads_loaded: 7, leads_supplied: 7 } as never)
+
+    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: 123, buildStatus: 'ready' })
+  })
+
+  it('is a no-op on a preview stack — never touches Peerly off the dev/prod allowlist', async () => {
+    // Every PR-preview stack reports `preview` at once; an ungated vendor
+    // sweep would fire ~25 identical passes against one shared Peerly budget.
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+    const campaign = await seedWinCampaign()
+    const build = await createStrandedBuild(campaign.id, 'preview-token')
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
+
+    await service.app.get(P2pPhoneListUploadService).sweepUnfinishedBuilds()
+
+    expect(checkStatus).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      }),
+    ).toMatchObject({ peerlyListId: null, buildStatus: 'processing' })
+  })
+})
