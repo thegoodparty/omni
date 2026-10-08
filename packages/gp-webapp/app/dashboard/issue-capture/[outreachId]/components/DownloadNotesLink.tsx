@@ -1,4 +1,4 @@
-import { Button } from '@styleguide'
+import { Button, DownloadIcon } from '@styleguide'
 import { API_VERSION_PREFIX } from 'appEnv'
 import { whatWeHeardCopy } from '../../copy'
 
@@ -23,6 +23,7 @@ const DownloadNotesLink = ({
         href={`/api${API_VERSION_PREFIX}/constituent-feedback/efforts/${outreachId}/export`}
         download
       >
+        <DownloadIcon aria-hidden="true" />
         {whatWeHeardCopy(isServe).downloadNotes}
       </a>
     </Button>

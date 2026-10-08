@@ -26,6 +26,7 @@ import type {
 import { CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
+  CircleCheckIcon,
   FilterPill,
   FilterPillGroup,
   IconButton,
@@ -478,7 +479,12 @@ export default function PhoneBankingOutcomeForm({
   // Held on the phone with nothing the server has said back to summarize.
   if (queued !== null && !interaction) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="flex items-start gap-2 text-sm text-foreground">
+        <CircleCheckIcon
+          size={16}
+          aria-hidden="true"
+          className="mt-0.5 shrink-0 text-success-dark"
+        />
         {OFFLINE_MEMO_COPY[queued]}
       </p>
     )
@@ -488,7 +494,12 @@ export default function PhoneBankingOutcomeForm({
     return (
       <div className="flex flex-col gap-2">
         {queued !== null && (
-          <p className="text-sm text-muted-foreground">
+          <p className="flex items-start gap-2 text-sm text-foreground">
+            <CircleCheckIcon
+              size={16}
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-success-dark"
+            />
             {OFFLINE_MEMO_COPY[queued]}
           </p>
         )}
@@ -734,7 +745,12 @@ export default function PhoneBankingOutcomeForm({
             />
           </div>
           {offline.audio !== null && (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CircleCheckIcon
+                size={14}
+                aria-hidden="true"
+                className="shrink-0 text-success-dark"
+              />
               {OFFLINE_MEMO_COPY.recorded}
             </p>
           )}

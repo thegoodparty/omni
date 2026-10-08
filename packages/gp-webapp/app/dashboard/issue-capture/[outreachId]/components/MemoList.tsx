@@ -44,13 +44,20 @@ const MemoList = ({
           <p className="text-xs font-medium text-muted-foreground">
             {copy.summaryBy(memo.actorName)}
           </p>
+          {/* Upright, not italic: it is the canvasser's summary, and italics
+              read as the other person's own words. */}
           {memo.transcript !== null && (
-            <p className="text-sm italic text-foreground">{memo.transcript}</p>
+            <p className="text-sm text-foreground">{memo.transcript}</p>
           )}
           {memo.issues.length > 0 && (
             <ul aria-label={copy.issues} className="flex flex-col gap-0.5">
               {memo.issues.map((issue) => (
-                <li key={issue.position} className="text-sm text-foreground">
+                // `block`: globals.css makes every li under a data-slot a
+                // flex row, which drops the space before each " · ".
+                <li
+                  key={issue.position}
+                  className="block text-sm text-foreground"
+                >
                   <span className="font-medium">{issue.issueLabel}</span>
                   {issue.stance !== null && ` · ${stanceLabels[issue.stance]}`}
                   {issue.desiredOutcome !== null &&

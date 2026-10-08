@@ -172,7 +172,7 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
                 ? '/dashboard/constituent-outreach'
                 : `/dashboard/outreach?outreachId=${outreachId}`
             }
-            className="inline-flex w-fit items-center gap-2 text-sm text-foreground"
+            className="inline-flex w-fit items-center gap-2 text-sm text-foreground underline-offset-4 hover:underline"
           >
             <ArrowLeftIcon size={16} />
             {copy.backToOutreach}
@@ -207,7 +207,9 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
               />
             </div>
           ) : reportQuery.isError ? (
-            <p className="text-sm text-destructive">{copy.loadFailed}</p>
+            <Alert variant="destructive" role="alert">
+              <AlertDescription>{copy.loadFailed}</AlertDescription>
+            </Alert>
           ) : (
             <div className="flex items-center justify-center gap-3 py-20">
               <Spinner />
