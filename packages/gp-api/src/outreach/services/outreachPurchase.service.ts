@@ -6,8 +6,13 @@ import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
+import {
+  isWinSmsHoldBillingEnabled,
+  WIN_SMS_HOLD_MIN_CENTS,
+} from 'src/shared/util/winSmsHold.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
+import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
@@ -17,6 +22,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     private readonly outreachService: OutreachService,
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
+    private readonly p2pSmsHold: OutreachP2pSmsHoldService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachPurchaseHandlerService.name)
@@ -56,6 +62,22 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       campaignId,
       contactCount,
     )
+
+    // Win SMS hold billing: the checkout places an authorization HOLD on the
+    // UNDISCOUNTED amount, so a later capture (slice C1) can apply the
+    // free-texts discount and never exceed the hold even if the campaign's
+    // eligibility changes between hold and capture. Sub-50c is below Stripe's
+    // authorization floor, so it is forgiven (amount 0 -> the free path, no
+    // hold placed) rather than blocking checkout for a tiny campaign.
+    //
+    // TODO(win-sms-hold C?/webapp reorder): the eventual hold is on a pre-build
+    // raw-match-count estimate placed BEFORE the Peerly list is built; that
+    // reorder belongs to a later slice. This slice holds the current
+    // server-derived billable count (resolveBilledContactCount) unchanged.
+    if (isWinSmsHoldBillingEnabled()) {
+      const undiscounted = calcTextAmountInCents(billedContactCount)
+      return undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
+    }
 
     const hasOffer =
       await this.campaignsService.checkFreeTextsEligibility(campaignId)
@@ -289,6 +311,24 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     const rawOutreachId =
       'outreachId' in rawMetadata ? rawMetadata.outreachId : undefined
     const outreachId = rawOutreachId ? Number(rawOutreachId) : undefined
+
+    // Win SMS hold billing: record the authorization hold on the satellite
+    // BEFORE finalizing the send. The hold is already placed by Stripe at
+    // checkout; recording first means a later finalize failure (which reverts
+    // and lets the webhook retry) never leaves held money unrecorded. Scoped to
+    // the paid checkout path (a `cs_` id) — a sub-50c forgiven campaign takes
+    // the free path (`free_confirmed_*`) and places no hold. CAS-idempotent, so
+    // a webhook retry re-runs it safely. Capture + release are later slices.
+    if (
+      isWinSmsHoldBillingEnabled() &&
+      outreachId &&
+      paymentIntentId.startsWith('cs_')
+    ) {
+      await this.p2pSmsHold.recordHold({
+        outreachId,
+        checkoutSessionId: paymentIntentId,
+      })
+    }
 
     // Finalize before redeeming: a throw here must reach the caller so the
     // idempotency marker is never stamped and Stripe retries the webhook.
