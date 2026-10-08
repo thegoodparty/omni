@@ -57,8 +57,13 @@ const fieldList = (contract: OutputContract): string =>
     )
     .join(', ')
 
+// Names AND types: two contracts that name the same fields but type one
+// differently are different contracts, and printing either side's types as
+// "the" contract would say which run it belongs to.
 const namesOf = (contract: OutputContract | null): string =>
-  [...(contract ?? []).map((field) => field.name)].sort().join('\0')
+  [...(contract ?? []).map((field) => `${field.name}:${field.type ?? ''}`)]
+    .sort()
+    .join('\0')
 
 const rendered = (contract: OutputContract | null): string =>
   contract === null || contract.length === 0 ? 'none' : fieldList(contract)

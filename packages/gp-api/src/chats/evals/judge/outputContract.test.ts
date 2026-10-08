@@ -89,6 +89,7 @@ describe('contractLines', () => {
     [AB, AC],
     [AB, null],
     [null, A],
+    [[{ name: 'a', type: 'string' }], [{ name: 'a', type: 'number' }]],
   ] as const)('renders the same bytes whichever arm is which', (x, y) => {
     expect(contractLines(x, y)).toBe(contractLines(y, x))
     expect(contractLines(x, y)).not.toMatch(/this PR|before it|base|candidate/i)
