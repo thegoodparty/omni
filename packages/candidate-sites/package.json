@@ -8,7 +8,7 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
     "dev": "next dev --turbopack --port 4001",
-    "build": "next build",
+    "build": "next typegen && tsc --noEmit && next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",

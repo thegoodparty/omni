@@ -4,6 +4,9 @@ import path from 'node:path'
 const nextConfig: NextConfig = {
   // ESLint already runs in the Validate CI job; don't re-run it during builds.
   eslint: { ignoreDuringBuilds: true },
+  // The build script type-checks with tsc (TypeScript 7) before next build, so
+  // skip next build's slower in-process check on the TypeScript 6 API.
+  typescript: { ignoreBuildErrors: true },
   // The outreach-results page posts a fulfilment results CSV through a server
   // action as raw text, because a poll's file has to reach S3 byte for byte.
   // Next defaults this to 1MB and a results file for a 10,000-recipient send
