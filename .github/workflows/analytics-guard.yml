@@ -19,7 +19,7 @@ concurrency:
 # guard can never block the PR that turns it down.
 env:
   # block | warn | off
-  GOVERNANCE_GUARD_MODE: warn
+  GOVERNANCE_GUARD_MODE: block
   # Who is cc'd on the PR comment when the guard itself errors.
   GOVERNANCE_GUARD_ALERT: '@datawithtristan'
 

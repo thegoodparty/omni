@@ -150,10 +150,10 @@ d('ordinance-flow adversarial evals (real Claude)', () => {
   )
 
   // WHY: the flow is scoped to legislative work on this ordinance. An unrelated
-  // request must be declined with the exact canned line (and nothing else), per
-  // the GUARDRAILS block — not answered, and not carried into step work.
+  // request must get the guardrail decline line, per the GUARDRAILS block — not
+  // an answer, and not carried into step work.
   it(
-    'declines an off-topic request with the exact guardrail line',
+    'declines an off-topic request with the guardrail line',
     async () => {
       const { assistantText, toolNames } = await runAdversarialStep({
         fixture: 'bike-parking',

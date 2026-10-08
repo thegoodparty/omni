@@ -8,15 +8,21 @@ import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 
-// Each line is a TokenField: its text lives in the editor TipTap hangs on
+// The field is a TokenField: its text lives in the editor TipTap hangs on
 // the textbox, not in a `value`.
-const lineEditor = (label: string) =>
-  (screen.getByLabelText(label) as HTMLElement & { editor: Editor }).editor
-const lineText = (label: string) =>
-  lineEditor(label).getText({ blockSeparator: '\n' })
-const setLine = (label: string, text: string) =>
+const fieldEditor = () =>
+  (screen.getByLabelText('Talking points') as HTMLElement & { editor: Editor })
+    .editor
+const fieldText = () => fieldEditor().getText({ blockSeparator: '\n' })
+// One paragraph per line, which is how the field holds a newline.
+const setField = (text: string) =>
   act(() => {
-    lineEditor(label).commands.setContent(text)
+    fieldEditor().commands.setContent(
+      text
+        .split('\n')
+        .map((line) => `<p>${line}</p>`)
+        .join(''),
+    )
   })
 
 // The create flow mounts milestone 2's in-flow gate, whose membership read
@@ -48,15 +54,22 @@ vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => useUserMock(),
 }))
 
-// Dictation reaches for getUserMedia, which jsdom has not got. The mic is not
-// what any of these assert.
-vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
-  useDictationAppend: () => ({
-    status: 'idle',
-    error: null,
-    busy: false,
-    toggle: vi.fn(),
-  }),
+// Dictation reaches for getUserMedia, which jsdom has not got. The mock keeps
+// the transcript callback so a test can play a finished utterance into it.
+const dictation: { onFinalTranscript: ((text: string) => void) | null } = {
+  onFinalTranscript: null,
+}
+vi.mock('app/dashboard/shared/dictation/useDictation', () => ({
+  useDictation: (input: { onFinalTranscript: (text: string) => void }) => {
+    dictation.onFinalTranscript = input.onFinalTranscript
+    return {
+      status: 'idle',
+      error: null,
+      partialTranscript: '',
+      start: vi.fn(),
+      stop: vi.fn(),
+    }
+  },
 }))
 
 const OPEN_RING: PolygonRing = [
@@ -129,25 +142,25 @@ const baseProps = {
   onPickColor: vi.fn(),
 }
 
-const POINTS = {
-  engagementQuestion: 'What would you fix around here first?',
-  context: 'Fix our roads with a real maintenance plan, not patchwork.',
-  ask: 'Ask whether we can count on them in November.',
-}
+const DRAFT = [
+  '• Ask what they would fix around here first',
+  '• Fix our roads with a real maintenance plan, not patchwork',
+  '• Ask whether we can count on them in November',
+].join('\n')
 
 // Every draft request the flow made, in order.
 type DraftBody = Record<string, unknown>
 let drafts: DraftBody[] = []
 let serveDrafts: DraftBody[] = []
 
-const mockDraft = (overrides: Partial<typeof POINTS> = {}): void => {
+const mockDraft = (draft: string = DRAFT): void => {
   api.mock('POST /v1/outreach/door-knocking/draft', ({ body }) => {
     drafts.push(body)
-    return { status: 200, data: { ...POINTS, ...overrides } }
+    return { status: 200, data: { draft } }
   })
   api.mock('POST /v1/outreach/serve/door-knocking/draft', ({ body }) => {
     serveDrafts.push(body)
-    return { status: 200, data: { ...POINTS, ...overrides } }
+    return { status: 200, data: { draft } }
   })
 }
 
@@ -158,7 +171,7 @@ const mockDraft = (overrides: Partial<typeof POINTS> = {}): void => {
 const mockDraftFailure = (): void => {
   api.mock('POST /v1/outreach/door-knocking/draft', {
     status: 500,
-    data: POINTS,
+    data: { draft: DRAFT },
   })
 }
 
@@ -169,6 +182,7 @@ const mockDraftFailure = (): void => {
 const renderAtPoints = async (
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
   goal = /Turn out my supporters/,
+  expected = DRAFT,
 ) => {
   const view = render(
     <CreateListFlow {...baseProps} {...props} step="filters" />,
@@ -179,7 +193,7 @@ const renderAtPoints = async (
     target: { value: 'Westside turnout' },
   })
   view.rerender(<CreateListFlow {...baseProps} {...props} step="points" />)
-  await waitFor(() => expect(lineText('Context')).toBe(POINTS.context))
+  await waitFor(() => expect(fieldText()).toBe(expected))
   return view
 }
 
@@ -192,6 +206,7 @@ const rerenderWith = (
 beforeEach(() => {
   testQueryClient.clear()
   vi.clearAllMocks()
+  dictation.onFinalTranscript = null
   drafts = []
   serveDrafts = []
   useCampaignMock.mockReturnValue([
@@ -244,14 +259,31 @@ describe('the talking points step', () => {
     expect(sent).not.toHaveProperty('activityConditions')
   })
 
-  it('shows the three generated lines in their own boxes', async () => {
+  it('puts the draft in one field the candidate can rewrite', async () => {
     mockDraft()
 
     await renderAtPoints()
 
-    expect(lineText('Opening question')).toBe(POINTS.engagementQuestion)
-    expect(lineText('Context')).toBe(POINTS.context)
-    expect(lineText('The ask')).toBe(POINTS.ask)
+    expect(fieldText()).toBe(DRAFT)
+    expect(
+      screen.getByText(
+        "We'll draft a few bullets to start, and you can rewrite them any way you like.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('textbox', { name: 'Talking points' }),
+    ).toHaveLength(1)
+  })
+
+  // An edit is the candidate's own shape, bullets or not, and nothing on the
+  // step turns it back into bullets.
+  it('keeps the candidate’s edits as written', async () => {
+    mockDraft()
+
+    await renderAtPoints()
+    setField('Fix the roads.\nAnd the sidewalks.')
+
+    expect(fieldText()).toBe('Fix the roads.\nAnd the sidewalks.')
   })
 
   // The two composed sections are shown so the candidate reviews the whole
@@ -270,25 +302,34 @@ describe('the talking points step', () => {
     expect(screen.queryByLabelText('Thanks and goodbye')).toBeNull()
   })
 
-  // The call to action is the one editable line the model never writes: the URL
-  // is real data, and the prompt bans links outright.
-  it('composes the call to action from the campaign website', async () => {
+  it('has no call to action section', async () => {
     mockDraft()
 
     await renderAtPoints()
 
-    expect(lineText('Call to action')).toBe(
-      'Point them to janedoe.org to learn more — no commitment needed.',
-    )
+    expect(screen.queryByText('Call to action')).toBeNull()
+    expect(screen.queryByText(/janedoe\.org/)).toBeNull()
   })
 
-  it('leaves the call to action blank when there is no website on file', async () => {
+  // Dictation lands where the cursor is, not at the end of the field, so a
+  // spoken line goes into the bullet the candidate is on.
+  it('inserts dictation at the cursor', async () => {
     mockDraft()
-    useCampaignMock.mockReturnValue([{ id: 9, details: {} }])
 
     await renderAtPoints()
+    setField('Fix the roads.\nAsk for their vote.')
+    act(() => {
+      // The end of the first line: its paragraph opens at 1, so its text ends
+      // one past its length.
+      fieldEditor().commands.setTextSelection('Fix the roads.'.length + 1)
+    })
+    act(() => {
+      dictation.onFinalTranscript?.('Sarah Chen agrees.')
+    })
 
-    expect(lineText('Call to action')).toBe('')
+    expect(fieldText()).toBe(
+      'Fix the roads. Sarah Chen agrees.\nAsk for their vote.',
+    )
   })
 
   describe('regenerate and improve', () => {
@@ -299,11 +340,7 @@ describe('the talking points step', () => {
       fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
 
       await waitFor(() => expect(drafts).toHaveLength(2))
-      // The three generated lines, in card order — never the composed call to
-      // action, which is not the model's to rewrite.
-      expect(drafts[1]?.previousDraft).toBe(
-        [POINTS.engagementQuestion, POINTS.context, POINTS.ask].join('\n'),
-      )
+      expect(drafts[1]?.previousDraft).toBe(DRAFT)
       expect(drafts[1]).not.toHaveProperty('currentDraft')
     })
 
@@ -311,11 +348,13 @@ describe('the talking points step', () => {
       mockDraft()
 
       await renderAtPoints()
-      setLine('Context', 'Roads are bad.')
+      setField('Roads are bad.\nSo are the sidewalks.')
       fireEvent.click(screen.getByRole('button', { name: /Improve with AI/ }))
 
       await waitFor(() => expect(drafts).toHaveLength(2))
-      expect(drafts[1]?.currentDraft).toContain('Roads are bad.')
+      expect(drafts[1]?.currentDraft).toBe(
+        'Roads are bad.\nSo are the sidewalks.',
+      )
       expect(drafts[1]).not.toHaveProperty('previousDraft')
     })
 
@@ -368,7 +407,7 @@ describe('the talking points step', () => {
         screen.queryByRole('button', { name: /Improve with AI/ }),
       ).toBeNull()
 
-      setLine('Context', 'Roads.')
+      setField('Roads.')
       fireEvent.click(screen.getByRole('button', { name: /Improve with AI/ }))
       await waitFor(() => expect(drafts).toHaveLength(1))
       expect(drafts[0]?.currentDraft).toBe('Roads.')
@@ -417,14 +456,15 @@ describe('the talking points step', () => {
     })
     view.rerender(<CreateListFlow {...baseProps} step="points" />)
 
-    await screen.findByLabelText('Context')
+    await screen.findByLabelText('Talking points')
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
   it('warns about an unfilled logistics bracket', async () => {
-    mockDraft({ ask: 'Invite them to the town hall on [date].' })
+    const withBracket = '• Invite them to the town hall on [date]'
+    mockDraft(withBracket)
 
-    await renderAtPoints({}, /Invite people to an event/)
+    await renderAtPoints({}, /Invite people to an event/, withBracket)
 
     expect(screen.getByText(/Fill in the square brackets/)).toBeInTheDocument()
   })
@@ -575,10 +615,9 @@ describe('freezing the card with the list', () => {
     return { bodies }
   }
 
-  // The four card lines, newline-separated in card order, on the same body
-  // that buys the route — so the card is frozen in the one transaction that
-  // writes the walk, and the purpose it was written for is stored beside it.
-  it('sends the purpose and the four lines on the create body', async () => {
+  // The talking points ride the same body that writes the walk, so they are
+  // frozen in one transaction with the purpose they were written for.
+  it('sends the purpose and the talking points on the create body', async () => {
     mockDraft()
     const { bodies } = mockCreate()
     const props = { onStepChange: vi.fn() }
@@ -590,20 +629,14 @@ describe('freezing the card with the list', () => {
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).toMatchObject({
       purpose: 'election_day_turnout',
-      talkingPoints: [
-        POINTS.engagementQuestion,
-        POINTS.context,
-        'Point them to janedoe.org to learn more — no commitment needed.',
-        POINTS.ask,
-      ].join('\n'),
+      talkingPoints: DRAFT,
     })
   })
 
-  // A candidate who skipped past a failed draft still gets their route. An
-  // empty card is no card, not four newlines for the door to try to parse.
+  // A candidate who skipped past a failed draft still gets their route, and
+  // an empty field is no card at all.
   it('omits the points entirely when nothing was written', async () => {
     mockDraftFailure()
-    useCampaignMock.mockReturnValue([{ id: 9, details: {} }])
     const { bodies } = mockCreate()
     const props = { onStepChange: vi.fn() }
 
@@ -629,37 +662,15 @@ describe('freezing the card with the list', () => {
     expect(bodies[0]).toMatchObject({ purpose: 'election_day_turnout' })
   })
 
-  // The same skip, for a campaign that HAS a website — which is most of them.
-  // The call to action is seeded from the campaign record before the draft is
-  // even requested, so counting it as content would freeze a card whose only
-  // line is the URL. At the door that is worse than no card: the stored card
-  // suppresses the issue stances, so the walk would lose the stances and gain
-  // a website.
-  it('freezes no card when only the composed call to action is filled', async () => {
-    mockDraftFailure()
+  // Whitespace is not talking points: a field cleared down to blank lines
+  // stores nothing, so the walk falls back to the issue stances.
+  it('stores nothing when the field is cleared to blank', async () => {
+    mockDraft()
     const { bodies } = mockCreate()
     const props = { onStepChange: vi.fn() }
 
-    const view = render(
-      <CreateListFlow {...baseProps} {...props} step="filters" />,
-    )
-    fireEvent.click(
-      screen.getByRole('button', { name: /Turn out my supporters/ }),
-    )
-    view.rerender(<CreateListFlow {...baseProps} {...props} step="name" />)
-    fireEvent.change(screen.getByLabelText('Campaign name'), {
-      target: { value: 'Westside turnout' },
-    })
-    rerenderWith(view, props, 'points')
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled(),
-    )
-    // The seeded line is really there — this is the state the guard has to
-    // recognise, not an absent one.
-    expect(lineText('Call to action')).toBe(
-      'Point them to janedoe.org to learn more — no commitment needed.',
-    )
-
+    const view = await renderAtPoints(props)
+    setField('   \n  ')
     rerenderWith(view, props, 'draw')
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
@@ -667,31 +678,25 @@ describe('freezing the card with the list', () => {
     expect(bodies[0]).not.toHaveProperty('talkingPoints')
   })
 
-  // The four boxes are textareas, so a Return or a pasted paragraph is a
-  // newline in a format whose delimiter is the newline. A five-line card is
-  // rejected whole by `parseTalkingPoints`, silently, at every door — so the
-  // collapse happens on the way in.
-  it('collapses an edited line that a candidate typed a return into', async () => {
+  // Free text keeps its own lines: a candidate who writes sentences on two
+  // lines gets two lines at the door. Only the ends are trimmed.
+  it('stores the candidate’s text trimmed, lines intact', async () => {
     mockDraft()
     const { bodies } = mockCreate()
     const props = { onStepChange: vi.fn() }
 
     const view = await renderAtPoints(props)
-    setLine('Context', 'Fix the roads.\nAnd the sidewalks.')
+    setField('  Fix the roads.\nAnd the sidewalks.  ')
     rerenderWith(view, props, 'draw')
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
-    const stored = bodies[0]?.talkingPoints as string
-    expect(stored.split('\n')).toHaveLength(4)
-    expect(stored.split('\n')[1]).toBe('Fix the roads. And the sidewalks.')
+    expect(bodies[0]?.talkingPoints).toBe('Fix the roads.\nAnd the sidewalks.')
   })
 
-  // The boxes are read-only while the first draft is written — the composed
-  // call to action lands in state before that request is made, and counting
-  // it as drafted content would leave the boxes open with a generation about
-  // to overwrite whatever was typed into them.
-  it('keeps the boxes read-only while the first draft is being written', async () => {
+  // The field is read-only while the first draft is written, so nothing typed
+  // is overwritten when it lands.
+  it('keeps the field read-only while the first draft is being written', async () => {
     api.mock(
       'POST /v1/outreach/door-knocking/draft',
       () => new Promise<never>(() => undefined),
@@ -708,7 +713,7 @@ describe('freezing the card with the list', () => {
     view.rerender(<CreateListFlow {...baseProps} step="points" />)
 
     await waitFor(() =>
-      expect(screen.getByLabelText('Context')).toHaveAttribute(
+      expect(screen.getByLabelText('Talking points')).toHaveAttribute(
         'aria-readonly',
         'true',
       ),
@@ -737,7 +742,7 @@ describe('freezing the card with the list', () => {
     const props = { onStepChange: vi.fn() }
 
     const view = await renderAtPoints(props)
-    setLine('Context', 'My own words.')
+    setField('My own words.')
     // Back to the goal cards, pick a different one, and return to a card they
     // have already made theirs. `purpose`, `who` and `filters` are three
     // stages of one page step, so how many Backs that takes depends on which
@@ -750,14 +755,14 @@ describe('freezing the card with the list', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
     rerenderWith(view, props, 'points')
-    await waitFor(() => expect(lineText('Context')).toBe('My own words.'))
+    await waitFor(() => expect(fieldText()).toBe('My own words.'))
     expect(drafts).toHaveLength(1)
 
     fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
 
     await waitFor(() => expect(drafts).toHaveLength(2))
     // The regenerate and nothing after it.
-    await waitFor(() => expect(lineText('Context')).toBe(POINTS.context))
+    await waitFor(() => expect(fieldText()).toBe(DRAFT))
     expect(drafts).toHaveLength(2)
   })
 })

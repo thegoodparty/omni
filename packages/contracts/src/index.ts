@@ -1019,7 +1019,7 @@ export {
   type DoorKnockingTalkingPointsPurpose,
   ServeDoorKnockingTalkingPointsPurposeSchema,
   type ServeDoorKnockingTalkingPointsPurpose,
-  DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
+  DOOR_KNOCKING_BULLET,
   DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
   DoorKnockingTalkingPointsDraftResponseSchema,

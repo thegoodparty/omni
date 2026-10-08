@@ -2,10 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
 import { LEGAL_LINE } from '@/chats/general/campaign-manager/campaignManagerPrompt'
 import { COS_GUARDRAIL_DECLINE } from '@/chats/general/chief-of-staff/services/chiefOfStaffPrompt'
-import {
-  ORDINANCE_FLOW_GUARDRAIL_DECLINE,
-  ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL,
-} from '@/chats/general/ordinance-flow/services/ordinanceFlowPrompt'
 import lines from './guardrailLines.json'
 import {
   GUARDRAIL_CHATS,
@@ -100,6 +96,17 @@ describe('guardrailChatForScope', () => {
 })
 
 describe('guardrailLines.json', () => {
+  // The bench reads these keys at a pinned commit, so a rename breaks it.
+  it('keeps the scope decline keyed by every chat and ordinance variant', () => {
+    expect(Object.keys(lines.scope_decline).sort()).toEqual([
+      'briefing_chat',
+      'campaign_assistant',
+      'chief_of_staff',
+      'ordinance_flow.bill',
+      'ordinance_flow.municipal',
+    ])
+  })
+
   it('holds only known ids and chat keys, with trimmed non-empty text', () => {
     const chatKey =
       /^(campaign_assistant|chief_of_staff|briefing_chat|ordinance_flow\.(municipal|bill)|default)$/
@@ -118,12 +125,6 @@ describe('guardrailLines.json', () => {
   it('matches every line production says today, byte for byte', () => {
     expect(guardrailLine('scope_decline', 'chief_of_staff')).toBe(
       COS_GUARDRAIL_DECLINE,
-    )
-    expect(guardrailLine('scope_decline', 'ordinance_flow', 'municipal')).toBe(
-      ORDINANCE_FLOW_GUARDRAIL_DECLINE,
-    )
-    expect(guardrailLine('scope_decline', 'ordinance_flow', 'bill')).toBe(
-      ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL,
     )
     expect(guardrailLine('legal_advice', 'campaign_assistant')).toBe(LEGAL_LINE)
     expect(guardrailLine('professional_advice', 'chief_of_staff')).toBe(

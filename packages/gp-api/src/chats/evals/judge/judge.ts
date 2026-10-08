@@ -98,6 +98,36 @@ const AbsoluteFloorSchema = z.object({
 })
 export type AbsoluteFloor = z.infer<typeof AbsoluteFloorSchema>
 
+// Whether a run reached the outcome its case's `handledWhen` sentence
+// describes. Absolute and per run, unlike every other field here, and asked
+// only on a case that carries the sentence. No "not applicable": a case
+// without the sentence is never asked, so the judge has no value to hedge
+// with. `partly` is kept distinct, and the report counts it as not handled.
+export const HANDLED_VALUES = ['yes', 'partly', 'no'] as const
+export const HandledValueSchema = z.enum(HANDLED_VALUES)
+export type HandledValue = z.infer<typeof HandledValueSchema>
+
+// ON THE WIRE, TWO VALUES AND NOTHING ELSE. The location and quote per run
+// ride in the verdict's one evidence list under the name `handled`, as a
+// dimension's do: a handled object carrying its own loc and quote per run
+// pushed the compiled grammar past the API's limit at four case dimensions,
+// measured against the live API.
+const WireHandledSchema = z.object({
+  X: HandledValueSchema,
+  Y: HandledValueSchema,
+})
+type WireHandled = z.infer<typeof WireHandledSchema>
+
+const HandledSchema = WireHandledSchema.extend({
+  evidence: z.array(EvidenceSchema).optional(),
+})
+export type Handled = z.infer<typeof HandledSchema>
+
+// The evidence list's name for a `handled` citation. Not a dimension, so it
+// can never collide with one: a case dimension must be snake_case and is
+// refused if it equals a reserved name, and this is checked below.
+export const HANDLED = 'handled'
+
 export const CaseVerdictSchema = z.object({
   rubric_version: z.string(),
   shared_observations: z.string().optional(),
@@ -105,6 +135,7 @@ export const CaseVerdictSchema = z.object({
   overall: OverallVerdictSchema,
   flags: z.array(FlagSchema).optional(),
   absolute_floor: AbsoluteFloorSchema.optional(),
+  handled: HandledSchema.optional(),
 })
 export type CaseVerdict = z.infer<typeof CaseVerdictSchema>
 
@@ -195,8 +226,10 @@ export const toWireVerdict = (verdict: CaseVerdict): JsonValue => {
   )
   const overall = toWireDimension(OVERALL, verdict.overall)
   const { overall_tradeoff, tradeoff_note } = verdict.overall
+  const { handled, ...stored } = verdict
   return JsonValueSchema.parse({
-    ...verdict,
+    ...stored,
+    ...(handled !== undefined && { handled: { X: handled.X, Y: handled.Y } }),
     dimensions: Object.fromEntries(
       dimensions.map(([name, wire]) => [name, wire.dimension]),
     ),
@@ -208,12 +241,19 @@ export const toWireVerdict = (verdict: CaseVerdict): JsonValue => {
     evidence: [
       ...dimensions.flatMap(([, wire]) => wire.evidence),
       ...overall.evidence,
+      ...(handled?.evidence ?? []).map(({ loc, quote, note }) => ({
+        dimension: HANDLED,
+        loc,
+        quote,
+        note: note ?? '',
+      })),
     ],
   })
 }
 
 export const caseVerdictSchemaFor = (
   dimensions: readonly string[],
+  asksHandled = false,
 ): z.ZodType<CaseVerdict> => {
   // Object.fromEntries, not an assignment into a literal. `o['__proto__'] = x`
   // sets the prototype instead of creating an own property, so `z.object`
@@ -223,45 +263,66 @@ export const caseVerdictSchemaFor = (
   const shape: Record<string, typeof WireDimensionSchema> = Object.fromEntries(
     dimensions.map((d) => [d, WireDimensionSchema]),
   )
-  return z
-    .object({
-      rubric_version: z.string(),
-      shared_observations: z.string().optional(),
-      dimensions: z.object(shape),
-      overall: WireDimensionSchema.extend({
-        overall_tradeoff: z.boolean().optional(),
-        tradeoff_note: z.string().nullish(),
-      }),
-      evidence: z.array(WireEvidenceSchema),
-      flags: z.array(FlagSchema).optional(),
-      absolute_floor: AbsoluteFloorSchema.optional(),
-    })
-    .transform(({ dimensions: named, overall, evidence, ...rest }) => {
-      // An item naming no dimension the verdict carries is kept under
-      // overall rather than dropped: it is still evidence the seat cited.
-      const citedFor = (name: string): WireEvidence[] =>
-        evidence.filter((item) =>
-          name === OVERALL
-            ? item.dimension === OVERALL ||
-              !Object.hasOwn(named, item.dimension)
-            : item.dimension === name,
-        )
-      const { overall_tradeoff, tradeoff_note, ...overallDimension } = overall
-      return {
-        ...rest,
-        dimensions: Object.fromEntries(
-          Object.entries(named).map(([name, wire]) => [
-            name,
-            fromWireDimension(wire, citedFor(name)),
-          ]),
-        ),
-        overall: {
-          ...fromWireDimension(overallDimension, citedFor(OVERALL)),
-          ...(overall_tradeoff !== undefined && { overall_tradeoff }),
-          ...(tradeoff_note !== undefined && { tradeoff_note }),
+  const wire = z.object({
+    rubric_version: z.string(),
+    shared_observations: z.string().optional(),
+    dimensions: z.object(shape),
+    overall: WireDimensionSchema.extend({
+      overall_tradeoff: z.boolean().optional(),
+      tradeoff_note: z.string().nullish(),
+    }),
+    evidence: z.array(WireEvidenceSchema),
+    flags: z.array(FlagSchema).optional(),
+    absolute_floor: AbsoluteFloorSchema.optional(),
+  })
+  const toVerdict = ({
+    dimensions: named,
+    overall,
+    evidence,
+    handled,
+    ...rest
+  }: z.output<typeof wire> & { handled?: WireHandled }): CaseVerdict => {
+    // An item naming no dimension the verdict carries is kept under
+    // overall rather than dropped: it is still evidence the seat cited.
+    const citedFor = (name: string): WireEvidence[] =>
+      evidence.filter((item) =>
+        name === OVERALL
+          ? item.dimension === OVERALL ||
+            (!Object.hasOwn(named, item.dimension) &&
+              (handled === undefined || item.dimension !== HANDLED))
+          : item.dimension === name,
+      )
+    const handledEvidence = citedFor(HANDLED).map(({ loc, quote, note }) =>
+      note === '' ? { loc, quote } : { loc, quote, note },
+    )
+    const { overall_tradeoff, tradeoff_note, ...overallDimension } = overall
+    return {
+      ...rest,
+      dimensions: Object.fromEntries(
+        Object.entries(named).map(([name, wire]) => [
+          name,
+          fromWireDimension(wire, citedFor(name)),
+        ]),
+      ),
+      overall: {
+        ...fromWireDimension(overallDimension, citedFor(OVERALL)),
+        ...(overall_tradeoff !== undefined && { overall_tradeoff }),
+        ...(tradeoff_note !== undefined && { tradeoff_note }),
+      },
+      ...(handled !== undefined && {
+        handled: {
+          ...handled,
+          ...(handledEvidence.length > 0 && { evidence: handledEvidence }),
         },
-      }
-    })
+      }),
+    }
+  }
+  // Required exactly when the case carries a handling sentence, and absent
+  // otherwise, so a case without one sends the schema it sent before the
+  // field existed.
+  return asksHandled
+    ? wire.extend({ handled: WireHandledSchema }).transform(toVerdict)
+    : wire.transform(toVerdict)
 }
 
 // The key scoring joins on. Never sent to the model.
@@ -324,6 +385,13 @@ export interface GradedJudgment {
   seatFailures: readonly SeatFailure[]
   flags: readonly Flag[]
   absoluteFloor: AbsoluteFloor | null
+  // Slot-keyed like the floor. Absent when the case asked nothing.
+  handled?: CombinedHandled
+}
+
+export interface CombinedHandled {
+  X: HandledValue
+  Y: HandledValue
 }
 
 // A judge failure is not a verdict. It is reported as ungraded, apart from
@@ -346,7 +414,7 @@ export type Judgment = GradedJudgment | UngradedJudgment
 // https://goodparty.clickup.com/90132012119/docs/2ky4jq2q-154253/2ky4jq2q-139173
 // ---------------------------------------------------------------------------
 
-export const RUBRIC_VERSION = 'uj-rubric-0.7'
+export const RUBRIC_VERSION = 'uj-rubric-0.8'
 
 const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
   chat: [
@@ -362,7 +430,7 @@ const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
     'attached to them, whether the artifact adds claims that appear in no',
     'source, and whether it uses its declared fallback when inputs are',
     'insufficient instead of inventing content.',
-    'When the shared input ends with a line starting "Condition:", it says',
+    'When the shared input has a line starting "Condition:", it says',
     'what this case planted in or removed from the input. Judge first',
     'whether each run handled that condition appropriately. A run that',
     'reads better but ignores or is misled by the condition is worse than',
@@ -409,7 +477,8 @@ export const dimensionsFor = (
 ): string[] => {
   const own = (payload.caseDimensions ?? []).map((d) => d.name)
   const taken = own.filter(
-    (name) => name === OVERALL || config.dimensions.includes(name),
+    (name) =>
+      name === OVERALL || name === HANDLED || config.dimensions.includes(name),
   )
   if (taken.length > 0) {
     throw new CaseDimensionCollisionError(
@@ -433,6 +502,19 @@ const caseDimensionLines = (payload: JudgePayload): string[] => {
     ...own.map((d) => `- ${d.name}: ${d.question}`),
   ]
 }
+
+// Empty for a case with no handling sentence, so its prompt is unchanged.
+const handledLines = (payload: JudgePayload): string[] =>
+  payload.handledWhen === undefined
+    ? []
+    : [
+        'This case says what handling its condition looks like. In',
+        '`handled`, answer yes, partly or no for each run: did its output',
+        'reach that outcome? Judge the outcome the sentence describes, not',
+        'whether the run mentions the problem; a run that quietly does the',
+        'right thing has handled it. In `evidence`, cite one location and a',
+        `short quote per run under the name ${HANDLED}.`,
+      ]
 
 const buildUserPrompt = (
   payload: JudgePayload,
@@ -465,6 +547,7 @@ const buildUserPrompt = (
     'you cannot make, and leave needed_to_decide as "" when nothing more',
     'would have decided it.',
     ...caseDimensionLines(payload),
+    ...handledLines(payload),
     '</rubric>',
     '',
     '<flags>',
@@ -627,6 +710,24 @@ const combineFloor = (seats: readonly SeatVerdict[]): AbsoluteFloor | null => {
   }
 }
 
+// Taken like the floor, not by majority: one seat that saw a run miss the
+// outcome is a finding about that run.
+const worstHandled = (values: readonly HandledValue[]): HandledValue =>
+  values.includes('no') ? 'no' : values.includes('partly') ? 'partly' : 'yes'
+
+const combineHandled = (
+  seats: readonly SeatVerdict[],
+): CombinedHandled | undefined => {
+  const answers = seats
+    .map((s) => s.verdict.handled)
+    .filter((h): h is Handled => h !== undefined)
+  if (answers.length === 0) return undefined
+  return {
+    X: worstHandled(answers.map((h) => h.X)),
+    Y: worstHandled(answers.map((h) => h.Y)),
+  }
+}
+
 const dimensionOf = (
   verdict: CaseVerdict,
   dimension: string,
@@ -683,7 +784,10 @@ const runSeat = async (
   try {
     const { object } = await llm.jsonCompletion({
       messages: buildMessages(payload, config),
-      schema: caseVerdictSchemaFor(dimensionsFor(payload, config)),
+      schema: caseVerdictSchemaFor(
+        dimensionsFor(payload, config),
+        payload.handledWhen !== undefined,
+      ),
       models: [model],
       temperature: config.panel.temperature,
       retries: SEAT_RETRIES,
@@ -779,8 +883,13 @@ export const judgeCase = async (
     // scoring's job with that judgment's own slot map.
     flags: seats.flatMap((s) => s.verdict.flags ?? []),
     absoluteFloor: combineFloor(seats),
+    ...withHandled(combineHandled(seats)),
   }
 }
+
+const withHandled = (
+  handled: CombinedHandled | undefined,
+): { handled?: CombinedHandled } => (handled === undefined ? {} : { handled })
 
 export const judgeAll = async (
   llm: JsonJudgeModel,

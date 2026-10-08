@@ -7,6 +7,7 @@ import {
   caseJudgingOf,
   caseListPath,
   MAX_CONDITION_CHARS,
+  MAX_HANDLED_WHEN_CHARS,
   caseTurns,
   loadCaseList,
   parseCaseList,
@@ -690,6 +691,47 @@ describe('a background case condition and scored flag', () => {
         },
       ]),
     ).toThrow(CaseListError)
+  })
+
+  it('reads a handling sentence beside its condition', () => {
+    const list = parse([
+      {
+        caseId: 'probe',
+        params: {},
+        condition: 'Source 3 is stale.',
+        handledWhen: ' the run dates the claim or drops it. ',
+      },
+    ])
+    expect(caseJudgingOf(list).get('probe')).toEqual({
+      condition: 'Source 3 is stale.',
+      handledWhen: 'the run dates the claim or drops it.',
+      scored: true,
+    })
+  })
+
+  // A sentence about handling a condition the case does not have, or on the
+  // zero reading, would hand the judge a question with no honest answer.
+  it.each([
+    [{ caseId: 'c', params: {}, handledWhen: 'it says so' }],
+    [
+      {
+        caseId: 'c',
+        params: {},
+        condition: 'x',
+        scored: false,
+        handledWhen: 'it says so',
+      },
+    ],
+    [
+      {
+        caseId: 'c',
+        params: {},
+        condition: 'x',
+        handledWhen: 'x'.repeat(MAX_HANDLED_WHEN_CHARS + 1),
+      },
+    ],
+  ])('refuses a misplaced or oversized handling sentence', (one) => {
+    expect(() => parse([one])).toThrow(CaseListError)
   })
 
   it('yields nothing for a chat list', () => {
