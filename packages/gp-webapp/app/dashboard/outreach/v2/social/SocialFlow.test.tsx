@@ -244,6 +244,7 @@ describe('SocialFlow', () => {
         source="campaign_manager"
         open
         onClose={vi.fn()}
+        onSaved={vi.fn()}
         prefill={{
           draftText: '',
           proposalLink: {
