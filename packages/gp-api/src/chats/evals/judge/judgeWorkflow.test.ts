@@ -693,14 +693,16 @@ describe("judge.yml drives the candidate's chat agents on its preview", () => {
   )
   const arm = (name: string) => steps.find((step) => step.name === name)
 
-  it('waits after the base arm and before the candidate arm', () => {
+  // Before either arm, so a preview that never comes costs nothing.
+  it('waits before either arm', () => {
     const at = names.indexOf("Wait for the PR's gp-api preview")
-    expect(at).toBeGreaterThan(names.indexOf('Capture the base arm'))
+    expect(at).toBeGreaterThan(-1)
+    expect(at).toBeLessThan(names.indexOf('Capture the base arm'))
     expect(at).toBeLessThan(names.indexOf('Capture the candidate arm'))
   })
 
   // A preview that never comes must fail the chat half alone: background
-  // agents on the candidate arm still run.
+  // agents on both arms still run.
   it('fails only the chat half when the preview never comes', () => {
     expect(wait?.body).toMatch(/^ {8}id: preview$/m)
     expect(wait?.body).toMatch(/^ {8}continue-on-error: true$/m)
@@ -716,16 +718,13 @@ describe("judge.yml drives the candidate's chat agents on its preview", () => {
     expect(wait?.body).toContain('echo "api_url=$api_base" >> "$GITHUB_OUTPUT"')
   })
 
-  it('hands the URL to the candidate arm and nothing else', () => {
-    expect(
-      envValue(
-        arm('Capture the candidate arm')?.body ?? '',
-        CANDIDATE_API_URL_ENV,
-      ),
-    ).toBe('${{ steps.preview.outputs.api_url }}')
-    expect(
-      setsEnv(arm('Capture the base arm')?.body ?? '', CANDIDATE_API_URL_ENV),
-    ).toBe(false)
+  // Both arms, because the base arm refuses chat without it too.
+  it('hands the preview URL to both arms', () => {
+    for (const name of ['Capture the base arm', 'Capture the candidate arm']) {
+      expect(envValue(arm(name)?.body ?? '', CANDIDATE_API_URL_ENV)).toBe(
+        '${{ steps.preview.outputs.api_url }}',
+      )
+    }
   })
 
   it('may read the gp-api runs it waits on', () => {

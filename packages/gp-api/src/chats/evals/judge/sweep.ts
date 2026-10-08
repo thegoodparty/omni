@@ -74,17 +74,9 @@ import {
   type SweepEnv,
 } from './sweepEnv'
 
-// STEP 3 OF THREE, and the only one that is not a vitest suite.
-//
-// The arms are captured by `sweep.eval.test.ts`, twice, in two worktrees —
-// that suite has to be vitest because `useTestService()` registers hooks to
-// stand up Postgres and the app. This step needs none of that: it reads both
-// arms' stored records and runs pure functions over them, so it runs under
-// `tsx` and the workflow can invoke it as a command.
-//
-// Which is the point. Pure functions living in a vitest file cannot be called
-// from a workflow step cleanly, and a "test" that is really a program is how
-// a job ends up green having done nothing.
+// STEP 3 OF THREE. The arms are captured by `captureArm.ts`, twice, in two
+// worktrees; this step reads both arms' stored records and runs pure
+// functions over them.
 
 export interface JudgingDeps {
   store: RecordStore

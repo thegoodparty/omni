@@ -1805,78 +1805,6 @@ jobs:
           fi
           cat "$out" >> "$GITHUB_OUTPUT"
 
-      # Mirrors setup-node-workspace, which cannot be pointed at another
-      # directory. The base arm's chat agents run on dev, but its background
-      # agents stage the BASE tree's configs, and its entry runs the base
-      # ref's own code, so the base worktree still gets its own install.
-      - name: Install the base arm's workspace
-        working-directory: ${{ steps.base.outputs.dir }}
-        run: |
-          set -euo pipefail
-          npm ci --prefer-offline --no-audit --no-fund
-          npm run build -w packages/contracts
-          npm run build -w packages/nest-common
-          npm run generate:prisma:gp-api
-          (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
-
-      # ARM 1 OF 2. Identical to the candidate step below except for
-      # JUDGE_ARM, JUDGE_ARM_COMMIT, the directory and the deployment its
-      # chat agents drive: one entry, two invocations, one record store. The
-      # base arm's chat agents drive dev, captureArm.ts's default.
-      - name: Capture the base arm
-        working-directory: ${{ steps.base.outputs.dir }}/${{ env.WORKSPACE }}
-        env:
-          JUDGE_ARM: base
-          JUDGE_ARM_COMMIT: ${{ steps.base.outputs.commit }}
-          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
-          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
-          JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
-          JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
-          JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
-          # The affirmative spend switch, and the second one in the chain:
-          # this job already requires `inputs.live == true` to exist at all.
-          # Anything other than the exact string `true` skips every chat
-          # agent by name, since a deployed gp-api has no canned reply, so a
-          # garbled value costs a sweep that did not happen rather than one
-          # nobody asked for.
-          JUDGE_SPEND: 'true'
-          # The dev Clerk instance's secret, which previews share: a chat
-          # case runs as a throwaway test account made with it.
-          JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-          # WHO ASKED FOR THESE AGENTS, and therefore whether the sameness
-          # refusals are armed. `explicit` when the request named them,
-          # `auto` when the diff derived them; resolved once in the plan
-          # job's `select` step, because the distinction exists only there.
-          # All three judge processes read it, the same way they all read
-          # JUDGE_SPEND — the arms parse it through the shared schema and the
-          # judging step is what acts on it, so a step that disagreed would
-          # be a quiet source of a verdict nobody can place.
-          JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
-          # THE SAME VALUE ON BOTH ARMS, from the one step that resolved it.
-          # Read from a step output rather than resolved here: two arms that
-          # each looked up "current" would be two lookups an hour apart, and
-          # a pin the arms disagree on is worse than none. Empty when the mart
-          # could not be reached, which `parseArmEnv` reads as "not pinned" —
-          # the sweep then runs against the live mart and the report says so,
-          # rather than a whole paid sweep dying over an unpinnable table.
-          JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
-          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
-          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
-          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
-          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
-          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
-          JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
-          JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
-          JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
-          # THE ROLE'S CREDENTIALS, under the names awsCredentials.ts reads
-          # and hands to the judge's own S3 and SQS clients.
-          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
-        run: |
-          set -euo pipefail
-          npx tsx "$ARM_ENTRY"
-
       # THE CANDIDATE'S DEPLOYMENT. A chat arm drives a deployed gp-api, and
       # the only deployment of the candidate is the PR's preview, which
       # gp-api.yml's "Deploy PR preview" job builds for the PR head. So when a
@@ -1886,10 +1814,10 @@ jobs:
       # base, so the served commit has to be a merge commit with the
       # candidate SHA among its parents.
       #
-      # continue-on-error, so a preview that never comes fails the chat half
-      # alone: the URL output stays empty, the candidate arm skips every chat
-      # agent by name, and its background agents still run. The ::error::
-      # below says why.
+      # Before EITHER arm, so a preview that never comes costs nothing:
+      # continue-on-error, the URL output stays empty, and both arms skip
+      # every chat agent by name while their background agents still run.
+      # The ::error:: below says why.
       - name: Wait for the PR's gp-api preview
         id: preview
         continue-on-error: true
@@ -1978,6 +1906,81 @@ jobs:
           done
           echo "::error::the chat arm cannot run: $api_base never served a merge commit of $CANDIDATE_SHA (last served: ${served:-nothing})"
           exit 1
+
+      # Mirrors setup-node-workspace, which cannot be pointed at another
+      # directory. The base arm's chat agents run on dev, but its background
+      # agents stage the BASE tree's configs, and its entry runs the base
+      # ref's own code, so the base worktree still gets its own install.
+      - name: Install the base arm's workspace
+        working-directory: ${{ steps.base.outputs.dir }}
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund
+          npm run build -w packages/contracts
+          npm run build -w packages/nest-common
+          npm run generate:prisma:gp-api
+          (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
+
+      # ARM 1 OF 2. Identical to the candidate step below except for
+      # JUDGE_ARM, JUDGE_ARM_COMMIT, the directory and the deployment its
+      # chat agents drive: one entry, two invocations, one record store. The
+      # base arm's chat agents drive dev, captureArm.ts's default.
+      - name: Capture the base arm
+        working-directory: ${{ steps.base.outputs.dir }}/${{ env.WORKSPACE }}
+        env:
+          JUDGE_ARM: base
+          JUDGE_ARM_COMMIT: ${{ steps.base.outputs.commit }}
+          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
+          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
+          JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
+          JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
+          # The affirmative spend switch, and the second one in the chain:
+          # this job already requires `inputs.live == true` to exist at all.
+          # Anything other than the exact string `true` skips every chat
+          # agent by name, since a deployed gp-api has no canned reply, so a
+          # garbled value costs a sweep that did not happen rather than one
+          # nobody asked for.
+          JUDGE_SPEND: 'true'
+          # The dev Clerk instance's secret, which previews share: a chat
+          # case runs as a throwaway test account made with it.
+          JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          # The base arm drives dev, but refuses chat unless the candidate's
+          # preview is up, so it never pays for records nothing can pair with.
+          JUDGE_CANDIDATE_API_URL: ${{ steps.preview.outputs.api_url }}
+          # WHO ASKED FOR THESE AGENTS, and therefore whether the sameness
+          # refusals are armed. `explicit` when the request named them,
+          # `auto` when the diff derived them; resolved once in the plan
+          # job's `select` step, because the distinction exists only there.
+          # All three judge processes read it, the same way they all read
+          # JUDGE_SPEND — the arms parse it through the shared schema and the
+          # judging step is what acts on it, so a step that disagreed would
+          # be a quiet source of a verdict nobody can place.
+          JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
+          # THE SAME VALUE ON BOTH ARMS, from the one step that resolved it.
+          # Read from a step output rather than resolved here: two arms that
+          # each looked up "current" would be two lookups an hour apart, and
+          # a pin the arms disagree on is worse than none. Empty when the mart
+          # could not be reached, which `parseArmEnv` reads as "not pinned" —
+          # the sweep then runs against the live mart and the report says so,
+          # rather than a whole paid sweep dying over an unpinnable table.
+          JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
+          JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
+          JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
+          JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
+          # THE ROLE'S CREDENTIALS, under the names awsCredentials.ts reads
+          # and hands to the judge's own S3 and SQS clients.
+          JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx tsx "$ARM_ENTRY"
 
       # ARM 2 OF 2, in the checkout this job started in.
       #

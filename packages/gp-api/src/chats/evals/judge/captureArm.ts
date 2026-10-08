@@ -174,9 +174,15 @@ const main = async (): Promise<number> => {
   const ci = ciContextFromEnv()
   const baseUrl = chatArmUrl(env, process.env)
   const clerkSecret = process.env[JUDGE_CLERK_SECRET_ENV]?.trim() || undefined
+  // Both arms refuse chat without the candidate's deployment: a base arm that
+  // drove chat anyway would pay for records nothing can pair with.
   const registry = armRegistry(
     AGENTS,
-    chatArmRefusal(env.spends, baseUrl, clerkSecret),
+    chatArmRefusal(
+      env.spends,
+      chatArmUrl({ arm: 'candidate' }, process.env),
+      clerkSecret,
+    ),
   )
   const find = (agentId: string): AgentEntry | undefined =>
     registry.find((agent) => agent.agentId === agentId)
