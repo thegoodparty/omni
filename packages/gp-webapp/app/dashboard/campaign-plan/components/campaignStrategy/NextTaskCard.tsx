@@ -605,7 +605,7 @@ const NextTaskCard = ({
                         </Button>
                       )}
                       {!action && !completesItself && renderMarkDone(true)}
-                      <div className="flex items-center gap-2 sm:contents">
+                      <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
                         {action && !completesItself && renderMarkDone(false)}
                         {chat && (
                           <Button
