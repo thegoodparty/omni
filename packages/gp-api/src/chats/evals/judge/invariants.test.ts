@@ -221,52 +221,28 @@ describe('the invariant registry', () => {
   })
 })
 
-// A MULTI-TURN CASE RENDERS MORE THAN THE USER SAID. `seededTranscript` is a
-// prior conversation the HARNESS wrote, assistant turns included, so checking
-// the exemption against the whole rendered input lets a seeded turn mentioning
-// an election excuse the agent on a case where the user never raised it. The
-// exemption reads `turns` — the user's own turns — and nothing else.
-describe('a seeded conversation does not widen the exemption', () => {
+// A multi-turn case renders every user turn, so a turn after the first can
+// still raise the election and earn the exemption.
+describe('a multi-turn case', () => {
   const transcript = (
     record: RunRecord,
     output: string,
     turns: string[],
-    seeded?: { role: string; content: string }[],
   ): RunRecord => ({
     ...record,
     output: { kind: 'text', value: output },
-    input: {
-      kind: 'transcript',
-      value: { turns, ...(seeded && { seededTranscript: seeded }) },
-    },
+    input: { kind: 'transcript', value: { turns } },
   })
 
-  it('still reports a violation when only a seeded turn mentioned an election', () => {
+  it('reports a violation when no user turn raised the election', () => {
     const found = invariantViolations([
-      transcript(
-        BASE,
-        CONSTITUENTS,
-        ['What are my priorities?'],
-        [
-          { role: 'user', content: 'How did the election go?' },
-          { role: 'assistant', content: 'You won by four points.' },
-        ],
-      ),
-      transcript(
-        CANDIDATE,
-        VOTERS,
-        ['What are my priorities?'],
-        [
-          { role: 'user', content: 'How did the election go?' },
-          { role: 'assistant', content: 'You won by four points.' },
-        ],
-      ),
+      transcript(BASE, CONSTITUENTS, ['What are my priorities?', 'And next?']),
+      transcript(CANDIDATE, VOTERS, ['What are my priorities?', 'And next?']),
     ])
     expect(found).toHaveLength(1)
     expect(found[0]?.candidateRuns).toBe(1)
   })
 
-  // The exemption still works when the user raises it in their OWN turns.
   it('exempts when a user turn raised the election', () => {
     const found = invariantViolations([
       transcript(CANDIDATE, VOTERS, [

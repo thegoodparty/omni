@@ -79,9 +79,10 @@ export interface ArmMeasurement {
 // these are measurements, reported so a reader can see what the branch cost
 // as well as whether it was better.
 export interface MeasuredEvidence {
-  // Null when a model has no rates on record. Costing it at zero would make
-  // the evidence fiction, and throwing would let a display problem take
-  // down a verdict that measured evidence is never allowed to gate.
+  // Null when a run recorded no cost or a model has no rates on record.
+  // Costing it at zero would make the evidence fiction, and throwing would
+  // let a display problem take down a verdict that measured evidence is
+  // never allowed to gate.
   costUsd: ArmMeasurement | null
   unpriceableReason: string | null
   latencyMs: ArmMeasurement
@@ -435,10 +436,23 @@ const measure = (
   }
   let costUsd: ArmMeasurement | null = null
   let unpriceableReason: string | null = null
-  try {
-    costUsd = armMean((r) => priceUsd(r.telemetry.tokens, r.variant.model))
-  } catch (err) {
-    unpriceableReason = err instanceof Error ? err.message : String(err)
+  // A runner leaves `cost` off a run it would not stand behind a figure for,
+  // such as a black-box chat turn whose usage gp-api never reported. Its
+  // tokens are then zero or partial, so re-pricing them would print a $0
+  // delta that nobody measured.
+  const unrecorded = usable
+    .flatMap((p) => [p.base, p.candidate])
+    .filter((r) => r.telemetry.cost === undefined).length
+  if (unrecorded > 0) {
+    unpriceableReason =
+      `${unrecorded} run(s) recorded no cost, so the difference is ` +
+      'unmeasured rather than priced from their token counts'
+  } else {
+    try {
+      costUsd = armMean((r) => priceUsd(r.telemetry.tokens, r.variant.model))
+    } catch (err) {
+      unpriceableReason = err instanceof Error ? err.message : String(err)
+    }
   }
   return {
     costUsd,
@@ -450,13 +464,8 @@ const measure = (
     // infra was never measured, so letting it set this flag would report a
     // mismatch about a comparison that was not made.
     //
-    // The optional reads are deliberate and currently inert: `record.ts`
-    // declares `cost` required on this branch, so neither can short-circuit
-    // today. They are here for the optional `cost` that arrives with the
-    // chat runner, so that merge lands on an already-guarded read rather
-    // than on a break that shows up only once both changes are in. An
-    // absent cost is also not a pricing MISMATCH — there is no second
-    // version for it to disagree with — and it already surfaces as
+    // An absent cost is not a pricing MISMATCH — there is no second version
+    // for it to disagree with — and it already surfaces as
     // `unpriceableReason`.
     pricingMismatch: usable.some((p) => {
       const base = p.base.telemetry.cost?.pricingVersion

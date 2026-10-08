@@ -53,9 +53,32 @@ describe('runCostUsd', () => {
     expect(runCostUsd(withCost(BASE, 0, NO_TOKENS))).toBe('noCostRecorded')
   })
 
-  it('prices the tokens when nothing was stored', () => {
+  // A stored zero with tokens beside it is a background run that logged
+  // its counts but no total, and the counts are real.
+  it('prices the tokens beside a stored zero', () => {
     // 31,213 input at $3/M plus 227 output at $15/M.
-    expect(runCostUsd(withCost(BASE, undefined))).toBeCloseTo(0.097, 4)
+    expect(runCostUsd(withCost(BASE, 0))).toBeCloseTo(0.097, 4)
+  })
+
+  // An absent cost is the runner declining to price the run, so the tokens
+  // beside it are not a measurement to price.
+  it('treats an absent cost as unmeasured even with tokens beside it', () => {
+    expect(runCostUsd(withCost(BASE, undefined))).toBe('noCostRecorded')
+  })
+
+  // What a black-box chat run looks like when gp-api reported no usage: no
+  // cost, zero tokens, and a model the client never saw.
+  it('is unmeasured for a black-box run with no usage rather than throwing', () => {
+    const unobserved = {
+      ...withCost(BASE, undefined, NO_TOKENS),
+      variant: { ...BASE.variant, model: 'unobserved' },
+    }
+    expect(runCostUsd(unobserved)).toBe('noCostRecorded')
+    expect(armSpend([unobserved], 'base')).toEqual({
+      usd: 0,
+      runs: 1,
+      unmeasured: { ...NONE, noCostRecorded: 1 },
+    })
   })
 
   it('is unmeasured for a model with no rates rather than throwing', () => {
@@ -179,7 +202,7 @@ describe('the actual cost block', () => {
     expect(formatTotal(cost)).toBe('at least $3.50')
     const text = actualCostLines(cost).join('\n')
     expect(text).toContain('**Actual cost: at least $3.50**')
-    expect(text).toContain('1 agent run(s) recorded no cost and no token')
+    expect(text).toContain('1 agent run(s) recorded no cost, which is')
     expect(text).toContain(
       '2 agent run(s) ran on a model pricing.ts has no rates for',
     )

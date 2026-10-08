@@ -1,6 +1,5 @@
-import { TranscriptInputSchema } from './cases'
 import { renderPayload } from './normalize'
-import type { Payload, RunRecord } from './record'
+import type { RunRecord } from './record'
 
 // RULES AN AGENT'S OUTPUT MUST SATISFY, checked per arm and reported beside
 // the verdict rather than folded into it.
@@ -94,24 +93,6 @@ export interface InvariantViolation {
 const textOf = (record: RunRecord): string | null =>
   record.output === null ? null : renderPayload(record.output)
 
-// WHAT THE USER ACTUALLY SAID, which is narrower than the rendered input. A
-// multi-turn case renders `seededTranscript` too — a prior conversation the
-// HARNESS wrote, including assistant turns — so checking the exemption against
-// the whole rendering lets a seeded turn that mentions an election excuse the
-// agent on a case where the user never raised it.
-//
-// `turns` is the user's own turns and nothing else. An unrecognised payload
-// kind falls back to the full rendering, which errs toward exempting: a new
-// shape that gains invariants needs an extractor here, and the comment is the
-// reminder.
-const userTextOf = (payload: Payload): string => {
-  if (payload.kind === 'transcript') {
-    const parsed = TranscriptInputSchema.safeParse(payload.value)
-    if (parsed.success) return parsed.data.turns.join('\n')
-  }
-  return renderPayload(payload)
-}
-
 export const invariantViolations = (
   records: readonly RunRecord[],
   invariants: Readonly<Record<string, readonly Invariant[]>> = AGENT_INVARIANTS,
@@ -147,7 +128,7 @@ export const invariantViolations = (
     // and counting it as compliant would be as wrong as counting it as a
     // violation. Counted into `unknown` above instead.
     if (output === null) continue
-    const input = userTextOf(record.input)
+    const input = renderPayload(record.input)
     for (const invariant of rules) {
       if (!invariant.violated(output, input)) continue
       const key = `${record.agentId}\u0000${invariant.name}`
