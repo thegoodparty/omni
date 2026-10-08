@@ -73,6 +73,43 @@ export type ChatStreamChunk =
       retryable: boolean
     }
 
+// One tool call of a turn, as seen by the finalize hook. A call starts
+// `open`, then becomes `returned` with its result or `failed` with the error
+// message. A result or error whose id matches no open call is kept as
+// `unpaired` and never attached to another call. A provider-run tool that the
+// provider never reports on stays `open`.
+//
+// This is not the persisted `segments` list: it carries tool results, which
+// can hold constituent data, so it lives only in memory for the turn and a
+// hook must never log it or copy result contents into the reply.
+export type TurnToolEvent =
+  | { toolCallId: string; name: string; args: unknown; status: 'open' }
+  | {
+      toolCallId: string
+      name: string
+      args: unknown
+      status: 'returned'
+      result: unknown
+    }
+  | {
+      toolCallId: string
+      name: string
+      args: unknown
+      status: 'failed'
+      error: string
+    }
+  | {
+      toolCallId: string
+      name: string
+      status: 'unpaired'
+      result?: unknown
+      error?: string
+    }
+
+export interface FinalizeTurn {
+  toolEvents: TurnToolEvent[]
+}
+
 export interface StreamArgs {
   conversationId: string
   ownerUserId: number
@@ -92,10 +129,10 @@ export interface StreamArgs {
   // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
   traceName?: string
   // Optional post-generation hook. On a clean finish, given the full assembled
-  // text, returns a line to append (e.g. the CoS professional-advice
-  // disclaimer) or null. Streamed as the final text chunk and included in the
-  // persisted turn; a throw is logged, never fails the turn.
-  finalizeText?: (fullText: string) => string | null
+  // text and the turn's tool events, returns a line to append (a guardrail
+  // backstop line) or null. Streamed as the final text chunk and included in
+  // the persisted turn; a throw is logged, never fails the turn.
+  finalizeText?: (fullText: string, turn: FinalizeTurn) => string | null
   // Subset of attachment IDs the client wants injected on this turn. When
   // omitted all ready attachments for the conversation are injected.
   attachmentIds?: string[]
@@ -670,6 +707,31 @@ export class ChatStreamService {
     const textBuffer: string[] = []
     let toolCallCount = 0
 
+    // The turn's tool calls, handed to finalizeText so a backstop can act on
+    // what the tools reported. A result is paired to its call by toolCallId
+    // and never by name: two calls to the same tool in one turn each keep
+    // their own result. A result with no open call of that id is recorded as
+    // unpaired rather than attached to the wrong call.
+    const toolEvents: TurnToolEvent[] = []
+    const settleToolEvent = (
+      toolCallId: string,
+      name: string,
+      outcome: { result: unknown } | { error: string },
+    ): void => {
+      const index = toolEvents.findIndex(
+        (event) => event.toolCallId === toolCallId && event.status === 'open',
+      )
+      const open = index === -1 ? undefined : toolEvents[index]
+      if (!open || open.status !== 'open') {
+        toolEvents.push({ toolCallId, name, status: 'unpaired', ...outcome })
+        return
+      }
+      toolEvents[index] =
+        'result' in outcome
+          ? { ...open, status: 'returned', result: outcome.result }
+          : { ...open, status: 'failed', error: outcome.error }
+    }
+
     // Ordered display structure of the turn (text runs and tool calls
     // interleaved), built at PRODUCTION time as the model streams — not as the
     // client drains — so it is complete regardless of how far the SSE consumer
@@ -770,6 +832,7 @@ export class ChatStreamService {
         },
         onToolCallStart: ({ name, input, toolCallId }) => {
           toolCallCount += 1
+          toolEvents.push({ toolCallId, name, args: input, status: 'open' })
           segments.push({
             kind: ChatMessageSegmentKind.tool,
             toolName: name,
@@ -783,11 +846,17 @@ export class ChatStreamService {
             toolCallId,
           })
         },
-        onToolCallEnd: ({ name, output }) => {
+        onToolCallEnd: ({ name, output, toolCallId }) => {
+          settleToolEvent(toolCallId, name, { result: output })
           void queue.push({
             type: 'tool_result',
             toolName: name,
             result: output,
+          })
+        },
+        onToolCallError: ({ name, toolCallId, error }) => {
+          settleToolEvent(toolCallId, name, {
+            error: error instanceof Error ? error.message : String(error),
           })
         },
         onSource: (source) => {
@@ -862,7 +931,7 @@ export class ChatStreamService {
         // throw here must not fail an otherwise-complete turn.
         if (!args.signal?.aborted && args.finalizeText) {
           try {
-            const extra = args.finalizeText(textBuffer.join(''))
+            const extra = args.finalizeText(textBuffer.join(''), { toolEvents })
             if (extra) {
               textBuffer.push(extra)
               pushTextDelta(extra)

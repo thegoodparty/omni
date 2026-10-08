@@ -13,6 +13,7 @@ import { z } from 'zod'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type {
   ChatStreamChunk,
+  FinalizeTurn,
   StreamArgs,
 } from '@/chats/services/chatStream.service'
 import { ChatStreamService } from '@/chats/services/chatStream.service'
@@ -296,6 +297,49 @@ describe('BriefingChatsService', () => {
         { type: 'text', delta: 'hi' },
         { type: 'done', assistantMessageId: 'm-1' },
       ])
+    })
+
+    it('omits finalizeText while the handler has no finalizeAssistantText', async () => {
+      await consume(
+        svc.sendMessage({
+          annotationId: ANNOTATION_ID,
+          userId: USER_ID,
+          userMessage: 'hi',
+        }),
+      )
+
+      expect(chatStream.lastArgs?.finalizeText).toBeUndefined()
+    })
+
+    it('forwards finalizeAssistantText with the turn when the handler has one', async () => {
+      const hook = vi.fn((text: string, turn: FinalizeTurn): string | null =>
+        turn.toolEvents.length ? `\n\n${text} (+tools)` : null,
+      )
+      Object.assign(svc.handler, { finalizeAssistantText: hook })
+
+      await consume(
+        svc.sendMessage({
+          annotationId: ANNOTATION_ID,
+          userId: USER_ID,
+          userMessage: 'hi',
+        }),
+      )
+
+      const turn: FinalizeTurn = {
+        toolEvents: [
+          {
+            toolCallId: 't1',
+            name: 'district_insights',
+            args: {},
+            status: 'returned',
+            result: {},
+          },
+        ],
+      }
+      expect(chatStream.lastArgs?.finalizeText?.('reply', turn)).toBe(
+        '\n\nreply (+tools)',
+      )
+      expect(hook).toHaveBeenCalledWith('reply', turn)
     })
 
     it('passes the exact systemPrompt produced by buildSystemPrompt', async () => {

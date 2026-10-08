@@ -19,6 +19,7 @@ import { ChatScopeRegistry } from './chatScopeRegistry.service'
 import { GeneralChatStoreService } from './generalChatStore.prisma'
 import {
   ChatScopeHandler,
+  hasFinalizeAssistantText,
   ResolveConversationParams,
   ResolveConversationResult,
 } from '../types/chatScopeHandler'
@@ -310,6 +311,7 @@ export class GeneralChatsService {
       const systemPrompt = handler.buildSystemPrompt(ctx)
       const tools = handler.buildTools(ctx)
 
+      const finalizing = hasFinalizeAssistantText(handler) ? handler : null
       const inner = self.chatStream.stream({
         conversationId: args.conversationId,
         ownerUserId: args.userId,
@@ -326,8 +328,9 @@ export class GeneralChatsService {
         ...(handler.onTurnUsage && {
           onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
         }),
-        ...(handler.finalizeAssistantText && {
-          finalizeText: (text) => handler.finalizeAssistantText!(text),
+        ...(finalizing && {
+          finalizeText: (text, turn) =>
+            finalizing.finalizeAssistantText(text, turn),
         }),
       })
 

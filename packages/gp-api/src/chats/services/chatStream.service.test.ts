@@ -23,6 +23,7 @@ import {
   CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
   ChatStreamService,
   ChatStreamChunk,
+  FinalizeTurn,
   MAX_BUFFERED_CHUNKS,
   MAX_CHAT_HISTORY_MESSAGES,
 } from './chatStream.service'
@@ -201,6 +202,10 @@ type StreamScriptItem =
       name: string
       input: Record<string, unknown>
       output: Record<string, unknown>
+      // Defaults to `test-<name>`; set it when a script calls one tool twice.
+      toolCallId?: string
+      // When set, the tool throws instead of returning `output`.
+      error?: Error
     }
   | { kind: 'error'; error: Error }
   // Models the AI SDK routing a mid-generation error to onError (via
@@ -242,16 +247,27 @@ const consumeScriptItem = async (
   if (item.kind === 'toolCall') {
     const id = `call-${toolCallIds.length + 1}`
     toolCallIds.push(id)
+    const toolCallId = item.toolCallId ?? `test-${item.name}`
     options.onToolCallStart?.({
       name: item.name,
       input: item.input,
-      toolCallId: `test-${item.name}`,
+      toolCallId,
     })
-    options.onToolCallEnd?.({
-      name: item.name,
-      input: item.input,
-      output: item.output,
-    })
+    if (item.error) {
+      options.onToolCallError?.({
+        name: item.name,
+        input: item.input,
+        toolCallId,
+        error: item.error,
+      })
+    } else {
+      options.onToolCallEnd?.({
+        name: item.name,
+        input: item.input,
+        output: item.output,
+        toolCallId,
+      })
+    }
     return { done: false }
   }
   throw item.error
@@ -648,6 +664,278 @@ describe('ChatStreamService', () => {
 
       expect(chunks.find((c) => c.type === 'done')).toBeDefined()
       expect(assistantContent()).toBe('answer')
+    })
+
+    it("passes the turn's tool calls and results to the hook, paired by id", async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'query_constituent_data',
+          input: { sql: 'select 1' },
+          output: { rows: [], rowsSuppressed: 2 },
+        },
+        { kind: 'text', delta: 'Here are the counts.' },
+      ])
+      const seen: FinalizeTurn[] = []
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, turn) => {
+            seen.push(turn)
+            return null
+          },
+        }),
+      )
+
+      expect(seen).toEqual([
+        {
+          toolEvents: [
+            {
+              toolCallId: 'test-query_constituent_data',
+              name: 'query_constituent_data',
+              args: { sql: 'select 1' },
+              status: 'returned',
+              result: { rows: [], rowsSuppressed: 2 },
+            },
+          ],
+        },
+      ])
+    })
+
+    it('passes empty toolEvents on a text-only turn', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'answer' }])
+      const seen: FinalizeTurn[] = []
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, turn) => {
+            seen.push(turn)
+            return null
+          },
+        }),
+      )
+
+      expect(seen).toEqual([{ toolEvents: [] }])
+    })
+
+    it('gives two calls to the same tool their own results, by id', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'count_contacts',
+          input: { filter: 'a' },
+          output: { count: 10 },
+          toolCallId: 'call-a',
+        },
+        {
+          kind: 'toolCall',
+          name: 'count_contacts',
+          input: { filter: 'b' },
+          output: { count: 20 },
+          toolCallId: 'call-b',
+        },
+        { kind: 'text', delta: 'Two counts.' },
+      ])
+      let turn: FinalizeTurn | undefined
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, t) => {
+            turn = t
+            return null
+          },
+        }),
+      )
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'call-a',
+          name: 'count_contacts',
+          args: { filter: 'a' },
+          status: 'returned',
+          result: { count: 10 },
+        },
+        {
+          toolCallId: 'call-b',
+          name: 'count_contacts',
+          args: { filter: 'b' },
+          status: 'returned',
+          result: { count: 20 },
+        },
+      ])
+    })
+
+    it('records a tool that threw as an error, with no result', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'compose_handoff',
+          input: { channel: 'email' },
+          output: {},
+          error: new Error('drawer unavailable'),
+        },
+        { kind: 'text', delta: 'I could not open the draft.' },
+      ])
+      let turn: FinalizeTurn | undefined
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, t) => {
+            turn = t
+            return null
+          },
+        }),
+      )
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'test-compose_handoff',
+          name: 'compose_handoff',
+          args: { channel: 'email' },
+          status: 'failed',
+          error: 'drawer unavailable',
+        },
+      ])
+    })
+
+    it('keeps a result whose id matches no call as unpaired', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'answer' }])
+      let turn: FinalizeTurn | undefined
+      const iter = service.stream({
+        ...baseStreamArgs(),
+        finalizeText: (_text, t) => {
+          turn = t
+          return null
+        },
+      })
+      // Fire a stray result through the live options once the stream is open.
+      const chunks: ChatStreamChunk[] = []
+      for await (const c of iter) {
+        chunks.push(c)
+        if (c.type === 'text') {
+          firstOrThrow(llm.calls).options.onToolCallEnd?.({
+            name: 'count_contacts',
+            input: {},
+            output: { count: 1 },
+            toolCallId: 'never-started',
+          })
+        }
+      }
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'never-started',
+          name: 'count_contacts',
+          status: 'unpaired',
+          result: { count: 1 },
+        },
+      ])
+    })
+
+    it('keeps a second result for an already-settled call as unpaired', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'count_contacts',
+          input: { filter: 'a' },
+          output: { count: 10 },
+          toolCallId: 'call-a',
+        },
+        { kind: 'text', delta: 'answer' },
+      ])
+      let turn: FinalizeTurn | undefined
+      const iter = service.stream({
+        ...baseStreamArgs(),
+        finalizeText: (_text, t) => {
+          turn = t
+          return null
+        },
+      })
+      for await (const c of iter) {
+        if (c.type === 'text') {
+          firstOrThrow(llm.calls).options.onToolCallEnd?.({
+            name: 'count_contacts',
+            input: { filter: 'a' },
+            output: { count: 99 },
+            toolCallId: 'call-a',
+          })
+        }
+      }
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'call-a',
+          name: 'count_contacts',
+          args: { filter: 'a' },
+          status: 'returned',
+          result: { count: 10 },
+        },
+        {
+          toolCallId: 'call-a',
+          name: 'count_contacts',
+          status: 'unpaired',
+          result: { count: 99 },
+        },
+      ])
+    })
+
+    it('records a non-Error failure as its string form, and an unknown id as unpaired', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'web_search',
+          input: { q: 'x' },
+          output: {},
+          toolCallId: 'native-1',
+          error: new Error('unused'),
+        },
+        { kind: 'text', delta: 'answer' },
+      ])
+      let turn: FinalizeTurn | undefined
+      const iter = service.stream({
+        ...baseStreamArgs(),
+        finalizeText: (_text, t) => {
+          turn = t
+          return null
+        },
+      })
+      for await (const c of iter) {
+        if (c.type === 'text') {
+          firstOrThrow(llm.calls).options.onToolCallError?.({
+            name: 'fetch_url',
+            input: {},
+            toolCallId: 'never-started',
+            error: 'rate limited',
+          })
+        }
+      }
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'native-1',
+          name: 'web_search',
+          args: { q: 'x' },
+          status: 'failed',
+          error: 'unused',
+        },
+        {
+          toolCallId: 'never-started',
+          name: 'fetch_url',
+          status: 'unpaired',
+          error: 'rate limited',
+        },
+      ])
     })
 
     it('does not append on a provider-error turn', async () => {
