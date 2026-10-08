@@ -30,6 +30,11 @@ export const FeedbackSynthesisCompleteEventSchema = z.object({
     sourceId: z.string(),
     totalResponses: z.number(),
     responsesLocation: z.string().nullable(),
+    // Whether the cluster-analysis theme prompt came from the hosted
+    // Braintrust build or the in-repo fallback. Optional because the
+    // pipeline image deploys separately from gp-api and an older pipeline
+    // build sends no such field at all.
+    promptSource: z.enum(['hosted', 'fallback']).optional(),
     issues: z.array(
       z.object({
         rank: z.number().int().min(1),

@@ -407,6 +407,13 @@ export class QueueConsumerService {
           )
           return true
         }
+        const { sourceType, sourceId, promptSource } = event.data.data
+        if (promptSource === 'fallback') {
+          this.logger.warn(
+            { sourceType, sourceId },
+            'Synthesis run used the in-repo theme prompt',
+          )
+        }
         await this.feedbackSynthesisIngest.handle(event.data)
         return true
       }
@@ -838,8 +845,15 @@ export class QueueConsumerService {
   private async handlePollAnalysisComplete(
     event: PollAnalysisCompleteEvent,
   ): Promise<boolean> {
-    const { pollId, totalResponses, responsesLocation, issues } = event.data
+    const { pollId, totalResponses, responsesLocation, issues, promptSource } =
+      event.data
     this.logger.info(`Handling poll analysis complete event for poll ${pollId}`)
+    if (promptSource === 'fallback') {
+      this.logger.warn(
+        { pollId },
+        'Synthesis run used the in-repo theme prompt',
+      )
+    }
     const data = await this.getPollAndOrganization(pollId)
     if (!data) {
       this.logger.info('Poll not found, ignoring event')

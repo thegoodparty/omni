@@ -26,11 +26,17 @@ from serve.v1_pipeline.models.unified_record import (
     PipelineResult,
     UnifiedCampaignRecord,
 )
+from shared.braintrust import get_client
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
 
 POLL_SOURCE_TYPE = "poll"
+
+# The prompt `ClusterAnalyzer` loads (serve/hierarchical_discovery/stages/
+# cluster_analyzer.py) to name each cluster's theme, via the shared
+# BraintrustClient singleton the clustering stage runs through.
+CLUSTER_ANALYSIS_PROMPT_NAME = "cluster-analysis"
 
 # A theme is something more than one person raised. Polls keep the configured floor.
 FEEDBACK_MIN_UNIQUE_RESPONDENTS = 2
@@ -439,14 +445,24 @@ class V1PipelineOrchestrator:
                 logger.info("💾 Stage 4: Event Publishing")
                 sqs_start = time.time()
 
+                # Set by ClusterAnalyzer during Stage 2 if clustering ran at
+                # all; absent (None) otherwise, e.g. zero substantive clusters.
+                prompt_source = get_client().get_prompt_source(CLUSTER_ANALYSIS_PROMPT_NAME)
+
                 if self.source_type != POLL_SOURCE_TYPE:
                     sqs_stats = await self.sqs_publisher.publish_feedback_completion(
-                        source_type=self.source_type, source_id=self.source_id, unified_records=unified_records
+                        source_type=self.source_type,
+                        source_id=self.source_id,
+                        unified_records=unified_records,
+                        prompt_source=prompt_source,
                     )
                 else:
                     poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
                     sqs_stats = await self.sqs_publisher.publish_poll_completion(
-                        poll_ids=poll_ids, unified_records=unified_records, campaign_name=campaign_name
+                        poll_ids=poll_ids,
+                        unified_records=unified_records,
+                        campaign_name=campaign_name,
+                        prompt_source=prompt_source,
                     )
 
                 sqs_time = time.time() - sqs_start
