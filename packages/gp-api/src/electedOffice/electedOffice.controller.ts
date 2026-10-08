@@ -149,10 +149,16 @@ export class ElectedOfficeController {
         overrideDistrictId: organization.overrideDistrictId,
       }
     } else {
-      orgData = {
-        positionId: ballotReadyPositionId ?? null,
-        customPositionName: customPositionName ?? null,
-        overrideDistrictId: null,
+      // positionId is election-api's own id, never the BallotReady id the
+      // body carries — resolve it the same way a campaign or a self-service
+      // PATCH does, so later reads of this org don't hand election-api a BR
+      // id and 400.
+      orgData = await this.organizationsService.resolveOrgData({
+        ballotReadyPositionId,
+        customPositionName,
+      })
+      if (ballotReadyPositionId && !orgData.positionId) {
+        throw new BadRequestException('Position not found')
       }
     }
 
