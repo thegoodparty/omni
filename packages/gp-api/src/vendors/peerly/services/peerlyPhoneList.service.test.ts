@@ -8,6 +8,7 @@ import {
 import FormData from 'form-data'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { PhoneListSummaryListDto } from '../schemas/peerlyPhoneList.schema'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
@@ -166,6 +167,112 @@ describe('PeerlyPhoneListService', () => {
       expect(body).toContain('name="suppress_cell_phones"\r\n\r\n6')
       expect(body).toContain('name="identity_id"\r\n\r\nidentity-1')
       expect(body).toContain('5551234567')
+    })
+  })
+
+  // The two calls that find an identity's existing test list and put
+  // another reviewer's handset on it. Neither has ever run against the
+  // real vendor, so what they send is pinned here against Peerly's
+  // documented shape: the account and identity on the lookup, the
+  // contact-wrapped phone on the add.
+  describe('listPhoneLists', () => {
+    it("asks for one identity's lists and returns them validated", async () => {
+      const lists = [
+        { list_id: 169614, list_state: 'ACTIVE', suppress_cell_phones: 6 },
+      ]
+      mockHttpService.get.mockResolvedValue({ data: lists })
+      mockHttpService.validateResponse.mockReturnValue(lists)
+
+      const result = await service.listPhoneLists('identity-1')
+
+      expect(result).toBe(lists)
+      expect(mockHttpService.get).toHaveBeenCalledWith(
+        '/phonelists/listByAccount',
+        {
+          params: {
+            account: service.accountNumber,
+            identity_id: 'identity-1',
+          },
+        },
+      )
+      expect(mockHttpService.validateResponse).toHaveBeenCalledWith(
+        lists,
+        PhoneListSummaryListDto,
+        'list phone lists',
+      )
+    })
+
+    // listByAccount answers with a bare array and many more columns than
+    // we read. Parsing the documented shape here is the only check that
+    // the schema matches the vendor, since every other test mocks it.
+    it('parses the vendor shape it is validated against', () => {
+      const parsed = PhoneListSummaryListDto.schema.parse([
+        {
+          list_id: 169614,
+          list_name: 'GoodParty test list identity-1',
+          list_state: 'ACTIVE',
+          suppress_cell_phones: '6',
+          leads_loaded: 1,
+          upload_by: 'api',
+        },
+      ])
+
+      expect(parsed).toEqual([
+        {
+          list_id: 169614,
+          list_name: 'GoodParty test list identity-1',
+          list_state: 'ACTIVE',
+          suppress_cell_phones: 6,
+        },
+      ])
+    })
+
+    it('delegates a vendor failure to handleApiError', async () => {
+      const error = createAxiosError({ error: 'Unknown identity' }, 400)
+      mockHttpService.get.mockRejectedValue(error)
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error: Unknown identity'),
+      )
+
+      await expect(service.listPhoneLists('identity-1')).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith({
+        error,
+        logger: mockLogger,
+      })
+    })
+  })
+
+  describe('addContactToPhoneList', () => {
+    it('posts the number to that list, wrapped as a contact', async () => {
+      mockHttpService.post.mockResolvedValue({ data: {} })
+
+      await service.addContactToPhoneList(169614, '5551234567')
+
+      expect(mockHttpService.post).toHaveBeenCalledWith(
+        '/phonelists/169614/addcontact',
+        { contact: { contact_phone: '5551234567' } },
+      )
+    })
+
+    // The caller decides what a rejection means — a number already on the
+    // list is not fatal — so the error has to reach it rather than being
+    // swallowed here.
+    it('delegates a vendor rejection to handleApiError', async () => {
+      const error = createAxiosError({ error: 'Contact already exists' }, 400)
+      mockHttpService.post.mockRejectedValue(error)
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error: Contact already exists'),
+      )
+
+      await expect(
+        service.addContactToPhoneList(169614, '5551234567'),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith({
+        error,
+        logger: mockLogger,
+      })
     })
   })
 })
