@@ -326,9 +326,18 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       outreachId &&
       paymentIntentId.startsWith('cs_')
     ) {
+      // The upload token rides in the checkout metadata (as a string); pass it
+      // so recordHold links the satellite to its building phone list now, before
+      // the list is ready and before Outreach.phoneListId exists.
+      const phoneListToken =
+        'phoneListToken' in rawMetadata &&
+        typeof rawMetadata.phoneListToken === 'string'
+          ? rawMetadata.phoneListToken
+          : undefined
       await this.p2pSmsHold.recordHold({
         outreachId,
         checkoutSessionId: paymentIntentId,
+        phoneListToken,
       })
     }
 
@@ -337,13 +346,18 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // Sessions without an outreachId predate draft-first — for those the
     // campaign was (or will be) created by the client's own POST /outreach.
     if (outreachId) {
-      await this.outreachService.finalizeOutreachPurchase(
+      const finalized = await this.outreachService.finalizeOutreachPurchase(
         outreachId,
         campaignId,
         paymentIntentId,
       )
+      // Under the hold flag a pre-build draft defers (finalized === false): the
+      // send is submitted later from the build-ready edge, so don't log it as
+      // finalized here or the operational trail reads a false confirmation.
       this.logger.info(
-        `Outreach ${outreachId} finalized after payment ${paymentIntentId}`,
+        finalized
+          ? `Outreach ${outreachId} finalized after payment ${paymentIntentId}`
+          : `Outreach ${outreachId} payment recorded; finalize deferred to the build-ready edge (${paymentIntentId})`,
       )
       // Durable record of what funded this send. The first arg is the
       // checkout session id on the paid path and a synthetic

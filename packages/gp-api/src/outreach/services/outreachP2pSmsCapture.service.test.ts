@@ -9,8 +9,10 @@ import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { P2pSmsSettleState } from 'src/generated/prisma'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
+import { OutreachService } from './outreach.service'
 
 const OUTREACH_ID = 7788
+const CAMPAIGN_ID = 9911
 const PEERLY_LIST_ID = 42
 const BUILD_ID = 'build-1'
 const INTENT_ID = 'pi_test'
@@ -48,6 +50,7 @@ describe('OutreachP2pSmsCaptureService', () => {
   let outreach: {
     findUnique: ReturnType<typeof vi.fn>
     findMany: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
   }
   let peerlyPhoneList: { findUnique: ReturnType<typeof vi.fn> }
   let stripe: {
@@ -55,6 +58,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     capturePaymentIntent: ReturnType<typeof vi.fn>
     voidHold: ReturnType<typeof vi.fn>
   }
+  let outreachService: { finalizeOutreachPurchase: ReturnType<typeof vi.fn> }
   const settingState = () => callSetting(sms)
 
   // Authorized hold + ready build with a stable count — the rendezvous
@@ -80,6 +84,9 @@ describe('OutreachP2pSmsCaptureService', () => {
       opts.outreachRow === undefined
         ? {
             phoneListId: PEERLY_LIST_ID,
+            // Submitted to Peerly (projectId stamped) — capture never bills an
+            // unsent send.
+            projectId: 'job-sent',
             campaign: { hasFreeTextsOffer: false },
             p2pSms: { freeTextsApplied: false },
           }
@@ -104,12 +111,15 @@ describe('OutreachP2pSmsCaptureService', () => {
   beforeEach(async () => {
     vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
     sms = { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() }
-    outreach = { findUnique: vi.fn(), findMany: vi.fn() }
+    outreach = { findUnique: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() }
     peerlyPhoneList = { findUnique: vi.fn() }
     stripe = {
       retrievePaymentIntent: vi.fn(),
       capturePaymentIntent: vi.fn(),
       voidHold: vi.fn().mockResolvedValue(undefined),
+    }
+    outreachService = {
+      finalizeOutreachPurchase: vi.fn().mockResolvedValue(undefined),
     }
 
     const moduleRef = await Test.createTestingModule({
@@ -120,6 +130,7 @@ describe('OutreachP2pSmsCaptureService', () => {
           useValue: { outreachP2pSms: sms, outreach, peerlyPhoneList },
         },
         { provide: StripeService, useValue: stripe },
+        { provide: OutreachService, useValue: outreachService },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -144,18 +155,25 @@ describe('OutreachP2pSmsCaptureService', () => {
     })
   })
 
-  it('captures from the build-ready edge (b) once the list is finished', async () => {
+  it('captures from the build-ready edge (b) via the satellite link once the list is finished', async () => {
     arrange({})
-    outreach.findMany.mockResolvedValue([{ id: OUTREACH_ID }])
+    // The ready list resolves to its durable row id, then the authorized holds
+    // linked to it on the satellite — not via Outreach.phoneListId.
+    peerlyPhoneList.findUnique.mockResolvedValueOnce({ id: BUILD_ID })
+    sms.findMany.mockResolvedValue([{ outreachId: OUTREACH_ID }])
 
     await service.captureHoldsForReadyList(PEERLY_LIST_ID)
 
-    expect(outreach.findMany).toHaveBeenCalledWith({
-      where: {
-        phoneListId: PEERLY_LIST_ID,
-        p2pSms: { settleState: P2pSmsSettleState.authorized },
-      },
+    expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith({
+      where: { peerlyListId: PEERLY_LIST_ID },
       select: { id: true },
+    })
+    expect(sms.findMany).toHaveBeenCalledWith({
+      where: {
+        peerlyPhoneListId: BUILD_ID,
+        settleState: P2pSmsSettleState.authorized,
+      },
+      select: { outreachId: true },
     })
     expect(stripe.capturePaymentIntent).toHaveBeenCalledOnce()
     expect(settingState()(P2pSmsSettleState.captured)).toBeDefined()
@@ -201,6 +219,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       // THIS send. The offer is already redeemed, so the campaign flag is off.
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
+        projectId: 'job-sent',
         campaign: { hasFreeTextsOffer: false },
         p2pSms: { freeTextsApplied: true },
       },
@@ -231,6 +250,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       // campaign has none available — full price regardless of any count.
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
+        projectId: 'job-sent',
         campaign: { hasFreeTextsOffer: false },
         p2pSms: { freeTextsApplied: false },
       },
@@ -253,6 +273,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       // a retry), so capture must not bill it at full price yet.
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
+        projectId: 'job-sent',
         campaign: { hasFreeTextsOffer: true },
         p2pSms: { freeTextsApplied: false },
       },
@@ -336,6 +357,25 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
   })
 
+  it('does not capture a send that has not been submitted to Peerly (no projectId)', async () => {
+    // Build ready + hold authorized, but the send never went out (finalize
+    // failed): the hold must stay authorized, never charged, so the finalize
+    // backstop can re-send it.
+    arrange({
+      outreachRow: {
+        phoneListId: PEERLY_LIST_ID,
+        projectId: null,
+        campaign: { hasFreeTextsOffer: false },
+        p2pSms: { freeTextsApplied: false },
+      },
+    })
+
+    await service.captureHold(OUTREACH_ID)
+
+    expect(sms.updateMany).not.toHaveBeenCalled()
+    expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
+  })
+
   it('writes and moves nothing when the flag is off', async () => {
     vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
     arrange({})
@@ -398,6 +438,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       })
       outreach.findUnique.mockResolvedValue({
         phoneListId: PEERLY_LIST_ID,
+        projectId: 'job-sent',
         campaign: { hasFreeTextsOffer: false },
         p2pSms: { freeTextsApplied: false },
       })
@@ -432,6 +473,146 @@ describe('OutreachP2pSmsCaptureService', () => {
       expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
       expect(settingState()(P2pSmsSettleState.captured)).toBeUndefined()
       expect(settingState()(P2pSmsSettleState.authorized)).toBeDefined()
+    })
+
+    it('backstop re-finalizes a pre-build draft stranded past the build-ready edge', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      // One authorized candidate; no stale capturing rows.
+      sms.findMany.mockImplementation(
+        (args: { where?: { settleState?: P2pSmsSettleState } }) =>
+          Promise.resolve(
+            args?.where?.settleState === P2pSmsSettleState.authorized
+              ? [{ outreachId: OUTREACH_ID }]
+              : [],
+          ),
+      )
+      // Its build is ready, so the capture half settles too.
+      sms.findUnique.mockResolvedValue({
+        outreachId: OUTREACH_ID,
+        settleState: P2pSmsSettleState.authorized,
+        authorizationIntentId: INTENT_ID,
+        authorizedAmountInCents: AUTHORIZED,
+      })
+      sms.updateMany.mockResolvedValue({ count: 1 })
+      stripe.retrievePaymentIntent.mockResolvedValue(mockIntent())
+      stripe.capturePaymentIntent.mockResolvedValue(
+        mockIntent({ status: 'succeeded', amount_received: AUTHORIZED }),
+      )
+      // A pre-build draft: paid, still pending_payment, phoneListId not stamped.
+      outreach.findUnique.mockResolvedValue({
+        id: OUTREACH_ID,
+        campaignId: CAMPAIGN_ID,
+        status: 'pending_payment',
+        phoneListId: null,
+        stripeCheckoutSessionId: 'cs_paid',
+        p2pSms: { peerlyPhoneListId: BUILD_ID },
+        // Fields the capture half reads once phoneListId is stamped.
+        campaign: { hasFreeTextsOffer: false },
+      })
+      peerlyPhoneList.findUnique.mockResolvedValue({
+        id: BUILD_ID,
+        peerlyListId: PEERLY_LIST_ID,
+        buildStatus: 'ready',
+        leadsLoaded: LEADS_LOADED,
+      })
+
+      await service.sweepCaptures()
+
+      expect(outreach.updateMany).toHaveBeenCalledWith({
+        where: { id: OUTREACH_ID, phoneListId: null },
+        data: { phoneListId: PEERLY_LIST_ID },
+      })
+      expect(outreachService.finalizeOutreachPurchase).toHaveBeenCalledWith(
+        OUTREACH_ID,
+        CAMPAIGN_ID,
+        'cs_paid',
+      )
+    })
+  })
+
+  describe('finalizeDraftsForReadyList (build-ready finalize edge)', () => {
+    // A pre-build draft: paid (recorded session), still pending_payment, with no
+    // numeric phoneListId yet, linked to the just-ready build on the satellite.
+    const arrangePreBuildDraft = (
+      overrides: Record<string, unknown> = {},
+    ): void => {
+      peerlyPhoneList.findUnique.mockImplementation(
+        (args: { where?: { peerlyListId?: number; id?: string } }) =>
+          Promise.resolve(
+            args?.where?.id === BUILD_ID ||
+              args?.where?.peerlyListId === PEERLY_LIST_ID
+              ? {
+                  id: BUILD_ID,
+                  peerlyListId: PEERLY_LIST_ID,
+                  buildStatus: 'ready',
+                  leadsLoaded: LEADS_LOADED,
+                }
+              : null,
+          ),
+      )
+      sms.findMany.mockResolvedValue([{ outreachId: OUTREACH_ID }])
+      outreach.findUnique.mockResolvedValue({
+        id: OUTREACH_ID,
+        campaignId: CAMPAIGN_ID,
+        status: 'pending_payment',
+        phoneListId: null,
+        stripeCheckoutSessionId: 'cs_paid',
+        p2pSms: { peerlyPhoneListId: BUILD_ID },
+        ...overrides,
+      })
+    }
+
+    it('stamps the numeric list id and finalizes a paid pre-build draft', async () => {
+      arrangePreBuildDraft()
+
+      await service.finalizeDraftsForReadyList(PEERLY_LIST_ID)
+
+      expect(sms.findMany).toHaveBeenCalledWith({
+        where: {
+          peerlyPhoneListId: BUILD_ID,
+          settleState: P2pSmsSettleState.authorized,
+        },
+        select: { outreachId: true },
+      })
+      expect(outreach.updateMany).toHaveBeenCalledWith({
+        where: { id: OUTREACH_ID, phoneListId: null },
+        data: { phoneListId: PEERLY_LIST_ID },
+      })
+      expect(outreachService.finalizeOutreachPurchase).toHaveBeenCalledWith(
+        OUTREACH_ID,
+        CAMPAIGN_ID,
+        'cs_paid',
+      )
+    })
+
+    it('does not re-finalize a draft already past pending_payment (build-before-pay)', async () => {
+      arrangePreBuildDraft({
+        status: 'in_progress',
+        phoneListId: PEERLY_LIST_ID,
+      })
+
+      await service.finalizeDraftsForReadyList(PEERLY_LIST_ID)
+
+      expect(outreach.updateMany).not.toHaveBeenCalled()
+      expect(outreachService.finalizeOutreachPurchase).not.toHaveBeenCalled()
+    })
+
+    it('does not finalize a never-paid draft (no recorded checkout session)', async () => {
+      arrangePreBuildDraft({ stripeCheckoutSessionId: null })
+
+      await service.finalizeDraftsForReadyList(PEERLY_LIST_ID)
+
+      expect(outreachService.finalizeOutreachPurchase).not.toHaveBeenCalled()
+    })
+
+    it('is inert when the flag is off', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+      arrangePreBuildDraft()
+
+      await service.finalizeDraftsForReadyList(PEERLY_LIST_ID)
+
+      expect(sms.findMany).not.toHaveBeenCalled()
+      expect(outreachService.finalizeOutreachPurchase).not.toHaveBeenCalled()
     })
   })
 })

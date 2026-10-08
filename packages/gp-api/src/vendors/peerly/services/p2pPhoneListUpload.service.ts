@@ -524,6 +524,21 @@ export class P2pPhoneListUploadService {
       details.leads_loaded,
     )
 
+    // FINALIZE edge (b): the list is now `ready`. A p2p draft paid before this
+    // build finished was not submitted to Peerly at the webhook (finalize
+    // deferred on a null phoneListId); stamp its id onto the draft and submit it
+    // now. Runs before the capture edge so the draft's phoneListId is stamped
+    // before the capture half reads it. Self-gated + best-effort; the backstop
+    // sweep retries on failure.
+    try {
+      await this.p2pSmsCapture.finalizeDraftsForReadyList(listId)
+    } catch (err) {
+      this.logger.error(
+        { err, buildId, listId },
+        'win sms pre-build finalize (build-ready edge) failed; backstop sweep will retry',
+      )
+    }
+
     // CAPTURE edge (b): the list is now `ready` with a stable count. If a Win
     // SMS hold is already `authorized` for it, capture it now (the backstop
     // sweep catches it otherwise). Self-gated on the flag, so inert until the

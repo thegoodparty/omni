@@ -724,7 +724,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('records a real checkout session on the row after finalize', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -744,7 +744,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('records the zero-amount marker as a free purchase, not a session', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -765,7 +765,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('finalizes a string outreachId before redeeming free texts', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -801,7 +801,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('stamps the row consumed server-side before redeeming', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -832,7 +832,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('skips redemption and surfaces the error when the stamp fails', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -853,7 +853,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('surfaces a redemption failure so the webhook retries', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -875,7 +875,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('skips redemption when the row cannot be stamped', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -894,7 +894,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('does not stamp consumption when no offer was redeemed', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1024,7 +1024,7 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1037,6 +1037,9 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockP2pSmsHold.recordHold).toHaveBeenCalledWith({
         outreachId: 123,
         checkoutSessionId: 'cs_hold_1',
+        // The upload token from checkout metadata, so recordHold can link the
+        // satellite to its building phone list at hold time.
+        phoneListToken: 'token-abc',
       })
     })
 
@@ -1044,7 +1047,7 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1061,7 +1064,7 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -1090,7 +1093,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('flag OFF: never records a hold or fires capture (inert)', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1108,7 +1111,7 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(undefined)
+      ).mockResolvedValueOnce(true)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)

@@ -257,6 +257,20 @@ export class P2pController {
     // best-effort + flag-gated inside the service, so it never affects the
     // status response.
     if (!alreadyReady) {
+      // FINALIZE edge first, then CAPTURE: a p2p draft paid before this list
+      // finished was not submitted to Peerly at the webhook (finalize deferred);
+      // now the list is ready, stamp its id onto the draft and submit it. Runs
+      // before capture so the draft's phoneListId is stamped before the capture
+      // half reads it. Flag-gated + best-effort inside; the backstop sweep
+      // retries either on failure.
+      await this.p2pSmsCapture
+        .finalizeDraftsForReadyList(listId)
+        .catch((err: Error) =>
+          this.logger.error(
+            { err, listId },
+            'win sms pre-build finalize (browser-ready edge) failed; backstop will retry',
+          ),
+        )
       await this.p2pSmsCapture
         .captureHoldsForReadyList(listId)
         .catch((err: Error) =>
