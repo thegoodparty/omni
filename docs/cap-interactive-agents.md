@@ -177,6 +177,12 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
+- **`read_past_outreach` / `present_past_outreach`** — the org's recent sends
+  with reply counts (`PriorityFlowOutreachService`, keyed on
+  `organizationSlug`, which Win rows carry alongside `campaignId`), and a card
+  of chosen sends. Chief of Staff reads them per office and per priority;
+  Campaign Manager reads the campaign's as one list. The card picks its detail
+  route, results route and outreach hub from the surface's mode.
 - **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered

@@ -28,6 +28,7 @@ import type { RaceTargetMetrics } from '@/elections/types/elections.types'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
+import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -431,6 +432,40 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
       ctxWith({ helpCenterToolEnabled: true }),
     )
     expect(Object.keys(tools)).not.toContain('search_help_center')
+  })
+})
+
+describe('CampaignManagerHandler.buildTools — past outreach', () => {
+  const withOutreach = () =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {} as PriorityFlowOutreachService,
+    )
+
+  it("reads and shows the campaign's sends once its org resolves", () => {
+    const names = Object.keys(
+      withOutreach().buildTools(
+        ctxWith({ organization: { slug: 'win-campaign' } as Organization }),
+      ),
+    )
+    expect(names).toContain('read_past_outreach')
+    expect(names).toContain('present_past_outreach')
+  })
+
+  it('stays off without an org to scope the sends to', () => {
+    const names = Object.keys(withOutreach().buildTools(ctxWith({})))
+    expect(names).not.toContain('read_past_outreach')
+    expect(names).not.toContain('present_past_outreach')
   })
 })
 

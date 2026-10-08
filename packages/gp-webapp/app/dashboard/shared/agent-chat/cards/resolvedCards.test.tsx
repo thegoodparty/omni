@@ -6,6 +6,14 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { toChatCard } from './toChatCard'
 import { ChatCardRenderer } from './ChatCardRenderer'
+import { useProposalFlows } from './proposalFlows'
+
+// Null is what every card sees outside a chat surface, so the Serve
+// defaults hold unless a test hands the card a Win surface's flows.
+vi.mock('./proposalFlows', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./proposalFlows')>()),
+  useProposalFlows: vi.fn(() => null),
+}))
 
 // The record reads the selected org to key its person query, and the hook
 // throws outside the dashboard provider.
@@ -126,6 +134,32 @@ describe('PastOutreachCard', () => {
       screen.getByText('Both of these reached the same block.'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it("reads a campaign's sends through Win's routes and words them for voters", async () => {
+    vi.mocked(useProposalFlows).mockReturnValue({
+      mode: 'win',
+    } as NonNullable<ReturnType<typeof useProposalFlows>>)
+    api.mock('GET /v1/outreach/:id', ({ params }) => ({
+      status: 200,
+      data: outreachDetail(Number(params.id), `Send ${params.id}`),
+    }))
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 310, responded: 22, optedOut: 1 },
+    })
+
+    renderCard({
+      kind: 'past_outreach',
+      outreachIds: [11],
+      note: 'This one pulled the most replies.',
+    })
+
+    const chip = await screen.findByRole('link', { name: /Send 11/ })
+    expect(chip).toHaveAttribute('href', '/dashboard/outreach?outreachId=11')
+    expect(
+      await within(chip).findByText('SMS · 310 voters · 22 responses · Sep 2'),
+    ).toBeInTheDocument()
   })
 
   it('renders nothing when every id fails to resolve', async () => {

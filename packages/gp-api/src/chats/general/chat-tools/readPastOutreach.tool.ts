@@ -44,3 +44,21 @@ export const buildReadPastOutreachTool = (deps: {
     ),
   }),
 })
+
+// A campaign has no priorities, so its read is one list of the candidate's
+// recent sends rather than the priority/office split above.
+export const buildCampaignManagerReadPastOutreachTool = (deps: {
+  outreach: PriorityFlowOutreachService
+  organizationSlug: string
+}): LlmStreamTool<typeof readPastOutreachInput> => ({
+  description:
+    "Read the campaign's recent outreach: audience, how many voters, " +
+    'channel, when it went, and how many replied. Call it before proposing ' +
+    'a text so you can say what came back last time instead of guessing, ' +
+    'and quote the numbers you get back rather than describing them ' +
+    'vaguely.',
+  inputSchema: readPastOutreachInput,
+  execute: async ({ channel }): Promise<{ sends: PastOutreachRow[] }> => ({
+    sends: await deps.outreach.forOffice(deps.organizationSlug, null, channel),
+  }),
+})
