@@ -85,6 +85,28 @@ variable "failure_notification_email" {
   default     = ""
 }
 
+variable "ci_invoker_repos" {
+  description = <<-EOT
+    Repos, as `owner/name`, whose GitHub Actions may invoke this function to
+    launch a CI fix run. Empty means none, which is the right default: a repo
+    that does not drive bot PRs has no reason to hold the permission.
+
+    WHY THIS EXISTS RATHER THAN REUSING THE DEPLOY ROLE. omni's copy of
+    gpbot-ci-drive.yml assumes github-actions-pulumi-deploy, which is the role
+    every Pulumi and Terraform deploy in this account runs as. It grants
+    `lambda:*` on everything (see the note above the sweep schedule) and a good
+    deal besides. The drive needs exactly one call — InvokeFunction on this one
+    function — so handing that role to a second repo would trade a
+    one-permission need for account-wide infrastructure rights, in a public
+    repo whose CI is not otherwise trusted with any of it.
+
+    omni keeps using the deploy role because it already has it for every other
+    job in the same workflow file; there is nothing to take away.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
@@ -588,4 +610,80 @@ output "lambda_function_name" {
 output "lambda_invoke_arn" {
   value       = aws_lambda_function.clickup_bot.invoke_arn
   description = "Lambda invoke ARN for API Gateway/ALB"
+}
+
+# THE ONE PERMISSION A SECOND REPO'S CI DRIVE NEEDS, and nothing else. See
+# var.ci_invoker_repos for why this is not the deploy role.
+#
+# The provider already exists — every `role-to-assume` in this account's
+# workflows authenticates through it — so it is read rather than created.
+# Creating it here would fight whoever owns it for the same global resource.
+data "aws_iam_openid_connect_provider" "github" {
+  count = length(var.ci_invoker_repos) > 0 ? 1 : 0
+  url   = "https://token.actions.githubusercontent.com"
+}
+
+resource "aws_iam_role" "ci_invoker" {
+  count = length(var.ci_invoker_repos) > 0 ? 1 : 0
+  name  = "clickup-bot-ci-invoker-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Action    = "sts:AssumeRoleWithWebIdentity"
+        Principal = { Federated = data.aws_iam_openid_connect_provider.github[0].arn }
+        Condition = {
+          # BOTH CONDITIONS ARE REQUIRED. `aud` alone is satisfied by a token
+          # from any repo on GitHub, so without `sub` this role would be
+          # assumable by anyone's Actions workflow anywhere.
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          }
+          # `repo:owner/name:*` — any ref in the named repo. Not narrowed to a
+          # branch: the drive runs on `schedule` and `workflow_run`, whose
+          # subject claim is the default branch, and on `workflow_dispatch`,
+          # which can name any. A branch condition would fail the dispatch path
+          # only, which is the one a human reaches for when something is stuck.
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = [
+              for repo in var.ci_invoker_repos : "repo:${repo}:*"
+            ]
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Environment = var.environment
+    Service     = "clickup-bot"
+  }
+}
+
+resource "aws_iam_role_policy" "ci_invoker" {
+  count = length(var.ci_invoker_repos) > 0 ? 1 : 0
+  name  = "invoke-clickup-bot"
+  role  = aws_iam_role.ci_invoker[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "lambda:InvokeFunction"
+        # This function only. The drive sends one payload shape
+        # ({gpbot_ci_fix: true, ...}), which handle_ci_fix validates field by
+        # field and refuses on anything it does not recognise, so the blast
+        # radius of this grant is a fix run the drive could already ask for.
+        Resource = aws_lambda_function.clickup_bot.arn
+      }
+    ]
+  })
+}
+
+output "ci_invoker_role_arn" {
+  value       = length(var.ci_invoker_repos) > 0 ? aws_iam_role.ci_invoker[0].arn : ""
+  description = "Role a second repo's gpbot CI drive assumes to launch fix runs (empty when unused)"
 }
