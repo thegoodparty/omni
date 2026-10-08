@@ -586,8 +586,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // A campaign without Pro can still count, size a sample and be shown a
-    // text card: the count service is open to it (the outreach build path
+    // A campaign without Pro can still count, size a sample and be shown an
+    // outreach card: the count service is open to it (the outreach build path
     // prices a list before the upgrade) and the card's own button takes it
     // to the Pro gate. Only the tools whose services refuse it stay Pro:
     // precincts and saved-list management. Only a known false gates; an
@@ -629,7 +629,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         filterConsumers: registeredFilterConsumers(filterTools),
       })
       Object.assign(tools, filterTools)
-      // The card's text flow saves the list through the voter-file route,
+      // The card's flows save the list through the voter-file route,
       // which a free campaign can use too, so this follows the saved-list
       // signal rather than the Pro-only tool.
       if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {

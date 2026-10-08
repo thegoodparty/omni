@@ -1990,9 +1990,31 @@ describe('door-knocking routes', () => {
       ).toBe(1)
     })
 
-    it('keeps a proposal link off the Win create', async () => {
+    it("links a Campaign Manager card's key on the Win create's anchor", async () => {
+      const proposalKey = '9f4a6eb2-3c5d-4e7f-8a81-c2d3e4f5a6b7'
+
+      const first = await postTurf({ proposalKey })
+      const second = await postTurf({ proposalKey, name: 'Oak St turf' })
+
+      expect(first.status).toBe(201)
+      expect(second.status).toBe(201)
+      expect(
+        await service.prisma.outreach.findFirstOrThrow({
+          where: { doorKnockingTurfId: first.data.id },
+        }),
+      ).toMatchObject({ proposalKey, priorityId: null })
+      // A key already spent on a walk leaves the next walk unlinked.
+      expect(
+        await service.prisma.outreach.findFirstOrThrow({
+          where: { doorKnockingTurfId: second.data.id },
+        }),
+      ).toMatchObject({ proposalKey: null })
+    })
+
+    it('keeps a priority link off the Win create', async () => {
       const res = await postTurf({
         proposalKey: '7d2e4c90-1a3b-4c5d-8e6f-a0b1c2d3e4f5',
+        priorityId: 'priority-1',
       })
 
       expect(res.status).toBe(400)

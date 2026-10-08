@@ -819,6 +819,47 @@ describe('phone banking routes', () => {
       expect(await service.prisma.outreach.count()).toBe(0)
     })
 
+    it("links a Campaign Manager card's key and hands back the first list on a repeat", async () => {
+      const proposalKey = randomUUID()
+      mockPeoplePage([fakePerson({ cellPhone: '3075770003' })])
+
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ proposalKey }),
+        orgHeaders(),
+      )
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ proposalKey, name: 'Again' }),
+        orgHeaders(),
+      )
+
+      expect(first.status).toBe(201)
+      expect(second.data).toMatchObject({
+        id: first.data.id,
+        outreachId: first.data.outreachId,
+      })
+      expect(
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { proposalKey },
+        }),
+      ).toMatchObject({
+        id: first.data.outreachId,
+        campaignId: campaign.id,
+        priorityId: null,
+      })
+    })
+
+    it('refuses a priority link on the Win create', async () => {
+      const result = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ proposalKey: randomUUID(), priorityId: 'priority-1' }),
+        orgHeaders(),
+      )
+
+      expect(result.status).toBe(400)
+    })
+
     it('400s an empty resolved audience and persists nothing', async () => {
       mockPeoplePage([])
 

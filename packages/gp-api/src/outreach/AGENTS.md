@@ -961,7 +961,10 @@ outreach proposal can carry the same details as `event` (contracts
   p2p draft only, never a resume), with the same rules
   (`util/createUnderProposalKey.util.ts`, shared with the Serve SMS create);
   it carries no priority, since the Campaign Manager's card puts out no
-  check. `findByProposalKey` skips `pending_payment` and `draft`, so an
+  check. The Win phone banking create, `POST /outreach/social` and
+  `POST /door-knocking/turfs` take that key alone the same way (never a
+  priority, which their strict schemas refuse), with the same replay, race
+  and 409 rules as their Serve siblings. `findByProposalKey` skips `pending_payment` and `draft`, so an
   unpaid text reads as not sent, and `GET
   /outreach/by-proposal-key/:proposalKey` is org-scoped so a Win card
   resolves too. Each create (and each replay) calls

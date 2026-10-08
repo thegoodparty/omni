@@ -101,14 +101,6 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
     )
   }
 
-  // Campaign Manager proposes text only, and a card has no Win flow to open
-  // for any other channel, so one would offer a button that leads nowhere.
-  if (mode === 'win' && proposal.channel !== 'text') {
-    return (
-      <CompactCardStatic title={proposal.audience} subtitle={channelLine} />
-    )
-  }
-
   return (
     <CompactCardStatic
       title={proposal.audience}
@@ -118,7 +110,7 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
           type="button"
           size="small"
           className="shrink-0"
-          // Win's text gate reads the campaign and its texting registration
+          // Win's gate reads the campaign and its texting registration
           // first, and a press before they arrive would gate on neither.
           disabled={!flows || (mode === 'win' && !flows.textResolved)}
           onClick={() => flows?.open(proposal, priorityId)}

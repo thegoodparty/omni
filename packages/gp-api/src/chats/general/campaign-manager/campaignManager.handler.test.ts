@@ -722,7 +722,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(flagOff)).not.toContain('present_outreach_proposal')
   })
 
-  it('presents a text as a card and refuses any other channel', async () => {
+  it('presents every channel as a card in candidate words', async () => {
     const tools = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
@@ -740,9 +740,13 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       presented: true,
       deepLinkOnly: true,
     })
-    for (const channel of ['phoneBanking', 'doorKnocking', 'social']) {
+    expect(
+      await tool.execute({ ...proposal, channel: 'phoneBanking' }),
+    ).toEqual({ presented: true, deepLinkOnly: false })
+    for (const channel of ['doorKnocking', 'social']) {
       expect(await tool.execute({ ...proposal, channel })).toEqual({
-        error: expect.stringContaining('Only a text can be presented here'),
+        presented: true,
+        deepLinkOnly: true,
       })
     }
     expect(descriptionOf(tool)).not.toContain('official')

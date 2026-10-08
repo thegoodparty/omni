@@ -174,6 +174,8 @@ export const SocialSaveRequestSchema = z.object({
   purpose: SocialPurposeSchema,
   draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
   assets: z.array(SocialAssetSchema).min(1).max(6),
+  // The Campaign Manager card this post was started from, key alone.
+  proposalKey: z.string().uuid().optional(),
 })
 export type SocialSaveRequest = z.infer<typeof SocialSaveRequestSchema>
 

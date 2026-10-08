@@ -232,16 +232,19 @@ describe('OutreachProposalCard in Campaign Manager', () => {
     ).toBeDisabled()
   })
 
-  it('offers no button for a channel with no Win flow here', async () => {
+  it('opens any channel from a Win card', async () => {
     mockNotSent()
     flows.mode = 'win'
 
-    renderCard(proposalCard({ channel: 'phoneBanking' }))
+    const card = proposalCard({ channel: 'phoneBanking' })
+
+    renderCard(card)
 
     expect(
       await screen.findByText('Phone banking · 412 voters'),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('button')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Start the calls' }))
+    expect(flows.open).toHaveBeenCalledWith(card, undefined)
   })
 
   it('reads as sent and leads to the Voter Outreach row', async () => {

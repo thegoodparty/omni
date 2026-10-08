@@ -52,10 +52,12 @@ immediately drafted over), and `preselectedListId` (applied once its row
 arrives in the picker; an id naming no list of yours is a missed preselection,
 never a broken step). A chat card's proposal mounts the flows itself
 (`shared/agent-chat/cards/proposalFlows.tsx`): the Serve surfaces for Chief
-of Staff, and Win's own `SmsFlow` for a Campaign Manager text card, behind
-the same text gate the SMS tile runs. That Win create carries the card's
+of Staff, and Win's own flows for a Campaign Manager card: `SmsFlow` behind
+the same text gate the SMS tile runs, `PhoneBankingFlow` and `SocialFlow`
+on their default surfaces. That Win text create carries the card's
 `proposalKey` on `POST /v1/outreach` (never beside `draftOutreachId`), so
-the card reads as sent once the text is paid for. It adds two seeds: phone
+the card reads as sent once the text is paid for; the Win phone banking
+and social creates take the key alone, never a Serve link's priority. It adds two seeds: phone
 banking's `initialName`, and `proposedAudience` on phone banking and SMS, an
 audience the agent counted but did not save. That one opens the audience step
 in the builder already filled in (`useOutreachAudience`'s reset seeds it), so

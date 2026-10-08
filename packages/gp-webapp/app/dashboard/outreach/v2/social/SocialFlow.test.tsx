@@ -231,6 +231,40 @@ describe('SocialFlow', () => {
     )
   })
 
+  it("sends only a proposal link's key to the Win save", async () => {
+    mockDraft()
+    mockGenerate()
+    const saveCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/social', ({ body }) => {
+      saveCalls.push(body)
+      return { status: 200, data: savedDetail }
+    })
+    render(
+      <SocialFlow
+        source="campaign_manager"
+        open
+        onClose={vi.fn()}
+        prefill={{
+          draftText: '',
+          proposalLink: {
+            proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+            priorityId: 'priority-1',
+          },
+        }}
+      />,
+    )
+    await advanceToPlatforms()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('Adapted for facebook')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(saveCalls).toHaveLength(1))
+    expect(saveCalls[0]?.proposalKey).toBe(
+      '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+    )
+    expect(saveCalls[0]).not.toHaveProperty('priorityId')
+  })
+
   it('does not auto-suggest a name for the custom purpose (the candidate is writing their own message)', async () => {
     mockDraft()
     mockGenerate()

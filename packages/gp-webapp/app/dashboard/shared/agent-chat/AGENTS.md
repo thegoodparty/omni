@@ -20,7 +20,7 @@ nearest reference wrapper.
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
 | `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below. |
 | `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
-| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent emits only text proposals (`present_outreach_proposal`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
+| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
@@ -208,7 +208,7 @@ there is the agent's to say, once, in its message; no card repeats it.
   the campaign's send (`GET /v1/outreach/:id`) and links to
   `/dashboard/outreach`, Serve reads the office's (`GET /v1/outreach/serve/:id`)
   and links to `/dashboard/constituent-outreach`. No compose, edit or send UI lives in a card: the flows own it.
-- **Campaign Manager's text card is Win's.** `ChiefOfStaffChatBody` hands
+- **Campaign Manager's cards are Win's.** `ChiefOfStaffChatBody` hands
   `ProposalFlowsProvider` a `mode` off its `scope` (`campaign_assistant` is
   `win`; priorities and a card outside any provider are `serve`), and the
   card reads it from the provider. In Win mode the card counts voters
@@ -220,7 +220,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   shows it the card too) gets the Pro pitch (`ProPitchDialog`, source
   `campaign_manager`, channel `sms`) in place of the flow, and a Pro one
   passes only with an approved registration (`useTextOutreachGate`'s
-  compliance modal). Outreach Pro gating is fully rolled out, so the card
+  compliance modal). Phone banking and door knocking take a free campaign
+  to their own pitch (`phone-bank`, `door`); social is free and opens for
+  anyone. Outreach Pro gating is fully rolled out, so the card
   does not read the `outreach-pro-gating-v2` flag. The button waits until
   the campaign and registration have loaded. The card's
   `proposalKey` rides Win's `POST /v1/outreach` create, and
@@ -229,9 +231,14 @@ there is the agent's to say, once, in its message; no card repeats it.
   mode and resumed later does not carry it, so that card never reads as
   sent. A create refused while carrying the key (a 409: already sent) has
   the provider re-read the card, and a card that resolves as sent closes
-  the flow. A
-  Win card for any other channel shows its line with no button: nothing
-  else has a Win flow here.
+  the flow. The other channels open Win's own flows with no `surface`:
+  `PhoneBankingFlow` and `SocialFlow` over the chat, and door knocking on
+  its map page (`?create=1&listId=&proposalKey=`), the way Serve's does.
+  Each Win create takes the key alone (`proposalKey` on
+  `POST /v1/phone-banking/lists`, `POST /v1/outreach/social` and
+  `POST /v1/door-knocking/turfs`), since a Campaign Manager card puts out no
+  priority check, so the card reads as sent once the list, post or walk
+  exists.
 
 Chief of Staff renders inside a vaul drawer, and React bubbles a portal's
 pointer events up the React tree into it, which is why the detail sheet
