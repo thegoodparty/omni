@@ -9,12 +9,14 @@ import {
 import type { FastifyRequest } from 'fastify'
 
 /**
- * In-memory per-IP token bucket for the public `/v1/elections/*` reads.
+ * In-memory per-IP token bucket for the public `/v1/elections/*` reads on
+ * `ElectionsController`. The M2M-only routes under the same prefix are not
+ * metered here: their one caller is a server, not a browser.
  *
  * All four routes take caller-supplied parameters and answer them out of
- * election-api, so the cost of the route is an upstream query the caller
- * shapes. The budget is sized for onboarding, which walks a user through
- * state, district type and district name pickers in quick succession:
+ * election-db, so the cost of the route is a query the caller shapes. The
+ * budget is sized for onboarding, which walks a user through state, district
+ * type and district name pickers in quick succession:
  *   - capacity = 60 → up to 60 back-to-back reads from a fresh IP.
  *   - refillPerMs = 60/60_000 → sustained 60 reads / 60s.
  *

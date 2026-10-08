@@ -106,11 +106,11 @@ export class PublicPersonProfilesController {
   ) {}
 
   // Voter-density heat-map cells for the person's office/district. Public +
-  // progressive enhancement: resolve the person's L2 district (election-api),
-  // then proxy the precomputed, k-anonymized cells (people-api, S2S). 404 when
+  // progressive enhancement: one election-db read resolves the person's L2
+  // district and returns the precomputed, k-anonymized cells for it. 404 when
   // the person maps to no district so the page renders no map. Metered per IP
   // and answered from a 60s in-memory cache, so repeated renders of the same
-  // page do not each fan out.
+  // page do not each re-read election-db.
   @Get('voter-density')
   @ResponseSchema(VoterDensityResponseSchema)
   @UseGuards(VoterDensityRateLimitGuard)

@@ -1,0 +1,53 @@
+// A retired canonical person and the person that absorbed it — the forwarding
+// address for a purged duplicate. Written only by the gp-data-platform ETL,
+// exactly like Person itself; the application never writes this table.
+// See dbt/project/models/marts/civics/PERSON_ID_RETIREMENT_HANDOFF.md.
+//
+// This table exists because a purge is otherwise unrecoverable. The public URL
+// is /people/<first-last>-<id8>, where <id8> is the first 8 hex of Person.id,
+// and by-slug lookup resolves on that id prefix (persons.service.ts). Delete
+// the row and the only unique part of the URL is gone: the page cannot be
+// redirected, only 404'd, and every inbound link and indexed result dies with
+// it. One row here turns that 404 back into a 308.
+//
+// Many-to-one by construction. A real person routinely has several duplicate
+// records, so several retiredIds share one survivingId; that is the normal
+// shape, not an edge case. The key is retiredId alone, which is what keeps a
+// redirect unambiguous — one retired id, one successor. The reverse (a split:
+// one retired id with several successors) is out of contract, because there
+// would be no correct redirect target and guessing would tell search engines
+// that two different people are the same person.
+model PersonMerge {
+  // The purged duplicate's gp_candidate_id. Deliberately carries no FK to
+  // Person: the row it names is gone, which is the entire point of this record
+  // existing.
+  retiredId String @id @map("retired_id") @db.Uuid
+
+  // The TERMINAL survivor, not the immediate one — the ETL path-compresses
+  // chains (A->B then B->C rewrites A->C, along with B's whole fan-in) so
+  // resolution here is a single indexed lookup and cycles are impossible.
+  // No FK either, so a survivor that is itself later retired doesn't fail the
+  // write. The API still walks defensively (see resolveSurvivingPersonId) —
+  // an uncompressed chain should degrade to a slower hop, not to a 404.
+  survivingId String @map("surviving_id") @db.Uuid
+
+  // The purged person's Person.slug as last published, for the same
+  // prefix-collision tiebreak the live path does: when two ids share an 8-hex
+  // prefix, getPersonBySlug compares the whole slug to pick between them. After
+  // the purge there is nowhere else to recover it from. Nullable — a backfilled
+  // row may not have it, in which case it loses a collision rather than
+  // winning one.
+  retiredSlug String? @map("retired_slug")
+
+  // When the merge was published upstream. Drives the consumer cursor on
+  // GET /v1/person-merges?since=, so it must advance monotonically per row.
+  retiredAt DateTime @map("retired_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // retiredAt: the ?since= feed scan. survivingId: the reverse lookup ("what
+  // did this person absorb"), used by the admin collision queue and by the
+  // ETL's own fan-in rewrite.
+  @@index([retiredAt])
+  @@index([survivingId])
+}

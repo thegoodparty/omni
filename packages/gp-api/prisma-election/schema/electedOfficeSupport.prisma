@@ -1,0 +1,14 @@
+// Constituent-support figures for one elected office, read by gp-api to render
+// the Serve dashboard support estimate. Keyed on gp-api's ElectedOffice.id.
+// Empty until the data team's ETL populates it from the civics mart
+// (interim source: projected_registered_supporters / icp_voter_count); the ETL
+// owns how these are computed and may evolve it without a product change.
+model ElectedOfficeSupport {
+  electedOfficeId     String   @id @map("elected_office_id") @db.Uuid
+  supportConstituents Int      @map("support_constituents")
+  totalConstituents   Int      @map("total_constituents")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("Elected_Office_Support")
+}

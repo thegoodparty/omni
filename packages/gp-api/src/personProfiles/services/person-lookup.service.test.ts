@@ -1,15 +1,8 @@
-import { HttpService } from '@nestjs/axios'
-import { BadGatewayException } from '@nestjs/common'
-import { AxiosError } from 'axios'
+import { BadGatewayException, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
+import { PersonsService } from '@/electionDb/persons/persons.service'
 import { PersonLookupService } from './person-lookup.service'
-
-// The service destructures ELECTION_API_URL at import time, so the base URL is
-// whatever .env.test supplies rather than something a test can inject.
-const BY_SLUG = `${process.env.ELECTION_API_URL}/v1/persons/by-slug`
 
 const PERSON_ID = 'a1b2c3d4-0000-4000-8000-000000000000'
 const SLUG = 'jordan-reyes-a1b2c3d4'
@@ -26,22 +19,12 @@ const person = (overrides = {}) => ({
   ...overrides,
 })
 
-const axiosStatus = (status: number) => {
-  const error = new AxiosError('boom')
-  // isAxiosError keys off this flag; a plain object would fall through to the
-  // 502 branch and mask what the test is pinning.
-  error.response = {
-    status,
-    data: null,
-    statusText: '',
-    headers: {},
-    config: { headers: new AxiosError('').config?.headers ?? {} },
-  } as AxiosError['response']
-  return error
-}
-
 describe('PersonLookupService', () => {
-  let httpService: { get: ReturnType<typeof vi.fn> }
+  let persons: {
+    getPersonBySlug: ReturnType<typeof vi.fn>
+    getContactEmail: ReturnType<typeof vi.fn>
+    getPersons: ReturnType<typeof vi.fn>
+  }
   let service: PersonLookupService
   let logSpy: {
     error: ReturnType<typeof vi.fn>
@@ -49,23 +32,21 @@ describe('PersonLookupService', () => {
   }
 
   beforeEach(() => {
-    httpService = { get: vi.fn().mockReturnValue(of({ data: person() })) }
+    persons = {
+      getPersonBySlug: vi.fn().mockResolvedValue(person()),
+      getContactEmail: vi.fn(),
+      getPersons: vi.fn(),
+    }
     logSpy = { error: vi.fn(), warn: vi.fn() }
     const logger = {
       setContext: vi.fn(),
       ...logSpy,
     } as unknown as PinoLogger
-    const tokenService = {
-      authHeader: vi.fn().mockResolvedValue({ Authorization: 'Bearer t' }),
-    } as unknown as ElectionApiTokenService
     service = new PersonLookupService(
-      httpService as unknown as HttpService,
+      persons as unknown as PersonsService,
       logger,
-      tokenService,
     )
   })
-
-  const requestedUrl = (): string => String(httpService.get.mock.calls[0]?.[0])
 
   it('returns the identity an operator needs to confirm the subject', async () => {
     const result = await service.lookup(SLUG)
@@ -89,26 +70,43 @@ describe('PersonLookupService', () => {
   ])('extracts the slug from %s', async (query) => {
     await service.lookup(query)
 
-    expect(requestedUrl()).toBe(`${BY_SLUG}/${SLUG}`)
+    expect(persons.getPersonBySlug).toHaveBeenCalledWith(SLUG)
   })
 
-  it('attaches the election-api M2M bearer', async () => {
-    await service.lookup(SLUG)
+  // The route validated the slug before querying, and a rejected slug came
+  // back as "no match" rather than an outage. In process that guard is this
+  // service's, so it has to hold the same line.
+  it.each([['Jordan Reyes'], ['jordan_reyes'], ['../etc/passwd']])(
+    'reports no match for the malformed slug %s without querying',
+    async (query) => {
+      expect(await service.lookup(query)).toBeNull()
+      expect(persons.getPersonBySlug).not.toHaveBeenCalled()
+    },
+  )
 
-    expect(httpService.get.mock.calls[0]?.[1]).toEqual({
-      headers: { Authorization: 'Bearer t' },
-    })
+  // The read hands back an election-db row rather than a narrow HTTP body, and
+  // this response is rendered to an operator. Anything not named in the
+  // response schema has to be dropped.
+  it('drops columns the confirmation does not render', async () => {
+    persons.getPersonBySlug.mockResolvedValue(
+      person({ brDatabaseId: 99, updatedAt: new Date(), phone: '555-0100' }),
+    )
+
+    expect(Object.keys((await service.lookup(SLUG)) ?? {}).sort()).toEqual([
+      'fullName',
+      'office',
+      'personId',
+      'state',
+    ])
   })
 
   it('prefers a current term when the person held several', async () => {
-    httpService.get.mockReturnValue(
-      of({
-        data: person({
-          OfficeHolders: [
-            { officeTitle: 'Trustee', positionName: null, isCurrent: false },
-            { officeTitle: 'Mayor', positionName: null, isCurrent: true },
-          ],
-        }),
+    persons.getPersonBySlug.mockResolvedValue(
+      person({
+        OfficeHolders: [
+          { officeTitle: 'Trustee', positionName: null, isCurrent: false },
+          { officeTitle: 'Mayor', positionName: null, isCurrent: true },
+        ],
       }),
     )
 
@@ -116,44 +114,43 @@ describe('PersonLookupService', () => {
   })
 
   it('falls back to first + last when fullName is unset', async () => {
-    httpService.get.mockReturnValue(of({ data: person({ fullName: null }) }))
+    persons.getPersonBySlug.mockResolvedValue(person({ fullName: null }))
 
     expect((await service.lookup(SLUG))?.fullName).toBe('Jordan Reyes')
   })
 
   it('tolerates a person with no office terms', async () => {
-    httpService.get.mockReturnValue(of({ data: person({ OfficeHolders: [] }) }))
+    persons.getPersonBySlug.mockResolvedValue(person({ OfficeHolders: [] }))
 
     expect((await service.lookup(SLUG))?.office).toBeNull()
   })
 
-  it.each([[404], [400]])(
-    'reports no match rather than an outage on %i',
-    async (status) => {
-      httpService.get.mockReturnValue(throwError(() => axiosStatus(status)))
+  it('reports no match rather than an outage for an unknown slug', async () => {
+    persons.getPersonBySlug.mockRejectedValue(
+      new NotFoundException(`Person not found for slug=${SLUG}`),
+    )
 
-      expect(await service.lookup(SLUG)).toBeNull()
-    },
-  )
+    expect(await service.lookup(SLUG)).toBeNull()
+  })
 
-  it('surfaces an election-api outage as a 502', async () => {
-    httpService.get.mockReturnValue(throwError(() => axiosStatus(500)))
+  it('surfaces an election-db failure as a 502', async () => {
+    persons.getPersonBySlug.mockRejectedValue(new Error('connection refused'))
 
     await expect(service.lookup(SLUG)).rejects.toBeInstanceOf(
       BadGatewayException,
     )
   })
 
-  it('never calls election-api for an empty query', async () => {
+  it('never queries for an empty query', async () => {
     expect(await service.lookup('   ')).toBeNull()
-    expect(httpService.get).not.toHaveBeenCalled()
+    expect(persons.getPersonBySlug).not.toHaveBeenCalled()
   })
 
   describe('resolveIdentities', () => {
     const OTHER_ID = 'ffffffff-0000-4000-8000-000000000000'
 
     const batchOf = (people: object[]) => {
-      httpService.get.mockReturnValue(of({ data: people }))
+      persons.getPersons.mockResolvedValue(people)
     }
 
     it('builds the public /people URL the marketing site serves', async () => {
@@ -174,16 +171,12 @@ describe('PersonLookupService', () => {
 
       await service.resolveIdentities([PERSON_ID, OTHER_ID, PERSON_ID])
 
-      expect(httpService.get.mock.calls[0]?.[0]).toBe(
-        `${process.env.ELECTION_API_URL}/v1/persons`,
-      )
-      expect(httpService.get.mock.calls[0]?.[1]).toEqual({
-        headers: { Authorization: 'Bearer t' },
-        params: {
-          // Deduped: a person can appear once per takedown record.
-          ids: `${PERSON_ID},${OTHER_ID}`,
-          columns: 'id,slug,fullName,firstName,lastName',
-        },
+      expect(persons.getPersons).toHaveBeenCalledWith({
+        // Deduped: a person can appear once per takedown record.
+        ids: [PERSON_ID, OTHER_ID],
+        columns: 'id,slug,fullName,firstName,lastName',
+        includeOfficeHolders: false,
+        includeCandidacies: false,
       })
     })
 
@@ -195,56 +188,64 @@ describe('PersonLookupService', () => {
       )
     })
 
-    it('returns what it has when election-api fails', async () => {
+    it('returns what it has when the read fails', async () => {
       // The takedown log is the operator's only view of active removals;
       // failing it wholesale over a naming nicety would hide them.
-      httpService.get.mockReturnValue(throwError(() => axiosStatus(500)))
+      persons.getPersons.mockRejectedValue(new Error('connection refused'))
 
       expect(await service.resolveIdentities([PERSON_ID])).toEqual(new Map())
     })
 
     it('makes no call for an empty list', async () => {
       expect(await service.resolveIdentities([])).toEqual(new Map())
-      expect(httpService.get).not.toHaveBeenCalled()
+      expect(persons.getPersons).not.toHaveBeenCalled()
     })
   })
 
   describe('resolveContactEmail', () => {
-    it('reads the dedicated PII route, not a general person read', async () => {
-      httpService.get.mockReturnValue(of({ data: { email: 'mayor@city.gov' } }))
+    it('reads the dedicated PII accessor, not a general person read', async () => {
+      persons.getContactEmail.mockResolvedValue({
+        personId: PERSON_ID,
+        email: 'mayor@city.gov',
+      })
 
       expect(await service.resolveContactEmail(PERSON_ID)).toBe(
         'mayor@city.gov',
       )
-      expect(requestedUrl()).toBe(
-        `${process.env.ELECTION_API_URL}/v1/persons/${PERSON_ID}/contact-email`,
-      )
-      expect(httpService.get.mock.calls[0]?.[1]).toEqual({
-        headers: { Authorization: 'Bearer t' },
-      })
+      expect(persons.getContactEmail).toHaveBeenCalledWith(PERSON_ID)
+      expect(persons.getPersons).not.toHaveBeenCalled()
     })
 
     // Every "we can't tell you" case collapses to null: the caller is a
     // detached CRM side-effect of a public form submission, so its only correct
     // response to any of these is to skip the event.
     it.each([
-      ['no address on file', of({ data: { email: null } })],
-      ['a blank address', of({ data: { email: '   ' } })],
-      ['an unknown person', throwError(() => axiosStatus(404))],
-      ['an election-api outage', throwError(() => axiosStatus(500))],
+      [
+        'no address on file',
+        () => Promise.resolve({ personId: PERSON_ID, email: null }),
+      ],
+      [
+        'a blank address',
+        () => Promise.resolve({ personId: PERSON_ID, email: '   ' }),
+      ],
+      [
+        'an unknown person',
+        () => Promise.reject(new NotFoundException('Person not found')),
+      ],
+      ['an election-db outage', () => Promise.reject(new Error('boom'))],
     ])('returns null for %s', async (_case, response) => {
-      httpService.get.mockReturnValue(response)
+      persons.getContactEmail.mockImplementation(response)
 
       await expect(service.resolveContactEmail(PERSON_ID)).resolves.toBeNull()
     })
 
-    it('keeps the address out of the log when the request fails', async () => {
-      // This route's success body IS the address, so logging an axios error
-      // object — which carries response.data — would put a candidate's email in
-      // the logs. Only the message and status may be logged.
-      const error = axiosStatus(500)
-      error.response!.data = { personId: PERSON_ID, email: 'mayor@city.gov' }
-      httpService.get.mockReturnValue(throwError(() => error))
+    it('keeps the address out of the log when the read fails', async () => {
+      // This read's success value IS the address, so logging the error object
+      // — which can carry the row that produced it — would put a candidate's
+      // email in the logs. Only the message may be logged.
+      const error: Error & { row?: unknown } = new Error('boom')
+      error.row = { personId: PERSON_ID, email: 'mayor@city.gov' }
+      persons.getContactEmail.mockRejectedValue(error)
 
       await expect(service.resolveContactEmail(PERSON_ID)).resolves.toBeNull()
 

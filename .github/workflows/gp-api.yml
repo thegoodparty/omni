@@ -107,6 +107,18 @@ jobs:
             --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
             --exit-code
 
+      # election-db migrations run fatally at boot (docker-entrypoint.sh), so a
+      # schema that has drifted from its migrations would block every gp-api
+      # deploy rather than just the election routes. Catch it here instead.
+      - name: Check election-db Prisma migrations
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          npx prisma migrate diff \
+            --from-migrations ./prisma-election/schema/migrations \
+            --to-schema-datamodel ./prisma-election/schema \
+            --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
+            --exit-code
+
   test:
     name: Test (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest

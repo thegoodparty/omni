@@ -213,6 +213,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'voter-data-databricks',
   },
 
+  // The election-db client connects fail-soft (electionDb.service.ts), so
+  // gp-api boots without it and every election read throws at request time.
+  // The deploy entrypoint's migration step is what fails a deploy without it.
+  ELECTION_DATABASE_URL: { tier: 'degradable', feature: 'election-data' },
+
   // --- Optional: everything else ---------------------------------------
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
@@ -228,7 +233,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ASSET_DOMAIN: { tier: 'optional' },
   PUBLIC_API_URL: { tier: 'optional' },
   API_PUBLIC_ROOT_URL: { tier: 'optional' },
-  ELECTION_API_URL: { tier: 'optional' },
   GP_ADMIN_BASE_URL: { tier: 'optional' },
   MARKETING_REVALIDATE_SECRET: { tier: 'optional' },
   MARKETING_REVALIDATE_URL: { tier: 'optional' },

@@ -11,7 +11,7 @@
     "build:contracts": "tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:env-contract": "tsx scripts/check-env-contract.ts",
     "codegen": "graphql-codegen",
-    "generate": "npx prisma generate && tsx scripts/generate-route-types.ts",
+    "generate": "npx prisma generate && npx prisma generate --schema prisma-election/schema && tsx scripts/generate-route-types.ts",
     "infra": "tsx deploy/infra-cli.ts",
     "install:clean": "rm -rf node_modules package-lock.json && npm install",
     "lint": "NODE_OPTIONS=--max-old-space-size=6144 eslint '{src,apps,libs,test}/**/*.ts' && prettier --check 'src/**/*.{ts,js,json}'",
