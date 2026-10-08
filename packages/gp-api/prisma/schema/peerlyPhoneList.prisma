@@ -60,6 +60,7 @@ model PeerlyPhoneList {
   // excludedOptedOutCount, for ENG-10808's UI to read.
   excludedDuplicatePhoneCount Int                        @default(0) @map("excluded_duplicate_phone_count")
   recipients                  PeerlyPhoneListRecipient[]
+  p2pSmsSettlements           OutreachP2pSms[]
 
   @@map("peerly_phone_list")
 }
