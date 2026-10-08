@@ -74,6 +74,15 @@ jobs:
       - name: Check env contract
         run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 
+      # docs/feature-map.md is how agents find their way around the product.
+      # Any PR can rot it (a renamed path anywhere, a new route dir, a nav
+      # id), and this job runs on every PR, so the check lives here.
+      - name: Guard feature map
+        run: npm run feature-map:check
+
+      - name: Unit test the feature map check
+        run: npx --no-install vitest run scripts/feature-map-check.test.ts
+
   # The vitest suite (~400 jsdom files) was the long pole of the single
   # Validate job (~11 of its ~14 minutes), and it gates both PR merge and the
   # release train's await-checks. Fan it out the same way gp-api does. No

@@ -53,6 +53,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | **Writing any user-facing copy**       | **`docs/product-copy.md`**                    |
 | **Writing copy Win and Serve share**   | **`docs/product-vocabulary.md`** (voters vs constituents) |
 | **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
+| **Finding the code behind a page, tab or bug report** | **`docs/feature-map.md`** (page, API, flags, test user, spec) |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |

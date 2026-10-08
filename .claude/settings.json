@@ -16,6 +16,12 @@
           },
           {
             "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/feature-map-check.sh\"",
+            "timeout": 60,
+            "statusMessage": "Checking the feature map"
+          },
+          {
+            "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/serve-vocabulary-check.sh\"",
             "timeout": 60,
             "statusMessage": "Checking Serve vocabulary"

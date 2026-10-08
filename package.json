@@ -35,7 +35,8 @@
     "ai-rules:update": "git submodule update --remote ai-rules",
     "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'",
     "prepare": "husky || true",
-    "product-map:check": "tsx scripts/product-map-coverage.ts"
+    "product-map:check": "tsx scripts/product-map-coverage.ts",
+    "feature-map:check": "tsx scripts/feature-map-check.ts"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
