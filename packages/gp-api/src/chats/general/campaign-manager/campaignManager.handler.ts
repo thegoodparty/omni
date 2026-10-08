@@ -57,6 +57,7 @@ import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -550,6 +551,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // Compose handoff: drafts a social post for the candidate to review in
     // a prefilled Win social-flow compose drawer.
     tools.compose_handoff = buildComposeHandoffTool('win_social')
+
+    tools.ask_clarify_question = buildAskClarifyQuestionTool()
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,
     // once complete, kick off plan + tracker generation. Registered whenever

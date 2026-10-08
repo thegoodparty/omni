@@ -662,6 +662,27 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(block).not.toContain('{{first_name}}')
   })
 
+  it('asks choices as a card only where the clarify tool is registered', () => {
+    const base = ctx({})
+    expect(buildCampaignManagerSystemPrompt(base)).not.toContain(
+      'ask_clarify_question',
+    )
+
+    const withClarify = buildCampaignManagerSystemPrompt(base, [
+      'ask_clarify_question',
+    ])
+    expect(withClarify).toContain('QUESTIONS')
+    expect(withClarify).toContain('never as a list in prose')
+    expect(withClarify).not.toContain('When you recommend more than one text')
+
+    expect(
+      buildCampaignManagerSystemPrompt(base, [
+        'ask_clarify_question',
+        'present_outreach_proposal',
+      ]),
+    ).toContain('When you recommend more than one text')
+  })
+
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
