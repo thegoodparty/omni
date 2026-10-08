@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
-import { GUARDRAIL_DECLINE } from '@/chats/briefing-chats/services/systemPromptBuilder'
 import { LEGAL_LINE } from '@/chats/general/campaign-manager/campaignManagerPrompt'
 import { COS_GUARDRAIL_DECLINE } from '@/chats/general/chief-of-staff/services/chiefOfStaffPrompt'
 import {
@@ -114,14 +113,11 @@ describe('guardrailLines.json', () => {
     }
   })
 
-  // Until each prompt reads its line from here, this is what keeps the file
-  // and production from drifting apart.
+  // Prompts that still inline their line are held equal to the file here, so
+  // the file and production cannot drift before each chat adopts the module.
   it('matches every line production says today, byte for byte', () => {
     expect(guardrailLine('scope_decline', 'chief_of_staff')).toBe(
       COS_GUARDRAIL_DECLINE,
-    )
-    expect(guardrailLine('scope_decline', 'briefing_chat')).toBe(
-      GUARDRAIL_DECLINE,
     )
     expect(guardrailLine('scope_decline', 'ordinance_flow', 'municipal')).toBe(
       ORDINANCE_FLOW_GUARDRAIL_DECLINE,

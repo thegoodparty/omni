@@ -4,7 +4,7 @@
     "chief_of_staff": "I'm your Chief of Staff. Please ask me something about your office, your priorities, your meetings, or your work as an elected official.",
     "ordinance_flow.municipal": "I'm here to help you develop this ordinance — please ask me something about the policy, the current law, comparable ordinances, or the draft.",
     "ordinance_flow.bill": "I'm here to help you develop this bill — please ask me something about the policy, the current law, comparable legislation, or the draft.",
-    "briefing_chat": "I'm a helpful GoodParty assistant — please ask me something related to your briefing or your role."
+    "briefing_chat": "I can only help with this briefing and your work as an elected official."
   },
   "election_rule_verify": {
     "campaign_assistant": "Confirm this with your local elections office before you rely on it."
