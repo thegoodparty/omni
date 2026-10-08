@@ -22,7 +22,12 @@ import {
 import { addDays, format, isAfter, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
-import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  P2pSmsSettleState,
+  Prisma,
+} from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
@@ -437,14 +442,49 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         'Only scheduled SMS campaigns can be approved',
       )
     }
-    // Approval is what books canvassers, which is the vendor spend. A
-    // scheduled p2p row reaches this console only through a settled
-    // purchase: a paid checkout stamps stripeCheckoutSessionId, a
-    // zero-amount redemption stamps freePurchaseSessionId. Neither present
-    // means nothing funded the send, so it is refused rather than read as
-    // "free" — which is what the absence of a Stripe session used to mean
-    // on its own.
-    if (!row.stripeCheckoutSessionId && !row.freePurchaseSessionId) {
+    // Approval is what books canvassers, which is the vendor spend — so it is
+    // the last gate before money is committed to the send. Two funding models
+    // reach this console, told apart by whether the row has an OutreachP2pSms
+    // satellite — NOT by the flag:
+    //
+    //  - HOLD MODEL (the row has a satellite): the paid `cs_` checkout placed a
+    //    manual-capture authorization HOLD. The funding marker
+    //    (stripeCheckoutSessionId) is stamped at AUTHORIZATION, not capture, so
+    //    it CANNOT gate the send: an `authorized` or `capturing` hold still
+    //    carries the marker yet has taken no money, and if it is never captured
+    //    the hold lapses and the texts go out free. Gate on the committed
+    //    `captured` state instead — the satellite is the source of truth
+    //    (capture commits it under a CAS). Any other state is non-approvable:
+    //    `capturing` is money mid-flight (retry once it commits),
+    //    `authorized`/`hold_pending`/`pending_payment` is not yet captured, and
+    //    `voided`/`hold_failed`/`refunded` is a terminal non-send.
+    //
+    //  - FUNDING-MARKER MODEL (no satellite — the whole flag-off/default
+    //    population, and every free/forgiven send on the `free_confirmed_*`
+    //    path): the paid checkout stamps stripeCheckoutSessionId, a zero-amount
+    //    redemption stamps freePurchaseSessionId. Neither present means nothing
+    //    funded the send, so it is refused rather than read as "free".
+    //
+    // The satellite read is UNCONDITIONAL, never flag-gated: a satellite exists
+    // only if the send went through the hold path, so an uncaptured hold must be
+    // blocked even on a flag rollback (flag ON at checkout, flipped OFF before
+    // approve) — gating this read on the flag would turn the kill switch itself
+    // into a free-send trigger (the read is skipped, the authorization-time
+    // marker passes, and an uncaptured hold sends). The flag still gates ENTRY
+    // into the hold model (checkout, recordHold, capture); only this gate's read
+    // is unconditional. A non-hold row has no satellite, so `holdSms` is null
+    // and the marker gate runs byte-for-byte as before.
+    const holdSms = await this.client.outreachP2pSms.findUnique({
+      where: { outreachId },
+      select: { settleState: true },
+    })
+    if (holdSms) {
+      if (holdSms.settleState !== P2pSmsSettleState.captured) {
+        throw new BadRequestException(
+          this.holdBlockMessage(holdSms.settleState),
+        )
+      }
+    } else if (!row.stripeCheckoutSessionId && !row.freePurchaseSessionId) {
       throw new BadRequestException(
         'This campaign has no completed purchase on record',
       )
@@ -1288,6 +1328,24 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (job?.canvassers_schedule?.approved) return 'peerly_approved'
     if (row.canvassRequestedAt) return 'canvass_requested'
     return 'awaiting_review'
+  }
+
+  // The CAS-facing reason a hold-model send is not yet approvable, keyed by
+  // the satellite's settle state so the console shows whether to wait or stop.
+  private holdBlockMessage(state: P2pSmsSettleState): string {
+    switch (state) {
+      case P2pSmsSettleState.capturing:
+        return (
+          'The payment for this campaign is still being captured — try ' +
+          'again shortly once it settles'
+        )
+      case P2pSmsSettleState.voided:
+      case P2pSmsSettleState.hold_failed:
+      case P2pSmsSettleState.refunded:
+        return 'The payment for this campaign did not complete, so it cannot be sent'
+      default:
+        return 'The payment for this campaign has not been captured yet, so it cannot be sent'
+    }
   }
 
   private async tryTrack(
