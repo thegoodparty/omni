@@ -178,7 +178,14 @@ const codeClass = (message: string): string | undefined => {
     : undefined
 }
 
+// A chat run over HTTP sees a failed tool only as a tool_call the stream
+// never answered with a tool_result; the error text does not cross the wire.
+export const UNRECORDED_TOOL_ERROR =
+  'unrecorded: no tool_result followed this tool_call, and the stream does ' +
+  'not carry the error text'
+
 export const errorClass = (message: string): string => {
+  if (message === UNRECORDED_TOOL_ERROR) return 'unrecorded'
   const exception = exceptionClass(message)
   if (exception !== undefined) return exception
   const code = codeClass(message)

@@ -370,13 +370,9 @@ describe('parseSweepEnv', () => {
   })
 })
 
-// Two gates decide whether real money moves: `spends()` here, which tells an
-// arm to drive a real model, and `assertMaySpend` in runners/chatSeam.ts,
-// which refuses to install the seam without a script. They were written on
-// separate branches against different literals — 'true' and '1' — and the
-// merge of those branches failed closed on the first case of any live sweep,
-// with an error naming a forgotten field rather than the mismatch. These pin
-// both to the one constant so they cannot drift apart again.
+// Two gates once read the spend switch against different literals — 'true'
+// and '1' — and the merge of those branches failed closed on the first case
+// of any live sweep. These pin every reading to the one constant.
 describe('the spend switch is one value, not two', () => {
   it('is the value the workflow sets', () => {
     // .github/workflows/judge.yml sets JUDGE_SPEND: 'true' on all three

@@ -69,6 +69,11 @@ on:
         required: false
       DATABRICKS_CLIENT_SECRET:
         required: false
+      # The dev Clerk instance's secret, which every PR preview shares. A chat
+      # arm makes a throwaway test account with it per case; without it each
+      # chat agent is skipped by name and background agents still run.
+      CLERK_SECRET_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -77,34 +82,16 @@ permissions:
 env:
   WORKSPACE: packages/gp-api
   CLI: src/chats/evals/judge/cli.ts
-  # The sweep runs under vitest, not tsx. The chat runner drives a real turn
-  # through `useTestService()`, which registers `beforeAll`/`beforeEach`/
-  # `afterAll` to stand up the Postgres container and the authenticated app —
-  # hooks that only exist inside a vitest process. `npx tsx` has no lifecycle
-  # to register them against, so the runner cannot boot there at all.
-  #
-  # Which is also why the sweep takes its inputs from the environment rather
-  # than argv: a test file has no argv of its own.
-  SWEEP_SUITE: src/chats/evals/judge/sweep.eval.test.ts
-  # WHAT THE BASE REF HAS TO DO WITH THE KEY, checked as a string because the
-  # base arm runs the BASE REF's TypeScript and this file cannot reach into
-  # it. The real Anthropic key arrives as JUDGE_ANTHROPIC_API_KEY because
-  # `.env.test` shadows the name the SDK reads, and the arm suite is what
-  # moves it into place — so a base ref whose suite predates that handoff
-  # authenticates with the stub and collects `invalid x-api-key` on every
-  # turn. Re-adding ANTHROPIC_API_KEY to the arm steps does NOT help it:
-  # `.env.test` shadows that on the base side too, which is the whole reason
-  # the second name exists.
-  ARM_KEY_CALL: restoreRealModelKey()
-  # Step 3, and NOT a vitest suite. It reads both arms' stored records and
-  # runs pure functions over them, so it needs no `useTestService()` and runs
-  # under tsx — which is what lets a workflow step invoke it as a command.
-  # Pure functions living in a vitest file cannot be, and a "test" that is
-  # really a program is how a job goes green having done nothing.
+  # Steps 1 and 2, one arm each, under tsx. A chat arm drives a deployed
+  # gp-api over HTTP (dev for the base arm, the PR's preview for the
+  # candidate) and a background arm dispatches over SQS, so neither boots the
+  # app. Inputs come from the environment, which every step shares.
+  ARM_ENTRY: src/chats/evals/judge/captureArm.ts
+  # Step 3. It reads both arms' stored records and runs pure functions over
+  # them.
   JUDGING_ENTRY: src/chats/evals/judge/sweep.ts
-  # Resolves the one Delta version both arms read. Under tsx for the same
-  # reason the judging entry is: it needs no `useTestService()`, so a workflow
-  # step can invoke it as a command and capture its stdout.
+  # Resolves the one Delta version both arms read, as a command a workflow
+  # step can invoke and read the output of.
   DATA_VERSION_ENTRY: src/chats/evals/judge/dataVersion.ts
   BUDGET_ENTRY: src/chats/evals/judge/armBudget.ts
   IDENTIFIERS_ENTRY: src/chats/evals/judge/judgeIdentifiers.ts
@@ -607,24 +594,11 @@ jobs:
             # Checked by existence rather than by running anything, because
             # running the sweep speculatively is precisely what must not
             # happen.
-            if [ -f "$SWEEP_SUITE" ] && [ -f "$JUDGING_ENTRY" ]; then
-              # AND CAN THIS CANDIDATE REACH THE MODEL? See ARM_KEY_CALL at
-              # the top of this file. A head that predates the key handoff
-              # authenticates with the stub in `.env.test` and 401s on every
-              # turn — and this is the EXPENSIVE direction, because the base
-              # arm runs first: `main` has the handoff, spends a full arm,
-              # and only then does the candidate fail. The base side is
-              # guarded in the sweep job; this is the side that has to be
-              # refused before the plan comment promises anything.
-              if grep -qF "$ARM_KEY_CALL" "$SWEEP_SUITE"; then
-                echo "sweep_capable=true" >> "$GITHUB_OUTPUT"
-              else
-                echo "sweep_capable=false" >> "$GITHUB_OUTPUT"
-                echo "::notice::this branch's $SWEEP_SUITE does not call $ARM_KEY_CALL, so its arm would authenticate with the stub key in .env.test and fail every turn — after the base arm had been billed. Rebase on a ref that carries the key handoff; the plan comment says so instead of promising a sweep."
-              fi
+            if [ -f "$ARM_ENTRY" ] && [ -f "$JUDGING_ENTRY" ]; then
+              echo "sweep_capable=true" >> "$GITHUB_OUTPUT"
             else
               echo "sweep_capable=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::this branch has the plan but not both halves of the sweep ($SWEEP_SUITE and $JUDGING_ENTRY), so a live sweep would fail; the plan comment says so instead of promising one"
+              echo "::notice::this branch has the plan but not both halves of the sweep ($ARM_ENTRY and $JUDGING_ENTRY), so a live sweep would fail; the plan comment says so instead of promising one"
             fi
             exit 0
           fi
@@ -1433,6 +1407,9 @@ jobs:
     # is exactly how a job ends up holding what it never asked for.
     permissions:
       contents: read
+      # To find the gp-api run that deploys the PR's preview, which the
+      # candidate chat arm drives.
+      actions: read
       # TO ASSUME THE AWS ROLE, and nothing more. A background agent is
       # dispatched by staging a config in S3 and sending one SQS message, so
       # the sweep needs AWS the way every other job that touches it does:
@@ -1734,36 +1711,15 @@ jobs:
 
           git worktree add --detach "$base_dir" "origin/$BASE_REF"
 
-          # AND DOES THE BASE REF HAVE THE SUITE? `sweep_capable` upstream
-          # only ever looked at the candidate checkout, so it green-lit a
-          # live sweep on the strength of one of the two arms. A base ref
-          # that predates the harness — which `universal-judge` itself did
-          # while this was being built, and which any older base still does —
-          # would then take the "This is a live sweep. It starts now" comment,
-          # a second npm ci, contracts, nest-common, prisma and route-types,
-          # and die on "No test files found".
-          #
-          # Checked here rather than in `plan`, which has a shallow checkout
-          # at the candidate SHA and cannot see the base ref's tree at all.
-          # Before the install below, so the failure is cheap.
+          # AND DOES THE BASE REF HAVE THE ARM ENTRY? `sweep_capable`
+          # upstream only looked at the candidate checkout. A base ref that
+          # predates captureArm.ts would take a second npm ci and then fail
+          # to start, after the plan comment promised a live sweep. Checked
+          # here rather than in `plan`, which cannot see the base ref's tree,
+          # and before the install below, so the failure is cheap.
           if ! git cat-file -e \
-            "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" 2>/dev/null; then
-            echo "::error::origin/$BASE_REF does not carry $WORKSPACE/$SWEEP_SUITE, so the base arm cannot be captured and there is nothing to compare against. The judge has to be on both sides of a comparison: judge a PR whose base already has it, or merge the harness to $BASE_REF first."
-            exit 1
-          fi
-
-          # AND DOES THE BASE REF'S SUITE MOVE THE KEY INTO PLACE? See
-          # ARM_KEY_CALL at the top of this file. Without this the base arm
-          # spends its way through every case collecting authentication
-          # failures, the capture step fails red, and the candidate arm has
-          # already been billed in full for a sweep that can produce no
-          # verdict — every pair excluded as an infraError. Refused here, one
-          # step before the base install and two before the first dial, so it
-          # costs nothing. Grepped from the base ref's own blob rather than
-          # from the worktree, so it reads the same tree the arm will run.
-          if ! git cat-file -p "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" \
-            2>/dev/null | grep -qF "$ARM_KEY_CALL"; then
-            echo "::error::origin/$BASE_REF's $SWEEP_SUITE does not call $ARM_KEY_CALL, so the base arm would authenticate with the stub key in .env.test and fail every turn — after the candidate arm had been billed. Judge a PR whose base carries the key handoff, or bring $BASE_REF up to date first."
+            "origin/$BASE_REF:$WORKSPACE/$ARM_ENTRY" 2>/dev/null; then
+            echo "::error::origin/$BASE_REF does not carry $WORKSPACE/$ARM_ENTRY, so the base arm cannot be captured and there is nothing to compare against. The judge has to be on both sides of a comparison: judge a PR whose base already has it, or bring $BASE_REF up to date first."
             exit 1
           fi
 
@@ -1850,10 +1806,9 @@ jobs:
           cat "$out" >> "$GITHUB_OUTPUT"
 
       # Mirrors setup-node-workspace, which cannot be pointed at another
-      # directory. Every step the action runs that the base arm needs, run
-      # there instead: its own install, its own contracts and nest-common
-      # dist, its own Prisma client and route types. Sharing any of those with
-      # the candidate is what would make the two arms the same arm.
+      # directory. The base arm's chat agents run on dev, but its background
+      # agents stage the BASE tree's configs, and its entry runs the base
+      # ref's own code, so the base worktree still gets its own install.
       - name: Install the base arm's workspace
         working-directory: ${{ steps.base.outputs.dir }}
         run: |
@@ -1865,8 +1820,9 @@ jobs:
           (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
 
       # ARM 1 OF 2. Identical to the candidate step below except for
-      # JUDGE_ARM, JUDGE_ARM_COMMIT and the directory, which is the whole
-      # design: one suite, two invocations, one record store.
+      # JUDGE_ARM, JUDGE_ARM_COMMIT, the directory and the deployment its
+      # chat agents drive: one entry, two invocations, one record store. The
+      # base arm's chat agents drive dev, captureArm.ts's default.
       - name: Capture the base arm
         working-directory: ${{ steps.base.outputs.dir }}/${{ env.WORKSPACE }}
         env:
@@ -1879,22 +1835,14 @@ jobs:
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
           # The affirmative spend switch, and the second one in the chain:
           # this job already requires `inputs.live == true` to exist at all.
-          # Anything other than the exact string `true` makes the runner use a
-          # canned reply, so a garbled value costs a sweep that did not happen
-          # rather than one nobody asked for.
+          # Anything other than the exact string `true` skips every chat
+          # agent by name, since a deployed gp-api has no canned reply, so a
+          # garbled value costs a sweep that did not happen rather than one
+          # nobody asked for.
           JUDGE_SPEND: 'true'
-          # NOT ANTHROPIC_API_KEY, and that is not a typo. The arms run under
-          # vitest, whose config applies `.env.test` OVER the process
-          # environment — and `.env.test` defines ANTHROPIC_API_KEY as a stub.
-          # The first live sweep exported the real key here and watched every
-          # call come back `invalid x-api-key`. modelKey.ts moves this value
-          # into place under the name the SDK reads, before the app boots.
-          JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # DATABRICKS_SERVER_HOSTNAME comes from the job environment — see
-          # the normalize step near the top of this job.
-          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          # The dev Clerk instance's secret, which previews share: a chat
+          # case runs as a throwaway test account made with it.
+          JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           # WHO ASKED FOR THESE AGENTS, and therefore whether the sameness
           # refusals are armed. `explicit` when the request named them,
           # `auto` when the diff derived them; resolved once in the plan
@@ -1920,24 +1868,116 @@ jobs:
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
           JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
-          # THE ROLE'S CREDENTIALS, under names `.env.test` does not define.
-          # vitest applies that file over this environment, and it stubs
-          # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, so the names the
-          # credentials step exported arrive as a stub key beside the real
-          # session token. awsCredentials.ts hands these to the judge's own
-          # clients and to nothing else.
+          # THE ROLE'S CREDENTIALS, under the names awsCredentials.ts reads
+          # and hands to the judge's own S3 and SQS clients.
           JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
           JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
           JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
-          # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
-          # existing eval suites self-skip on, and the sweep suite is not one
-          # of them: it skips on JUDGE_ARM being absent, which is the value
-          # that actually says a sweep was asked for. JUDGE_SPEND is what
-          # turns model calls on.
         run: |
           set -euo pipefail
-          # vitest, never tsx — see SWEEP_SUITE at the top of this file.
-          npx vitest run "$SWEEP_SUITE"
+          npx tsx "$ARM_ENTRY"
+
+      # THE CANDIDATE'S DEPLOYMENT. A chat arm drives a deployed gp-api, and
+      # the only deployment of the candidate is the PR's preview, which
+      # gp-api.yml's "Deploy PR preview" job builds for the PR head. So when a
+      # chat agent is in the sweep, wait for that job to succeed for the
+      # candidate SHA (the e2e-wait pattern in gp-webapp.yml), then for the
+      # preview to serve it: a preview runs the merge of the PR into its
+      # base, so the served commit has to be a merge commit with the
+      # candidate SHA among its parents.
+      #
+      # continue-on-error, so a preview that never comes fails the chat half
+      # alone: the URL output stays empty, the candidate arm skips every chat
+      # agent by name, and its background agents still run. The ::error::
+      # below says why.
+      - name: Wait for the PR's gp-api preview
+        id: preview
+        continue-on-error: true
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENTS: ${{ needs.plan.outputs.agents }}
+          CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # The chat agents in the sweep, read off the CLI's plan the way the
+          # estimate step reads them.
+          chat_ids="$(npx tsx "$CLI" --agents="$AGENTS" --dry-run 2>/dev/null \
+            | sed -nE 's/^  ([a-z0-9_]+)  \[chat\]  .*$/\1/p' || true)"
+          if [ -z "$chat_ids" ]; then
+            echo "no chat agent in this sweep, so the candidate arm needs no deployment"
+            exit 0
+          fi
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::the chat arm cannot run: there is no PR number, so there is no preview of the candidate to drive"
+            exit 1
+          fi
+
+          job_name='Deploy PR preview'
+          deployed=""
+          for i in $(seq 1 150); do
+            runs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?head_sha=$CANDIDATE_SHA&per_page=100")"
+            # This PR's runs, oldest to newest, ties broken by id; a run
+            # GitHub linked to no PR falls back to every run on the commit.
+            runs="$(jq --arg pr "$PR_NUMBER" '
+              [.workflow_runs[]] as $all
+              | [$all[] | select(any(.pull_requests[]?; (.number | tostring) == $pr))] as $mine
+              | (if ($mine | length) > 0 then $mine else $all end)
+              | sort_by(.run_started_at, .id)' <<<"$runs_json")"
+            run_id="$(jq -r 'last | .id // empty' <<<"$runs")"
+            if [ -z "$run_id" ] && [ "$i" -ge 30 ]; then
+              echo "::error::the chat arm cannot run: gp-api.yml has no run for $CANDIDATE_SHA after five minutes, so nothing will deploy a preview of the candidate. A PR that does not touch gp-api builds no preview."
+              exit 1
+            fi
+            job_conclusion=""
+            if [ -n "$run_id" ]; then
+              job_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
+                --jq "[.jobs[] | select(.name==\"$job_name\")] | first | .conclusion // \"\"")"
+            fi
+            # A twin run on the same commit whose deploy succeeded, accepted
+            # only once the newest was cancelled. The version check below
+            # still confirms what the preview serves.
+            if [ "$job_conclusion" = "cancelled" ]; then
+              for id in $(jq -r '.[:-1] | reverse | .[].id' <<<"$runs"); do
+                conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+                  --jq "[.jobs[] | select(.name==\"$job_name\")] | first | .conclusion // \"\"")"
+                if [ "$conclusion" = "success" ]; then
+                  deployed=$id
+                  break
+                fi
+              done
+            fi
+            echo "  attempt $i/150: gp-api run=${run_id:-<none>} '$job_name' conclusion=${job_conclusion:-<running>}"
+            [ "$job_conclusion" = "success" ] && break
+            [ -n "$deployed" ] && break
+            case "$job_conclusion" in
+              failure|timed_out|skipped|cancelled)
+                echo "::error::the chat arm cannot run: gp-api '$job_name' for $CANDIDATE_SHA did not succeed ($job_conclusion), so there is no preview of the candidate to drive"
+                exit 1 ;;
+            esac
+            if [ "$i" = 150 ]; then
+              echo "::error::the chat arm cannot run: timed out waiting for gp-api '$job_name' on $CANDIDATE_SHA"
+              exit 1
+            fi
+            sleep 10
+          done
+
+          api_base="https://pr-$PR_NUMBER.preview.goodparty.org"
+          echo "Confirming $api_base serves a merge of $CANDIDATE_SHA"
+          for i in $(seq 1 30); do
+            served="$(curl -fsS "$api_base/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            if [[ "$served" =~ ^[0-9a-f]{40}$ ]] \
+              && gh api "repos/$GITHUB_REPOSITORY/commits/$served" --jq '.parents[].sha' 2>/dev/null \
+                | grep -qx "$CANDIDATE_SHA"; then
+              echo "$api_base serves $served, a merge of $CANDIDATE_SHA"
+              echo "api_url=$api_base" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::the chat arm cannot run: $api_base never served a merge commit of $CANDIDATE_SHA (last served: ${served:-nothing})"
+          exit 1
 
       # ARM 2 OF 2, in the checkout this job started in.
       #
@@ -1957,11 +1997,11 @@ jobs:
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
           JUDGE_SPEND: 'true'
-          # Under the arm name, not ANTHROPIC_API_KEY — see the base arm above.
-          JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          # The PR's preview, once it serves the candidate. Empty when the
+          # wait step above gave up, and then captureArm.ts skips every chat
+          # agent by name; background agents still run.
+          JUDGE_CANDIDATE_API_URL: ${{ steps.preview.outputs.api_url }}
           # Who asked for these agents — see the base arm above.
           JUDGE_SELECTION: ${{ needs.plan.outputs.selection }}
           # The same step output the base arm read, and it HAS to be the same
@@ -1982,16 +2022,14 @@ jobs:
           JUDGE_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
         run: |
           set -euo pipefail
-          npx vitest run "$SWEEP_SUITE"
+          npx tsx "$ARM_ENTRY"
 
-      # STEP 3: the verdict. Under tsx, not vitest, because it needs no
-      # `useTestService()` — it reads both arms' stored records and runs pure
+      # STEP 3: the verdict. It reads both arms' stored records and runs pure
       # functions over them. It writes the report to stdout and to
       # $GITHUB_STEP_SUMMARY itself.
       #
-      # It refuses rather than reporting when either arm wrote no manifest,
-      # which is the failure a vitest suite produces by self-skipping every
-      # test: that PASSES, and without the manifest check this job would go
+      # It refuses rather than reporting when either arm wrote no manifest:
+      # without that check an arm that never started would let this job go
       # green having judged nothing.
       - name: Judge both arms
         id: judging
@@ -2027,8 +2065,8 @@ jobs:
           # refuses a setting that disagrees with the arms' manifests, which
           # is what turns that into a failure instead of a bill.
           JUDGE_SPEND: 'true'
-          # Under its own name here, unlike the arms: this step is tsx, so
-          # nothing loads `.env.test` over it and the real key survives.
+          # The panel's key. The arms hold none: their chat agents answer
+          # from a deployed gp-api's own key.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
