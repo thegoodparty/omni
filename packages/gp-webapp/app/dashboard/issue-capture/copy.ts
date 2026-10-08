@@ -43,6 +43,7 @@ export const WHAT_WE_HEARD_COPY = {
     summarize: 'Summarize what we heard',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
+    downloadNotes: 'Download notes',
     noNotes: 'No notes yet. Notes from conversations with voters show up here.',
     drawerCaption: 'Notes from conversations with voters.',
     loadFailed: 'This page could not load. Refresh to try again.',
@@ -133,6 +134,7 @@ export const WHAT_WE_HEARD_COPY = {
     summarize: 'Summarize what we heard',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
+    downloadNotes: 'Download notes',
     noNotes:
       'No notes yet. Notes from conversations with constituents show up here.',
     drawerCaption: 'Notes from conversations with constituents.',
