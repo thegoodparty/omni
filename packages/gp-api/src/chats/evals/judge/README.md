@@ -697,6 +697,31 @@ if a misspelled `scored` were stripped, the control would be scored silently.
 `race_opponent_summary.json` marks Melecia's `control` as `scored: false`.
 None of her probes has a `condition` yet. Those strings are hers to write.
 
+## The judge sees each background agent's output contract
+
+A judge that doesn't know what an artifact must contain can't tell a required
+section from an unrequested addition. The first bench read scored a required
+section as an addition. So step 3 adds the agent's required top-level fields to
+every case's shared input, after blinding and before any `Condition:` line:
+
+```
+Output contract: the artifact must include these top-level fields: generated_at (string), field_analysis, opponents (array).
+```
+
+The fields are the `required` list of `output_schema` in the agent's
+`manifest.json`, read from step 3's own checkout, with a type where the schema
+names one. The background rubric tells the judge that a required field is
+never an addition, and that a run missing one is worse for it.
+
+If the base worktree's manifest requires a different set, a second line says
+the contract changed in this PR and lists what the base required. That way a
+new required field reads as a contract change, not as one run adding a section.
+
+An agent whose schema requires nothing at the top level (`meeting_briefing`
+and `meeting_schedule` are `oneOf` artifacts), or whose manifest can't be read,
+is judged without the line, and its section says so on one fixed line. That's
+never a refusal.
+
 ## Six background agents need identifiers a case list cannot carry
 
 Nine of the fifteen authored background lists carry plain data. Six do not:

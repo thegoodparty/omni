@@ -8,6 +8,7 @@ import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudg
 import type { AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { CaseListError, type CaseJudging, type CaseList } from './cases'
+import type { ContractRead } from './outputContract'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
   CaseVerdictSchema,
@@ -1433,6 +1434,79 @@ describe('judgeSweep applies each case list condition and control', () => {
     expect(score?.controls.map((c) => c.caseId)).toEqual(['control'])
     expect(result.markdown).toContain('Controls (not scored)')
   })
+
+  const withContract = async (
+    read: ContractRead,
+  ): Promise<{ result: SweepResult; prompts: string[] }> => {
+    const { llm, prompts } = recording()
+    const result = await judgeSweep(
+      {
+        store: await seeded(
+          [...backgroundPair('t4-injection'), ...backgroundPair('control')],
+          [backgroundManifest('base'), backgroundManifest('candidate')],
+        ),
+        llm,
+        registry: [BRIEFING],
+        caseJudging: () => JUDGING,
+        baseControls: BASE_AGREES,
+        outputContract: () => read,
+      },
+      backgroundEnv,
+    )
+    return { result, prompts }
+  }
+
+  const CONTRACT = [
+    { name: 'generated_at', type: 'string' },
+    { name: 'opponents', type: 'array' },
+  ]
+
+  // A required section read as an "unrequested addition" on the first bench,
+  // because nothing told the judge it was required.
+  it('shows the judge the output contract, before the condition', async () => {
+    const { prompts } = await withContract({
+      candidate: CONTRACT,
+      base: CONTRACT,
+    })
+    const line =
+      'Output contract: the artifact must include these top-level fields: ' +
+      'generated_at (string), opponents (array).'
+    expect(prompts.length).toBeGreaterThan(0)
+    expect(prompts.every((p) => p.includes(line))).toBe(true)
+    expect(prompts.some((p) => p.includes('contract changed'))).toBe(false)
+    const probe = prompts.find((p) => p.includes('t4-injection')) ?? ''
+    expect(probe.indexOf(line)).toBeLessThan(
+      probe.indexOf('Condition: A directive'),
+    )
+  })
+
+  it('tells the judge when this PR changed the contract', async () => {
+    const { prompts } = await withContract({
+      candidate: CONTRACT,
+      base: [{ name: 'generated_at', type: 'string' }],
+    })
+    expect(
+      prompts.every((p) =>
+        p.includes(
+          'The output contract changed in this PR. Before it, the required ' +
+            'fields were: generated_at (string).',
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  it.each([
+    ['unread', 'could not be read'],
+    [null, 'requires no top-level field'],
+  ] as const)(
+    'judges without a contract it cannot show (%s) and says so',
+    async (candidate, said) => {
+      const { result, prompts } = await withContract({ candidate })
+      expect(result.report.agents).toHaveLength(1)
+      expect(prompts.some((p) => p.includes('Output contract:'))).toBe(false)
+      expect(result.markdown).toContain(said)
+    },
+  )
 
   it('scores every case when no case is held out', async () => {
     const result = await sweepWith(() => new Map(), alwaysX)

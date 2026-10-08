@@ -221,6 +221,22 @@ const SCORED_ANYWAY: Readonly<
     'so scored as ordinary cases',
 }
 
+// Fixed sentences: the report is public.
+const CONTRACT_NOTES: Readonly<
+  Record<NonNullable<AgentScore['outputContractNote']>, string>
+> = {
+  noRequired:
+    'Output contract not shown to the judge: the manifest requires no ' +
+    'top-level field.',
+  unread:
+    'Output contract not shown to the judge: the manifest could not be read.',
+}
+
+const contractNoteLines = (score: AgentScore): string[] =>
+  score.outputContractNote === undefined
+    ? []
+    : [CONTRACT_NOTES[score.outputContractNote], '']
+
 const controlLines = (score: AgentScore): string[] => {
   const anyway =
     score.controlsScoredAnyway === undefined
@@ -449,6 +465,7 @@ const agentSection = (
   }
 
   lines.push(...controlLines(score))
+  lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))
   lines.push('')
   lines.push(exclusionLine(score))
