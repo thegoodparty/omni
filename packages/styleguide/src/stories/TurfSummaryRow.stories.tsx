@@ -18,7 +18,7 @@ import { Button } from '../components/ui/button'
 // reports through. That weight is exactly why the success screen and the
 // details drawer must not each compose these parts by hand — the first
 // attempt at this did, and shipped a success screen with no assignee
-// control and an invented text label where the drawer has Mark as done.
+// control and an invented text label where the drawer has Mark done.
 const ORG_SLUG = 'demo-campaign'
 
 const turf = {
@@ -130,7 +130,7 @@ export const Surfaces: Story = {
   ),
 }
 
-// Press Mark as done on a turf with people left unlogged and the confirm
+// Press Mark done on a turf with people left unlogged and the confirm
 // names how many. A fully logged turf skips it — there is nothing to warn
 // about.
 export const MarkDoneConfirm: Story = {

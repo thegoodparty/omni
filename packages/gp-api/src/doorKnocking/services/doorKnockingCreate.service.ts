@@ -185,6 +185,30 @@ export type DoorKnockingOutreachScope = {
   organizationSlug: string
 }
 
+// A live door-knocking campaign anchor in this scope (Win same campaign,
+// Serve same org), so a client can't glue a new turf onto a stranger's
+// campaign or an archived one.
+const campaignAnchorWhere = (
+  scope: DoorKnockingOutreachScope,
+  id: number,
+): Prisma.OutreachWhereInput => ({
+  id,
+  outreachType: OutreachType.nativeDoorKnocking,
+  archivedAt: null,
+  // Anchors only. Without this a caller can pass a SIBLING's id: it matches
+  // on scope, type and archive state, so the new turf is written pointing at
+  // a sibling — and `collapseDoorKnockingCampaigns` resolves
+  // `campaignOutreachId ?? id` to an id with no anchor row in the result set,
+  // so the turf surfaces as a broken solo campaign instead of joining the one
+  // it asked for. The webapp always sends the anchor, so this closes an
+  // API-only hole rather than a reachable bug, and it corrupts silently
+  // rather than erroring.
+  campaignOutreachId: null,
+  ...(scope.campaignId !== null
+    ? { campaignId: scope.campaignId }
+    : { campaignId: null, organizationSlug: scope.organizationSlug }),
+})
+
 // Two ways into the same purchase, and the difference is when it happens.
 //
 // `create` writes the turf and its Outreach envelope, and buys a route in the
@@ -251,6 +275,45 @@ export class DoorKnockingCreateService extends createPrismaBase(
     return {}
   }
 
+  // A turf joining a campaign is cut for the audience, purpose, question and
+  // talking points the campaign already has, read off the anchor rather than
+  // trusted off the wire. Every turf in a campaign shares them, and the
+  // campaign's details view describes them once for all of its turfs, so a
+  // turf added later must not walk a different list or read a different card.
+  private async withCampaignSettings(
+    scope: DoorKnockingOutreachScope,
+    input: CreateDoorKnockingTurf,
+  ): Promise<CreateDoorKnockingTurf> {
+    if (input.campaignOutreachId === undefined) return input
+    const anchor = await this.client.outreach.findFirst({
+      where: campaignAnchorWhere(scope, input.campaignOutreachId),
+      select: {
+        script: true,
+        doorKnockingTurf: {
+          select: {
+            voterFileFilterId: true,
+            purpose: true,
+            communityInputQuestion: true,
+          },
+        },
+      },
+    })
+    if (!anchor?.doorKnockingTurf) {
+      throw new BadRequestException(
+        'Campaign anchor outreach not found in this scope',
+      )
+    }
+    const { voterFileFilterId, purpose, communityInputQuestion } =
+      anchor.doorKnockingTurf
+    return {
+      ...input,
+      voterFileFilterId,
+      purpose: purpose ?? undefined,
+      communityInputQuestion: communityInputQuestion ?? undefined,
+      talkingPoints: anchor.script ?? undefined,
+    }
+  }
+
   // A Serve org's scope is no longer a reason to skip the envelope — it is
   // written scoped by organization alone. That conditional envelope is what
   // forced the list lifecycle onto the turf in the first place, since a Serve
@@ -258,10 +321,12 @@ export class DoorKnockingCreateService extends createPrismaBase(
   async create(
     organization: Organization,
     scope: DoorKnockingOutreachScope,
-    input: CreateDoorKnockingTurf,
+    requested: CreateDoorKnockingTurf,
     actorUserId: number,
     link: ProposalOutreachLink = {},
   ): Promise<DoorKnockingTurf> {
+    const input = await this.withCampaignSettings(scope, requested)
+
     // Which product's words a create failure speaks in. The `eo-` prefix is
     // the whole rule, the same way every other Serve answer resolves it.
     const isServe = organization.slug.startsWith('eo-')
@@ -381,27 +446,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           let anchorCampaignName: string | null = null
           if (input.campaignOutreachId !== undefined) {
             const anchor = await tx.outreach.findFirst({
-              where: {
-                id: input.campaignOutreachId,
-                outreachType: OutreachType.nativeDoorKnocking,
-                archivedAt: null,
-                // Anchors only. Without this a caller can pass a SIBLING's id:
-                // it matches on scope, type and archive state, so the new turf
-                // is written pointing at a sibling — and
-                // `collapseDoorKnockingCampaigns` resolves
-                // `campaignOutreachId ?? id` to an id with no anchor row in the
-                // result set, so the turf surfaces as a broken solo campaign
-                // instead of joining the one it asked for. The webapp always
-                // sends the anchor, so this closes an API-only hole rather than
-                // a reachable bug, and it corrupts silently rather than erroring.
-                campaignOutreachId: null,
-                ...(scope.campaignId !== null
-                  ? { campaignId: scope.campaignId }
-                  : {
-                      campaignId: null,
-                      organizationSlug: scope.organizationSlug,
-                    }),
-              },
+              where: campaignAnchorWhere(scope, input.campaignOutreachId),
               select: { id: true, name: true },
             })
             if (!anchor) {

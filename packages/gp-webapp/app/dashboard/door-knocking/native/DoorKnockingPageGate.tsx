@@ -36,7 +36,7 @@ interface DoorKnockingPageGateProps {
   fromOutreachId?: number
   // `?create=1` — the hub's tile opening the create flow on arrival.
   openCreateFlow?: boolean
-  // `?campaignOutreachId=` — the drawer's "Add another turf" opening the
+  // `?campaignOutreachId=` — the drawer's "Add turf" opening the
   // flow onto an existing campaign.
   campaignOutreachId?: number
   // A priority chat card's link, so the walk it starts puts its check out.

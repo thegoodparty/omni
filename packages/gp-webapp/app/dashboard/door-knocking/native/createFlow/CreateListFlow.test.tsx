@@ -2723,21 +2723,52 @@ describe('CreateListFlow multi-turf save', () => {
     expect(screen.getByText('Turf 2')).toBeInTheDocument()
   })
 
-  it('joins an existing campaign without buying an anchor of its own', async () => {
+  // "Add turf" opens on the drawing surface, and leaving it is the
+  // decision: Save with turfs on it writes them and goes back to the
+  // campaign's drawer, with no success screen in between.
+  const joinProps = {
+    ...twoTurfs,
+    campaignOutreachId: 555,
+    siblingTurfs: [savedTurf],
+  }
+  const saveFromSurface = (
+    props: Partial<ComponentProps<typeof CreateListFlow>>,
+  ) => {
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="draw" drawFullScreen />,
+    )
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        {...props}
+        step="draw"
+        drawFullScreen={false}
+      />,
+    )
+  }
+
+  it('joins an existing campaign when its drawing surface is saved', async () => {
     const { turfs } = mockBatch()
 
-    await buildRoutes({
-      ...twoTurfs,
-      // "Add another turf" arrives with the campaign already anchored.
-      campaignOutreachId: 555,
-    })
-    await waitFor(() =>
-      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
-    )
+    saveFromSurface(joinProps)
+    await waitFor(() => expect(baseProps.onClose).toHaveBeenCalled())
 
-    // Both are siblings, and neither renames the campaign they are joining
-    // — the server reads the anchor's own name over anything on the wire.
+    // Both are siblings of the campaign, attached to its audience, and
+    // neither names it: the campaign owns its name, and the server reads
+    // its audience, purpose and card off the anchor.
     expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+    expect(turfs.map((body) => body.voterFileFilterId)).toEqual([21, 21])
+    for (const body of turfs) expect(body).not.toHaveProperty('campaignName')
+    expect(baseProps.onStepChange).not.toHaveBeenCalledWith('success')
+  })
+
+  it('goes back to the campaign when its drawing surface closes empty', () => {
+    const { turfs } = mockBatch()
+
+    saveFromSurface({ ...joinProps, turfDrafts: [] })
+
+    expect(baseProps.onClose).toHaveBeenCalled()
+    expect(turfs).toHaveLength(0)
   })
 
   // Closing a walk started here reopens the campaign's details drawer, and
@@ -2764,30 +2795,6 @@ describe('CreateListFlow multi-turf save', () => {
     expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Turf 2', outreachId: 902 }),
       901,
-    )
-  })
-
-  it('starts a walk carrying the campaign it joined', async () => {
-    mockBatch()
-    const props = { ...twoTurfs, campaignOutreachId: 555 }
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="name" />,
-    )
-    advanceToDraw(rerender, props, 'Fall canvass')
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
-    await waitFor(() =>
-      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
-    )
-    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
-
-    await screen.findByText('Turf 1')
-    fireEvent.click(
-      screen.getAllByRole('button', { name: 'Start knocking' })[0]!,
-    )
-
-    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Turf 1', outreachId: 901 }),
-      555,
     )
   })
 })

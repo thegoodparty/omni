@@ -175,7 +175,7 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
       // Rewind to the seed rather than to a fixed palette[0]: the next
       // create should start on whichever slot the assigner recommends
       // right now — a solo campaign gets palette[0], a candidate opening
-      // "Add another turf" on a two-turf campaign gets palette[2].
+      // "Add turf" on a two-turf campaign gets palette[2].
       //
       // The candidate's pick is released with it. This is the end of a
       // create, so the hue they chose for the last turf of it has no claim
@@ -312,7 +312,7 @@ export interface CreateListSurfaceProps {
   // these to pick a palette slot the campaign has not already used.
   siblingTurfs?: DoorKnockingTurf[]
   // The anchor Outreach id this new turf should join, when the drawer's
-  // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
+  // "Add turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
   // The turfs cut in this sitting but not yet paid for. Owned by the page
