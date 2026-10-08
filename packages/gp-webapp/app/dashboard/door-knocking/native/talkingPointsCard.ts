@@ -56,7 +56,13 @@ export const readTalkingPoints = (
   stored: string | null | undefined,
 ): StoredTalkingPoints | null => {
   if (!stored) return null
-  const lines = stored.split(/\r?\n/).map((line) => line.trim())
+  // Trimmed whole first: a trailing newline would otherwise count as a line
+  // and pass a three-line card off as a legacy row. A legacy row's only blank
+  // line was its third, never an end.
+  const lines = stored
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
   const nonBlank = lines.filter((line) => line.length > 0)
   if (nonBlank.length === 0) return null
 

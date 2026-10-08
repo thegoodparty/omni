@@ -147,6 +147,17 @@ describe('readTalkingPoints', () => {
       })
     })
 
+    it('does not count a trailing newline as a line', () => {
+      expect(readTalkingPoints('One.\nTwo.\nThree.\n')).toEqual({
+        points: [
+          { text: 'One.', bullet: false },
+          { text: 'Two.', bullet: false },
+          { text: 'Three.', bullet: false },
+        ],
+        legacy: false,
+      })
+    })
+
     // The accepted edge: four plain lines cannot be told apart from a legacy
     // row, so they read as bullets inside the composed frame. The words reach
     // the door either way.
