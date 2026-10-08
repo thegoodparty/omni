@@ -90,7 +90,10 @@ methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
 
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
-messages, calls `streamChatCompletion`, and pumps deltas/tool events through a
+messages (an assistant turn replays as its text, plus a `[Card you showed: …]`
+line with the args of each `present_*` or `ask_clarify_question` call, so the
+model remembers what its cards held; other tool calls do not replay), calls
+`streamChatCompletion`, and pumps deltas/tool events through a
 backpressure-bounded `ChunkQueue` (max 256). While a turn is open the service also
 emits a `{ type: 'ping' }` keep-alive every 15s (`CHAT_STREAM_HEARTBEAT_MS`) —
 tool-arg generation (e.g. an ordinance draft body) streams nothing else for

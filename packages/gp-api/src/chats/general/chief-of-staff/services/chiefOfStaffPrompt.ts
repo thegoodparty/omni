@@ -14,7 +14,10 @@ import {
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
-import { OUTREACH_MESSAGE_RULES } from '../../chat-tools/presentOutreachProposal.tool'
+import {
+  OUTREACH_MESSAGE_RULES,
+  PICKED_OPTION_RULE,
+} from '../../chat-tools/presentOutreachProposal.tool'
 import {
   buildSampleSizingRules,
   EXAMPLE_AUDIENCE,
@@ -298,7 +301,13 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
             (has('read_past_outreach')
               ? ' Call `read_past_outreach` first so you can say what came back last time.'
               : ''),
+          PICKED_OPTION_RULE,
           OUTREACH_MESSAGE_RULES,
+        ]
+      : []),
+    ...(has('present_outreach_proposal') && has('ask_clarify_question')
+      ? [
+          '- When you recommend more than one piece of outreach (a sequence of texts, a text and a call), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
         ]
       : []),
   ]
