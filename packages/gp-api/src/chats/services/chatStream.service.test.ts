@@ -185,6 +185,10 @@ class FakeChatStore {
     return Promise.resolve()
   }
 
+  recordAssistantUsage(): Promise<void> {
+    return Promise.resolve()
+  }
+
   getPersistedMessages(conversationId: string): ChatMessage[] {
     return [...(this.messagesByConversation.get(conversationId) ?? [])]
   }

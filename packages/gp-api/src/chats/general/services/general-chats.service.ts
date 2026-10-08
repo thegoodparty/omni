@@ -295,6 +295,8 @@ export class GeneralChatsService {
           role: ChatMessageRole.assistant,
           content: canned,
           clientMessageId: `${args.clientMessageId}:assistant`,
+          inputTokens: 0,
+          outputTokens: 0,
         })
         yield { type: 'text', delta: canned }
         yield { type: 'done', assistantMessageId: saved.id }

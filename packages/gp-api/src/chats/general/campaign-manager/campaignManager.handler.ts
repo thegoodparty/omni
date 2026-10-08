@@ -275,6 +275,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       conversationId,
       role: ChatMessageRole.assistant,
       content: greeting,
+      inputTokens: 0,
+      outputTokens: 0,
     })
   }
 

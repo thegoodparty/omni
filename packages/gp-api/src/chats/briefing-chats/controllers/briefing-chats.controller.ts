@@ -18,6 +18,7 @@ import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
+import { summarizeConversationUsage } from '@/chats/services/conversationUsage.util'
 import { BriefingChatCreateService } from '../services/briefingChatCreate.service'
 import { BriefingChatsService } from '../services/briefing-chats.service'
 import {
@@ -187,6 +188,7 @@ export class BriefingChatsController {
         content: m.content,
         createdAt: m.createdAt,
       })),
+      usage: summarizeConversationUsage(messages),
     }
   }
 
