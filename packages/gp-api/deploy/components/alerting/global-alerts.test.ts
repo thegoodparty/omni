@@ -2,8 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
 import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
+import { logSignalExpr } from './log-signals'
 import { RECORDING_RULES } from './provisioned-alerts'
 import { routeErrorAlerts } from './route-alerts'
+
+// Since 2026-09-29 no hand-written global alert queries Loki: each reads a
+// recorded signal instead, and the LogQL that decides WHAT is counted lives on
+// the recording rule. The assertions below are about what is counted, so this is
+// where they have to look. The alert is still the right place to assert the
+// window, the threshold and the prose.
+const CAMPAIGN_ERRORS = 'gp_api:public_campaign_lookup_errors:count1m'
+const CAMPAIGN_RESOLVABLE = 'gp_api:public_campaign_lookups_resolvable:count1m'
+const REPOINT_COLLISIONS = 'gp_api:person_id_repoint_collisions:count1m'
 
 // Mirrors grafana.ts's `alert.timeRangeSeconds ?? 600` — the window the
 // alerting engine actually fetches when an alert does not pin its own.
@@ -71,9 +81,25 @@ describe('public-campaigns-lookup-error-ratio', () => {
   // profile" and is ~95% of its traffic. In the numerator it would be absurd;
   // in the denominator it dilutes a total outage down to single-digit percent.
   it('counts only server errors, against resolvable lookups', () => {
-    expect(alert!.expr).toContain('response_statusCode >= 500')
-    expect(alert!.expr).not.toContain('response_statusCode >= 400')
-    expect(alert!.expr).toContain('response_statusCode != 404')
+    expect(logSignalExpr(CAMPAIGN_ERRORS)).toContain(
+      'response_statusCode >= 500',
+    )
+    expect(logSignalExpr(CAMPAIGN_ERRORS)).not.toContain(
+      'response_statusCode >= 400',
+    )
+    expect(logSignalExpr(CAMPAIGN_RESOLVABLE)).toContain(
+      'response_statusCode != 404',
+    )
+  })
+
+  // Both halves read the recorded signal, and the volume floor reads the very
+  // same series as the denominator. A floor measured against a different
+  // population from the ratio it qualifies is the bug the null-status clause
+  // was added to both halves of the sibling rule to avoid.
+  it('measures its floor against the same population as its ratio', () => {
+    const occurrences =
+      alert!.expr.match(new RegExp(CAMPAIGN_RESOLVABLE, 'g')) ?? []
+    expect(occurrences.length).toBe(2)
   })
 
   // Without a floor, a quiet window turns one stray 500 into a page.
@@ -246,10 +272,11 @@ const scheduledLokiReads = (): (Alert | RecordingRule)[] => [
  * account was measured at 4.4x the allowance with production perfectly healthy.
  *
  * A per-rule cap can only ever be a sanity check; the real constraint is the
- * total below. This is set to leave no rule able to take a fifth of the budget
- * on its own.
+ * total below. This is set at the one log-backed rule we still have, so anything
+ * wider than a 6h window on a 30-minute interval has to become a recording rule
+ * rather than a slower alert.
  */
-const MAX_REREAD_FACTOR = 24
+const MAX_REREAD_FACTOR = 12
 
 /**
  * The most of the allowance every scheduled read may be budgeted for, together.
@@ -260,32 +287,53 @@ const MAX_REREAD_FACTOR = 24
  * and ad-hoc queries — measured at 149 GB/day on 2026-09-29, about 14% of the
  * allowance, which nothing in a test can bound.
  *
- * Calibration, so this is a measurement rather than a preference: on 2026-09-29
- * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
- * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
- * GB/day, or roughly half the allowance, leaving the other half for humans and
- * for whatever the next alert needs. The set totals 124 today.
+ * AND IT HAS TO BE SET AGAINST PEAK TRAFFIC, which is the part that caught us
+ * out. A rule's cost scales with the volume of the stream it selects —
+ * `{service_name="gp-api", deployment_environment_name="prod"}` — while the
+ * allowance scales with total account ingest, gp-api dev and election-api
+ * included. gp-api prod is a small share of that overnight and a large one at
+ * midday: 67.8 MB/h at 07:30 UTC on 2026-09-29, 281 MB/h at 09:30. So an
+ * unchanged rule set that measured 0.79 of the allowance at 08:30 measured 2.84
+ * at 10:30, and was still over two days later. A factor budget is therefore not
+ * scale-invariant, it has to be calibrated against the worst hour, and it
+ * drifts upward as the product grows.
  *
- * WHAT THE REMAINING HEADROOM WILL AND WILL NOT BUY, since this is where the
- * next person will want to spend it. 118 of those 124 are the eleven
- * hand-written log alerts; the five route alerts are 5 and the door-knocking
- * recording rule is 1. Another rule at the per-rule ceiling of 24 does not fit,
- * and neither does putting the four Geoapify tiers back on Loki — a 24h window
- * cannot be evaluated more than once an hour without breaching that ceiling on
- * its own, so four of them is 96. That is why door-knocking spend is the one
- * thing still read through a recording rule.
+ * Calibration, at that peak rather than at the overnight floor: on 2026-09-29
+ * the set totalled 161 in effective factor and the account read 3,095 GB/day
+ * against a 1,108 GB/day allowance, i.e. ~19 GB/day per unit. 40 therefore
+ * predicts ~770 GB/day, about 70% of the allowance in the worst hour measured
+ * and far less the rest of the day.
  *
- * The factor is a per-rule lower bound rather than an exact cost, which the
- * calibration absorbs on average and is worth knowing when reading one line of
- * the breakdown: the two ratio rules evaluate their stream three times inside a
- * single expression (numerator, denominator, volume floor), so each costs about
- * three times what its factor says.
+ * The set totals 29 today and all but 12 of it sits at the 1x floor, which is
+ * as close to the floor as this estate gets. Two shapes reach that floor and
+ * they are not interchangeable. A recording rule reads one minute once a minute
+ * and lets an alert assemble any window it likes in PromQL, so it is the only
+ * way to afford a window wider than the interval — a 24h Geoapify tier, a 6h
+ * sweep, a 1h settlement check — but it can only write ONE unlabelled series.
+ * An alert that needs a dimension sets its own window equal to its interval
+ * instead, which is the same 1x and costs detection latency rather than
+ * coverage, because consecutive windows tile the timeline. The route alerts and
+ * `public-person-profiles-error-ratio` are in that second position.
  *
- * If this test fails, the answer is almost never a bigger number here. It is a
- * recording rule: one Loki read a minute, shared by every alert that wants a
- * window wider than a minute. See RECORDING_RULES in provisioned-alerts.ts.
+ * The 12 is `district-auto-match-no-district-spike`, the one rule neither shape
+ * fits: it counts DISTINCT campaigns over 6h, so recording it would put
+ * campaign ids into Prometheus labels — an unbounded number of new series
+ * during exactly the regression it watches for — and a 6h evaluation interval
+ * would be six hours of latency on a 6h trend. 6h on 30m is the compromise.
+ *
+ * The factor is a per-rule lower bound rather than an exact cost: the profile
+ * ratio evaluates its stream three times inside one expression (numerator,
+ * denominator, volume floor), so it costs about 3 where it counts 1. The
+ * calibration absorbs that on average; a new rule that repeats a leg does the
+ * same thing again.
+ *
+ * If this test fails, the answer is almost never a bigger number here, and it is
+ * not a slower interval either — that buys cost with detection latency on the
+ * rules least able to afford it. It is a recording rule: one Loki read a minute,
+ * shared by every alert that wants a window wider than a minute, at no latency
+ * cost at all. See log-signals.ts.
  */
-const MAX_TOTAL_REREAD_FACTOR = 130
+const MAX_TOTAL_REREAD_FACTOR = 40
 
 describe('people-person-id-repoint-collision', () => {
   const alert = GLOBAL_ALERTS.find(
@@ -306,11 +354,18 @@ describe('people-person-id-repoint-collision', () => {
     'person_id drift repaired; gp-api rows repointed at the surviving person',
   ]
 
-  /** The `|= "..."` and `|~ "..."` filters, as the matcher Loki would apply. */
+  /**
+   * The `|= "..."` and `|~ "..."` filters, as the matcher Loki would apply.
+   *
+   * Read off the recorded signal rather than off the alert, which is PromQL
+   * since 2026-09-29. The filters are what these tests are about, so they follow
+   * the filters.
+   */
+  const signal = logSignalExpr(REPOINT_COLLISIONS)
   const matchesExpr = (line: string) => {
-    const [, literal] = /\|= "([^"]+)"/.exec(alert!.expr) ?? []
-    const [, pattern] = /\|~ "([^"]+)"/.exec(alert!.expr) ?? []
-    if (!literal || !pattern) throw new Error(`no filters in: ${alert!.expr}`)
+    const [, literal] = /\|= "([^"]+)"/.exec(signal) ?? []
+    const [, pattern] = /\|~ "([^"]+)"/.exec(signal) ?? []
+    if (!literal || !pattern) throw new Error(`no filters in: ${signal}`)
     return line.includes(literal) && new RegExp(pattern).test(line)
   }
 
@@ -349,9 +404,7 @@ describe('people-person-id-repoint-collision', () => {
   // is applied to every line the selector returns. The cheap literal in front
   // is what keeps a 6h window affordable.
   it('narrows with a literal before applying the alternation', () => {
-    expect(alert!.expr.indexOf('|= "')).toBeLessThan(
-      alert!.expr.indexOf('|~ "'),
-    )
+    expect(signal.indexOf('|= "')).toBeLessThan(signal.indexOf('|~ "'))
   })
 
   // Unrouted alerts land on the default receiver. This one names a human
@@ -527,6 +580,28 @@ describe('recording rules', () => {
   it('ends its window before now, to clear the ingestion lag', () => {
     for (const rule of RECORDING_RULES) {
       expect(rule.toSeconds, rule.slug).toBeGreaterThan(0)
+    }
+  })
+
+  // A parser runs per line on everything the selector returned, so a `| json`
+  // with no literal in front of it parses the whole gp-api stream — 271,050
+  // lines in the hour to 2026-09-29 14:39Z, to reach 36 that mattered. The
+  // bytes are the same either way; what this buys is an evaluation that cannot
+  // run long enough to time out, which on a rule whose `execErrState` is
+  // `Alerting` would be a false page. Every one of these has a literal
+  // available, because the field the filter names appears in the line.
+  it('narrows with a literal before it parses', () => {
+    for (const rule of RECORDING_RULES) {
+      const parser = rule.expr.indexOf('| json')
+      if (parser === -1) continue
+
+      const literal = rule.expr.indexOf('|= "')
+      expect(literal, `${rule.slug} parses before it filters`).toBeGreaterThan(
+        -1,
+      )
+      expect(literal, `${rule.slug} filters after it parses`).toBeLessThan(
+        parser,
+      )
     }
   })
 
