@@ -832,6 +832,8 @@ export {
   type ChatMessageFeedback,
   ChatMessageSchema,
   type ChatMessage,
+  ChatConversationUsageSchema,
+  type ChatConversationUsage,
   ChatConversationSchema,
   type ChatConversation,
   ChatHistoryItemSchema,
