@@ -944,9 +944,10 @@ because a stored 0 under a real `pricingVersion` reads as "this run was
 free" and `sharesPricing()` would call two arms comparably priced when one
 was never priced at all. And absent rather than fatal: cost is measured
 evidence, measured evidence never gates a verdict, so an unpriceable run
-keeps its status and its answer and loses only its cost line. This is a live
-path, not a hypothetical — every chat scope declares a `claude-opus-4-7`
-fallback that `pricing.ts` has no rates for.
+keeps its status and its answer and loses only its cost line. Every model a
+chat handler lists, every judge seat and every sweepable manifest's model has
+rates today, and tests fail by name when one doesn't, so this path is for a
+model added without its rates.
 
 **Compare with `priceUsd()` from `pricing.ts`. Do not compare
 `usdAtCapture` between two records.** A cached base arm can predate its
