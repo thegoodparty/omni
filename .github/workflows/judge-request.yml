@@ -101,6 +101,8 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
+      # judge.yml's sweep job reads gp-api.yml's runs to wait for the preview.
+      actions: read
     uses: ./.github/workflows/judge.yml
     with:
       # The reusable input is declared as a string and so is this one, but the
