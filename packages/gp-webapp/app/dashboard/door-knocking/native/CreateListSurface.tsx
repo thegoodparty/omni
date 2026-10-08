@@ -16,7 +16,7 @@ import {
 import { voterPackQueryOptions } from './useVoterPack'
 import { savedListUnshadeableCriteria } from './savedListFilters'
 import { hasEmptiableCriteria } from './createFlow/emptiableCriteria'
-import CreateListFlow from './createFlow/CreateListFlow'
+import CreateListFlow, { type JoinSaveState } from './createFlow/CreateListFlow'
 import type {
   CreateFlowStep,
   RecommendedCriteria,
@@ -315,6 +315,10 @@ export interface CreateListSurfaceProps {
   // "Add turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
+  // The drawing panel's Save while joining, and the write's state back.
+  // Threaded straight through, like the id above.
+  joinSaveRequest?: number
+  onJoinSaveStateChange?: (state: JoinSaveState) => void
   // The turfs cut in this sitting but not yet paid for. Owned by the page
   // because the canvas draws them; threaded down so the draw step can list
   // them and the save can buy a route for each.
@@ -367,6 +371,8 @@ export default function CreateListSurface({
   onPreselectApplied,
   siblingTurfs,
   campaignOutreachId,
+  joinSaveRequest,
+  onJoinSaveStateChange,
   turfDrafts,
   draftStats,
   onSelectDraft,
@@ -576,6 +582,8 @@ export default function CreateListSurface({
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
+      joinSaveRequest={joinSaveRequest}
+      onJoinSaveStateChange={onJoinSaveStateChange}
       turfDrafts={turfDrafts}
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}

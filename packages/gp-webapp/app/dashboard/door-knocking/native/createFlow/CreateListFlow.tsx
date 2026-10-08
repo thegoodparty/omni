@@ -149,6 +149,8 @@ const toCreateErrorMessage = (error: unknown): string => {
   )
 }
 
+export type JoinSaveState = { pending: boolean; error: string | null }
+
 interface CreateListFlowProps {
   step: CreateFlowStep
   filters: VoterFileFilters
@@ -313,6 +315,11 @@ interface CreateListFlowProps {
   // from `?campaignOutreachId=` on the URL — the drawer's "Add another
   // turf" affordance is what sets it.
   campaignOutreachId?: number
+  // Joining a campaign only: bumped by the page when the drawing panel's
+  // Save is pressed with turfs on it, and the write's state reported back
+  // so the panel can say it is saving or why it failed.
+  joinSaveRequest?: number
+  onJoinSaveStateChange?: (state: JoinSaveState) => void
   // A chat card's link (`?proposalKey=` and friends). Rides on the create of
   // a new campaign's anchor turf only: whole on Serve, so the walk puts that
   // card's check out, and the key alone on Win.
@@ -430,6 +437,8 @@ export default function CreateListFlow({
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
+  joinSaveRequest = 0,
+  onJoinSaveStateChange,
   proposalLink,
   turfDrafts,
   draftStats,
@@ -1537,8 +1546,7 @@ export default function CreateListFlow({
     ? audienceEmptyMessage(filters, savedListId !== null)
     : null
 
-  // The press that writes the turfs, from the draw step's CTA or, when
-  // joining a campaign, from the drawing surface's own Save.
+  // The press that writes the campaign, from the draw step's CTA.
   const pressSave = () => {
     if (gate.requirement !== null) {
       setGateOrigin('build')
@@ -1549,24 +1557,38 @@ export default function CreateListFlow({
     save.mutate()
   }
 
-  // Joining a campaign has no draw step to come back to: the drawing
-  // surface is the whole flow. So leaving it is the decision. Save with
-  // turfs on it writes them, and the draw step only shows if that write
-  // fails, with its retry. Leaving with nothing on it,
-  // Cancel included, goes back to the campaign. A turf over the stop cap
-  // stays on the draw step, where its card says why.
+  // Joining a campaign, the drawing surface is the whole flow: the campaign
+  // already exists, so nothing here may send the candidate anywhere else.
+  // The panel's Save asks for the write by bumping `joinSaveRequest` and the
+  // map stays up while it runs; success goes back to the campaign's drawer,
+  // and a failure is reported on the panel, where Save tries again. No Pro
+  // gate stands in front of it, because gp-api refuses the write without
+  // Pro and that refusal is reported on the panel like any other.
+  const lastJoinSaveRequest = useRef(joinSaveRequest)
+  useEffect(() => {
+    if (joinSaveRequest === lastJoinSaveRequest.current) return
+    lastJoinSaveRequest.current = joinSaveRequest
+    if (joining && !save.isPending) save.mutate()
+    // Only the request is the event; the rest is read as it stands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinSaveRequest])
+  const joinSaveError = save.isError
+    ? toCreateErrorMessage(save.error)
+    : partialFailure
+      ? `${toCreateErrorMessage(partialFailure)} The turfs that were created are saved. Press Save to try the rest.`
+      : null
+  useEffect(() => {
+    if (!joining) return
+    onJoinSaveStateChange?.({ pending: save.isPending, error: joinSaveError })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joining, save.isPending, joinSaveError])
+  // Leaving the surface without saving, Cancel or a Save with nothing drawn,
+  // goes back to the campaign too.
   const wasFullScreen = useRef(drawFullScreen)
   useEffect(() => {
     const closed = wasFullScreen.current && !drawFullScreen
     wasFullScreen.current = drawFullScreen
-    if (!joining || !closed || stage !== 'draw') return
-    if (drawnDrafts.length === 0) {
-      onClose()
-      return
-    }
-    if (overCapDrafts.length > 0) return
-    pressSave()
-    // Only the surface closing is the event; the rest is read as it stands.
+    if (joining && closed) onClose()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawFullScreen])
 
@@ -1585,20 +1607,8 @@ export default function CreateListFlow({
     resumedRef.current = true
     return null
   }
-  // Joining a campaign, the draw step has nothing to say while the save
-  // runs: flashing it between the map and the campaign's drawer read as a
-  // step the candidate had not been shown. It appears only when it has
-  // something to act on — a failed write, a turf over the cap, or the gate.
-  if (
-    joining &&
-    stage === 'draw' &&
-    !gateOpen &&
-    !save.isError &&
-    partialFailure === null &&
-    overCapDrafts.length === 0
-  ) {
-    return null
-  }
+  // Joining a campaign never shows the flow's sheet, see above.
+  if (joining) return null
 
   const title = stage === 'success' ? '' : STAGE_META[stage].title
   const caption =
@@ -1607,11 +1617,7 @@ export default function CreateListFlow({
       : stage === 'details' && eventDetails.prefillNote
         ? eventDetails.prefillNote
         : STAGE_META[stage].caption
-  // Joining a campaign is one step: the drawing surface. The questions the
-  // stepper counts were answered when the campaign was made.
-  const { currentStep, totalSteps } = joining
-    ? { currentStep: 1, totalSteps: 1 }
-    : stepperPosition(stage, extraStage)
+  const { currentStep, totalSteps } = stepperPosition(stage, extraStage)
   // Null on the purpose stage, whose cards are the advance.
   const detailsCta =
     stage === 'details'
@@ -1641,11 +1647,7 @@ export default function CreateListFlow({
       locked={lockedAtOpen}
       trackedStep={gateOpen || stage === 'success' ? null : stage}
       settled={stage === 'success'}
-      onBack={
-        previousStage(stage, extraStage) && !gateOpen && !joining
-          ? back
-          : undefined
-      }
+      onBack={previousStage(stage, extraStage) && !gateOpen ? back : undefined}
       dirty={dirty}
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner). Not on the draw stage: the map is the
@@ -1758,13 +1760,9 @@ export default function CreateListFlow({
                           // this is the press that writes the campaign. It
                           // names what it creates rather than what it spends:
                           // nothing is bought here any more.
-                          label: joining
-                            ? save.isPending
-                              ? 'Saving turfs'
-                              : 'Save turfs'
-                            : save.isPending
-                              ? 'Creating campaign'
-                              : 'Create campaign',
+                          label: save.isPending
+                            ? 'Creating campaign'
+                            : 'Create campaign',
                           // A campaign with no boundary has nothing in it,
                           // and a turf over the stop cap cannot be routed —
                           // the card above says which one and why, so this

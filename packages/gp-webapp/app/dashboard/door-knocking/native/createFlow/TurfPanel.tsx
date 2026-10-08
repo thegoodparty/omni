@@ -64,6 +64,11 @@ interface TurfPanelProps {
   // Keep what this drawing session did, and hand back to the step. Never
   // blocked: a turf that cannot be saved is refused per card, below.
   onSave: () => void
+  // Adding turfs to a campaign, Save writes from here and the map stays up:
+  // `saving` while that runs, and why it failed when it did, so the
+  // candidate retries where they drew.
+  saving?: boolean
+  saveError?: string | null
   // Put the campaign's turfs back the way they were when the surface opened.
   onCancel: () => void
   // Whether that restore would change anything, so Cancel asks first only
@@ -143,6 +148,8 @@ export const TurfPanel = ({
   onRename,
   onAssign,
   onSave,
+  saving = false,
+  saveError = null,
   onCancel,
   dirty,
   onMapControlsOffsetChange,
@@ -476,11 +483,24 @@ export const TurfPanel = ({
           and the map's own chrome is feedback on the gesture. Pinned outside
           the scroller so a long turf list never pushes them off, and outside
           the `showBody` gate so `peek` keeps them reachable. */}
-      <div className="flex shrink-0 gap-3 border-t border-border px-5 py-4">
+      {saveError && (
+        <p
+          role="alert"
+          className="shrink-0 border-t border-border px-5 pt-3 text-sm text-destructive"
+        >
+          {saveError}
+        </p>
+      )}
+      <div
+        className={`flex shrink-0 gap-3 px-5 py-4 ${
+          saveError ? '' : 'border-t border-border'
+        }`}
+      >
         <Button
           type="button"
           variant="ghost"
           className="flex-1"
+          disabled={saving}
           onClick={() => (dirty ? setDiscardOpen(true) : onCancel())}
         >
           Cancel
@@ -488,6 +508,8 @@ export const TurfPanel = ({
         <Button
           type="button"
           className="flex-1"
+          disabled={saving}
+          loading={saving}
           onClick={() => {
             // Refused rather than disabled. A dead Save button says a turf
             // is wrong without saying which one or why, and the answer is

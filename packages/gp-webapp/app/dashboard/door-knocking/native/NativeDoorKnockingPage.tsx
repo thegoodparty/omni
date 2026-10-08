@@ -46,6 +46,7 @@ import { type CreateFlowStep } from './createFlow/CreateListFlow'
 import { HARD_STOP_LIMIT } from './createFlow/stopCap'
 import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
+import type { JoinSaveState } from './createFlow/CreateListFlow'
 import { TurfPanel } from './createFlow/TurfPanel'
 import { useTeamOptions } from './useTeamOptions'
 import { useDrawExpand } from './useDrawExpand'
@@ -568,6 +569,14 @@ export default function NativeDoorKnockingPage({
   const [pendingAssigneeId, setPendingAssigneeId] = useState<number | null>(
     null,
   )
+  // Joining a campaign, Save writes from the map rather than handing back to
+  // a draw step: the panel bumps the request, the flow runs the write, and
+  // reports back what the panel says while it runs or after it fails.
+  const [joinSaveRequest, setJoinSaveRequest] = useState(0)
+  const [joinSave, setJoinSave] = useState<JoinSaveState>({
+    pending: false,
+    error: null,
+  })
   // What the next turf will be called, typed before a single corner is
   // down. The card for the turf being cut is open from the moment the
   // surface is, so naming is the first thing that can be done rather than
@@ -1580,6 +1589,8 @@ export default function NativeDoorKnockingPage({
                   }
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
+                  joinSaveRequest={joinSaveRequest}
+                  onJoinSaveStateChange={setJoinSave}
                   {...(proposalLink && { proposalLink })}
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}
@@ -1631,7 +1642,18 @@ export default function NativeDoorKnockingPage({
                   }
                   updateDraft(activeDraft.clientId, { assigneeId })
                 }}
-                onSave={() => closeDrawing()}
+                onSave={() => {
+                  if (
+                    campaignOutreachId !== undefined &&
+                    turfDrafts.some(isDrawnTurf)
+                  ) {
+                    setJoinSaveRequest((count) => count + 1)
+                    return
+                  }
+                  closeDrawing()
+                }}
+                saving={joinSave.pending}
+                saveError={joinSave.error}
                 onCancel={cancelDrawing}
                 dirty={sessionDirty}
                 onMapControlsOffsetChange={setMapControlsOffset}
