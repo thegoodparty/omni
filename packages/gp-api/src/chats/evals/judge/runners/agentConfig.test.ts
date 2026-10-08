@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ratesFor, UnpriceableRunError } from '../pricing'
+import { ratesFor } from '../pricing'
 import { AGENTS } from '../agents'
 import { agentConfigFor, AgentConfigError } from './agentConfig'
 
@@ -165,16 +165,12 @@ describe('the published manifests all project', () => {
 // background agent, on a green run, at full price.
 //
 // This caught the live case: all sixteen manifests say `sonnet` or
-// `claude-fable-5`, and RATES held only `claude-sonnet-4-6`.
+// `claude-fable-5`, and RATES held only `claude-sonnet-4-6`. Every sweepable
+// agent is priced now, so a new model fails here by agent name.
 describe('the published manifests name a model the delta can price', () => {
   const sweepable = AGENTS.filter(
     (agent) => agent.shape === 'background' && agent.status !== 'blocked',
   ).map((agent) => agent.agentId)
-
-  // Named, so that adding its rates is a one-line move off this list rather
-  // than a discovery. Listing it is the point: an agent whose cost cannot be
-  // reported is a known gap, not a surprise found beside a verdict.
-  const UNPRICED = ['race_opponent_actions']
 
   const modelOf = (agentId: string): string =>
     String(
@@ -182,16 +178,7 @@ describe('the published manifests name a model the delta can price', () => {
         .model,
     )
 
-  it.each(sweepable.filter((id) => !UNPRICED.includes(id)))(
-    "%s's model has rates on record",
-    (agentId) => {
-      expect(() => ratesFor(modelOf(agentId))).not.toThrow()
-    },
-  )
-
-  // The other half, so the list above cannot rot into a lie: an agent on it
-  // that HAS become priceable fails here and gets taken off.
-  it.each(UNPRICED)('%s is still unpriced, and known to be', (agentId) => {
-    expect(() => ratesFor(modelOf(agentId))).toThrow(UnpriceableRunError)
+  it.each(sweepable)("%s's model has rates on record", (agentId) => {
+    expect(() => ratesFor(modelOf(agentId))).not.toThrow()
   })
 })

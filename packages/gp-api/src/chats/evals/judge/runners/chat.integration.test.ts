@@ -197,13 +197,13 @@ describe('runChatCase', () => {
   it(
     'keeps the answer when nobody can price the model',
     async () => {
-      // Every chat scope's chain falls back to claude-opus-4-7, which has no
-      // rates on record. A guessed rate would make the cost delta printed
+      // A model with no rates on record, as a newly added chat model is until
+      // someone records its rates. A guessed rate would make the cost delta printed
       // beside a verdict fiction, so the run goes unpriced — but cost is
       // measured evidence, and measured evidence never gates a verdict. The
       // answer survives and only the cost line is missing.
       const record = await runFor('chief_of_staff', {
-        script: { ...textOnlyScript, model: 'claude-opus-4-7' },
+        script: { ...textOnlyScript, model: 'claude-unpriced-model' },
       })
 
       expect(record.status).toBe('produced')

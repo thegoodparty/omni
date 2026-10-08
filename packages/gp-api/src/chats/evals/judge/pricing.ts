@@ -70,6 +70,31 @@ const RATES: Record<string, ModelRates> = {
     cacheReadPerMillion: 0.3,
     cacheWritePerMillion: 3.75,
   },
+
+  // The two entries below are Anthropic's published list prices, read from
+  // https://platform.claude.com/docs/en/about-claude/pricing on 2026-10-08:
+  // base input, output, cache hits, and 5-minute cache writes (the duration
+  // the `sonnet` entry above prices). Nothing in the repo prices either model,
+  // and the agent harness's `_PRICE_PER_MTOK` has no Fable entry at all.
+  // Adding a model changes no existing rate, so PRICING_VERSION stays put.
+
+  // race_opponent_actions' manifest model, the one background agent not on
+  // `sonnet`. Without it every run of that agent read as "at least $X".
+  'claude-fable-5': {
+    inputPerMillion: 10,
+    outputPerMillion: 50,
+    cacheReadPerMillion: 1,
+    cacheWritePerMillion: 12.5,
+  },
+
+  // The second model every chat handler lists. A turn that falls back to it
+  // is otherwise unpriceable.
+  'claude-opus-4-7': {
+    inputPerMillion: 5,
+    outputPerMillion: 25,
+    cacheReadPerMillion: 0.5,
+    cacheWritePerMillion: 6.25,
+  },
 }
 
 export class UnpriceableRunError extends Error {}
