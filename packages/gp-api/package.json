@@ -7,7 +7,7 @@
   "license": "CC0-1.0",
   "scripts": {
     "ai-rules:update": "npm --prefix ../.. run ai-rules:update",
-    "build": "npm run build:contracts && nest build",
+    "build": "npm run build:contracts && tsc --noEmit -p tsconfig.build.json && nest build",
     "build:contracts": "tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:env-contract": "tsx scripts/check-env-contract.ts",
     "codegen": "graphql-codegen",
@@ -27,7 +27,7 @@
     "seed:scenario": "tsx ./seed/scenarios.ts",
     "start": "nest start",
     "start:debug": "nest start --debug --watch",
-    "start:dev": "npm run build:contracts && tsx scripts/check-pending-migrations.ts && NODE_OPTIONS=--max-old-space-size=6144 nest start --watch",
+    "start:dev": "npm run build:contracts && tsx scripts/check-pending-migrations.ts && NODE_OPTIONS=--max-old-space-size=6144 nest start --watch --type-check",
     "start:prod": "node -r ./dist/otel.js dist/main",
     "test": "npx vitest run",
     "types": "npm run build:contracts && npx tsc --noEmit",
