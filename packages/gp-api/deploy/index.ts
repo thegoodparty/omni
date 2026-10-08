@@ -98,14 +98,22 @@ export = async () => {
     throw new Error('DB_PASSWORD must be set in the secret.')
   }
 
+  // The task role and task definition below name these queues by string
+  // rather than through the resources' outputs. An SQS create waits ~25s for
+  // its attributes to settle, and the DLQ-then-queue chain put ~50s in front
+  // of the ECS service on every new preview. Nothing in the task needs the
+  // queues until it has booted, by which time they exist.
+  const dlqName = `${stage}-DLQ.fifo`
+  const queueName = `${stage}-Queue.fifo`
+
   const dlq = new aws.sqs.Queue('main-dlq', {
-    name: `${stage}-DLQ.fifo`,
+    name: dlqName,
     fifoQueue: true,
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  const queue = new aws.sqs.Queue('main-queue', {
-    name: `${stage}-Queue.fifo`,
+  new aws.sqs.Queue('main-queue', {
+    name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
@@ -467,14 +475,9 @@ export = async () => {
     dev: 'agent-dispatch-dev.fifo',
     prod: 'agent-dispatch-prod.fifo',
   })
-  const staticQueueArns = [agentDispatchQueueName]
-    .filter((name): name is string => name !== '')
+  const taskRoleQueueArns = [queueName, dlqName, agentDispatchQueueName]
+    .filter((name) => name !== '')
     .map((name) => `arn:aws:sqs:${region}:${accountId}:${name}`)
-  const taskRoleQueueArns: pulumi.Input<string>[] = [
-    queue.arn,
-    dlq.arn,
-    ...staticQueueArns,
-  ]
 
   // The curated local-dev bundle POST /v1/dev-env/bundle vends. Dev only:
   // preview and prod never get the id, so the endpoint stays dark there even
@@ -575,7 +578,7 @@ export = async () => {
       }),
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
-      SQS_QUEUE: queue.name,
+      SQS_QUEUE: queueName,
       // Where the per-send button in a fulfilment Slack message points. Not
       // select()-ed by environment on purpose: gp-admin is a single
       // deployment fronting dev and prod (see gp-webapp/appEnv.ts, which
