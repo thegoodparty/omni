@@ -228,7 +228,7 @@ class TestLoadPromptFromBraintrust:
                 project="test-project",
                 slug="my-prompt"
             )
-            mock_prompt.build.assert_called_once_with(var="test-value")
+            mock_prompt.build.assert_called_once_with(var="test-value", strict=True)
 
     def test_loads_prompt_returns_fallback_when_prompt_not_found(self, monkeypatch):
         monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")
@@ -249,6 +249,30 @@ class TestLoadPromptFromBraintrust:
             )
 
             assert result == "Fallback: World"
+
+    def test_falls_back_when_hosted_prompt_misses_a_variable(self, monkeypatch):
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")
+
+        mock_prompt = MagicMock()
+        mock_prompt.build.side_effect = ValueError("Template rendering failed: Could not find key 'messages'")
+
+        mock_logger = MagicMock()
+        mock_braintrust = MagicMock()
+        mock_braintrust.init_logger.return_value = mock_logger
+        mock_braintrust.load_prompt.return_value = mock_prompt
+
+        with patch.dict("sys.modules", {"braintrust": mock_braintrust}):
+            BraintrustClient.reset_instance()
+            init_braintrust(project="test")
+
+            result = load_prompt_from_braintrust(
+                prompt_name="cluster-analysis",
+                fallback_prompt="Messages:\n{examples_text}",
+                variables={"examples_text": "- pothole on Elm"}
+            )
+
+            assert result == "Messages:\n- pothole on Elm"
+            mock_prompt.build.assert_called_once_with(examples_text="- pothole on Elm", strict=True)
 
     def test_loads_prompt_handles_messages_response(self, monkeypatch):
         monkeypatch.setenv("BRAINTRUST_API_KEY", "test-key")

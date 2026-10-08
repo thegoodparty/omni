@@ -302,7 +302,7 @@ class BraintrustClient:
                 logger.debug(f"Prompt '{prompt_name}' not found in Braintrust, using fallback")
                 return self._render_prompt(fallback_prompt, variables)
 
-            rendered = prompt.build(**(variables or {}))
+            rendered = prompt.build(**(variables or {}), strict=True)
             return flatten_prompt_messages(rendered)
 
         except Exception as e:
