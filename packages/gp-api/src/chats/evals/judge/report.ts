@@ -12,11 +12,13 @@ import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
-import type {
-  AgentScore,
-  ControlReading,
-  DimensionScore,
-  ToolErrorCause,
+import {
+  controlPosition,
+  type AgentScore,
+  type ControlPosition,
+  type ControlReading,
+  type DimensionScore,
+  type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
 
@@ -207,6 +209,22 @@ const CONTROL_OUTCOMES: Readonly<Record<ControlReading['outcome'], string>> = {
   not_judged: 'never saw the pair',
 }
 
+// What the two orders together say, in words. Only the first two are a reading
+// of the judge: "the same slot" is a position preference, "the same call" is
+// the judge following the outputs.
+const CONTROL_POSITIONS: Readonly<Record<ControlPosition, string>> = {
+  sameCall: 'the same call in both orders',
+  sameSlot: 'picked the same slot in both orders, a position preference',
+  changed: 'changed its call between orders',
+  unread: 'no comparison of the two orders',
+}
+
+const orderText = (
+  one: Pick<ControlReading, 'outcome' | 'magnitude'>,
+): string =>
+  CONTROL_OUTCOMES[one.outcome] +
+  (one.magnitude === null ? '' : ` (${one.magnitude})`)
+
 // Its own block, after the verdict and outside every number in it. A control
 // is the zero reading: on an input built to show no difference, how often and
 // how strongly the judge calls one anyway. Read every other line against it.
@@ -253,14 +271,21 @@ const controlLines = (score: AgentScore): string[] => {
   const called = score.controls.filter(
     (c) => c.outcome === 'candidate' || c.outcome === 'base',
   ).length
+  const sameSlot = score.controls.filter(
+    (c) => controlPosition(c) === 'sameSlot',
+  ).length
   return [
     ...anyway,
     `Controls (not scored): the judge called a difference on ${called} ` +
-      `of ${score.controls.length} control pair(s).`,
+      `of ${score.controls.length} control pair(s), and picked the same ` +
+      `slot in both orders on ${sameSlot}.`,
     ...score.controls.map(
       (c) =>
-        `- ${c.caseId} attempt ${c.attempt}: ${CONTROL_OUTCOMES[c.outcome]}` +
-        (c.magnitude === null ? '' : ` (${c.magnitude})`),
+        `- ${c.caseId} attempt ${c.attempt}: ${orderText(c)}` +
+        (c.swapped === undefined
+          ? ''
+          : `; swapped: ${orderText(c.swapped)}; ` +
+            CONTROL_POSITIONS[controlPosition(c)]),
     ),
     '',
   ]

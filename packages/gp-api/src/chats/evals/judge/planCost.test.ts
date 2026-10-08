@@ -6,6 +6,7 @@ import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import {
   backgroundRunCents,
   baseChatAttemptsIn,
+  DEFAULT_SOURCES,
   estimateAgent,
   MEASURED_BACKGROUND_RUN_COST,
   MEASURED_CHAT_TURN_COST,
@@ -28,7 +29,10 @@ const withBudget = (
   background: { ...DEFAULT_JUDGE_CONFIG.background, ...budget },
 })
 
-const cases = (count: number) => ({ countCases: (): number => count })
+const cases = (count: number, controls = 0) => ({
+  countCases: (): number => count,
+  countControlsPastCap: (): number => controls,
+})
 
 describe('backgroundRunCents', () => {
   // The larger arm's mean x1.5, rounded up to the next $0.50.
@@ -121,6 +125,24 @@ describe('estimateAgent for a background agent', () => {
         ).cents,
       ).toBe(cents)
     })
+  })
+
+  // A CONTROL PAST THE CAP is walked by both arms too, so it is priced: one
+  // more case, named in the line, never left out of the estimate.
+  it('prices a control past the cap', () => {
+    const estimate = estimateAgent(
+      background('race_opponent_summary'),
+      withBudget({ maxCases: 3, attemptsPerCase: 1 }),
+      cases(9, 1),
+    )
+    expect(estimate.cents).toBe(800)
+    expect(estimate.why).toContain('3 of 9 cases + 1 control')
+  })
+
+  it("counts the control in the agent's real list", () => {
+    const agent = background('race_opponent_summary')
+    expect(DEFAULT_SOURCES.countControlsPastCap(agent, 3)).toBe(1)
+    expect(DEFAULT_SOURCES.countControlsPastCap(agent, undefined)).toBe(0)
   })
 
   it('multiplies by attempts per case', () => {
@@ -279,14 +301,14 @@ describe('priceAgainstReferences', () => {
   })
 
   it('keeps the base price when the branch lowers its own', () => {
-    expect(lowered(agent, config, {}).cents).toBe(300)
+    expect(lowered(agent, config, {}).cents).toBe(400)
     const priced = priceAgainstReferences(
       [ref(estimateAgent)],
       config,
       {},
       lowered,
     )(agent)
-    expect(priced.cents).toBe(600)
+    expect(priced.cents).toBe(800)
     expect(priced.why).toContain("a reference ref's price")
   })
 
@@ -299,19 +321,19 @@ describe('priceAgainstReferences', () => {
       {},
       lowered,
     )(agent)
-    // $3 x1.5 = $4.50 a run, x 2 arms x 3 cases.
-    expect(priced.cents).toBe(2700)
+    // $3 x1.5 = $4.50 a run, x 2 arms x 4 cases (3 plus the control).
+    expect(priced.cents).toBe(3600)
   })
 
   it('keeps the branch price when it is the higher', () => {
     expect(priceAgainstReferences([ref(lowered)], config)(agent).cents).toBe(
-      600,
+      800,
     )
   })
 
   it('prices from this branch alone with no references', () => {
     expect(priceAgainstReferences([], config, {}, lowered)(agent).cents).toBe(
-      300,
+      400,
     )
   })
 
@@ -333,7 +355,7 @@ describe('priceAgainstReferences', () => {
         [ref(estimateAgent), ref(estimate)],
         config,
       )(agent),
-    ).toMatchObject({ cents: 4800, basis: 'base-unread' })
+    ).toMatchObject({ cents: 6400, basis: 'base-unread' })
   })
 
   // A ref whose chat list was fetched and will not read fails closed too.
@@ -361,7 +383,7 @@ describe('priceAgainstReferences', () => {
     expect(
       priceAgainstReferences([ref(tableAt(20)), ref(undefined)], config)(agent)
         .cents,
-    ).toBe(18000)
+    ).toBe(24000)
   })
 
   // FAILS CLOSED ON THE CONFIG TOO: without a ref's attempts, the chat price
@@ -384,7 +406,7 @@ describe('priceAgainstReferences', () => {
         [{ estimate: estimateAgent, chatAttempts: undefined }],
         config,
       )(agent).cents,
-    ).toBe(600)
+    ).toBe(800)
   })
 })
 
@@ -407,9 +429,9 @@ it('prices an agent with no case list at nothing', () => {
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $681.00', () => {
+it('prices `all` at $683.00', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(68_100)
+  expect(total).toBe(68_300)
 })

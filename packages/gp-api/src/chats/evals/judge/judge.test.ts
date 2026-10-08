@@ -640,6 +640,43 @@ describe('the order-swap subsample', () => {
     }
   })
 
+  // A CONTROL IS ALWAYS JUDGED BOTH WAYS, on top of the subsample and even
+  // with it switched off: a position preference is the one thing a control
+  // shows that a single order cannot.
+  it('swaps every control as well as the subsample', () => {
+    const planned = planJudgments(
+      cases(10),
+      DEFAULT_JUDGE_CONFIG,
+      new Set(['case-7']),
+    )
+    const swapped = planned.filter((p) => p.key.order === 'swapped')
+    expect(swapped.map((p) => p.key.caseId)).toEqual([
+      'case-0',
+      'case-5',
+      'case-7',
+    ])
+  })
+
+  it('swaps a control with the subsample switched off', () => {
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      orderSwap: { enabled: false, fraction: 0.2 },
+    }
+    const swapped = planJudgments(cases(10), config, new Set(['case-7']))
+      .filter((p) => p.key.order === 'swapped')
+      .map((p) => p.key.caseId)
+    expect(swapped).toEqual(['case-7'])
+  })
+
+  it('does not judge a control twice in one order', () => {
+    const swapped = planJudgments(
+      cases(10),
+      DEFAULT_JUDGE_CONFIG,
+      new Set(['case-5']),
+    ).filter((p) => p.key.order === 'swapped')
+    expect(swapped.map((p) => p.key.caseId)).toEqual(['case-0', 'case-5'])
+  })
+
   it('judges every planned pair', async () => {
     const { llm, calls } = fake([reply()])
     const judgments = await judgeAll(llm, cases(5))

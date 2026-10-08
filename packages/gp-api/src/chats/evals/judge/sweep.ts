@@ -490,7 +490,12 @@ export const judgeSweep = async (
       const before = meter.snapshot()
       let judgments
       try {
-        judgments = await judgeAll(meter.llm, normalized.judgeable, config)
+        judgments = await judgeAll(
+          meter.llm,
+          normalized.judgeable,
+          config,
+          unscoredCaseIds,
+        )
       } finally {
         judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
       }

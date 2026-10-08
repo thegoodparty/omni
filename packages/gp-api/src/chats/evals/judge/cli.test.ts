@@ -369,7 +369,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run', '--reference=x'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 4800 (base-unread)')
+    expect(plan).toContain('cents: 6400 (base-unread)')
   })
 
   it('prices from this branch alone when not asked for a ref', () => {
@@ -377,7 +377,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 600 (measured)')
+    expect(plan).toContain('cents: 800 (measured)')
   })
 
   it('prices chat at the largest attempts of every arm', () => {

@@ -518,6 +518,36 @@ describe('provenance', () => {
   })
 })
 
+// A control prints both orders and what they say together, because the one
+// thing a control shows beyond noise is a position preference.
+describe('controls', () => {
+  it('prints both orders and names a position preference', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          controls: [
+            {
+              caseId: 'control',
+              attempt: 1,
+              outcome: 'base',
+              magnitude: 'clear',
+              swapped: { outcome: 'candidate', magnitude: 'clear' },
+            },
+          ],
+        },
+      ],
+    })
+    expect(report).toContain('picked the same slot in both orders on 1.')
+    expect(report).toContain(
+      '- control attempt 1: preferred the base (clear); swapped: ' +
+        'preferred the candidate (clear); picked the same slot in both ' +
+        'orders, a position preference',
+    )
+  })
+})
+
 describe('qualifiers', () => {
   it('states a candidate-only flag at the top of the section', async () => {
     const score = await pipeline(sweepRecords(3))

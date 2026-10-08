@@ -1138,6 +1138,7 @@ describe('judge.yml hands both arms one background budget', () => {
     admitted: 'JUDGE_BACKGROUND_ADMITTED',
     refused: 'JUDGE_BACKGROUND_REFUSED',
     arm_budget_ms: 'JUDGE_ARM_BUDGET_MS',
+    extra_cases: 'JUDGE_BACKGROUND_EXTRA_CASES',
   }
 
   it('covers every output the resolver writes', () => {
@@ -1646,11 +1647,11 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([900, 600, 4800])
+    expect(cents).toEqual([900, 800, 4800])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=63\.00$/m)
+    expect(result.outputs).toMatch(/^usd=65\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
@@ -1658,7 +1659,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
     expect(result.comment).toMatch(
-      row('race_opponent_summary', 'background', dollars(600)),
+      row('race_opponent_summary', 'background', dollars(800)),
     )
     expect(result.comment).toMatch(
       row('self_research', 'background', `${dollars(4800)} \\(unmeasured\\)`),

@@ -1916,6 +1916,7 @@ jobs:
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
           JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_BACKGROUND_EXTRA_CASES: ${{ steps.budget.outputs.extra_cases }}
           JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
@@ -1972,6 +1973,7 @@ jobs:
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
           JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
+          JUDGE_BACKGROUND_EXTRA_CASES: ${{ steps.budget.outputs.extra_cases }}
           JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}

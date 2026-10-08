@@ -1521,6 +1521,15 @@ describe('judgeSweep applies each case list condition and control', () => {
     },
   )
 
+  // The sweep hands its controls to the judge as always-swapped, so a
+  // control is read in both orders whatever the subsample picks.
+  it('judges the control in both orders', async () => {
+    const { llm, prompts } = recording()
+    const result = await sweepWith(() => JUDGING, llm)
+    expect(prompts.filter((p) => p.includes('"control"'))).toHaveLength(2)
+    expect(result.report.agents[0]?.controls[0]?.swapped).toBeDefined()
+  })
+
   it('scores every case when no case is held out', async () => {
     const result = await sweepWith(() => new Map(), alwaysX)
     expect(result.report.agents[0]?.overall.cases).toBe(2)
