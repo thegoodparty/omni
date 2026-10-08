@@ -230,6 +230,9 @@ const CONTRACT_NOTES: Readonly<
     'top-level field.',
   unread:
     'Output contract not shown to the judge: the manifest could not be read.',
+  baseUnread:
+    "Output contract shown without comparison: the base ref's manifest " +
+    'could not be read, so a contract change in this PR would go unnoticed.',
 }
 
 const contractNoteLines = (score: AgentScore): string[] =>

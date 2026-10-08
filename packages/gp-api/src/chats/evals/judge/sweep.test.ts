@@ -1480,19 +1480,32 @@ describe('judgeSweep applies each case list condition and control', () => {
     )
   })
 
-  it('tells the judge when this PR changed the contract', async () => {
+  it('tells the judge, without naming an arm, when the contracts differ', async () => {
     const { prompts } = await withContract({
       candidate: CONTRACT,
       base: [{ name: 'generated_at', type: 'string' }],
     })
     expect(
-      prompts.every((p) =>
-        p.includes(
-          'The output contract changed in this PR. Before it, the required ' +
-            'fields were: generated_at (string).',
-        ),
+      prompts.every(
+        (p) =>
+          p.includes(
+            'Output contract: the artifact must include these top-level ' +
+              'fields: generated_at (string).',
+          ) &&
+          p.includes(
+            'The two runs may have been produced under different output ' +
+              'contracts.',
+          ),
       ),
     ).toBe(true)
+  })
+
+  it('says when the base manifest could not be compared', async () => {
+    const { result } = await withContract({
+      candidate: CONTRACT,
+      base: 'unread',
+    })
+    expect(result.markdown).toContain('shown without comparison')
   })
 
   it.each([

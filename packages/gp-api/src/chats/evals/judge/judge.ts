@@ -369,7 +369,9 @@ const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
     'one that handles it.',
     'When the shared input lists an output contract, a field it requires is',
     'never an unrequested addition, and a run missing a required field is',
-    'worse for it.',
+    'worse for it. When it says the runs may have had different contracts, a',
+    'field required by only one of them is neither an addition nor an',
+    'omission.',
   ].join(' '),
 }
 

@@ -1,7 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { contractFor, contractLines, contractOf } from './outputContract'
+import {
+  contractFor,
+  contractLines,
+  contractOf,
+  readOutputContracts,
+} from './outputContract'
 
 const manifest = (outputSchema: object): string =>
   JSON.stringify({ id: 'x', output_schema: outputSchema })
@@ -56,27 +61,46 @@ describe('contractOf', () => {
 describe('contractLines', () => {
   const A = [{ name: 'a', type: 'string' }]
   const AB = [...A, { name: 'b' }]
+  const AC = [...A, { name: 'c', type: 'array' }]
 
-  it('lists the fields, and says nothing about a change when there is none', () => {
+  it('lists the fields when both refs require the same set', () => {
     expect(contractLines(AB, AB)).toBe(
       'Output contract: the artifact must include these top-level fields: ' +
         'a (string), b.',
     )
   })
 
-  it('names the base contract when this PR changed it', () => {
-    expect(contractLines(AB, A)).toContain(
-      'The output contract changed in this PR. Before it, the required ' +
-        'fields were: a (string).',
+  it('lists only the shared fields, then both sets, when they differ', () => {
+    expect(contractLines(AB, AC)).toBe(
+      'Output contract: the artifact must include these top-level fields: ' +
+        'a (string).\n' +
+        'The two runs may have been produced under different output ' +
+        'contracts. One required: a (string), b; the other required: ' +
+        'a (string), c (array). A field in only one of these sets is ' +
+        'neither an addition nor an omission.',
     )
-    expect(contractLines(AB, null)).toContain(
-      'Before it, the required fields were: none.',
-    )
+  })
+
+  // The judge must not learn which run is the candidate: a line that named
+  // "this PR" or "before it" would say so, and would fault the base run for
+  // a field its own contract never asked for.
+  it.each([
+    [AB, A],
+    [AB, AC],
+    [AB, null],
+    [null, A],
+  ] as const)('renders the same bytes whichever arm is which', (x, y) => {
+    expect(contractLines(x, y)).toBe(contractLines(y, x))
+    expect(contractLines(x, y)).not.toMatch(/this PR|before it|base|candidate/i)
+  })
+
+  it('says "none" for a ref that required nothing', () => {
+    expect(contractLines(AB, null)).toContain('the other required: none')
   })
 
   // An unread base says nothing about whether the contract moved.
   it('claims no change when the base was not read', () => {
-    expect(contractLines(AB, undefined)).not.toContain('changed')
+    expect(contractLines(AB, undefined)).not.toContain('different')
   })
 })
 
@@ -90,5 +114,33 @@ describe('contractFor', () => {
       lines: null,
       note: 'noRequired',
     })
+  })
+
+  it('shows the contract and notes it when the base manifest was unread', () => {
+    const read = contractFor({
+      candidate: [{ name: 'a' }],
+      base: 'unread',
+    })
+    expect(read.note).toBe('baseUnread')
+    expect(read.lines).toContain('must include these top-level fields: a.')
+  })
+})
+
+// The real reader, so a wrong root path fails here and not as an agent
+// silently judged without its contract.
+describe('readOutputContracts', () => {
+  it('finds race_opponent_summary in this checkout', () => {
+    const read = readOutputContracts('race_opponent_summary', undefined)
+    expect(read.candidate).not.toBe('unread')
+    expect(read.candidate).not.toBeNull()
+    expect(read.base).toBeUndefined()
+  })
+
+  it('marks a base it cannot read', () => {
+    const read = readOutputContracts(
+      'race_opponent_summary',
+      '/nonexistent-judge-base',
+    )
+    expect(read.base).toBe('unread')
   })
 })

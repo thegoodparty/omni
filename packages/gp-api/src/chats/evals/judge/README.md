@@ -713,9 +713,19 @@ The fields are the `required` list of `output_schema` in the agent's
 names one. The background rubric tells the judge that a required field is
 never an addition, and that a run missing one is worse for it.
 
-If the base worktree's manifest requires a different set, a second line says
-the contract changed in this PR and lists what the base required. That way a
-new required field reads as a contract change, not as one run adding a section.
+If the base worktree's manifest requires a different set, the line lists only
+the fields both require, then a second line names both sets:
+
+```
+The two runs may have been produced under different output contracts. One required: …; the other required: …. A field in only one of these sets is neither an addition nor an omission.
+```
+
+That line never says which set is the base's. The two sets are ordered by
+their own text, so swapping the arms renders the same bytes. Naming the new
+contract would tell the judge which run is the candidate, and would fault the
+base run for a field its own contract never asked for. If the base worktree
+exists but its manifest can't be read, the candidate's contract is still shown,
+and the agent's section says the comparison wasn't made.
 
 An agent whose schema requires nothing at the top level (`meeting_briefing`
 and `meeting_schedule` are `oneOf` artifacts), or whose manifest can't be read,
