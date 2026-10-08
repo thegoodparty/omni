@@ -164,7 +164,7 @@ Then pick the lightest option that fits:
 competing versions, and none of them switches at 1024px:
 
 - `packages/gp-webapp/app/shared/ui/ModalOrDrawer.tsx` (and its alias
-  `packages/gp-webapp/app/shared/utils/ResponsiveModal.tsx`) switches at 640px.
+  `packages/gp-webapp/app/shared/utils/ResponsiveModal.tsx`) switches at 768px.
 - Several features build the switch themselves with `useIsMobile`, for example
   `SharePlanModal.tsx`, `DownloadReminderModal.tsx` and
   `PhoneBankingEntryPanel.tsx`.
