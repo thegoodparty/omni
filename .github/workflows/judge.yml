@@ -1054,6 +1054,11 @@ jobs:
               # included. $37.50 ASSUMES 8 turns a list and 3 attempts a case
               # (16 turns over both arms x 3 x $0.52, x1.5): a longer list or
               # more attempts on an old branch is underpriced here.
+              # A list's own attempts never apply on this path: a branch whose
+              # CLI predates per-agent pricing also predates the budget step
+              # naming them, so both arms walk its config default of one
+              # attempt, and it has no controls past the cap either. Its judge
+              # still swaps a fifth of pairs, under the six calls priced here.
               if [ "$basis" = old-branch ]; then
                 [ "$shape" = chat ] && cents=3750 || cents=4900
               fi

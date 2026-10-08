@@ -214,6 +214,7 @@ const intoArmEnv = (outputs: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
     JUDGE_BACKGROUND_REFUSED: outputs.refused,
     JUDGE_ARM_BUDGET_MS: outputs.arm_budget_ms,
     JUDGE_BACKGROUND_EXTRA_CASES: outputs.extra_cases,
+    JUDGE_BACKGROUND_AGENT_ATTEMPTS: outputs.agent_attempts,
   })
 
 // The slots are the arm's own and never travel, so every fixture carries the
@@ -263,6 +264,25 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
     expect(arm.backgroundExtraCases?.get('race_opponent_summary')).toEqual([
       'control',
     ])
+  })
+
+  // A LIST'S OWN ATTEMPTS reach both arms as the resolver named them.
+  it('carries the per-agent attempts through intact', () => {
+    const arm = parseArmEnv(
+      intoArmEnv(
+        PARSE(
+          budgetOutputLines(
+            configWith({ attemptsPerCase: 1, maxCases: 3 }),
+            ['race_opponent_summary'],
+            [],
+            ARM_BUDGET_MS,
+            new Map(),
+            new Map([['race_opponent_summary', 3]]),
+          ),
+        ),
+      ),
+    )
+    expect(arm.backgroundAgentAttempts?.get('race_opponent_summary')).toBe(3)
   })
 
   // THE ARM WALKS WHAT IT WAS TOLD: Melecia's control sits ninth in a list
