@@ -798,6 +798,29 @@ describe('ChatStreamService', () => {
       )
     })
 
+    it('replays a card on a leading assistant turn', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content: '',
+        segments: [
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'present_outreach_proposal',
+            payload: { channel: 'text' },
+          },
+        ],
+      })
+
+      const system = String(firstOrThrow(await sentMessages()).content)
+
+      expect(system).toContain(
+        '[Card you showed: present_outreach_proposal {"channel":"text"}]',
+      )
+      expect(system).toContain('record a card the app drew for you')
+    })
+
     it('leaves turns with only non-card tools as their text', async () => {
       seedTurns(
         [

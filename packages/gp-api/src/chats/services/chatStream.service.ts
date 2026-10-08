@@ -265,8 +265,11 @@ const toLlmMessages = (
   const [first, ...tail] = history
   const leadingGreeting =
     first?.role === ChatMessageRole.assistant ? first : null
-  const greeted = leadingGreeting
-    ? `${systemPrompt}\n\nYou already greeted the candidate with:\n${leadingGreeting.content}`
+  const greeting = leadingGreeting
+    ? replayAssistantContent(leadingGreeting)
+    : null
+  const greeted = greeting
+    ? `${systemPrompt}\n\nYou already greeted the candidate with:\n${greeting}`
     : systemPrompt
   const rest = leadingGreeting ? tail : history
 
@@ -277,9 +280,11 @@ const toLlmMessages = (
         ? replayAssistantContent(m)
         : m.content,
   }))
-  const hasCardNote = replayed.some(
-    (m) => m.role === 'assistant' && m.content.includes(CARD_NOTE_PREFIX),
-  )
+  const hasCardNote =
+    greeting?.includes(CARD_NOTE_PREFIX) ||
+    replayed.some(
+      (m) => m.role === 'assistant' && m.content.includes(CARD_NOTE_PREFIX),
+    )
   const system = hasCardNote
     ? `${greeted}\n\n${CARD_NOTE_SYSTEM_LINE}`
     : greeted
