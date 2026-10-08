@@ -357,18 +357,22 @@ export const validateRegistrationForm = (
     committeeType,
   } = data
 
-  const electionFilingLinkValue = getStringValue(electionFilingLink)
+  // A filing URL or email pasted from a PDF or an email client often carries a
+  // stray space, and validator's isURL/isEmail reject any whitespace — so the
+  // form refused a correct link with "Enter a valid URL" and the candidate
+  // could not see why. Validate what toRegistrationFormData will submit.
+  const electionFilingLinkValue = getStringValue(electionFilingLink).trim()
   const campaignCommitteeNameValue = getStringValue(campaignCommitteeName)
   const candidateNameValue = getStringValue(candidateName)
   const officeLevelValue = getStringValue(officeLevel)
   const einValue = getStringValue(ein)
-  const phoneValue = getStringValue(phone)
+  const phoneValue = getStringValue(phone).trim()
   const addressValue = isAddressValue(address) ? address : null
   const manualAddressValue = isManualAddressValue(manualAddress)
     ? manualAddress
     : null
-  const websiteValue = getStringValue(website)
-  const emailValue = getStringValue(email)
+  const websiteValue = getStringValue(website).trim()
+  const emailValue = getStringValue(email).trim()
   const fecCommitteeIdValue = getStringValue(fecCommitteeId)
   const committeeTypeValue = getStringValue(committeeType)
 
