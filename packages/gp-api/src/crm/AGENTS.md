@@ -51,7 +51,8 @@ from the HubSpot card's `hs_object_id`.
   (`gp_elected_official_term_id`, `gp_person_id`, `br_*`, `source_systems`).
 - **Config, per portal.** `HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED` (`'true'` to
   run) plus the object type id and the two association type ids. Any unset
-  value skips the sync.
+  value skips the sync. Prod's ids live in `deploy/index.ts`; dev and previews
+  write to the same portal, so they stay unset there.
 - **`name` is required by the object**, so a post-onboarding write to an
   office with no record yet fails loudly (logged + Slack) instead of creating
   a nameless record.

@@ -576,6 +576,28 @@ export = async () => {
         dev: '',
         prod: 'true',
       }),
+      // Dev and previews write to prod's HubSpot portal, so only prod gets the
+      // Office Holder ids; the sync stays off everywhere until the flag flips.
+      HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
+        preview: '',
+        dev: '',
+        prod: '',
+      }),
+      HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '2-65502604',
+      }),
+      HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '76',
+      }),
+      HUBSPOT_OFFICE_HOLDER_COMPANY_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '73',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
