@@ -1,7 +1,9 @@
 import {
   BadGatewayException,
   BadRequestException,
+  forwardRef,
   HttpException,
+  Inject,
   Injectable,
 } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
@@ -30,6 +32,7 @@ import {
   P2pPhoneListRequestSchema,
   p2pPhoneListRequestSchema,
 } from '../schemas/p2pPhoneListRequest.schema'
+import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PhoneListState } from '../peerly.types'
@@ -131,6 +134,10 @@ export class P2pPhoneListUploadService {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly queueProducer: QueueProducerService,
+    // forwardRef: OutreachModule and PeerlyModule import each other, so the
+    // capture provider is resolved through that cycle.
+    @Inject(forwardRef(() => OutreachP2pSmsCaptureService))
+    private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pPhoneListUploadService.name)
@@ -511,7 +518,25 @@ export class P2pPhoneListUploadService {
 
     // Single-owner CAS (peerlyListId IS NULL): a no-op if a browser poll or
     // another replica stamped it first.
-    await this.peerlyPhoneListCapture.stampPeerlyListId(token, listId)
+    await this.peerlyPhoneListCapture.stampPeerlyListId(
+      token,
+      listId,
+      details.leads_loaded,
+    )
+
+    // CAPTURE edge (b): the list is now `ready` with a stable count. If a Win
+    // SMS hold is already `authorized` for it, capture it now (the backstop
+    // sweep catches it otherwise). Self-gated on the flag, so inert until the
+    // cutover. Best-effort — a capture failure must not abort the finisher,
+    // which only advances builds to `ready`.
+    try {
+      await this.p2pSmsCapture.captureHoldsForReadyList(listId)
+    } catch (err) {
+      this.logger.error(
+        { err, buildId, listId },
+        'win sms capture (build-ready edge) failed; backstop sweep will retry',
+      )
+    }
   }
 
   // FIFO group per build, so a build's own redeliveries/retries serialize

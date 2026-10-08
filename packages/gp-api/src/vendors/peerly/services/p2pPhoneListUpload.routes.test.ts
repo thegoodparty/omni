@@ -1677,7 +1677,11 @@ describe('P2P phone-list server-side build finisher (sweepUnfinishedBuilds)', ()
       await service.prisma.peerlyPhoneList.findUnique({
         where: { id: build.id },
       }),
-    ).toMatchObject({ peerlyListId: 999, buildStatus: 'ready' })
+    ).toMatchObject({
+      peerlyListId: 999,
+      buildStatus: 'ready',
+      leadsLoaded: 25,
+    })
   })
 
   it('leaves a still-loading list processing, then stamps ready once it reads the same leads_loaded twice', async () => {

@@ -12,6 +12,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
+import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { OutreachPurchaseHandlerService } from './outreachPurchase.service'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -40,7 +41,12 @@ const mockPeerlyPhoneListCapture = {
 
 const mockP2pSmsHold = {
   recordHold: vi.fn(),
+  markFreeTextsApplied: vi.fn(),
 } as unknown as OutreachP2pSmsHoldService
+
+const mockP2pSmsCapture = {
+  captureHold: vi.fn(),
+} as unknown as OutreachP2pSmsCaptureService
 
 const mockLogger = createMockLogger()
 
@@ -50,6 +56,7 @@ const service = new OutreachPurchaseHandlerService(
   mockPeerlyPhoneListService,
   mockPeerlyPhoneListCapture,
   mockP2pSmsHold,
+  mockP2pSmsCapture,
   mockLogger,
 )
 
@@ -73,6 +80,7 @@ const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   buildError: null,
   requestSnapshot: null,
   lastSeenLeadsLoaded: null,
+  leadsLoaded: null,
   buildAttempts: 0,
   excludedOptedOutCount: 0,
   excludedDuplicatePhoneCount: 0,
@@ -1032,7 +1040,54 @@ describe('OutreachPurchaseHandlerService', () => {
       })
     })
 
-    it('flag OFF: never records a hold (inert)', async () => {
+    it('flag ON: fires the capture edge for a paid (cs_) hold session', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      await service.executePostPurchase('cs_hold_capture', {
+        ...purchaseMetadata,
+        outreachId: '123',
+      })
+
+      expect(mockP2pSmsCapture.captureHold).toHaveBeenCalledWith(123)
+    })
+
+    it('flag ON: stamps the per-send free-texts signal before redeeming the offer', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(true)
+
+      await service.executePostPurchase('cs_hold_offer', {
+        ...purchaseMetadata,
+        outreachId: '123',
+      })
+
+      expect(mockP2pSmsHold.markFreeTextsApplied).toHaveBeenCalledWith(123)
+      // Ordered before the campaign-flag flip so there is never an instant where
+      // the offer is redeemed but the per-send signal is unset.
+      const stampOrder =
+        vi.mocked(mockP2pSmsHold.markFreeTextsApplied).mock
+          .invocationCallOrder[0] ?? 0
+      const redeemOrder =
+        vi.mocked(mockCampaignsService.redeemFreeTexts).mock
+          .invocationCallOrder[0] ?? 0
+      expect(stampOrder).toBeGreaterThan(0)
+      expect(stampOrder).toBeLessThan(redeemOrder)
+    })
+
+    it('flag OFF: never records a hold or fires capture (inert)', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(undefined)
@@ -1046,9 +1101,10 @@ describe('OutreachPurchaseHandlerService', () => {
       })
 
       expect(mockP2pSmsHold.recordHold).not.toHaveBeenCalled()
+      expect(mockP2pSmsCapture.captureHold).not.toHaveBeenCalled()
     })
 
-    it('flag ON: places no hold on the zero-amount free path', async () => {
+    it('flag ON: places no hold and fires no capture on the zero-amount free path', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
@@ -1063,6 +1119,7 @@ describe('OutreachPurchaseHandlerService', () => {
       })
 
       expect(mockP2pSmsHold.recordHold).not.toHaveBeenCalled()
+      expect(mockP2pSmsCapture.captureHold).not.toHaveBeenCalled()
     })
   })
 })
