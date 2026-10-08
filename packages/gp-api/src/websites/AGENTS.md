@@ -60,6 +60,25 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
   nothing else qualified, the search raises a 502 instead. Never return an
   empty list the caller could read as "the namespace is taken".
 - **Vercel registrar buys are asynchronous orders.** `buySingleDomain` 2xx means "order accepted", not "domain bought" — an order can still fail on Vercel's side (completion is typically ~13s). `completeDomainRegistration` polls `getRegistrarOrder` and only stamps `submitted`/`registrantVerifiedAt` once the order reports completed; the real orderId is persisted as `Domain.operationId`. Never treat the buy response alone as proof of registration.
+- **The registrar bills GoodParty, not the candidate, on the agent path.**
+  `purchaseDomainForCampaign` buys with `skipPaymentVerification`, so the
+  $1.99-and-up charge lands on GoodParty's Vercel team account. Vercel can
+  accept the order and then fail it with `payment-failed`, which is that
+  account being refused — nothing about the request, and nothing gp-api can
+  see or fix. It is logged as its own event (`REGISTRAR_CHARGE_FAILED_EVENT`)
+  so it is legible as a billing fault rather than as a route that errored, and
+  `domain-registrar-charge-failed` pages when it happens more than twice in
+  ten minutes. It is **not** treated as permanent: on 2026-10-07 three orders
+  for one campaign failed in 45 seconds and the next attempt 11 minutes later
+  registered normally, so the caller still gets the retryable bad gateway and
+  should retry.
+- **The checkout flow takes the money before it registers.** Order is
+  Stripe charge -> registrar buy, so a registration that fails leaves a
+  candidate who has paid with no domain, and refunds here are human
+  (`src/payments/AGENTS.md`). `processDomainRegistration` logs
+  `DomainRegistrationFailedAfterPayment` with the payment to refund and tells
+  the candidate not to pay again; `domain-registration-failed-after-payment`
+  pages on it. Reversing the order is the real fix and has not been done.
 - `forwardRef(() => CampaignsModule)` — circular with campaigns. Keep new edges to the campaigns side as forwardRefs to avoid breaking module init.
 - `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics. The handler's 60s dedupe is keyed on `(websiteId, visitorId)`, so `visitorId` is pinned to a UUID and the route is metered by `WebsiteTrackViewRateLimitGuard` (60 per 60s per IP) — a fresh id per request would otherwise write a fresh row every time. Draft sites record no views.
 - Public-facing endpoints use `@PublicAccess()` and `@UseCampaign()` together — don't drop one when refactoring or you'll either expose admin data or 401 the public site.

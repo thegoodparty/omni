@@ -118,6 +118,61 @@ const DOMAIN_PURCHASE_IN_PROGRESS_MESSAGE =
 const REGISTRAR_ORDER_POLL_INTERVAL_MS = 3_000
 const REGISTRAR_ORDER_POLL_MAX_ATTEMPTS = 15
 
+// The registrar error codes that mean the order failed because VERCEL COULD
+// NOT CHARGE US, rather than because of anything about the domain or the
+// candidate. Every registrar buy is billed to GoodParty's own Vercel team
+// account — the agent path bills nobody else at all — so a payment method that
+// stops working there refuses every campaign's domain, and nothing in gp-api
+// can fix it or even see the account.
+//
+// It is logged as its own event because the failure is otherwise
+// indistinguishable from Vercel being briefly unhappy, and the two need
+// different people: one needs a retry, the other needs somebody with Owner
+// access to the Vercel team. On 2026-10-07 three orders for one campaign
+// failed with `payment-failed` in 45 seconds and the only signal was the route
+// alert for the purchase endpoint, which says a route errored and nothing
+// about why. `domain-registrar-charge-failed` in deploy/components/alerts.ts
+// reads these lines and pages when they repeat.
+//
+// Deliberately NOT treated as permanent. That same candidate's next attempt,
+// 11 minutes later, was charged and registered normally, so the caller still
+// gets the retryable bad-gateway error it got before — giving up on the first
+// refusal would have left the campaign without the domain it now has.
+const REGISTRAR_CHARGE_FAILURE_CODES = ['payment-failed']
+
+export const REGISTRAR_CHARGE_FAILED_EVENT = 'DomainRegistrarChargeFailed'
+
+// A domain registration that failed AFTER the candidate's card was charged.
+// completeDomainRegistration only buys once it has seen the PaymentIntent
+// succeed, so this is money taken with nothing handed over, and nothing in the
+// product refunds it: refunds here are deliberately human (see
+// src/payments/AGENTS.md). This line is therefore the only thing that can tell
+// anyone it happened, and `domain-registration-failed-after-payment` pages on
+// it. The agent purchase path bills GoodParty rather than the candidate and so
+// never reaches it.
+export const REGISTRATION_FAILED_AFTER_PAYMENT_EVENT =
+  'DomainRegistrationFailedAfterPayment'
+
+/**
+ * Vercel failed the registrar order because it could not charge GoodParty's
+ * Vercel team account. Carries the order id and Vercel's own code so the event
+ * line names them; the caller is answered exactly as it was before, because a
+ * refused charge can clear on the next attempt.
+ */
+class RegistrarChargeFailedError extends Error {
+  constructor(
+    readonly registrarErrorCode: string,
+    readonly orderId: string,
+    readonly domainName: string,
+  ) {
+    super(
+      `Registrar order ${orderId} for ${domainName} failed: ` +
+        `the registrar could not charge GoodParty's account (${registrarErrorCode})`,
+    )
+    this.name = 'RegistrarChargeFailedError'
+  }
+}
+
 const GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS = 'candidate-domains@goodparty.org'
 
 const { ENABLE_DOMAIN_PURCHASE } = process.env
@@ -414,6 +469,30 @@ export class DomainsService
         where: { id: domain.id },
         data: { status: DomainStatus.inactive },
       })
+
+      const chargedPaymentId = paymentId ?? domain.paymentId
+      if (chargedPaymentId) {
+        // The candidate has paid and has no domain. Registration is only
+        // attempted once the PaymentIntent reports succeeded, so by here the
+        // money has left their card; nothing refunds it automatically. This
+        // line carries everything the refund needs, and it is the only signal
+        // that the charge is sitting there unmatched.
+        this.logger.error({
+          event: REGISTRATION_FAILED_AFTER_PAYMENT_EVENT,
+          paymentId: chargedPaymentId,
+          userId: user.id,
+          domainName,
+          websiteId: validWebsiteId,
+          priceUsd: domain.price?.toNumber() ?? null,
+          reason: error instanceof Error ? error.message : 'Unknown error',
+        })
+
+        throw new BadGatewayException(
+          `Your payment went through but ${domainName} could not be registered. ` +
+            `Support has been notified to refund you \u2014 please do not pay again. ` +
+            `(${error instanceof Error ? error.message : 'Unknown error'})`,
+        )
+      }
 
       throw new BadGatewayException(
         `Failed to register domain with Vercel: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -1390,6 +1469,21 @@ export class DomainsService
           data: { status: DomainStatus.inactive },
         })
 
+        if (error instanceof RegistrarChargeFailedError) {
+          // Our account, not the candidate's card — recorded as its own event so
+          // a billing fault at Vercel is legible as one instead of as a route
+          // that errored. The response below is unchanged: this can clear on a
+          // retry, and the caller should take one.
+          this.logger.error({
+            event: REGISTRAR_CHARGE_FAILED_EVENT,
+            orderId: error.orderId,
+            registrarErrorCode: error.registrarErrorCode,
+            domainName: domain.name,
+            websiteId,
+            priceUsd: domain.price.toNumber(),
+          })
+        }
+
         throw new BadGatewayException(
           `Failed to register domain with Vercel: ${
             error instanceof Error ? error.message : 'Unknown error'
@@ -1453,6 +1547,17 @@ export class DomainsService
         return
       }
       if (order.status === GetOrderStatus.Failed) {
+        const registrarErrorCode = order.error?.code
+        if (
+          registrarErrorCode &&
+          REGISTRAR_CHARGE_FAILURE_CODES.includes(registrarErrorCode)
+        ) {
+          throw new RegistrarChargeFailedError(
+            registrarErrorCode,
+            orderId,
+            domainName,
+          )
+        }
         throw new Error(
           `Registrar order ${orderId} for ${domainName} failed` +
             (order.error ? `: ${JSON.stringify(order.error)}` : ''),
