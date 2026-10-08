@@ -113,3 +113,28 @@ describe('PriorityFlowOutreachService.forOffice', () => {
     )
   })
 })
+
+describe('PriorityFlowOutreachService.forCampaign', () => {
+  it("reads only the campaign's sends, not its org's office", async () => {
+    const campaign = await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${slug}-campaign`,
+        organizationSlug: slug,
+      },
+    })
+    const campaignSend = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        name: 'get out the vote',
+      },
+    })
+    await send('office newsletter', null)
+
+    const rows = await outreach.forCampaign(campaign.id)
+
+    expect(rows.map((row) => row.outreachId)).toEqual([campaignSend.id])
+  })
+})

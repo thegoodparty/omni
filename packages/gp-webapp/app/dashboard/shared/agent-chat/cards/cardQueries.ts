@@ -1,6 +1,7 @@
 import { queryOptions } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
+import type { CardMode } from './proposalPresentation'
 
 export const proposalOutreachQueryKey = (proposalKey: string) =>
   ['chat-card-proposal-outreach', proposalKey] as const
@@ -30,13 +31,16 @@ export const proposalOutreachQueryOptions = (proposalKey: string) =>
 
 // Priorities is a Serve surface, so the org-scoped read is the only correct
 // one here: the campaign-scoped sibling would 404 for an org with no campaign.
-export const pastOutreachQueryOptions = (outreachId: number) =>
+// A campaign's send is read through the campaign route and an office's through
+// Serve's org-scoped one; each 404s the other's rows.
+export const pastOutreachQueryOptions = (outreachId: number, mode: CardMode) =>
   queryOptions({
-    queryKey: ['chat-card-past-outreach', outreachId] as const,
+    queryKey: ['chat-card-past-outreach', mode, outreachId] as const,
     queryFn: () =>
-      clientRequest('GET /v1/outreach/serve/:id', {
-        id: String(outreachId),
-      }).then((res) => res.data),
+      clientRequest(
+        mode === 'win' ? 'GET /v1/outreach/:id' : 'GET /v1/outreach/serve/:id',
+        { id: String(outreachId) },
+      ).then((res) => res.data),
   })
 
 // The contacts page's own key for a person, so the follow-up switch the

@@ -57,6 +57,9 @@ import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
@@ -256,6 +259,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly elections?: ElectionsService,
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
+    @Optional()
+    private readonly pastOutreach?: PriorityFlowOutreachService,
     @Optional()
     private readonly logger?: PinoLogger,
   ) {
@@ -552,6 +557,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // a prefilled Win social-flow compose drawer.
     tools.compose_handoff = buildComposeHandoffTool('win_social')
 
+    if (this.pastOutreach && ctx.campaignId !== null) {
+      tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
+        outreach: this.pastOutreach,
+        campaignId: ctx.campaignId,
+      })
+      tools.present_past_outreach =
+        buildCampaignManagerPresentPastOutreachTool()
+    }
     tools.ask_clarify_question = buildAskClarifyQuestionTool()
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,

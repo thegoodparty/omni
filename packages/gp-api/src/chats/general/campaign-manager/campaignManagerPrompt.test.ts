@@ -662,6 +662,24 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(block).not.toContain('{{first_name}}')
   })
 
+  it('reads past sends only where the tool is registered', () => {
+    const base = ctx({})
+    expect(buildCampaignManagerSystemPrompt(base)).not.toContain(
+      'PAST OUTREACH',
+    )
+    const withRead = buildCampaignManagerSystemPrompt(base, [
+      'read_past_outreach',
+    ])
+    expect(withRead).toContain('PAST OUTREACH')
+    expect(withRead).not.toContain('present_past_outreach')
+    expect(
+      buildCampaignManagerSystemPrompt(base, [
+        'read_past_outreach',
+        'present_past_outreach',
+      ]),
+    ).toContain('present_past_outreach')
+  })
+
   it('asks choices as a card only where the clarify tool is registered', () => {
     const base = ctx({})
     expect(buildCampaignManagerSystemPrompt(base)).not.toContain(

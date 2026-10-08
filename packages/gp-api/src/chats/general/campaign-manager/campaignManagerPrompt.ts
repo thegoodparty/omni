@@ -874,6 +874,19 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
   ].join('\n\n')
 }
 
+const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
+  toolNames.includes('read_past_outreach')
+    ? [
+        "PAST OUTREACH (apply whenever the campaign's earlier sends bear on the answer):",
+        '- When the candidate asks how a send did, or before you propose a text, call read_past_outreach and quote what came back: how many voters, how many replied, when it went. Never guess at a result you can read.',
+        ...(toolNames.includes('present_past_outreach')
+          ? [
+              '- When what came back last time is the point you are making, show those sends with present_past_outreach, with one line on why they matter. The card opens each send in Voter Outreach, so do not restate its numbers.',
+            ]
+          : []),
+      ].join('\n')
+    : null
+
 const clarifyQuestionBlock = (toolNames: readonly string[]): string | null =>
   toolNames.includes('ask_clarify_question')
     ? [
@@ -903,6 +916,7 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     outreachSamplingBlock(toolNames),
+    pastOutreachBlock(toolNames),
     clarifyQuestionBlock(toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
