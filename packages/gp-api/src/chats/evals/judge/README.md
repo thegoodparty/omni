@@ -684,8 +684,18 @@ capped cases and then those, in list order. An arm never decides this from
 its own list, because two arms walking different cases pay for runs that pair
 with nothing. Against a base ref whose arm does not read
 `JUDGE_BACKGROUND_EXTRA_CASES`, none are named, so this takes effect from the
-first sweep after it merges. The plan's estimate counts every control past the
-cap in the branch's list, an upper bound, since the base can only drop some.
+first sweep after it merges. The plan's estimate counts the agent runs of
+every control past the cap in the branch's list, an upper bound, since the
+base can only drop some. It does not price the judge calls for them, or for
+the extra swapped order every control gets; the plan has never priced judge
+calls, and the run summary's actual cost includes them.
+
+A walked control whose `params` need a value the sweep could not resolve (an
+org slug or race id, say) refuses the whole agent, the same as a capped case
+does. Dropping just that control would be better, but the budget step that
+names the controls runs before the identifiers step that resolves those
+values, so it cannot decide the drop for both arms, and an arm deciding it
+alone could walk a case the other arm does not.
 
 **A control needs both refs to agree.** The candidate's list belongs to the
 branch under test. On its own, it could mark the probe it regresses

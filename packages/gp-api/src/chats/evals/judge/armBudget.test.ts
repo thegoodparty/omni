@@ -285,6 +285,51 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
     expect(ids.at(-1)).toBe('control')
   })
 
+  // AN OLD BASE, end to end: its arm does not read the extras, so the
+  // resolver names none, and what reaches the arms says none.
+  it('hands both arms no extras against a base that cannot walk them', () => {
+    const agent: AgentEntry = {
+      agentId: 'a',
+      shape: 'background',
+      cases: 'a.json',
+      status: 'wired',
+    }
+    const withControl = () => ({
+      runs: 1,
+      runMs: 60_000,
+      caseIds: ['a-c1'],
+      controlIds: ['control'],
+    })
+    const resolved = resolveAdmission(
+      ['a'],
+      '/base',
+      DEFAULT_JUDGE_CONFIG,
+      [agent],
+      {
+        candidate: withControl,
+        base: withControl,
+        honoursAdmission: () => true,
+        walksConcurrently: () => true,
+        walksExtraCases: () => false,
+      },
+    )
+    expect(resolved.admitted).toEqual(['a'])
+    const arm = parseArmEnv(
+      intoArmEnv(
+        PARSE(
+          budgetOutputLines(
+            configWith({ attemptsPerCase: 1, maxCases: 1 }),
+            resolved.admitted,
+            resolved.refused,
+            ARM_BUDGET_MS,
+            resolved.extraCases,
+          ),
+        ),
+      ),
+    )
+    expect(arm.backgroundExtraCases?.size).toBe(0)
+  })
+
   // A REASON CAN SAY ANYTHING — a zod message is several lines, and a reason
   // can quote. It has to arrive whole, on the one line $GITHUB_OUTPUT allows,
   // or the report would name a refusal it cannot explain.
@@ -1093,6 +1138,20 @@ describe('reading the budget an arm was handed', () => {
     expect(() => parseArmEnv(armEnvFor({ [name]: '3' }))).toThrow(
       /half a budget/,
     )
+  })
+
+  // Blank or absent is "no extras", the way a blank admitted list is read
+  // under the budget's switch, never an error: every sweep before a list had
+  // a control past the cap writes `extra_cases={}` or nothing.
+  it.each<[string, Record<string, string>]>([
+    ['absent', {}],
+    ['blank', { JUDGE_BACKGROUND_EXTRA_CASES: '' }],
+    ['an empty object', { JUDGE_BACKGROUND_EXTRA_CASES: '{}' }],
+  ])('reads %s extras as none', (_label, extra) => {
+    const arm = parseArmEnv(
+      armEnvFor({ JUDGE_BACKGROUND_ATTEMPTS: '1', ...extra }),
+    )
+    expect(arm.backgroundExtraCases?.size).toBe(0)
   })
 
   // An extra-cases list that is not what the resolver writes is refused, not

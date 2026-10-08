@@ -518,9 +518,10 @@ export const selectSwapped = (
 // CONTROLS ARE JUDGED IN BOTH ORDERS, every one of them, whatever the
 // subsample picks. A control pairs two runs of unchanged code, so the one
 // thing it can show beyond noise is whether the judge prefers a slot, and a
-// single order cannot show that. Added after the subsample rather than in
-// place of it, so the scored pairs it picks do not move when a list gains a
-// control.
+// single order cannot show that. Controls are left out of the subsample's
+// input and swapped on their own, so a list gaining a control does not move
+// which scored pairs the subsample picks, and no control takes a swap that
+// counts toward minSwappedPairs.
 export const planJudgments = (
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
@@ -531,14 +532,12 @@ export const planJudgments = (
     payload: c.payload,
     slotMap: c.slotMap,
   }))
-  const subsample = selectSwapped(cases, config)
-  const picked = new Set(subsample.map((c) => `${c.caseId}#${c.attempt}`))
   const toSwap = [
-    ...subsample,
-    ...cases.filter(
-      (c) =>
-        alwaysSwapped.has(c.caseId) && !picked.has(`${c.caseId}#${c.attempt}`),
+    ...selectSwapped(
+      cases.filter((c) => !alwaysSwapped.has(c.caseId)),
+      config,
     ),
+    ...cases.filter((c) => alwaysSwapped.has(c.caseId)),
   ]
   const swapped = toSwap.map((c) => {
     const flipped = withSwappedSlots(c)

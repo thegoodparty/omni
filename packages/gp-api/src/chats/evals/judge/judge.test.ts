@@ -674,7 +674,29 @@ describe('the order-swap subsample', () => {
       DEFAULT_JUDGE_CONFIG,
       new Set(['case-5']),
     ).filter((p) => p.key.order === 'swapped')
-    expect(swapped.map((p) => p.key.caseId)).toEqual(['case-0', 'case-5'])
+    const ids = swapped.map((p) => p.key.caseId)
+    expect(ids.filter((id) => id === 'case-5')).toHaveLength(1)
+  })
+
+  // A LIST GAINING A CONTROL leaves the scored subsample where it was: the
+  // control is swapped on its own, never in a scored pair's place.
+  it('picks the same scored pairs when a control is added', () => {
+    const scoredSwaps = (planned: PlannedJudgment[]) =>
+      planned
+        .filter((p) => p.key.order === 'swapped' && p.key.caseId !== 'case-00')
+        .map((p) => p.key.caseId)
+    const withoutControl = scoredSwaps(planJudgments(cases(10)))
+    const [first] = cases(1)
+    if (first === undefined) throw new Error('one case')
+    const control = { ...first, caseId: 'case-00' }
+    const withControl = scoredSwaps(
+      planJudgments(
+        [control, ...cases(10)],
+        DEFAULT_JUDGE_CONFIG,
+        new Set(['case-00']),
+      ),
+    )
+    expect(withControl).toEqual(withoutControl)
   })
 
   it('judges every planned pair', async () => {
