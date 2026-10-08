@@ -2016,7 +2016,9 @@ describe('judge.yml posts the verdict on the PR', () => {
     const judging = stepsOf(yaml).find(
       (step) => step.name === 'Judge both arms',
     )
-    expect(judging?.body).toContain('JUDGE_REPORT_FILE:')
+    expect(judging?.body).toContain(
+      `trap 'cp "$GITHUB_STEP_SUMMARY" "$REPORT_FILE" 2>/dev/null || true' EXIT`,
+    )
     const keep = stepsOf(yaml).find(
       (step) => step.name === 'Keep the report for the PR',
     )

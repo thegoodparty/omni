@@ -2071,11 +2071,16 @@ jobs:
           # The panel's key. The arms hold none: their chat agents answer
           # from a deployed gp-api's own key.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # A copy of the report for the `verdict` job to post on the PR.
-          JUDGE_REPORT_FILE: ${{ runner.temp }}/judge-report/report.md
+          # Where the `verdict` job picks the report up.
+          REPORT_FILE: ${{ runner.temp }}/judge-report/report.md
         run: |
           set -euo pipefail
-          mkdir -p "$(dirname "$JUDGE_REPORT_FILE")"
+          # The judging entry writes its report to this step's summary file.
+          # Copied out on exit, refusals included, by the workflow rather than
+          # by the entry, so it works whatever version of the entry the
+          # candidate branch carries.
+          mkdir -p "$(dirname "$REPORT_FILE")"
+          trap 'cp "$GITHUB_STEP_SUMMARY" "$REPORT_FILE" 2>/dev/null || true' EXIT
           npx tsx "$JUDGING_ENTRY"
 
       # The report is the public part of a sweep, the same text the run log
