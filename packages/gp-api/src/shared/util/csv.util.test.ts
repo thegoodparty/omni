@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { csvEscape, neutralizeCsvFormula } from './csv.util'
+import { csvEscape, csvShape, neutralizeCsvFormula } from './csv.util'
 
 describe('neutralizeCsvFormula', () => {
   it('prefixes a quote for cells starting with a formula character', () => {
@@ -17,6 +17,33 @@ describe('neutralizeCsvFormula', () => {
   })
 })
 
+describe('csvShape', () => {
+  it('counts the recipient rows, not the header', () => {
+    const csv = Buffer.from('lead_phone\n5551230000\n5551230001\n', 'utf8')
+    expect(csvShape(csv)).toEqual({
+      bytes: csv.length,
+      rows: 2,
+      controlCharRows: 0,
+    })
+  })
+
+  it('counts rows carrying a control character', () => {
+    const csv = Buffer.from(
+      'lead_phone,lead_city\n5551230000,"Apt 2\rNorth"\n5551230001,Oakland\n',
+      'utf8',
+    )
+    expect(csvShape(csv)).toMatchObject({ rows: 2, controlCharRows: 1 })
+  })
+
+  it('reports nothing for an empty file', () => {
+    expect(csvShape(Buffer.from('', 'utf8'))).toEqual({
+      bytes: 0,
+      rows: 0,
+      controlCharRows: 0,
+    })
+  })
+})
+
 describe('csvEscape', () => {
   it('returns an empty cell for null and undefined', () => {
     expect(csvEscape(null)).toBe('')
@@ -28,6 +55,13 @@ describe('csvEscape', () => {
     expect(csvEscape('5\'9" tall')).toBe('"5\'9"" tall"')
     expect(csvEscape('line1\nline2')).toBe('"line1\nline2"')
     expect(csvEscape('plain')).toBe('plain')
+  })
+
+  // A lone carriage return is a row break to every CSV reader, so an
+  // unquoted one splits the row in two and the file is refused whole.
+  it('quotes a value carrying a bare carriage return', () => {
+    expect(csvEscape('Apt 2\rNorth')).toBe('"Apt 2\rNorth"')
+    expect(csvEscape('line1\r\nline2')).toBe('"line1\r\nline2"')
   })
 
   it('neutralizes formula-starting values', () => {

@@ -13,6 +13,19 @@ import { PeerlyAuthenticatedUser } from '../peerly.types'
 
 const RETRY_MAX = 3
 
+export type PeerlyRequestOptions = {
+  /**
+   * Set false when the request body cannot be sent twice. The retry below
+   * re-subscribes to the same axios request, which re-sends the same `data`
+   * — fine for a JSON object, wrong for a multipart body: a `form-data`
+   * stream is consumed as it is sent, so a second attempt posts an empty
+   * file and earns a rejection that reads like the vendor refusing real
+   * content. Callers with such a body retry at their own level, rebuilding
+   * the body for each attempt (see PeerlyPhoneListService.postPhoneList).
+   */
+  retryTransportErrors?: boolean
+}
+
 const { EXPLICITLY_LOG_PEERLY_TOKEN } = process.env
 
 /**
@@ -82,8 +95,9 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
     path: string,
     data?: unknown,
     config?: AxiosRequestConfig,
+    options?: PeerlyRequestOptions,
   ): Promise<AxiosResponse<T>> {
-    return this.request<T>(Methods.POST, path, data, config)
+    return this.request<T>(Methods.POST, path, data, config, options)
   }
 
   async put<T>(
@@ -106,6 +120,7 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
     path: string,
     data: unknown,
     config?: AxiosRequestConfig,
+    options?: PeerlyRequestOptions,
   ): Promise<AxiosResponse<T>> {
     const mergedConfig = await this.getAuthenticatedConfig(config)
     const url = `${this.baseUrl}${path}`
@@ -115,6 +130,7 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
         retry({
           count: RETRY_MAX,
           delay: (error: AxiosError, retryCount: number) => {
+            if (options?.retryTransportErrors === false) throw error
             if (!this.isRetryableError(error)) throw error
             this.logger.warn(
               {
