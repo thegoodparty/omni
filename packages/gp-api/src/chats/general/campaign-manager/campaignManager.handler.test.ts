@@ -452,17 +452,15 @@ describe('CampaignManagerHandler.buildTools — past outreach', () => {
       {} as PriorityFlowOutreachService,
     )
 
-  it("reads and shows the campaign's sends once its org resolves", () => {
+  it("reads and shows the campaign's sends once its campaign resolves", () => {
     const names = Object.keys(
-      withOutreach().buildTools(
-        ctxWith({ organization: { slug: 'win-campaign' } as Organization }),
-      ),
+      withOutreach().buildTools(ctxWith({ campaignId: 42 })),
     )
     expect(names).toContain('read_past_outreach')
     expect(names).toContain('present_past_outreach')
   })
 
-  it('stays off without an org to scope the sends to', () => {
+  it('stays off without a campaign to scope the sends to', () => {
     const names = Object.keys(withOutreach().buildTools(ctxWith({})))
     expect(names).not.toContain('read_past_outreach')
     expect(names).not.toContain('present_past_outreach')

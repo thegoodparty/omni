@@ -49,7 +49,7 @@ export const buildReadPastOutreachTool = (deps: {
 // recent sends rather than the priority/office split above.
 export const buildCampaignManagerReadPastOutreachTool = (deps: {
   outreach: PriorityFlowOutreachService
-  organizationSlug: string
+  campaignId: number
 }): LlmStreamTool<typeof readPastOutreachInput> => ({
   description:
     "Read the campaign's recent outreach: audience, how many voters, " +
@@ -59,6 +59,6 @@ export const buildCampaignManagerReadPastOutreachTool = (deps: {
     'vaguely.',
   inputSchema: readPastOutreachInput,
   execute: async ({ channel }): Promise<{ sends: PastOutreachRow[] }> => ({
-    sends: await deps.outreach.forOffice(deps.organizationSlug, null, channel),
+    sends: await deps.outreach.forCampaign(deps.campaignId, channel),
   }),
 })

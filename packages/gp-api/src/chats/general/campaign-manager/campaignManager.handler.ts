@@ -556,10 +556,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // a prefilled Win social-flow compose drawer.
     tools.compose_handoff = buildComposeHandoffTool('win_social')
 
-    if (this.pastOutreach && ctx.organization) {
+    if (this.pastOutreach && ctx.campaignId !== null) {
       tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
         outreach: this.pastOutreach,
-        organizationSlug: ctx.organization.slug,
+        campaignId: ctx.campaignId,
       })
       tools.present_past_outreach =
         buildCampaignManagerPresentPastOutreachTool()

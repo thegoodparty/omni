@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatCard, OutreachDetail, Person } from '@goodparty_org/contracts'
@@ -101,6 +101,10 @@ const person = (id: string, firstName: string): Person => ({
 })
 
 describe('PastOutreachCard', () => {
+  afterEach(() => {
+    vi.mocked(useProposalFlows).mockReturnValue(null)
+  })
+
   it('renders a row per send that resolves, and links each one', async () => {
     api.mock('GET /v1/outreach/serve/:id', ({ params }) => ({
       status: 200,
