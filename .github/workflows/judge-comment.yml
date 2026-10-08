@@ -526,6 +526,8 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
+      # judge.yml's sweep job reads gp-api.yml's runs to wait for the preview.
+      actions: read
     uses: ./.github/workflows/judge.yml
     with:
       # On an `issue_comment` the PR is the issue. `format` because the event

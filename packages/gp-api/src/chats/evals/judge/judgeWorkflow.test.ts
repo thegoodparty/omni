@@ -732,6 +732,16 @@ describe("judge.yml drives the candidate's chat agents on its preview", () => {
     expect(sweepJob).toMatch(/^ {6}actions: read$/m)
   })
 
+  // A called workflow cannot ask for more than its caller grants; GitHub
+  // refuses the whole run at startup if it does.
+  it('is granted that read by both callers', () => {
+    for (const caller of ['judge-request.yml', 'judge-comment.yml']) {
+      expect(readFileSync(path.join(workflows, caller), 'utf8')).toMatch(
+        /^ {6}actions: read\n {4}uses: \.\/\.github\/workflows\/judge\.yml$/m,
+      )
+    }
+  })
+
   it('declares the Clerk secret, and both callers pass it', () => {
     expect(yaml).toMatch(/^ {6}CLERK_SECRET_KEY:\n {8}required: false$/m)
     for (const caller of ['judge-request.yml', 'judge-comment.yml']) {
