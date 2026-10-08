@@ -22,6 +22,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                      |
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
+| `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; its own `gp-api-preview-shared` stack |
 
 ## Patterns
 
@@ -34,6 +35,14 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 - **Preview deploys are tuned for wall time.** The PR job builds with SWC only (`typeCheck` off; the Checks job type-checks the same commit), runs `pulumi up --skip-preview`, and relies on the `Dockerfile` keeping the `npm ci` layer keyed on manifests alone, with only `COPY --link` after it. Putting a `RUN` or a workspace `dist/` copy above or after that layer brings back a full reinstall or a 600MB layer download on most builds.
 - **`npm run infra deploy <env>` is invoked by CI, not by hand.** A push to `main` runs `infra deploy dev`; `infra deploy prod` runs only from the release train's prod stage (`release.yml`, freeze-switch gated, with a manual `workflow_dispatch` fallback) once the commit is green on dev — never from a branch push. `npm run infra diff <env>` stays useful locally for previewing a change.
 - **Observability lives here, not just in app code.** Grafana dashboards/alerts are defined in `components/grafana.ts` and `components/alerting/`. App-side metric naming must line up with these.
+
+## Shared preview ALB (`components/preview-shared-alb.ts`)
+
+Every PR preview routes through one ALB, `gp-api-previews`. A preview stack creates only a target group and a host-header rule on its HTTPS listener (priority = PR number), and `*.preview.goodparty.org` resolves to it, so a new PR provisions no ALB and no DNS record. A per-PR ALB cost ~3 minutes to provision plus ~2 for its new record to resolve, on every new PR.
+
+- It lives in its own stack, `gp-api-preview-shared` (`npm run infra deploy preview-shared`), deployed by `gp-api-preview-shared.yml` when the component changes on `main` or by hand. It does not ride the release train.
+- If the ALB is missing, `index.ts` falls back to a per-PR ALB and DNS record, so previews keep deploying.
+- An ALB holds 100 listener rules by default, so ~100 concurrent previews is the ceiling before a quota raise. The stale-stack sweep keeps the count well under that.
 
 ## Shared preview cluster (`components/preview-shared-cluster.ts`)
 

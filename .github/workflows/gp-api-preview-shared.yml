@@ -1,0 +1,50 @@
+name: gp-api preview shared infra
+
+# Deploys the gp-api-preview-shared stack: the one ALB and wildcard DNS record
+# every PR preview routes through. It changes rarely, so it deploys only when
+# its own definition changes on main, or by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/gp-api/deploy/components/preview-shared-alb.ts
+      - .github/workflows/gp-api-preview-shared.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: gp-api-preview-shared
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy preview shared infra
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: packages/gp-api
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Deploy (Pulumi)
+        uses: ./.github/actions/pulumi-deploy
+        with:
+          working-directory: packages/gp-api
+          command: npm run infra deploy preview-shared

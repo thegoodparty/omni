@@ -6,7 +6,7 @@ import { userInfo } from 'node:os'
 
 const ECR_REGISTRY = '333022194791.dkr.ecr.us-west-2.amazonaws.com'
 
-const ENVIRONMENTS = ['preview', 'dev', 'prod'] as const
+const ENVIRONMENTS = ['preview', 'dev', 'prod', 'preview-shared'] as const
 
 const AWS_REGION = 'us-west-2'
 
@@ -97,7 +97,8 @@ const setupStack = async (env: string) => {
     process.exit(1)
   }
 
-  let imageUri = process.env.IMAGE_URI
+  // The preview-shared stack runs no container.
+  let imageUri = env === 'preview-shared' ? 'unused' : process.env.IMAGE_URI
   if (!imageUri) {
     console.warn(
       'IMAGE_URI environment variable is not set, building image locally',
@@ -119,13 +120,13 @@ const setupStack = async (env: string) => {
     'pulumi-state-config-passphrase',
   )
 
-  // Not on preview. `index.ts` calls `createGrafanaResources` only when
-  // `environment !== 'preview'`, so a preview run constructs no Grafana
+  // Only dev and prod. `index.ts` calls `createGrafanaResources` only when
+  // `environment` is dev or prod, so a preview run constructs no Grafana
   // provider and these two values are never read. Fetching them anyway pulls
   // two live credentials, decrypted, onto a path whose Pulumi program comes
   // from the pull request. Skipping the fetch is what lets the PR preview
   // role hold no SSM grant for them at all.
-  if (env !== 'preview') {
+  if (env === 'dev' || env === 'prod') {
     GRAFANA_AUTH = await getSSMParameter('grafana-shared-service-account-token')
     GRAFANA_SM_ACCESS_TOKEN = await getSSMParameter('grafana-sm-access-token')
   }
