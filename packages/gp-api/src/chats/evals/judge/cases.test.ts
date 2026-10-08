@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AGENTS } from './agents'
+import { MAX_LIST_ATTEMPTS_PER_CASE } from './config'
 import { OVERALL } from './judge'
 import {
   CaseListError,
@@ -46,6 +47,66 @@ describe('parseCaseList', () => {
     expect(list.cases).toEqual([
       { caseId: 'one', params: { meetingDate: '2026-01-01' } },
     ])
+  })
+
+  // A BACKGROUND LIST MAY SET ITS OWN ATTEMPTS, up to the ceiling, and is
+  // refused by name past it rather than walked at a number it did not ask for.
+  describe('attemptsPerCase in the header', () => {
+    const withAttempts = (attemptsPerCase: number, shape = 'background') =>
+      JSON.stringify({
+        agentId: 'meeting_briefing',
+        shape,
+        attemptsPerCase,
+        cases: [{ caseId: 'one', params: {} }],
+      })
+    const bg = { agentId: 'meeting_briefing', shape: 'background' } as const
+
+    it('is read from a background list', () => {
+      expect(parseCaseList('b.json', withAttempts(3), bg).attemptsPerCase).toBe(
+        3,
+      )
+    })
+
+    it('is absent when the list does not set it', () => {
+      expect(
+        parseCaseList(
+          'b.json',
+          JSON.stringify({
+            agentId: 'meeting_briefing',
+            shape: 'background',
+            cases: [{ caseId: 'one', params: {} }],
+          }),
+          bg,
+        ).attemptsPerCase,
+      ).toBeUndefined()
+    })
+
+    it('is refused by name over the ceiling', () => {
+      expect(() =>
+        parseCaseList(
+          'b.json',
+          withAttempts(MAX_LIST_ATTEMPTS_PER_CASE + 1),
+          bg,
+        ),
+      ).toThrow(
+        `b.json: asks for ${MAX_LIST_ATTEMPTS_PER_CASE + 1} attempts per case, over the ceiling of ${MAX_LIST_ATTEMPTS_PER_CASE}`,
+      )
+    })
+
+    it('is refused on a chat list', () => {
+      expect(() =>
+        parseCaseList(
+          'a.json',
+          JSON.stringify({
+            agentId: 'chief_of_staff',
+            shape: 'chat',
+            attemptsPerCase: 2,
+            cases: [{ caseId: 'one', question: 'q' }],
+          }),
+          expected,
+        ),
+      ).toThrow('only a background list may set')
+    })
   })
 
   it('names the file and the offending case, by index and by id', () => {

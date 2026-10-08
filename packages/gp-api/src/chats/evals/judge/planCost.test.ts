@@ -29,9 +29,10 @@ const withBudget = (
   background: { ...DEFAULT_JUDGE_CONFIG.background, ...budget },
 })
 
-const cases = (count: number, controls = 0) => ({
+const cases = (count: number, controls = 0, listAttempts?: number) => ({
   countCases: (): number => count,
   countControlsPastCap: (): number => controls,
+  listAttempts: (): number | undefined => listAttempts,
 })
 
 describe('backgroundRunCents', () => {
@@ -94,8 +95,11 @@ describe('estimateAgent for a background agent', () => {
       withBudget({ maxCases: 3, attemptsPerCase: 1 }),
       cases(9),
     )
-    expect(estimate).toMatchObject({ cents: 600, basis: 'measured' })
+    // $6.00 of runs, + 6 judge calls (3 pairs, both orders) x $0.08 = $0.48,
+    // x1.5 = $0.72, up to $1.00.
+    expect(estimate).toMatchObject({ cents: 700, basis: 'measured' })
     expect(estimate.why).toContain('2 arms x 3 of 9 cases x 1 attempt x $1.00')
+    expect(estimate.why).toContain('+ $1.00 for 6 judge calls at $0.08')
     expect(estimate.why).toContain('37380598839')
   })
 
@@ -105,17 +109,20 @@ describe('estimateAgent for a background agent', () => {
       withBudget({ maxCases: 3, attemptsPerCase: 1 }),
       cases(8),
     )
-    expect(estimate).toMatchObject({ cents: 4800, basis: 'unmeasured' })
+    // $48.00 of runs, + 6 judge calls at the unmeasured $0.10, up to $1.00.
+    expect(estimate).toMatchObject({ cents: 4900, basis: 'unmeasured' })
     expect(estimate.why).toContain('unmeasured')
   })
 
   describe('runs min(case list, maxCases)', () => {
     const agent = background('race_opponent_summary')
     it.each([
-      ['9 cases at a cap of 3', 9, 3, 600],
-      ['9 cases at a cap of 9', 9, 9, 1800],
-      ['2 cases at a cap of 3', 2, 3, 400],
-      ['9 cases and no cap', 9, undefined, 1800],
+      // Runs, plus every pair judged in both orders at $0.08 a call, x1.5
+      // and rounded up: 6 calls $1.00, 18 calls $2.50, 4 calls $0.50.
+      ['9 cases at a cap of 3', 9, 3, 700],
+      ['9 cases at a cap of 9', 9, 9, 2050],
+      ['2 cases at a cap of 3', 2, 3, 450],
+      ['9 cases and no cap', 9, undefined, 2050],
     ])('%s', (_name, listed, maxCases, cents) => {
       expect(
         estimateAgent(
@@ -135,7 +142,7 @@ describe('estimateAgent for a background agent', () => {
       withBudget({ maxCases: 3, attemptsPerCase: 1 }),
       cases(9, 1),
     )
-    expect(estimate.cents).toBe(800)
+    expect(estimate.cents).toBe(900)
     expect(estimate.why).toContain('3 of 9 cases + 1 control')
   })
 
@@ -152,7 +159,28 @@ describe('estimateAgent for a background agent', () => {
         withBudget({ maxCases: 3, attemptsPerCase: 3 }),
         cases(9),
       ).cents,
-    ).toBe(1800)
+    ).toBe(2050)
+  })
+
+  // A LIST'S OWN ATTEMPTS replace the config's, for the runs and the judge.
+  it("prices a list's own attempts per case", () => {
+    const estimate = estimateAgent(
+      background('race_opponent_summary'),
+      withBudget({ maxCases: 3, attemptsPerCase: 1 }),
+      cases(9, 0, 3),
+    )
+    expect(estimate.cents).toBe(2050)
+    expect(estimate.why).toContain('x 3 attempts x')
+  })
+
+  it("prices an agent missing from the judge-call table above the table's", () => {
+    const estimate = estimateAgent(
+      background('race_opponent_summary'),
+      withBudget({ maxCases: 3, attemptsPerCase: 1 }),
+      { ...cases(9), judgeCall: {} },
+    )
+    // 6 calls x $0.10 = $0.60, x1.5 = $0.90, up to $1.00.
+    expect(estimate.why).toContain('6 judge calls at $0.10')
   })
 
   // Admission refuses it on both arms, so nothing is spent on it.
@@ -185,7 +213,7 @@ describe('estimateAgent for a background agent', () => {
         background('race_opponent_summary'),
         withBudget({ maxCases: 9 }),
       ).cents,
-    ).toBe(1800)
+    ).toBe(2050)
   })
 })
 
@@ -301,14 +329,15 @@ describe('priceAgainstReferences', () => {
   })
 
   it('keeps the base price when the branch lowers its own', () => {
-    expect(lowered(agent, config, {}).cents).toBe(400)
+    // A cent a run, at the floor of $0.50, + $1.00 of judge calls on 4 pairs.
+    expect(lowered(agent, config, {}).cents).toBe(500)
     const priced = priceAgainstReferences(
       [ref(estimateAgent)],
       config,
       {},
       lowered,
     )(agent)
-    expect(priced.cents).toBe(800)
+    expect(priced.cents).toBe(900)
     expect(priced.why).toContain("a reference ref's price")
   })
 
@@ -321,19 +350,20 @@ describe('priceAgainstReferences', () => {
       {},
       lowered,
     )(agent)
-    // $3 x1.5 = $4.50 a run, x 2 arms x 4 cases (3 plus the control).
-    expect(priced.cents).toBe(3600)
+    // $3 x1.5 = $4.50 a run, x 2 arms x 4 cases (3 plus the control), + $1.00
+    // of judge calls.
+    expect(priced.cents).toBe(3700)
   })
 
   it('keeps the branch price when it is the higher', () => {
     expect(priceAgainstReferences([ref(lowered)], config)(agent).cents).toBe(
-      800,
+      900,
     )
   })
 
   it('prices from this branch alone with no references', () => {
     expect(priceAgainstReferences([], config, {}, lowered)(agent).cents).toBe(
-      400,
+      500,
     )
   })
 
@@ -355,7 +385,8 @@ describe('priceAgainstReferences', () => {
         [ref(estimateAgent), ref(estimate)],
         config,
       )(agent),
-    ).toMatchObject({ cents: 6400, basis: 'base-unread' })
+      // Unmeasured runs and unmeasured judge calls: 8 x $0.10 x1.5, up to $1.50.
+    ).toMatchObject({ cents: 6550, basis: 'base-unread' })
   })
 
   // A ref whose chat list was fetched and will not read fails closed too.
@@ -383,7 +414,7 @@ describe('priceAgainstReferences', () => {
     expect(
       priceAgainstReferences([ref(tableAt(20)), ref(undefined)], config)(agent)
         .cents,
-    ).toBe(24000)
+    ).toBe(24100)
   })
 
   // FAILS CLOSED ON THE CONFIG TOO: without a ref's attempts, the chat price
@@ -406,7 +437,7 @@ describe('priceAgainstReferences', () => {
         [{ estimate: estimateAgent, chatAttempts: undefined }],
         config,
       )(agent).cents,
-    ).toBe(800)
+    ).toBe(900)
   })
 })
 
@@ -429,9 +460,9 @@ it('prices an agent with no case list at nothing', () => {
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $699.00', () => {
+it('prices `all` at $713.50', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(69_900)
+  expect(total).toBe(71_350)
 })

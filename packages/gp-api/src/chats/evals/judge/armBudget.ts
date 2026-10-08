@@ -146,6 +146,29 @@ export const BASE_HONOURS_ADMISSION = /^\s*JUDGE_BACKGROUND_ADMITTED:/m
 // The schema key, anchored, for the reason the admission probe reads one.
 export const BASE_WALKS_EXTRA_CASES = /^\s*JUDGE_BACKGROUND_EXTRA_CASES:/m
 
+// WHETHER THE BASE ARM WALKS THE PER-AGENT ATTEMPTS THIS STEP NAMES. A base
+// that predates them walks every agent at the sweep's one attempt count, so
+// against it no list's own count is named and both arms walk the default.
+export const BASE_READS_AGENT_ATTEMPTS = /^\s*JUDGE_BACKGROUND_AGENT_ATTEMPTS:/m
+
+export const baseReadsAgentAttempts = (baseDir: string): boolean => {
+  try {
+    return BASE_READS_AGENT_ATTEMPTS.test(
+      readFileSync(
+        join(baseDir, 'packages/gp-api/src/chats/evals/judge/sweepEnv.ts'),
+        'utf8',
+      ),
+    )
+  } catch {
+    return false
+  }
+}
+
+// A background list's own attempt count, from THIS branch's list. The one
+// decision both arms then walk, as the cap is.
+const listAttemptsOf = (agent: AgentEntry): number | undefined =>
+  loadCaseList(agent).attemptsPerCase
+
 export const baseWalksExtraCases = (baseDir: string): boolean => {
   try {
     return BASE_WALKS_EXTRA_CASES.test(
@@ -467,15 +490,20 @@ export const resolveAdmission = (
     honoursAdmission: (baseDir: string) => boolean
     walksConcurrently: (baseDir: string) => boolean
     walksExtraCases?: (baseDir: string) => boolean
+    readsAgentAttempts?: (baseDir: string) => boolean
+    listAttempts?: (agent: AgentEntry) => number | undefined
   } = {
     candidate: candidateCost,
     base: baseCost,
     honoursAdmission: baseHonoursAdmission,
     walksConcurrently: baseWalksConcurrently,
     walksExtraCases: baseWalksExtraCases,
+    readsAgentAttempts: baseReadsAgentAttempts,
+    listAttempts: listAttemptsOf,
   },
 ): ReturnType<typeof admitBackground> & {
   extraCases: ReadonlyMap<string, readonly string[]>
+  agentAttempts: ReadonlyMap<string, number>
 } => {
   // Deduplicated here as well as by the parser, keeping the first occurrence
   // as the arm's Set does, so a caller handing over a raw list still selects
@@ -487,6 +515,7 @@ export const resolveAdmission = (
   if (!costs.honoursAdmission(baseDir)) {
     return {
       extraCases: new Map(),
+      agentAttempts: new Map(),
       admitted: [],
       refused: selected
         .filter((agent) => agent.shape === 'background')
@@ -501,7 +530,9 @@ export const resolveAdmission = (
     }
   }
   const walksExtra = costs.walksExtraCases?.(baseDir) ?? false
+  const readsAttempts = costs.readsAgentAttempts?.(baseDir) ?? false
   const extras = new Map<string, readonly string[]>()
+  const listed = new Map<string, number>()
   const decided = admitBackground(
     selected,
     (agent) => {
@@ -573,11 +604,22 @@ export const resolveAdmission = (
           )
         : []
       if (extra.length > 0) extras.set(agent.agentId, extra)
-      const extraRuns = extra.length * config.background.attemptsPerCase
-      // The larger on each count. Equal case ids and one attempt count make
-      // the runs equal; the max costs nothing and does not rely on it.
+      // THE LIST'S OWN ATTEMPT COUNT, read from this branch's list and named
+      // to both arms, or the sweep's when the base arm cannot read one.
+      let own: number | undefined
+      try {
+        own = readsAttempts ? costs.listAttempts?.(agent) : undefined
+      } catch {
+        own = undefined
+      }
+      const attempts = own ?? config.background.attemptsPerCase
+      if (own !== undefined) listed.set(agent.agentId, own)
+      // The larger case count of the two arms, at the attempts both walk.
       return {
-        runs: Math.max(onCandidate.runs, onBase.runs) + extraRuns,
+        runs:
+          (Math.max(onCandidate.caseIds.length, onBase.caseIds.length) +
+            extra.length) *
+          attempts,
         runMs: Math.max(onCandidate.runMs, onBase.runMs),
         caseIds: [...onCandidate.caseIds, ...extra],
       }
@@ -589,6 +631,12 @@ export const resolveAdmission = (
   )
   return {
     ...decided,
+    agentAttempts: new Map(
+      decided.admitted.flatMap((id) => {
+        const own = listed.get(id)
+        return own === undefined ? [] : [[id, own] as const]
+      }),
+    ),
     extraCases: new Map(
       decided.admitted.flatMap((id) => {
         const extra = extras.get(id)
@@ -608,6 +656,7 @@ export const budgetOutputLines = (
   refused: readonly { agentId: string; reason: string }[] = [],
   armBudgetMs: number = ARM_BUDGET_MS,
   extraCases: ReadonlyMap<string, readonly string[]> = new Map(),
+  agentAttempts: ReadonlyMap<string, number> = new Map(),
 ): string =>
   `attempts=${config.background.attemptsPerCase}\n` +
   `max_cases=${config.background.maxCases ?? ''}\n` +
@@ -616,7 +665,8 @@ export const budgetOutputLines = (
   // inside one, and $GITHUB_OUTPUT reads a value to the end of its line.
   `refused=${JSON.stringify(Object.fromEntries(refused.map((one) => [one.agentId, one.reason])))}\n` +
   `arm_budget_ms=${armBudgetMs}\n` +
-  `extra_cases=${JSON.stringify(Object.fromEntries(extraCases))}\n`
+  `extra_cases=${JSON.stringify(Object.fromEntries(extraCases))}\n` +
+  `agent_attempts=${JSON.stringify(Object.fromEntries(agentAttempts))}\n`
 
 // gp-api is CommonJS, so `require.main` is the house pattern — see
 // dataVersion.ts and sweep.ts.
@@ -660,6 +710,7 @@ if (require.main === module) {
       refused,
       ARM_BUDGET_MS,
       background.extraCases,
+      background.agentAttempts,
     ),
   )
   const budget = DEFAULT_JUDGE_CONFIG.background
@@ -675,6 +726,18 @@ if (require.main === module) {
     process.stderr.write(
       `${agentId} also walks its control case(s) past the cap: ` +
         `${ids.join(', ')}\n`,
+    )
+  }
+  for (const [agentId, attempts] of background.agentAttempts) {
+    process.stderr.write(
+      `${agentId} is walked at ${attempts} attempt(s) a case, as its list ` +
+        'asks\n',
+    )
+  }
+  if (!baseReadsAgentAttempts(baseDir)) {
+    process.stderr.write(
+      "the base ref's arm does not read a list's own attempts, so every " +
+        'background agent is walked at the sweep default\n',
     )
   }
   if (!baseWalksExtraCases(baseDir)) {

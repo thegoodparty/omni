@@ -498,7 +498,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # ~$699 sweep of every agent that every other guard in this file
+                # ~$714 sweep of every agent that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -695,7 +695,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $699
+      # An accidental `all` is the failure this exists for. It is roughly $714
       # against single dollars for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -1048,13 +1048,19 @@ jobs:
                   ;;
               esac
               # The worst case for an unmeasured agent, never below what
-              # planCost.ts would charge: 2 arms x 3 cases x $8 a run for a
-              # background agent, and $37.50 for any chat one, ordinance_flow
+              # planCost.ts would charge: 2 arms x 3 cases x $8 a run, plus
+              # $1.00 for its 6 judge calls, for a background agent, and
+              # $37.50 for any chat one, ordinance_flow
               # included. $37.50 ASSUMES 8 turns a list and 3 attempts a case
               # (16 turns over both arms x 3 x $0.52, x1.5): a longer list or
               # more attempts on an old branch is underpriced here.
+              # A list's own attempts never apply on this path: a branch whose
+              # CLI predates per-agent pricing also predates the budget step
+              # naming them, so both arms walk its config default of one
+              # attempt, and it has no controls past the cap either. Its judge
+              # still swaps a fifth of pairs, under the six calls priced here.
               if [ "$basis" = old-branch ]; then
-                [ "$shape" = chat ] && cents=3750 || cents=4800
+                [ "$shape" = chat ] && cents=3750 || cents=4900
               fi
               total=$((total + cents))
               keep "$id"
@@ -1917,6 +1923,7 @@ jobs:
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
           JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
           JUDGE_BACKGROUND_EXTRA_CASES: ${{ steps.budget.outputs.extra_cases }}
+          JUDGE_BACKGROUND_AGENT_ATTEMPTS: ${{ steps.budget.outputs.agent_attempts }}
           JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
@@ -1974,6 +1981,7 @@ jobs:
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
           JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
           JUDGE_BACKGROUND_EXTRA_CASES: ${{ steps.budget.outputs.extra_cases }}
+          JUDGE_BACKGROUND_AGENT_ATTEMPTS: ${{ steps.budget.outputs.agent_attempts }}
           JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
           JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
           JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}

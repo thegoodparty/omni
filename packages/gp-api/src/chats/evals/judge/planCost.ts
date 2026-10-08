@@ -103,6 +103,21 @@ export const UNMEASURED_BACKGROUND_RUN_CENTS = 800
 // the costliest turn seen is the floor for guessing, not the cheapest.
 export const UNMEASURED_CHAT_TURN_USD = 0.52
 
+// WHAT ONE JUDGE CALL COST, per background agent: one panel seat comparing
+// one pair in one order. Measured on 2026-10-08 in the handled-field probe
+// over stored sweep records, at list price on the judge's seat model: $0.04 a
+// call on opportunities_and_challenges, $0.08 on the two race opponent
+// agents, whose artifacts and inputs are larger. The prompt grows with the
+// shared input, so an agent not on the table is priced above both.
+export const MEASURED_JUDGE_CALL_USD: Readonly<
+  Partial<Record<string, number>>
+> = {
+  opportunities_and_challenges: 0.04,
+  race_opponent_summary: 0.08,
+  race_opponent_actions: 0.08,
+}
+export const UNMEASURED_JUDGE_CALL_USD = 0.1
+
 // THE MARGIN: times 1.5, then rounded up to the next $0.50. On a background
 // agent it is applied to one run, from the larger of the two arms' means; on a
 // chat agent to the whole sweep, because a turn is cents and rounding each one
@@ -174,12 +189,16 @@ export interface EstimateSources {
     maxCases: number | undefined,
   ) => number
   countTurns: (agent: AgentEntry) => number
+  // A background list's own attempts per case, when its header sets them.
+  listAttempts: (agent: AgentEntry) => number | undefined
   // The turns the BASE arm walks for a chat agent, from the base ref's own
   // list. Undefined when there is none, and this branch's count stands for
   // it, as armBudget.ts plans.
   baseTurns: (agent: AgentEntry) => number | undefined
   background: CostTable
   chat: CostTable
+  // What one judge call cost, per background agent; see MEASURED_JUDGE_CALL_USD.
+  judgeCall: Readonly<Partial<Record<string, number>>>
 }
 
 export const DEFAULT_SOURCES: EstimateSources = {
@@ -191,9 +210,11 @@ export const DEFAULT_SOURCES: EstimateSources = {
           .cases.slice(maxCases)
           .filter((one) => 'scored' in one && one.scored === false).length,
   countTurns: (agent) => chatTurnsIn(loadCaseList(agent)),
+  listAttempts: (agent) => loadCaseList(agent).attemptsPerCase,
   baseTurns: () => undefined,
   background: MEASURED_BACKGROUND_RUN_COST,
   chat: MEASURED_CHAT_TURN_COST,
+  judgeCall: MEASURED_JUDGE_CALL_USD,
 }
 
 // THE PARAMETERS ARE A CONTRACT WITH THE WORKFLOW. The estimate step loads
@@ -250,12 +271,20 @@ export const estimateAgent = (
         `x${MEASURED_MARGIN} and rounded up (${source})`,
     }
   }
-  const { maxCases, attemptsPerCase } = config.background
+  const { maxCases } = config.background
+  const attemptsPerCase =
+    from.listAttempts(agent) ?? config.background.attemptsPerCase
   const capped = Math.min(listed, maxCases ?? listed)
   const controls = from.countControlsPastCap(agent, maxCases)
   const cases = capped + controls
   const run = backgroundRunCents(agent.agentId, from.background)
-  const cents = ARMS * cases * attemptsPerCase * run.cents
+  // THE JUDGE'S OWN CALLS: every pair in both orders, which every background
+  // case now is, on every panel seat. An upper bound: a seat retry is one
+  // call more, and a pair the sweep excludes is never judged at all.
+  const perCall = from.judgeCall[agent.agentId] ?? UNMEASURED_JUDGE_CALL_USD
+  const calls = cases * attemptsPerCase * 2 * config.panel.seats.length
+  const judgeCents = withMargin(calls * perCall)
+  const cents = ARMS * cases * attemptsPerCase * run.cents + judgeCents
   const source =
     run.measured === undefined
       ? 'unmeasured, so priced at the production worst case'
@@ -269,7 +298,8 @@ export const estimateAgent = (
       `${plural(listed, 'case')}` +
       (controls === 0 ? '' : ` + ${plural(controls, 'control')}`) +
       ` x ${plural(attemptsPerCase, 'attempt')} x ` +
-      `${dollars(run.cents)} a run (${source})`,
+      `${dollars(run.cents)} a run (${source}), + ${dollars(judgeCents)} ` +
+      `for ${plural(calls, 'judge call')} at $${perCall.toFixed(2)}`,
   }
 }
 
@@ -342,6 +372,7 @@ export const priceAgainstReferences = (
       ...sources,
       background: {},
       chat: {},
+      judgeCall: {},
     })
     if (best.cents > worst.cents) return best
     return {

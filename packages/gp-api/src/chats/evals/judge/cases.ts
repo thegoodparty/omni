@@ -9,7 +9,7 @@ import {
   type JsonValue,
 } from './record'
 import type { AgentEntry } from './agents'
-import { DEFAULT_JUDGE_CONFIG } from './config'
+import { DEFAULT_JUDGE_CONFIG, MAX_LIST_ATTEMPTS_PER_CASE } from './config'
 
 // Loads an agent's inputs. One file per agent, authored per agent rather than
 // coded, which is the property that makes wiring the twenty-first agent a case
@@ -520,6 +520,9 @@ const CaseListEnvelopeSchema = z.object({
   shape: AgentShapeSchema,
   placeholder: z.boolean().optional(),
   note: z.string().min(1).optional(),
+  // Background only: how many attempts every case in this list is walked
+  // with, in place of the config's default. See MAX_LIST_ATTEMPTS_PER_CASE.
+  attemptsPerCase: z.number().int().positive().optional(),
   cases: z.array(z.record(z.string(), JsonValueSchema)).min(1),
 })
 
@@ -528,6 +531,7 @@ export interface CaseList {
   shape: AgentShape
   placeholder: boolean
   note?: string
+  attemptsPerCase?: number
   cases: JudgeCase[]
   // Where it came from, so an error downstream of here can still name the
   // file rather than only the case.
@@ -585,6 +589,25 @@ export const parseCaseList = (
     )
   }
 
+  // Refused by name rather than clamped: a list asking for five attempts and
+  // walked with three would bill for less than it asked and report as though
+  // it got what it asked for.
+  const listAttempts = envelope.data.attemptsPerCase
+  if (listAttempts !== undefined) {
+    if (envelope.data.shape !== 'background') {
+      throw new CaseListError(
+        `${source}: sets attemptsPerCase, which only a background list may ` +
+          "set; a chat list's attempts are the config's",
+      )
+    }
+    if (listAttempts > MAX_LIST_ATTEMPTS_PER_CASE) {
+      throw new CaseListError(
+        `${source}: asks for ${listAttempts} attempts per case, over the ` +
+          `ceiling of ${MAX_LIST_ATTEMPTS_PER_CASE} in config.ts`,
+      )
+    }
+  }
+
   const schema = CASE_SCHEMAS[envelope.data.shape]
   const cases: JudgeCase[] = []
   const seen = new Set<string>()
@@ -636,6 +659,7 @@ export const parseCaseList = (
     shape: envelope.data.shape,
     placeholder: envelope.data.placeholder ?? false,
     ...(envelope.data.note !== undefined && { note: envelope.data.note }),
+    ...(listAttempts !== undefined && { attemptsPerCase: listAttempts }),
     cases,
     source,
   }

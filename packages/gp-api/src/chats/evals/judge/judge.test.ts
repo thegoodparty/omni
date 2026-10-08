@@ -620,6 +620,22 @@ describe('the order-swap subsample', () => {
     expect(selectSwapped(cases(10)).map((c) => c.caseId)).toEqual(picked)
   })
 
+  // A BACKGROUND CASE IS A PLANTED CONDITION, not a sample, so every one is
+  // read both ways: an order flip on a bench shows as disagreement rather
+  // than as one confident read. Chat keeps its fifth.
+  it('judges every background case in both orders', () => {
+    const [bgBase, bgCandidate] = BACKGROUND_PAIR
+    const background = Array.from({ length: 4 }, (_, i) =>
+      blindCase(
+        { ...bgBase, caseId: `case-${i}`, runId: `b${i}` },
+        { ...bgCandidate, caseId: `case-${i}`, runId: `c${i}` },
+        X_IS_BASE,
+      ),
+    )
+    expect(selectSwapped(background)).toHaveLength(4)
+    expect(selectSwapped(cases(10))).toHaveLength(2)
+  })
+
   it('judges everything twice at a fraction of one', () => {
     const config: JudgeConfig = {
       ...DEFAULT_JUDGE_CONFIG,

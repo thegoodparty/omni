@@ -118,6 +118,7 @@ naming it.
 | `JUDGE_DATA_VERSION`                                                                     | 1, 2  | The Delta version both arms read. Resolved ONCE by `dataVersion.ts` in a `sweep` step of its own, before either arm runs, and published as a step output both arms read: an arm that looked up "current" itself would look it up an hour after the other and get a different answer. Empty when the mart could not be read — no credential, a dead one, a history the warehouse will not hand over — which reads here as "not pinned". The sweep then proceeds against the live mart rather than refusing, because most agents never query it, and `report.ts` names every run that queried the mart anyway.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2  | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. Every admitted run starts at once and the arm is done when the slowest is, so an agent is admitted when one of its runs fits the arm on whichever arm is slower and its runs fit the `config.background.maxInFlight` slots left; one missing from the base ref is refused before anyone pays. The same step refuses, by name, a chat agent the base ref cannot run (blocked in its `agents.ts`, or with no case list there): the base arm would skip it and the candidate arm would pay for every turn with nothing to pair. Against a base ref whose arm still walks runs one after another (no `BACKGROUND_WALKS_CONCURRENTLY` in its `sweepArm.ts`), admission spends the arm's wall clock down run by run instead. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
 | `JUDGE_BACKGROUND_EXTRA_CASES` | 1, 2 | Control cases past the cap that both arms walk, as JSON of agent ids to case ids, named once by `armBudget.ts`. Read under the same switch as the budget. See "A control past the case cap is still walked". |
+| `JUDGE_BACKGROUND_AGENT_ATTEMPTS` | 1, 2 | Agents whose case list sets its own attempts, as JSON of agent ids to counts, named once by `armBudget.ts` from this branch's lists. An agent absent here walks `JUDGE_BACKGROUND_ATTEMPTS`. See "A list may set its own attempts". |
 | `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL`          | 1, 2  | The identifiers six background case lists cannot carry, resolved ONCE by `judgeIdentifiers.ts` for both arms: a `judge-` slug from the sweep id, a BallotReady race id, a reserved address. The three agents that read gp-api use the fixed `judge-fixture` slug instead. Empty reads as "not resolved", and every background agent is then refused by name before anything is staged. See [Six background agents need identifiers a case list cannot carry](#six-background-agents-need-identifiers-a-case-list-cannot-carry).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_SELECTION`                                                                        | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_ANTHROPIC_API_KEY`                                                                | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -168,6 +169,7 @@ while IFS='=' read -r key value; do
     refused)       export JUDGE_BACKGROUND_REFUSED=$value ;;
     arm_budget_ms) export JUDGE_ARM_BUDGET_MS=$value ;;
     extra_cases)   export JUDGE_BACKGROUND_EXTRA_CASES=$value ;;
+    agent_attempts) export JUDGE_BACKGROUND_AGENT_ATTEMPTS=$value ;;
     org_slug)      export JUDGE_FIXTURE_ORG_SLUG=$value ;;
     race_id)       export JUDGE_FIXTURE_RACE_ID=$value ;;
     user_email)    export JUDGE_FIXTURE_USER_EMAIL=$value ;;
@@ -696,6 +698,28 @@ slot both ways (a position preference), or a changed call. Control swaps stay
 out of the position-consistency rate and `minSwappedPairs`, which measure the
 scored pairs.
 
+**Every scored background case is judged in both orders too**
+(`orderSwap.backgroundFraction`, 1). A background case is a planted
+condition, not a sample, so one read of it is the whole evidence for that
+condition, and a judge call costs cents against a run's dollars. An order
+flip then shows as disagreement rather than as one confident wrong call.
+Chat keeps the one-in-five subsample (`orderSwap.fraction`). The
+position-consistency gate never fires for a background agent: CI walks at
+most `maxCases` (3) scored cases at up to 3 attempts, so at most 9 swapped
+pairs, under `minSwappedPairs` (10). The rate is reported with its
+denominator and gates nothing. Controls are swapped too but stay out of it.
+
+**A list may set its own attempts.** A background case list can carry
+`attemptsPerCase` in its header, up to `MAX_LIST_ATTEMPTS_PER_CASE` (3) in
+`config.ts`, so a cheap agent can run three attempts and an expensive one
+one. A list asking for more, or a chat list asking at all, is refused by name
+rather than clamped. The budget step reads the count from this branch's list
+and names it to both arms as `JUDGE_BACKGROUND_AGENT_ATTEMPTS`; an arm on a
+sweep never reads its own list's count, because the base arm's list is the
+base ref's. Against a base ref whose arm does not read that variable, no count
+is named and both arms walk the sweep default. A local run, where nothing was
+named, walks the list's own count and spends its slots at it.
+
 **A control past the case cap is still walked.** CI walks the first
 `config.background.maxCases` cases of a list, and a control placed later (the
 `race_opponent_summary` control is ninth) would never run. The budget step
@@ -708,9 +732,14 @@ with nothing. Against a base ref whose arm does not read
 `JUDGE_BACKGROUND_EXTRA_CASES`, none are named, so this takes effect from the
 first sweep after it merges. The plan's estimate counts the agent runs of
 every control past the cap in the branch's list, an upper bound, since the
-base can only drop some. It does not price the judge calls for them, or for
-the extra swapped order every control gets; the plan has never priced judge
-calls, and the run summary's actual cost includes them.
+base can only drop some.
+
+**The plan prices background judge calls.** Every pair in both orders, on
+every panel seat, at a measured cost per call (`MEASURED_JUDGE_CALL_USD`:
+$0.04 for opportunities_and_challenges, $0.08 for the race opponent agents)
+or $0.10 for an agent not measured, x1.5 and rounded up. An upper bound: a
+pair the sweep excludes is never judged. Chat judge calls are still not
+priced; the run summary's actual cost includes both.
 
 A walked control whose `params` need a value the sweep could not resolve (an
 org slug or race id, say) refuses the whole agent, the same as a capped case
