@@ -131,17 +131,19 @@ export function createService({
     protocol: 'HTTP',
     targetType: 'ip',
     vpcId,
-    deregistrationDelay: isProd ? 120 : 15,
+    // A preview has no traffic worth draining, and the drain sat on the
+    // critical path of every preview deploy.
+    deregistrationDelay: select({ preview: 0, dev: 15, prod: 120 }),
     healthCheck: {
       path: '/v1/health',
-      // `deploymentMinimumHealthyPercent: 100` keeps the old task serving until
-      // the new one is healthy, so `interval * healthyThreshold` is on the
-      // critical path of every deploy. At 60s that alone was two of the five
-      // minutes Pulumi waits for the service to stabilize, and preview deploys
-      // failed the wait by seconds. Non-prod trades probe volume for a 30s
-      // handover; prod keeps 60s.
-      interval: isProd ? 60 : 15,
-      timeout: 5,
+      // `interval * healthyThreshold` is on the critical path of every deploy:
+      // the new task is not "healthy" until that many probes pass. At 60s that
+      // alone was two of the five minutes Pulumi waits for the service to
+      // stabilize, and preview deploys failed the wait by seconds. Dev trades
+      // probe volume for a 30s handover and preview for a 10s one; prod keeps
+      // 60s. The ALB requires the timeout to be shorter than the interval.
+      interval: select({ preview: 5, dev: 15, prod: 60 }),
+      timeout: select({ preview: 4, dev: 5, prod: 5 }),
       healthyThreshold: 2,
       unhealthyThreshold: 3,
       matcher: '200',
@@ -320,10 +322,17 @@ export function createService({
         enable: true,
         rollback: false,
       },
-      // 100 (not 0) in every env: a 0 floor lets ECS drain the old task
-      // before the new one is healthy, creating a brief no-healthy-target
-      // window that flaps the health-probe alert on every non-prod deploy.
-      deploymentMinimumHealthyPercent: 100,
+      // 100 on dev and prod: a 0 floor lets ECS drain the old task before the
+      // new one is healthy, creating a brief no-healthy-target window that
+      // flaps the health-probe alert. Preview has no such alert and nobody
+      // reads it mid-deploy (the webapp E2E waits on this deploy), so it takes
+      // the 0: the old task stops while the new one boots instead of after,
+      // which took ~60s off every preview redeploy.
+      deploymentMinimumHealthyPercent: select({
+        preview: 0,
+        dev: 100,
+        prod: 100,
+      }),
       deploymentMaximumPercent: 200,
       enableExecuteCommand: true,
       // Propagate the task-definition's Project tag onto the running tasks so

@@ -211,21 +211,26 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # SWC emit only. `nest build` also runs a full tsc type-check, which took
+      # ~80s of this job and produced byte-identical dist/. The Checks job
+      # already type-checks the same commit and gates merge through Validate,
+      # so here it only delayed the preview. Contracts were built by
+      # setup-node-workspace above, so `npm run build`'s rebuild is skipped too.
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
-        env:
-          # nest build's type-check peaks near Node's default ~4GB heap and
-          # OOMs intermittently on the 16GB runners (exit 134, first seen
-          # 2026-09-18, run 35374622414) — same failure mode and cap as the
-          # vercel-deploy action's `next build`. Only pull requests run this
-          # step, so main's green never covered it and each occurrence read
-          # as one unlucky PR rather than a standing problem.
-          NODE_OPTIONS: --max-old-space-size=6144
-        run: npm run build -w ${{ env.WORKSPACE }}
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          jq '.compilerOptions.typeCheck = false' nest-cli.json > nest-cli.preview.json
+          npx nest build -c nest-cli.preview.json
+          rm nest-cli.preview.json
 
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
         uses: docker/setup-buildx-action@v3
+        with:
+          # The runner is thrown away after the job; tearing the builder down
+          # cost 10-20s of post-job time for nothing.
+          cleanup: false
 
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
