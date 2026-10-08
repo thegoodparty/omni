@@ -305,6 +305,11 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
           OUTREACH_MESSAGE_RULES,
         ]
       : []),
+    ...(has('present_outreach_proposal') && has('ask_clarify_question')
+      ? [
+          '- When you recommend more than one piece of outreach (a sequence of texts, a text and a call), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
+        ]
+      : []),
   ]
   const presents = toolNames.some(
     (name) => name.startsWith('present_') || name === 'ask_clarify_question',

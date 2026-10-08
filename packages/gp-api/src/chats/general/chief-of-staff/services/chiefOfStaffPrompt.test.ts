@@ -193,6 +193,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     ).not.toContain('multiSelect')
   })
 
+  it('offers several outreach pieces as one multi-select question', () => {
+    const rule = 'never list them in prose'
+    const both = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [
+        ...TOOLS,
+        'ask_clarify_question',
+        'present_outreach_proposal',
+      ],
+    })
+    expect(both).toContain(rule)
+    expect(both).toContain('picks from a list you gave earlier')
+    expect(
+      buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: [...TOOLS, 'present_outreach_proposal'],
+      }),
+    ).not.toContain(rule)
+  })
+
   it('checks in on a put-off check only with the reminder tool', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx({ priorities: [priorityInFlow] }),
