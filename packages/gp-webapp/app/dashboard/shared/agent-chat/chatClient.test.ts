@@ -48,6 +48,22 @@ describe('createAgentChatClient streamMessage', () => {
     expect(events.map((e) => e.type)).toEqual(['ping', 'text', 'done'])
   })
 
+  it('sends the page the message was sent from', async () => {
+    window.history.pushState({}, '', '/dashboard/contacts')
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse(['data: {"type":"done"}\n\n']))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createAgentChatClient('campaign_assistant', 'test-surface')
+    await collect(
+      client.streamMessage({ conversationId: 'c1', content: 'hello' }),
+    )
+    const [, init] = fetchMock.mock.calls[0] as [unknown, { body?: string }]
+    expect(JSON.parse(init.body ?? '{}')).toMatchObject({
+      pagePath: '/dashboard/contacts',
+    })
+  })
+
   it('drops frames with unknown event types instead of failing the stream', async () => {
     vi.stubGlobal(
       'fetch',

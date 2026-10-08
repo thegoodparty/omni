@@ -7,6 +7,7 @@ import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
+import type { ProductArea } from '../product-knowledge/productMap'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { localDay, todayLine } from '../services/todayLine'
@@ -872,6 +873,15 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
     GENERATE_STATUS_GUIDANCE,
   ].join('\n\n')
 }
+
+// The candidate opens this chat from a dock on every page, so "here" and
+// "this page" are only answerable when the turn says where it was sent from.
+export const currentPageBlock = (area: ProductArea): string =>
+  [
+    'CURRENT PAGE (this message only):',
+    `- The candidate sent this from ${area.name} (${area.path}). ${area.does}`,
+    `- Read "here", "this page" and "this" as ${area.name}. Bring the page up only when it bears on what they asked; never open by naming it.`,
+  ].join('\n')
 
 export const buildCampaignManagerSystemPrompt = (
   ctx: CampaignManagerContext,

@@ -101,7 +101,10 @@ minutes, and without wire traffic client idle watchdogs and LB idle timeouts kil
 the healthy stream. Controllers write `data: <JSON>\n\n` frames with a 300s
 timeout and an `AbortController` on client disconnect. Error codes:
 `conversation_not_found`, `rate_limited`, `upstream_unavailable`, `aborted`,
-`internal`. On the webapp side, `useStreamingTurn` treats any event as watchdog
+`internal`. Each message also carries `pagePath`, the page it was sent from; a
+handler that implements `describePage` turns it into a block appended to that
+turn's system prompt (Campaign Manager resolves it against the product map), and
+every other scope ignores it. On the webapp side, `useStreamingTurn` treats any event as watchdog
 activity (60s idle = stalled), and when a stream ends without `done` it polls the
 transcript for up to 3 minutes for the still-generating turn before falling back
 to rendering the partial locally.

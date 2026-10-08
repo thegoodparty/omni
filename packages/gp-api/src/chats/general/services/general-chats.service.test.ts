@@ -308,6 +308,57 @@ describe('GeneralChatsService', () => {
     },
   )
 
+  it('adds what the handler says about the page, for that turn only', async () => {
+    const describePage = vi.fn((path: string) =>
+      path === '/dashboard/contacts' ? 'CURRENT PAGE: Voter Data' : null,
+    )
+    const pageHandler = buildHandler({ describePage })
+    const pageStore = buildStore({
+      findOwnedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'c1', title: 'existing' }),
+      ) as never,
+    })
+    const prompts: string[] = []
+    const chatStream = {
+      stream: vi.fn((args: { systemPrompt: string }) => {
+        prompts.push(args.systemPrompt)
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        }
+      }),
+    }
+    const service = new GeneralChatsService(
+      buildRegistry(pageHandler),
+      pageStore,
+      {} as never,
+      chatStream as never,
+      {} as never,
+    )
+    const send = (pagePath?: string) =>
+      collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: 'hi',
+          ...(pagePath && { pagePath }),
+        }),
+      )
+
+    await send('/dashboard/contacts')
+    await send('/dashboard/nowhere')
+    await send()
+
+    expect(prompts).toEqual([
+      'system\n\nCURRENT PAGE: Voter Data',
+      'system',
+      'system',
+    ])
+  })
+
   it('passes the handler scope to the chat stream', async () => {
     for (const scope of [
       ChatScope.chief_of_staff,

@@ -29,6 +29,7 @@ import { professionalAdviceDisclaimer } from '../services/professionalAdviceChec
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
+  currentPageBlock,
   LEGAL_LINE,
   type LiveRace,
 } from './campaignManagerPrompt'
@@ -57,6 +58,7 @@ import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
+import { areaForPath } from '../product-knowledge/productMap'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -481,6 +483,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       )
       return { status: 'unavailable' }
     }
+  }
+
+  describePage(pagePath: string): string | null {
+    const area = areaForPath('win', pagePath)
+    return area ? currentPageBlock(area) : null
   }
 
   buildSystemPrompt(ctx: CampaignManagerContext): string {
