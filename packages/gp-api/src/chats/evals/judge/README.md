@@ -670,7 +670,10 @@ nothing else, so the agent never sees any of them.
   yes, the candidate did not) or an improvement (the reverse). `partly`, and
   a value that changes between the two orders, count as not handled. The
   quotes go to the private rulings file only. The section does not move the
-  verdict label or any score.
+  verdict label or any score. A pair whose every judgment came back ungraded
+  is counted as asked but not graded, and a value read in only one of two
+  orders is marked as such. A dry run (JUDGE_SPEND not true) prints no
+  handling section, since no model read the runs.
 - **`scored: false`** makes the case a control. It runs and is judged like
   any other case, but it is kept out of the verdict and everything it is
   built from: overall, dimensions, case-dimension rows, gates, floor, flags, exclusion counts,

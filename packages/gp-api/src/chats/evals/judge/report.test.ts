@@ -526,15 +526,19 @@ describe('condition handling', () => {
       agents: [
         {
           ...score,
-          handling: [
-            {
-              caseId: 't2-conflict',
-              attempt: 1,
-              base: { primary: 'yes', swapped: 'partly' },
-              candidate: { primary: 'no', swapped: 'no' },
-              class: 'sharedFailure',
-            },
-          ],
+          handling: {
+            cases: [
+              {
+                caseId: 't2-conflict',
+                attempt: 1,
+                base: { primary: 'yes', swapped: 'partly' },
+                candidate: { primary: 'no' },
+                class: 'sharedFailure',
+                ordersJudged: 2,
+              },
+            ],
+            notGraded: 1,
+          },
         },
       ],
     })
@@ -544,8 +548,10 @@ describe('condition handling', () => {
     )
     expect(report).toContain(
       '- t2-conflict attempt 1: base yes / partly (orders disagree), ' +
-        'candidate no / no: shared failure',
+        'candidate no (one order only; the other was not graded): ' +
+        'shared failure',
     )
+    expect(report).toContain('1 case pair(s) asked but not graded')
   })
 
   it('prints nothing for an agent no case asked', async () => {

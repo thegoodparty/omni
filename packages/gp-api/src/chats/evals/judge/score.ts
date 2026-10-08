@@ -1,5 +1,9 @@
 import type { ContractNote } from './outputContract'
-import { conditionHandling, type CaseHandling } from './handling'
+import {
+  conditionHandling,
+  handlingPairKey,
+  type ConditionHandling,
+} from './handling'
 import { bootstrapCi, createRng, mean, type Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
@@ -225,7 +229,7 @@ export interface AgentScore {
   outputContractNote?: ContractNote
   // Per case, whether each arm reached the outcome its `handledWhen`
   // sentence describes. Absent when no case carries one. Not in the label.
-  handling?: readonly CaseHandling[]
+  handling?: ConditionHandling
 }
 
 export interface ControlsScoredAnyway {
@@ -1017,13 +1021,19 @@ export const scoreAgent = (
     evidence: measure(allPairs),
     ci: candidateWithCi?.candidate.ci ?? null,
     controls: controlReadings(all, allJudgments, unscored),
-    ...handlingOf(judgments),
+    ...handlingOf(judgments, normalized),
   }
 }
 
 const handlingOf = (
   judgments: readonly Judgment[],
-): { handling?: readonly CaseHandling[] } => {
-  const handling = conditionHandling(judgments)
-  return handling.length === 0 ? {} : { handling }
+  normalized: NormalizedAgent,
+): { handling?: ConditionHandling } => {
+  const asked = new Set(
+    normalized.judgeable
+      .filter((c) => c.payload.handledWhen !== undefined)
+      .map((c) => handlingPairKey(c.caseId, c.attempt)),
+  )
+  if (asked.size === 0) return {}
+  return { handling: conditionHandling(judgments, asked) }
 }

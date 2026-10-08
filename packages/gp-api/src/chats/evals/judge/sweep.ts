@@ -530,8 +530,16 @@ export const judgeSweep = async (
         })
         continue
       }
+      const { handling, ...scored } = scoreAgent(
+        { normalized, judgments, unscoredCaseIds },
+        config,
+      )
       scores.push({
-        ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
+        ...scored,
+        // Dropped when no model was called: the canned judge answers `no`
+        // for every run, and a section of shared failures nobody judged
+        // would read as a finding.
+        ...(env.spends && handling !== undefined && { handling }),
         ...(controls.scoredAnyway !== undefined && {
           controlsScoredAnyway: controls.scoredAnyway,
         }),
@@ -767,9 +775,6 @@ export const cannedVerdict = (
   overall: { reasoning: CANNED_REASONING, verdict: 'cannot_determine' },
 })
 
-// The dimension keys a panel schema requires, read off the schema itself: the
-// canned judge is handed nothing else, and a case with its own dimensions
-// requires keys the config does not name.
 // Whether the panel schema asks the per-run `handled` question, which it
 // does exactly when the case carries a handling sentence.
 const asksHandled = (schema: z.ZodType): boolean => {
@@ -777,6 +782,9 @@ const asksHandled = (schema: z.ZodType): boolean => {
   return wire instanceof z.ZodObject && 'handled' in wire.shape
 }
 
+// The dimension keys a panel schema requires, read off the schema itself: the
+// canned judge is handed nothing else, and a case with its own dimensions
+// requires keys the config does not name.
 const requiredDimensions = (
   schema: z.ZodType,
   config: JudgeConfig,

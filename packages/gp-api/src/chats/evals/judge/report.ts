@@ -1,6 +1,8 @@
 import {
+  oneOrderOnly,
   ordersDisagree,
   type ArmHandling,
+  type CaseHandling,
   type HandlingClass,
 } from './handling'
 import {
@@ -270,15 +272,17 @@ const HANDLING_CLASSES: Readonly<Record<HandlingClass, string>> = {
   improvement: 'improvement (the candidate handled it, the base did not)',
 }
 
-const armText = (arm: ArmHandling): string =>
+const armText = (h: CaseHandling, arm: ArmHandling): string =>
   [arm.primary, arm.swapped].filter((v) => v !== undefined).join(' / ') +
-  (ordersDisagree(arm) ? ' (orders disagree)' : '')
+  (ordersDisagree(arm) ? ' (orders disagree)' : '') +
+  (oneOrderOnly(h, arm) ? ' (one order only; the other was not graded)' : '')
 
 // Values and case ids only. The judge's quotes and locations are in the
 // private rulings file: they quote the agent's output, and this is public.
 const handlingLines = (score: AgentScore): string[] => {
-  const handling = score.handling ?? []
-  if (handling.length === 0) return []
+  const handling = score.handling?.cases ?? []
+  const notGraded = score.handling?.notGraded ?? 0
+  if (handling.length === 0 && notGraded === 0) return []
   const count = (c: HandlingClass): number =>
     handling.filter((h) => h.class === c).length
   return [
@@ -288,10 +292,17 @@ const handlingLines = (score: AgentScore): string[] => {
       `${handling.length} case pair(s). Judged per run against each case's ` +
       'handledWhen; partly, and a value that changes with the order, count ' +
       'as not handled. Not part of the verdict above.',
+    ...(notGraded === 0
+      ? []
+      : [
+          `${notGraded} case pair(s) asked but not graded: the judge ` +
+            'returned no verdict, so nothing was read.',
+        ]),
     ...handling.map(
       (h) =>
-        `- ${h.caseId} attempt ${h.attempt}: base ${armText(h.base)}, ` +
-        `candidate ${armText(h.candidate)}: ${HANDLING_CLASSES[h.class]}`,
+        `- ${h.caseId} attempt ${h.attempt}: base ${armText(h, h.base)}, ` +
+        `candidate ${armText(h, h.candidate)}: ` +
+        HANDLING_CLASSES[h.class],
     ),
     '',
   ]
