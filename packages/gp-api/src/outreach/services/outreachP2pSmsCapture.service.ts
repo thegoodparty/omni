@@ -342,6 +342,24 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return
     }
 
+    // KILL-SWITCH on a live hold: everything below moves or releases money on a
+    // `requires_capture` hold. If the flag was flipped OFF after this row entered
+    // `capturing` (a rollback mid-settlement), do NOT issue a fresh Stripe call —
+    // revert to `authorized` and let a sweep settle it when the flag is back on.
+    // The `succeeded` reconcile above stays UNCONDITIONAL: it only records a
+    // capture that already happened, which must never be lost to a rollback.
+    if (!isWinSmsHoldBillingEnabled()) {
+      this.logger.warn(
+        { outreachId },
+        'win sms capture: flag off on a live hold; reverting to authorized',
+      )
+      await this.transitionFromCapturing(
+        outreachId,
+        P2pSmsSettleState.authorized,
+      )
+      return
+    }
+
     // ZERO / SUB-MINIMUM: Stripe refuses a capture under its 50c floor, so a
     // final amount below it is released, not captured — void the hold and park
     // `voided`. Covers a $0 amount (e.g. every contact free or scrubbed) too.
@@ -454,11 +472,13 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     return billing !== null
   }
 
-  // Resolves everything capture needs from the build + outreach: the stable
-  // leads_loaded count, whether the free-texts offer was applied to this send,
-  // and the build's own id (stamped on the satellite as the durable billing
-  // record). Returns null when the build is not yet `ready` with a stable
-  // count — the rendezvous is incomplete and capture must wait.
+  // Resolves everything capture needs from the build + satellite + campaign: the
+  // stable leads_loaded count, whether the free-texts offer was applied to this
+  // send, and the build's own id (stamped on the satellite as the durable
+  // billing record). Returns null when the rendezvous is incomplete — the build
+  // is not yet `ready` with a stable count, OR this send's free-texts redemption
+  // has not finalized yet — so capture waits rather than billing off a half-
+  // settled state.
   private async resolveCaptureBilling(
     outreachId: number,
   ): Promise<CaptureBilling | null> {
@@ -466,9 +486,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       where: { id: outreachId },
       select: {
         phoneListId: true,
-        textCount: true,
-        billableTextCount: true,
-        campaign: { select: { freeTextsOfferRedeemedAt: true } },
+        campaign: { select: { hasFreeTextsOffer: true } },
+        p2pSms: { select: { freeTextsApplied: true } },
       },
     })
     if (!outreach?.phoneListId) return null
@@ -485,18 +504,22 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return null
     }
 
-    // Whether the free-texts offer was applied to THIS send. `billableTextCount`
-    // is client-supplied at the schedule write, so the reduced-count predicate
-    // alone could be spoofed to discount a send that never had the offer —
-    // guard it with the campaign's server-set `freeTextsOfferRedeemedAt`
-    // (an offer was actually redeemed), the same second guard the cancel path's
-    // free-texts restore uses before it hands the promo back. Both facts are
-    // settled in the recording webhook before capture runs.
-    const offerApplied =
-      outreach.campaign?.freeTextsOfferRedeemedAt != null &&
-      outreach.textCount != null &&
-      outreach.billableTextCount != null &&
-      outreach.billableTextCount < outreach.textCount
+    // The ONLY discount signal: the per-send, server-set flag the purchase
+    // handler stamps the moment THIS send redeems the offer. Never the
+    // client-writable billableTextCount, and never a campaign-level marker that
+    // a later same-campaign send could ride to an unearned discount.
+    const offerApplied = outreach.p2pSms?.freeTextsApplied ?? false
+
+    // REDEMPTION-PENDING GATE: the hold is recorded `authorized` before the
+    // recording webhook redeems this send's offer. If the campaign still has the
+    // offer available and this send has not stamped the per-send flag, that
+    // redemption has not run yet (the webhook is mid-flight, or a retry is
+    // pending after a crash between authorize and redeem) — capturing now would
+    // bill an eligible send at full price. Wait: a later edge/sweep captures
+    // once the retry finalizes the offer. The stamp lands before redeemFreeTexts
+    // flips the flag, so there is no window where both are "off" for an eligible
+    // send mid-redemption.
+    if (outreach.campaign?.hasFreeTextsOffer && !offerApplied) return null
 
     return {
       peerlyPhoneListId: build.id,

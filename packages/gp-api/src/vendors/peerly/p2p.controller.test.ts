@@ -7,6 +7,7 @@ import {
 import { FastifyReply } from 'fastify'
 import { Campaign } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { P2pController } from './p2p.controller'
 import { PhoneListState } from './peerly.types'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
@@ -61,6 +62,9 @@ describe('P2pController', () => {
     findFirst: ReturnType<typeof vi.fn>
     isLeadsLoadedStable: ReturnType<typeof vi.fn>
   }
+  let mockP2pSmsCapture: {
+    captureHoldsForReadyList: ReturnType<typeof vi.fn>
+  }
   let mockRes: FastifyReply
 
   beforeEach(() => {
@@ -84,11 +88,15 @@ describe('P2pController', () => {
       // tests against the real service in p2pPhoneListUpload.routes.test.ts.
       isLeadsLoadedStable: vi.fn().mockResolvedValue(true),
     }
+    mockP2pSmsCapture = {
+      captureHoldsForReadyList: vi.fn().mockResolvedValue(undefined),
+    }
     mockRes = createMockReply()
     controller = new P2pController(
       mockPeerlyPhoneListService as unknown as PeerlyPhoneListService,
       mockPeerlyPhoneListCapture as unknown as PeerlyPhoneListCaptureService,
       mockP2pPhoneListUploadService as unknown as P2pPhoneListUploadService,
+      mockP2pSmsCapture as unknown as OutreachP2pSmsCaptureService,
       createMockLogger(),
     )
   })
@@ -252,6 +260,11 @@ describe('P2pController', () => {
         123,
         500,
       )
+      // Edge (b): the browser poll that first stamps ready also fires the
+      // capture, so a hold authorized for this list is not left to the backstop.
+      expect(mockP2pSmsCapture.captureHoldsForReadyList).toHaveBeenCalledWith(
+        123,
+      )
     })
 
     it('returns 202 (still loading) when leads_loaded has not stabilized, without stamping', async () => {
@@ -318,6 +331,9 @@ describe('P2pController', () => {
       expect(
         mockPeerlyPhoneListCapture.isLeadsLoadedStable,
       ).not.toHaveBeenCalled()
+      // Already ready before this poll: the capture edge fired on the original
+      // transition, so a repeat poll must not re-fire it.
+      expect(mockP2pSmsCapture.captureHoldsForReadyList).not.toHaveBeenCalled()
       expect(mockRes.status).not.toHaveBeenCalled()
       expect(result).toEqual({
         phoneListId: 123,

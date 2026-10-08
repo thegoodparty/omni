@@ -388,6 +388,19 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
             campaignId,
           )
           if (stamped) {
+            // Win SMS hold billing: record the per-send, server-authoritative
+            // "this send redeemed the offer" signal BEFORE flipping the campaign
+            // flag, so the capture's discount decision never depends on the
+            // client-supplied billableTextCount. Ordered before redeemFreeTexts
+            // so there is no instant where the offer is consumed (flag flipped)
+            // but the per-send signal is still unset — which the capture gate
+            // would otherwise read as "full price" and overcharge.
+            if (
+              isWinSmsHoldBillingEnabled() &&
+              paymentIntentId.startsWith('cs_')
+            ) {
+              await this.p2pSmsHold.markFreeTextsApplied(outreachId)
+            }
             await this.campaignsService.redeemFreeTexts(campaignId)
             this.logger.info(
               `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,

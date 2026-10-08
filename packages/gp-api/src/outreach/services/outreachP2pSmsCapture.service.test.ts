@@ -80,8 +80,8 @@ describe('OutreachP2pSmsCaptureService', () => {
       opts.outreachRow === undefined
         ? {
             phoneListId: PEERLY_LIST_ID,
-            textCount: null,
-            billableTextCount: null,
+            campaign: { hasFreeTextsOffer: false },
+            p2pSms: { freeTextsApplied: false },
           }
         : opts.outreachRow,
     )
@@ -197,13 +197,12 @@ describe('OutreachP2pSmsCaptureService', () => {
         authorizationIntentId: INTENT_ID,
         authorizedAmountInCents: authorized,
       },
-      // billableTextCount < textCount AND the campaign redeemed an offer =>
-      // the free-texts offer was applied to this send.
+      // The per-send server flag is set => the free-texts offer was applied to
+      // THIS send. The offer is already redeemed, so the campaign flag is off.
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
-        textCount: leads,
-        billableTextCount: leads - FREE_TEXTS_OFFER.COUNT,
-        campaign: { freeTextsOfferRedeemedAt: new Date('2026-01-01') },
+        campaign: { hasFreeTextsOffer: false },
+        p2pSms: { freeTextsApplied: true },
       },
       build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: leads },
     })
@@ -218,7 +217,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     )
   })
 
-  it('does NOT discount when the count is reduced but the campaign never redeemed an offer', async () => {
+  it('does NOT discount a send whose per-send free-texts flag is unset (full price)', async () => {
     const leads = FREE_TEXTS_OFFER.COUNT + 1000
     const authorized = calcTextAmountInCents(leads)
     arrange({
@@ -228,13 +227,12 @@ describe('OutreachP2pSmsCaptureService', () => {
         authorizationIntentId: INTENT_ID,
         authorizedAmountInCents: authorized,
       },
-      // A spoofed reduced billableTextCount, but no redeemed offer on the
-      // campaign — the guard blocks the discount, so the full hold is captured.
+      // This send never consumed the offer (per-send flag false) and the
+      // campaign has none available — full price regardless of any count.
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
-        textCount: leads,
-        billableTextCount: leads - FREE_TEXTS_OFFER.COUNT,
-        campaign: { freeTextsOfferRedeemedAt: null },
+        campaign: { hasFreeTextsOffer: false },
+        p2pSms: { freeTextsApplied: false },
       },
       build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: leads },
     })
@@ -246,6 +244,26 @@ describe('OutreachP2pSmsCaptureService', () => {
       authorized,
       `p2p-sms-capture-${OUTREACH_ID}`,
     )
+  })
+
+  it('waits (no capture) while an eligible campaign has not yet redeemed this send', async () => {
+    arrange({
+      // The campaign still has the offer available AND this send has not
+      // stamped the per-send flag — redemption is pending (webhook mid-flight or
+      // a retry), so capture must not bill it at full price yet.
+      outreachRow: {
+        phoneListId: PEERLY_LIST_ID,
+        campaign: { hasFreeTextsOffer: true },
+        p2pSms: { freeTextsApplied: false },
+      },
+    })
+
+    await service.captureHold(OUTREACH_ID)
+
+    // Readiness gate fails before the claim: nothing moves, the hold stays
+    // authorized for a later edge/sweep once redemption finalizes.
+    expect(sms.updateMany).not.toHaveBeenCalled()
+    expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
   })
 
   it('voids (does not capture) when the final amount is below the Stripe floor', async () => {
@@ -357,6 +375,63 @@ describe('OutreachP2pSmsCaptureService', () => {
         )
       expect(authorizedSelect?.where?.updatedAt?.lt).toBeInstanceOf(Date)
       expect(authorizedSelect?.orderBy).toMatchObject({ captureBefore: 'asc' })
+    })
+
+    // Flag-off kill switch on a row stranded mid-settlement (a rollback).
+    const arrangeStaleRecovery = (intent: Stripe.PaymentIntent) => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      // No authorized candidates; one stale `capturing` row to recover.
+      sms.findMany.mockImplementation(
+        (args: { where?: { settleState?: P2pSmsSettleState } }) =>
+          Promise.resolve(
+            args?.where?.settleState === P2pSmsSettleState.capturing
+              ? [{ outreachId: OUTREACH_ID }]
+              : [],
+          ),
+      )
+      sms.updateMany.mockResolvedValue({ count: 1 })
+      sms.findUnique.mockResolvedValue({
+        outreachId: OUTREACH_ID,
+        settleState: P2pSmsSettleState.capturing,
+        authorizationIntentId: INTENT_ID,
+        authorizedAmountInCents: AUTHORIZED,
+      })
+      outreach.findUnique.mockResolvedValue({
+        phoneListId: PEERLY_LIST_ID,
+        campaign: { hasFreeTextsOffer: false },
+        p2pSms: { freeTextsApplied: false },
+      })
+      peerlyPhoneList.findUnique.mockResolvedValue({
+        id: BUILD_ID,
+        buildStatus: 'ready',
+        leadsLoaded: LEADS_LOADED,
+      })
+      stripe.retrievePaymentIntent.mockResolvedValue(intent)
+    }
+
+    it('flag off: reconciles a stale succeeded PI (records the capture that already happened)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+      arrangeStaleRecovery(
+        mockIntent({ status: 'succeeded', amount_received: 777 }),
+      )
+
+      await service.sweepCaptures()
+
+      expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
+      expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
+        capturedAmountInCents: 777,
+      })
+    })
+
+    it('flag off: does NOT fresh-capture a stale requires_capture PI (reverts to authorized)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+      arrangeStaleRecovery(mockIntent({ status: 'requires_capture' }))
+
+      await service.sweepCaptures()
+
+      expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
+      expect(settingState()(P2pSmsSettleState.captured)).toBeUndefined()
+      expect(settingState()(P2pSmsSettleState.authorized)).toBeDefined()
     })
   })
 })
