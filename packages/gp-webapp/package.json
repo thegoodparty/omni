@@ -154,7 +154,7 @@
     "string-strip-html": "^13.4.13",
     "tailwindcss": "^4.1.6",
     "tw-animate-css": "^1.2.9",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "uuidv7": "^1.1.0",
     "validator": "^13.15.22",
     "vaul": "^1.1.2",
