@@ -61,7 +61,6 @@ const mockVoterFileFilterService = {
 
 const mockP2pSmsHold = {
   recordHold: vi.fn(),
-  markFreeTextsApplied: vi.fn(),
 } as unknown as OutreachP2pSmsHoldService
 
 const mockP2pSmsCapture = {
@@ -1312,7 +1311,7 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockP2pSmsCapture.captureHold).toHaveBeenCalledWith(123)
     })
 
-    it('flag ON: stamps the per-send free-texts signal before redeeming the offer', async () => {
+    it('flag ON + paid session: passes the outreachId so redeemFreeTexts can stamp the winner atomically', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
@@ -1329,17 +1328,35 @@ describe('OutreachPurchaseHandlerService', () => {
         outreachId: '123',
       })
 
-      expect(mockP2pSmsHold.markFreeTextsApplied).toHaveBeenCalledWith(123)
-      // Ordered before the campaign-flag flip so there is never an instant where
-      // the offer is redeemed but the per-send signal is unset.
-      const stampOrder =
-        vi.mocked(mockP2pSmsHold.markFreeTextsApplied).mock
-          .invocationCallOrder[0] ?? 0
-      const redeemOrder =
-        vi.mocked(mockCampaignsService.redeemFreeTexts).mock
-          .invocationCallOrder[0] ?? 0
-      expect(stampOrder).toBeGreaterThan(0)
-      expect(stampOrder).toBeLessThan(redeemOrder)
+      // No separate pre-stamp call: the per-send satellite flag is only ever
+      // set by redeemFreeTexts itself, inside the same transaction as the
+      // campaign CAS win, so a losing concurrent send can never end up stamped.
+      expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(
+        111,
+        123,
+      )
+    })
+
+    it('flag ON + free (non cs_) session: redeems without a winSmsHoldOutreachId', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(true)
+
+      await service.executePostPurchase('free_confirmed_hold_offer', {
+        ...purchaseMetadata,
+        outreachId: '123',
+      })
+
+      // A forgiven/free send never places a hold, so there is no satellite
+      // signal to stamp — redeeming must not pass an outreachId.
+      expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
     })
 
     it('flag OFF: never records a hold or fires capture (inert)', async () => {

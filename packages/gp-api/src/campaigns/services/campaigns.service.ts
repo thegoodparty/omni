@@ -1019,7 +1019,20 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return campaign?.hasFreeTextsOffer ?? false
   }
 
-  async redeemFreeTexts(campaignId: number): Promise<void> {
+  // `winSmsHoldOutreachId`, when given, stamps that send's
+  // `OutreachP2pSms.freeTextsApplied` — the per-send, server-authoritative
+  // discount signal the Win SMS hold capture reads — IN THE SAME transaction
+  // as the campaign CAS win below. Two concurrent eligible sends on one
+  // campaign both reach this method; only one `updateMany` can win the CAS
+  // (count 1), and the loser throws before this transaction ever reaches the
+  // stamp. Stamping here, rather than unconditionally before this call, is
+  // what makes the stamp mean "this send won the offer" instead of "this send
+  // was merely eligible" — the loser's satellite row is never touched and
+  // keeps its default `false`.
+  async redeemFreeTexts(
+    campaignId: number,
+    winSmsHoldOutreachId?: number,
+  ): Promise<void> {
     const result = await this.client.$transaction(
       async (tx) => {
         const updatedCampaign = await tx.campaign.updateMany({
@@ -1037,6 +1050,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           throw new BadRequestException(
             'No free texts offer available for this campaign',
           )
+        }
+
+        if (winSmsHoldOutreachId !== undefined) {
+          await tx.outreachP2pSms.updateMany({
+            where: { outreachId: winSmsHoldOutreachId },
+            data: { freeTextsApplied: true },
+          })
         }
 
         const campaign = await tx.campaign.findUnique({
