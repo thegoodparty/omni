@@ -189,10 +189,11 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     await postDraft(draftBody())
 
     const system = promptOf('system')
-    expect(system).toContain('"Hi, I\'m {name}, your {office}."')
+    expect(system).not.toContain("Hi, I'm")
     expect(system).toContain('a conversation with a constituent')
     expect(system).toContain('about what the office is working toward')
-    expect(system).toContain('Write 4 or 5 bullets')
+    expect(system).toContain('Refer to the official by first name')
+    expect(system).toContain('Write 4 or 5 short bullets')
   })
 
   // An Improve keeps the official's own sentences as sentences.

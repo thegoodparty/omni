@@ -408,6 +408,43 @@ describe('CampaignTcrComplianceController', () => {
     })
   })
 
+  describe('submitCampaignVerifyPIN - status transition', () => {
+    it('moves a submitted row to pending', async () => {
+      mockTcrService.fetchByCampaignId.mockResolvedValue(mockTcrCompliance)
+
+      await controller.submitCampaignVerifyPIN(
+        mockTcrCompliance.id,
+        { pin: '123456' },
+        mockUser,
+        mockCampaign,
+      )
+
+      expect(mockTcrService.model.update).toHaveBeenCalledWith({
+        where: { id: mockTcrCompliance.id },
+        data: { status: TcrComplianceStatus.pending },
+      })
+    })
+
+    it('leaves an approved internal-testing row approved', async () => {
+      mockTcrService.fetchByCampaignId.mockResolvedValue({
+        ...mockTcrCompliance,
+        status: TcrComplianceStatus.approved,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+        internalTestingApprovedAt: new Date('2026-10-01T00:00:00Z'),
+      })
+
+      await controller.submitCampaignVerifyPIN(
+        mockTcrCompliance.id,
+        { pin: '123456' },
+        mockUser,
+        mockCampaign,
+      )
+
+      expect(mockTcrService.model.update).not.toHaveBeenCalled()
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+  })
+
   describe('submitCampaignVerifyPIN - Segment event tracking', () => {
     beforeEach(() => {
       mockTcrService.fetchByCampaignId.mockResolvedValue(mockTcrCompliance)

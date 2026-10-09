@@ -302,7 +302,7 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     await postDraft(draftBody())
 
     const system = promptOf('system')
-    expect(system).toContain('Write 4 or 5 bullets')
+    expect(system).toContain('Write 4 or 5 short bullets')
     expect(system).toContain('ONE action or idea')
     expect(system).toContain(
       'about what the campaign is working toward or asking for',
@@ -325,17 +325,22 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     expect(promptOf('system')).toContain('Name the concrete HOW')
   })
 
-  // The app says the introduction and the goodbye at every door, so a
-  // greeting from the model would be said twice.
-  it('leaves the introduction and the goodbye to the app', async () => {
+  // Nothing is composed around the card any more, so the bullets carry the
+  // opening and the close, and a volunteer reads the same card the candidate
+  // does.
+  it('opens and closes the card in the third person', async () => {
     mockPoints()
 
     await postDraft(draftBody())
 
     const system = promptOf('system')
-    expect(system).toContain('"Hi, I\'m {name}, running for {office}."')
-    expect(system).toContain('thank-you and goodbye')
-    expect(system).toContain('No greeting, no introduction')
+    expect(system).toContain('The first bullet is how to open')
+    expect(system).toContain('the last is how to close')
+    expect(system).toContain('never a scripted greeting or goodbye')
+    expect(system).toContain('in the third person')
+    expect(system).toContain('If no name is given, say "the candidate"')
+    expect(system).not.toContain('Renee')
+    expect(system).not.toContain("Hi, I'm")
     expect(system).toContain('Never write a URL')
     expect(system).not.toMatch(/call.to.action/i)
   })
@@ -540,7 +545,7 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(system).toContain('Keep the shape they wrote')
       expect(system).toContain('Never turn one into')
       expect(system).toContain('Keep their line breaks')
-      expect(system).not.toContain('Write 4 or 5 bullets')
+      expect(system).not.toContain('Write 4 or 5 short bullets')
       expect(res.data.draft).toBe(bullets)
       expect(res.data).toMatchObject({
         engagementQuestion: 'Fix the roads.',

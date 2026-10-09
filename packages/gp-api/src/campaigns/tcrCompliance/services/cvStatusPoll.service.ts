@@ -198,6 +198,7 @@ export class CvStatusPollService extends createPrismaBase(
       {
         where: {
           campaign: scannableCampaign,
+          internalTestingAt: null,
           peerlyIdentityId: { not: null },
           pinSentDetectedAt: null,
           peerlySubmissionStartedAt: {
@@ -265,6 +266,7 @@ export class CvStatusPollService extends createPrismaBase(
     const cvCandidates: RecordWithCampaignUser[] = await this.model.findMany({
       where: {
         campaign: scannableCampaign,
+        internalTestingAt: null,
         peerlyIdentityId: { not: null },
         status: {
           in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
@@ -311,6 +313,7 @@ export class CvStatusPollService extends createPrismaBase(
       await this.model.findMany({
         where: {
           campaign: scannableCampaign,
+          internalTestingAt: null,
           peerlyIdentityId: { not: null },
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],

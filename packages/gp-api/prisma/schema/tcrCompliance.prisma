@@ -88,6 +88,10 @@ model TcrCompliance {
   // testing)" checkbox: status is 'approved' with no Peerly identity, so UI
   // gates pass but real P2P sends stay blocked. Internal accounts only.
   internalTestingApprovedAt DateTime? @map("internal_testing_approved_at")
+  // Set when the organization is a staff-created test org (testModeCreatedAt).
+  // Rows with this set are excluded from compliance sweeps, CV polling,
+  // nightly 10DLC reports, and real Peerly submissions.
+  internalTestingAt         DateTime? @map("internal_testing_at")
 
   // Raw string mirrors of the live Peerly CampaignVerify status (`retrieve_cv`)
   // and identity profile status (`getProfile`), stamped by the nightly poll

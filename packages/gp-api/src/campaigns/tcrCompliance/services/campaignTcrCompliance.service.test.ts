@@ -637,6 +637,19 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
 
+    it('does nothing for a synthetic test-org record after payment', async () => {
+      mockModel.findUnique.mockResolvedValueOnce({
+        ...paidRecord,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+      })
+      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
+
+      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
+
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
     it('does nothing when the campaign has no Clerk user', async () => {
       mockModel.findUnique.mockResolvedValueOnce(paidRecord)
       mockCampaigns.findUnique.mockResolvedValueOnce({
@@ -694,6 +707,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
             status: TcrComplianceStatus.submitted,
             peerlyIdentityId: null,
             kickoffSentAt: null,
+            internalTestingAt: null,
             createdAt: { lt: expect.any(Date) },
             campaign: { isPro: true },
           },
@@ -3329,6 +3343,37 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     })
   })
 
+  it('retrieveCampaignVerifyToken returns the bypass token for a synthetic row in prod without calling Peerly', async () => {
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken('any-pin', {
+        ...tcrCompliance,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+        peerlyIdentityId: 'test-mode-123',
+      })
+
+      expect(token).toBe('non-prod-bypass-cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
+    })
+  })
+
+  it("submitCampaignVerifyToken never posts a synthetic row's token to Peerly in prod", async () => {
+    await withEnv('prod', async () => {
+      const result = await service.submitCampaignVerifyToken(
+        {
+          ...tcrCompliance,
+          internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+          peerlyIdentityId: 'test-mode-123',
+        },
+        'non-prod-bypass-cv-token',
+      )
+
+      expect(result).toBeUndefined()
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
+    })
+  })
+
   const tcrWithIdentity = {
     id: 'tcr-2',
     peerlyIdentityId: 'peerly-1',
@@ -4035,6 +4080,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: { not: null },
         peerlyCvStatus: 'VERIFIED',
+        internalTestingAt: null,
       },
     })
   })

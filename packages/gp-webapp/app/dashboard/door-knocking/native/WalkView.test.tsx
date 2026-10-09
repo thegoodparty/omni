@@ -16,7 +16,6 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import WalkView, { stopNumeralColor } from './WalkView'
 import type { KnockDraft } from './RecordKnockForm'
 import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
-import { DEPARTURE_NOTE } from './talkingPointsCard'
 import type { LiveLocation } from './useLiveLocation'
 import {
   PROGRESS_LEGEND_ORDER,
@@ -3170,9 +3169,8 @@ describe('WalkView notes', () => {
     expect(
       within(card).getByText('Ask whether we can count on them in November.'),
     ).toBeInTheDocument()
-    // Section 5, which is composed at render rather than stored — proof the
-    // sheet assembled the card rather than printing the column.
-    expect(within(card).getByText(DEPARTURE_NOTE)).toBeInTheDocument()
+    // Shown as written: nothing is composed around a stored card.
+    expect(within(card).queryByText(/Thank them for their time/)).toBeNull()
   })
 
   // A card written as free text: drafted bullets with the candidate's own
@@ -3204,7 +3202,7 @@ describe('WalkView notes', () => {
         'I live two streets over, so I see the same potholes.',
       ).tagName,
     ).toBe('P')
-    expect(within(card).getByText(DEPARTURE_NOTE)).toBeInTheDocument()
+    expect(within(card).queryByText(/Thank them for their time/)).toBeNull()
     expect(within(card).queryByText(/•/)).toBeNull()
   })
 
@@ -3219,6 +3217,6 @@ describe('WalkView notes', () => {
     render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
 
-    expect(screen.queryByText(DEPARTURE_NOTE)).toBeNull()
+    expect(screen.queryByText(/Thank them for their time/)).toBeNull()
   })
 })

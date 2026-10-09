@@ -49,13 +49,7 @@ import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from '../turfQueries'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
-import { useCampaign } from '@shared/hooks/useCampaign'
-import { useUser } from '@shared/hooks/useUser'
-import {
-  useDoorKnockingOfficeName,
-  useDoorKnockingServeMode,
-} from '../doorKnockingSurface'
-import { buildIntro, buildServeIntro } from '../doorScriptContent'
+import { useDoorKnockingServeMode } from '../doorKnockingSurface'
 import { TalkingPointsStep } from './TalkingPointsStep'
 import {
   flowStage,
@@ -451,7 +445,6 @@ export default function CreateListFlow({
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const serveMode = useDoorKnockingServeMode()
-  const officeName = useDoorKnockingOfficeName()
   // The roster the cards name an assignee from. Shares a cache key with the
   // drawing surface's own read, so the two cost one request between them.
   const teamOptions = useTeamOptions(orgSlug)
@@ -488,10 +481,6 @@ export default function CreateListFlow({
     [drawnDrafts, draftStats],
   )
 
-  // For the talking-points step's composed introduction only. The
-  // candidate's name lives on the user, not the campaign.
-  const [campaign] = useCampaign()
-  const [user] = useUser()
   const [name, setName] = useState('')
   // The two pre-draw stages the orchestrator cannot see: its `filters` step is
   // this flow's purpose → who phase, and which of the two is on screen is
@@ -1046,18 +1035,6 @@ export default function CreateListFlow({
     appliedSuggestion.current = suggestion
     setName(suggestion)
   }, [step, purpose, purposeNameSuggestion, siblingTurfs])
-
-  // The introduction and goodbye the app writes, previewed around the field
-  // so the candidate sees the whole conversation they are writing the middle
-  // of.
-  //
-  // The identity clause is the candidate's own — it is rebuilt at the door for
-  // whoever is reading, so a volunteer's card names the candidate instead.
-  // Same builders `useDoorScript` composes it with, so the preview cannot
-  // drift from the thing it previews.
-  const previewIntro = serveMode
-    ? buildServeIntro(user, officeName)
-    : buildIntro(user, campaign)
 
   // Deliberately narrower than what the address preview sends, and narrower
   // than the list being walked: the pills only.
@@ -2011,8 +1988,6 @@ export default function CreateListFlow({
 
           {stage === 'points' && (
             <TalkingPointsStep
-              isServe={serveMode}
-              intro={previewIntro}
               // The name they gave the list one step ago, which says more about
               // who is being walked than any summary of the pills would.
               audienceLabel={name.trim() || 'this list'}

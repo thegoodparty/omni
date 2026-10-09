@@ -489,6 +489,18 @@ export class CrmCampaignsService {
       return
     }
 
+    const org = await this.organizations.findUnique({
+      where: { slug: campaign.organizationSlug },
+      select: { testModeCreatedAt: true },
+    })
+    if (org?.testModeCreatedAt) {
+      this.logger.debug(
+        { campaignId },
+        'skipping HubSpot company sync for a test-mode organization',
+      )
+      return
+    }
+
     const crmCompanyProperties =
       await this.calculateCRMCompanyProperties(campaign)
 
