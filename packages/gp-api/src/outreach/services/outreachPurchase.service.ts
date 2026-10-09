@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { isAxiosError } from 'axios'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { ContactsService } from 'src/contacts/services/contacts.service'
+import { MAX_AUDIENCE_RECIPIENTS } from 'src/contacts/utils/audienceResolution.util'
+import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
@@ -10,6 +13,7 @@ import {
   isWinSmsHoldBillingEnabled,
   WIN_SMS_HOLD_MIN_CENTS,
 } from 'src/shared/util/winSmsHold.util'
+import { PhoneListBuildStatus } from '../../generated/prisma'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
@@ -23,6 +27,8 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     private readonly outreachService: OutreachService,
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
+    private readonly contactsService: ContactsService,
+    private readonly organizationsService: OrganizationsService,
     private readonly p2pSmsHold: OutreachP2pSmsHoldService,
     private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
     private readonly logger: PinoLogger,
@@ -59,12 +65,6 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       )
     }
 
-    const billedContactCount = await this.resolveBilledContactCount(
-      phoneListToken,
-      campaignId,
-      contactCount,
-    )
-
     // Win SMS hold billing: the checkout places an authorization HOLD on the
     // UNDISCOUNTED amount, so a later capture (slice C1) can apply the
     // free-texts discount and never exceed the hold even if the campaign's
@@ -72,14 +72,26 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // authorization floor, so it is forgiven (amount 0 -> the free path, no
     // hold placed) rather than blocking checkout for a tiny campaign.
     //
-    // TODO(win-sms-hold C?/webapp reorder): the eventual hold is on a pre-build
-    // raw-match-count estimate placed BEFORE the Peerly list is built; that
-    // reorder belongs to a later slice. This slice holds the current
-    // server-derived billable count (resolveBilledContactCount) unchanged.
+    // PAY-BEFORE-BUILD (slice D2a): when the Peerly list is NOT yet built there
+    // is no final leads_loaded to bill against, so the hold is sourced from the
+    // pre-pay match-count estimate (getListDetail reachability.sms) — a true
+    // upper bound of the eventual leads_loaded — instead. Once the build is
+    // ready the current leads_loaded basis (resolveBilledContactCount) is used
+    // unchanged. Capture (C1) clamps to the authorized hold, so an estimate
+    // >= leads_loaded means capture is never clamped down.
     if (isWinSmsHoldBillingEnabled()) {
-      const undiscounted = calcTextAmountInCents(billedContactCount)
-      return undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
+      return this.resolveWinSmsHoldAmount(
+        phoneListToken,
+        campaignId,
+        contactCount,
+      )
     }
+
+    const billedContactCount = await this.resolveBilledContactCount(
+      phoneListToken,
+      campaignId,
+      contactCount,
+    )
 
     const hasOffer =
       await this.campaignsService.checkFreeTextsEligibility(campaignId)
@@ -99,6 +111,141 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     }
 
     return calcTextAmountInCents(billedContactCount)
+  }
+
+  // The Win SMS hold amount (cents) for a p2p checkout: UNDISCOUNTED so a later
+  // capture (slice C1) can apply the free-texts discount and still never exceed
+  // the hold. One build-row lookup drives both branches:
+  //  - READY build: bill the current server-derived leads_loaded (the unchanged
+  //    B1 basis), undiscounted; sub-50c forgiven to 0 (below Stripe's floor).
+  //  - PRE-BUILD (slice D2a): no final leads_loaded yet, so source the hold from
+  //    the pre-pay match-count estimate — see resolvePreBuildHoldAmount.
+  private async resolveWinSmsHoldAmount(
+    phoneListToken: string | undefined,
+    campaignId: number,
+    clientContactCount: number,
+  ): Promise<number> {
+    if (!phoneListToken) {
+      throw new BadRequestException(
+        'A phone list is required to bill a p2p purchase',
+      )
+    }
+    const build = await this.peerlyPhoneListCapture.findFirst({
+      where: { token: phoneListToken, campaignId },
+    })
+    if (!build) {
+      throw new BadRequestException('No phone list found for this purchase')
+    }
+
+    // A FAILED build never reaches `ready`, so no build-ready edge would ever
+    // finalize or capture a hold placed on it — the hold would strand (reserved,
+    // shows Scheduled, silently released with no send). Refuse checkout; the list
+    // must be rebuilt first. Only an in-progress build (queued/building/
+    // processing) takes the pre-build estimate path.
+    if (build.buildStatus === PhoneListBuildStatus.failed) {
+      throw new BadRequestException(
+        'This phone list failed to build — rebuild it before paying',
+      )
+    }
+
+    if (build.buildStatus !== PhoneListBuildStatus.ready) {
+      return this.resolvePreBuildHoldAmount(build)
+    }
+
+    const builtContactCount = await this.billedCountFromCapturedList(
+      build,
+      clientContactCount,
+      campaignId,
+      phoneListToken,
+    )
+    const undiscounted = calcTextAmountInCents(builtContactCount)
+    return undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
+  }
+
+  // The pre-build hold amount: the has-cell match count of the build's saved
+  // voter list (getListDetail reachability.sms) priced undiscounted.
+  //
+  // UPPER-BOUND PROOF (money-safety): reachability.sms is the same pre-pay figure
+  // the webapp shows, and is provably >= the eventual leads_loaded, because the
+  // build is strictly SUBTRACTIVE from it: it resolves the same filter with
+  // hasCellPhone forced (the reachability.sms set), then removes rows with an
+  // incomplete address, duplicate phones and org opt-outs, and Peerly then runs
+  // its own DNC scrub. So capture (clamped to this hold) is never clamped DOWN,
+  // and the send never costs more than was authorized.
+  private async resolvePreBuildHoldAmount(build: {
+    voterFileFilterId: number | null
+    organizationSlug: string
+  }): Promise<number> {
+    // A SAVED voter list is required so the estimate is the filter's has-cell
+    // count. Without one the only match count getListDetail could give is the
+    // whole district's (segment undefined) — a valid but absurdly loose upper
+    // bound that would place a huge hold. Fail closed instead.
+    if (build.voterFileFilterId === null) {
+      throw new BadRequestException(
+        'A saved voter list is required to pay before the phone list is built',
+      )
+    }
+
+    const matchCount = await this.resolveSmsMatchCount(
+      build.voterFileFilterId,
+      build.organizationSlug,
+    )
+
+    // OVER THE BUILD LIMIT: the build refuses a filter matching more than
+    // MAX_AUDIENCE_RECIPIENTS (resolveFilterAudience's cap, which the build
+    // measures on the same hasCellPhone-forced count this estimate reads). A hold
+    // placed on such a filter would strand — the build can never complete to
+    // finalize/capture it. Refuse checkout before the hold is placed.
+    if (matchCount > MAX_AUDIENCE_RECIPIENTS) {
+      throw new BadRequestException(
+        `This voter list matches over the ${MAX_AUDIENCE_RECIPIENTS} ` +
+          'phone-list limit — narrow the filter and try again.',
+      )
+    }
+
+    const estimate = calcTextAmountInCents(matchCount)
+
+    // ZERO-AMOUNT PRE-BUILD GUARD: a $0 send places no hold and seeds no
+    // satellite link, so R1's build-ready recovery edges (which find a paid
+    // pre-build draft through that link) could never find it — it would strand
+    // unsent. Refuse it; it must wait for the build, where the ready-path
+    // finalize has a phoneListId and cannot strand. A sub-50c estimate reads as
+    // $0 (below Stripe's auth floor), the same forgiveness the ready path applies.
+    if (estimate < WIN_SMS_HOLD_MIN_CENTS) {
+      throw new BadRequestException(
+        'This text send is free — wait for the list to finish building, then ' +
+          'schedule it.',
+      )
+    }
+    return estimate
+  }
+
+  // The has-cell match count for a saved voter list — the pre-pay SMS
+  // reachability figure (getListDetail reachability.sms), re-derived server-side
+  // so the hold never trusts a client-supplied count. Money code: a missing org
+  // or a null count fails closed rather than placing a hold off an unknown
+  // basis.
+  private async resolveSmsMatchCount(
+    voterFileFilterId: number,
+    organizationSlug: string,
+  ): Promise<number> {
+    const organization = await this.organizationsService.findFirst({
+      where: { slug: organizationSlug },
+    })
+    if (!organization) {
+      throw new BadRequestException('Organization not found for this purchase')
+    }
+    const detail = await this.contactsService.getListDetail(
+      { segment: voterFileFilterId },
+      organization,
+    )
+    const smsReachable = detail.reachability.sms
+    if (smsReachable === null) {
+      throw new BadRequestException(
+        'Could not estimate the SMS-reachable audience for this list',
+      )
+    }
+    return smsReachable
   }
 
   // p2p purchases must never bill off the client-supplied contactCount — it
@@ -134,6 +281,26 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       throw new BadRequestException('No phone list found for this purchase')
     }
 
+    return this.billedCountFromCapturedList(
+      capturedList,
+      clientContactCount,
+      campaignId,
+      phoneListToken,
+    )
+  }
+
+  // The server-derived billable count for a captured list the caller already
+  // fetched: Peerly's own leads_loaded (the vendor's count of what got
+  // uploaded), falling back to the captured recipient rows when Peerly can't be
+  // reached. Split out of resolveBilledContactCount so the Win SMS hold path can
+  // reuse the SAME build row it looked up to decide ready-vs-pre-build, rather
+  // than hitting the DB a second time.
+  private async billedCountFromCapturedList(
+    capturedList: { id: string; peerlyListId: number | null },
+    clientContactCount: number,
+    campaignId: number,
+    phoneListToken: string,
+  ): Promise<number> {
     const peerlyLeadsLoaded = await this.fetchLeadsLoadedFromPeerly(
       phoneListToken,
       capturedList.peerlyListId,

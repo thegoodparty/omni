@@ -44,6 +44,7 @@ describe('OutreachP2pSmsCaptureService', () => {
   let service: OutreachP2pSmsCaptureService
   let sms: {
     findMany: ReturnType<typeof vi.fn>
+    findFirst: ReturnType<typeof vi.fn>
     findUnique: ReturnType<typeof vi.fn>
     updateMany: ReturnType<typeof vi.fn>
   }
@@ -110,7 +111,12 @@ describe('OutreachP2pSmsCaptureService', () => {
 
   beforeEach(async () => {
     vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-    sms = { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() }
+    sms = {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      updateMany: vi.fn(),
+    }
     outreach = { findUnique: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() }
     peerlyPhoneList = { findUnique: vi.fn() }
     stripe = {
@@ -152,6 +158,45 @@ describe('OutreachP2pSmsCaptureService', () => {
       capturedAmountInCents: AUTHORIZED,
       chargeIntentId: 'ch_test',
       peerlyPhoneListId: BUILD_ID,
+    })
+  })
+
+  describe('resolveSendCapForBuild (send cap — never oversend)', () => {
+    it('returns the paid count (max texts the hold covers) for an authorized build', async () => {
+      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+
+      const cap = await service.resolveSendCapForBuild(BUILD_ID)
+
+      // The hold authorized AUTHORIZED cents = calc(500), so the cap is 500 — the
+      // largest count whose price does not exceed the hold.
+      expect(cap).toBe(LEADS_LOADED)
+      // Found through the satellite link (peerlyPhoneListId), only for a live hold.
+      expect(sms.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            peerlyPhoneListId: BUILD_ID,
+            settleState: {
+              in: [
+                P2pSmsSettleState.authorized,
+                P2pSmsSettleState.capturing,
+                P2pSmsSettleState.captured,
+              ],
+            },
+          }),
+        }),
+      )
+    })
+
+    it('returns null when no hold is authorized for the build (no cap applied)', async () => {
+      sms.findFirst.mockResolvedValue(null)
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
+    })
+
+    it('returns null when the flag is off (inert)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
+      // Flag off short-circuits before any DB read.
+      expect(sms.findFirst).not.toHaveBeenCalled()
     })
   })
 

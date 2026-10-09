@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { OutreachStatus, OutreachType } from '../../generated/prisma'
 import { isValid, parseISO } from 'date-fns'
+import { isWinSmsHoldBillingEnabled } from '../../shared/util/winSmsHold.util'
 
 export class CreateOutreachSchema extends createZodDto(
   z
@@ -81,7 +82,16 @@ export class CreateOutreachSchema extends createZodDto(
     })
     .strict()
     .superRefine((data, ctx) => {
-      if (data.outreachType === OutreachType.p2p && !data.phoneListId) {
+      // Win SMS hold pay-before-build (D2a): under the flag a p2p draft may be
+      // created before its phone-list build finishes, so phoneListId is no longer
+      // required here; R1's build-ready edge stamps it later. Flag off, the list
+      // must already be built (unchanged). The flag is read live, so validation
+      // tracks the current cutover state without a redeploy.
+      if (
+        data.outreachType === OutreachType.p2p &&
+        !data.phoneListId &&
+        !isWinSmsHoldBillingEnabled()
+      ) {
         ctx.addIssue({
           path: ['phoneListId'],
           code: z.ZodIssueCode.custom,

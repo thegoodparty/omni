@@ -4,6 +4,9 @@ import { FREE_TEXTS_OFFER } from '@/shared/constants/freeTextsOffer'
 import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
 import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { ContactsService } from 'src/contacts/services/contacts.service'
+import { MAX_AUDIENCE_RECIPIENTS } from 'src/contacts/utils/audienceResolution.util'
+import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { PeerlyPhoneList } from 'src/generated/prisma'
 import { PhoneListState } from 'src/vendors/peerly/peerly.types'
 import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
@@ -39,6 +42,14 @@ const mockPeerlyPhoneListCapture = {
   countRecipients: vi.fn(),
 } as unknown as PeerlyPhoneListCaptureService
 
+const mockContactsService = {
+  getListDetail: vi.fn(),
+} as unknown as ContactsService
+
+const mockOrganizationsService = {
+  findFirst: vi.fn(),
+} as unknown as OrganizationsService
+
 const mockP2pSmsHold = {
   recordHold: vi.fn(),
   markFreeTextsApplied: vi.fn(),
@@ -55,6 +66,8 @@ const service = new OutreachPurchaseHandlerService(
   mockOutreachService,
   mockPeerlyPhoneListService,
   mockPeerlyPhoneListCapture,
+  mockContactsService,
+  mockOrganizationsService,
   mockP2pSmsHold,
   mockP2pSmsCapture,
   mockLogger,
@@ -1018,6 +1031,145 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(amount).toBe(0)
       // Would otherwise bill the full 35c with no offer.
       expect(calcTextAmountInCents(10)).toBe(35)
+    })
+
+    // --- PRE-BUILD estimate (slice D2a): pay before the list is built. ---
+    //
+    // This file has no per-test mock reset, so an unconsumed `...Once` queue
+    // leaks into the next test. These two helpers queue exactly what each path
+    // consumes: a build-row lookup, and (only when the path reaches it) the
+    // match-count read.
+
+    // A build that has NOT reached `ready` yet. voterFileFilterId null exercises
+    // the "needs a saved list" guard, which throws BEFORE any match-count read —
+    // so such a test must NOT queue one.
+    const queuePreBuildRow = (voterFileFilterId: number | null) => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce({
+        ...CAPTURED_LIST_FIXTURE,
+        buildStatus: 'processing',
+        peerlyListId: null,
+        voterFileFilterId,
+      })
+    }
+
+    const queueMatchCount = (smsReachable: number | null) => {
+      vi.mocked(mockOrganizationsService.findFirst).mockResolvedValueOnce({
+        slug: CAPTURED_LIST_FIXTURE.organizationSlug,
+      } as never)
+      vi.mocked(mockContactsService.getListDetail).mockResolvedValueOnce({
+        demographics: { people: 0, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: smsReachable,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      })
+    }
+
+    it('flag ON + build NOT ready: holds the UNDISCOUNTED match-count estimate (reachability.sms), not a live leads_loaded fetch', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      queuePreBuildRow(55)
+      queueMatchCount(5000)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 4000,
+      })
+
+      // Priced off the match count, undiscounted — the upper bound the hold
+      // authorizes before the list exists.
+      expect(amount).toBe(calcTextAmountInCents(5000))
+      // The estimate came from the saved list, re-derived server-side.
+      expect(mockContactsService.getListDetail).toHaveBeenCalledWith(
+        { segment: 55 },
+        expect.objectContaining({
+          slug: CAPTURED_LIST_FIXTURE.organizationSlug,
+        }),
+      )
+      // No build yet, so the live Peerly leads_loaded fetch is never attempted.
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('flag ON + build NOT ready: requires build-ready when the estimate is a free ($0/sub-50c) send', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      // 10 reachable = 35c, below Stripe's 50c floor: a pre-build free send would
+      // place no hold and strand, so it is refused until the build is ready.
+      queuePreBuildRow(55)
+      queueMatchCount(10)
+
+      await expect(
+        service.calculateAmount({ ...purchaseMetadata, contactCount: 10 }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('flag ON + build NOT ready: rejects a pre-build pay with no saved voter list (no segment to estimate)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      // No saved list: throws BEFORE any match-count read, so none is queued.
+      queuePreBuildRow(null)
+
+      await expect(
+        service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
+      ).rejects.toThrow(BadRequestException)
+      // Fail-closed: never queries the match count without a segment.
+      expect(mockContactsService.getListDetail).not.toHaveBeenCalled()
+    })
+
+    it('flag ON + build NOT ready: fails closed when the match count is unavailable (null reachability.sms)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      queuePreBuildRow(55)
+      queueMatchCount(null)
+
+      await expect(
+        service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('flag ON + build FAILED: refuses checkout (a hold would strand — no build-ready edge)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce({
+        ...CAPTURED_LIST_FIXTURE,
+        buildStatus: 'failed',
+        peerlyListId: null,
+        voterFileFilterId: 55,
+      })
+
+      await expect(
+        service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
+      ).rejects.toThrow(BadRequestException)
+      // Rejected on build status alone — never reaches the estimate (no org
+      // lookup, no match-count read).
+      expect(mockOrganizationsService.findFirst).not.toHaveBeenCalled()
+      expect(mockContactsService.getListDetail).not.toHaveBeenCalled()
+    })
+
+    it('flag ON + build NOT ready: refuses a filter over the phone-list limit (a hold would strand — the build cannot complete)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      queuePreBuildRow(55)
+      queueMatchCount(MAX_AUDIENCE_RECIPIENTS + 1)
+
+      await expect(
+        service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('flag ON + build ready: still bills the final leads_loaded basis, not the match-count estimate', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      // CAPTURED_LIST_FIXTURE is `ready`, so the ready path runs the live fetch.
+      mockServerLeadsLoaded(500)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 500,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(500))
+      // The ready path never reaches the pre-build match-count estimate.
+      expect(mockContactsService.getListDetail).not.toHaveBeenCalled()
     })
 
     it('flag ON: records the hold before finalizing a paid (cs_) session', async () => {

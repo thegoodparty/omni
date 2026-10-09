@@ -13,7 +13,7 @@ import {
   OutreachType,
   User,
 } from '../../generated/prisma'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
@@ -775,6 +775,55 @@ describe('OutreachService', () => {
       expect(mockNotifySuccess).not.toHaveBeenCalled()
       expect(mockMaterializeOutreach).not.toHaveBeenCalled()
       expect(result).toEqual(created)
+    })
+
+    describe('Win SMS hold pay-before-build (WIN_SMS_HOLD_BILLING)', () => {
+      afterEach(() => {
+        vi.unstubAllEnvs()
+      })
+
+      it('flag ON: writes a P2P draft with no phoneListId (the list is still building)', async () => {
+        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+        mockTcrFindFirstOrThrow.mockResolvedValue({
+          peerlyIdentityId: 'identity-123',
+        })
+        mockResolveP2pJobGeography.mockResolvedValue({
+          didState: 'CA',
+          didNpaSubset: ['415'],
+        })
+        mockOutreachCreate.mockResolvedValue({ id: 3, voterFileFilter: null })
+
+        const { phoneListId: _omit, ...preBuildDto } = p2pCreateDto
+
+        await service.create(
+          mockUser,
+          mockCampaign,
+          preBuildDto,
+          'https://cdn.example.com/p2p.png',
+        )
+
+        expect(mockOutreachCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              outreachType: OutreachType.p2p,
+              status: OutreachStatus.pending_payment,
+            }),
+          }),
+        )
+      })
+
+      it('flag OFF: still requires phoneListId for a P2P create', async () => {
+        const { phoneListId: _omit, ...preBuildDto } = p2pCreateDto
+
+        await expect(
+          service.create(
+            mockUser,
+            mockCampaign,
+            preBuildDto,
+            'https://cdn.example.com/p2p.png',
+          ),
+        ).rejects.toThrow('Phone list ID is required for P2P outreach')
+      })
     })
 
     it('blocks a P2P send with a testing-specific message for an internal-testing approval', async () => {
