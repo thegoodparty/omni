@@ -481,7 +481,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     // windows with the same rule.
     const chosen = timelineElectionDate(
       { general: electionDate, primary: primaryElectionDate },
-      format(new Date(), 'yyyy-MM-dd'),
+      new Date(),
     )
     // Parse as UTC midnight, not local: date-only strings via parseIsoDateString
     // land on local midnight, which on a server east of UTC shifts the date back

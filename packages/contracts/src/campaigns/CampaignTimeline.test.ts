@@ -109,7 +109,7 @@ describe('timelineElectionDate', () => {
     expect(
       timelineElectionDate(
         { general: '2026-11-03', primary: '2026-06-02' },
-        '2026-03-01',
+        day('2026-03-01'),
       ),
     ).toBe('2026-11-03')
   })
@@ -118,19 +118,29 @@ describe('timelineElectionDate', () => {
     expect(
       timelineElectionDate(
         { general: '2025-11-04', primary: '2026-06-02' },
-        '2026-03-01',
+        day('2026-03-01'),
       ),
     ).toBe('2026-06-02')
   })
 
+  it('reads today as the UTC day, wherever it runs', () => {
+    // 9pm Nov 3 in Los Angeles is already Nov 4 in UTC: the general is past.
+    expect(
+      timelineElectionDate(
+        { general: '2026-11-03' },
+        new Date('2026-11-04T04:00:00.000Z'),
+      ),
+    ).toBeNull()
+  })
+
   it('counts an election today, and anchors nothing once both have passed', () => {
-    expect(timelineElectionDate({ general: '2026-11-03' }, '2026-11-03')).toBe(
-      '2026-11-03',
-    )
+    expect(
+      timelineElectionDate({ general: '2026-11-03' }, day('2026-11-03')),
+    ).toBe('2026-11-03')
     expect(
       timelineElectionDate(
         { general: '2025-11-04', primary: '2025-06-03' },
-        '2026-03-01',
+        day('2026-03-01'),
       ),
     ).toBeNull()
   })

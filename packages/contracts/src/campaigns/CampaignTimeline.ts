@@ -48,18 +48,24 @@ const later = (a: Date, b: Date): Date => (a > b ? a : b)
 // joins with the election inside 30 days is in get-out-the-vote from the
 // start.
 // The election a campaign's timeline counts back from: the general, falling
-// back to the primary, skipping whichever is already behind `today` (a
-// YYYY-MM-DD calendar day). gp-api dates tasks with it and the webapp builds
-// the phase windows with it, so a task's date and the phase it shows in come
-// from the same election. A past date anchors nothing: a returning candidate
-// keeps last cycle's election until they update their race.
+// back to the primary, skipping whichever is already behind today. gp-api
+// dates tasks with it and the webapp builds the phase windows with it, so a
+// task's date and the phase it shows in come from the same election. Today is
+// the UTC calendar day, the day every task date is stored at, worked out here
+// so a UTC server and a US browser can't disagree on it near midnight. A past
+// date anchors nothing: a returning candidate keeps last cycle's election
+// until they update their race.
 export const timelineElectionDate = (
   dates: { general?: string | null; primary?: string | null },
-  today: string,
-): string | null =>
-  [dates.general, dates.primary].find(
-    (date): date is string => !!date && date.slice(0, 10) >= today,
-  ) ?? null
+  now: Date,
+): string | null => {
+  const today = now.toISOString().slice(0, 10)
+  return (
+    [dates.general, dates.primary].find(
+      (date): date is string => !!date && date.slice(0, 10) >= today,
+    ) ?? null
+  )
+}
 
 export const campaignPhaseWindows = (
   start: Date,

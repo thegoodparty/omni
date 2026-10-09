@@ -25,7 +25,6 @@ import {
   CampaignStrategyPhaseKeySchema,
   timelineElectionDate,
 } from '@goodparty_org/contracts'
-import { format } from 'date-fns'
 
 // The "Campaign Tracker" section on the campaign plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
@@ -73,7 +72,7 @@ const CampaignStrategySection = ({
       general: campaign?.details?.electionDate,
       primary: campaign?.details?.primaryElectionDate,
     },
-    format(new Date(), 'yyyy-MM-dd'),
+    new Date(),
   )
 
   // Next week pulled forward from the next-step card, so the list marks the

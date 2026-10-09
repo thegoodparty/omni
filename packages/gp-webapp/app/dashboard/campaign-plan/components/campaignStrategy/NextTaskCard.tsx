@@ -44,7 +44,6 @@ import {
   useCompleteTrackerTask,
   type TaskActionSource,
 } from './useCompleteTrackerTask'
-import { format } from 'date-fns'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import {
   canPutOffTask,
@@ -339,7 +338,7 @@ const NextTaskCard = ({
       general: campaign?.details?.electionDate,
       primary: campaign?.details?.primaryElectionDate,
     },
-    format(new Date(), 'yyyy-MM-dd'),
+    new Date(),
   )
 
   const headStartWeek = useHeadStartWeek()
