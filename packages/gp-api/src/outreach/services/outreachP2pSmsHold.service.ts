@@ -36,6 +36,8 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     outreachId,
     checkoutSessionId,
     phoneListToken,
+    phoneListBuildId,
+    campaignId,
   }: {
     outreachId: number
     checkoutSessionId: string
@@ -46,6 +48,12 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     // capture both find a pre-build draft through this satellite link rather
     // than Outreach.phoneListId, which is null until the build finishes.
     phoneListToken?: string
+    // The PeerlyPhoneList row id, used INSTEAD of the token when an async build
+    // has no token yet (same metadata, token-absent case). Links by id; scoped
+    // to campaignId because the id is client-supplied (the token is @unique, so
+    // its path needs no re-scope — ownership was already proven at checkout).
+    phoneListBuildId?: string
+    campaignId?: number
   }): Promise<void> {
     const intent = await this.resolveHeldIntent(checkoutSessionId)
     if (!intent) {
@@ -88,11 +96,15 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     // fatal, because an unlinked hold simply lapses and releases at the ~7-day
     // Stripe auth with NO charge — the capture projectId gate never charges for a
     // send that was not submitted.
-    const peerlyPhoneListId = await this.resolvePhoneListId(phoneListToken)
+    const peerlyPhoneListId = await this.resolvePhoneListId(
+      phoneListToken,
+      phoneListBuildId,
+      campaignId,
+    )
     if (peerlyPhoneListId === null) {
       this.logger.warn(
-        { outreachId, checkoutSessionId, phoneListToken },
-        'win sms hold: could not resolve phone list from token; satellite left unlinked',
+        { outreachId, checkoutSessionId, phoneListToken, phoneListBuildId },
+        'win sms hold: could not resolve phone list; satellite left unlinked',
       )
     } else {
       await this.model.updateMany({
@@ -186,13 +198,30 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
   // and the caller leaves the satellite unlinked rather than guessing.
   private async resolvePhoneListId(
     phoneListToken: string | undefined,
+    phoneListBuildId: string | undefined,
+    campaignId: number | undefined,
   ): Promise<string | null> {
-    if (!phoneListToken) return null
-    const list = await this.client.peerlyPhoneList.findUnique({
-      where: { token: phoneListToken },
-      select: { id: true },
-    })
-    return list?.id ?? null
+    if (phoneListToken) {
+      const list = await this.client.peerlyPhoneList.findUnique({
+        where: { token: phoneListToken },
+        select: { id: true },
+      })
+      return list?.id ?? null
+    }
+    // buildId path: the id is client-supplied in checkout metadata, so the link
+    // is scoped to the campaign the hold belongs to — mirroring the {id,
+    // campaignId} ownership proof calculateAmount already ran before the session
+    // existed, re-checked here so an unowned id can never link (and later
+    // capture) this hold against another campaign's list. No campaignId means no
+    // proof, so leave it unlinked (the hold lapses and releases with no charge).
+    if (phoneListBuildId && campaignId !== undefined) {
+      const list = await this.client.peerlyPhoneList.findFirst({
+        where: { id: phoneListBuildId, campaignId },
+        select: { id: true },
+      })
+      return list?.id ?? null
+    }
+    return null
   }
 
   // Resolves the manual-capture PaymentIntent behind a completed checkout

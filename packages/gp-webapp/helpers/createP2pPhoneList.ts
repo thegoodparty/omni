@@ -6,7 +6,10 @@ import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 export type PhoneListInput = VoterFileFilters & { name?: string }
 
 export interface PhoneListResponse {
-  token: string
+  // Null when an async build (gp-api behind P2P_PHONE_LIST_ASYNC_BUILD) accepts
+  // the request before it reaches Peerly — the hold then bills/links off
+  // `buildId` instead. Non-null on the synchronous path, unchanged.
+  token: string | null
   // The PeerlyPhoneList row id — the handle the build-status poll keys off,
   // in hand from the moment the POST is accepted (before `token` necessarily
   // resolves to anything Peerly-side).

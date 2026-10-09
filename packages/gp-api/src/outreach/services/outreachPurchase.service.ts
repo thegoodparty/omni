@@ -21,7 +21,7 @@ import {
   isWinSmsHoldBillingEnabled,
   WIN_SMS_HOLD_MIN_CENTS,
 } from 'src/shared/util/winSmsHold.util'
-import { PhoneListBuildStatus } from '../../generated/prisma'
+import { PeerlyPhoneList, PhoneListBuildStatus } from '../../generated/prisma'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
@@ -58,6 +58,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     campaignId,
     outreachType,
     phoneListToken,
+    phoneListBuildId,
   }: OutreachPurchaseMetadata): Promise<number> {
     if (outreachType !== 'p2p') {
       return calcTextAmountInCents(contactCount)
@@ -91,6 +92,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     if (isWinSmsHoldBillingEnabled()) {
       return this.resolveWinSmsHoldAmount(
         phoneListToken,
+        phoneListBuildId,
         campaignId,
         contactCount,
       )
@@ -98,6 +100,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
     const billedContactCount = await this.resolveBilledContactCount(
       phoneListToken,
+      phoneListBuildId,
       campaignId,
       contactCount,
     )
@@ -131,20 +134,15 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   //    the pre-pay match-count estimate — see resolvePreBuildHoldAmount.
   private async resolveWinSmsHoldAmount(
     phoneListToken: string | undefined,
+    phoneListBuildId: string | undefined,
     campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
-    if (!phoneListToken) {
-      throw new BadRequestException(
-        'A phone list is required to bill a p2p purchase',
-      )
-    }
-    const build = await this.peerlyPhoneListCapture.findFirst({
-      where: { token: phoneListToken, campaignId },
-    })
-    if (!build) {
-      throw new BadRequestException('No phone list found for this purchase')
-    }
+    const build = await this.resolvePurchaseBuild(
+      phoneListToken,
+      phoneListBuildId,
+      campaignId,
+    )
 
     // A FAILED build never reaches `ready`, so no build-ready edge would ever
     // finalize or capture a hold placed on it — the hold would strand (reserved,
@@ -165,7 +163,6 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         build,
         clientContactCount,
         campaignId,
-        phoneListToken,
       )
       const undiscounted = calcTextAmountInCents(builtContactCount)
       amount = undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
@@ -327,28 +324,55 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   // trusting a stale amount, is intentional here too.
   private async resolveBilledContactCount(
     phoneListToken: string | undefined,
+    phoneListBuildId: string | undefined,
     campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
-    if (!phoneListToken) {
-      throw new BadRequestException(
-        'A phone list is required to bill a p2p purchase',
-      )
-    }
-
-    const capturedList = await this.peerlyPhoneListCapture.findFirst({
-      where: { token: phoneListToken, campaignId },
-    })
-    if (!capturedList) {
-      throw new BadRequestException('No phone list found for this purchase')
-    }
+    const capturedList = await this.resolvePurchaseBuild(
+      phoneListToken,
+      phoneListBuildId,
+      campaignId,
+    )
 
     return this.billedCountFromCapturedList(
       capturedList,
       clientContactCount,
       campaignId,
-      phoneListToken,
     )
+  }
+
+  // Resolves the PeerlyPhoneList this p2p purchase bills against, scoped to the
+  // server-validated campaign so a client-supplied handle can never reach
+  // another campaign's list. Both handles ride in client-controlled checkout
+  // metadata, so BOTH lookups carry the campaignId — this is the one ownership
+  // proof every billing/cap/link path runs through, and it runs here (at
+  // calculateAmount) BEFORE a Stripe session or any hold exists.
+  //
+  // The token path is unchanged and takes precedence: a globally-@unique token
+  // is resolved first, and the buildId path is used ONLY when no token is
+  // present (an async build returns a null token until it reaches Peerly). A
+  // buildId that does not belong to the campaign resolves to null here and is
+  // refused with the SAME shape the token path uses — never billed or linked.
+  private async resolvePurchaseBuild(
+    phoneListToken: string | undefined,
+    phoneListBuildId: string | undefined,
+    campaignId: number,
+  ): Promise<PeerlyPhoneList> {
+    const where = phoneListToken
+      ? { token: phoneListToken, campaignId }
+      : phoneListBuildId
+        ? { id: phoneListBuildId, campaignId }
+        : null
+    if (!where) {
+      throw new BadRequestException(
+        'A phone list is required to bill a p2p purchase',
+      )
+    }
+    const build = await this.peerlyPhoneListCapture.findFirst({ where })
+    if (!build) {
+      throw new BadRequestException('No phone list found for this purchase')
+    }
+    return build
   }
 
   // The server-derived billable count for a captured list the caller already
@@ -358,11 +382,23 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   // reuse the SAME build row it looked up to decide ready-vs-pre-build, rather
   // than hitting the DB a second time.
   private async billedCountFromCapturedList(
-    capturedList: { id: string; peerlyListId: number | null },
+    capturedList: {
+      id: string
+      peerlyListId: number | null
+      token: string | null
+    },
     clientContactCount: number,
     campaignId: number,
-    phoneListToken: string,
   ): Promise<number> {
+    // The list's OWN token (identical to the request token on the token path,
+    // which resolved the row BY it) — so the buildId path, which carries no
+    // request token, fetches leads_loaded the same way. A `ready` build always
+    // carries a token (stamped at upload before ready); a tokenless row here is
+    // a data anomaly we refuse rather than bill off the pre-scrub captured rows.
+    const phoneListToken = capturedList.token
+    if (!phoneListToken) {
+      throw new BadRequestException('No phone list found for this purchase')
+    }
     const peerlyLeadsLoaded = await this.fetchLeadsLoadedFromPeerly(
       phoneListToken,
       capturedList.peerlyListId,
@@ -557,16 +593,25 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     ) {
       // The upload token rides in the checkout metadata (as a string); pass it
       // so recordHold links the satellite to its building phone list now, before
-      // the list is ready and before Outreach.phoneListId exists.
+      // the list is ready and before Outreach.phoneListId exists. An async build
+      // carries no token — it rides the build id instead, which recordHold links
+      // by (scoped to this campaign, since the id is client-supplied).
       const phoneListToken =
         'phoneListToken' in rawMetadata &&
         typeof rawMetadata.phoneListToken === 'string'
           ? rawMetadata.phoneListToken
           : undefined
+      const phoneListBuildId =
+        'phoneListBuildId' in rawMetadata &&
+        typeof rawMetadata.phoneListBuildId === 'string'
+          ? rawMetadata.phoneListBuildId
+          : undefined
       await this.p2pSmsHold.recordHold({
         outreachId,
         checkoutSessionId: paymentIntentId,
         phoneListToken,
+        phoneListBuildId,
+        campaignId,
       })
     }
 
