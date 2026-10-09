@@ -84,6 +84,7 @@ describe('DomainsService', () => {
     getDomainDetails: ReturnType<typeof vi.fn>
     getDomainAuthCode: ReturnType<typeof vi.fn>
     isVercelNotFoundError: ReturnType<typeof vi.fn>
+    isVercelTransientError: ReturnType<typeof vi.fn>
   }
   let mockForwardEmail: {
     getDomain: ReturnType<typeof vi.fn>
@@ -135,6 +136,7 @@ describe('DomainsService', () => {
       }),
       getDomainAuthCode: vi.fn().mockResolvedValue('AuthC0de!'),
       isVercelNotFoundError: vi.fn().mockReturnValue(false),
+      isVercelTransientError: vi.fn().mockReturnValue(false),
     }
     mockForwardEmail = {
       getDomain: vi.fn().mockResolvedValue(null),
@@ -1941,6 +1943,49 @@ describe('DomainsService', () => {
       expect(mockPrisma.domain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: DomainStatus.submitted }),
+        }),
+      )
+    })
+
+    it('keeps polling when the registrar order lookup hits a transient Vercel error', async () => {
+      vi.useFakeTimers()
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      const getRegistrarOrderMock = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('502 Bad Gateway'))
+        .mockResolvedValueOnce({ status: GetOrderStatus.Completed })
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        isVercelTransientError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        getRegistrarOrder: getRegistrarOrderMock,
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+
+      const registration = service.completeDomainRegistration(10, contact, {
+        skipPaymentVerification: true,
+      })
+      await vi.advanceTimersByTimeAsync(3_000)
+      await registration
+
+      expect(getRegistrarOrderMock).toHaveBeenCalledTimes(2)
+      expect(mockPrisma.domain.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: DomainStatus.inactive },
         }),
       )
     })

@@ -1448,7 +1448,21 @@ export class DomainsService
       attempt <= REGISTRAR_ORDER_POLL_MAX_ATTEMPTS;
       attempt++
     ) {
-      const order = await this.vercel.getRegistrarOrder(orderId)
+      let order: Awaited<ReturnType<VercelService['getRegistrarOrder']>>
+      try {
+        order = await this.vercel.getRegistrarOrder(orderId)
+      } catch (error) {
+        // The order is already placed and charged; a transient Vercel blip while
+        // polling must not mark the domain inactive and strand the purchase.
+        if (
+          attempt < REGISTRAR_ORDER_POLL_MAX_ATTEMPTS &&
+          this.vercel.isVercelTransientError(error)
+        ) {
+          await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
+          continue
+        }
+        throw error
+      }
       if (order.status === GetOrderStatus.Completed) {
         return
       }
