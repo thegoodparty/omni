@@ -72,6 +72,10 @@ interface SmsReviewStepProps {
   pricePerContact: number
   outreachId: number | null
   phoneListToken: string | null
+  // The PeerlyPhoneList row id, carried alongside the token so an async build
+  // (no token yet) can still complete a free send off the build id. Sent to
+  // gp-api only when there is no token — the token path is unchanged.
+  phoneListBuildId: string | null
   excludedOptedOutCount: number | null
   excludedDuplicatePhoneCount: number | null
   // Pay-before-ready (Win SMS hold billing): the total is the pre-pay estimate,
@@ -109,6 +113,7 @@ export const SmsReviewStep = ({
   pricePerContact,
   outreachId,
   phoneListToken,
+  phoneListBuildId,
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
   priceIsCeiling = false,
@@ -177,6 +182,11 @@ export const SmsReviewStep = ({
         outreachType: 'p2p',
         outreachId: outreachId ?? undefined,
         phoneListToken: phoneListToken ?? undefined,
+        // Async build: with no token the server resolves the list by build id.
+        // Sent only when the token is absent, so the token path is unchanged.
+        ...(phoneListToken
+          ? {}
+          : { phoneListBuildId: phoneListBuildId ?? undefined }),
       })
       if (!response.ok) {
         const parsed = purchaseErrorSchema.safeParse(response.data)

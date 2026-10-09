@@ -475,6 +475,57 @@ describe('SmsFlow', () => {
       )
       expect(createOutreach).not.toHaveBeenCalled()
     })
+
+    it('flag ON + async build (null token): reaches pay-before-ready off the buildId', async () => {
+      winSmsHoldRef.enabled = true
+      // Async build (gp-api P2P_PHONE_LIST_ASYNC_BUILD): no token yet, only the
+      // build id — the biggest lists pay while they build.
+      vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
+        ok: true,
+        token: null,
+        buildId: 'build-1',
+      })
+
+      await reachReviewWhileBuilding()
+
+      // Not an error: the flow advanced and wrote the pre-build draft off the
+      // estimate. That pre-build write only runs when payBeforeReady is true,
+      // which now engages off the buildId alone (no token) — exactly as the
+      // sync token path does.
+      await waitFor(() => expect(createOutreach).toHaveBeenCalled())
+      expect(
+        screen.queryByText("We couldn't prepare this audience. Try again."),
+      ).not.toBeInTheDocument()
+    })
+
+    it('flag OFF + async build (null token): errors at audience, does not advance (unchanged)', async () => {
+      winSmsHoldRef.enabled = false
+      vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
+        ok: true,
+        token: null,
+        buildId: 'build-1',
+      })
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+
+      // Without the flag a null token is still unusable: the audience step shows
+      // its error and never advances to scheduling.
+      expect(
+        await screen.findByText(
+          "We couldn't prepare this audience. Try again.",
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('When do you want to send it?'),
+      ).not.toBeInTheDocument()
+    })
   })
 
   describe('event invite details', () => {

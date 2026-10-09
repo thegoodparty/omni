@@ -41,6 +41,8 @@ import {
   createP2pPhoneList,
   getP2pPhoneListBuildStatus,
   type PhoneListBuildStatusResult,
+  type PhoneListResponse,
+  type PhoneListResult,
   type PhoneListStatusResponse,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
@@ -698,15 +700,29 @@ export const SmsFlow = ({
   const isFreeSend =
     Boolean(campaign?.hasFreeTextsOffer) &&
     (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
+  // A list create succeeded enough to proceed. The sync path returns a token;
+  // an async build (gp-api behind P2P_PHONE_LIST_ASYNC_BUILD) returns a null
+  // token with only the buildId, which is NOT a failure under the hold flag —
+  // the checkout then bills/links the hold off the buildId instead. Without the
+  // flag a null token is still unusable (the sync path requires it), so the
+  // flow is byte-identical when the flag is off.
+  const phoneListResultUsable = (
+    result: PhoneListResult,
+  ): result is { ok: true } & PhoneListResponse =>
+    result.ok &&
+    !!result.buildId &&
+    (result.token !== null || holdBillingActive)
+
   // A build-ready list always has its numeric phoneListId; before that, only a
-  // paid hold-billing send may pay (on the estimate), and only once the Peerly
-  // upload token exists (the checkout links the hold through it) and the build
-  // has not failed.
+  // paid hold-billing send may pay (on the estimate), and only once the list
+  // create returned its build handle and the build has not failed. buildId is
+  // set from the same response as the token (both paths return it), so it
+  // covers the sync token case and the async token-null case alike.
   const payBeforeReady =
     holdBillingActive &&
     !isFreeSend &&
     !phoneList?.phoneListId &&
-    !!phoneListToken &&
+    !!phoneListBuildId &&
     !phoneListBuildFailed
 
   const draftMutation = useMutation({
@@ -1224,7 +1240,7 @@ export const SmsFlow = ({
       setPhoneListCreating(true)
       const result = await createP2pPhoneList(created, created.id)
       setPhoneListCreating(false)
-      if (!result.ok || !result.token || !result.buildId) {
+      if (!phoneListResultUsable(result)) {
         setPhoneListError(true)
         return
       }
@@ -1268,7 +1284,7 @@ export const SmsFlow = ({
     setPhoneListCreating(true)
     const result = await createP2pPhoneList(created, created.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token || !result.buildId) {
+    if (!phoneListResultUsable(result)) {
       setPhoneListError(true)
       return
     }
@@ -1309,7 +1325,7 @@ export const SmsFlow = ({
     setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token || !result.buildId) {
+    if (!phoneListResultUsable(result)) {
       setPhoneListError(true)
       return
     }
@@ -1361,7 +1377,7 @@ export const SmsFlow = ({
     setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token || !result.buildId) {
+    if (!phoneListResultUsable(result)) {
       setPhoneListError(true)
       return
     }
@@ -1383,7 +1399,7 @@ export const SmsFlow = ({
     setPhoneListCreating(true)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
-    if (!result.ok || !result.token || !result.buildId) {
+    if (!phoneListResultUsable(result)) {
       setPhoneListBuildFailed(true)
       return
     }
@@ -2123,6 +2139,12 @@ export const SmsFlow = ({
             campaignId: campaign?.id,
             outreachId: draftOutreachId ?? undefined,
             phoneListToken: phoneListToken ?? undefined,
+            // Async build (slice G): with no token the hold bills/links off the
+            // build id. Sent only when the token is absent, so the sync path's
+            // checkout metadata is unchanged.
+            ...(phoneListToken
+              ? {}
+              : { phoneListBuildId: phoneListBuildId ?? undefined }),
           }}
         >
           <SmsReviewStep
@@ -2142,6 +2164,7 @@ export const SmsFlow = ({
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
             phoneListToken={phoneListToken}
+            phoneListBuildId={phoneListBuildId}
             excludedOptedOutCount={phoneList?.excludedOptedOutCount ?? null}
             excludedDuplicatePhoneCount={
               phoneList?.excludedDuplicatePhoneCount ?? null

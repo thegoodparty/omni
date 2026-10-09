@@ -33,7 +33,10 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
     upsert: ReturnType<typeof vi.fn>
     updateMany: ReturnType<typeof vi.fn>
   }
-  let peerlyPhoneList: { findUnique: ReturnType<typeof vi.fn> }
+  let peerlyPhoneList: {
+    findUnique: ReturnType<typeof vi.fn>
+    findFirst: ReturnType<typeof vi.fn>
+  }
   let stripe: {
     retrieveCheckoutSession: ReturnType<typeof vi.fn>
     retrievePaymentIntent: ReturnType<typeof vi.fn>
@@ -49,7 +52,7 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
 
   beforeEach(async () => {
     model = { upsert: vi.fn(), updateMany: vi.fn() }
-    peerlyPhoneList = { findUnique: vi.fn() }
+    peerlyPhoneList = { findUnique: vi.fn(), findFirst: vi.fn() }
     stripe = {
       retrieveCheckoutSession: vi
         .fn()
@@ -173,6 +176,89 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
 
     expect(peerlyPhoneList.findUnique).not.toHaveBeenCalled()
     expect(authorizedCall()?.data).not.toHaveProperty('peerlyPhoneListId')
+  })
+
+  // --- ASYNC build (slice G): link by the build id when the async build had no
+  // token. The id is client-supplied, so the lookup is scoped to the campaign.
+
+  it('links the satellite by build id (scoped to the campaign) when there is no token', async () => {
+    model.updateMany.mockResolvedValue({ count: 1 })
+    peerlyPhoneList.findFirst.mockResolvedValue({ id: 'build-xyz' })
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+      phoneListBuildId: 'build-xyz',
+      campaignId: 111,
+    })
+
+    // Scoped to the campaign — a client-supplied id can only link its own
+    // campaign's list — and the token lookup is never attempted.
+    expect(peerlyPhoneList.findFirst).toHaveBeenCalledWith({
+      where: { id: 'build-xyz', campaignId: 111 },
+      select: { id: true },
+    })
+    expect(peerlyPhoneList.findUnique).not.toHaveBeenCalled()
+    const linkCall = model.updateMany.mock.calls
+      .map((call) => call[0])
+      .find((args) => args?.data?.peerlyPhoneListId === 'build-xyz')
+    expect(linkCall?.where).toMatchObject({
+      outreachId: OUTREACH_ID,
+      peerlyPhoneListId: null,
+    })
+  })
+
+  it('leaves the satellite unlinked when the build id does not belong to the campaign', async () => {
+    model.updateMany.mockResolvedValue({ count: 1 })
+    // The {id, campaignId} lookup finds nothing — an unowned id.
+    peerlyPhoneList.findFirst.mockResolvedValue(null)
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+      phoneListBuildId: 'build-foreign',
+      campaignId: 111,
+    })
+
+    const stamp = authorizedCall()
+    expect(stamp?.data?.settleState).toBe(P2pSmsSettleState.authorized)
+    expect(stamp?.data).not.toHaveProperty('peerlyPhoneListId')
+  })
+
+  it('does not link by build id when no campaign is supplied (no ownership proof)', async () => {
+    model.updateMany.mockResolvedValue({ count: 1 })
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+      phoneListBuildId: 'build-xyz',
+    })
+
+    expect(peerlyPhoneList.findFirst).not.toHaveBeenCalled()
+    expect(authorizedCall()?.data).not.toHaveProperty('peerlyPhoneListId')
+  })
+
+  it('prefers the token over a build id when both are supplied', async () => {
+    model.updateMany.mockResolvedValue({ count: 1 })
+    peerlyPhoneList.findUnique.mockResolvedValue({ id: 'ppl-from-token' })
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+      phoneListToken: 'tok-xyz',
+      phoneListBuildId: 'build-xyz',
+      campaignId: 111,
+    })
+
+    expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith({
+      where: { token: 'tok-xyz' },
+      select: { id: true },
+    })
+    expect(peerlyPhoneList.findFirst).not.toHaveBeenCalled()
+    const linkCall = model.updateMany.mock.calls
+      .map((call) => call[0])
+      .find((args) => args?.data?.peerlyPhoneListId === 'ppl-from-token')
+    expect(linkCall?.where).toMatchObject({ outreachId: OUTREACH_ID })
   })
 
   it('stamps straight from pending_payment via a single CAS (no hold_pending)', async () => {

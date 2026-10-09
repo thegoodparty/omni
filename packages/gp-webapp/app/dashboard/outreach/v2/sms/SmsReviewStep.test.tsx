@@ -112,6 +112,7 @@ const renderStep = (
       pricePerContact={0.035}
       outreachId={83518}
       phoneListToken="tok"
+      phoneListBuildId={null}
       excludedOptedOutCount={0}
       excludedDuplicatePhoneCount={0}
       preparing={false}
