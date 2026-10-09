@@ -2698,7 +2698,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     tcrCompliance: TcrCompliance,
     campaignVerifyToken: string,
   ) {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+    // Synthetic rows hold the bypass token, never a real Peerly PIN; posting
+    // it to the brand would send a fake token to the vendor.
+    if (
+      process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod' ||
+      tcrCompliance.internalTestingAt
+    ) {
       return undefined
     }
     return this.peerlyIdentityService.submitCampaignVerifyTokenToBrand(

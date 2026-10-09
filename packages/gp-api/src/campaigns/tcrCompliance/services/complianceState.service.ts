@@ -218,24 +218,24 @@ export const deriveComplianceStage = (
       : ComplianceStage.needs_profile
   }
 
-  // Internal-testing approvals have no domain/website/Peerly footprint, so
-  // the live-website precondition below would misreport them as pending.
-  if (tcrCompliance.internalTestingApprovedAt) {
-    return ComplianceStage.tcr_approved
-  }
-
-  if (
-    tcrCompliance.status === TcrComplianceStatus.rejected ||
-    tcrCompliance.status === TcrComplianceStatus.error
-  ) {
-    return ComplianceStage.tcr_rejected
-  }
-
-  // Test-org synthetic rows have no domain/website footprint — derive stage
-  // from status, cvValidationFailedAt, and peerlyIdentityId only.
+  // Synthetic rows (test orgs and internal-testing approvals) have no
+  // domain/website/Peerly footprint, so the live-website precondition below
+  // would misreport them. Derive the stage from status, cvValidationFailedAt
+  // and peerlyIdentityId only. This block must stay ahead of the
+  // internalTestingApprovedAt guard: the backfill and the admin checkbox set
+  // both markers, and the intermediate stages are only reachable from here.
   if (tcrCompliance.internalTestingAt) {
-    if (tcrCompliance.status === TcrComplianceStatus.approved) {
+    if (
+      tcrCompliance.internalTestingApprovedAt ||
+      tcrCompliance.status === TcrComplianceStatus.approved
+    ) {
       return ComplianceStage.tcr_approved
+    }
+    if (
+      tcrCompliance.status === TcrComplianceStatus.rejected ||
+      tcrCompliance.status === TcrComplianceStatus.error
+    ) {
+      return ComplianceStage.tcr_rejected
     }
     if (tcrCompliance.status === TcrComplianceStatus.pending) {
       return ComplianceStage.tcr_in_review
@@ -247,6 +247,19 @@ export const deriveComplianceStage = (
       return ComplianceStage.ready_to_submit
     }
     return ComplianceStage.awaiting_pin
+  }
+
+  // Internal-testing approvals have no domain/website/Peerly footprint, so
+  // the live-website precondition below would misreport them as pending.
+  if (tcrCompliance.internalTestingApprovedAt) {
+    return ComplianceStage.tcr_approved
+  }
+
+  if (
+    tcrCompliance.status === TcrComplianceStatus.rejected ||
+    tcrCompliance.status === TcrComplianceStatus.error
+  ) {
+    return ComplianceStage.tcr_rejected
   }
 
   // A live website is a hard precondition for submitting to Peerly, so it
