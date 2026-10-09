@@ -73,6 +73,7 @@ const reachNameStep = async (
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   await user.click(pillForOption('Female'))
   await user.click(screen.getByRole('button', { name: /build your list/i }))
+  await user.click(await screen.findByRole('button', { name: 'Continue' }))
   await user.type(screen.getByLabelText(/list name/i), 'Gated list')
 }
 

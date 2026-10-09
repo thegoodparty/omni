@@ -35,7 +35,7 @@ interface BoundaryStepProps {
 // none for a fresh one.
 type Drawing = { kind: 'closed' } | { kind: 'open'; activeIndex?: number }
 
-// Step 3 of the Serve wizard, between the filters and the name. Skippable by
+// The wizard's step between the filters and the name, in both products. Skippable by
 // design: a list built from criteria alone is a list, and making the shape
 // mandatory would take that away.
 //
