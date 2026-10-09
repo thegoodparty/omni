@@ -2001,7 +2001,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // now Pro.
   async enqueueAgenticKickoffIfNeeded(campaignId: number) {
     const record = await this.fetchByCampaignId(campaignId)
-    if (!record) {
+    if (!record || record.internalTestingAt) {
       return
     }
 

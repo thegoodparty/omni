@@ -637,6 +637,19 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
 
+    it('does nothing for a synthetic test-org record after payment', async () => {
+      mockModel.findUnique.mockResolvedValueOnce({
+        ...paidRecord,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+      })
+      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
+
+      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
+
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
     it('does nothing when the campaign has no Clerk user', async () => {
       mockModel.findUnique.mockResolvedValueOnce(paidRecord)
       mockCampaigns.findUnique.mockResolvedValueOnce({
