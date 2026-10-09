@@ -48,9 +48,22 @@ HTTP routes of its own.
 - **`dont_call_dnc` / `block_cellphone_numbers` may be account-gated.** They can
   read back `false` even when sent `true`, depending on the CallHub plan; we
   still send them as the intended config.
+- **`frequency` (calls/min) shares ONE account-wide cap, so set it low.** The
+  account's total Voice Broadcast capacity is ~60 calls/min, SHARED across every
+  scheduled/running campaign, and CallHub defaults a new campaign to 60 — the
+  whole pool. With the default, a second campaign's START 400s `over_cps_limit`
+  (incident 2026-10-08: a batch of staged runs all defaulting to 60 could not
+  dial). `createVoiceBroadcast` now sends an explicit low `frequency`
+  (`CALLHUB_VB_CALLS_PER_MINUTE`, default 10) so several campaigns coexist under
+  the cap; each dials slower but the 48h run window absorbs it. Raising total
+  throughput means raising the account cap with CallHub (support@callhub.io,
+  billed monthly), not just this knob. The existing 5 stuck campaigns were
+  created BEFORE this — lower their frequency in the CallHub dashboard (or
+  re-stage) for them to dial.
 
 ## Config
 
 `CALLHUB_API_KEY` (required, asserted lazily), `CALLHUB_API_BASE_URL`
 (regional, defaults to the NA host — the generic host 403s),
-`CALLHUB_HTTP_TIMEOUT`.
+`CALLHUB_HTTP_TIMEOUT`, `CALLHUB_VB_CALLS_PER_MINUTE` (per-campaign `frequency`,
+default 10 — see the account-cap gotcha above).
