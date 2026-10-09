@@ -291,7 +291,7 @@ export function createService({
   })
 
   // Preview gets a full vCPU because its boot is on the critical path of every
-  // PR: migrations, seed and Nest startup are CPU-bound, and at half a vCPU
+  // PR: migrations and Nest startup are CPU-bound, and at half a vCPU
   // Nest alone took ~45s to come up. Dev stays at half.
   const cpu = select({ preview: '1024', dev: '512', prod: '1024' })
   const memory = isProd ? '4096' : '2048'
@@ -374,7 +374,7 @@ export function createService({
       ],
       // Must exceed the slowest boot, or the faster non-prod probe interval
       // starts failing tasks mid-startup. Preview containers are the slow case:
-      // ensure-database, `prisma migrate deploy`, seed, then ~45s of Nest boot.
+      // ensure-database, `prisma migrate deploy`, then ~45s of Nest boot.
       healthCheckGracePeriodSeconds: 300,
       deploymentCircuitBreaker: {
         enable: true,

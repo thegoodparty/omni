@@ -266,10 +266,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_PR_NUMBER: ${{ github.event.number }}
-          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
-          CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
 
       # This step, not Pulumi, is what waits for the rollout. The preview's ECS
       # service does not wait for steady state (see service.ts): ECS marked a
@@ -295,8 +291,8 @@ jobs:
           echo "Confirming $BASE is serving $EXPECTED_SHA"
           got=""
           # 10 minutes, the same budget Pulumi's steady-state wait had. A
-          # first deploy runs every migration and the full seed before the app
-          # starts, so it is the slow case.
+          # first deploy runs every migration before the app starts, so it is
+          # the slow case.
           deadline=$((SECONDS + 600))
           i=0
           while [ $SECONDS -lt $deadline ]; do

@@ -40,8 +40,8 @@ COPY --link packages/nest-common/dist /app/packages/nest-common/dist
 COPY --link packages/gp-api/dist ./dist
 COPY --link packages/gp-api/prisma ./prisma
 
-# Copy seed and src for tsx runtime seeding (preview environments only)
-COPY --link packages/gp-api/seed ./seed
+# src and scripts are for the one-off tsx tasks run in this image (the preview
+# database drops in gp-api-teardown-preview.yml and gp-api-cleanup-preview.yml).
 COPY --link packages/gp-api/src ./src
 COPY --link packages/gp-api/scripts ./scripts
 COPY --link packages/gp-api/tsconfig.json ./

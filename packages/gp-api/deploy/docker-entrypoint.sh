@@ -33,7 +33,7 @@ export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?c
 # Must run before prisma migrate deploy because $DB_NAME may not exist yet on
 # the shared Aurora cluster. Connects to the maintenance "postgres" db (which
 # always exists) and issues CREATE DATABASE only when pg_database has no
-# matching row; migrate deploy + seed below populate it.
+# matching row; migrate deploy below populates it.
 # CREATE DATABASE cannot run inside a transaction, so this uses a plain client
 # connection rather than a transaction block.
 # The pg package is a direct (non-dev) dependency, so it is present in --omit=dev
@@ -139,15 +139,6 @@ case "$CLERK_SECRET_KEY" in
     exit 1
     ;;
 esac
-
-if [ "$IS_PREVIEW" = "true" ]; then
-  echo "Preview environment detected. Running seed..."
-  if npx tsx seed/seed.ts; then
-    echo "Seed completed successfully."
-  else
-    echo "WARNING: Seed failed with exit code $?. Continuing with app startup..."
-  fi
-fi
 
 # For preview environments, start app in background, sync content, then wait
 if [ "$IS_PREVIEW" = "true" ]; then
