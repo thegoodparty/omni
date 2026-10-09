@@ -626,6 +626,31 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('crud_saved_filters')
   })
 
+  it('teaches the map rules only where show_list_map is registered', () => {
+    const crm = ctx({
+      crmToolsEnabled: true,
+      savedFilterToolsEnabled: true,
+      isPro: true,
+      organization: { slug: 'win-campaign' } as Organization,
+    })
+    const without = buildCampaignManagerSystemPrompt(crm, ['count_contacts'])
+    expect(without).not.toContain('LIST MAP RULES')
+    expect(without).not.toContain('DRAWN AREA RULES')
+
+    const withMap = buildCampaignManagerSystemPrompt(crm, [
+      'count_contacts',
+      'show_list_map',
+    ])
+    expect(withMap).toContain('LIST MAP RULES')
+    expect(withMap).toContain('DRAWN AREA RULES')
+    expect(withMap).toContain("crud_saved_filters` with action 'get'")
+    const block = withMap.slice(
+      withMap.indexOf('LIST MAP RULES'),
+      withMap.indexOf('Drawing is optional'),
+    )
+    expect(block).not.toMatch(/constituent|holder|official/i)
+  })
+
   it('offers a sampled text card only where both tools are registered', () => {
     const crm = ctx({
       crmToolsEnabled: true,

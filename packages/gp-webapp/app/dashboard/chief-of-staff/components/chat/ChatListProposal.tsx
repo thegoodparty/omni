@@ -13,7 +13,6 @@ import { useOrganization } from '@shared/organization-picker'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
-import { CompactCardLink } from 'app/dashboard/shared/agent-chat/cards/cardShell'
 import {
   peopleCount,
   type CardMode,
@@ -56,8 +55,7 @@ const CardFrame = ({ children }: { children: React.ReactNode }) => (
 
 interface ChatListProposalProps {
   proposal: ChatListProposalPayload
-  // Campaign Manager is Win: voters, a Pro gate on saving, and no map yet,
-  // so a saved list links to Voter Data instead.
+  // Campaign Manager is Win: voters and a Pro gate on saving.
   mode?: CardMode
   onRefineArea?: (list: ShowListMap) => void
   // The list now exists. The conversation has to be told, because the write
@@ -106,24 +104,13 @@ export default function ChatListProposal({
     onError: () => errorSnackbar('Failed to create list'),
   })
 
-  if (existing.data && mode === 'win') {
-    return (
-      <div className="my-3 w-full">
-        <CompactCardLink
-          title={existing.data.name ?? proposal.name}
-          subtitle={`Created · ${peopleCount(proposal.count, mode)}`}
-          href={`/dashboard/contacts/lists/${existing.data.id}`}
-        />
-      </div>
-    )
-  }
-
   if (existing.data) {
     return (
       <ChatListMap
         listId={existing.data.id}
         name={existing.data.name ?? proposal.name}
         onRefineArea={onRefineArea}
+        mode={mode}
       />
     )
   }

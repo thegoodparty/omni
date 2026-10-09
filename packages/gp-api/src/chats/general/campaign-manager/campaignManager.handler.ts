@@ -52,6 +52,7 @@ import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildCampaignManagerOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildCampaignManagerListProposalTool } from '../crm-tools/presentListProposal.tool'
+import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
@@ -620,6 +621,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           contacts: this.contacts,
           organization: ctx.organization,
         })
+        // With the saved-list tool, as on the Chief of Staff: the only id
+        // it can be given is one crud_saved_filters returned.
+        filterTools.show_list_map = buildShowListMapTool()
       }
       // Saved through the same voter-file route the outreach cards use,
       // which a free campaign can reach; the card's button holds the Pro

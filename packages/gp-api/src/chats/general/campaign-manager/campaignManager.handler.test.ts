@@ -629,7 +629,11 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     ]) {
       expect(Object.keys(tools)).toContain(name)
     }
-    for (const name of ['list_precincts', 'crud_saved_filters']) {
+    for (const name of [
+      'list_precincts',
+      'crud_saved_filters',
+      'show_list_map',
+    ]) {
       expect(Object.keys(tools)).not.toContain(name)
     }
   })
@@ -649,6 +653,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       'count_contacts',
       'list_precincts',
       'crud_saved_filters',
+      'show_list_map',
     ]) {
       expect(Object.keys(tools)).toContain(name)
     }
@@ -748,7 +753,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       error: expect.stringContaining('counted nobody'),
     })
     expect(descriptionOf(tool)).toContain('Voter Data')
-    expect(descriptionOf(tool)).not.toContain('map')
+    expect(descriptionOf(tool)).toContain('draw shapes')
   })
 
   it('presents every channel as a card in candidate words', async () => {
