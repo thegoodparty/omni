@@ -228,17 +228,23 @@ export class TestModeService {
           'This test campaign has a registered domain. Release it first.',
         )
       }
-      const inFlight = await this.organizations.client.outreach.findFirst({
-        where: {
-          campaignId: campaign.id,
-          status: { in: IN_FLIGHT_OUTREACH_STATUSES },
-        },
-      })
-      if (inFlight) {
-        throw new ConflictException(
-          'This test campaign has outreach in flight. Wait for it to finish.',
-        )
-      }
+    }
+
+    // Serve outreach hangs off the org alone (campaignId null), so the
+    // in-flight check keys on the slug for both org types.
+    const inFlight = await this.organizations.client.outreach.findFirst({
+      where: {
+        status: { in: IN_FLIGHT_OUTREACH_STATUSES },
+        OR: [
+          { organizationSlug: org.slug },
+          ...(campaign ? [{ campaignId: campaign.id }] : []),
+        ],
+      },
+    })
+    if (inFlight) {
+      throw new ConflictException(
+        'This test organization has outreach in flight. Wait for it to finish.',
+      )
     }
 
     await this.organizations.client.$transaction(async (tx) => {

@@ -410,6 +410,26 @@ describe('DELETE /v1/test-mode/organizations/:slug', () => {
     expect((await service.client.delete(url)).status).toBe(HttpStatus.OK)
   })
 
+  it('refuses an elected office org with Serve outreach in flight', async () => {
+    const created = await createOrg(officeBundle())
+    const url = `/v1/test-mode/organizations/${created.slug}`
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: created.slug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.paid,
+      },
+    })
+
+    expect((await service.client.delete(url)).status).toBe(HttpStatus.CONFLICT)
+
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { status: OutreachStatus.completed },
+    })
+    expect((await service.client.delete(url)).status).toBe(HttpStatus.OK)
+  })
+
   it('unlinks the won-race office before the campaign org cascades away', async () => {
     const created = await createOrg(campaignBundle({ election: 'passed_won' }))
     const campaignId = campaignIdOf(created.slug)
