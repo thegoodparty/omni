@@ -100,8 +100,15 @@ it makes, narrowest first:
 
 - A turf **joining** an existing campaign inherits that campaign's title,
   read off the anchor row the create already fetches to validate the scope.
-  A late "Add another turf" therefore cannot rename a campaign it is only
-  joining, whatever it sends.
+  A late "Add turf" therefore cannot rename a campaign it is only
+  joining, whatever it sends. It inherits the rest of what the campaign
+  settled before its map too: the audience (`voterFileFilterId`), the
+  purpose, the community-input question and the talking points
+  (`Outreach.script`), all read off the anchor in `withCampaignSettings`.
+  The drawer's "Add turf" opens straight onto the drawing surface
+  and asks none of them. A campaign whose every turf is done is refused
+  (400), matching the drawer, which hides Add turf on a done campaign; one
+  whose anchor alone is done still takes turfs, since its siblings are live.
 - A turf **starting** one takes `campaignName`.
 - A client that sends neither is the single-turf flow, where the turf's name
   IS the campaign's.

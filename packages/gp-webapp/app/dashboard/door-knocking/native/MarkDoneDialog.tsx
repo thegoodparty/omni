@@ -22,7 +22,7 @@ import {
 // at the call sites.
 //
 // The noun follows the SURFACE, not this file. The drawer says turf (its own
-// section reads "Turfs in this campaign", its own button "Add another turf");
+// section reads "Turfs in this campaign", its own button "Add turf");
 // the walk says route ("Walk this route"). Both already ship that way, and
 // the split is real: a turf is the area that was cut, a route is the walk
 // through it. Unifying them is a copy decision of its own, not this one's.

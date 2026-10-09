@@ -2085,11 +2085,108 @@ describe('door-knocking routes', () => {
         expect(siblingRes.status).toBe(201)
 
         // The anchor's own name wins over anything on the wire, so a late
-        // "Add another turf" cannot retitle a campaign it is only joining.
+        // "Add turf" cannot retitle a campaign it is only joining.
         const sibling = await envelopeFor(siblingRes.data.id)
         expect(sibling.name).toBe('Fall canvass')
         const anchorAfter = await envelopeFor(anchorRes.data.id)
         expect(anchorAfter.name).toBe('Fall canvass')
+      })
+    })
+
+    // "Add turf" from the campaign drawer goes straight to the map,
+    // so a joining turf is never asked for an audience, a purpose or a card.
+    // It walks the campaign's, whatever the wire says.
+    describe('campaign settings', () => {
+      it('gives a joining turf the campaign audience, purpose and card', async () => {
+        const talkingPoints = [
+          'What would you fix around here first?',
+          'Fix our roads with a real maintenance plan.',
+          'Point them to janedoe.org to learn more.',
+          'Ask whether we can count on them.',
+        ].join('\n')
+        const anchorRes = await postTurf({
+          name: 'Turf 1',
+          purpose: 'community_input',
+          communityInputQuestion: 'How do you feel about the road bond?',
+          talkingPoints,
+        })
+        expect(anchorRes.status).toBe(201)
+        const anchor = await envelopeFor(anchorRes.data.id)
+        const otherFilter = await service.prisma.voterFileFilter.create({
+          data: { organizationSlug: orgSlug, name: 'Another audience' },
+        })
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+          voterFileFilterId: otherFilter.id,
+          purpose: 'election_day_turnout',
+          talkingPoints: 'Something else entirely',
+        })
+        expect(siblingRes.status).toBe(201)
+
+        const sibling = await service.prisma.doorKnockingTurf.findUniqueOrThrow(
+          { where: { id: siblingRes.data.id } },
+        )
+        expect(sibling.voterFileFilterId).toBe(filter.id)
+        expect(sibling.purpose).toBe('community_input')
+        expect(sibling.communityInputQuestion).toBe(
+          'How do you feel about the road bond?',
+        )
+        const envelope = await envelopeFor(sibling.id)
+        expect(envelope.voterFileFilterId).toBe(filter.id)
+        expect(envelope.script).toBe(talkingPoints)
+      })
+
+      it('refuses to join a campaign whose every turf is done', async () => {
+        const anchorRes = await postTurf({ name: 'Turf 1' })
+        const anchor = await envelopeFor(anchorRes.data.id)
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+        })
+        const sibling = await envelopeFor(siblingRes.data.id)
+        await service.prisma.outreach.updateMany({
+          where: { id: { in: [anchor.id, sibling.id] } },
+          data: { status: OutreachStatus.completed },
+        })
+
+        const joinRes = await postTurf({
+          name: 'Turf 3',
+          campaignOutreachId: anchor.id,
+        })
+        expect(joinRes.status).toBe(400)
+      })
+
+      it('joins a campaign whose first turf is done but not the rest', async () => {
+        const anchorRes = await postTurf({ name: 'Turf 1' })
+        const anchor = await envelopeFor(anchorRes.data.id)
+        await postTurf({ name: 'Turf 2', campaignOutreachId: anchor.id })
+        await service.prisma.outreach.update({
+          where: { id: anchor.id },
+          data: { status: OutreachStatus.completed },
+        })
+
+        const joinRes = await postTurf({
+          name: 'Turf 3',
+          campaignOutreachId: anchor.id,
+        })
+        expect(joinRes.status).toBe(201)
+      })
+
+      it('refuses to join an archived campaign', async () => {
+        const anchorRes = await postTurf({ name: 'Turf 1' })
+        const anchor = await envelopeFor(anchorRes.data.id)
+        await service.prisma.outreach.update({
+          where: { id: anchor.id },
+          data: { archivedAt: new Date() },
+        })
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+        })
+        expect(siblingRes.status).toBe(400)
       })
     })
 

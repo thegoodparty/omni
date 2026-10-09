@@ -149,6 +149,8 @@ const toCreateErrorMessage = (error: unknown): string => {
   )
 }
 
+export type JoinSaveState = { pending: boolean; error: string | null }
+
 interface CreateListFlowProps {
   step: CreateFlowStep
   filters: VoterFileFilters
@@ -313,6 +315,11 @@ interface CreateListFlowProps {
   // from `?campaignOutreachId=` on the URL — the drawer's "Add another
   // turf" affordance is what sets it.
   campaignOutreachId?: number
+  // Joining a campaign only: bumped by the page when the drawing panel's
+  // Save is pressed with turfs on it, and the write's state reported back
+  // so the panel can say it is saving or why it failed.
+  joinSaveRequest?: number
+  onJoinSaveStateChange?: (state: JoinSaveState) => void
   // A chat card's link (`?proposalKey=` and friends). Rides on the create of
   // a new campaign's anchor turf only: whole on Serve, so the walk puts that
   // card's check out, and the key alone on Win.
@@ -430,6 +437,8 @@ export default function CreateListFlow({
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
+  joinSaveRequest = 0,
+  onJoinSaveStateChange,
   proposalLink,
   turfDrafts,
   draftStats,
@@ -457,6 +466,11 @@ export default function CreateListFlow({
     () => turfDrafts.filter(isDrawnTurf),
     [turfDrafts],
   )
+  // Drawing more turfs into a campaign that already exists, from its drawer.
+  // The flow opens on the drawing surface and never shows the questions
+  // before it: the new turfs take the campaign's audience, purpose and card
+  // server-side, so this flow has no answers of its own to send.
+  const joining = campaignOutreachId !== undefined
   // Re-asked HERE rather than trusted from the drawing surface, which is
   // where the candidate was last told. Stepping back to the who step and
   // widening the audience rewrites every committed turf's stop count, so a
@@ -1013,7 +1027,7 @@ export default function CreateListFlow({
   const appliedSuggestion = useRef<string | null>(null)
   useEffect(() => {
     if (step !== 'name' || nameTouched.current) return
-    // "Add another turf" wins over the purpose suggestion: the purpose was
+    // "Add turf" wins over the purpose suggestion: the purpose was
     // picked once when the CAMPAIGN was cut, and every subsequent turf in
     // it is a slice of that same purpose — repeating it as this turf's name
     // gives all N turfs the same title. The numeric default keeps them
@@ -1189,7 +1203,17 @@ export default function CreateListFlow({
       // It must never reach `createdFilterIdRef`, whose cleanup DELETES what
       // it holds: that ref means "a list this flow minted and may still have
       // to clean up", and the candidate's own saved list is neither.
-      let filterId = savedListId ?? createdFilterIdRef.current
+      // Joining a campaign attaches to its audience. The server reads the
+      // audience off the campaign whatever is sent, but the create body
+      // still has to name one, and minting a list here would leave an
+      // unnamed list behind with nothing using it.
+      let filterId =
+        savedListId ??
+        createdFilterIdRef.current ??
+        (joining ? (siblingTurfs?.[0]?.voterFileFilterId ?? null) : null)
+      if (joining && filterId === null) {
+        throw new Error('campaign turfs not loaded')
+      }
       if (filterId === null) {
         const { data: created } = await clientRequest(
           'POST /v1/voters/voter-file/filter',
@@ -1250,7 +1274,11 @@ export default function CreateListFlow({
           })
         }
       }
-      if (savedListId === null) createdFilterIdRef.current = filterId
+      // A joining turf's list is the CAMPAIGN's, not one this flow minted,
+      // and the cleanup behind this ref deletes what it holds.
+      if (savedListId === null && !joining) {
+        createdFilterIdRef.current = filterId
+      }
 
       // One turf's create body. Every field but the four per-turf ones is
       // the campaign's and identical across the batch: they share an
@@ -1285,10 +1313,10 @@ export default function CreateListFlow({
         // Outreach in the same Win/Serve scope before writing.
         ...(anchorId !== undefined ? { campaignOutreachId: anchorId } : {}),
         // What the campaign is called, as against what this turf is called.
-        // Sent on every turf: the server ignores it for one joining an
-        // existing campaign (that campaign owns its own name), and writes it
-        // on every envelope otherwise.
-        campaignName: name.trim(),
+        // Sent on every turf of a new campaign, and written on every
+        // envelope. Not sent when joining: that campaign owns its own name,
+        // and this flow never asked for one.
+        ...(joining ? {} : { campaignName: name.trim() }),
       })
 
       // The paid call, once per turf. It creates the turf, buys the Geoapify
@@ -1319,7 +1347,7 @@ export default function CreateListFlow({
 
       // The anchor has to exist before anything can point at it, so the
       // first turf of a NEW campaign is bought on its own and the rest go
-      // together behind it. Arriving through "Add another turf" skips that
+      // together behind it. Arriving through "Add turf" skips that
       // wait entirely: the anchor is already bought, so every draft is a
       // sibling and they all go at once.
       //
@@ -1477,6 +1505,12 @@ export default function CreateListFlow({
       // no way back to them.
       if (failures.length > 0) return
       if (created.length === 0) return
+      // The turfs are in a campaign that was already confirmed, and its
+      // drawer is where they are listed. Closing goes back there.
+      if (joining) {
+        onClose()
+        return
+      }
       // The campaign exists. The flow's last screen names it and offers the
       // two things to do next; it does NOT hand over to a walk any more,
       // because there is no route to walk until somebody buys one.
@@ -1516,6 +1550,52 @@ export default function CreateListFlow({
     ? audienceEmptyMessage(filters, savedListId !== null)
     : null
 
+  // The press that writes the campaign, from the draw step's CTA.
+  const pressSave = () => {
+    if (gate.requirement !== null) {
+      setGateOrigin('build')
+      setGateCta('Create campaign')
+      setGateOpen(true)
+      return
+    }
+    save.mutate()
+  }
+
+  // Joining a campaign, the drawing surface is the whole flow: the campaign
+  // already exists, so nothing here may send the candidate anywhere else.
+  // The panel's Save asks for the write by bumping `joinSaveRequest` and the
+  // map stays up while it runs; success goes back to the campaign's drawer,
+  // and a failure is reported on the panel, where Save tries again. No Pro
+  // gate stands in front of it, because gp-api refuses the write without
+  // Pro and that refusal is reported on the panel like any other.
+  const lastJoinSaveRequest = useRef(joinSaveRequest)
+  useEffect(() => {
+    if (joinSaveRequest === lastJoinSaveRequest.current) return
+    lastJoinSaveRequest.current = joinSaveRequest
+    if (joining && !save.isPending) save.mutate()
+    // Only the request is the event; the rest is read as it stands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinSaveRequest])
+  const joinSaveError = save.isError
+    ? toCreateErrorMessage(save.error)
+    : partialFailure
+      ? `${toCreateErrorMessage(partialFailure)} The turfs that were created are saved. Press Save to try the rest.`
+      : null
+  useEffect(() => {
+    if (!joining) return
+    onJoinSaveStateChange?.({ pending: save.isPending, error: joinSaveError })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joining, save.isPending, joinSaveError])
+  // Leaving the surface without saving, Cancel or a Save with nothing drawn,
+  // goes back to the campaign too.
+  const wasFullScreen = useRef(drawFullScreen)
+  useEffect(() => {
+    const closed = wasFullScreen.current && !drawFullScreen
+    wasFullScreen.current = drawFullScreen
+    if (joining && closed) onClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawFullScreen])
+
   // The drawing surface is the map with nothing over it. Every control it
   // used to float there — the hint, the instructions modal, Undo and the
   // stop count — is either deleted or in the turf panel now, and the panel
@@ -1531,6 +1611,8 @@ export default function CreateListFlow({
     resumedRef.current = true
     return null
   }
+  // Joining a campaign never shows the flow's sheet, see above.
+  if (joining) return null
 
   const title = stage === 'success' ? '' : STAGE_META[stage].title
   const caption =
@@ -1695,15 +1777,7 @@ export default function CreateListFlow({
                             drawnDrafts.length === 0 ||
                             overCapDrafts.length > 0,
                           loading: save.isPending,
-                          onClick: () => {
-                            if (gate.requirement !== null) {
-                              setGateOrigin('build')
-                              setGateCta('Create campaign')
-                              setGateOpen(true)
-                              return
-                            }
-                            save.mutate()
-                          },
+                          onClick: pressSave,
                         }
                       : // `success` carries its own two buttons in the body,
                         // so the shell has no CTA to draw.
@@ -1983,9 +2057,8 @@ export default function CreateListFlow({
               turfs={createdTurfs}
               // The CAMPAIGN's envelope, not each turf's own. Closing a
               // walk started here reopens this campaign's details drawer,
-              // and that drawer is keyed on the anchor — `campaignOutreachId`
-              // when this flow was entered through "Draw more turfs", the
-              // first turf bought otherwise.
+              // and that drawer is keyed on the anchor: the first turf
+              // bought. A flow joining a campaign never reaches this screen.
               // Patch the snapshot the rows render from. `completed` is what
               // `turfStage` reads, so the card goes muted and drops its
               // footer rather than offering a walk on a finished turf.
@@ -1998,10 +2071,7 @@ export default function CreateListFlow({
                 )
               }
               anchorOutreachId={
-                campaignOutreachId ??
-                createdAnchorRef.current ??
-                createdTurfs[0]?.outreachId ??
-                null
+                createdAnchorRef.current ?? createdTurfs[0]?.outreachId ?? null
               }
               onStartKnocking={onStartKnocking}
               onDone={onClose}

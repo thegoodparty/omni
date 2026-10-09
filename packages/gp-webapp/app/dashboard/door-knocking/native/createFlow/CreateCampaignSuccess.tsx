@@ -20,7 +20,7 @@ import { TurfSummaryRow } from '../TurfSummaryRow'
 // "Done" rather than "Close" because Close is the system's word for
 // dismissing a dialog and Done is the candidate's for finishing the job.
 type Props = {
-  // Which product's event names a row's Mark as done reports under.
+  // Which product's event names a row's Mark done reports under.
   isServe: boolean
   campaignName: string
   turfs: DoorKnockingTurf[]
@@ -34,7 +34,7 @@ type Props = {
   ) => void
   // The rows render from a local snapshot of what the create just wrote, so
   // a lifecycle write inside one of them invalidates queries this screen
-  // does not read. Without this the card stays live after Mark as done —
+  // does not read. Without this the card stays live after Mark done —
   // still offering to start a walk on a turf that is already finished.
   onTurfCompleted: (turfId: number) => void
   onDone: () => void
@@ -98,7 +98,7 @@ export const CreateCampaignSuccess = ({
           // The drawer's own row, not a second arrangement of the same
           // parts. A candidate reaches that drawer within a tap of this
           // screen, so everything but the primary press is identical —
-          // including Mark as done, which is theirs to reach here too.
+          // including Mark done, which is theirs to reach here too.
           <TurfSummaryRow
             key={turf.id}
             isServe={isServe}

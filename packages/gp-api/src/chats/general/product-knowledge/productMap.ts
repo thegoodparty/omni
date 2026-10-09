@@ -163,6 +163,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'Each channel starts by asking who to reach, which reads from your saved lists',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
       'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
@@ -357,6 +358,7 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Four channels: Social media, SMS, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, filled in from your next public meeting when there is one',
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',

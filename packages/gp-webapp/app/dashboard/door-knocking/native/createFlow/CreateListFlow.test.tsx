@@ -2723,21 +2723,115 @@ describe('CreateListFlow multi-turf save', () => {
     expect(screen.getByText('Turf 2')).toBeInTheDocument()
   })
 
-  it('joins an existing campaign without buying an anchor of its own', async () => {
-    const { turfs } = mockBatch()
-
-    await buildRoutes({
-      ...twoTurfs,
-      // "Add another turf" arrives with the campaign already anchored.
-      campaignOutreachId: 555,
-    })
-    await waitFor(() =>
-      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+  // "Add turf" opens on the drawing surface, and the drawing surface is the
+  // whole flow: the panel's Save writes from the map and goes back to the
+  // campaign's drawer, with no draw step or success screen in between.
+  const joinProps = {
+    ...twoTurfs,
+    campaignOutreachId: 555,
+    siblingTurfs: [savedTurf],
+  }
+  const renderOnMap = (
+    props: Partial<ComponentProps<typeof CreateListFlow>>,
+  ) => {
+    const onJoinSaveStateChange = vi.fn()
+    const { rerender, container, unmount } = render(
+      <CreateListFlow
+        {...baseProps}
+        {...props}
+        step="draw"
+        drawFullScreen
+        onJoinSaveStateChange={onJoinSaveStateChange}
+      />,
     )
+    const pressSave = () =>
+      rerender(
+        <CreateListFlow
+          {...baseProps}
+          {...props}
+          step="draw"
+          drawFullScreen
+          joinSaveRequest={1}
+          onJoinSaveStateChange={onJoinSaveStateChange}
+        />,
+      )
+    const leaveMap = () =>
+      rerender(
+        <CreateListFlow
+          {...baseProps}
+          {...props}
+          step="draw"
+          drawFullScreen={false}
+          onJoinSaveStateChange={onJoinSaveStateChange}
+        />,
+      )
+    return { pressSave, leaveMap, onJoinSaveStateChange, container, unmount }
+  }
 
-    // Both are siblings, and neither renames the campaign they are joining
-    // — the server reads the anchor's own name over anything on the wire.
+  it('joins an existing campaign when its drawing surface is saved', async () => {
+    const { turfs } = mockBatch()
+    const { pressSave, container } = renderOnMap(joinProps)
+
+    pressSave()
+    await waitFor(() => expect(baseProps.onClose).toHaveBeenCalled())
+
+    // Both are siblings of the campaign, attached to its audience, and
+    // neither names it: the campaign owns its name, and the server reads
+    // its audience, purpose and card off the anchor.
     expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+    expect(turfs.map((body) => body.voterFileFilterId)).toEqual([21, 21])
+    for (const body of turfs) expect(body).not.toHaveProperty('campaignName')
+    expect(baseProps.onStepChange).not.toHaveBeenCalledWith('success')
+    // Nothing of the flow's own sheet is ever drawn over the map.
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('stays on the map and reports why when a turf fails to save', async () => {
+    mockBatch({ failSecond: true })
+    const { pressSave, onJoinSaveStateChange, container } =
+      renderOnMap(joinProps)
+
+    pressSave()
+    await waitFor(() =>
+      expect(onJoinSaveStateChange).toHaveBeenLastCalledWith({
+        pending: false,
+        error: expect.stringContaining('Press Save to try the rest.'),
+      }),
+    )
+    expect(baseProps.onClose).not.toHaveBeenCalled()
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('never deletes the campaign’s list when a save fails and is left', async () => {
+    mockBatch({ failSecond: true })
+    const deletes = vi.fn()
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', () => {
+      deletes()
+      return { status: 200, data: {} }
+    })
+    const { pressSave, onJoinSaveStateChange, unmount } = renderOnMap(joinProps)
+
+    pressSave()
+    await waitFor(() =>
+      expect(onJoinSaveStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ error: expect.any(String) }),
+      ),
+    )
+    unmount()
+    // The cleanup's request is fire-and-forget, so give it time to land.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(deletes).not.toHaveBeenCalled()
+  })
+
+  it('goes back to the campaign when its drawing surface closes', () => {
+    const { turfs } = mockBatch()
+    const { leaveMap } = renderOnMap({ ...joinProps, turfDrafts: [] })
+
+    leaveMap()
+
+    expect(baseProps.onClose).toHaveBeenCalled()
+    expect(turfs).toHaveLength(0)
   })
 
   // Closing a walk started here reopens the campaign's details drawer, and
@@ -2764,30 +2858,6 @@ describe('CreateListFlow multi-turf save', () => {
     expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Turf 2', outreachId: 902 }),
       901,
-    )
-  })
-
-  it('starts a walk carrying the campaign it joined', async () => {
-    mockBatch()
-    const props = { ...twoTurfs, campaignOutreachId: 555 }
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="name" />,
-    )
-    advanceToDraw(rerender, props, 'Fall canvass')
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
-    await waitFor(() =>
-      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
-    )
-    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
-
-    await screen.findByText('Turf 1')
-    fireEvent.click(
-      screen.getAllByRole('button', { name: 'Start knocking' })[0]!,
-    )
-
-    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Turf 1', outreachId: 901 }),
-      555,
     )
   })
 })

@@ -16,7 +16,7 @@ import {
 import { voterPackQueryOptions } from './useVoterPack'
 import { savedListUnshadeableCriteria } from './savedListFilters'
 import { hasEmptiableCriteria } from './createFlow/emptiableCriteria'
-import CreateListFlow from './createFlow/CreateListFlow'
+import CreateListFlow, { type JoinSaveState } from './createFlow/CreateListFlow'
 import type {
   CreateFlowStep,
   RecommendedCriteria,
@@ -175,7 +175,7 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
       // Rewind to the seed rather than to a fixed palette[0]: the next
       // create should start on whichever slot the assigner recommends
       // right now — a solo campaign gets palette[0], a candidate opening
-      // "Add another turf" on a two-turf campaign gets palette[2].
+      // "Add turf" on a two-turf campaign gets palette[2].
       //
       // The candidate's pick is released with it. This is the end of a
       // create, so the hue they chose for the last turf of it has no claim
@@ -312,9 +312,13 @@ export interface CreateListSurfaceProps {
   // these to pick a palette slot the campaign has not already used.
   siblingTurfs?: DoorKnockingTurf[]
   // The anchor Outreach id this new turf should join, when the drawer's
-  // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
+  // "Add turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
+  // The drawing panel's Save while joining, and the write's state back.
+  // Threaded straight through, like the id above.
+  joinSaveRequest?: number
+  onJoinSaveStateChange?: (state: JoinSaveState) => void
   // The turfs cut in this sitting but not yet paid for. Owned by the page
   // because the canvas draws them; threaded down so the draw step can list
   // them and the save can buy a route for each.
@@ -367,6 +371,8 @@ export default function CreateListSurface({
   onPreselectApplied,
   siblingTurfs,
   campaignOutreachId,
+  joinSaveRequest,
+  onJoinSaveStateChange,
   turfDrafts,
   draftStats,
   onSelectDraft,
@@ -576,6 +582,8 @@ export default function CreateListSurface({
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
+      joinSaveRequest={joinSaveRequest}
+      onJoinSaveStateChange={onJoinSaveStateChange}
       turfDrafts={turfDrafts}
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}

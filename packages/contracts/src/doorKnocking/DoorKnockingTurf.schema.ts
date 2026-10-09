@@ -119,10 +119,12 @@ const CreateDoorKnockingTurfFields = z.object({
     .max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH)
     .optional(),
   // The Outreach id of an existing turf whose campaign this new turf
-  // should join — the "Add another turf" flow reads it back from the
+  // should join — the "Add turf" flow reads it back from the
   // sibling-list drawer and threads it through save. Omitted (or
   // absent from a legacy client) means the new turf is its own
   // campaign anchor, matching how a solo campaign already looks.
+  // When set, the server takes the audience, purpose, question and
+  // talking points from the campaign and ignores the ones sent here.
   campaignOutreachId: z.number().int().positive().optional(),
   // What the CAMPAIGN is called, as opposed to `name` above, which is what
   // this one turf is called. A campaign has no row of its own — it is the
