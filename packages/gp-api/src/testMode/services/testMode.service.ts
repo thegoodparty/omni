@@ -141,14 +141,7 @@ export class TestModeService {
     user: User,
     body: CreateTestOrganizationRequest,
   ): Promise<TestModeState> {
-    const count = await this.organizations.model.count({
-      where: { ownerId: user.id, testModeCreatedAt: { not: null } },
-    })
-    if (count >= TEST_ORGANIZATION_CAP) {
-      throw new ConflictException(
-        `You already have ${TEST_ORGANIZATION_CAP} test organizations. Delete one first.`,
-      )
-    }
+    await this.assertUnderCap(user)
 
     const slug =
       body.type === 'campaign'
@@ -262,6 +255,17 @@ export class TestModeService {
       'Test mode organization deleted',
     )
     return this.getState(user)
+  }
+
+  private async assertUnderCap(user: User) {
+    const count = await this.organizations.model.count({
+      where: { ownerId: user.id, testModeCreatedAt: { not: null } },
+    })
+    if (count >= TEST_ORGANIZATION_CAP) {
+      throw new ConflictException(
+        `You already have ${TEST_ORGANIZATION_CAP} test organizations. Delete one first.`,
+      )
+    }
   }
 
   private async loadTestOrganization(
@@ -646,6 +650,7 @@ export class TestModeService {
       where: { campaignId: campaign.id },
     })
     if (!linked) {
+      await this.assertUnderCap(user)
       const org = await this.organizations.model.findUniqueOrThrow({
         where: { slug: campaign.organizationSlug },
       })

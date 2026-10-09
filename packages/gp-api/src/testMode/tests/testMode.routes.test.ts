@@ -290,6 +290,33 @@ describe('POST /v1/test-mode/apply', () => {
     expect(res.data.active?.families.election?.current).toBe('in_8_weeks')
   })
 
+  it('counts the won-race office against the cap', async () => {
+    const created = await createOrg(campaignBundle())
+    await Promise.all(
+      Array.from({ length: TEST_ORGANIZATION_CAP - 1 }, (_, i) =>
+        service.prisma.organization.create({
+          data: {
+            slug: `eo-cap-${i}`,
+            ownerId: service.user.id,
+            testModeCreatedAt: new Date(),
+          },
+        }),
+      ),
+    )
+
+    const res = await apply(created.slug, {
+      family: 'election',
+      preset: 'passed_won',
+    })
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(
+      await service.prisma.electedOffice.findFirst({
+        where: { campaignId: campaignIdOf(created.slug) },
+      }),
+    ).toBeNull()
+  })
+
   it('writes a synthetic awaiting-PIN compliance row', async () => {
     const created = await createOrg(campaignBundle())
     const campaignId = campaignIdOf(created.slug)
