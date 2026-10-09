@@ -339,15 +339,28 @@ export class OutreachRobocallSendService extends createPrismaBase(
       const throttled =
         err instanceof CallhubRecoverableError &&
         isOverCpsLimitDetail(err.callhubDetail)
-      await this.reconcileDialing(
-        outreachId,
-        pkStr,
-        err instanceof CallhubPermanentError
-          ? 'permanent'
-          : err instanceof ZodError
-            ? 'shape'
-            : 'transient',
-      )
+      try {
+        await this.reconcileDialing(
+          outreachId,
+          pkStr,
+          err instanceof CallhubPermanentError
+            ? 'permanent'
+            : err instanceof ZodError
+              ? 'shape'
+              : 'transient',
+        )
+      } catch (reconcileErr) {
+        // A reconcile DB write (revert/commit/failSend) can throw. If it
+        // escaped here, the sweep's outer catch would `continue` instead of
+        // `break` and keep firing STARTs at a throttling vendor — the burst
+        // this feature prevents. Swallow it so the throttle signal below is
+        // always reached; the row is left in `dialing` for the stale-dialing
+        // sweep to recover, exactly as an unresolved reconcile already is.
+        this.logger.error(
+          { err: reconcileErr, outreachId },
+          'robocall reconcile after launch failure threw; preserving signal',
+        )
+      }
       return throttled ? 'throttled' : 'done'
     }
 

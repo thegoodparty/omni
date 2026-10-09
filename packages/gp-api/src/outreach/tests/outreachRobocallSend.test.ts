@@ -780,6 +780,45 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     expect(states).toContain(RobocallSettleState.authorized)
   })
 
+  it('backs off even when reconcile throws after an over_cps_limit reject', async () => {
+    // A reconcile DB write can throw. If that exception escaped startCampaign,
+    // the sweep's outer catch would `continue` and keep firing STARTs at a
+    // throttling vendor — the burst this feature prevents. The throttle signal
+    // must survive the throw and still break the pass.
+    vi.stubEnv('ROBOCALL_SEND_MAX_PER_SWEEP', '5')
+    await createDraft({ sendInHours: -3 })
+    await createDraft({ sendInHours: -2 })
+    await createDraft({ sendInHours: -1 })
+
+    launchSpy.mockRejectedValueOnce(
+      new CallhubRecoverableError(
+        'over cps',
+        undefined,
+        CALLHUB_OVER_CPS_LIMIT_DETAIL,
+      ),
+    )
+    // Force the reconcile of that throttled row to throw (a DB failure mid-
+    // reconcile). The default launch resolves STARTED, so without the fix the
+    // sweep would continue and dial the next row — this assertion catches it.
+    const reconcileSpy = vi
+      .spyOn(
+        send as unknown as {
+          reconcileDialing: (
+            outreachId: number,
+            pkStr: string,
+            outcome?: string,
+          ) => Promise<void>
+        },
+        'reconcileDialing',
+      )
+      .mockRejectedValueOnce(new Error('db write failed'))
+
+    await send.sweepRobocallSend()
+
+    expect(reconcileSpy).toHaveBeenCalledTimes(1)
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('dials only arrived drafts, once across repeat sweeps', async () => {
     const arrived = await createDraft({ sendInHours: -1 })
     const notYet = await createDraft({ sendInHours: 2 })

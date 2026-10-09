@@ -620,7 +620,11 @@ reverts the run to `authorized`) for a recoverable-by-BODY detail, carrying the
 code so the sweep can read it — a plain status-based transient carries none. The
 money path is unchanged: the throttled row reverts via the confirmed-PAUSED read
 and every un-attempted row is untouched, so the next 10-min pass retries the
-oldest-due first. v1 convergence is deliberately coarse: the within-pass break
+oldest-due first. The throttle signal is computed BEFORE `reconcileDialing` and
+that reconcile is wrapped in its own try/catch, so even a reconcile DB-write
+failure still returns `throttled` and breaks the pass — otherwise the sweep's
+outer catch would `continue` and keep firing STARTs at the throttling vendor.
+v1 convergence is deliberately coarse: the within-pass break
 plus the fixed cap/spacing plus the cron cadence, no persisted tuning state (the
 simplest money-safe design — a single-row tuning state would be the two-replica
 coordination point, and an in-memory heuristic is weaker; neither earns its
