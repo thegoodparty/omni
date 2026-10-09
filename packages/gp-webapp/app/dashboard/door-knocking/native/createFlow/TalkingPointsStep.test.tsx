@@ -266,11 +266,6 @@ describe('the talking points step', () => {
 
     expect(fieldText()).toBe(DRAFT)
     expect(
-      screen.getByText(
-        "We'll draft a few bullets to start, and you can rewrite them any way you like.",
-      ),
-    ).toBeInTheDocument()
-    expect(
       screen.getAllByRole('textbox', { name: 'Talking points' }),
     ).toHaveLength(1)
   })
@@ -286,20 +281,18 @@ describe('the talking points step', () => {
     expect(fieldText()).toBe('Fix the roads.\nAnd the sidewalks.')
   })
 
-  // The two composed sections are shown so the candidate reviews the whole
-  // card rather than the four lines they can edit — and are not fields,
-  // because neither is theirs to change here.
-  it('previews the introduction and the close without making them editable', async () => {
+  // The opening and the close are bullets in the field now, so the box holds
+  // nothing but the editable text.
+  it('shows only the editable text in the box', async () => {
     mockDraft()
 
     await renderAtPoints()
 
-    expect(
-      screen.getByText("Hi, I'm Jane Doe, running for City Council."),
-    ).toBeInTheDocument()
-    expect(screen.getByText(/Thank them for their time/)).toBeInTheDocument()
-    expect(screen.queryByLabelText('Introduction')).toBeNull()
-    expect(screen.queryByLabelText('Thanks and goodbye')).toBeNull()
+    expect(screen.queryByText(/^Hi, I'm/)).toBeNull()
+    expect(screen.queryByText(/Thank them for their time/)).toBeNull()
+    expect(screen.queryByText('Introduction')).toBeNull()
+    expect(screen.queryByText('Thanks and goodbye')).toBeNull()
+    expect(screen.queryByText(/draft a few bullets to start/)).toBeNull()
   })
 
   it('has no call to action section', async () => {

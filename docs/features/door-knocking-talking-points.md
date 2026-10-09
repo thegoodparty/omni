@@ -23,19 +23,20 @@ campaign in general.
 
 ## The card
 
-At the door the card has three parts:
+The walk shows a list's stored talking points exactly as written, with
+nothing composed around them. A free-text card carries its own opening and
+close as bullets like any other ("Open warm, thank them for the time.", "Close
+by asking if they want updates."), so the candidate can edit them.
 
-| Part               | Origin                                | Why                                                                                                                                                |
-| ------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Introduction       | Composed at render by the app         | Depends on who is reading. Wrong output here is the worst failure in the feature (a volunteer claiming to be the candidate), so no model writes it |
-| Talking points     | Stored with the list                  | Drafted by the model, edited by the candidate in the wizard                                                                                        |
-| Thanks and goodbye | Composed at render (`DEPARTURE_NOTE`) | The same however the conversation went, so it is a constant                                                                                        |
+They are written as notes in the third person ("Say what the candidate is
+already doing", with their first name), never as "I", so the same card works
+for the candidate and for a volunteer.
 
-The introduction and goodbye depend on _who is reading the card_, not on which
-list it is, so they cannot be frozen at create time by a candidate on a laptop
-and then read by a volunteer on a doorstep. `useDoorScript` composes the
-introduction from the live user, campaign and role (candidate, team member,
-volunteer, Serve official) on every walk.
+Lists frozen before free text stored four plain lines. They are not migrated
+and not told apart: they show as those four sentences, also with nothing
+around them. The app's composed introduction is only for a list with no stored
+card, where it sits above the candidate's issue stances (or alone, on Serve),
+so that card is never empty.
 
 There is no website call-to-action line. The model never writes a URL, phone
 number or QR code.
@@ -69,8 +70,11 @@ still something the candidate can edit. Only an empty result is a failure.
 Each bullet is one action or idea, about 25 words at most, about what the
 campaign (or, on Serve, the office) is working toward or asking for, never
 about the person who answers the door. Plain spoken English in sentence case,
-no em dashes, no emoji. No greeting, introduction, thank-you or goodbye,
-because the app writes both ends.
+no em dashes, no emoji. The first bullet is how to open and the last is how to
+close, which is where the ask goes, both written as notes rather than a
+scripted greeting or goodbye. The candidate (or official) is named by first
+name in the third person, never as "I", because a volunteer reads the card
+too.
 
 **Improve keeps the candidate's shape.** It is a light polish of whatever is in
 the field: bullets stay bullets, sentences stay sentences, line breaks and line
@@ -146,10 +150,8 @@ The wizard's `points` stage (`createFlow/TalkingPointsStep.tsx`, wired in
 are settled and the paid route purchase stays last. The draft is requested on
 arrival at the step.
 
-The step shows the whole card: the introduction as a read-only preview (built
-with the same builders `useDoorScript` uses, so the preview cannot drift), one
-editable talking-points field, and the goodbye as a read-only preview. The field
-has a length counter against `DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH` (2000)
+The step shows one editable talking-points field and nothing else in the box:
+the opening and the close are bullets in it. The field has a length counter against `DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH` (2000)
 and is read-only only while the first draft is loading. Around it: Regenerate,
 an instructions input, Improve with AI, dictation, an error card with Try again,
 and a request-id guard so a stale reply never lands on top of an edit.
@@ -173,22 +175,18 @@ and both surfaces repeat their header on every page.
 `readTalkingPoints` in `native/talkingPointsCard.ts` turns the stored string
 into the card's lines, each `{ text, bullet }`:
 
-1. **Legacy rows.** Exactly four lines, at least one non-blank, none starting
-   with the bullet marker. These are lists frozen before free text (question,
-   context, a call to action that may be blank, ask). Every non-blank line
-   shows as a bullet. These rows are not migrated.
-2. **Free text.** Anything else: split on newlines, blank lines dropped. A line
-   starting with the marker is a bullet (marker stripped); any other line shows
-   as written. A marker with nothing after it is dropped.
-3. **Empty or absent.** Null, and `useDoorScript` falls back to the candidate's
-   own issue stances, as it does for lists created before the step existed.
+- **Stored text.** Split on newlines, each line trimmed, blank lines dropped.
+  A line starting with the marker is a bullet (marker stripped); any other line
+  shows as written. A marker with nothing after it is dropped. A card frozen
+  before free text goes through the same rule, so its four lines show as
+  sentences.
+- **Empty or absent.** Null, and `useDoorScript` falls back to the composed
+  introduction and the candidate's own issue stances, as it does for lists
+  created before the step existed.
 
-Cases 1 and 2 close with `DEPARTURE_NOTE` as a bullet. `DoorScript.tsx` groups
-consecutive bullets into one list and renders other lines as paragraphs.
-
-**Accepted edge:** new free text that is exactly four plain lines, none
-bulleted, is indistinguishable from a legacy row and shows as four bullets. The
-words are the same either way.
+Nothing is composed around a stored card, so the reader never has to tell an
+old card from a new one. `DoorScript.tsx` groups consecutive bullets into one
+list and renders other lines as paragraphs.
 
 Stored points replace the issue stances rather than joining them, and the
 stances query is not spent when a list has points.
@@ -275,5 +273,6 @@ there is no surface to edit them from afterwards. Persisting `purpose` keeps
 that open without a later migration.
 
 **Serve is in scope.** The Serve prompt never says "candidate" or "campaign",
-and the composed introduction never introduces a sitting official as a
-candidate for their own seat, the mistake `buildServeIntro` exists to prevent.
+and the composed introduction on a list with no card never introduces a
+sitting official as a candidate for their own seat, the mistake
+`buildServeIntro` exists to prevent.

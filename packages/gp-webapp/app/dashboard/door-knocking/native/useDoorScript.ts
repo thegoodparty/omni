@@ -23,7 +23,7 @@ export interface DoorScriptCard {
   // The candidate's own issue stances, from the campaign issues editor. The
   // fallback card, for a list frozen before the wizard had a points step.
   issues: ScriptIssue[]
-  // The stored card's lines, closed by the departure note. Non-empty and
+  // The stored card's lines, shown as written. Non-empty and
   // `issues` empty, or the reverse, never both: two lists of advice at one
   // door is neither.
   points: TalkingPoint[]
@@ -65,6 +65,9 @@ export const useDoorScript = (
   // Null for a list with no stored card, which means "fall back to the static
   // build": what every list created before the points step needs.
   const points = readTalkingPoints(storedPoints) ?? []
+  // A stored card is shown as written: the composed introduction is only for
+  // a list with nothing stored, where it would otherwise be an empty card.
+  const hasStoredCard = points.length > 0
 
   const positionsQuery = useQuery({
     queryKey: ['campaign-positions', campaignId],
@@ -101,7 +104,9 @@ export const useDoorScript = (
   // exists to prevent on the other side.
   if (canvasser.isVolunteer) {
     return {
-      intro: buildVolunteerIntro(user, canvasser.representing, serveMode),
+      intro: hasStoredCard
+        ? ''
+        : buildVolunteerIntro(user, canvasser.representing, serveMode),
       // The stances under the opener are the candidate's own, read from an
       // endpoint a volunteer cannot call — which is the whole reason the
       // stored points ride the route payload instead. A volunteer on a list
@@ -113,12 +118,17 @@ export const useDoorScript = (
   }
 
   if (serveMode) {
-    return { intro: buildServeIntro(user, officeName), issues: [], points }
+    return {
+      intro: hasStoredCard ? '' : buildServeIntro(user, officeName),
+      issues: [],
+      points,
+    }
   }
 
   return {
-    intro:
-      role && role !== 'owner'
+    intro: hasStoredCard
+      ? ''
+      : role && role !== 'owner'
         ? buildTeamMemberIntro(user, {
             name: campaign?.ownerName ?? '',
             office: campaign?.positionName ?? campaign?.office ?? '',

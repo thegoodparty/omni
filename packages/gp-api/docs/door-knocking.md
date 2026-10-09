@@ -1194,15 +1194,15 @@ plain lines (question, context, a call to action that may be empty, ask) and
 are not migrated; the webapp's walk reader recognizes that shape and keeps
 reading it the old way.
 
-**The model writes only what sits between the introduction and the goodbye.**
-The identity clause ("Hi, I'm Jane Doe, running for City Council") and the
-thank-you are composed at RENDER time by the webapp, because they depend on
-who is reading the card rather than on which list it is: a candidate freezing
-a list on a laptop cannot write the opener a volunteer will speak at a door
-three weeks later. `POST /v1/outreach/door-knocking/draft` and its `serve/`
-sibling return one `draft`. A fresh draft is 4 or 5 bullets, one action each,
-about the campaign's (or the office's) goal rather than the person at the
-door, assembled server-side so every line starts with the bullet marker. An
+**The model writes the whole card, from the opening to the close.** The first
+bullet is how to open and the last is how to close (where the ask goes), both
+as notes rather than a scripted greeting. The candidate is named by first name
+in the third person and never as "I", so the card reads correctly whether the
+candidate or a volunteer is holding it; the webapp shows every stored card as written,
+with no composed introduction or thank-you around it. `POST /v1/outreach/door-knocking/draft` and its
+`serve/` sibling return one `draft`. A fresh draft is 4 or 5 bullets, one
+action each, about the campaign's (or the office's) goal rather than the
+person at the door, assembled server-side so every line starts with the bullet marker. An
 Improve is a light polish that keeps whatever shape the candidate wrote. For
 one release the response also carries the optional `engagementQuestion`,
 `context` and `ask` filled from the draft's lines, so a tab open across the

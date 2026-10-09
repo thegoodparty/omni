@@ -18,17 +18,17 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { eventDetailsContext } from '../util/eventDetails.util'
 
-// Door-knocking talking points: free text a canvasser reads between the
-// introduction and the goodbye, both of which the app writes at the door.
+// Door-knocking talking points: the whole card a canvasser carries, from how
+// to open to how to close. The walk shows exactly these lines.
 //
 // A fresh draft is 4 or 5 bullets, assembled here from a list the model
 // returns, so every line starts with DOOR_KNOCKING_BULLET whatever the model
 // did. An Improve polishes whatever the candidate wrote and keeps its shape:
 // bullets stay bullets, sentences stay sentences.
 //
-// The introduction is the app's because it is where being wrong means a
-// volunteer claiming to be the candidate; nothing here may write a name, an
-// office or a URL. See gp-api/docs/door-knocking.md.
+// The card is read by the candidate and by volunteers alike, so the subject is
+// named in the third person and never as the speaker: a first-person line is a
+// volunteer claiming to be the candidate. See gp-api/docs/door-knocking.md.
 
 // The rule stated first, because it is the one the other channels' prompts
 // would get exactly backwards. Phone banking and SMS produce text a person
@@ -85,14 +85,27 @@ const SERVE_NOUNS: SubjectNouns = {
 // they are about what the effort is asking for. A bullet about the person at
 // the door is a guess about a stranger.
 const goalNotVoterRule = ({ effort }: SubjectNouns): string =>
-  `Every bullet is about what ${effort} is working toward or asking for, ` +
-  'never about the person who answers the door.'
+  `Every bullet but the opening is about what ${effort} is working toward ` +
+  'or asking for, never about the person who answers the door.'
 
-// The app writes both ends of the conversation, so a model greeting would be
-// said twice.
-const NO_GREETING_RULE =
-  'No greeting, no introduction, no thank-you and no goodbye: the app ' +
-  'writes the introduction and the goodbye.'
+// The card has no composed frame around it, so the model writes both ends,
+// as notes like every other line.
+const OPEN_AND_CLOSE_RULE =
+  'The first bullet is how to open (for example "Open warm, thank them for ' +
+  'the time.") and the last is how to close, which is where the ask goes. ' +
+  'Write both as notes, never a scripted greeting or goodbye to recite.'
+
+// The example names nobody: a model copies an example name when the real one
+// is missing, and a volunteer would then say it at a door.
+const thirdPersonRule = ({ possessive }: SubjectNouns): string => {
+  const subject = possessive.replace("'s", '')
+  return (
+    `Refer to the ${subject} by first name, in the third person ("Say what ` +
+    `the ${subject} is already doing", with their first name), never as ` +
+    `"I": a volunteer reads this card too. If no name is given, say "the ` +
+    `${subject}".`
+  )
+}
 
 const inventionBanRule = ({ materials }: SubjectNouns): string =>
   `Ground every bullet in the ${materials} when they are ` +
@@ -125,8 +138,8 @@ const NO_LINKS_RULE =
   'Never write a URL, a web address, a phone number, or a QR code.'
 
 const BULLETS_RULE =
-  'Write 4 or 5 bullets, in the order a conversation at the door would ' +
-  'reach them. Each bullet is ONE action or idea, at most about 25 words, ' +
+  'Write 4 or 5 short bullets, in the order a conversation at the door ' +
+  'would reach them. Each bullet is ONE action or idea, at most about 25 words, ' +
   'because it is read while a door is opening. Return each bullet as plain ' +
   'text, with no bullet marker, number or dash in front of it.'
 
@@ -162,10 +175,8 @@ export interface DoorKnockingVoiceConfig<TPurpose extends string> {
   // The rail's nouns, so the audience block's rule reads in the same voice as
   // the system prompt that already states it.
   nouns: SubjectNouns
-  // What the app says around the talking points, described back to the model
-  // so it does not write either end. The wording differs by rail because the
-  // composed introduction does ("running for" is a claim about a ballot an
-  // elected official is not on).
+  // What the card is, described to the model. The wording differs by rail
+  // because a Serve card is a conversation with a constituent.
   cardShape: string
 }
 
@@ -255,17 +266,14 @@ const SERVE_PURPOSE_PROMPTS: Record<
 }
 
 const WIN_CARD_SHAPE = [
-  'At each door the app first says "Hi, I\'m {name}, running for {office}."',
-  'or the volunteer equivalent, then the canvasser works from the talking',
-  'points, then the app closes with a thank-you and goodbye. You write only',
-  'the talking points in between.',
+  'The talking points are the whole card a volunteer canvasser works from at',
+  'each door, from the opening to the close. Nothing is added around them.',
 ].join('\n')
 
 const SERVE_CARD_SHAPE = [
-  'At each door the app first says "Hi, I\'m {name}, your {office}." or the',
-  'volunteer equivalent, then the canvasser works from the talking points,',
-  'then the app closes with a thank-you and goodbye. You write only the',
-  'talking points in between, for a conversation with a constituent.',
+  'The talking points are the whole card a volunteer canvasser works from at',
+  'each door, from the opening to the close,',
+  'for a conversation with a constituent. Nothing is added around them.',
 ].join('\n')
 
 // Read after "You are ". Serve's omits the word "campaign" entirely, matching
@@ -291,8 +299,9 @@ const draftSystemPrompt = (
     'Rules:',
     `- ${NOTES_NOT_DIALOGUE_RULE}`,
     `- ${BULLETS_RULE}`,
+    `- ${OPEN_AND_CLOSE_RULE}`,
     `- ${goalNotVoterRule(nouns)}`,
-    `- ${NO_GREETING_RULE}`,
+    `- ${thirdPersonRule(nouns)}`,
     `- ${CONCRETE_HOW_RULE}`,
     `- ${inventionBanRule(nouns)}`,
     `- ${audienceUseRule(nouns)}`,

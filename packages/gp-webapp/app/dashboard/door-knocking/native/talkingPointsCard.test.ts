@@ -1,15 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEPARTURE_NOTE, readTalkingPoints } from './talkingPointsCard'
-
-const close = { text: DEPARTURE_NOTE, bullet: true }
-
-// A row frozen before free text: question, context, call to action, ask.
-const LEGACY = [
-  'What would you fix around here first?',
-  'Fix our roads with a real maintenance plan, not patchwork.',
-  'Point them to sarahchen.org to learn more.',
-  'Ask whether we can count on them in November.',
-].join('\n')
+import { readTalkingPoints } from './talkingPointsCard'
 
 describe('readTalkingPoints', () => {
   // Every list created before the points step, and every candidate who left
@@ -25,122 +15,67 @@ describe('readTalkingPoints', () => {
     expect(readTalkingPoints('• \n•')).toBeNull()
   })
 
-  describe('a legacy four-line row', () => {
-    // Old walk lists are not migrated, so they read exactly as they always did.
-    it('reads the four lines as bullets, then the close', () => {
-      expect(readTalkingPoints(LEGACY)).toEqual([
-        {
-          text: 'What would you fix around here first?',
-          bullet: true,
-        },
-        {
-          text: 'Fix our roads with a real maintenance plan, not patchwork.',
-          bullet: true,
-        },
-        { text: 'Point them to sarahchen.org to learn more.', bullet: true },
-        {
-          text: 'Ask whether we can count on them in November.',
-          bullet: true,
-        },
-        close,
-      ])
-    })
-
-    // A campaign with no website on file stored a blank call to action.
-    it('drops a blank section', () => {
-      expect(readTalkingPoints('Question?\nContext.\n\nAsk.')).toEqual([
-        { text: 'Question?', bullet: true },
-        { text: 'Context.', bullet: true },
-        { text: 'Ask.', bullet: true },
-        close,
-      ])
-    })
+  // A list frozen before free text is not migrated and is not told apart: its
+  // four plain lines read as four sentences, with nothing added around them.
+  it('reads a pre-free-text card as its sentences, with no close added', () => {
+    expect(
+      readTalkingPoints(
+        [
+          'What would you fix around here first?',
+          'Fix our roads with a real maintenance plan, not patchwork.',
+          '',
+          'Ask whether we can count on them in November.',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      { text: 'What would you fix around here first?', bullet: false },
+      {
+        text: 'Fix our roads with a real maintenance plan, not patchwork.',
+        bullet: false,
+      },
+      {
+        text: 'Ask whether we can count on them in November.',
+        bullet: false,
+      },
+    ])
   })
 
-  describe('free text', () => {
-    it('reads drafted bullets without their markers, then the close', () => {
-      const stored = [
-        '• Ask what they would fix first.',
-        '• Mention the road maintenance plan.',
-        '• Invite them to the town hall on Tuesday.',
-        '• Ask if we can count on their vote.',
-        '• Offer a yard sign.',
-      ].join('\n')
+  it('reads drafted bullets without their markers, with no close added', () => {
+    const stored = [
+      '• Open warm, thank them for the time.',
+      '• Ask what they would fix first.',
+      '• Close by asking if we can count on their vote.',
+    ].join('\n')
 
-      expect(readTalkingPoints(stored)).toEqual([
-        { text: 'Ask what they would fix first.', bullet: true },
-        { text: 'Mention the road maintenance plan.', bullet: true },
-        { text: 'Invite them to the town hall on Tuesday.', bullet: true },
-        { text: 'Ask if we can count on their vote.', bullet: true },
-        { text: 'Offer a yard sign.', bullet: true },
-        close,
-      ])
-    })
+    expect(readTalkingPoints(stored)).toEqual([
+      { text: 'Open warm, thank them for the time.', bullet: true },
+      { text: 'Ask what they would fix first.', bullet: true },
+      { text: 'Close by asking if we can count on their vote.', bullet: true },
+    ])
+  })
 
-    // A four-line draft is still free text once any line carries a marker.
-    it('reads four lines with a marker as free text', () => {
-      expect(readTalkingPoints('• One.\nTwo.\nThree.\nFour.')).toEqual([
-        { text: 'One.', bullet: true },
-        { text: 'Two.', bullet: false },
-        { text: 'Three.', bullet: false },
-        { text: 'Four.', bullet: false },
-        close,
-      ])
-    })
+  it('keeps bullets and sentences in the order written', () => {
+    const stored = [
+      'I am knocking about the roads.',
+      '• Ask what they would fix first.',
+      'Thank them either way.',
+      '• Offer a yard sign.',
+    ].join('\n')
 
-    it('keeps bullets and sentences in the order written', () => {
-      const stored = [
-        'I am knocking about the roads.',
-        '• Ask what they would fix first.',
-        '• Mention the maintenance plan.',
-        'Thank them either way.',
-        '• Offer a yard sign.',
-      ].join('\n')
+    expect(readTalkingPoints(stored)).toEqual([
+      { text: 'I am knocking about the roads.', bullet: false },
+      { text: 'Ask what they would fix first.', bullet: true },
+      { text: 'Thank them either way.', bullet: false },
+      { text: 'Offer a yard sign.', bullet: true },
+    ])
+  })
 
-      expect(readTalkingPoints(stored)).toEqual([
-        { text: 'I am knocking about the roads.', bullet: false },
-        { text: 'Ask what they would fix first.', bullet: true },
-        { text: 'Mention the maintenance plan.', bullet: true },
-        { text: 'Thank them either way.', bullet: false },
-        { text: 'Offer a yard sign.', bullet: true },
-        close,
-      ])
-    })
-
-    it('reads a paragraph with no bullets as written', () => {
-      expect(
-        readTalkingPoints(
-          'Ask about the roads and listen. Then invite them to the town hall.',
-        ),
-      ).toEqual([
-        {
-          text: 'Ask about the roads and listen. Then invite them to the town hall.',
-          bullet: false,
-        },
-        close,
-      ])
-    })
-
-    it('drops blank lines and trims each line', () => {
-      expect(
-        readTalkingPoints('\n•   Ask about the roads.  \n\n\n  Then listen.\n'),
-      ).toEqual([
-        { text: 'Ask about the roads.', bullet: true },
-        { text: 'Then listen.', bullet: false },
-        close,
-      ])
-    })
-
-    // The accepted edge: four plain lines cannot be told apart from a legacy
-    // row, so they read as bullets. The words reach the door either way.
-    it('reads exactly four plain lines as a legacy row', () => {
-      expect(readTalkingPoints('One.\nTwo.\nThree.\nFour.')).toEqual([
-        { text: 'One.', bullet: true },
-        { text: 'Two.', bullet: true },
-        { text: 'Three.', bullet: true },
-        { text: 'Four.', bullet: true },
-        close,
-      ])
-    })
+  it('drops blank lines and trims each line', () => {
+    expect(
+      readTalkingPoints('\n•   Ask about the roads.  \n\n\n  Then listen.\n'),
+    ).toEqual([
+      { text: 'Ask about the roads.', bullet: true },
+      { text: 'Then listen.', bullet: false },
+    ])
   })
 })
