@@ -328,9 +328,14 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
+    // FLAG-OFF INERTNESS: the buildId handle only exists for the async-build
+    // path gated behind WIN_SMS_HOLD_BILLING (resolveWinSmsHoldAmount). With
+    // the flag off this must resolve exactly as it did before that slice —
+    // token-only — so a crafted buildId in checkout metadata can't reach a
+    // list the pre-slice code would have refused.
     const capturedList = await this.resolvePurchaseBuild(
       phoneListToken,
-      phoneListBuildId,
+      isWinSmsHoldBillingEnabled() ? phoneListBuildId : undefined,
       campaignId,
     )
 
