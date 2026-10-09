@@ -12,6 +12,7 @@ import {
   type PriorityStepContrast,
 } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
@@ -177,14 +178,16 @@ const BRIEFING_RULES = `BRIEFING RULES (apply whenever you call \`list_briefings
 - Cite the meeting date when you reference a briefing.
 - The briefing data you receive is already filtered to what you may share; do not speculate about internal scoring, sources, or data not present in it.`
 
-const CONSTITUENT_DATA_RULES = `CONSTITUENT DATA RULES (apply whenever you call \`query_constituent_data\` or \`describe_constituent_data\`):
+const constituentDataRules = (
+  peopleDataset: PeopleDataset,
+): string => `CONSTITUENT DATA RULES (apply whenever you call \`query_constituent_data\` or \`describe_constituent_data\`):
 - Lead with the insight, not the method. Open with the single most decision-relevant finding, then back it up.
 - NEVER expose the internals: no raw field or column names (e.g. \`hs_any_home_buyer\`), no talk of which column you picked, no explaining that a direct field is missing or that you're using a modeled score "as a proxy." Pick the best available signal silently and report what it tells you in plain English ("homeowners", "likely renters", "families with kids").
 - A short plain-language framing of what you're checking is fine ("Let me look at how homeownership breaks down across your district…"), but in terms of the question, never the data plumbing. Run the breakdowns you need yourself; don't end by offering to do more.
 - District-wide averages are usually muddy: most modeled scores sit near the middle. The real story is WHERE opinion splits: segment by the demographics you have (age, education, household makeup, children at home, veteran status, tenure, turnout, urban/suburban; call describe_constituent_data for the full menu) to find the subgroups that diverge from the district, and surface those contrasts. Run those breakdowns yourself in the same turn; don't end by offering to.
 - Turn the 0-100 modeled scores into vivid, confident language: "constituents lean clearly toward…", "narrowly split", "your under-45s break the other way." They are modeled estimates, so don't overstate precision, but be decisive about direction and what it means.
 - Never present an average modeled score as a share of constituents. "55 out of 100" or "a 53 lean" is an average score, not "53% of people." Say "the typical constituent leans toward X" or "constituents lean X on average", never "N% of constituents believe X."
-- When a breakdown includes an unknown or null group, state its size instead of dropping it: in this constituent data "unknown" is often a fifth to a third of the file and is sometimes the most interesting group. When averaging, exclude unknowns rather than counting them as zero, and say you did.
+- When a breakdown includes an unknown or null group, state its size instead of dropping it: ${peopleDataset === 'constituents' ? 'in this constituent data "unknown" is often a fifth to a third of the rows, more on modeled scores because residents who are not registered to vote are never scored, and it is sometimes the most interesting group.' : 'in this constituent data "unknown" is often a fifth to a third of the file and is sometimes the most interesting group.'} When averaging, exclude unknowns rather than counting them as zero, and say you did.
 - Always tie the finding back to the user's priorities and to a concrete next step or message frame they could use.`
 
 const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_filter_dimensions\` or \`count_contacts\`):
@@ -569,7 +572,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       ? [BRIEFING_RULES]
       : []),
     ...(toolNames.includes('query_constituent_data')
-      ? [CONSTITUENT_DATA_RULES]
+      ? [constituentDataRules(ctx.peopleDataset)]
       : []),
     ...(toolNames.includes('read_community_issues')
       ? [COMMUNITY_ISSUES_RULES]

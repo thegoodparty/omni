@@ -16,7 +16,7 @@ import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
 import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
-  ConstituentTableConfig,
+  ConstituentTablesByDataset,
 } from './services/constituentDataScope'
 import { buildCrudPrioritiesTool } from './services/crudPriorities.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
@@ -52,6 +52,7 @@ import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -66,8 +67,9 @@ export const CHIEF_OF_STAFF_MODELS = [
 // tool stays unregistered until that key is configured.
 export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
 
-// Token for the app-layer table/dimension allowlist (lever 1). Injected so prod
-// uses the in-code CONSTITUENT_TABLES const while tests can supply a fixture.
+// Token for the app-layer table/dimension allowlist (lever 1), keyed by people
+// dataset. Injected so prod uses the in-code CONSTITUENT_TABLES_BY_DATASET
+// const while tests can supply a fixture.
 export const CONSTITUENT_TABLES_CONFIG = 'CONSTITUENT_TABLES_CONFIG'
 
 @Injectable()
@@ -86,7 +88,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Inject(PRIORITIES_PORT)
     private readonly priorities: PrioritiesToolPort,
     @Inject(CONSTITUENT_TABLES_CONFIG)
-    private readonly constituentTables: ConstituentTableConfig[],
+    private readonly constituentTables: ConstituentTablesByDataset,
     @Optional()
     @Inject(CONSTITUENT_DATA_PROVIDER)
     private readonly constituentProvider?: DatabricksProvider,
@@ -105,6 +107,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly pastOutreach?: PriorityFlowOutreachService,
     @Optional()
     private readonly priorityStatus?: PriorityStatusService,
+    @Optional()
+    private readonly peopleDatasets?: PeopleDatasetService,
   ) {}
 
   async loadContext(
@@ -128,14 +132,20 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
+    // Once per turn, so every constituent-data call in it reads one table.
+    const peopleDataset = this.peopleDatasets
+      ? await this.peopleDatasets.resolve(ctx.organization)
+      : 'voters'
     const constituentToolEnabled =
-      !!this.constituentProvider && this.constituentTables.length > 0
+      !!this.constituentProvider &&
+      this.constituentTables[peopleDataset].length > 0
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,
       constituentToolEnabled,
+      peopleDataset,
     }
   }
 
@@ -213,7 +223,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables,
+        this.constituentTables[ctx.peopleDataset],
+        ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({

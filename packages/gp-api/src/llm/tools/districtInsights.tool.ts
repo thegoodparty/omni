@@ -3,6 +3,7 @@ import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 import { isRecord } from './util/isRecord.util'
 import { hsScoreSemantics } from './hsScoreSemantics'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { parseSingleSelect } from './util/sqlAst.util'
 
 export class SqlRejected extends Error {
@@ -369,6 +370,7 @@ export interface BuildDistrictInsightsToolDeps {
   provider: DatabricksProvider
   allowedTables: Set<string>
   mandatoryFilters: MandatoryFilter[]
+  peopleDataset: PeopleDataset
   minCellSize?: number
 }
 
@@ -377,17 +379,26 @@ const DEFAULT_MIN_CELL_SIZE = 100
 const buildDescription = (
   allowedTables: Set<string>,
   mandatoryFilters: MandatoryFilter[],
+  peopleDataset: PeopleDataset,
 ): string => {
   const tableName = [...allowedTables][0] ?? '<table>'
   const whereClause = mandatoryFilters
     .map((f) => `${f.column} = '${f.value}'`)
     .join(' AND ')
+  const rows =
+    peopleDataset === 'constituents'
+      ? 'one row per adult resident, registered to vote or not, joined with modeled scores; 200+ hs_* scored columns'
+      : 'one row per constituent on the registration file, joined with modeled scores; 200+ hs_* scored columns'
+  const totalsRule =
+    peopleDataset === 'constituents'
+      ? '\n  - Totals include adult residents whether or not they are registered to vote. Modeled scores (hs_*), registration status and turnout cover only residents registered to vote. When you quote a total, say which of the two it counts.'
+      : ''
 
   return `Query aggregate constituent data for YOUR district. Use this for questions about how your constituents feel on issues, demographic composition, turnout propensity.
 
-Table: ${tableName} (one row per constituent on the registration file, joined with modeled scores; 200+ hs_* scored columns)
+Table: ${tableName} (${rows})
 
-${hsScoreSemantics('constituent')}
+${hsScoreSemantics('constituent', peopleDataset)}
 
 Required WHERE clause (your district scope, copy verbatim):
   WHERE ${whereClause}
@@ -399,6 +410,7 @@ REQUIREMENTS:
   - Must include GROUP BY (or be a pure aggregate like COUNT(*) / AVG(...)).
   - Must include the WHERE clause above verbatim — AND-combined with any extra filters.
   - Rows with COUNT(*) < ${DEFAULT_MIN_CELL_SIZE} are suppressed automatically.
+  - For a share/percentage on an hs_* column, compute it over SCORED rows only, e.g. AVG(CASE WHEN <col> >= 50 THEN 1.0 WHEN <col> IS NOT NULL THEN 0.0 END) AS aligned_share (the missing ELSE keeps nulls out of the average). Do not put ELSE 0.0 in a share or divide one by COUNT(*): a null score is unknown, not zero. Report the scored count beside the share.${totalsRule}
 
 INPUT:
   - sql: the full SELECT statement
@@ -415,7 +427,11 @@ const districtInsightsInputSchema = z.object({
 export const buildDistrictInsightsTool = (
   deps: BuildDistrictInsightsToolDeps,
 ): LlmStreamTool<DistrictInsightsInput, DistrictInsightsOutput> => ({
-  description: buildDescription(deps.allowedTables, deps.mandatoryFilters),
+  description: buildDescription(
+    deps.allowedTables,
+    deps.mandatoryFilters,
+    deps.peopleDataset,
+  ),
   inputSchema: districtInsightsInputSchema,
   execute: async ({ sql }) => {
     const validatedSql = validateInsightsSql(sql, {

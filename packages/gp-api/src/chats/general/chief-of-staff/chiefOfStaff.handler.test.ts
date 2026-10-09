@@ -48,9 +48,16 @@ const buildBriefings = (): ChiefOfStaffBriefingsService =>
     })),
   }) as unknown as ChiefOfStaffBriefingsService
 
-const TEST_TABLES = [
-  { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] },
-]
+const TEST_TABLES = {
+  voters: [
+    { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] },
+  ],
+  constituents: [
+    { table: 'constituent_aggregates_all', dimensions: ['age_band', 'gender'] },
+  ],
+}
+
+const NO_TABLES = { voters: [], constituents: [] }
 
 describe('ChiefOfStaffHandler', () => {
   let context: ChiefOfStaffContextService
@@ -108,7 +115,12 @@ describe('ChiefOfStaffHandler', () => {
     }) as unknown as DistrictResolverService
 
   it('is a sensitive, Anthropic-only scope', () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     expect(handler.scope).toBe(ChatScope.chief_of_staff)
     expect(handler.isSensitive).toBe(true)
     expect(handler.models).toEqual([...CHIEF_OF_STAFF_MODELS])
@@ -116,7 +128,12 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('builds the safe v1 tool set (priorities + briefing reads)', async () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
     // web_search is always present now (Anthropic native, gated at the LLM
@@ -133,13 +150,23 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('includes web_search (Anthropic native, no provider needed)', async () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
   })
 
   it('builds a governance system prompt grounded in the context', async () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
     expect(prompt).toContain('Chief of Staff')
@@ -182,7 +209,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
-      [],
+      NO_TABLES,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
     )
@@ -251,7 +278,7 @@ describe('ChiefOfStaffHandler', () => {
         contextWithAnchor,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
@@ -294,7 +321,7 @@ describe('ChiefOfStaffHandler', () => {
         contextWithAnchor,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
@@ -309,7 +336,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         communityPort,
@@ -325,7 +352,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
@@ -356,7 +383,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -404,7 +431,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -450,7 +477,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -623,7 +650,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -671,7 +698,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -721,7 +748,7 @@ describe('ChiefOfStaffHandler', () => {
         buildCtx(),
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).toContain('compose_handoff')
@@ -756,7 +783,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       // The CoS eval failure that shipped with no disclaimer: a statute
       // citation, a colleague's criminal exposure, and a complaint-filing
@@ -776,7 +803,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       expect(
         handler.finalizeAssistantText(
@@ -790,7 +817,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       expect(
         handler.finalizeAssistantText(

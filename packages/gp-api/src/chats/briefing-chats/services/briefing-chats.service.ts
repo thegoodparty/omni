@@ -6,6 +6,7 @@ import {
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import {
   type ChatScopeHandler,
   hasFinalizeAssistantText,
@@ -51,12 +52,15 @@ export class BriefingChatsService {
     databricks?: DatabricksProvider,
     @Optional()
     districtResolver?: DistrictResolverService,
+    @Optional()
+    peopleDatasets?: PeopleDatasetService,
   ) {
     this.handler = new BriefingAnnotationHandler(
       briefingContext,
       notesService,
       databricks,
       districtResolver,
+      peopleDatasets,
     )
   }
 

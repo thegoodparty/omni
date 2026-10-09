@@ -115,7 +115,10 @@ describe('ChiefOfStaffHandler district scoping (two orgs)', () => {
       withPrisma(new ChiefOfStaffContextService()),
       {} as ChiefOfStaffBriefingsService,
       port,
-      [{ table: 'constituent_aggregates', dimensions: ['age_band'] }],
+      {
+        voters: [{ table: 'constituent_aggregates', dimensions: ['age_band'] }],
+        constituents: [],
+      },
       new InMemoryDatabricksProvider(new Map()),
       withPrisma(new DistrictResolverService(organizations, elections)),
     )
