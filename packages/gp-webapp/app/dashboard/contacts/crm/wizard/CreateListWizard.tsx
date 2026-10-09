@@ -69,12 +69,11 @@ interface CreateListWizardProps {
 }
 
 // The list creation wizard (ENG-10708 locked design): branch chooser ->
-// branch-specific conditions -> name + build. Serve has no outreach
-// (deferred by design, ENG-10750), so its flow drops the branch chooser and
-// opens directly on the constituent-file filters, and it alone gains the
-// boundary step between the conditions and the name — this derived `steps`
-// array is THE Serve gate; when Serve outreach ships, reopen the branch
-// here.
+// branch-specific conditions -> boundary -> name + build. Serve has no
+// outreach (deferred by design, ENG-10750), so its flow drops the branch
+// chooser and opens directly on the constituent-file filters — this derived
+// `steps` array is THE Serve gate; when Serve outreach ships, reopen the
+// branch here.
 export default function CreateListWizard({
   open,
   onOpenChange,
@@ -104,7 +103,7 @@ export default function CreateListWizard({
     : // The page's "Create new list" button is disabled until
       // isWinContextReady, so the wizard never opens on an unsettled mode.
       isWinContext
-      ? ['branch', 'conditions', 'name']
+      ? ['branch', 'conditions', 'boundary', 'name']
       : ['conditions', 'boundary', 'name']
 
   const [stepIndex, setStepIndex] = useState(0)
@@ -423,6 +422,7 @@ export default function CreateListWizard({
     } else if (stepName === 'boundary' && !isBoundaryBlocked) {
       trackEvent(EVENTS.Contacts.ListWizard.BoundaryCompleted, {
         context: isWinContext ? 'win' : 'serve',
+        ...(activeBranch ? { branch: activeBranch } : {}),
         hasBoundary,
       })
       setStepIndex(stepIndex + 1)

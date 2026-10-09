@@ -8,12 +8,16 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { Person, SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { useWinVoterContext } from 'app/dashboard/shared/useWinVoterContext'
 import ListMapSection from './ListMapSection'
 
 vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+vi.mock('app/dashboard/shared/useWinVoterContext', () => ({
+  useWinVoterContext: vi.fn(),
+}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test-org' }),
 }))
@@ -63,6 +67,7 @@ vi.mock('./ContactListMap', () => ({
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseSnackbar = vi.mocked(useSnackbar)
+const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
 const errorSnackbar = vi.fn()
 const successSnackbar = vi.fn()
 
@@ -99,6 +104,7 @@ beforeEach(() => {
     currentlySelectedPersonId: null,
     isWinContext: false,
   } as unknown as ReturnType<typeof useContactsTable>)
+  mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
   // The drawing surface draws the list's whole audience, not its members.
   api.mock('POST /v1/contacts/points', {
     status: 200,
@@ -191,6 +197,39 @@ describe('ListMapSection — boundary CTA', () => {
         // inside a Chief of Staff transcript.
         { listId: 7, cleared: false, shapeCount: 1, surface: 'listDetail' },
       ),
+    )
+  })
+
+  it('tracks a candidate saving a boundary as a Voter Data event', async () => {
+    mockedUseContactsTable.mockReturnValue({
+      selectPerson: vi.fn(),
+      currentlySelectedPersonId: null,
+      isWinContext: true,
+    } as unknown as ReturnType<typeof useContactsTable>)
+    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: { id: 7 },
+    })
+    const user = userEvent.setup()
+    render(<ListMapSection segment={segment()} />)
+
+    await user.click(
+      await screen.findByRole('button', { name: /draw shapes/i }),
+    )
+    const overlay = within(screen.getByTestId('boundary-overlay'))
+    await user.click(overlay.getByRole('button', { name: 'place ring' }))
+    await user.click(overlay.getByRole('button', { name: 'Save' }))
+
+    await vi.waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.VoterData.ListBoundarySaved,
+        { listId: 7, cleared: false, shapeCount: 1, surface: 'listDetail' },
+      ),
+    )
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ConstituentData.ListBoundarySaved,
+      expect.anything(),
     )
   })
 

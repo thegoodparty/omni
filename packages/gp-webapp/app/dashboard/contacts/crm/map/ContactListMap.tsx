@@ -528,7 +528,7 @@ export default function ContactListMap({
             >
               {[resident.firstName, resident.lastName]
                 .filter(Boolean)
-                .join(' ') || 'Unnamed constituent'}
+                .join(' ') || 'Unnamed person'}
             </Button>
           ))}
         </div>

@@ -519,9 +519,7 @@ export const EVENTS = {
     ListExported: 'Constituent Data - List Exported',
     // The boundary saved onto an existing list from the map on its detail
     // sheet. `{ listId, cleared }` — clearing a boundary is the same write
-    // and is worth telling apart from setting one. Serve-only surface (the
-    // map itself is), so there is no VoterData variant, same as
-    // ContactStatusChanged below in the other direction.
+    // and is worth telling apart from setting one.
     ListBoundarySaved: 'Constituent Data - List Boundary Saved',
     // The person-record follow-up toggle. Fires once per confirmed-successful
     // change with { from, to } — never on a failed PATCH. Serve-only
@@ -542,6 +540,8 @@ export const EVENTS = {
     ListCreated: 'Voter Data - List Created',
     ActivityListCreated: 'Voter Data - Activity List Created',
     ListExported: 'Voter Data - List Exported',
+    // See ConstituentData.ListBoundarySaved.
+    ListBoundarySaved: 'Voter Data - List Boundary Saved',
     // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
     // every "Send outreach" click in the CRM with
     // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
