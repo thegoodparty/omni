@@ -293,13 +293,27 @@ describe('the order of a task’s menu', () => {
           external: false,
         }),
       }),
-      // An in-app action closes the task itself, so there's no Mark done.
+      // Work started elsewhere carries no task id, so Mark done stays.
     ).toEqual([
       'Plan your door knocking',
       'Ask about this',
+      'Mark done',
       'Show in 3 days',
       'Not for me',
     ])
+  })
+
+  it('offers no Mark done on the story task, which closes itself', async () => {
+    const labels = await menuLabels({
+      task: { ...base, isNext: false, title: 'Tell us your campaign story' },
+      getAction: () => ({
+        label: 'Add your story',
+        href: '/dashboard?personalize=1',
+        external: false,
+      }),
+    })
+    expect(labels).toContain('Add your story')
+    expect(labels).not.toContain('Mark done')
   })
 })
 

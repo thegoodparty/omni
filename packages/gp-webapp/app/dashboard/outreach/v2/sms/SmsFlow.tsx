@@ -1313,6 +1313,7 @@ export const SmsFlow = ({
         name: name.trim(),
         voterFileFilterId: audience.selectedListId,
         script: composedMessage,
+        ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
       },
       image,
     )

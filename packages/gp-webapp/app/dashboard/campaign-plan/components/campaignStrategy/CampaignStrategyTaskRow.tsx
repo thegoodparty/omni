@@ -1,5 +1,6 @@
 'use client'
 
+import { taskClosesItself } from './taskClosesItself'
 import { differenceInCalendarDays, format, startOfDay } from 'date-fns'
 import { useRouter } from 'next/navigation'
 import { MoreMenu } from 'app/shared/utils/MoreMenu'
@@ -111,9 +112,9 @@ const CampaignStrategyTaskRow = ({
   const href = task.href
   const resolvedAction = getAction ? getAction(task) : null
   const action = task.completed ? null : resolvedAction
-  // Same rule as the next-task card: work done on our own screens should close
-  // itself, so only offline tasks and external links get a manual toggle.
-  const completesItself = Boolean(resolvedAction && !resolvedAction.external)
+  // Same rule as the next-task card: only a task that closes itself whatever
+  // happens (the story) goes without a manual toggle.
+  const completesItself = taskClosesItself(task.title)
   // The task's own action: the mapped one, or for rows without one, starting
   // outreach or opening its link.
   const actionItems = [

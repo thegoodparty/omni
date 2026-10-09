@@ -666,6 +666,7 @@ export const RobocallFlow = ({
       audioKey: audioUpload.key,
       callbackNumber,
       ...(script.trim() ? { script } : {}),
+      ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
     })
   }
 

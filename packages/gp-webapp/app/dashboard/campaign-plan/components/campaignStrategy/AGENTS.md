@@ -49,8 +49,10 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Work done through a task's button closes the task.** `taskAction` puts
   the task's id on the flow's URL (`trackerTaskId` + `phase`), each flow
   sends it with the record it creates, and gp-api ticks the task once that
-  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). Those
-  tasks offer no manual "Mark done" in place of their button.
+  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). They
+  keep "Mark done" all the same, since work started from the hub or done
+  offline carries no task id. Only the story task, which the server ticks
+  however the story gets finished, has none (`taskClosesItself`).
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.

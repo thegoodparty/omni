@@ -20,8 +20,9 @@ describe('campaignPhaseWindows', () => {
   it('compresses Launch for a candidate who joins late', () => {
     const start = day('2026-09-01')
     const windows = campaignPhaseWindows(start, election)
-    // Half of the 33 days left before get-out-the-vote.
-    expect(windows.active).toEqual(new Date('2026-09-17T12:00:00.000Z'))
+    // Half of the 33 days left before get-out-the-vote, in whole days, so
+    // the boundary is a midnight like every task date.
+    expect(windows.active).toEqual(day('2026-09-17'))
     expect(windows.gotv).toEqual(day('2026-10-04'))
   })
 
@@ -116,6 +117,26 @@ describe('voterContactSendDate', () => {
     expect(date('introduction-robocall')).toEqual(day('2026-10-10'))
     expect(date('persuasion-robocall')).toEqual(day('2026-10-16'))
     expect(date('early-voting-text')).toEqual(day('2026-10-20'))
+  })
+
+  it('gives the latest missed sends a day each when days are short', () => {
+    // Joined Oct 31 for Nov 3: five sends already past, two days before the
+    // Nov 2 reminder. The newest gets its own day; the oldest share the first.
+    const start = day('2026-10-31')
+    const date = (id: string) => voterContactSendDate(id, election, start)
+    expect(date('introduction-text')).toEqual(day('2026-10-31'))
+    expect(date('persuasion-robocall')).toEqual(day('2026-10-31'))
+    expect(date('early-voting-text')).toEqual(day('2026-11-01'))
+    expect(date('election-day-reminder-robocall')).toEqual(day('2026-11-02'))
+  })
+
+  it('lands every missed send on the start day when there is no day to spare', () => {
+    // Joined the day before the election, the day of the next send.
+    const start = day('2026-11-02')
+    const date = (id: string) => voterContactSendDate(id, election, start)
+    expect(date('introduction-text')).toEqual(start)
+    expect(date('early-voting-text')).toEqual(start)
+    expect(date('election-day-reminder-text')).toEqual(election)
   })
 
   it('dates a voter-contact task through the tracker resolver too', () => {

@@ -8,6 +8,7 @@ import { useNewTrackerTasks } from '../campaign-plan/components/campaignStrategy
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
+import ProUpgrade3ComplianceCard from '../components/campaignManager/ProUpgrade3ComplianceCard'
 import { FIRST_LANDING_PARAM } from './homeHeadlines'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -58,7 +59,12 @@ export default function CampaignManagerHome({
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
         <NextTaskCard surface="manager" firstLanding={firstLanding} />
         <ProUpgradeBanner />
+        {/* The two never co-render: the banner owns no record and a
+            retryable error, the card every state after (PIN entry, in
+            review, approved, denied). Without the card a candidate awaiting
+            their PIN has nowhere on Home to enter it. */}
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
+        <ProUpgrade3ComplianceCard tcrCompliance={tcrCompliance} />
       </div>
     </div>
   )

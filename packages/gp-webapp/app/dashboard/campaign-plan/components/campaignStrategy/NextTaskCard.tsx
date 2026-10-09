@@ -1,5 +1,6 @@
 'use client'
 
+import { taskClosesItself } from './taskClosesItself'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
@@ -406,11 +407,10 @@ const NextTaskCard = ({
   const due = frontTask ? taskDueLabel(frontTask.date, new Date()) : null
   const action = taskAction(frontRow, surface)
 
-  // A task done inside the product (its action opens one of our own screens)
-  // closes itself when that work happens (the story when it's finished, the
-  // outreach ones once scheduled), so it offers no manual "Mark done".
-  // Offline work and external links keep the button, since we can't see them.
-  const completesItself = Boolean(action && !action.external)
+  // Only a task that closes itself however it gets done (the story) offers no
+  // manual "Mark done". Outreach closes itself only when started from its own
+  // button, so it keeps Mark done for sends made elsewhere or offline.
+  const completesItself = taskClosesItself(frontTask?.title ?? '')
   const markDone = () => {
     if (!frontTask) return
     // No confirmation: we trust the candidate, and the plan can reopen it.

@@ -511,6 +511,16 @@ describe('CampaignManagerHome story auto-launch', () => {
     )
   })
 
+  it('renders the texting compliance card, so a pending PIN has a home', () => {
+    renderHome()
+
+    // PR #1273: without the card, a candidate awaiting their PIN had no
+    // dashboard surface at all, since the banner hides once a record exists.
+    expect(
+      screen.getByTestId('pro-upgrade-3-compliance-card'),
+    ).toBeInTheDocument()
+  })
+
   it('does not auto-launch the story flow without the personalize deep link', () => {
     renderHome()
 

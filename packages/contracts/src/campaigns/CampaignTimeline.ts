@@ -63,9 +63,10 @@ export const campaignPhaseWindows = (
   }
   const gotv = later(start, plusDays(election, -GOTV_WINDOW_DAYS))
   const roomDays = (gotv.getTime() - start.getTime()) / DAY_MS
+  // Whole days, so every phase boundary is a midnight like the task dates.
   const earliestActive = plusDays(
     start,
-    Math.min(MIN_LAUNCH_DAYS, roomDays / 2),
+    Math.min(MIN_LAUNCH_DAYS, Math.floor(roomDays / 2)),
   )
   const active = earlier(
     later(
@@ -105,8 +106,11 @@ export const phaseForDate = (
 // when the plan starts keeps its date, counted back from the election. A
 // late joiner's sends that were already past move up, in order, into the time
 // before the next send still ahead (or election day): the first on the start
-// day, then a week apart, closer if there isn't room. Shared by the tracker
-// and the plan document, so they never disagree.
+// day, then a week apart, closer if there isn't room, and never closer than a
+// day while there are days to use. With fewer days than sends, the latest
+// sends keep a day each and the oldest share the start day; with no day at
+// all they all land on it. Shared by the tracker and the plan document, so
+// they never disagree.
 export const voterContactSendDate = (
   catalogId: string,
   election: Date,
@@ -124,8 +128,13 @@ export const voterContactSendDate = (
   const next =
     sends.find((candidate) => candidate.date >= start)?.date ?? election
   const roomDays = Math.floor((next.getTime() - start.getTime()) / DAY_MS)
-  const stepDays = Math.max(0, Math.min(7, Math.floor(roomDays / past.length)))
-  return plusDays(start, index * stepDays)
+  if (roomDays >= past.length) {
+    const stepDays = Math.min(7, Math.floor(roomDays / past.length))
+    return plusDays(start, index * stepDays)
+  }
+  // One a day from the end, so the sends that crowd onto the start day are
+  // the oldest, the ones least worth sending this late.
+  return plusDays(start, Math.max(0, index - (past.length - roomDays)))
 }
 
 // The date a catalog task gets on the timeline. Election-relative work is
