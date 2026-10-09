@@ -5,6 +5,7 @@ import { ZodError } from 'zod'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { sleep } from '@/shared/util/sleep.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
@@ -29,6 +30,33 @@ import { OutreachNotificationService } from './outreachNotification.service'
 // matters here.
 const ROBOCALL_SEND_SWEEP_CRON = '4,14,24,34,44,54 * * * *'
 const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
+
+// A sweep pass launches at most `robocallSendMaxPerSweep()` due runs, oldest
+// send first and spaced `robocallSendLaunchSpacingMs()` apart, so a batch
+// coming due together never bursts past CallHub's calls-per-second limit. An
+// over-the-limit START 400s `over_cps_limit` (transient), reverting the run to
+// `authorized`, so an unspaced burst re-throttles every pass and never dials —
+// the Oct 8 incident. The cron (every 10 min) then drains a backlog at this
+// rate, not all at once.
+//
+// Both are env-overridable so ops can retune once CallHub raises the account
+// CPS limit, and an explicit 0 is HONORED (never read as unset): MAX_PER_SWEEP
+// = 0 is the incident kill-switch — `take: 0` selects no rows, pausing every
+// robocall launch with no code deploy; SPACING_MS = 0 drops the delay. Only an
+// unset / empty / non-finite / negative value falls back to the default. Read
+// at CALL time (functions, not consts) so a test can stub the env — the same
+// pattern as outreachSmsAdmin.service.ts's vendorReadTimeoutMs.
+const envInt = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  // Floor to an integer so a fractional value never reaches `take` (which
+  // expects an Int). A non-finite / negative value falls back to the default.
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback
+}
+const robocallSendMaxPerSweep = () =>
+  envInt(process.env.ROBOCALL_SEND_MAX_PER_SWEEP, 2)
+const robocallSendLaunchSpacingMs = () =>
+  envInt(process.env.ROBOCALL_SEND_LAUNCH_SPACING_MS, 3000)
 
 // A `dialing` row whose updatedAt is older than this is assumed stranded — a
 // process that died between winning the dial claim and committing/reverting, or
@@ -97,6 +125,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
     const now = new Date()
+    const launchSpacingMs = robocallSendLaunchSpacingMs()
     const arrived = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.authorized,
@@ -107,9 +136,19 @@ export class OutreachRobocallSendService extends createPrismaBase(
         },
       },
       select: { outreachId: true },
+      // Oldest-due first so the most overdue (soonest to lapse) drain first.
+      // `outreachId` breaks ties into a TOTAL order so both prod replicas pick
+      // the identical oldest-N set — otherwise date ties could order
+      // differently per replica, and the union would exceed N launches/pass.
+      // take: 0 (the kill-switch) selects no rows, so nothing launches.
+      orderBy: [{ outreach: { date: 'asc' } }, { outreachId: 'asc' }],
+      take: robocallSendMaxPerSweep(),
     })
 
-    for (const { outreachId } of arrived) {
+    for (const [index, { outreachId }] of arrived.entries()) {
+      // Space launches within a pass so N near-simultaneous STARTs don't trip
+      // CallHub's CPS limit; not before the first, not after the last.
+      if (index > 0) await sleep(launchSpacingMs)
       try {
         await this.startCampaign(outreachId)
       } catch (err) {

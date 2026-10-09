@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { startOfDay } from 'date-fns'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
-import { buildTrackerStrategy } from './buildTrackerStrategy'
+import {
+  buildTrackerStrategy,
+  followingWeekStart,
+} from './buildTrackerStrategy'
 
 const row = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   id: 'x',
@@ -22,7 +25,7 @@ const row = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
 describe('buildTrackerStrategy', () => {
   const today = startOfDay(new Date('2026-01-15'))
 
-  it('buckets rows by phase and carries completed through', () => {
+  it('folds pre-launch work into Launch and carries completed through', () => {
     const data = buildTrackerStrategy(
       [
         row({ id: 'a', phase: 'preLaunch', completed: true }),
@@ -30,9 +33,11 @@ describe('buildTrackerStrategy', () => {
       ],
       { electionDate: null, today },
     )
-    const pre = data.phases.find((p) => p.key === 'preLaunch')
-    const tasks = pre?.groups.flatMap((g) => g.tasks) ?? []
-    expect(tasks.map((t) => t.id)).toContain('a')
+    expect(data.phases.map((p) => p.key)).toEqual(['launch', 'active', 'gotv'])
+    const launch = data.phases.find((p) => p.key === 'launch')
+    const tasks = launch?.groups.flatMap((g) => g.tasks) ?? []
+    // The done task sorts after the open one.
+    expect(tasks.map((t) => t.id)).toEqual(['b', 'a'])
     expect(tasks.find((t) => t.id === 'a')?.completed).toBe(true)
   })
 
@@ -63,7 +68,7 @@ describe('buildTrackerStrategy', () => {
       row({ id: `p${i}`, phase: 'preLaunch', date: `2026-02-0${i + 1}` }),
     )
     const data = buildTrackerStrategy(pre, { electionDate: null, today })
-    const phase = data.phases.find((p) => p.key === 'preLaunch')
+    const phase = data.phases.find((p) => p.key === 'launch')
     expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(6)
   })
 
@@ -87,20 +92,28 @@ describe('buildTrackerStrategy', () => {
       [
         row({ id: 'old', phase: 'active', week: 1, date: '2026-02-03' }),
         row({ id: 'new', phase: 'active', week: 2, date: '2026-02-04' }),
-        row({ id: 'static', phase: 'preLaunch', week: 5, isDefaultTask: true }),
+        row({
+          id: 'static',
+          phase: 'preLaunch',
+          week: 5,
+          isDefaultTask: true,
+          date: '2026-01-01',
+        }),
       ],
-      { electionDate: null, today },
+      // The timeline starts Jan 1, and an April election opens the active
+      // campaign at the end of January, so the February rows are active.
+      { electionDate: startOfDay(new Date('2026-04-10')), today },
     )
     const active = data.phases
       .find((p) => p.key === 'active')
       ?.weeks?.flatMap((w) => w.tasks)
       .map((t) => t.id)
     expect(active).toEqual(['new'])
-    const pre = data.phases
-      .find((p) => p.key === 'preLaunch')
+    const launch = data.phases
+      .find((p) => p.key === 'launch')
       ?.groups.flatMap((g) => g.tasks)
       .map((t) => t.id)
-    expect(pre).toEqual(['static'])
+    expect(launch).toEqual(['static'])
   })
 
   it('keeps Active "active" when a prior-generation navigable task is open', () => {
@@ -125,13 +138,13 @@ describe('buildTrackerStrategy', () => {
   it('marks a phase done only when all its tasks are completed', () => {
     const data = buildTrackerStrategy(
       [
-        row({ id: 'a', phase: 'preLaunch', completed: true }),
-        row({ id: 'b', phase: 'launch', completed: false }),
+        row({ id: 'a', phase: 'launch', completed: true }),
+        row({ id: 'b', phase: 'active', completed: false }),
       ],
       { electionDate: null, today },
     )
-    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
-    expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe('done')
+    expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('done')
+    expect(data.phases.find((p) => p.key === 'active')?.status).not.toBe('done')
   })
 
   it('leaves text/robocall rows without an href (the row opens the flow in place)', () => {
@@ -154,24 +167,24 @@ describe('buildTrackerStrategy', () => {
     expect(byId.get('r')?.channel).toBe('robocall')
   })
 
-  it('advances Launch to active when every pre-launch task is done', () => {
-    // preLaunch is the calendar-current phase (future date) but fully checked
-    // off; Launch must become the current phase instead of stranding at
-    // 'upcoming' (bug-bash finding: "pre-launch Done, launch stays Coming Up").
+  it('advances to the active campaign when every Launch task is done', () => {
+    // Launch is the calendar-current phase (future date) but fully checked
+    // off; the active campaign must become current instead of stranding at
+    // 'upcoming'.
     const data = buildTrackerStrategy(
       [
         row({
           id: 'a',
-          phase: 'preLaunch',
+          phase: 'launch',
           date: '2026-02-01',
           completed: true,
         }),
-        row({ id: 'b', phase: 'launch', date: '2026-03-01' }),
+        row({ id: 'b', phase: 'active', date: '2026-03-01' }),
       ],
       { electionDate: null, today },
     )
-    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
-    expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('active')
+    expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('done')
+    expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
   })
 
   it('advances past an empty intermediate phase when the prior phase is done', () => {
@@ -222,23 +235,21 @@ describe('buildTrackerStrategy', () => {
   })
 
   it('keeps "happening now" date-based: a date-past phase with open tasks is not upcoming', () => {
-    // today is 2026-01-15; preLaunch dated in the past, launch in the future.
+    // today is 2026-01-15; Launch dated in the past, active in the future.
     const data = buildTrackerStrategy(
       [
-        row({ id: 'a', phase: 'preLaunch', date: '2026-01-01' }),
-        row({ id: 'b', phase: 'launch', date: '2026-02-01' }),
+        row({ id: 'a', phase: 'launch', date: '2026-01-01' }),
+        row({ id: 'b', phase: 'active', date: '2026-02-01' }),
       ],
       { electionDate: null, today },
     )
     // Not all completed, and the calendar has reached/passed it → active.
-    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe(
-      'active',
-    )
+    expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('active')
   })
 
   it('marks a populated phase active even when earlier phases are empty', () => {
     // Only Active has rows (e.g. right after bootstrap, before other phases
-    // populate). The empty preLaunch/launch must not strand Active as upcoming.
+    // populate). An empty Launch must not strand Active as upcoming.
     const data = buildTrackerStrategy(
       [row({ id: 'a', phase: 'active', date: '2026-02-01' })],
       { electionDate: null, today },
@@ -247,7 +258,8 @@ describe('buildTrackerStrategy', () => {
   })
 })
 
-// The story task is a `preLaunch` default row dated at the end of that block.
+// The story task is a default row the catalog files as pre-launch work, so on
+// the timeline it lands early in Launch.
 describe('buildTrackerStrategy with the campaign story task', () => {
   const today = startOfDay(new Date('2026-06-10'))
   const storyRow = (over: Partial<CampaignTrackerTask> = {}) =>
@@ -262,13 +274,13 @@ describe('buildTrackerStrategy with the campaign story task', () => {
       ...over,
     })
 
-  it('renders in the pre-launch phase', () => {
+  it('renders in Launch', () => {
     const data = buildTrackerStrategy([storyRow()], {
       electionDate: null,
       today,
     })
-    const pre = data.phases.find((p) => p.key === 'preLaunch')
-    const ids = pre?.groups.flatMap((g) => g.tasks.map((t) => t.id)) ?? []
+    const launch = data.phases.find((p) => p.key === 'launch')
+    const ids = launch?.groups.flatMap((g) => g.tasks.map((t) => t.id)) ?? []
     expect(ids).toContain('story')
   })
 
@@ -282,7 +294,7 @@ describe('buildTrackerStrategy with the campaign story task', () => {
     })
     const tasks =
       data.phases
-        .find((p) => p.key === 'preLaunch')
+        .find((p) => p.key === 'launch')
         ?.groups.flatMap((g) => g.tasks) ?? []
     expect(tasks.find((t) => t.id === 'story')?.hrefLabel).toBe(
       'Add your story',
@@ -296,7 +308,7 @@ describe('buildTrackerStrategy with the campaign story task', () => {
     })
     const tasks =
       data.phases
-        .find((p) => p.key === 'preLaunch')
+        .find((p) => p.key === 'launch')
         ?.groups.flatMap((g) => g.tasks) ?? []
     expect(tasks.find((t) => t.id === 'story')?.hrefLabel).toBe('Open')
   })
@@ -308,22 +320,15 @@ describe('buildTrackerStrategy with the campaign story task', () => {
     })
     const tasks =
       data.phases
-        .find((p) => p.key === 'preLaunch')
+        .find((p) => p.key === 'launch')
         ?.groups.flatMap((g) => g.tasks) ?? []
     expect(tasks.find((t) => t.id === 'story')?.completed).toBe(true)
   })
 
-  // KNOWN, and tracked separately: "happening now" is the first phase whose
-  // latest task date has arrived and that still has open work, so an open
-  // pre-launch row dated in the present pulls a mid-campaign candidate's rail
-  // back to Pre-launch.
-  //
-  // Note what does NOT rescue it: ticking the story row changes nothing,
-  // because the phase is pulled in by the row's DATE, not by whether its work
-  // is outstanding. That is the date-driven phase model needing a rethink
-  // rather than this row's placement, and it is tracked on its own. This test
-  // records the behaviour so it is not rediscovered as a surprise.
-  it('pulls the rail back to pre-launch for a mid-campaign candidate (known)', () => {
+  // A task's phase is the window its date falls in. With the election in
+  // November the active campaign opens in late August, so June's work, the
+  // weekly tasks included, is Launch work, and the rail says so.
+  it('places work by its date, so June is still Launch for a November race', () => {
     const data = buildTrackerStrategy(
       [
         row({ id: 'old-pre', phase: 'preLaunch', date: '2026-01-05' }),
@@ -332,6 +337,180 @@ describe('buildTrackerStrategy with the campaign story task', () => {
       ],
       { electionDate: startOfDay(new Date('2026-11-03')), today },
     )
+    const launchIds =
+      data.phases
+        .find((p) => p.key === 'launch')
+        ?.groups.flatMap((g) => g.tasks.map((t) => t.id)) ?? []
+    expect(launchIds).toEqual(
+      expect.arrayContaining(['old-pre', 'this-week', 'story']),
+    )
     expect(data.phases.find((p) => p.key === 'active')?.status).toBe('upcoming')
+  })
+})
+
+describe('buildTrackerStrategy head start', () => {
+  // A Thursday: this week starts 2026-01-12, next week 2026-01-19.
+  const today = startOfDay(new Date('2026-01-15'))
+  const nextIds = (data: ReturnType<typeof buildTrackerStrategy>) =>
+    data.phases
+      .flatMap((p) => p.weeks ?? [])
+      .flatMap((w) => w.tasks)
+      .filter((t) => t.isNext)
+      .map((t) => t.id)
+  const rows = (thisWeekDone: boolean) => [
+    row({
+      id: 'this',
+      phase: 'active',
+      date: '2026-01-13',
+      completed: thisWeekDone,
+    }),
+    row({ id: 'next-a', phase: 'active', date: '2026-01-20' }),
+    row({ id: 'next-b', phase: 'active', date: '2026-01-21' }),
+  ]
+
+  it('names next week as the one to pull forward', () => {
+    expect(followingWeekStart(today)).toBe('2026-01-19')
+  })
+
+  it('leaves no next task once the week is done, until asked', () => {
+    const data = buildTrackerStrategy(rows(true), {
+      electionDate: null,
+      today,
+    })
+    expect(nextIds(data)).toEqual([])
+  })
+
+  it('makes next week’s first open task the next one on a head start', () => {
+    const data = buildTrackerStrategy(rows(true), {
+      electionDate: null,
+      today,
+      headStartWeek: '2026-01-19',
+    })
+    expect(nextIds(data)).toEqual(['next-a'])
+  })
+
+  it('keeps this week’s open task first, head start or not', () => {
+    const data = buildTrackerStrategy(rows(false), {
+      electionDate: null,
+      today,
+      headStartWeek: '2026-01-19',
+    })
+    expect(nextIds(data)).toEqual(['this'])
+  })
+
+  it('ignores a head start for any week but next week', () => {
+    const data = buildTrackerStrategy(rows(true), {
+      electionDate: null,
+      today,
+      headStartWeek: '2026-01-12',
+    })
+    expect(nextIds(data)).toEqual([])
+  })
+})
+
+describe('buildTrackerStrategy with tasks set aside', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+  const nextIds = (data: ReturnType<typeof buildTrackerStrategy>) =>
+    data.phases
+      .flatMap((p) => p.groups.flatMap((g) => g.tasks))
+      .filter((t) => t.isNext)
+      .map((t) => t.id)
+
+  it('passes over a not-for-me task when picking the next one', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'dropped',
+          phase: 'active',
+          date: '2026-01-13',
+          skipReason: 'notForMe',
+        }),
+        row({ id: 'open', phase: 'active', date: '2026-01-16' }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(nextIds(data)).toEqual(['open'])
+  })
+
+  it('treats a put-off task as its new date, behind what is due sooner', () => {
+    // Put off on Jan 15, it moved to Jan 18, after the open Jan 16 task.
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'put-off',
+          phase: 'active',
+          date: '2026-01-18',
+          skipReason: 'later',
+        }),
+        row({ id: 'open', phase: 'active', date: '2026-01-16' }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(nextIds(data)).toEqual(['open'])
+    const putOff = data.phases
+      .flatMap((p) => p.weeks ?? [])
+      .flatMap((w) => w.tasks)
+      .find((t) => t.id === 'put-off')
+    expect(putOff?.setAside).toBeNull()
+  })
+})
+
+describe('buildTrackerStrategy order', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+  const launchIds = (rows: Parameters<typeof buildTrackerStrategy>[0]) =>
+    buildTrackerStrategy(rows, { electionDate: null, today })
+      .phases.find((p) => p.key === 'launch')
+      ?.groups.flatMap((g) => g.tasks.map((t) => t.id))
+
+  it('lists open work by date, then done and not-for-me tasks', () => {
+    expect(
+      launchIds([
+        row({
+          id: 'a-done',
+          phase: 'launch',
+          date: '2026-01-02',
+          completed: true,
+        }),
+        row({ id: 'b', phase: 'launch', date: '2026-01-03' }),
+        row({
+          id: 'c-dropped',
+          phase: 'launch',
+          date: '2026-01-04',
+          skipReason: 'notForMe',
+        }),
+        row({ id: 'd', phase: 'launch', date: '2026-01-05' }),
+      ]),
+    ).toEqual(['b', 'd', 'a-done', 'c-dropped'])
+  })
+
+  it('puts a task marked undone back in its date order', () => {
+    expect(
+      launchIds([
+        row({ id: 'a', phase: 'launch', date: '2026-01-02' }),
+        row({ id: 'b', phase: 'launch', date: '2026-01-03' }),
+        row({ id: 'd', phase: 'launch', date: '2026-01-05' }),
+      ]),
+    ).toEqual(['a', 'b', 'd'])
+  })
+})
+
+describe('buildTrackerStrategy active list', () => {
+  const today = startOfDay(new Date('2026-01-15'))
+
+  it('lists from last week on as one list, leaving older weeks out', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'old', phase: 'active', date: '2025-12-29' }),
+        row({ id: 'last', phase: 'active', date: '2026-01-06' }),
+        row({ id: 'this', phase: 'active', date: '2026-01-13' }),
+        row({ id: 'next', phase: 'active', date: '2026-01-20' }),
+        row({ id: 'later', phase: 'active', date: '2026-01-27' }),
+      ],
+      { electionDate: null, today },
+    )
+    const listed = data.phases
+      .find((p) => p.key === 'active')
+      ?.groups.flatMap((g) => g.tasks.map((t) => t.id))
+    expect(listed).toEqual(['last', 'this', 'next', 'later'])
   })
 })

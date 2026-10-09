@@ -145,6 +145,26 @@ describe('SmsReviewStep totals', () => {
   })
 })
 
+describe('SmsReviewStep pay-before-ready ceiling copy', () => {
+  it('states the total as a ceiling when the price is an estimate (hold billing)', async () => {
+    renderStep({ priceIsCeiling: true })
+
+    expect(await screen.findByText('Up to $1197.42')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Charged for your reachable list, up to this amount\./),
+    ).toBeInTheDocument()
+    // Not the flat-charge vocabulary.
+    expect(screen.queryByText('$1197.42 due today')).not.toBeInTheDocument()
+  })
+
+  it('states a flat due-today charge when the price is exact (default)', async () => {
+    renderStep()
+
+    expect(await screen.findByText('$1197.42 due today')).toBeInTheDocument()
+    expect(screen.queryByText('Up to $1197.42')).not.toBeInTheDocument()
+  })
+})
+
 describe('SmsReviewStep card declines', () => {
   it('keeps the payment form and shows the decline reason instead of an initialization error', async () => {
     renderStep()

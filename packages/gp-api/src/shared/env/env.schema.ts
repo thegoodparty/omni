@@ -342,6 +342,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS: { tier: 'optional' },
   OWNER_CACHE_TTL_MS: { tier: 'optional' },
   QUEUE_JOBS_CACHE_TTL_MS: { tier: 'optional' },
+  ROBOCALL_SEND_LAUNCH_SPACING_MS: { tier: 'optional' },
+  ROBOCALL_SEND_MAX_PER_SWEEP: { tier: 'optional' },
   SESSIONS_FLUSH_INTERVAL_MS: { tier: 'optional' },
   TEST_SEND_COOLDOWN_MS: { tier: 'optional' },
   VENDOR_READ_TIMEOUT_MS: { tier: 'optional' },

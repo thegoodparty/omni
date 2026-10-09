@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest'
-import { addDays, startOfDay, subDays, subWeeks } from 'date-fns'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+
+// Tracker dates are naive calendar days at UTC midnight, so the expectations
+// do day arithmetic in UTC too (date-fns works in local time, which shifts an
+// hour across a DST change and a day on a server west of UTC).
+const DAY_MS = 24 * 60 * 60 * 1000
+const startOfDay = (date: Date): Date =>
+  new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  )
+const addDays = (date: Date, days: number): Date =>
+  new Date(date.getTime() + days * DAY_MS)
+const subDays = (date: Date, days: number): Date => addDays(date, -days)
+const subWeeks = (date: Date, weeks: number): Date => addDays(date, -weeks * 7)
 import {
   BALLOT_ACCESS_CATEGORY,
   CAMPAIGN_STORY_CATEGORY,
@@ -199,5 +211,42 @@ describe('buildCampaignStoryTrackerTaskRows', () => {
   it('has no flow type', () => {
     const rows = buildCampaignStoryTrackerTaskRows(7, anchor, election)
     expect(rows[0]?.flowType).toBeNull()
+  })
+})
+
+describe('tracker row dates', () => {
+  // Every tracker date is a naive calendar day stored at UTC midnight. A local
+  // start-of-day put it at the previous evening on a server west of UTC, so a
+  // send due Oct 8 read Oct 7.
+  const originalTz = process.env.TZ
+  beforeAll(() => {
+    process.env.TZ = 'America/Los_Angeles'
+  })
+  afterAll(() => {
+    process.env.TZ = originalTz
+  })
+
+  it('stores every date at UTC midnight, whatever the server timezone', () => {
+    const rows = [
+      ...buildStaticTrackerTaskRows(
+        1,
+        new Date('2026-10-05T00:00:00.000Z'),
+        new Date('2026-11-26T00:00:00.000Z'),
+        true,
+      ),
+      ...buildOutreachTrackerTaskRows(
+        1,
+        new Date('2026-10-05T00:00:00.000Z'),
+        new Date('2026-11-26T00:00:00.000Z'),
+        false,
+      ),
+    ]
+    for (const row of rows) {
+      expect(new Date(row.date).toISOString()).toMatch(/T00:00:00\.000Z$/)
+    }
+    const robocall = rows.find((row) => row.title === 'Introduction Robocall')
+    expect(new Date(robocall?.date ?? 0).toISOString().slice(0, 10)).toBe(
+      '2026-10-08',
+    )
   })
 })

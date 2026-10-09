@@ -254,15 +254,18 @@ exists but isn't used by these surfaces.
 
 ### A list is saved from a card, not a typed "yes"
 
-The Chief of Staff never creates a list itself. It counts the filter with
+Neither assistant creates a list itself. Each counts the filter with
 `count_contacts` and calls `present_list_proposal`, a display tool whose args
 are the card: name, one-line summary, count and the filter it counted with.
 The card's **Create list** button posts that filter to
 `POST /v1/voters/voter-file/filter` with a `proposalKey` derived from the
 conversation and the tool call (`mintProposalKey`), so a second press returns
 the first list, and `GET /v1/voters/voter-file/filter/by-proposal-key/:key`
-tells a reloaded card that its list already exists. Once it does, the card
-renders as that list's map card. The write touches nothing the model sees, so
+tells a reloaded card that its list already exists. Once it does, the Chief
+of Staff's card renders as that list's map card; the Campaign Manager's
+(`buildCampaignManagerListProposalTool`, mode `win`) reads as created and links
+to the list in Voter Data, and a free campaign's Create list opens the Pro
+pitch (`voter-data`) instead of saving. The write touches nothing the model sees, so
 the body sends a hidden turn (`listCreatedMessage`) naming the list and its id,
 through the same queue a drawn boundary uses. The prompt forbids asking
 whether to save a list in prose, which is what produced the "Ready to save

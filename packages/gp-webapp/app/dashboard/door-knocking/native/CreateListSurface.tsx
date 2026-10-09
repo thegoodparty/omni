@@ -315,6 +315,9 @@ export interface CreateListSurfaceProps {
   // "Add turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
+  // The campaign-plan task the walk was started from. Threaded straight
+  // through to the create.
+  trackerTaskId?: string
   // The drawing panel's Save while joining, and the write's state back.
   // Threaded straight through, like the id above.
   joinSaveRequest?: number
@@ -371,6 +374,7 @@ export default function CreateListSurface({
   onPreselectApplied,
   siblingTurfs,
   campaignOutreachId,
+  trackerTaskId,
   joinSaveRequest,
   onJoinSaveStateChange,
   turfDrafts,
@@ -582,6 +586,7 @@ export default function CreateListSurface({
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
+      trackerTaskId={trackerTaskId}
       joinSaveRequest={joinSaveRequest}
       onJoinSaveStateChange={onJoinSaveStateChange}
       turfDrafts={turfDrafts}

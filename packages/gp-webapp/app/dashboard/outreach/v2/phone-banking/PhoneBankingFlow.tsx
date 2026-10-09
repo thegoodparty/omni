@@ -209,6 +209,9 @@ interface PhoneBankingFlowCreateInput extends ProposalLink {
   voterFileFilterId: number
   // community_input only, where the contract requires it on both surfaces.
   communityInputQuestion?: string
+  // Win only: the campaign-plan task the flow was opened from, which the
+  // task list marks done once the list is built.
+  trackerTaskId?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -255,6 +258,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       purpose,
       communityInputQuestion,
       voterFileFilterId,
+      trackerTaskId,
       proposalKey,
     }) => {
       // Named, not rest-spread: Win's create is strict and takes a
@@ -266,6 +270,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
         purpose,
         communityInputQuestion,
         voterFileFilterId,
+        trackerTaskId,
         ...(proposalKey !== undefined && { proposalKey }),
       } as PhoneBankingCreate)
       return data
@@ -466,6 +471,9 @@ export const PhoneBankingFlow = ({
         voterFileFilterId,
         ...(purpose === COMMUNITY_INPUT_PURPOSE
           ? { communityInputQuestion: question.trim() }
+          : {}),
+        ...(tracker && !surface.isServe
+          ? { trackerTaskId: tracker.trackerTaskId }
           : {}),
         ...proposalLink,
       })

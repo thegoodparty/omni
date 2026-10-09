@@ -39,6 +39,8 @@ interface DoorKnockingPageGateProps {
   // `?campaignOutreachId=` — the drawer's "Add turf" opening the
   // flow onto an existing campaign.
   campaignOutreachId?: number
+  // `?trackerTaskId=` — the campaign-plan task the walk was started from.
+  trackerTaskId?: string
   // A priority chat card's link, so the walk it starts puts its check out.
   proposalLink?: ProposalLink
   // `?source=` — where that `?create=1` link was pressed.
@@ -106,6 +108,7 @@ export default function DoorKnockingPageGate({
   fromOutreachId,
   openCreateFlow,
   campaignOutreachId,
+  trackerTaskId,
   proposalLink,
   createSource,
 }: DoorKnockingPageGateProps) {
@@ -158,6 +161,7 @@ export default function DoorKnockingPageGate({
       fromOutreachId={fromOutreachId}
       openCreateFlow={openCreateFlow}
       campaignOutreachId={campaignOutreachId}
+      trackerTaskId={trackerTaskId}
       {...(proposalLink && { proposalLink })}
       createSource={createSource}
     />

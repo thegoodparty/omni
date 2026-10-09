@@ -617,22 +617,20 @@ export class P2pPhoneListUploadService {
       existingToken,
     } = params
 
-    // SEND CAP (Win SMS hold, team decision 2 — never oversend): when a hold is
-    // already authorized AND linked to this build, the uploaded list must not
-    // exceed what was billed, even if re-resolving the filter here yields a larger
-    // audience than the pre-pay estimate. Caps the recipients at the paid count
-    // derived from the authorized hold.
+    // HARD SEND CAP (Win SMS hold, team decision 2 — never oversend): the
+    // uploaded list must not exceed what was billed, even if re-resolving the
+    // filter here yields a larger audience than the pre-pay estimate. Caps the
+    // recipients at the paid count the hold covers.
     //
-    // LIMITATION (binds only when the hold link precedes this resolve): the hold
-    // is linked to the build via the checkout-metadata token at the payment
-    // webhook (recordHold). A build whose recipients resolve BEFORE that link
-    // exists — e.g. the first async build pass racing the webhook — sees cap=null
-    // and uploads uncapped; the cap then binds only on a re-run (reaper retry, or
-    // the pay-first ordering D2b introduces). Today's safety there rests on the
-    // pre-pay estimate being an upper bound of leads_loaded, which holds while the
-    // voter file is stable between the estimate and this resolve but is NOT a hard
-    // guarantee if it refreshes. A hard, order-independent cap needs the paid count
-    // persisted on the build at create time — a follow-up, tracked with D2b.
+    // ORDER-INDEPENDENT (slice D2b): the cap is persisted on the build at
+    // checkout-session creation (resolveSendCapForBuild reads that
+    // `sendCapTexts` field), which always precedes the completed payment — and
+    // thus the payment-webhook hold link. So the cap is present here whether this
+    // resolve runs before or after the hold link, closing the race where the
+    // first async build pass beat the webhook and uploaded uncapped. The only
+    // ordering with no persisted cap is a resolve that runs before the user even
+    // reaches checkout (resolve-before-estimate); there the pre-pay estimate is a
+    // genuine upper bound of this already-smaller resolve, so uncapped is safe.
     const sendCap = await this.p2pSmsCapture.resolveSendCapForBuild(buildId)
 
     let phoneList: {

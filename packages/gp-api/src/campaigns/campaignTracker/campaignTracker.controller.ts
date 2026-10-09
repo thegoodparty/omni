@@ -11,6 +11,7 @@ import {
   Put,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
 import { Campaign } from '../../generated/prisma'
 import { CampaignTrackerTasksService } from './services/campaignTrackerTasks.service'
@@ -24,6 +25,7 @@ import {
   CompleteTaskBodySchema,
 } from '../tasks/schemas/completeTaskBody.schema'
 import { CampaignTrackerTaskResponseSchema } from './schemas/trackerTaskResponse.schema'
+import { SkipTaskBody, skipTaskBodySchema } from './schemas/skipTaskBody.schema'
 
 @Controller('campaigns/tracker-tasks')
 @UseCampaign()
@@ -59,6 +61,26 @@ export class CampaignTrackerController {
           'campaign story task sync failed, serving tasks as-is',
         ),
       )
+    // A task whose outreach has since been scheduled is done. Best-effort
+    // for the same reason.
+    await this.trackerTasksService
+      .completeTasksWithScheduledOutreach(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'scheduled outreach task sync failed, serving tasks as-is',
+        ),
+      )
+    // Rows dated before the plan became a timeline (or before the race
+    // changed) move onto it. Best-effort for the same reason.
+    await this.trackerTasksService
+      .alignTrackerTaskDates(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'tracker task date alignment failed, serving tasks as-is',
+        ),
+      )
     return this.trackerTasksService.listCampaignTrackerTasks(campaign)
   }
 
@@ -87,6 +109,20 @@ export class CampaignTrackerController {
         ? completeTaskBodySchema.parse(body)
         : undefined
     return this.trackerTasksService.completeTask(campaign, id, voterContact)
+  }
+
+  @Put('skip/:id')
+  async skipTask(
+    @ReqCampaign() campaign: Campaign,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(skipTaskBodySchema)) { reason }: SkipTaskBody,
+  ) {
+    return this.trackerTasksService.skipTask(campaign, id, reason)
+  }
+
+  @Delete('skip/:id')
+  async unSkipTask(@ReqCampaign() campaign: Campaign, @Param('id') id: string) {
+    return this.trackerTasksService.unSkipTask(campaign, id)
   }
 
   @Delete('complete/:id')

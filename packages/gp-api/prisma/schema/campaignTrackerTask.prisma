@@ -1,3 +1,10 @@
+// Why a candidate set a task aside. later keeps it from being the next task
+// for a few days; notForMe keeps it out until they bring it back.
+enum TrackerTaskSkipReason {
+  later
+  notForMe
+}
+
 // Campaign Tracker (ENG-10406) tasks. Schema mirrors CampaignTask plus `phase`
 // so the completion / CTA / digest / materialization logic is reused as-is; a
 // separate table keeps the new tracker isolated from existing users' tasks.
@@ -19,6 +26,9 @@ model CampaignTrackerTask {
   completed           Boolean                @default(false)
   // preLaunch | launch | active | gotv — drives the 4-phase UI grouping.
   phase               String?
+  skipReason          TrackerTaskSkipReason? @map("skip_reason")
+  skippedAt           DateTime?              @map("skipped_at")
+  snoozedUntil        DateTime?              @map("snoozed_until")
   campaign            Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId          Int                    @map("campaign_id")
   updateHistory       CampaignUpdateHistory? @relation(fields: [updateHistoryId], references: [id], onDelete: SetNull)

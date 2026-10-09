@@ -110,6 +110,8 @@ type PersonName = { personId: string; name: string; firstName: string | null }
 export type PhoneBankingScope = {
   campaignId: number | null
   organizationSlug: string
+  // The campaign-plan task a Win list was built from, if any.
+  trackerTaskId?: string
 } & ProposalOutreachLink
 
 const formatAddress = (address: Person['address']): string | null => {
@@ -589,6 +591,7 @@ export class PhoneBankingListService extends createPrismaBase(
               priorityId: scope.priorityId,
               priorityStepId: scope.priorityStepId,
               priorityCheckSide: scope.priorityCheckSide,
+              trackerTaskId: scope.trackerTaskId,
               outreachType: OutreachType.nativePhoneBanking,
               status: OutreachStatus.in_progress,
               name: input.name,

@@ -591,6 +591,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(readOnly).toContain('count_contacts')
     expect(readOnly).not.toContain('crud_saved_filters')
+    expect(readOnly).not.toContain('present_list_proposal')
 
     const withWrites = buildCampaignManagerSystemPrompt(
       ctx({
@@ -603,9 +604,26 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(withWrites).toContain('crud_saved_filters')
     expect(withWrites).toContain('40 characters')
     expect(withWrites).toContain('duplicated')
-    expect(withWrites).toContain('confirm the size')
-    expect(withWrites).toContain('report the count crud_saved_filters returned')
+    expect(withWrites).toContain(
+      'Offer a list to save with present_list_proposal',
+    )
+    expect(withWrites).toContain('never create a list with it')
+    expect(withWrites).toContain("crud_saved_filters with action 'get'")
     expect(withWrites).toContain('abbreviating it does not make it belong')
+  })
+
+  it('offers a list card to a campaign without Pro, behind the Pro gate', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: false,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+    expect(prompt).toContain('present_list_proposal')
+    expect(prompt).toContain('saving a list')
+    expect(prompt).not.toContain('crud_saved_filters')
   })
 
   it('offers a sampled text card only where both tools are registered', () => {

@@ -20,11 +20,18 @@ import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubC
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { sleep } from '@/shared/util/sleep.util'
 import {
   Campaign,
   OutreachStatus,
   RobocallSettleState,
 } from '../../generated/prisma'
+
+// The sweep spaces launches with a real 3s sleep; stub it so the spacing is
+// assertable without the test actually waiting.
+vi.mock('@/shared/util/sleep.util', () => ({
+  sleep: vi.fn().mockResolvedValue(undefined),
+}))
 
 const service = useTestService()
 
@@ -624,6 +631,85 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
+  })
+
+  it('launches at most ROBOCALL_SEND_MAX_PER_SWEEP per pass, oldest send first', async () => {
+    // More due runs than the per-pass cap (default 2). The cap + the Oct-8
+    // spacing is what keeps a batch coming due together from bursting past
+    // CallHub's CPS limit. Created out of date order so `orderBy` (not the
+    // default insertion order) is what selects the two oldest.
+    const newest = await createDraft({ sendInHours: -1 })
+    const oldest = await createDraft({ sendInHours: -3 })
+    const middle = await createDraft({ sendInHours: -2 })
+
+    await send.sweepRobocallSend()
+
+    // Only the two oldest-due drafts dial this pass; the newest waits.
+    expect(launchSpy).toHaveBeenCalledTimes(2)
+    expect((await readSatellite(oldest)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect((await readSatellite(middle)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect((await readSatellite(newest)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('launches every due run when the batch is within the cap', async () => {
+    const a = await createDraft({ sendInHours: -2 })
+    const b = await createDraft({ sendInHours: -1 })
+
+    await send.sweepRobocallSend()
+
+    expect(launchSpy).toHaveBeenCalledTimes(2)
+    expect((await readSatellite(a)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect((await readSatellite(b)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+  })
+
+  it('spaces launches: sleeps between, not before the first or after the last', async () => {
+    const sleepMock = vi.mocked(sleep)
+
+    // A single due run launches with no spacing sleep at all.
+    await createDraft({ sendInHours: -1 })
+    await send.sweepRobocallSend()
+    expect(sleepMock).not.toHaveBeenCalled()
+
+    sleepMock.mockClear()
+
+    // Two more due runs dial this pass (the first is already dialed), so the
+    // sweep sleeps exactly once — between the two launches — with the spacing.
+    await createDraft({ sendInHours: -2 })
+    await createDraft({ sendInHours: -3 })
+    await send.sweepRobocallSend()
+    expect(sleepMock).toHaveBeenCalledTimes(1)
+    expect(sleepMock).toHaveBeenCalledWith(3000)
+  })
+
+  it('kill-switch: ROBOCALL_SEND_MAX_PER_SWEEP=0 launches nothing; unset defaults to 2', async () => {
+    await createDraft({ sendInHours: -1 })
+    await createDraft({ sendInHours: -2 })
+
+    // 0 is HONORED as the incident kill-switch — `take: 0` selects no rows, so
+    // no due authorized run launches, with no deploy.
+    vi.stubEnv('ROBOCALL_SEND_MAX_PER_SWEEP', '0')
+    await send.sweepRobocallSend()
+    expect(launchSpy).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.outreachRobocall.count({
+        where: { settleState: RobocallSettleState.authorized },
+      }),
+    ).toBe(2)
+
+    // Unset falls back to the default of 2: the same two rows now dial.
+    vi.unstubAllEnvs()
+    await send.sweepRobocallSend()
+    expect(launchSpy).toHaveBeenCalledTimes(2)
   })
 
   it('dials only arrived drafts, once across repeat sweeps', async () => {
