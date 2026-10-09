@@ -10,13 +10,7 @@ import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 
 export type CountContactsOutput = { count: number } | { error: string }
 
-// The filter engine silently ignores these two legacy registration keys, so a
-// filter using them would return an unfiltered whole-district count as if it
-// were the answer. Omitting them (with unknown keys rejected) fails the call
-// loudly instead; registration status lives in the voter-file mart tools.
-const countContactsInputSchema = voterFilterBaseSchema
-  .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
-  .strict()
+const countContactsInputSchema = voterFilterBaseSchema.strict()
 
 // Business-rule rejections (pro gate, Serve party rejection, unresolvable
 // district) come back as structured tool errors the model can relay; anything
