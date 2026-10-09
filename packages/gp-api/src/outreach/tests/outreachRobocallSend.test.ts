@@ -691,6 +691,27 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     expect(sleepMock).toHaveBeenCalledWith(3000)
   })
 
+  it('kill-switch: ROBOCALL_SEND_MAX_PER_SWEEP=0 launches nothing; unset defaults to 2', async () => {
+    await createDraft({ sendInHours: -1 })
+    await createDraft({ sendInHours: -2 })
+
+    // 0 is HONORED as the incident kill-switch — `take: 0` selects no rows, so
+    // no due authorized run launches, with no deploy.
+    vi.stubEnv('ROBOCALL_SEND_MAX_PER_SWEEP', '0')
+    await send.sweepRobocallSend()
+    expect(launchSpy).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.outreachRobocall.count({
+        where: { settleState: RobocallSettleState.authorized },
+      }),
+    ).toBe(2)
+
+    // Unset falls back to the default of 2: the same two rows now dial.
+    vi.unstubAllEnvs()
+    await send.sweepRobocallSend()
+    expect(launchSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('dials only arrived drafts, once across repeat sweeps', async () => {
     const arrived = await createDraft({ sendInHours: -1 })
     const notYet = await createDraft({ sendInHours: 2 })
