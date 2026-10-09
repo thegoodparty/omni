@@ -12,7 +12,6 @@ import { getWebsiteUrl, WEBSITE_STATUS } from '../util/website.util'
 import { BsGlobe } from 'react-icons/bs'
 import Body1 from '@shared/typography/Body1'
 import { isDomainActive } from '../util/domain.util'
-import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 
 interface WebsiteCardProps {
   className?: string
@@ -77,12 +76,7 @@ function WebsiteCard({
             className="mt-4 gap-2 w-full flex justify-center items-center"
             variant="outline"
           >
-            <Link
-              href="/dashboard/website/domain"
-              onClick={() =>
-                trackEvent(EVENTS.CandidateWebsite.StartedDomainSelection)
-              }
-            >
+            <Link href="/dashboard/website/domain">
               <BsGlobe size={20} />
               {domain?.name ? (
                 <Body1>Continue domain setup for {domain?.name}</Body1>

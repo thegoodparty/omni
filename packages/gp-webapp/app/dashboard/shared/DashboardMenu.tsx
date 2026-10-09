@@ -149,7 +149,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     link: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
     target: '_blank',
     id: 'community-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
   },
 ]
 
