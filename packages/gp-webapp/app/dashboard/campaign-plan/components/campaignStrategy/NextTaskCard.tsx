@@ -42,12 +42,15 @@ import {
 import {
   trackTaskAction,
   useCompleteTrackerTask,
+  type TaskActionSource,
 } from './useCompleteTrackerTask'
+import { format } from 'date-fns'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import {
   canPutOffTask,
   canSetTaskAsideForGood,
   isTrackerTaskSetAside,
+  timelineElectionDate,
 } from '@goodparty_org/contracts'
 import { selectTopDynamicTasks } from 'app/dashboard/campaign-manager/selectTopDynamicTasks'
 import { useTaskHeadline } from 'app/dashboard/campaign-manager/homeHeadlines'
@@ -295,8 +298,11 @@ const NextTaskCard = ({
   } | null>(null)
   // Whatever comes forward next rises into place, then settles.
   const [arriving, setArriving] = useState(false)
+  // Where this card's task choices are reported from: Home, or the plan.
+  const actionSource: TaskActionSource =
+    surface === 'manager' ? 'campaign_manager' : 'campaign_plan'
   const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks, {
-    source: 'campaign_manager',
+    source: actionSource,
     onCompleted: (id) =>
       setLeaving({ id, stage: 'celebrate', direction: 'up' }),
   })
@@ -326,13 +332,15 @@ const NextTaskCard = ({
   )
   const open = !collapsible || !collapsed
 
-  const metrics = campaign?.raceTargetMetrics
-  const electionDateIso =
-    metrics?.relevantElectionDate ??
-    metrics?.generalElectionDate ??
-    campaign?.details?.electionDate ??
-    campaign?.electionDate ??
-    null
+  // The same election gp-api dates the tasks from, so each task lands in the
+  // phase its date belongs to.
+  const electionDateIso = timelineElectionDate(
+    {
+      general: campaign?.details?.electionDate,
+      primary: campaign?.details?.primaryElectionDate,
+    },
+    format(new Date(), 'yyyy-MM-dd'),
+  )
 
   const headStartWeek = useHeadStartWeek()
   const strategy = useMemo(() => {
@@ -451,7 +459,7 @@ const NextTaskCard = ({
     trackTaskAction(
       frontRow,
       reason === 'later' ? 'put_off' : 'not_for_me',
-      'campaign_manager',
+      actionSource,
     )
     setLeaving({ id: frontTask.id, stage: 'exit', direction: 'down' })
     setAside.mutate({ id: frontTask.id, reason })
@@ -612,7 +620,7 @@ const NextTaskCard = ({
                                 trackTaskAction(
                                   frontRow,
                                   'start',
-                                  'campaign_manager',
+                                  actionSource,
                                   action.label,
                                 )
                               }
@@ -630,7 +638,7 @@ const NextTaskCard = ({
                                 trackTaskAction(
                                   frontRow,
                                   'start',
-                                  'campaign_manager',
+                                  actionSource,
                                   action.label,
                                 )
                               }
@@ -650,11 +658,7 @@ const NextTaskCard = ({
                             size="medium"
                             className="max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm"
                             onClick={() => {
-                              trackTaskAction(
-                                frontRow,
-                                'ask',
-                                'campaign_manager',
-                              )
+                              trackTaskAction(frontRow, 'ask', actionSource)
                               chat.discussTask(discussTaskMessage(frontTask))
                             }}
                           >

@@ -417,6 +417,7 @@ export {
   ACTIVE_WEEKS_BEFORE_ELECTION,
   GOTV_WINDOW_DAYS,
   campaignPhaseWindows,
+  timelineElectionDate,
   phaseForDate,
   phaseStart,
   resolveTrackerTaskDate,

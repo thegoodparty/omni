@@ -26,6 +26,7 @@ import {
   canPutOffTask,
   canSetTaskAsideForGood,
   resolveTrackerTaskDate,
+  timelineElectionDate,
   trackerTaskPutOffDate,
   trackerTimelineStart,
   VOTER_CONTACT_SCHEDULE,
@@ -34,7 +35,6 @@ import {
 } from '@goodparty_org/contracts'
 import {
   CENTRAL_TIMEZONE,
-  isDateTodayOrFuture,
   mondayOfWeekUtc,
   nextMondayUtcMidnight,
   getMidnightForDate,
@@ -475,13 +475,13 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
   private resolveElectionDate(campaign: Campaign): Date | null {
     const { electionDate, primaryElectionDate } = campaign.details ?? {}
-    // A past date anchors nothing: a returning candidate's campaign row keeps
-    // last cycle's election until they update their race, and outreach dated
-    // off it would post a finished schedule to CAS. General first, primary as
-    // the fallback, skipping whichever has passed (mirrors the legacy task
-    // generator's hasFutureDate).
-    const chosen = [electionDate, primaryElectionDate].find((date) =>
-      isDateTodayOrFuture(date),
+    // A past date anchors nothing: outreach dated off last cycle's election
+    // would post a finished schedule to CAS. General first, primary as the
+    // fallback, skipping whichever has passed; the webapp builds its phase
+    // windows with the same rule.
+    const chosen = timelineElectionDate(
+      { general: electionDate, primary: primaryElectionDate },
+      format(new Date(), 'yyyy-MM-dd'),
     )
     // Parse as UTC midnight, not local: date-only strings via parseIsoDateString
     // land on local midnight, which on a server east of UTC shifts the date back

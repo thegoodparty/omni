@@ -21,7 +21,11 @@ import {
 } from './NextTaskCard'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
-import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
+import {
+  CampaignStrategyPhaseKeySchema,
+  timelineElectionDate,
+} from '@goodparty_org/contracts'
+import { format } from 'date-fns'
 
 // The "Campaign Tracker" section on the campaign plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
@@ -62,13 +66,15 @@ const CampaignStrategySection = ({
   const chat = useCampaignManagerChat()
   const setAside = useSetTrackerTaskAside()
 
-  const metrics = campaign?.raceTargetMetrics
-  const electionDateIso =
-    metrics?.relevantElectionDate ??
-    metrics?.generalElectionDate ??
-    campaign?.details?.electionDate ??
-    campaign?.electionDate ??
-    null
+  // The same election gp-api dates the tasks from, so each task lands in the
+  // phase its date belongs to.
+  const electionDateIso = timelineElectionDate(
+    {
+      general: campaign?.details?.electionDate,
+      primary: campaign?.details?.primaryElectionDate,
+    },
+    format(new Date(), 'yyyy-MM-dd'),
+  )
 
   // Next week pulled forward from the next-step card, so the list marks the
   // same next task and its week navigator opens there.

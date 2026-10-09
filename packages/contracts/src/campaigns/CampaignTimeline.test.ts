@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   campaignPhaseWindows,
+  timelineElectionDate,
   phaseForDate,
   resolveTrackerTaskDate,
   trackerTimelineStart,
@@ -99,6 +100,38 @@ describe('trackerTimelineStart', () => {
       trackerTimelineStart([
         { title: 'Canvass', date: '2026-01-01', isDefaultTask: false },
       ]),
+    ).toBeNull()
+  })
+})
+
+describe('timelineElectionDate', () => {
+  it('counts back from the general, even with a primary ahead of it', () => {
+    expect(
+      timelineElectionDate(
+        { general: '2026-11-03', primary: '2026-06-02' },
+        '2026-03-01',
+      ),
+    ).toBe('2026-11-03')
+  })
+
+  it('falls back to the primary once the general has passed', () => {
+    expect(
+      timelineElectionDate(
+        { general: '2025-11-04', primary: '2026-06-02' },
+        '2026-03-01',
+      ),
+    ).toBe('2026-06-02')
+  })
+
+  it('counts an election today, and anchors nothing once both have passed', () => {
+    expect(timelineElectionDate({ general: '2026-11-03' }, '2026-11-03')).toBe(
+      '2026-11-03',
+    )
+    expect(
+      timelineElectionDate(
+        { general: '2025-11-04', primary: '2025-06-03' },
+        '2026-03-01',
+      ),
     ).toBeNull()
   })
 })
