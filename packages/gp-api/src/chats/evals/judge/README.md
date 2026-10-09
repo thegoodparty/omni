@@ -202,8 +202,11 @@ changes put the schema past them.
 `schemaPreflight.ts` makes one real panel call, through `judgeCase`, with the
 largest schema the judge can send: the default dimensions, the most case
 dimensions a list may carry, and the per-run handled fields. It fails with a
-fixed sentence naming the limit, never the API's own text. One call costs
-about two cents. It runs in two places:
+fixed sentence naming the limit, never the API's own text. That covers the
+preflight's own output only: `LlmService` logs the full error object when a
+call fails, as it does for every caller. Harmless here, because the payload is
+canned and carries no record. One call costs about two cents. It runs in two
+places:
 
 - **Before a live sweep spends anything**, as the sweep job's first step after
   credentials. A branch that predates the entry skips it.

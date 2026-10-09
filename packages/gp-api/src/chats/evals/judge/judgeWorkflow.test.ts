@@ -1983,6 +1983,17 @@ describe('judge.yml checks the judge schema before spending', () => {
   const PREFLIGHT = "Check the model API accepts the judge's schema"
   const preflight = steps.find((step) => step.name === PREFLIGHT)
 
+  // After credentials, so a branch the role would let into AWS has already
+  // been through the same gate a sweep goes through before it holds a key.
+  it('runs after the credentials step', () => {
+    expect(names.indexOf(PREFLIGHT)).toBeGreaterThan(
+      names.indexOf('Get credentials for staging and dispatching'),
+    )
+    expect(
+      names.indexOf('Get credentials for staging and dispatching'),
+    ).toBeGreaterThan(-1)
+  })
+
   it('runs before the base worktree and both arms', () => {
     const at = names.indexOf(PREFLIGHT)
     expect(at).toBeGreaterThan(-1)
@@ -2046,6 +2057,10 @@ describe('judge-schema-check.yml', () => {
 
   it('runs when the judge changes', () => {
     expect(triggers).toContain("'packages/gp-api/src/chats/evals/judge/**'")
+  })
+
+  it('runs only on main', () => {
+    expect(yaml).toMatch(/^ {4}if: github\.ref == 'refs\/heads\/main'$/m)
   })
 
   it('reads the repository and nothing more', () => {

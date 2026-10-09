@@ -4,6 +4,7 @@ import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudg
 import { CaseDimensionSchema, MAX_CASE_DIMENSIONS } from './cases'
 import { DEFAULT_JUDGE_CONFIG } from './config'
 import {
+  exitCodeOf,
   main,
   preflightCaseDimensions,
   preflightDimensions,
@@ -11,6 +12,7 @@ import {
   preflightSchema,
   refusalClass,
   runPreflight,
+  UNEXPECTED_FAILURE,
 } from './schemaPreflight'
 import { cannedJudge } from './sweep'
 
@@ -30,6 +32,19 @@ describe('the preflight schema is the largest the judge sends', () => {
   it('uses case dimensions a case list would accept', () => {
     for (const dimension of preflightCaseDimensions()) {
       expect(CaseDimensionSchema.safeParse(dimension).success).toBe(true)
+    }
+  })
+
+  // At the longest a case list accepts, so one character more is refused:
+  // a name is a schema key, so a shorter one understates the grammar.
+  it('uses the longest name and question a case list accepts', () => {
+    for (const dimension of preflightCaseDimensions()) {
+      for (const longer of [
+        { ...dimension, name: `${dimension.name}x` },
+        { ...dimension, question: `${dimension.question}x` },
+      ]) {
+        expect(CaseDimensionSchema.safeParse(longer).success).toBe(false)
+      }
     }
   })
 
@@ -107,5 +122,18 @@ describe('main', () => {
       'schema preflight skipped: JUDGE_SPEND is not true',
     )
     log.mockRestore()
+  })
+
+  // Anything that escapes the call is reported with a fixed sentence and a
+  // failing exit, never the error, which can carry the API's response.
+  it('fails with a fixed message when the call throws', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const code = await exitCodeOf(async () => {
+      throw new Error('raw API response: secret-looking text')
+    })
+    const logged = error.mock.calls.flat().map(String).join('\n')
+    error.mockRestore()
+    expect(code).toBe(1)
+    expect(logged).toBe(UNEXPECTED_FAILURE)
   })
 })

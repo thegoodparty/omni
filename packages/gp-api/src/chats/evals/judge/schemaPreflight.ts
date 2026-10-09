@@ -28,13 +28,17 @@ import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudg
 
 const PREFLIGHT_CASE_ID = 'schema-preflight'
 
-// The case's own dimensions at the most a case list may carry. Each one
-// repeats the dimension object in the schema, which is what pushed the
-// grammar over the API's size limit.
+// The case's own dimensions at the most a case list may carry, each at the
+// longest name and question CaseDimensionSchema accepts. A name is a key in
+// the schema, so its length is grammar size, and each dimension repeats the
+// dimension object, which is what pushed the grammar over the API's limit.
 export const preflightCaseDimensions = (): CaseDimension[] =>
   Array.from({ length: MAX_CASE_DIMENSIONS }, (_, index) => ({
-    name: `preflight_dimension_${index + 1}`,
-    question: 'Does the run state the date it was generated?',
+    name: `preflight_dimension_${index + 1}_`.padEnd(40, 'x'),
+    question: 'Does the run state the date it was generated?'.padEnd(
+      400,
+      ' And does it say where that date came from?',
+    ),
   }))
 
 // Every optional part of the request switched on: case dimensions at the
@@ -215,19 +219,26 @@ export const main = async (): Promise<number> => {
   return 1
 }
 
+// Never the error itself, and deliberately: it can carry the API's response,
+// and this runs where anyone can read the log. The exit code still fails the
+// step.
+export const UNEXPECTED_FAILURE =
+  '::error::The judge schema preflight could not complete its call. ' +
+  'Nothing has been dispatched.'
+
+export const exitCodeOf = async (
+  run: () => Promise<number> = main,
+): Promise<number> => {
+  try {
+    return await run()
+  } catch {
+    console.error(UNEXPECTED_FAILURE)
+    return 1
+  }
+}
+
 if (require.main === module) {
-  main()
-    .then((code) => {
-      process.exitCode = code
-    })
-    .catch(() => {
-      // Never the error itself, and deliberately: it can carry the API's
-      // response, and this runs where anyone can read the log. The exit code
-      // still fails the step.
-      console.error(
-        '::error::The judge schema preflight could not complete its call. ' +
-          'Nothing has been dispatched.',
-      )
-      process.exitCode = 1
-    })
+  void exitCodeOf().then((code) => {
+    process.exitCode = code
+  })
 }

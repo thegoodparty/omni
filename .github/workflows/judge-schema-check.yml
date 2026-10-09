@@ -26,6 +26,10 @@ concurrency:
 jobs:
   preflight:
     name: Judge schema preflight
+    # Against accidents, not a security control: it stops a manual run
+    # pointed at a branch from spending, but a dispatched branch can edit its
+    # own copy of this file.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
