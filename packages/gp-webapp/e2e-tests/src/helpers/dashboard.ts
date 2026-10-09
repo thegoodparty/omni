@@ -1,14 +1,18 @@
 import { type Page, expect } from '@playwright/test'
 
 // The /dashboard/election-result h1 (still shown once the election has
-// passed — unrelated to campaign-story), or CampaignManagerTasks' "Your top
-// priorities this week" h2 — the one heading CampaignManagerHome always
-// renders, regardless of task-loading state. Shared so the dashboard and
-// mobile specs query it the same way instead of each redefining the locator.
+// passed — unrelated to campaign-story), or the heading Home always renders:
+// the Campaign Manager home's "Your top priorities this week" h2, or the
+// next-task Home's "Home" h1 (desktop title bar or mobile top bar, so the
+// visible one). Either Home counts: `next-task-experience` is on in a PR
+// preview (no Amplitude key there turns every flag on) and off on dev for
+// test users, and being ready doesn't depend on which. Shared so the
+// dashboard and mobile specs query it the same way.
 export const dashboardGreetingHeading = (page: Page) =>
   page
     .getByRole('heading', { level: 1 })
-    .filter({ hasText: /until|General|Primary|Election|concluded/ })
+    .filter({ hasText: /until|General|Primary|Election|concluded|^Home$/ })
+    .filter({ visible: true })
     .or(
       page.getByRole('heading', {
         level: 2,

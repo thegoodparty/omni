@@ -4,7 +4,11 @@ import {
   NavigationHelper,
 } from '../../../src/helpers/navigation.helper'
 import { completeOnboardingUpToPledge } from '../../../src/helpers/onboarding.helper'
-import { acceptCookieBanner } from '../../../src/helpers/campaignStory.helper'
+import {
+  acceptCookieBanner,
+  NEXT_TASK_EXPERIENCE_FLAG,
+  setFlagOverrides,
+} from '../../../src/helpers/campaignStory.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 
 // The campaign story (three onboarding steps + the "Your Story" dashboard page
@@ -20,6 +24,9 @@ test.describe('campaign story flow', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
     await acceptCookieBanner(page)
+    // These specs check the Campaign Manager home and the plan page it
+    // keeps.
+    await setFlagOverrides(page, { [NEXT_TASK_EXPERIENCE_FLAG]: 'off' })
   })
 
   test('story steps render for every new candidate and are each skippable', async ({
