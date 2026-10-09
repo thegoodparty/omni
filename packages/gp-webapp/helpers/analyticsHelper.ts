@@ -229,6 +229,14 @@ export const EVENTS = {
     InviteSubmitted: 'Team - Invite Submitted',
   },
 
+  // The Campaign Manager home's first-run prompt cards (meet the manager, get
+  // on the ballot, personalize, plan ready), the control arm of
+  // `next-task-experience`. `card` says which and `action` whether the
+  // candidate took the CTA or skipped. Its task cards fire TaskActionTaken.
+  CampaignManager: {
+    PromptCardActionTaken: 'Campaign Manager - Prompt Card Action Taken',
+  },
+
   Dashboard: {
     CampaignPlan: {
       CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
