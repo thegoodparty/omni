@@ -49,7 +49,9 @@ const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
 const envInt = (value: string | undefined, fallback: number): number => {
   if (value === undefined || value === '') return fallback
   const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+  // Floor to an integer so a fractional value never reaches `take` (which
+  // expects an Int). A non-finite / negative value falls back to the default.
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback
 }
 const robocallSendMaxPerSweep = () =>
   envInt(process.env.ROBOCALL_SEND_MAX_PER_SWEEP, 2)
