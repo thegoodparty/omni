@@ -126,10 +126,22 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
   private async resolvePeerlyCvState(
     stage: ComplianceStage,
     campaign: Campaign,
-    tcrCompliance: Pick<TcrCompliance, 'peerlyIdentityId'> | null,
+    tcrCompliance: Pick<
+      TcrCompliance,
+      'peerlyIdentityId' | 'internalTestingAt'
+    > | null,
   ): Promise<Pick<ComplianceStateOutput, 'peerlyCvStatus' | 'pinDelivery'>> {
     if (stage !== ComplianceStage.awaiting_pin) {
       return { peerlyCvStatus: null, pinDelivery: null }
+    }
+
+    // Test-org rows have no real Peerly identity; report APPROVED so the PIN
+    // screen is reachable but no real Peerly call is made.
+    if (tcrCompliance?.internalTestingAt) {
+      return {
+        peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: null,
+      }
     }
 
     // Non-prod short-circuits Peerly submission (see websites.service.ts
@@ -195,6 +207,7 @@ export const deriveComplianceStage = (
     TcrCompliance,
     | 'status'
     | 'internalTestingApprovedAt'
+    | 'internalTestingAt'
     | 'peerlyIdentityId'
     | 'cvValidationFailedAt'
   > | null,
@@ -203,6 +216,37 @@ export const deriveComplianceStage = (
     return campaign.formattedAddress
       ? ComplianceStage.needs_filing
       : ComplianceStage.needs_profile
+  }
+
+  // Synthetic rows (test orgs and internal-testing approvals) have no
+  // domain/website/Peerly footprint, so the live-website precondition below
+  // would misreport them. Derive the stage from status, cvValidationFailedAt
+  // and peerlyIdentityId only. This block must stay ahead of the
+  // internalTestingApprovedAt guard: the backfill and the admin checkbox set
+  // both markers, and the intermediate stages are only reachable from here.
+  if (tcrCompliance.internalTestingAt) {
+    if (
+      tcrCompliance.internalTestingApprovedAt ||
+      tcrCompliance.status === TcrComplianceStatus.approved
+    ) {
+      return ComplianceStage.tcr_approved
+    }
+    if (
+      tcrCompliance.status === TcrComplianceStatus.rejected ||
+      tcrCompliance.status === TcrComplianceStatus.error
+    ) {
+      return ComplianceStage.tcr_rejected
+    }
+    if (tcrCompliance.status === TcrComplianceStatus.pending) {
+      return ComplianceStage.tcr_in_review
+    }
+    if (tcrCompliance.cvValidationFailedAt) {
+      return ComplianceStage.filing_review_hold
+    }
+    if (!tcrCompliance.peerlyIdentityId) {
+      return ComplianceStage.ready_to_submit
+    }
+    return ComplianceStage.awaiting_pin
   }
 
   // Internal-testing approvals have no domain/website/Peerly footprint, so

@@ -497,36 +497,43 @@ export class CampaignTcrComplianceController {
         campaignVerifyToken,
       )
 
-    await this.tcrComplianceService.model.update({
-      where: { id: tcrCompliance.id },
-      data: {
-        status: TcrComplianceStatus.pending,
-      },
-    })
-
-    try {
-      await this.analytics.track(
-        user.id,
-        EVENTS.Outreach.CompliancePinSubmitted,
-        { source: 'compliance_flow' },
-      )
-    } catch (e) {
-      // TODO: Alert on this.
-      this.logger.error(
-        { e },
-        `Failed to track compliance PIN submitted event for user ${user.id}`,
-      )
-    }
-    try {
-      await this.sendPinSubmittedSingleSend(user.email, {
-        source: 'compliance_flow',
+    // Only a row still awaiting its PIN moves to review. The PIN form is
+    // only shown at that stage, and an internal-testing row approved by the
+    // admin checkbox must never be downgraded by a stray submit.
+    if (tcrCompliance.status === TcrComplianceStatus.submitted) {
+      await this.tcrComplianceService.model.update({
+        where: { id: tcrCompliance.id },
+        data: {
+          status: TcrComplianceStatus.pending,
+        },
       })
-    } catch (err) {
-      this.logger.error(
-        { err, userId: user.id },
-        'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
-          'the workflow email path still fires from the Segment event',
-      )
+    }
+
+    if (!tcrCompliance.internalTestingAt) {
+      try {
+        await this.analytics.track(
+          user.id,
+          EVENTS.Outreach.CompliancePinSubmitted,
+          { source: 'compliance_flow' },
+        )
+      } catch (e) {
+        // TODO: Alert on this.
+        this.logger.error(
+          { e },
+          `Failed to track compliance PIN submitted event for user ${user.id}`,
+        )
+      }
+      try {
+        await this.sendPinSubmittedSingleSend(user.email, {
+          source: 'compliance_flow',
+        })
+      } catch (err) {
+        this.logger.error(
+          { err, userId: user.id },
+          'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
+            'the workflow email path still fires from the Segment event',
+        )
+      }
     }
 
     return campaignVerifyBrand

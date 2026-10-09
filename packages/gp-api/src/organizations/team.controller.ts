@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -87,6 +88,11 @@ export class TeamController {
     if (organization.slug.startsWith('eo-')) {
       throw new BadRequestException(
         'Team accounts are not available for elected offices yet',
+      )
+    }
+    if (organization.testModeCreatedAt) {
+      throw new ConflictException(
+        'Team invites are not available for test organizations',
       )
     }
 

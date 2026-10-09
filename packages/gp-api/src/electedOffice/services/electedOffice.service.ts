@@ -114,7 +114,10 @@ export class ElectedOfficeService extends createPrismaBase(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ELECTED_OFFICE_CREATE_ADVISORY_LOCK_KEY}::integer, ${args.userId}::integer)`
 
       const existingForUser = await tx.electedOffice.findMany({
-        where: { userId: args.userId },
+        where: {
+          userId: args.userId,
+          organization: { testModeCreatedAt: null },
+        },
       })
 
       const hasNewTerm = Boolean(newStart || newEnd)
