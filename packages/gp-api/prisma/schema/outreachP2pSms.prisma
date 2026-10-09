@@ -1,0 +1,63 @@
+// The settlement lifecycle of a Win p2p SMS send's payment. A send is
+// authorized (a hold placed on the estimate) before it goes out, then captured
+// for the actual billable count once the vendor reports it — hold +
+// capture-actual, not prepay-on-estimate. Terminal states cover the ways a hold
+// ends: captured (money taken), voided (hold released, no charge), refunded
+// (money returned). hold_failed is the terminal for a declined card. The hold
+// and settlement transitions themselves land in later slices; this slice only
+// seeds pending_payment.
+enum P2pSmsSettleState {
+  pending_payment
+  // The single-owner claim held while the pay-time Stripe hold is in flight.
+  hold_pending
+  authorized
+  // The single-owner claim held while the authorized hold is being captured for
+  // the actual billable count — the guard against capturing the same send twice.
+  capturing
+  captured
+  voided
+  refunded
+  // The terminal for a declined card.
+  hold_failed
+}
+
+model OutreachP2pSms {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  outreach   Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId Int      @unique @map("outreach_id")
+
+  // --- payment / settlement state (populated by later slices) -------------
+
+  // The Stripe PaymentIntent the hold is placed on (manual capture).
+  authorizationIntentId   String?           @map("authorization_intent_id")
+  // The amount actually authorized on the hold, in cents.
+  authorizedAmountInCents Int?              @map("authorized_amount_in_cents")
+  // The amount actually captured off the hold once the billable count is known.
+  capturedAmountInCents   Int?              @map("captured_amount_in_cents")
+  // The durable charge id for the charge-keyed refund path — a refund is issued
+  // against the charge, not the intent, so it survives a lapsed hold.
+  chargeIntentId          String?           @map("charge_intent_id")
+  // The deadline by which the hold must be captured before Stripe auto-expires
+  // it (Stripe holds last ~7 days).
+  captureBefore           DateTime?         @map("capture_before")
+  // How many times settlement has been attempted, to bound retries.
+  payAttempt              Int               @default(0) @map("pay_attempt")
+  // Per-send, server-authoritative: set true the moment THIS send redeems the
+  // free-texts offer (in the purchase handler, before redeemFreeTexts flips the
+  // campaign flag). Capture reads THIS to apply the discount — never the
+  // client-writable billableTextCount or the once-per-campaign redeemed marker,
+  // which a later same-campaign send could otherwise ride to an unearned
+  // discount. Defaults false: a send that did not consume the offer is billed
+  // full price regardless of what it claimed.
+  freeTextsApplied        Boolean           @default(false) @map("free_texts_applied")
+  // The Peerly phone-list build this settlement bills for. Nullable: the build
+  // is assembled by the async job and may not exist when the settlement row is
+  // first seeded. SetNull so removing a build never deletes the billing record.
+  peerlyPhoneList         PeerlyPhoneList?  @relation(fields: [peerlyPhoneListId], references: [id], onDelete: SetNull)
+  peerlyPhoneListId       String?           @map("peerly_phone_list_id")
+  settleState             P2pSmsSettleState @default(pending_payment) @map("settle_state")
+
+  @@map("outreach_p2p_sms")
+}

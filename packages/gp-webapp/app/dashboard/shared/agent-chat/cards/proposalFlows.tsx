@@ -20,6 +20,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
+import type { ProUpgradeChannel } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
@@ -67,6 +68,9 @@ type ProposalFlows = {
   // text flow to open. On Win, whether the text gate has what it reads.
   textAvailable: boolean
   textResolved: boolean
+  // On Win, whether the campaign the Pro gate reads has loaded. The other
+  // channels need nothing more, so they do not wait on the registration.
+  winResolved: boolean
 }
 
 const ProposalFlowsContext = createContext<ProposalFlows | null>(null)
@@ -98,19 +102,28 @@ const linkOf = ({ proposal, priorityId }: Opened): ProposalLink => ({
   }),
 })
 
+type WinProChannel = 'text' | 'phoneBanking' | 'doorKnocking'
+
+const WIN_PRO_CHANNEL: Record<
+  WinProChannel,
+  { type: string; pitch: ProUpgradeChannel }
+> = {
+  text: { type: OUTREACH_TYPES.text, pitch: 'sms' },
+  phoneBanking: { type: OUTREACH_TYPES.phoneBanking, pitch: 'phone-bank' },
+  doorKnocking: { type: OUTREACH_TYPES.doorKnocking, pitch: 'door' },
+}
+
 /**
- * Win's text gate, the one the Voter Outreach text tile runs
- * (ChannelTileGrid): behind outreach-pro-gating-v2 the flow gates itself, so
- * it opens; otherwise a free campaign goes to the Pro upgrade and a Pro one
- * passes only once its texting registration is approved.
+ * Win's gates for the channels Pro pays for. Social is free and has none.
  */
 // Outreach Pro gating is fully rolled out, so a free campaign's card goes
-// straight to the Pro pitch rather than into a flow it cannot finish. A Pro
-// campaign then meets the same verification gate the Voter Outreach tile
-// runs before the flow opens.
-const useWinTextGate = (enabled: boolean) => {
+// straight to that channel's Pro pitch rather than into a flow it cannot
+// finish. A Pro campaign's text then meets the same verification gate the
+// Voter Outreach tile runs before the flow opens.
+const useWinOutreachGate = (enabled: boolean) => {
   const [campaign] = useCampaign()
   const [pitchOpen, setPitchOpen] = useState(false)
+  const [pitchChannel, setPitchChannel] = useState<ProUpgradeChannel>('sms')
   const { data, isPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
@@ -123,19 +136,20 @@ const useWinTextGate = (enabled: boolean) => {
   )
   const isPro = Boolean(campaign?.isPro)
 
-  const run = (): boolean => {
+  const run = (channel: WinProChannel): boolean => {
     if (!isPro) {
-      trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, {
-        type: OUTREACH_TYPES.text,
-      })
+      const { type, pitch } = WIN_PRO_CHANNEL[channel]
+      trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
+      setPitchChannel(pitch)
       setPitchOpen(true)
       return false
     }
-    return runTextGate()
+    return channel === 'text' ? runTextGate() : true
   }
 
   return {
     ready: enabled && Boolean(campaign) && (!isPro || !isPending),
+    campaignReady: enabled && Boolean(campaign),
     run,
     tcrCompliance,
     modals: enabled ? (
@@ -146,7 +160,7 @@ const useWinTextGate = (enabled: boolean) => {
             open={pitchOpen}
             onOpenChange={setPitchOpen}
             source="campaign_manager"
-            channel="sms"
+            channel={pitchChannel}
           />
         )}
       </>
@@ -174,12 +188,12 @@ export const ProposalFlowsProvider = ({
   const queryClient = useQueryClient()
   // Not the treatment surface: the outreach page's SMS card is.
   const sms = useServeSmsFlag(false)
-  const winText = useWinTextGate(mode === 'win')
+  const winText = useWinOutreachGate(mode === 'win')
   // The gate closes over the campaign and registration as of this render, so
   // `open` reads the latest one rather than changing identity every render.
-  const winTextRun = useRef(winText.run)
+  const winGateRun = useRef(winText.run)
   useEffect(() => {
-    winTextRun.current = winText.run
+    winGateRun.current = winText.run
   })
   const [opened, setOpened] = useState<Opened | null>(null)
   const { errorSnackbar } = useSnackbar()
@@ -257,14 +271,11 @@ export const ProposalFlowsProvider = ({
 
   const open = useCallback(
     (proposal: OutreachProposal, priorityId?: string) => {
-      if (mode === 'win') {
-        // Campaign Manager proposes text alone; no other channel has a Win
-        // flow mounted here.
-        if (proposal.channel !== 'text' || !winTextRun.current()) return
-        setOpened({
-          proposal,
-          ...(priorityId !== undefined && { priorityId }),
-        })
+      if (
+        mode === 'win' &&
+        proposal.channel !== 'social' &&
+        !winGateRun.current(proposal.channel)
+      ) {
         return
       }
       if (proposal.channel === 'doorKnocking') {
@@ -286,8 +297,17 @@ export const ProposalFlowsProvider = ({
       listen,
       textAvailable: mode === 'win' || (sms.ready && sms.enabled),
       textResolved: mode === 'win' ? winText.ready : sms.ready,
+      winResolved: winText.campaignReady,
     }),
-    [mode, open, listen, sms.ready, sms.enabled, winText.ready],
+    [
+      mode,
+      open,
+      listen,
+      sms.ready,
+      sms.enabled,
+      winText.ready,
+      winText.campaignReady,
+    ],
   )
 
   const proposal = opened?.proposal
@@ -305,25 +325,27 @@ export const ProposalFlowsProvider = ({
       {/* Mounted only while open, the way the priority prototype mounted
           them (feat/serve-priorities-flow): each opens fresh on the proposal
           and closing it unmounts it, leaving the conversation as it was. */}
-      {opened && mode === 'serve' && proposal?.channel === 'social' ? (
+      {/* Without a surface each flow is Win's, which takes the card's key
+          alone; Campaign Manager cards carry no priority. */}
+      {opened && proposal?.channel === 'social' ? (
         <SocialFlow
           open
           onClose={close}
           onSaved={settled}
-          surface={SERVE_SOCIAL_SURFACE}
+          {...(mode === 'serve' && { surface: SERVE_SOCIAL_SURFACE })}
           prefill={{
             draftText: proposal.message,
             proposalLink: linkOf(opened),
           }}
-          source="deep_link"
+          source={mode === 'win' ? 'campaign_manager' : 'deep_link'}
         />
       ) : null}
-      {opened && mode === 'serve' && proposal?.channel === 'phoneBanking' ? (
+      {opened && proposal?.channel === 'phoneBanking' ? (
         <PhoneBankingFlow
           open
           onClose={close}
           onSaved={settled}
-          surface={SERVE_PHONE_BANKING_SURFACE}
+          {...(mode === 'serve' && { surface: SERVE_PHONE_BANKING_SURFACE })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
           initialScript={proposal.message}
@@ -333,7 +355,7 @@ export const ProposalFlowsProvider = ({
             PHONE_BANKING_NAME_MAX_LENGTH,
           )}
           proposalLink={linkOf(opened)}
-          source="deep_link"
+          source={mode === 'win' ? 'campaign_manager' : 'deep_link'}
         />
       ) : null}
       {/* Behind the flag the outreach page mounts it behind, so a chat cannot

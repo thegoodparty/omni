@@ -1,10 +1,20 @@
 'use client'
 
+import { useCallback, useRef } from 'react'
 import {
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
-  DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
+  DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
 } from '@goodparty_org/contracts'
-import { Button, Card, cn, IconButton, Input, TokenField } from '@styleguide'
+import {
+  Button,
+  Card,
+  cn,
+  IconButton,
+  Input,
+  seamlessFieldHost,
+  TokenField,
+  type TokenFieldRef,
+} from '@styleguide'
 import {
   Loader2Icon,
   MicIcon,
@@ -13,81 +23,46 @@ import {
   SquareIcon,
 } from '@styleguide/components/ui/icons'
 import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
-import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { DEPARTURE_NOTE, type TalkingPointsLines } from '../talkingPointsCard'
+import {
+  type DictationStatus,
+  useDictation,
+} from 'app/dashboard/shared/dictation/useDictation'
+import { DEPARTURE_NOTE } from '../talkingPointsCard'
 
 const INSTRUCTIONS_PLACEHOLDER =
   'Optional: tell the AI what to change (e.g. lead with the library, ' +
   'mention the school levy)'
 
-// An unfilled logistics bracket. The prompt allows these in the ask alone,
-// for event date/time/location — the things this product does not model — so
-// the step surfaces them rather than letting a canvasser find "[date]" at a
-// door. Deliberately not blocking: a walk with no event has no bracket, and a
+// An unfilled logistics bracket. The prompt allows these for event
+// date/time/location, the things this product does not model, so the step
+// surfaces them rather than letting a canvasser find "[date]" at a door.
+// Deliberately not blocking: a walk with no event has no bracket, and a
 // candidate who wants to fill it in on paper is entitled to.
 // No `g` flag: a global regex carries `lastIndex` between `.test()` calls, and
 // this one is called on every render.
 const BRACKET_PATTERN = /\[[^\]]+\]/
 
-export const hasUnfilledBracket = (lines: TalkingPointsLines): boolean =>
-  BRACKET_PATTERN.test(
-    [lines.engagementQuestion, lines.context, lines.cta, lines.ask].join(' '),
-  )
+export const hasUnfilledBracket = (text: string): boolean =>
+  BRACKET_PATTERN.test(text)
 
-// The four editable sections, in card order. `generated` marks the three the
-// model wrote — the CTA is composed from the campaign's own website, so it is
-// editable but never regenerated, and saying so is what stops a candidate
-// waiting for Regenerate to rewrite it.
-const SECTIONS: {
-  key: keyof TalkingPointsLines
-  label: string
-  caption: string
-  placeholder: string
-  generated: boolean
-}[] = [
-  {
-    key: 'engagementQuestion',
-    label: 'Opening question',
-    caption:
-      'Follows your introduction, so the door opens into a conversation.',
-    placeholder: 'Ask something light that invites an answer…',
-    generated: true,
-  },
-  {
-    key: 'context',
-    label: 'Context',
-    caption: 'Why you, in one idea. The line to put in their own words.',
-    placeholder: 'What you would want a neighbour to remember…',
-    generated: true,
-  },
-  {
-    key: 'cta',
-    label: 'Call to action',
-    caption:
-      'A next step they can take alone. Taken from your website, not written by AI.',
-    placeholder: 'Where they can learn more…',
-    generated: false,
-  },
-  {
-    key: 'ask',
-    label: 'The ask',
-    caption: 'The one commitment worth asking for at this door.',
-    placeholder: 'What to ask them for…',
-    generated: true,
-  },
-]
+const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
+  'requesting_mic',
+  'connecting',
+  'recording',
+  'stopping',
+])
 
 interface TalkingPointsStepProps {
-  // Serve has no campaign for the card to be built from — the generation
+  // Serve has no campaign for the card to be built from: the generation
   // service grounds it in the official's own materials (SERVE_NOUNS), and
   // this caption names the same source the script was actually drafted from.
   isServe: boolean
-  // The composed identity clause, shown but not editable — it is rebuilt for
+  // The composed identity clause, shown but not editable: it is rebuilt for
   // whoever reads the card, so a volunteer sees their own version.
   intro: string
   audienceLabel: string
-  lines: TalkingPointsLines
-  onLineChange: (key: keyof TalkingPointsLines, value: string) => void
+  text: string
+  onTextChange: (text: string) => void
   instructions: string
   onInstructionsChange: (instructions: string) => void
   onRegenerate: () => void
@@ -101,7 +76,7 @@ interface TalkingPointsStepProps {
 }
 
 // A read-only section: composed from campaign records, shown so the candidate
-// reviews the whole card rather than three lines out of five.
+// reviews the whole card rather than only the part they write.
 const ComposedSection = ({
   label,
   caption,
@@ -122,8 +97,8 @@ export const TalkingPointsStep = ({
   isServe,
   intro,
   audienceLabel,
-  lines,
-  onLineChange,
+  text,
+  onTextChange,
   instructions,
   onInstructionsChange,
   onRegenerate,
@@ -134,23 +109,24 @@ export const TalkingPointsStep = ({
   isDraftError,
   isCustomPurpose,
 }: TalkingPointsStepProps) => {
-  // Dictation on the context line only. It is the one section long enough to
-  // be worth speaking, and one mic beside four boxes would not say which it
-  // was about to append to.
-  const dictation = useDictationAppend({
+  const fieldRef = useRef<TokenFieldRef>(null)
+  // At the cursor rather than appended, so a spoken line lands in the bullet
+  // the candidate is on.
+  const dictation = useDictation({
     analyticsLabel: 'door-knocking-talking-points',
-    value: lines.context,
-    onChange: (value) => onLineChange('context', value),
+    onFinalTranscript: (transcript) => {
+      if (transcript) fieldRef.current?.insertText(` ${transcript}`)
+    },
   })
   const isRecording = dictation.status === 'recording'
-  // The GENERATED sections only. The CTA is seeded from the campaign record
-  // before the first draft is even requested, so counting it would put the
-  // boxes on screen for the whole of that first generation — and anything
-  // typed into them in those seconds is silently overwritten when the draft
-  // lands.
-  const nothingDrafted = SECTIONS.filter(({ generated }) => generated).every(
-    ({ key }) => lines[key].trim().length === 0,
-  )
+  const dictationBusy = ACTIVE_DICTATION.has(dictation.status) && !isRecording
+  const toggleDictation = useCallback(async () => {
+    if (ACTIVE_DICTATION.has(dictation.status)) await dictation.stop()
+    else await dictation.start()
+  }, [dictation])
+  // Read-only until the first draft lands, so nothing typed is overwritten
+  // by it.
+  const awaitingFirstDraft = isDrafting && text.trim().length === 0
 
   return (
     <div className="space-y-6">
@@ -199,7 +175,7 @@ export const TalkingPointsStep = ({
         </Card>
       )}
 
-      <Card className="gap-5 p-4">
+      <Card className={cn('gap-5 p-4', seamlessFieldHost)}>
         {intro && (
           <ComposedSection
             label="Introduction"
@@ -212,39 +188,32 @@ export const TalkingPointsStep = ({
           />
         )}
 
-        {SECTIONS.map(({ key, label, caption, placeholder }) => (
-          <div key={key} className="space-y-1">
-            {/* Names the field by id: a label's `for` reaches only form
-                controls, and the field is an editable region. */}
-            <p
-              id={`talking-points-${key}-label`}
-              className="text-sm font-medium text-foreground"
-            >
-              {label}
+        <div className="space-y-1">
+          <TokenField
+            ref={fieldRef}
+            aria-label="Talking points"
+            value={text}
+            onChange={onTextChange}
+            readOnly={awaitingFirstDraft}
+            placeholder={
+              awaitingFirstDraft ? 'Drafting…' : 'Write your talking points…'
+            }
+            maxLength={DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH}
+            variant="seamless"
+            className="min-h-[140px]"
+          />
+          <LengthCounter
+            length={text.length}
+            max={DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH}
+          />
+          {/* Not on "Something else", which never drafts. */}
+          {!isCustomPurpose && (
+            <p className="text-xs text-muted-foreground">
+              We&apos;ll draft a few bullets to start, and you can rewrite them
+              any way you like.
             </p>
-            <TokenField
-              aria-labelledby={`talking-points-${key}-label`}
-              value={lines[key]}
-              onChange={(next) => onLineChange(key, next)}
-              // Read-only until the first draft lands, so nothing typed is
-              // overwritten by it.
-              readOnly={isDrafting && nothingDrafted}
-              placeholder={
-                isDrafting && nothingDrafted ? 'Drafting…' : placeholder
-              }
-              // The draft endpoint's own per-line cap: Improve with AI sends
-              // these back as currentDraft, so the box must never accept
-              // more than that endpoint allows.
-              maxLength={DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH}
-              className="min-h-0"
-            />
-            <LengthCounter
-              length={lines[key].length}
-              max={DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH}
-            />
-            <p className="text-xs text-muted-foreground">{caption}</p>
-          </div>
-        ))}
+          )}
+        </div>
 
         <ComposedSection
           label="Thanks and goodbye"
@@ -279,14 +248,16 @@ export const TalkingPointsStep = ({
             type="button"
             variant={isRecording ? 'destructive' : 'ghost'}
             size="small"
-            aria-label={isRecording ? 'Stop dictation' : 'Dictate context'}
+            aria-label={
+              isRecording ? 'Stop dictation' : 'Dictate talking points'
+            }
             disabled={isDrafting || dictation.status === 'stopping'}
             onClick={() => {
-              void dictation.toggle()
+              void toggleDictation()
             }}
             className={cn(!isRecording && 'text-muted-foreground')}
           >
-            {dictation.busy && !isRecording ? (
+            {dictationBusy ? (
               <Loader2Icon className="size-4 animate-spin" aria-hidden />
             ) : isRecording ? (
               <SquareIcon className="size-4 fill-current" aria-hidden />
@@ -304,10 +275,10 @@ export const TalkingPointsStep = ({
         </p>
       )}
 
-      {hasUnfilledBracket(lines) && (
+      {hasUnfilledBracket(text) && (
         <p className="text-sm text-foreground">
-          Fill in the square brackets before you walk — a canvasser reading
-          &ldquo;[date]&rdquo; at a door has nothing to say.
+          Fill in the square brackets before you walk, so nobody reads
+          &ldquo;[date]&rdquo; at a door.
         </p>
       )}
     </div>

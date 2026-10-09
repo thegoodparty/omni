@@ -101,7 +101,10 @@ minutes, and without wire traffic client idle watchdogs and LB idle timeouts kil
 the healthy stream. Controllers write `data: <JSON>\n\n` frames with a 300s
 timeout and an `AbortController` on client disconnect. Error codes:
 `conversation_not_found`, `rate_limited`, `upstream_unavailable`, `aborted`,
-`internal`. On the webapp side, `useStreamingTurn` treats any event as watchdog
+`internal`. Each message also carries `pagePath`, the page it was sent from; a
+handler that implements `describePage` turns it into a block appended to that
+turn's system prompt (Campaign Manager resolves it against the product map), and
+every other scope ignores it. On the webapp side, `useStreamingTurn` treats any event as watchdog
 activity (60s idle = stalled), and when a stream ends without `done` it polls the
 transcript for up to 3 minutes for the still-generating turn before falling back
 to rendering the partial locally.
@@ -177,6 +180,13 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
+- **`read_past_outreach` / `present_past_outreach`** — recent sends with reply
+  counts (`PriorityFlowOutreachService`), and a card of chosen sends. Chief of
+  Staff reads an office's by `organizationSlug` with `campaignId` null, per
+  office and per priority; Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
+  by slug, since an org can hold a campaign and an office at once. The card
+  picks its detail route, results route and outreach hub from the surface's
+  mode.
 - **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered

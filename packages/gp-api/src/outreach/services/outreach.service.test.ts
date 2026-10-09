@@ -324,6 +324,108 @@ describe('OutreachService', () => {
       )
     })
 
+    it('defers finalize (no claim, no Peerly submit) for a linked pre-build p2p draft under the hold flag', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      try {
+        // A paid draft (satellite linked to its building list) whose build has
+        // not finished: no numeric phoneListId yet. The build-ready edge
+        // finalizes it later instead.
+        mockOutreachFindFirst.mockResolvedValue({
+          phoneListId: null,
+          outreachType: OutreachType.p2p,
+          p2pSms: { peerlyPhoneListId: 'ppl-uuid-1' },
+        })
+
+        const finalized = await service.finalizeOutreachPurchase(99, 1)
+
+        // The defer returns false before claiming (pending_payment -> pending)
+        // and before any Peerly submission, so the draft is never transitioned.
+        expect(finalized).toBe(false)
+        expect(mockOutreachUpdateMany).not.toHaveBeenCalled()
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+        expect(mockMaterializeOutreach).not.toHaveBeenCalled()
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it('does NOT defer a pre-build p2p draft with no satellite link (the hold-less free path)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      try {
+        // phoneListId null but NO satellite link: the build-ready edge finds
+        // work through the link, so a link-less draft must not defer (it would
+        // strand forever). It proceeds to the claim instead.
+        mockOutreachFindFirst.mockResolvedValueOnce({
+          phoneListId: null,
+          outreachType: OutreachType.p2p,
+          p2pSms: null,
+        })
+        // Claim lost, then observed already-finalized, so finalize returns
+        // without the slow in-flight poll — enough to prove it did NOT defer.
+        mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+        mockOutreachFindFirst.mockResolvedValue({ projectId: 'job-x' })
+
+        const finalized = await service.finalizeOutreachPurchase(55, 1)
+
+        expect(finalized).toBe(false)
+        // It attempted the claim (did not defer).
+        expect(mockOutreachUpdateMany).toHaveBeenCalled()
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it('finalizes as usual under the flag once the build is ready (phoneListId present)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      try {
+        const draft = {
+          id: 77,
+          campaignId: 1,
+          outreachType: OutreachType.p2p,
+          status: OutreachStatus.pending,
+          imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+          phoneListId: 100,
+          script: 'hello voter',
+          identityId: 'ident-1',
+          title: 'P2P Title',
+          name: null,
+          didState: null,
+          didNpaSubset: null,
+          date: new Date('2025-02-01T12:00:00.000Z'),
+          audienceRequest: null,
+          campaignPlanDueDate: null,
+          textCount: null,
+          billableTextCount: null,
+          voterFileFilterId: 7,
+          voterFileFilter: null,
+          campaign: { ...mockCampaign, user: mockUser },
+        }
+        // The defer peek sees a stamped phoneListId, so finalize proceeds.
+        mockOutreachFindFirst.mockResolvedValue({
+          phoneListId: 100,
+          outreachType: OutreachType.p2p,
+        })
+        mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
+        mockGetFileBytes.mockResolvedValue({
+          bytes: Buffer.from('img'),
+          contentType: 'image/png',
+        })
+        mockPeerlyCreateJob.mockResolvedValue('job-770')
+        mockOutreachUpdate.mockResolvedValue({})
+
+        await service.finalizeOutreachPurchase(77, 1)
+
+        expect(mockPeerlyCreateJob).toHaveBeenCalled()
+        expect(mockMaterializeOutreach).toHaveBeenCalledWith(
+          draft.campaign,
+          expect.objectContaining({ id: 77, projectId: 'job-770' }),
+        )
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
     it('materializes on finalize even when the campaign has no user', async () => {
       const draft = {
         id: 43,
@@ -474,9 +576,11 @@ describe('OutreachService', () => {
           projectId: 'job-123',
         })
 
-        await expect(
-          service.finalizeOutreachPurchase(46, 1),
-        ).resolves.toBeUndefined()
+        // A lost claim (a concurrent finalize already stamped the job) returns
+        // false — not finalized by THIS caller.
+        await expect(service.finalizeOutreachPurchase(46, 1)).resolves.toBe(
+          false,
+        )
 
         expect(mockOutreachFindUniqueOrThrow).not.toHaveBeenCalled()
         expect(mockPeerlyCreateJob).not.toHaveBeenCalled()

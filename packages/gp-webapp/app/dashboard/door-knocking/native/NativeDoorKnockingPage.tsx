@@ -46,6 +46,7 @@ import { type CreateFlowStep } from './createFlow/CreateListFlow'
 import { HARD_STOP_LIMIT } from './createFlow/stopCap'
 import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
+import type { JoinSaveState } from './createFlow/CreateListFlow'
 import { TurfPanel } from './createFlow/TurfPanel'
 import { useTeamOptions } from './useTeamOptions'
 import { useDrawExpand } from './useDrawExpand'
@@ -127,7 +128,7 @@ interface NativeDoorKnockingPageProps {
   // rather than to look at the rail. The tile is the only caller, so closing
   // the flow it opened goes back to the hub it was pressed on.
   openCreateFlow?: boolean
-  // `?campaignOutreachId=` — the campaign drawer's "Add another turf" opens
+  // `?campaignOutreachId=` — the campaign drawer's "Add turf" opens
   // the create flow onto an existing campaign. Threaded down to the surface
   // and used to fetch the sibling turfs whose colors seed the picker's
   // default and whose count decides the "Turf N" name default.
@@ -353,10 +354,10 @@ export default function NativeDoorKnockingPage({
   // keeps what is here, Cancel restores what was.
   //
   // It restores to the SESSION's start and not to empty. Re-entering through
-  // "Draw more turfs" and changing your mind must not delete the turfs cut
+  // "Add turf" and changing your mind must not delete the turfs cut
   // before this session began.
   const sessionSnapshot = useRef<TurfDraft[] | null>(null)
-  // "Add another turf" arrives with `?campaignOutreachId=`. Two things
+  // "Add turf" arrives with `?campaignOutreachId=`. Two things
   // read the resolved sibling list: the create flow (default name + colour
   // picker default), and `useCreateListDraw` below (seed colour). Only
   // fires when the caller says so — a solo create never asks — and the
@@ -571,6 +572,14 @@ export default function NativeDoorKnockingPage({
   const [pendingAssigneeId, setPendingAssigneeId] = useState<number | null>(
     null,
   )
+  // Joining a campaign, Save writes from the map rather than handing back to
+  // a draw step: the panel bumps the request, the flow runs the write, and
+  // reports back what the panel says while it runs or after it fails.
+  const [joinSaveRequest, setJoinSaveRequest] = useState(0)
+  const [joinSave, setJoinSave] = useState<JoinSaveState>({
+    pending: false,
+    error: null,
+  })
   // What the next turf will be called, typed before a single corner is
   // down. The card for the turf being cut is open from the moment the
   // surface is, so naming is the first thing that can be done rather than
@@ -829,7 +838,7 @@ export default function NativeDoorKnockingPage({
       return all.filter((candidate) => candidate.id === walkTurf.id)
     }
     // In the create flow: show the campaign's existing siblings (only
-    // populated when arriving via "Add another turf") plus every draft the
+    // populated when arriving via "Add turf") plus every draft the
     // candidate has committed on the drawing surface this session. Drafts
     // are shape-adapted to DoorKnockingTurf so the canvas's saved-turfs
     // layer renders them with their colour, no new layer required. When
@@ -1094,10 +1103,22 @@ export default function NativeDoorKnockingPage({
   // Every way into the create flow goes through here. It used to be where the
   // daily campaign allowance refused the FLOW rather than the press at the end
   // of it; the allowance is gone, so the flow simply opens.
+  //
+  // "Add turf" on a campaign's drawer opens straight onto the map.
+  // The campaign answered every question before the map when it was made,
+  // and a turf joining it takes those answers server-side, so there is
+  // nothing to ask on the way in.
   const beginCreateFlow = useCallback((): boolean => {
+    if (campaignOutreachId !== undefined) {
+      setFlowStep('draw')
+      draw.startDrawing()
+      openDrawing(true)
+      return true
+    }
     setFlowStep('filters')
     return true
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignOutreachId, draw.startDrawing, openDrawing])
 
   // Arriving here IS asking to build a campaign. There is no landing surface
   // to choose from any more — the saved-lists rail is gone, and door knocking
@@ -1169,6 +1190,13 @@ export default function NativeDoorKnockingPage({
     setRing(null)
     draw.clearDrawing()
     setLeaving(true)
+    // Came from a campaign's drawer to draw more turfs, so closing reopens
+    // that drawer, where the turfs just added are listed. Win only, for the
+    // reason `endWalk` gives: the Serve hub takes no `?outreachId=`.
+    if (campaignOutreachId !== undefined && !serveMode) {
+      router.push(`${OUTREACH_HUB}?outreachId=${campaignOutreachId}`)
+      return
+    }
     // Pressed the tile, changed their mind. `back()` rather than a path,
     // because it returns to the hub scrolled where they left it — and the tile
     // exists on both the Win hub and the Serve one, so it is right for either
@@ -1554,13 +1582,19 @@ export default function NativeDoorKnockingPage({
                   onStartKnocking={handleStartKnocking}
                   isServeOrg={isServeOrg}
                   orgSlug={organization?.slug}
-                  preselectedListId={carriedListId}
+                  // Joining a campaign carries its audience in, so the map
+                  // shades and counts the people the new turfs will knock.
+                  preselectedListId={
+                    carriedListId ?? siblingTurfs?.[0]?.voterFileFilterId
+                  }
                   onPreselectApplied={() =>
                     setSpentPreselectId(preselectedListId)
                   }
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
                   trackerTaskId={trackerTaskId}
+                  joinSaveRequest={joinSaveRequest}
+                  onJoinSaveStateChange={setJoinSave}
                   {...(proposalLink && { proposalLink })}
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}
@@ -1592,7 +1626,7 @@ export default function NativeDoorKnockingPage({
                 pendingName={pendingName}
                 drawColor={ringColor}
                 draftStats={draftStats}
-                savedTurfNames={(siblingTurfs ?? []).map((turf) => turf.name)}
+                savedTurfs={siblingTurfs ?? []}
                 team={teamOptions}
                 onSelectDraft={selectDraft}
                 onStartNewTurf={startNextTurf}
@@ -1612,7 +1646,18 @@ export default function NativeDoorKnockingPage({
                   }
                   updateDraft(activeDraft.clientId, { assigneeId })
                 }}
-                onSave={() => closeDrawing()}
+                onSave={() => {
+                  if (
+                    campaignOutreachId !== undefined &&
+                    turfDrafts.some(isDrawnTurf)
+                  ) {
+                    setJoinSaveRequest((count) => count + 1)
+                    return
+                  }
+                  closeDrawing()
+                }}
+                saving={joinSave.pending}
+                saveError={joinSave.error}
                 onCancel={cancelDrawing}
                 dirty={sessionDirty}
                 onMapControlsOffsetChange={setMapControlsOffset}

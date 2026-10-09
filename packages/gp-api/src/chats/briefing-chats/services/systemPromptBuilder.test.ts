@@ -7,6 +7,7 @@ import {
 } from '../../../generated/prisma'
 import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
 import type { HighlightSnippet } from './extractHighlight'
+import { guardrailLine } from '@/chats/general/services/guardrailLines'
 import {
   buildSystemPrompt,
   GUARDRAIL_DECLINE,
@@ -140,13 +141,35 @@ describe('buildSystemPrompt', () => {
     expect(out).toContain('</briefing>')
   })
 
-  it('contains the verbatim guardrail decline phrase', () => {
+  it('asks for the shared decline line in place of an unrelated answer', () => {
     const out = buildSystemPrompt(baseArgs)
     expect(out).toContain(GUARDRAIL_DECLINE)
-    expect(GUARDRAIL_DECLINE).toBe(
-      "I'm a helpful GoodParty assistant — please ask " +
-        'me something related to your briefing or your role.',
-    )
+    expect(out).toContain('give this line in its place')
+    expect(out).toContain('give the line in place of the rest')
+    expect(out).toContain('someone may be in danger')
+    expect(out).toContain('what you can do for them')
+    expect(out).toContain('GUARDRAILS line in place of an answer')
+  })
+
+  it('asks for the legal or professional line on advice-shaped answers, one per reply', () => {
+    const out = buildSystemPrompt(baseArgs)
+    expect(out).toContain('PROFESSIONAL AND LEGAL CAUTION')
+    expect(out).toContain(guardrailLine('legal_advice', 'briefing_chat'))
+    expect(out).toContain(guardrailLine('professional_advice', 'briefing_chat'))
+    expect(out).toContain('When both would apply, use the legal line')
+  })
+
+  it('asks for the small-count line only when district_insights is available', () => {
+    const line = guardrailLine('small_count', 'briefing_chat')
+    expect(
+      buildSystemPrompt({
+        ...baseArgs,
+        availableToolNames: ['get_artifacts', 'district_insights'],
+      }),
+    ).toContain(line)
+    expect(
+      buildSystemPrompt({ ...baseArgs, availableToolNames: ['get_artifacts'] }),
+    ).not.toContain(line)
   })
 
   it('sanitizes </briefing> close-tags in artifact content', () => {

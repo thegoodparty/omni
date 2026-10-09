@@ -3175,6 +3175,39 @@ describe('WalkView notes', () => {
     expect(within(card).getByText(DEPARTURE_NOTE)).toBeInTheDocument()
   })
 
+  // A card written as free text: drafted bullets with the candidate's own
+  // sentence between them, shown as written rather than as four sections.
+  it('reads free-text talking points at the door', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routePayload,
+        talkingPoints: [
+          '• Ask what they would fix first.',
+          'I live two streets over, so I see the same potholes.',
+          '• Invite them to the town hall on Tuesday.',
+        ].join('\n'),
+      },
+    })
+
+    render(<WalkHarness turfId={3} />)
+    await openPersonSheet('105 Elm St')
+
+    const card = screen.getByRole('heading', {
+      name: 'Talking points',
+    }).parentElement!
+    expect(
+      within(card).getByText('Ask what they would fix first.'),
+    ).toBeInTheDocument()
+    expect(
+      within(card).getByText(
+        'I live two streets over, so I see the same potholes.',
+      ).tagName,
+    ).toBe('P')
+    expect(within(card).getByText(DEPARTURE_NOTE)).toBeInTheDocument()
+    expect(within(card).queryByText(/•/)).toBeNull()
+  })
+
   // Every list frozen before the points step shipped. The payload carries no
   // such key, and the walk must render exactly as it did.
   it('draws no points card for a list that has none', async () => {

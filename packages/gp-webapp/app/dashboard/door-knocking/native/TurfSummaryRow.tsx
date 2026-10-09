@@ -95,10 +95,10 @@ export const TurfSummaryRow = ({
         footer={
           active ? (
             <>
+              {action}
               {/* The quieter of the two: it ends the turf, so it is a text
-                  button beside the filled one rather than competing with
-                  it. Both `size="small"` and neither restyled — the row's
-                  `justify-between` is what positions them. */}
+                  button to the right of the filled one rather than competing
+                  with it. Both `size="small"` and neither restyled. */}
               <Button
                 type="button"
                 variant="ghost"
@@ -116,7 +116,6 @@ export const TurfSummaryRow = ({
               >
                 Mark done
               </Button>
-              {action}
             </>
           ) : null
         }

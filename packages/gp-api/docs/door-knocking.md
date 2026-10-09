@@ -100,8 +100,15 @@ it makes, narrowest first:
 
 - A turf **joining** an existing campaign inherits that campaign's title,
   read off the anchor row the create already fetches to validate the scope.
-  A late "Add another turf" therefore cannot rename a campaign it is only
-  joining, whatever it sends.
+  A late "Add turf" therefore cannot rename a campaign it is only
+  joining, whatever it sends. It inherits the rest of what the campaign
+  settled before its map too: the audience (`voterFileFilterId`), the
+  purpose, the community-input question and the talking points
+  (`Outreach.script`), all read off the anchor in `withCampaignSettings`.
+  The drawer's "Add turf" opens straight onto the drawing surface
+  and asks none of them. A campaign whose every turf is done is refused
+  (400), matching the drawer, which hides Add turf on a done campaign; one
+  whose anchor alone is done still takes turfs, since its siblings are live.
 - A turf **starting** one takes `campaignName`.
 - A client that sends neither is the single-turf flow, where the turf's name
   IS the campaign's.
@@ -1170,29 +1177,36 @@ fork the district cache. `PACK_FORMAT_REVISION` does not move.
 
 ### The talking-points card
 
-The payload carries `talkingPoints` when the list has one: the card the
-candidate wrote in the wizard, read at every door on the walk. It is one
-string, four sections newline-separated, off `Outreach.script` — the column
-every other outreach channel already keeps its script in, which is why this
-feature added no column of its own. `ROUTE_INCLUDE` selects it beside the
-envelope id the volunteer assignment check already needed, so it costs no
-query. The field is **optional and never `''`**: absent means a list frozen
-before this shipped or a candidate who skipped the step, and the door script
-falls back to the static build for both, so absent and empty must not be
-distinguishable.
+The payload carries `talkingPoints` when the list has one: the talking points
+the candidate wrote in the wizard, read at every door on the walk. It is one
+free-text string off `Outreach.script`, the column every other outreach
+channel already keeps its script in, which is why this feature added no column
+of its own. `ROUTE_INCLUDE` selects it beside the envelope id the volunteer
+assignment check already needed, so it costs no query. The field is
+**optional and never `''`**: absent means a list frozen before this shipped or
+a candidate who skipped the step, and the door script falls back to the static
+build for both, so absent and empty must not be distinguishable.
 
-**The card is five sections and only three of them were written by a model.**
-Sections 1a (the identity clause — "Hi, I'm Jane Doe, running for City
-Council") and 5 (the thank-you) are composed at RENDER time by the webapp,
-because they depend on who is reading the card rather than on which list it
-is: a candidate freezing a list on a laptop cannot write the opener a
-volunteer will speak at a door three weeks later. Section 3 (the call to
-action) is composed at CREATE time from `campaign.details.website` and stored,
-because it is real data a model asked to phrase it could equally well invent.
-Sections 1b (the engagement question), 2 (context) and 4 (the ask) are the
-generated ones. `POST /v1/outreach/door-knocking/draft` and its `serve/`
-sibling return exactly those three; the wizard stores four (those plus the
-composed CTA) in card order.
+**The text is the candidate's, and the server never reshapes it.** A line that
+starts with contracts `DOOR_KNOCKING_BULLET` reads as a bullet at the door, any
+other line reads as written. Lists frozen before free text hold exactly four
+plain lines (question, context, a call to action that may be empty, ask) and
+are not migrated; the webapp's walk reader recognizes that shape and keeps
+reading it the old way.
+
+**The model writes only what sits between the introduction and the goodbye.**
+The identity clause ("Hi, I'm Jane Doe, running for City Council") and the
+thank-you are composed at RENDER time by the webapp, because they depend on
+who is reading the card rather than on which list it is: a candidate freezing
+a list on a laptop cannot write the opener a volunteer will speak at a door
+three weeks later. `POST /v1/outreach/door-knocking/draft` and its `serve/`
+sibling return one `draft`. A fresh draft is 4 or 5 bullets, one action each,
+about the campaign's (or the office's) goal rather than the person at the
+door, assembled server-side so every line starts with the bullet marker. An
+Improve is a light polish that keeps whatever shape the candidate wrote. For
+one release the response also carries the optional `engagementQuestion`,
+`context` and `ask` filled from the draft's lines, so a tab open across the
+deploy keeps working.
 
 **The list's purpose and its audience are the whole prompt input that is
 specific to this channel.** `DoorKnockingTurf.purpose` takes the same nine

@@ -28,6 +28,7 @@ import type { RaceTargetMetrics } from '@/elections/types/elections.types'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
+import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -434,6 +435,51 @@ describe('CampaignManagerHandler.buildTools — help center tool', () => {
   })
 })
 
+describe('CampaignManagerHandler.describePage', () => {
+  it('names the Win page a message was sent from', () => {
+    const block = buildHandler().describePage('/dashboard/contacts/lists/3')
+    expect(block).toContain('CURRENT PAGE')
+    expect(block).toContain('Voter Data (/dashboard/contacts)')
+  })
+
+  it('says nothing for a path the product map does not know', () => {
+    expect(buildHandler().describePage('/dashboard/not-a-page')).toBeNull()
+    expect(buildHandler().describePage('/dashboard/briefings')).toBeNull()
+  })
+})
+
+describe('CampaignManagerHandler.buildTools — past outreach', () => {
+  const withOutreach = () =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {} as PriorityFlowOutreachService,
+    )
+
+  it("reads and shows the campaign's sends once its campaign resolves", () => {
+    const names = Object.keys(
+      withOutreach().buildTools(ctxWith({ campaignId: 42 })),
+    )
+    expect(names).toContain('read_past_outreach')
+    expect(names).toContain('present_past_outreach')
+  })
+
+  it('stays off without a campaign to scope the sends to', () => {
+    const names = Object.keys(withOutreach().buildTools(ctxWith({})))
+    expect(names).not.toContain('read_past_outreach')
+    expect(names).not.toContain('present_past_outreach')
+  })
+})
+
 describe('CampaignManagerHandler.buildTools — ask_clarify_question', () => {
   it('registers ask_clarify_question', () => {
     const tools = buildHandler().buildTools(ctxWith({}))
@@ -676,7 +722,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(flagOff)).not.toContain('present_outreach_proposal')
   })
 
-  it('presents a text as a card and refuses any other channel', async () => {
+  it('presents every channel as a card in candidate words', async () => {
     const tools = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
@@ -694,9 +740,13 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       presented: true,
       deepLinkOnly: true,
     })
-    for (const channel of ['phoneBanking', 'doorKnocking', 'social']) {
+    expect(
+      await tool.execute({ ...proposal, channel: 'phoneBanking' }),
+    ).toEqual({ presented: true, deepLinkOnly: false })
+    for (const channel of ['doorKnocking', 'social']) {
       expect(await tool.execute({ ...proposal, channel })).toEqual({
-        error: expect.stringContaining('Only a text can be presented here'),
+        presented: true,
+        deepLinkOnly: true,
       })
     }
     expect(descriptionOf(tool)).not.toContain('official')

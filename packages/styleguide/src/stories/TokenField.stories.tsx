@@ -8,6 +8,8 @@ import {
 } from '../components/ui/token-field'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { seamlessFieldHost } from '../components/ui/textarea'
+import { cn } from '../lib/utils'
 
 const meta: Meta<typeof TokenField> = {
   title: 'Components/TokenField',
@@ -95,7 +97,7 @@ const Composer = ({
   const statusId = React.useId()
   return (
     <div className="flex w-full max-w-md flex-col gap-2">
-      <Card className="gap-0 p-4">
+      <Card className={cn('gap-0 p-4', seamlessFieldHost)}>
         <TokenField
           ref={ref}
           variant="seamless"

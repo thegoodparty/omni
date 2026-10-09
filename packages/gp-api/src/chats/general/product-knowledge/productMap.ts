@@ -130,7 +130,9 @@ const WIN_AREAS: ProductArea[] = [
       'Pasting a link attaches it as a source the assistant can read',
       'A citation in a reply opens the document it points to, to the cited page when there is one',
       'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
-      'Asking the chat to text voters gets a text outreach card, which can go to a random sample of them instead of everyone, sized the way polls are, with the cost of each. The card’s button opens Voter Outreach’s text flow with the audience and message filled in, to review and pay for before it sends',
+      'Asking the chat to reach voters gets an outreach card for one channel: a text, phone banking, door knocking or a social post. The card’s button opens that channel’s Voter Outreach flow with the audience and message filled in, to review before it goes out; a text is paid for there',
+      'A text card can go to a random sample of voters instead of everyone, sized the way polls are, with the cost of each',
+      'Asking how an earlier send did gets its numbers in the reply, and can leave cards for those sends that open each one in Voter Outreach',
     ],
   },
   {
@@ -161,6 +163,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'Each channel starts by asking who to reach, which reads from your saved lists',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
       'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
@@ -355,6 +358,7 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Four channels: Social media, SMS, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, filled in from your next public meeting when there is one',
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
@@ -451,6 +455,32 @@ export const PRODUCT_AREAS: ProductArea[] = [
 
 export const areasForMode = (mode: ProductMode): ProductArea[] =>
   PRODUCT_AREAS.filter((a) => a.modes.includes(mode))
+
+// The area a dashboard URL is on, by the most specific path that holds it.
+// Only real routes take part, never an alias (its label never renders), a
+// bracketed segment matches any one segment, and the home tab matches only
+// exactly, since every page sits under it.
+export const areaForPath = (
+  mode: ProductMode,
+  pathname: string,
+): ProductArea | null => {
+  const matches = (path: string): boolean => {
+    const pattern = new RegExp(
+      `^${path.replace(/\[[^/\]]+\]/g, '[^/]+')}${
+        path === '/dashboard' ? '' : '(/.*)?'
+      }$`,
+    )
+    return pattern.test(pathname)
+  }
+  return (
+    areasForMode(mode)
+      .filter(
+        (area) =>
+          !area.aliasOf && area.path.startsWith('/') && matches(area.path),
+      )
+      .sort((a, b) => b.path.length - a.path.length)[0] ?? null
+  )
+}
 
 // What chat cannot reach. Every line here is something a user has assumed the
 // chat does. Stating them is what keeps the assistant from inventing a reason

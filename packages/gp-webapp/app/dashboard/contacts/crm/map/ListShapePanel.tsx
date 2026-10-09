@@ -168,7 +168,9 @@ export const ListShapePanel = ({
       </div>
 
       {showBody && (
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+        <div className="-mt-1 min-h-0 flex-1 overflow-y-auto px-5 pt-1 pb-4">
+          {/* `-mt-1 pt-1` is room for the open card's focus ring, which a
+              scroller clips at its top edge; the list does not move. */}
           {introducing && (
             <EmptyState
               title="No shapes yet"

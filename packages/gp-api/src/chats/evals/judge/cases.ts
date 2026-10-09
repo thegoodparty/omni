@@ -9,7 +9,7 @@ import {
   type JsonValue,
 } from './record'
 import type { AgentEntry } from './agents'
-import { DEFAULT_JUDGE_CONFIG } from './config'
+import { DEFAULT_JUDGE_CONFIG, MAX_LIST_ATTEMPTS_PER_CASE } from './config'
 
 // Loads an agent's inputs. One file per agent, authored per agent rather than
 // coded, which is the property that makes wiring the twenty-first agent a case
@@ -398,6 +398,9 @@ export type CaseDimension = z.infer<typeof CaseDimensionSchema>
 // attention.
 export const MAX_CONDITION_CHARS = 2_000
 
+// One sentence, so a bound well short of a condition's.
+export const MAX_HANDLED_WHEN_CHARS = 600
+
 export const BackgroundCaseSchema = z
   .object({
     caseId: CaseIdSchema,
@@ -417,6 +420,19 @@ export const BackgroundCaseSchema = z
     // part of either arm's record, so a base ref that predates the field
     // cannot strip it from one side and turn every pair into a mismatch.
     condition: z.string().trim().min(1).max(MAX_CONDITION_CHARS).optional(),
+    // What handling the condition looks like, as one sentence: "a run
+    // handles this when …". Judge-only, like `condition`. Asked bare, the
+    // judge grades whether a run MENTIONED the problem, so a run that quietly
+    // resisted an injection read as not handling it; with the outcome stated,
+    // it reads as handled. When present, the judge answers yes, partly or no
+    // per run, and the report sorts the case into handled by both, a shared
+    // failure, a regression or an improvement.
+    handledWhen: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_HANDLED_WHEN_CHARS)
+      .optional(),
     // `false` keeps the pair out of every aggregate. It still runs and is
     // still judged, and the report states that judgment on its own line: a
     // control's job is to be the zero reading, and averaged into the verdict
@@ -438,12 +454,28 @@ export const BackgroundCaseSchema = z
   // otherwise be stripped and the control silently scored, and a misspelled
   // `condition` would send the judge in blind on the one case that needed it.
   .strict()
+  // A handling sentence describes how a run deals with a planted condition,
+  // so a case without one has nothing for it to describe. And a control is
+  // the zero reading: asking it "did the run handle this" would hand the
+  // judge a question whose only honest answer is "nothing to handle".
+  .refine(
+    (one) => one.handledWhen === undefined || one.condition !== undefined,
+    {
+      message: 'handledWhen describes handling a condition; add the condition',
+      path: ['handledWhen'],
+    },
+  )
+  .refine((one) => one.handledWhen === undefined || one.scored !== false, {
+    message: 'a control (scored: false) carries no handledWhen',
+    path: ['handledWhen'],
+  })
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
 
 // What the judging step needs from a case list beyond the records, keyed by
 // caseId. Chat cases carry neither field, so a chat list yields an empty map.
 export interface CaseJudging {
   condition?: string
+  handledWhen?: string
   scored: boolean
 }
 
@@ -457,6 +489,9 @@ export const caseJudgingOf = (list: CaseList): Map<string, CaseJudging> =>
               {
                 ...(one.condition !== undefined && {
                   condition: one.condition,
+                }),
+                ...(one.handledWhen !== undefined && {
+                  handledWhen: one.handledWhen,
                 }),
                 scored: one.scored ?? true,
               },
@@ -485,6 +520,9 @@ const CaseListEnvelopeSchema = z.object({
   shape: AgentShapeSchema,
   placeholder: z.boolean().optional(),
   note: z.string().min(1).optional(),
+  // Background only: how many attempts every case in this list is walked
+  // with, in place of the config's default. See MAX_LIST_ATTEMPTS_PER_CASE.
+  attemptsPerCase: z.number().int().positive().optional(),
   cases: z.array(z.record(z.string(), JsonValueSchema)).min(1),
 })
 
@@ -493,6 +531,7 @@ export interface CaseList {
   shape: AgentShape
   placeholder: boolean
   note?: string
+  attemptsPerCase?: number
   cases: JudgeCase[]
   // Where it came from, so an error downstream of here can still name the
   // file rather than only the case.
@@ -550,6 +589,25 @@ export const parseCaseList = (
     )
   }
 
+  // Refused by name rather than clamped: a list asking for five attempts and
+  // walked with three would bill for less than it asked and report as though
+  // it got what it asked for.
+  const listAttempts = envelope.data.attemptsPerCase
+  if (listAttempts !== undefined) {
+    if (envelope.data.shape !== 'background') {
+      throw new CaseListError(
+        `${source}: sets attemptsPerCase, which only a background list may ` +
+          "set; a chat list's attempts are the config's",
+      )
+    }
+    if (listAttempts > MAX_LIST_ATTEMPTS_PER_CASE) {
+      throw new CaseListError(
+        `${source}: asks for ${listAttempts} attempts per case, over the ` +
+          `ceiling of ${MAX_LIST_ATTEMPTS_PER_CASE} in config.ts`,
+      )
+    }
+  }
+
   const schema = CASE_SCHEMAS[envelope.data.shape]
   const cases: JudgeCase[] = []
   const seen = new Set<string>()
@@ -601,6 +659,7 @@ export const parseCaseList = (
     shape: envelope.data.shape,
     placeholder: envelope.data.placeholder ?? false,
     ...(envelope.data.note !== undefined && { note: envelope.data.note }),
+    ...(listAttempts !== undefined && { attemptsPerCase: listAttempts }),
     cases,
     source,
   }

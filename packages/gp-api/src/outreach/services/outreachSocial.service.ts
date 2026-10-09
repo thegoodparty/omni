@@ -43,9 +43,15 @@ type OutreachWithSocial = Prisma.OutreachGetPayload<{
 // Win/Serve isolation boundary documented in AGENTS.md (ENG-10976).
 // The Win branch also carries userId, the subject of the Campaign Scheduled
 // analytics event; the Serve branch does not emit it (see saveSocialOutreach).
-// Serve also carries a chat card's proposal link, when the save came from one.
+// Either carries a chat card's link when the save came from one: Serve's the
+// whole link, Win's the key alone, since its card puts out no check.
 export type OutreachSocialSaveScope =
-  | { campaignId: number; organizationSlug: string | null; userId: number }
+  | {
+      campaignId: number
+      organizationSlug: string | null
+      userId: number
+      proposalKey?: string
+    }
   | ({ campaignId: null; organizationSlug: string } & ProposalOutreachLink)
 
 export type OutreachSocialDetailScope =
@@ -133,10 +139,15 @@ export class OutreachSocialService extends createPrismaBase(
 
     // A save from a chat card's proposal is idempotent on its key: saving
     // the same proposal twice returns the first post rather than a second.
+    // A legacy Win row with no org slug has nothing to scope a replay to.
     const serveScope = scope.campaignId === null ? scope : null
-    const proposalKey = serveScope?.proposalKey
-    if (serveScope && proposalKey !== undefined) {
-      const existing = await this.replayProposal(proposalKey, serveScope)
+    const organizationSlug = scope.organizationSlug
+    const proposalKey =
+      organizationSlug === null ? undefined : scope.proposalKey
+    if (organizationSlug !== null && proposalKey !== undefined) {
+      const existing = await this.replayProposal(proposalKey, {
+        organizationSlug,
+      })
       if (existing) {
         // Recorded on a replay too, so a failed status write heals here.
         await this.priorityStatus.recordOutreachSentOrLog(
@@ -159,8 +170,8 @@ export class OutreachSocialService extends createPrismaBase(
             ...('trackerTaskId' in input && {
               trackerTaskId: input.trackerTaskId,
             }),
+            ...(proposalKey !== undefined && { proposalKey }),
             ...(serveScope && {
-              proposalKey: serveScope.proposalKey,
               priorityId: serveScope.priorityId,
               priorityStepId: serveScope.priorityStepId,
               priorityCheckSide: serveScope.priorityCheckSide,
@@ -197,12 +208,14 @@ export class OutreachSocialService extends createPrismaBase(
         // Two saves of one proposal raced past the read above; the unique
         // index on proposalKey let one through, so hand back that one.
         if (
-          serveScope &&
+          organizationSlug !== null &&
           proposalKey !== undefined &&
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2002'
         ) {
-          const winner = await this.replayProposal(proposalKey, serveScope)
+          const winner = await this.replayProposal(proposalKey, {
+            organizationSlug,
+          })
           if (winner) return winner
         }
         throw err

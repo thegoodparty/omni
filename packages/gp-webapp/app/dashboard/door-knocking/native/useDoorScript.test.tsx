@@ -37,8 +37,10 @@ vi.mock('./doorKnockingSurface', () => ({
 import { useDoorScript } from './useDoorScript'
 import { DEPARTURE_NOTE } from './talkingPointsCard'
 
-// A card as the wizard froze it: the four sections in order, newline
-// separated, exactly as `Outreach.script` holds them.
+const bullet = (text: string) => ({ text, bullet: true })
+
+// A card as the wizard froze it before free text: the four sections in order,
+// newline separated, exactly as `Outreach.script` holds them.
 const STORED = [
   'What would you fix around here first?',
   'Fix our roads with a real maintenance plan.',
@@ -341,11 +343,11 @@ describe('useDoorScript', () => {
 
       expect(result.current.intro).toContain('volunteer')
       expect(result.current.points).toEqual([
-        'What would you fix around here first?',
-        'Fix our roads with a real maintenance plan.',
-        'Point them to janedoe.org to learn more.',
-        'Ask whether we can count on them in November.',
-        DEPARTURE_NOTE,
+        bullet('What would you fix around here first?'),
+        bullet('Fix our roads with a real maintenance plan.'),
+        bullet('Point them to janedoe.org to learn more.'),
+        bullet('Ask whether we can count on them in November.'),
+        bullet(DEPARTURE_NOTE),
       ])
     })
   })
@@ -360,11 +362,11 @@ describe('useDoorScript', () => {
         "Hi, I'm Jane Doe, running for City Council.",
       )
       expect(result.current.points).toEqual([
-        'What would you fix around here first?',
-        'Fix our roads with a real maintenance plan.',
-        'Point them to janedoe.org to learn more.',
-        'Ask whether we can count on them in November.',
-        DEPARTURE_NOTE,
+        bullet('What would you fix around here first?'),
+        bullet('Fix our roads with a real maintenance plan.'),
+        bullet('Point them to janedoe.org to learn more.'),
+        bullet('Ask whether we can count on them in November.'),
+        bullet(DEPARTURE_NOTE),
       ])
     })
 
@@ -400,9 +402,8 @@ describe('useDoorScript', () => {
       expect(result.current.points).toHaveLength(5)
     })
 
-    // Every list frozen before the points step shipped, plus anything this
-    // version cannot read. Both fall back to the static build rather than to
-    // half a card.
+    // Every list frozen before the points step shipped, and every blank card.
+    // Both fall back to the static build.
     it('falls back to the stances for a list with no card', async () => {
       useCampaignMock.mockReturnValue([
         campaign({
@@ -422,13 +423,32 @@ describe('useDoorScript', () => {
       expect(result.current.points).toEqual([])
     })
 
-    it('falls back for a stored value it cannot parse', () => {
+    it('falls back for a stored value with nothing in it', () => {
+      const { result } = renderHook(() => useDoorScript('\n  \n'), {
+        wrapper,
+      })
+
+      expect(result.current.points).toEqual([])
+    })
+
+    // A card written after free text: drafted bullets the candidate may have
+    // mixed with their own sentences.
+    it('reads free text as bullets and sentences, and closes', () => {
       const { result } = renderHook(
-        () => useDoorScript('Hi, this is Jane calling about…'),
+        () =>
+          useDoorScript(
+            'I am knocking about the roads.\n• Ask what they would fix first.',
+          ),
         { wrapper },
       )
 
-      expect(result.current.points).toEqual([])
+      expect(result.current.points).toEqual([
+        { text: 'I am knocking about the roads.', bullet: false },
+        bullet('Ask what they would fix first.'),
+        bullet(DEPARTURE_NOTE),
+      ])
+      expect(result.current.issues).toEqual([])
+      expect(clientRequestMock).not.toHaveBeenCalled()
     })
 
     // A blank section drops out rather than printing an empty bullet at a
@@ -440,10 +460,10 @@ describe('useDoorScript', () => {
       )
 
       expect(result.current.points).toEqual([
-        'Question?',
-        'Context.',
-        'Ask.',
-        DEPARTURE_NOTE,
+        bullet('Question?'),
+        bullet('Context.'),
+        bullet('Ask.'),
+        bullet(DEPARTURE_NOTE),
       ])
     })
   })

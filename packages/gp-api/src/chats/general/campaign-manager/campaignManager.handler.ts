@@ -29,6 +29,7 @@ import { professionalAdviceDisclaimer } from '../services/professionalAdviceChec
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
+  currentPageBlock,
   LEGAL_LINE,
   type LiveRace,
 } from './campaignManagerPrompt'
@@ -57,6 +58,10 @@ import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
+import { areaForPath } from '../product-knowledge/productMap'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
@@ -256,6 +261,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly elections?: ElectionsService,
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
+    @Optional()
+    private readonly pastOutreach?: PriorityFlowOutreachService,
     @Optional()
     private readonly logger?: PinoLogger,
   ) {
@@ -484,6 +491,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     }
   }
 
+  describePage(pagePath: string): string | null {
+    const area = areaForPath('win', pagePath)
+    return area ? currentPageBlock(area) : null
+  }
+
   buildSystemPrompt(ctx: CampaignManagerContext): string {
     return buildCampaignManagerSystemPrompt(
       ctx,
@@ -552,6 +564,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // a prefilled Win social-flow compose drawer.
     tools.compose_handoff = buildComposeHandoffTool('win_social')
 
+    if (this.pastOutreach && ctx.campaignId !== null) {
+      tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
+        outreach: this.pastOutreach,
+        campaignId: ctx.campaignId,
+      })
+      tools.present_past_outreach =
+        buildCampaignManagerPresentPastOutreachTool()
+    }
     tools.ask_clarify_question = buildAskClarifyQuestionTool()
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,
@@ -566,8 +586,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // A campaign without Pro can still count, size a sample and be shown a
-    // text card: the count service is open to it (the outreach build path
+    // A campaign without Pro can still count, size a sample and be shown an
+    // outreach card: the count service is open to it (the outreach build path
     // prices a list before the upgrade) and the card's own button takes it
     // to the Pro gate. Only the tools whose services refuse it stay Pro:
     // precincts and saved-list management. Only a known false gates; an
@@ -609,7 +629,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         filterConsumers: registeredFilterConsumers(filterTools),
       })
       Object.assign(tools, filterTools)
-      // The card's text flow saves the list through the voter-file route,
+      // The card's flows save the list through the voter-file route,
       // which a free campaign can use too, so this follows the saved-list
       // signal rather than the Pro-only tool.
       if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {

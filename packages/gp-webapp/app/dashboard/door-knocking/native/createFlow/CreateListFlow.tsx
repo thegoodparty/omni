@@ -56,11 +56,6 @@ import {
   useDoorKnockingServeMode,
 } from '../doorKnockingSurface'
 import { buildIntro, buildServeIntro } from '../doorScriptContent'
-import {
-  composeCta,
-  serializeTalkingPoints,
-  type TalkingPointsLines,
-} from '../talkingPointsCard'
 import { TalkingPointsStep } from './TalkingPointsStep'
 import {
   flowStage,
@@ -153,6 +148,8 @@ const toCreateErrorMessage = (error: unknown): string => {
     CREATE_ERROR_FALLBACK
   )
 }
+
+export type JoinSaveState = { pending: boolean; error: string | null }
 
 interface CreateListFlowProps {
   step: CreateFlowStep
@@ -321,9 +318,14 @@ interface CreateListFlowProps {
   // The campaign-plan task the walk was started from. Rides on a new
   // campaign's anchor turf only, so the task is marked done once.
   trackerTaskId?: string
-  // A priority chat card's link (`?proposalKey=` and friends). Rides on the
-  // Serve create of a new campaign's anchor turf only, so the walk puts that
-  // card's check out.
+  // Joining a campaign only: bumped by the page when the drawing panel's
+  // Save is pressed with turfs on it, and the write's state reported back
+  // so the panel can say it is saving or why it failed.
+  joinSaveRequest?: number
+  onJoinSaveStateChange?: (state: JoinSaveState) => void
+  // A chat card's link (`?proposalKey=` and friends). Rides on the create of
+  // a new campaign's anchor turf only: whole on Serve, so the walk puts that
+  // card's check out, and the key alone on Win.
   proposalLink?: ProposalLink
   // The turfs cut in this sitting, in the order they were cut. One campaign
   // holds all of them, and the route step's press buys a route for each.
@@ -398,22 +400,13 @@ const STAGE_META: Record<
     // this block is every stage's, and two stacked title/caption pairs is
     // what the points step briefly had.
     caption:
-      'Notes for this list — its goal and the people on it — to say in your ' +
-      'own words, not a script to read out. Edit anything that does not ' +
-      'sound like you.',
+      'Notes for this list to say in your own words, not a script to read out.',
   },
 }
 
 // The purpose union across both rails this one route serves — same
 // convention as PhoneBankingFlow's PhoneBankingFlowPurpose.
 type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
-
-const EMPTY_POINTS: TalkingPointsLines = {
-  engagementQuestion: '',
-  context: '',
-  cta: '',
-  ask: '',
-}
 
 export default function CreateListFlow({
   step,
@@ -448,6 +441,8 @@ export default function CreateListFlow({
   siblingTurfs,
   campaignOutreachId,
   trackerTaskId,
+  joinSaveRequest = 0,
+  onJoinSaveStateChange,
   proposalLink,
   turfDrafts,
   draftStats,
@@ -475,6 +470,11 @@ export default function CreateListFlow({
     () => turfDrafts.filter(isDrawnTurf),
     [turfDrafts],
   )
+  // Drawing more turfs into a campaign that already exists, from its drawer.
+  // The flow opens on the drawing surface and never shows the questions
+  // before it: the new turfs take the campaign's audience, purpose and card
+  // server-side, so this flow has no answers of its own to send.
+  const joining = campaignOutreachId !== undefined
   // Re-asked HERE rather than trusted from the drawing surface, which is
   // where the candidate was last told. Stepping back to the who step and
   // widening the audience rewrites every committed turf's stop count, so a
@@ -488,8 +488,7 @@ export default function CreateListFlow({
     [drawnDrafts, draftStats],
   )
 
-  // For the talking-points step's composed sections only: the identity clause
-  // it previews, and the website its call to action is built from. The
+  // For the talking-points step's composed introduction only. The
   // candidate's name lives on the user, not the campaign.
   const [campaign] = useCampaign()
   const [user] = useUser()
@@ -582,11 +581,10 @@ export default function CreateListFlow({
     null,
   )
 
-  // The card the canvassers will read. Three of these four lines are the
-  // model's; `cta` is composed from the campaign's own website below and is
-  // editable but never regenerated.
-  const [points, setPoints] = useState<TalkingPointsLines>(EMPTY_POINTS)
-  // Whether the boxes hold unmodified AI output or text the candidate typed.
+  // The talking points the canvassers will read: free text, which a fresh
+  // draft fills with bullets and the candidate may reshape however they like.
+  const [talkingPoints, setTalkingPoints] = useState('')
+  // Whether the field holds unmodified AI output or text the candidate typed.
   // It decides whether a regenerate is allowed to send the current text as
   // `previousDraft`. Once they have edited, their own words are not something
   // the model should be told to diverge from — an explicit Regenerate still
@@ -1033,7 +1031,7 @@ export default function CreateListFlow({
   const appliedSuggestion = useRef<string | null>(null)
   useEffect(() => {
     if (step !== 'name' || nameTouched.current) return
-    // "Add another turf" wins over the purpose suggestion: the purpose was
+    // "Add turf" wins over the purpose suggestion: the purpose was
     // picked once when the CAMPAIGN was cut, and every subsequent turf in
     // it is a slice of that same purpose — repeating it as this turf's name
     // gives all N turfs the same title. The numeric default keeps them
@@ -1049,8 +1047,9 @@ export default function CreateListFlow({
     setName(suggestion)
   }, [step, purpose, purposeNameSuggestion, siblingTurfs])
 
-  // The card's two composed sections, previewed on the step so the candidate
-  // reviews five sections rather than the four they can edit.
+  // The introduction and goodbye the app writes, previewed around the field
+  // so the candidate sees the whole conversation they are writing the middle
+  // of.
   //
   // The identity clause is the candidate's own — it is rebuilt at the door for
   // whoever is reading, so a volunteer's card names the candidate instead.
@@ -1059,20 +1058,6 @@ export default function CreateListFlow({
   const previewIntro = serveMode
     ? buildServeIntro(user, officeName)
     : buildIntro(user, campaign)
-
-  // Section 3, composed rather than generated: the URL is real data, and a
-  // model asked to phrase this line could invent one just as easily. Seeded
-  // once the campaign record loads, and never overwritten afterwards — a
-  // candidate who edited or cleared it meant to.
-  const ctaSeededRef = useRef(false)
-  const composedCta = composeCta(campaign?.details?.website)
-  useEffect(() => {
-    if (ctaSeededRef.current || !composedCta) return
-    ctaSeededRef.current = true
-    setPoints((current) =>
-      current.cta.trim() === '' ? { ...current, cta: composedCta } : current,
-    )
-  }, [composedCta])
 
   // Deliberately narrower than what the address preview sends, and narrower
   // than the list being walked: the pills only.
@@ -1130,10 +1115,6 @@ export default function CreateListFlow({
 
   // Every path into the model goes through here: first draft, Regenerate,
   // Improve with AI, and the error card's Try again.
-  //
-  // `cta` is deliberately absent from both the request and the response. It is
-  // composed from the campaign's website, so the model neither writes it nor
-  // is shown it — the prompt bans URLs outright.
   const requestDraft = (
     nextPurpose: CreateFlowPurpose | null,
     currentDraft?: string,
@@ -1148,8 +1129,8 @@ export default function CreateListFlow({
     lastDraftWasImproveRef.current = currentDraft !== undefined
     const trimmed = instructions.trim()
     // Read here and passed as a variable, the way `instructions` is: the
-    // question is what a community-input effort exists to ask, so the card's
-    // ask has to be written from it rather than from a generic prompt.
+    // question is what a community-input effort exists to ask, so the talking
+    // points have to be written from it rather than from a generic prompt.
     const askedQuestion = purposeAsksQuestion(nextPurpose)
       ? question.trim()
       : ''
@@ -1168,39 +1149,19 @@ export default function CreateListFlow({
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
-          setPoints((current) => ({ ...current, ...generated }))
+          setTalkingPoints(generated.draft)
           setPointsManuallyEdited(false)
         },
       },
     )
   }
 
-  // The three generated lines as one block, in card order — what the endpoint
-  // takes as `currentDraft` (polish this) or `previousDraft` (do not repeat
-  // this). The composed CTA is excluded: it is not the model's to polish.
-  const generatedBlock = () =>
-    [points.engagementQuestion, points.context, points.ask]
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .join('\n')
-
-  // Nothing worth freezing if every section a person wrote is blank — a draft
-  // that failed and was skipped past should leave the list with no card rather
-  // than three newlines, which is what `parseTalkingPoints` would have to
-  // reject later.
-  //
-  // The composed CTA deliberately does not count. It is seeded from the
-  // campaign record the moment that loads, so counting it would make this true
-  // for every candidate with a website on file — and a failed draft would then
-  // freeze a "card" whose only line is the website. At the door that is worse
-  // than no card at all: `useDoorScript` treats any stored card as the
-  // candidate's answer and drops the issue stances it would otherwise show,
-  // so the walk would lose the stances and gain one URL.
-  const hasPoints = [
-    points.engagementQuestion,
-    points.context,
-    points.ask,
-  ].some((line) => line.trim().length > 0)
+  // What the endpoint takes as `currentDraft` (polish this) or
+  // `previousDraft` (do not repeat this), and what the create stores. Blank
+  // is no card at all: a draft that failed and was skipped past leaves the
+  // list with nothing stored, so the walk falls back to the issue stances.
+  const trimmedPoints = talkingPoints.trim()
+  const hasPoints = trimmedPoints.length > 0
 
   // Drafted on arrival at the step, not on the purpose pick four steps
   // earlier: the audience is not settled until `who`, and a draft written
@@ -1246,7 +1207,17 @@ export default function CreateListFlow({
       // It must never reach `createdFilterIdRef`, whose cleanup DELETES what
       // it holds: that ref means "a list this flow minted and may still have
       // to clean up", and the candidate's own saved list is neither.
-      let filterId = savedListId ?? createdFilterIdRef.current
+      // Joining a campaign attaches to its audience. The server reads the
+      // audience off the campaign whatever is sent, but the create body
+      // still has to name one, and minting a list here would leave an
+      // unnamed list behind with nothing using it.
+      let filterId =
+        savedListId ??
+        createdFilterIdRef.current ??
+        (joining ? (siblingTurfs?.[0]?.voterFileFilterId ?? null) : null)
+      if (joining && filterId === null) {
+        throw new Error('campaign turfs not loaded')
+      }
       if (filterId === null) {
         const { data: created } = await clientRequest(
           'POST /v1/voters/voter-file/filter',
@@ -1307,7 +1278,11 @@ export default function CreateListFlow({
           })
         }
       }
-      if (savedListId === null) createdFilterIdRef.current = filterId
+      // A joining turf's list is the CAMPAIGN's, not one this flow minted,
+      // and the cleanup behind this ref deletes what it holds.
+      if (savedListId === null && !joining) {
+        createdFilterIdRef.current = filterId
+      }
 
       // One turf's create body. Every field but the four per-turf ones is
       // the campaign's and identical across the batch: they share an
@@ -1334,7 +1309,7 @@ export default function CreateListFlow({
         // everyone works from the same plan. Both optional server-side, so a
         // flow that skipped the points step still creates a turf.
         ...(purpose ? { purpose } : {}),
-        ...(hasPoints ? { talkingPoints: serializeTalkingPoints(points) } : {}),
+        ...(hasPoints ? { talkingPoints: trimmedPoints } : {}),
         ...(asksQuestion ? { communityInputQuestion: question.trim() } : {}),
         // Absent on the very first turf of a new campaign, which is what
         // makes that row the anchor; set on every other, which is what makes
@@ -1343,10 +1318,10 @@ export default function CreateListFlow({
         ...(anchorId !== undefined ? { campaignOutreachId: anchorId } : {}),
         ...(anchorId === undefined && trackerTaskId ? { trackerTaskId } : {}),
         // What the campaign is called, as against what this turf is called.
-        // Sent on every turf: the server ignores it for one joining an
-        // existing campaign (that campaign owns its own name), and writes it
-        // on every envelope otherwise.
-        campaignName: name.trim(),
+        // Sent on every turf of a new campaign, and written on every
+        // envelope. Not sent when joining: that campaign owns its own name,
+        // and this flow never asked for one.
+        ...(joining ? {} : { campaignName: name.trim() }),
       })
 
       // The paid call, once per turf. It creates the turf, buys the Geoapify
@@ -1365,12 +1340,19 @@ export default function CreateListFlow({
               ...body,
               ...(anchorId === undefined && proposalLink),
             })
-          : clientRequest('POST /v1/door-knocking/turfs', body)
+          : clientRequest('POST /v1/door-knocking/turfs', {
+              ...body,
+              // Win's create is strict and takes the card's key alone.
+              ...(anchorId === undefined &&
+                proposalLink?.proposalKey !== undefined && {
+                  proposalKey: proposalLink.proposalKey,
+                }),
+            })
       }
 
       // The anchor has to exist before anything can point at it, so the
       // first turf of a NEW campaign is bought on its own and the rest go
-      // together behind it. Arriving through "Add another turf" skips that
+      // together behind it. Arriving through "Add turf" skips that
       // wait entirely: the anchor is already bought, so every draft is a
       // sibling and they all go at once.
       //
@@ -1528,6 +1510,12 @@ export default function CreateListFlow({
       // no way back to them.
       if (failures.length > 0) return
       if (created.length === 0) return
+      // The turfs are in a campaign that was already confirmed, and its
+      // drawer is where they are listed. Closing goes back there.
+      if (joining) {
+        onClose()
+        return
+      }
       // The campaign exists. The flow's last screen names it and offers the
       // two things to do next; it does NOT hand over to a walk any more,
       // because there is no route to walk until somebody buys one.
@@ -1567,6 +1555,52 @@ export default function CreateListFlow({
     ? audienceEmptyMessage(filters, savedListId !== null)
     : null
 
+  // The press that writes the campaign, from the draw step's CTA.
+  const pressSave = () => {
+    if (gate.requirement !== null) {
+      setGateOrigin('build')
+      setGateCta('Create campaign')
+      setGateOpen(true)
+      return
+    }
+    save.mutate()
+  }
+
+  // Joining a campaign, the drawing surface is the whole flow: the campaign
+  // already exists, so nothing here may send the candidate anywhere else.
+  // The panel's Save asks for the write by bumping `joinSaveRequest` and the
+  // map stays up while it runs; success goes back to the campaign's drawer,
+  // and a failure is reported on the panel, where Save tries again. No Pro
+  // gate stands in front of it, because gp-api refuses the write without
+  // Pro and that refusal is reported on the panel like any other.
+  const lastJoinSaveRequest = useRef(joinSaveRequest)
+  useEffect(() => {
+    if (joinSaveRequest === lastJoinSaveRequest.current) return
+    lastJoinSaveRequest.current = joinSaveRequest
+    if (joining && !save.isPending) save.mutate()
+    // Only the request is the event; the rest is read as it stands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinSaveRequest])
+  const joinSaveError = save.isError
+    ? toCreateErrorMessage(save.error)
+    : partialFailure
+      ? `${toCreateErrorMessage(partialFailure)} The turfs that were created are saved. Press Save to try the rest.`
+      : null
+  useEffect(() => {
+    if (!joining) return
+    onJoinSaveStateChange?.({ pending: save.isPending, error: joinSaveError })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joining, save.isPending, joinSaveError])
+  // Leaving the surface without saving, Cancel or a Save with nothing drawn,
+  // goes back to the campaign too.
+  const wasFullScreen = useRef(drawFullScreen)
+  useEffect(() => {
+    const closed = wasFullScreen.current && !drawFullScreen
+    wasFullScreen.current = drawFullScreen
+    if (joining && closed) onClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawFullScreen])
+
   // The drawing surface is the map with nothing over it. Every control it
   // used to float there — the hint, the instructions modal, Undo and the
   // stop count — is either deleted or in the turf panel now, and the panel
@@ -1582,6 +1616,8 @@ export default function CreateListFlow({
     resumedRef.current = true
     return null
   }
+  // Joining a campaign never shows the flow's sheet, see above.
+  if (joining) return null
 
   const title = stage === 'success' ? '' : STAGE_META[stage].title
   const caption =
@@ -1746,15 +1782,7 @@ export default function CreateListFlow({
                             drawnDrafts.length === 0 ||
                             overCapDrafts.length > 0,
                           loading: save.isPending,
-                          onClick: () => {
-                            if (gate.requirement !== null) {
-                              setGateOrigin('build')
-                              setGateCta('Create campaign')
-                              setGateOpen(true)
-                              return
-                            }
-                            save.mutate()
-                          },
+                          onClick: pressSave,
                         }
                       : // `success` carries its own two buttons in the body,
                         // so the shell has no CTA to draw.
@@ -1988,15 +2016,15 @@ export default function CreateListFlow({
               // The name they gave the list one step ago, which says more about
               // who is being walked than any summary of the pills would.
               audienceLabel={name.trim() || 'this list'}
-              lines={points}
-              onLineChange={(key, value) => {
+              text={talkingPoints}
+              onTextChange={(value) => {
                 // An edit wins over a reply still in flight, which would
                 // otherwise land on top of it. Dropping the call also clears
                 // a failed one's error.
                 draftRequestRef.current += 1
                 if (draft.isPending || draft.isError) draft.reset()
                 setPointsManuallyEdited(true)
-                setPoints((current) => ({ ...current, [key]: value }))
+                setTalkingPoints(value)
               }}
               instructions={instructions}
               onInstructionsChange={setInstructions}
@@ -2004,22 +2032,18 @@ export default function CreateListFlow({
               // rejected text always rides along as `previousDraft` — that is
               // what stops the re-roll converging on the thing just turned down.
               onRegenerate={() =>
-                requestDraft(purpose, undefined, generatedBlock() || undefined)
+                requestDraft(purpose, undefined, trimmedPoints || undefined)
               }
-              onImprove={() => requestDraft(purpose, generatedBlock())}
+              onImprove={() => requestDraft(purpose, trimmedPoints)}
               // Nothing to polish until something is written, and a purpose the
               // candidate is writing themselves has only this path.
-              canImprove={generatedBlock().length > 0}
+              canImprove={hasPoints}
               isDrafting={draft.isPending}
               isDraftError={draft.isError}
               onRetry={() =>
                 lastDraftWasImproveRef.current
-                  ? requestDraft(purpose, generatedBlock())
-                  : requestDraft(
-                      purpose,
-                      undefined,
-                      generatedBlock() || undefined,
-                    )
+                  ? requestDraft(purpose, trimmedPoints)
+                  : requestDraft(purpose, undefined, trimmedPoints || undefined)
               }
               isCustomPurpose={purpose === 'custom'}
             />
@@ -2038,9 +2062,8 @@ export default function CreateListFlow({
               turfs={createdTurfs}
               // The CAMPAIGN's envelope, not each turf's own. Closing a
               // walk started here reopens this campaign's details drawer,
-              // and that drawer is keyed on the anchor — `campaignOutreachId`
-              // when this flow was entered through "Draw more turfs", the
-              // first turf bought otherwise.
+              // and that drawer is keyed on the anchor: the first turf
+              // bought. A flow joining a campaign never reaches this screen.
               // Patch the snapshot the rows render from. `completed` is what
               // `turfStage` reads, so the card goes muted and drops its
               // footer rather than offering a walk on a finished turf.
@@ -2053,10 +2076,7 @@ export default function CreateListFlow({
                 )
               }
               anchorOutreachId={
-                campaignOutreachId ??
-                createdAnchorRef.current ??
-                createdTurfs[0]?.outreachId ??
-                null
+                createdAnchorRef.current ?? createdTurfs[0]?.outreachId ?? null
               }
               onStartKnocking={onStartKnocking}
               onDone={onClose}

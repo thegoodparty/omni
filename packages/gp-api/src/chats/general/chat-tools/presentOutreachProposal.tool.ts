@@ -113,50 +113,45 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
 // single-brace token, and the flow appends the "Paid for by" and opt-out
 // lines. The identification mirrors identificationIntro in the webapp's
 // smsCompose.util.ts, which a Win text's compliance check looks for.
-export const WIN_TEXT_MESSAGE_RULES = [
-  'WHAT THE TEXT NEEDS (the text flow checks these):',
-  '- Start with who is texting: the candidate by first name and the office they are running for, for example "this is Renee, candidate for Asheville City Council." Never a placeholder like [Name] or [your name].',
-  '- Do not write a greeting, a "Paid for by" line or an opt-out line: the flow adds "Hello {first_name}," before the message, and the "Paid for by" and "Reply STOP to opt out" lines after it.',
-  '- No link shorteners like bit.ly; paste the full web address.',
-  `- Keep it under 300 characters. The whole text, with the lines the flow adds, has to stay under ${SMS_COMPOSED_MAX_LENGTH}.`,
+// A call or a door is read live by a volunteer, so neither carries the
+// lines a text's compliance check adds.
+export const WIN_OUTREACH_MESSAGE_RULES = [
+  'WHAT EACH CHANNEL NEEDS IN THE MESSAGE (the outreach flow checks these):',
+  '- Text: start with who is texting: the candidate by first name and the office they are running for, for example "this is Renee, candidate for Asheville City Council." Never a placeholder like [Name] or [your name]. Do not write a greeting, a "Paid for by" line or an opt-out line: the flow adds "Hello {first_name}," before the message, and the "Paid for by" and "Reply STOP to opt out" lines after it. No link shorteners like bit.ly; paste the full web address. ' +
+    `Keep it under 300 characters. The whole text, with the lines the flow adds, has to stay under ${SMS_COMPOSED_MAX_LENGTH}.`,
+  '- Phone banking: a script a volunteer reads aloud, opening with who they are calling for by the candidate\'s first name and office, for example "I am calling for Renee, candidate for Asheville City Council." No "Paid for by" or opt-out line.',
+  "- Social: a post in the candidate's own voice. No placeholders.",
+  '- Door knocking: what to say at the door, in the same voice, naming the candidate the same way a call does.',
   "- The candidate's first name and office are in your context. If either is missing, ask before you present, rather than writing a placeholder.",
 ].join('\n')
 
 const WIN_DESCRIPTION =
-  'Present a ready-to-send text to voters as a card. Everything must be ' +
-  "final: the text goes out under the candidate's name exactly as you " +
-  'write it. Never call this with a sketch, a placeholder, or a message ' +
-  'you plan to refine. Count the voters with a cell phone with ' +
-  'count_contacts and pass that same filter as audienceFilters, with its ' +
-  'count and a short listName. Do not save a list first: the list is ' +
-  'saved when the candidate starts the text from the card. channel is ' +
-  'always text: this card cannot carry phone banking, door knocking or a ' +
-  'social post, so describe those in your reply instead. The card shows ' +
-  'only the audience, the count, the channel and a button that opens ' +
-  "Voter Outreach's text flow with everything filled in, where the " +
-  'candidate reviews, pays for and sends it. So say why these voters ' +
+  'Present a ready-to-send piece of outreach to voters as a card. ' +
+  'Everything must be final: the message goes out under the ' +
+  "candidate's name exactly as you write it. Never call this with a " +
+  'sketch, a placeholder, or a message you plan to refine. Count the ' +
+  'voters with count_contacts and pass that same filter as ' +
+  'audienceFilters, with its count and a short listName; for a text, ' +
+  'count only voters with a cell phone. Do not save a list first: the ' +
+  'list is saved when the candidate starts the outreach from the card. ' +
+  'Pick ONE channel, the one these voters are likeliest to answer on ' +
+  'given who they are and how they can be reached, and never offer ' +
+  'alternatives; if the candidate wants another, they will say so and ' +
+  'you propose again. The card shows only the audience, the count, the ' +
+  "channel and a button that opens that channel's Voter Outreach flow " +
+  'with everything filled in, where the candidate reviews and sends it ' +
+  '(and pays, for a text). So say why these voters and why this channel ' +
   'once, in your own message, and never promise them one click. ' +
   'deepLinkOnly is set from the channel whatever you pass, so do not ' +
   'reason about it.\n\n' +
-  WIN_TEXT_MESSAGE_RULES
+  WIN_OUTREACH_MESSAGE_RULES
 
-// Win's text flow is the only one that opens on a card's audience today, so
-// any other channel would hand the candidate a button into a flow that drops
-// what the card proposed.
 export const buildCampaignManagerOutreachProposalTool = (): LlmStreamTool<
   typeof presentOutreachProposalInput
 > => ({
   description: WIN_DESCRIPTION,
   inputSchema: presentOutreachProposalInput,
-  execute: (input) =>
-    input.channel === ProposalChannelSchema.enum.text
-      ? proposalResult(input)
-      : {
-          error:
-            'Only a text can be presented here. Describe phone banking, ' +
-            'door knocking or a social post in your reply instead, ' +
-            'without a card.',
-        },
+  execute: proposalResult,
 })
 
 // Why a priority's proposal may not be shown, or null. A side already sent

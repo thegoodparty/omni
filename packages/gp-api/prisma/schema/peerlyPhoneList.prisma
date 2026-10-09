@@ -44,6 +44,12 @@ model PeerlyPhoneList {
   // so `ready` is only stamped once this matches the current read (or the
   // list is already fully loaded) — see stampPeerlyListId callers.
   lastSeenLeadsLoaded          Int?                       @map("last_seen_leads_loaded")
+  // The stable `leads_loaded` count observed when the list was stamped
+  // `ready` — the durable billable count the Win SMS hold-capture bills
+  // against, so capture never re-fetches a vendor count that could read a
+  // still-loading list. Null on rows stamped ready before this column
+  // existed, and on any row not yet ready.
+  leadsLoaded                  Int?                       @map("leads_loaded")
   // How many times the async build handler has claimed this row (queued ->
   // building). The stale-building reaper uses this to stop retrying and
   // park the row `failed` instead of re-queuing it forever.
@@ -60,6 +66,7 @@ model PeerlyPhoneList {
   // excludedOptedOutCount, for ENG-10808's UI to read.
   excludedDuplicatePhoneCount Int                        @default(0) @map("excluded_duplicate_phone_count")
   recipients                  PeerlyPhoneListRecipient[]
+  p2pSmsSettlements           OutreachP2pSms[]
 
   @@map("peerly_phone_list")
 }

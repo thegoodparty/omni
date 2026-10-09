@@ -7,10 +7,7 @@ import {
   useDoorKnockingOfficeName,
   useDoorKnockingServeMode,
 } from './doorKnockingSurface'
-import {
-  composeTalkingPointsBullets,
-  parseTalkingPoints,
-} from './talkingPointsCard'
+import { readTalkingPoints, type TalkingPoint } from './talkingPointsCard'
 import { useOrganizationRole } from '@shared/organization-picker'
 import {
   buildIntro,
@@ -26,9 +23,10 @@ export interface DoorScriptCard {
   // The candidate's own issue stances, from the campaign issues editor. The
   // fallback card, for a list frozen before the wizard had a points step.
   issues: ScriptIssue[]
-  // The stored card's bullets. Non-empty and `issues` empty, or the reverse —
-  // never both, because two lists of advice at one door is neither.
-  points: string[]
+  // The stored card's lines, closed by the departure note. Non-empty and
+  // `issues` empty, or the reverse, never both: two lists of advice at one
+  // door is neither.
+  points: TalkingPoint[]
 }
 
 // The campaign and the surface are read here rather than prop-drilled through
@@ -64,11 +62,9 @@ export const useDoorScript = (
   const role = useOrganizationRole()
   const campaignId = campaign?.id
 
-  // Null for a list with no stored card, and for a stored value this version
-  // cannot read — both mean "fall back to the static build", which is what
-  // every list created before this shipped needs.
-  const lines = parseTalkingPoints(storedPoints)
-  const points = lines ? composeTalkingPointsBullets(lines) : []
+  // Null for a list with no stored card, which means "fall back to the static
+  // build": what every list created before the points step needs.
+  const points = readTalkingPoints(storedPoints) ?? []
 
   const positionsQuery = useQuery({
     queryKey: ['campaign-positions', campaignId],

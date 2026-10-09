@@ -259,9 +259,10 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       communityInputQuestion,
       voterFileFilterId,
       trackerTaskId,
+      proposalKey,
     }) => {
-      // Named, not rest-spread: a proposal link is a Serve chat card's, and
-      // Win's create is strict, so a link field added later must not leak.
+      // Named, not rest-spread: Win's create is strict and takes a
+      // Campaign Manager card's key alone, never the rest of a Serve link.
       const { data } = await clientRequest('POST /v1/phone-banking/lists', {
         name,
         script,
@@ -270,6 +271,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
         communityInputQuestion,
         voterFileFilterId,
         trackerTaskId,
+        ...(proposalKey !== undefined && { proposalKey }),
       } as PhoneBankingCreate)
       return data
     },

@@ -32,8 +32,15 @@ export interface OrderSwapConfig {
   // Judging a pair in both orders is the only way to measure position bias,
   // and it costs a second judge call on every pair in the subsample.
   enabled: boolean
-  // Share of a case list judged twice. v0: 0.2, from the rubric doc.
+  // Share of a CHAT case list judged twice. v0: 0.2, from the rubric doc.
   fraction: number
+  // Share of a BACKGROUND case list judged twice. Every case, because a
+  // background case is a planted condition rather than a sample: one read of
+  // it is the whole evidence for that condition, and a judge call costs cents
+  // against a run's dollars. Every order flip on a bench reads as
+  // disagreement this way, rather than as one confident wrong call. Absent
+  // means `fraction`, which is what a hand-built config in a test gets.
+  backgroundFraction?: number
 }
 
 export interface BootstrapConfig {
@@ -161,6 +168,14 @@ export interface ShapeBudget {
   maxInFlight: number
 }
 
+// THE MOST ATTEMPTS A BACKGROUND CASE LIST MAY ASK FOR in its header. A list
+// sets its own because the agents differ by an order of magnitude in what a
+// run costs: three attempts of opportunities_and_challenges is about $10, of
+// race_opponent_actions about $36. Bounded here rather than per list, so a
+// header cannot quietly put a sweep past what the plan step priced; a list
+// asking for more is refused by name rather than clamped.
+export const MAX_LIST_ATTEMPTS_PER_CASE = 3
+
 export interface JudgeConfig {
   // Attempts per case per arm. v0: 3. Attempt i of one arm pairs with
   // attempt i of the other; judging all k x k pairs is not the plan.
@@ -214,6 +229,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   orderSwap: {
     enabled: true,
     fraction: 0.2,
+    backgroundFraction: 1,
   },
   bootstrap: {
     iterations: 2_000,

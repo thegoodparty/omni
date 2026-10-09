@@ -155,8 +155,9 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // compliance_setup is absent on purpose: it is blocked, so a case list would
 // be inputs for a sweep that must not run.
 //
-// All but race_opponent_summary are placeholder lists — see the `note` in
-// each file. As above, the coverage line counts a wired one separately.
+// All but race_opponent_summary and race_opponent_actions are placeholder
+// lists — see the `note` in each file. As above, the coverage line counts a
+// wired one separately.
 const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
   campaign_tracker_tasks: 'campaign_tracker_tasks.json',
   district_issue_pulse: 'district_issue_pulse.json',

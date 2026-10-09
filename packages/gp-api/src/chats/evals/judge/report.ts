@@ -1,4 +1,11 @@
 import {
+  oneOrderOnly,
+  ordersDisagree,
+  type ArmHandling,
+  type CaseHandling,
+  type HandlingClass,
+} from './handling'
+import {
   actualCostLines,
   formatTotal,
   type ActualCost,
@@ -12,11 +19,13 @@ import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
-import type {
-  AgentScore,
-  ControlReading,
-  DimensionScore,
-  ToolErrorCause,
+import {
+  controlPosition,
+  type AgentScore,
+  type ControlPosition,
+  type ControlReading,
+  type DimensionScore,
+  type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
 
@@ -207,6 +216,22 @@ const CONTROL_OUTCOMES: Readonly<Record<ControlReading['outcome'], string>> = {
   not_judged: 'never saw the pair',
 }
 
+// What the two orders together say, in words. Only the first two are a reading
+// of the judge: "the same slot" is a position preference, "the same call" is
+// the judge following the outputs.
+const CONTROL_POSITIONS: Readonly<Record<ControlPosition, string>> = {
+  sameCall: 'the same call in both orders',
+  sameSlot: 'picked the same slot in both orders, a position preference',
+  changed: 'changed its call between orders',
+  unread: 'no comparison of the two orders',
+}
+
+const orderText = (
+  one: Pick<ControlReading, 'outcome' | 'magnitude'>,
+): string =>
+  CONTROL_OUTCOMES[one.outcome] +
+  (one.magnitude === null ? '' : ` (${one.magnitude})`)
+
 // Its own block, after the verdict and outside every number in it. A control
 // is the zero reading: on an input built to show no difference, how often and
 // how strongly the judge calls one anyway. Read every other line against it.
@@ -219,6 +244,68 @@ const SCORED_ANYWAY: Readonly<
   baseUnread:
     "marked scored: false, but the base ref's case list could not be read, " +
     'so scored as ordinary cases',
+}
+
+// Fixed sentences: the report is public.
+const CONTRACT_NOTES: Readonly<
+  Record<NonNullable<AgentScore['outputContractNote']>, string>
+> = {
+  noRequired:
+    'Output contract not shown to the judge: the manifest requires no ' +
+    'top-level field.',
+  unread:
+    'Output contract not shown to the judge: the manifest could not be read.',
+  baseUnread:
+    "Output contract shown without comparison: the base ref's manifest " +
+    'could not be read, so a contract change in this PR would go unnoticed.',
+}
+
+const contractNoteLines = (score: AgentScore): string[] =>
+  score.outputContractNote === undefined
+    ? []
+    : [CONTRACT_NOTES[score.outputContractNote], '']
+
+const HANDLING_CLASSES: Readonly<Record<HandlingClass, string>> = {
+  bothHandled: 'both handled',
+  sharedFailure: 'shared failure',
+  regression: 'regression (the base handled it, the candidate did not)',
+  improvement: 'improvement (the candidate handled it, the base did not)',
+}
+
+const armText = (h: CaseHandling, arm: ArmHandling): string =>
+  [arm.primary, arm.swapped].filter((v) => v !== undefined).join(' / ') +
+  (ordersDisagree(arm) ? ' (orders disagree)' : '') +
+  (oneOrderOnly(h, arm) ? ' (one order only; the other was not graded)' : '')
+
+// Values and case ids only. The judge's quotes and locations are in the
+// private rulings file: they quote the agent's output, and this is public.
+const handlingLines = (score: AgentScore): string[] => {
+  const handling = score.handling?.cases ?? []
+  const notGraded = score.handling?.notGraded ?? 0
+  if (handling.length === 0 && notGraded === 0) return []
+  const count = (c: HandlingClass): number =>
+    handling.filter((h) => h.class === c).length
+  return [
+    `Condition handling: ${count('bothHandled')} both handled, ` +
+      `${count('sharedFailure')} shared failure(s), ${count('regression')} ` +
+      `regression(s), ${count('improvement')} improvement(s), over ` +
+      `${handling.length} case pair(s). Judged per run against each case's ` +
+      'handledWhen; partly, and a value that changes with the order, count ' +
+      'as not handled. Not part of the verdict above.',
+    ...(notGraded === 0
+      ? []
+      : [
+          `${notGraded} case pair(s) asked but not graded: the judge ` +
+            'returned no verdict, so nothing was read.',
+        ]),
+    ...handling.map(
+      (h) =>
+        `- ${h.caseId} attempt ${h.attempt}: base ${armText(h, h.base)}, ` +
+        `candidate ${armText(h, h.candidate)}: ` +
+        HANDLING_CLASSES[h.class],
+    ),
+    '',
+  ]
 }
 
 const controlLines = (score: AgentScore): string[] => {
@@ -234,14 +321,21 @@ const controlLines = (score: AgentScore): string[] => {
   const called = score.controls.filter(
     (c) => c.outcome === 'candidate' || c.outcome === 'base',
   ).length
+  const sameSlot = score.controls.filter(
+    (c) => controlPosition(c) === 'sameSlot',
+  ).length
   return [
     ...anyway,
     `Controls (not scored): the judge called a difference on ${called} ` +
-      `of ${score.controls.length} control pair(s).`,
+      `of ${score.controls.length} control pair(s), and picked the same ` +
+      `slot in both orders on ${sameSlot}.`,
     ...score.controls.map(
       (c) =>
-        `- ${c.caseId} attempt ${c.attempt}: ${CONTROL_OUTCOMES[c.outcome]}` +
-        (c.magnitude === null ? '' : ` (${c.magnitude})`),
+        `- ${c.caseId} attempt ${c.attempt}: ${orderText(c)}` +
+        (c.swapped === undefined
+          ? ''
+          : `; swapped: ${orderText(c.swapped)}; ` +
+            CONTROL_POSITIONS[controlPosition(c)]),
     ),
     '',
   ]
@@ -448,7 +542,9 @@ const agentSection = (
     lines.push('')
   }
 
+  lines.push(...handlingLines(score))
   lines.push(...controlLines(score))
+  lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))
   lines.push('')
   lines.push(exclusionLine(score))

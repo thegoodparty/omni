@@ -736,7 +736,19 @@ export class StripeService {
         : email
           ? { customer_email: email }
           : {}),
-      ...(email ? { payment_intent_data: { receipt_email: email } } : {}),
+      // receipt_email is unchanged; capture_method 'manual' is added only when
+      // the caller asked for a hold (Win SMS hold billing), so every other
+      // checkout keeps its immediate (automatic) capture byte-for-byte.
+      ...(email || payload.manualCapture
+        ? {
+            payment_intent_data: {
+              ...(email ? { receipt_email: email } : {}),
+              ...(payload.manualCapture
+                ? { capture_method: 'manual' as const }
+                : {}),
+            },
+          }
+        : {}),
       line_items: [
         {
           price_data: {

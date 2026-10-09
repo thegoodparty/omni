@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,6 +12,7 @@ import {
   Button,
   EmptyState,
   PlusIcon,
+  Separator,
 } from '@styleguide'
 import { useSheetControlsOffset, useSheetSnap } from '../useSheetSnap'
 import type { PolygonStats } from '../filterEngine'
@@ -18,6 +20,7 @@ import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
 import type { TeamOption } from '../useTeamOptions'
 import { DraftCounts } from './draftCounts'
 import { overStopCap } from './stopCap'
+import { SavedTurfCard } from './SavedTurfCard'
 import { TurfCard } from './TurfCard'
 
 interface TurfPanelProps {
@@ -37,12 +40,13 @@ interface TurfPanelProps {
   // right swatch before the third corner lands.
   drawColor: string
   draftStats: Map<string, PolygonStats>
-  // What the campaign's ALREADY-SAVED turfs are called, when this surface
-  // was entered to add turfs to one. A name has to be unique across the
-  // campaign and not merely across this drawing session, and those turfs
-  // have no card here to go red — so the collision is reported on the
-  // draft, which is the half the candidate can still change.
-  savedTurfNames: string[]
+  // The campaign's ALREADY-SAVED turfs, when this surface was entered to
+  // add turfs to one. Listed above the drafts as cards that cannot be
+  // deleted. Their names count too: a name has to be unique across the
+  // campaign and not merely across this drawing session, and those cards
+  // never go red — so the collision is reported on the draft, which is the
+  // half the candidate can still change.
+  savedTurfs: DoorKnockingTurf[]
   team: TeamOption[]
   onSelectDraft: (clientId: string) => void
   onStartNewTurf: () => void
@@ -60,6 +64,11 @@ interface TurfPanelProps {
   // Keep what this drawing session did, and hand back to the step. Never
   // blocked: a turf that cannot be saved is refused per card, below.
   onSave: () => void
+  // Adding turfs to a campaign, Save writes from here and the map stays up:
+  // `saving` while that runs, and why it failed when it did, so the
+  // candidate retries where they drew.
+  saving?: boolean
+  saveError?: string | null
   // Put the campaign's turfs back the way they were when the surface opened.
   onCancel: () => void
   // Whether that restore would change anything, so Cancel asks first only
@@ -129,7 +138,7 @@ export const TurfPanel = ({
   pendingAssigneeId,
   drawColor,
   draftStats,
-  savedTurfNames,
+  savedTurfs,
   team,
   onSelectDraft,
   onStartNewTurf,
@@ -139,6 +148,8 @@ export const TurfPanel = ({
   onRename,
   onAssign,
   onSave,
+  saving = false,
+  saveError = null,
   onCancel,
   dirty,
   onMapControlsOffsetChange,
@@ -160,9 +171,11 @@ export const TurfPanel = ({
   //
   // Only ever the FIRST turf. Reopening the surface on a campaign that
   // already holds turfs has nothing to introduce, and `Add turf` is the
-  // gesture for every one after.
+  // gesture for every one after. That includes a campaign entered from its
+  // drawer: its saved turfs are on the panel, so it is not empty.
+  const savedTurfNames = savedTurfs.map((turf) => turf.name)
   const [started, setStarted] = useState(drafts.length > 0)
-  const introducing = !started && drafts.length === 0
+  const introducing = !started && drafts.length === 0 && savedTurfs.length === 0
   // Deleting the last card hands the panel back to the empty state rather
   // than to a bare "Turfs" heading over nothing. The same press that got
   // here is the one that leaves: an emptied panel is in exactly the state
@@ -331,7 +344,9 @@ export const TurfPanel = ({
       </div>
 
       {showBody && (
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+        <div className="-mt-1 min-h-0 flex-1 overflow-y-auto px-5 pt-1 pb-4">
+          {/* `-mt-1 pt-1` is room for the open card's focus ring, which a
+              scroller clips at its top edge; the list does not move. */}
           {/* Before the first turf there is no list and no card to open —
               the one thing to do is move the map to the neighbourhood, and
               the panel says so rather than sitting empty beside a live
@@ -446,6 +461,22 @@ export const TurfPanel = ({
               )}
             </ul>
           )}
+          {/* The campaign's saved turfs, when this surface was entered from
+              its drawer to add more: under a rule, below the turfs of this
+              session, so what is being drawn now leads
+              and what the campaign already covers is there to draw beside. */}
+          {savedTurfs.length > 0 && (
+            <>
+              <Separator className="my-4" />
+              <ul className="flex flex-col gap-2">
+                {savedTurfs.map((turf) => (
+                  <li key={turf.id} className="block">
+                    <SavedTurfCard turf={turf} />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 
@@ -454,11 +485,24 @@ export const TurfPanel = ({
           and the map's own chrome is feedback on the gesture. Pinned outside
           the scroller so a long turf list never pushes them off, and outside
           the `showBody` gate so `peek` keeps them reachable. */}
-      <div className="flex shrink-0 gap-3 border-t border-border px-5 py-4">
+      {saveError && (
+        <p
+          role="alert"
+          className="shrink-0 border-t border-border px-5 pt-3 text-sm text-destructive"
+        >
+          {saveError}
+        </p>
+      )}
+      <div
+        className={`flex shrink-0 gap-3 px-5 py-4 ${
+          saveError ? '' : 'border-t border-border'
+        }`}
+      >
         <Button
           type="button"
           variant="ghost"
           className="flex-1"
+          disabled={saving}
           onClick={() => (dirty ? setDiscardOpen(true) : onCancel())}
         >
           Cancel
@@ -466,6 +510,8 @@ export const TurfPanel = ({
         <Button
           type="button"
           className="flex-1"
+          disabled={saving}
+          loading={saving}
           onClick={() => {
             // Refused rather than disabled. A dead Save button says a turf
             // is wrong without saying which one or why, and the answer is

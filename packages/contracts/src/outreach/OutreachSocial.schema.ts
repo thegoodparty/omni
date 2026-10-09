@@ -177,6 +177,8 @@ export const SocialSaveRequestSchema = z.object({
   // The campaign-plan task the flow was opened from. Stored on the outreach
   // so the task list can mark that task done.
   trackerTaskId: z.string().min(1).optional(),
+  // The Campaign Manager card this post was started from, key alone.
+  proposalKey: z.string().uuid().optional(),
 })
 export type SocialSaveRequest = z.infer<typeof SocialSaveRequestSchema>
 

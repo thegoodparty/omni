@@ -1138,6 +1138,8 @@ describe('judge.yml hands both arms one background budget', () => {
     admitted: 'JUDGE_BACKGROUND_ADMITTED',
     refused: 'JUDGE_BACKGROUND_REFUSED',
     arm_budget_ms: 'JUDGE_ARM_BUDGET_MS',
+    extra_cases: 'JUDGE_BACKGROUND_EXTRA_CASES',
+    agent_attempts: 'JUDGE_BACKGROUND_AGENT_ATTEMPTS',
   }
 
   it('covers every output the resolver writes', () => {
@@ -1646,11 +1648,11 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([900, 600, 4800])
+    expect(cents).toEqual([900, 900, 4900])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=63\.00$/m)
+    expect(result.outputs).toMatch(/^usd=67\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
@@ -1658,10 +1660,10 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
     expect(result.comment).toMatch(
-      row('race_opponent_summary', 'background', dollars(600)),
+      row('race_opponent_summary', 'background', dollars(900)),
     )
     expect(result.comment).toMatch(
-      row('self_research', 'background', `${dollars(4800)} \\(unmeasured\\)`),
+      row('self_research', 'background', `${dollars(4900)} \\(unmeasured\\)`),
     )
   })
 
@@ -1805,7 +1807,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       return agent === undefined ? -1 : estimateAgent(agent).cents
     }
     expect(worst('ordinance_flow')).toBe(3750)
-    expect(worst('self_research')).toBe(4800)
+    expect(worst('self_research')).toBe(4900)
     const result = runEstimate(
       'Universal Judge — plan (4 agents)\n\n' +
         '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
@@ -1815,7 +1817,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=123\.00$/m)
+    expect(result.outputs).toMatch(/^usd=124\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
     )
@@ -1824,7 +1826,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', '37\\.50'))
     expect(result.comment).toMatch(row('ordinance_flow', '37\\.50'))
-    expect(result.comment).toMatch(row('self_research', '48\\.00'))
+    expect(result.comment).toMatch(row('self_research', '49\\.00'))
   })
 })
 

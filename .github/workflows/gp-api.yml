@@ -203,13 +203,23 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # SWC emit only. `npm run build` also runs a full `tsc --noEmit`, which
+      # took ~80s of this job and changes nothing in dist/. The Checks job
+      # already type-checks the same commit and gates merge through Validate,
+      # so here it only delayed the preview. Contracts were built by
+      # setup-node-workspace above, so `npm run build`'s rebuild is skipped too.
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
-        run: npm run build -w ${{ env.WORKSPACE }}
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx nest build
 
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
         uses: docker/setup-buildx-action@v3
+        with:
+          # The runner is thrown away after the job; tearing the builder down
+          # cost 10-20s of post-job time for nothing.
+          cleanup: false
 
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
@@ -242,42 +252,66 @@ jobs:
           CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
           CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
 
-      # Pulumi reports success from its own resource spec, not from the task set
-      # actually running. A deploy that exhausts the 10m steady-state wait leaves
-      # the spec updated and — with deploymentCircuitBreaker.rollback false — the
-      # previous task still serving. The next `pulumi up` then finds nothing to
-      # change and exits 0 against a service that never rolled over. Without this
-      # step that mismatch stays invisible here and surfaces ~20m later as a
-      # gp-webapp "E2E Wait" failure blaming a deploy that reported green, which
-      # sends you re-running the one job that cannot fix it.
+      # This step, not Pulumi, is what waits for the rollout. The preview's ECS
+      # service does not wait for steady state (see service.ts): ECS marked a
+      # deployment complete ~40s after the new task was already serving, and
+      # that lag sat on every preview deploy. Polling the commit the preview
+      # reports is the direct signal anyway.
+      #
+      # It also catches the case Pulumi cannot. Pulumi compares its own resource
+      # spec, so after a rollout that never finished, the next `pulumi up` finds
+      # nothing to change and exits 0 against a service that never rolled over.
+      # Without this step that surfaces ~20m later as a gp-webapp "E2E Wait"
+      # failure blaming a deploy that reported green, which sends you
+      # re-running the one job that cannot fix it.
       - name: Verify the preview is serving this commit
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.sha }}
           SERVICE_URL: ${{ steps.pulumi.outputs.service_url }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
-          BASE="${SERVICE_URL:-https://pr-${{ github.event.number }}.preview.goodparty.org}"
+          BASE="${SERVICE_URL:-https://pr-${PR_NUMBER}.preview.goodparty.org}"
           BASE="${BASE%/}"
           echo "Confirming $BASE is serving $EXPECTED_SHA"
           got=""
-          for i in $(seq 1 18); do
+          # 10 minutes, the same budget Pulumi's steady-state wait had. A
+          # first deploy runs every migration and the full seed before the app
+          # starts, so it is the slow case.
+          deadline=$((SECONDS + 600))
+          i=0
+          while [ $SECONDS -lt $deadline ]; do
+            i=$((i + 1))
             # --max-time keeps a hung container (accepted TCP, no response) from
             # parking the runner: `|| true` only catches non-zero exits, not a
             # curl that never returns, and this job sets no timeout-minutes.
             got="$(curl -fsS --max-time 8 "$BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
             if [ "$got" = "$EXPECTED_SHA" ]; then
-              echo "preview serving $EXPECTED_SHA"
+              echo "preview serving $EXPECTED_SHA after ${SECONDS}s"
               exit 0
             fi
-            echo "  attempt $i/18: serving ${got:-<unreachable>}"
-            sleep 10
+            # The deployment circuit breaker marks a crash-looping rollout
+            # FAILED; stop there rather than wait out the budget.
+            if [ $((i % 6)) -eq 0 ]; then
+              state="$(aws ecs describe-services \
+                --cluster "gp-pr-${PR_NUMBER}-fargateCluster" \
+                --services "gp-api-pr-${PR_NUMBER}" \
+                --query "services[0].deployments[?status=='PRIMARY'].rolloutState | [0]" \
+                --output text 2>/dev/null || true)"
+              if [ "$state" = "FAILED" ]; then
+                echo "::error::The gp-api preview's ECS rollout failed (circuit breaker): its new task keeps stopping. Check the task's logs in CloudWatch; push a fix to redeploy."
+                exit 1
+              fi
+            fi
+            echo "  attempt $i: serving ${got:-<unreachable>}"
+            sleep 5
           done
-          echo "Pulumi succeeded but the service never rolled over to this commit."
+          echo "The service never rolled over to this commit."
           echo "Re-running this job will not help: Pulumi compares its own resource"
-          echo "spec, which the timed-out attempt already updated, so it exits 0"
-          echo "without re-rolling. Push a commit — an empty one is enough — so the"
-          echo "image tag changes and ECS is given a genuinely new task definition."
-          echo "::error::gp-api preview is serving ${got:-nothing} but this run built $EXPECTED_SHA; ECS did not roll over. Re-running this job is a no-op — push a commit to force a new image tag and a fresh rollout."
+          echo "spec, which this run already updated, so it exits 0 without"
+          echo "re-rolling. Push a commit (an empty one is enough) so the image tag"
+          echo "changes and ECS is given a genuinely new task definition."
+          echo "::error::gp-api preview is serving ${got:-nothing} but this run built $EXPECTED_SHA; ECS did not roll over. Re-running this job is a no-op. Push a commit to force a new image tag and a fresh rollout."
           exit 1
 
       - name: Add preview summary

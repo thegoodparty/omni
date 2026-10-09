@@ -7,17 +7,14 @@ import {
 // Talking points for a door-knocking list: what the canvasser says, written
 // once for the whole list rather than per person at the door.
 //
-// Modelled on PhoneBankingScript.schema.ts, with three deliberate differences.
+// Modelled on PhoneBankingScript.schema.ts, with one deliberate difference:
+// no `tone`. These are notes a canvasser glances at and puts in their own
+// words, so there is no prose voice to select.
 //
-// No `tone`. Phone banking's output is a word-for-word script and a tone
-// selector changes its voice; these are notes a canvasser glances at and puts
-// in their own words, so there is no prose voice to select.
-//
-// The response is three named fields rather than one `draft` string. The card
-// has five sections (see docs/features/door-knocking-talking-points.md, from
-// product's Door Knocking Script template) and the model writes only three of
-// them — naming each means it cannot merge or reorder them, and each is
-// separately assertable in a test.
+// The talking points are free text, the candidate's to shape. A fresh draft
+// is 4 or 5 bullets, each line starting with DOOR_KNOCKING_BULLET; an Improve
+// keeps whatever shape the candidate wrote. The walk shows bullet lines as
+// bullets and any other line as written (docs/features/door-knocking-talking-points.md).
 //
 // The REQUEST is not here. It carries the audience as an inline voter filter,
 // and that shape is `voterFilterBaseSchema` in gp-api, which contracts cannot
@@ -36,36 +33,21 @@ export type ServeDoorKnockingTalkingPointsPurpose = z.infer<
   typeof ServeDoorKnockingTalkingPointsPurposeSchema
 >
 
-// One line each, not a paragraph. Generous enough that a candidate's own edit
-// is never truncated, tight enough that the stored artifact stays a handful of
-// lines on a phone screen.
-export const DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH = 400
 export const DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH = 2000
 export const DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH = 500
 
-// The three sections the model writes, named.
-//
-// `engagementQuestion` closes the introduction the app composes — the light
-// question product's template asks for, so the opener invites a response
-// rather than starting a monologue. It is generated rather than a per-purpose
-// constant because the natural question needs data: "did you know early voting
-// has already started?" is a claim that varies by state, and hardcoding it
-// would put a falsehood in some canvassers' mouths at every door.
-//
-// The identity clause it follows stays composed, because that is where being
-// wrong means a volunteer claiming to be the candidate.
-//
-// The card's two remaining sections are neither generated nor sent back here.
-// The CTA is composed from `campaign.details.website`, real data a model that
-// phrases it could also invent; the closing is a constant, which is what the
-// template says it is.
+// What a fresh draft starts each line with. A line the candidate starts with
+// it reads as a bullet at the door; any other line reads as written.
+export const DOOR_KNOCKING_BULLET = '• '
+
 export const DoorKnockingTalkingPointsDraftResponseSchema = z.object({
-  engagementQuestion: z
-    .string()
-    .min(1)
-    .max(DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH),
-  context: z.string().min(1).max(DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH),
-  ask: z.string().min(1).max(DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH),
+  draft: z.string().min(1).max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH),
+  // Deploy compatibility only: a webapp tab from before free text reads the
+  // three sections it used to edit. Filled from the draft's lines; the current
+  // webapp never reads them. Delete once a release has settled.
+  engagementQuestion: z.string().optional(),
+  context: z.string().optional(),
+  ask: z.string().optional(),
 })
 export type DoorKnockingTalkingPointsDraftResponse = z.infer<
   typeof DoorKnockingTalkingPointsDraftResponseSchema

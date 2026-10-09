@@ -7,6 +7,7 @@ import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
+import type { ProductArea } from '../product-knowledge/productMap'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { localDay, todayLine } from '../services/todayLine'
@@ -19,7 +20,7 @@ import {
 import { CLARIFY_QUESTION_RULES } from '../chat-tools/askClarifyQuestion.tool'
 import {
   PICKED_OPTION_RULE,
-  WIN_TEXT_MESSAGE_RULES,
+  WIN_OUTREACH_MESSAGE_RULES,
 } from '../chat-tools/presentOutreachProposal.tool'
 
 export type { BallotStatus }
@@ -671,18 +672,19 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'the dimension you used instead. Never say a dimension is ' +
     'unavailable, and never offer one, without having called ' +
     'describe_filter_dimensions in this conversation.'
-  // Counting and the text card are open to a campaign without Pro; saving
-  // lists here, precincts and sending are not, and the card's own button is
-  // where the candidate meets that gate.
+  // Counting and the outreach card are open to a campaign without Pro;
+  // saving lists here, precincts and the paid channels are not, and the
+  // card's own button is where the candidate meets that gate.
   if (ctx.isPro === false) {
     return (
       readGuidance +
       ' This campaign does not have Pro. You can still count voters and ' +
-      'present a text, but saving lists here, seeing precincts and sending ' +
-      'the text need Pro. When they start a text from your card, it takes ' +
-      'them to the Pro upgrade, so say that once when you present it ' +
-      'rather than refusing to help. Do not describe what happens after ' +
-      'they upgrade, such as where the text gets built or saved.'
+      'present outreach, but saving lists here, seeing precincts, and ' +
+      'texting, phone banking and door knocking need Pro; a social post ' +
+      'does not. When they start one of those three from your card, it ' +
+      'takes them to the Pro upgrade, so say that once when you present ' +
+      'it rather than refusing to help. Do not describe what happens ' +
+      'after they upgrade, such as where the outreach gets built or saved.'
     )
   }
   if (!ctx.savedFilterToolsEnabled) return readGuidance
@@ -726,9 +728,10 @@ const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
           replyGoal: 'how voters feel about it',
           card: true,
         }),
-        '- Present the text with present_outreach_proposal once the message is final: the filter you counted with as audienceFilters, count as every voter it matched with a cell phone, a short listName, channel text, and the message. Do not save a list for it with crud_saved_filters: the list is saved when the candidate starts the text from the card. Only a text goes on a card here; describe phone banking, door knocking or a social post in your reply.',
+        '- Present outreach with present_outreach_proposal once the message is final: the filter you counted with as audienceFilters, count as every voter it matched (with a cell phone, for a text), a short listName, the channel, and the message. Do not save a list for it with crud_saved_filters: the list is saved when the candidate starts the outreach from the card.',
+        '- Pick ONE channel by who these voters are and how they can be reached. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the voters are a few blocks or one neighborhood, or when few of them have a phone on file. A social post when the message is for everyone who follows the campaign rather than a list.',
         PICKED_OPTION_RULE,
-        WIN_TEXT_MESSAGE_RULES,
+        WIN_OUTREACH_MESSAGE_RULES,
       ].join('\n')
     : null
 
@@ -874,6 +877,28 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
   ].join('\n\n')
 }
 
+// The candidate opens this chat from a dock on every page, so "here" and
+// "this page" are only answerable when the turn says where it was sent from.
+export const currentPageBlock = (area: ProductArea): string =>
+  [
+    'CURRENT PAGE (this message only):',
+    `- The candidate sent this from ${area.name} (${area.path}). ${area.does}`,
+    `- Read "here", "this page" and "this" as ${area.name}. Bring the page up only when it bears on what they asked; never open by naming it.`,
+  ].join('\n')
+
+const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
+  toolNames.includes('read_past_outreach')
+    ? [
+        "PAST OUTREACH (apply whenever the campaign's earlier sends bear on the answer):",
+        '- When the candidate asks how a send did, or before you propose outreach, call read_past_outreach and quote what came back: how many voters, how many replied, when it went. Never guess at a result you can read.',
+        ...(toolNames.includes('present_past_outreach')
+          ? [
+              '- When what came back last time is the point you are making, show those sends with present_past_outreach, with one line on why they matter. The card opens each send in Voter Outreach, so do not restate its numbers.',
+            ]
+          : []),
+      ].join('\n')
+    : null
+
 const clarifyQuestionBlock = (toolNames: readonly string[]): string | null =>
   toolNames.includes('ask_clarify_question')
     ? [
@@ -881,7 +906,7 @@ const clarifyQuestionBlock = (toolNames: readonly string[]): string | null =>
         ...CLARIFY_QUESTION_RULES,
         ...(toolNames.includes('present_outreach_proposal')
           ? [
-              '- When you recommend more than one text (a sequence, or texts to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per text, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
+              '- When you recommend more than one piece of outreach (a sequence of texts, a text and a call, or outreach to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
             ]
           : []),
       ].join('\n')
@@ -903,6 +928,7 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     outreachSamplingBlock(toolNames),
+    pastOutreachBlock(toolNames),
     clarifyQuestionBlock(toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,

@@ -108,10 +108,12 @@ const CreateDoorKnockingTurfFields = z.object({
     .min(1)
     .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
     .optional(),
-  // The generated talking points, frozen with the list.
+  // The talking points, drafted and then edited by the candidate, frozen with
+  // the list.
   //
-  // Plain text, one line per section, landing on the `Outreach.script`
-  // column that every other channel already uses for exactly this. Sent by
+  // Free text, where a line starting with DOOR_KNOCKING_BULLET is a bullet,
+  // landing on the `Outreach.script` column that every other channel already
+  // uses for exactly this. Sent by
   // the client rather than generated here because generation is a separate,
   // stateless draft endpoint — the create transaction already carries a paid
   // Geoapify round trip inside a 120-second window, and an LLM call has no
@@ -121,10 +123,12 @@ const CreateDoorKnockingTurfFields = z.object({
     .max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH)
     .optional(),
   // The Outreach id of an existing turf whose campaign this new turf
-  // should join — the "Add another turf" flow reads it back from the
+  // should join — the "Add turf" flow reads it back from the
   // sibling-list drawer and threads it through save. Omitted (or
   // absent from a legacy client) means the new turf is its own
   // campaign anchor, matching how a solo campaign already looks.
+  // When set, the server takes the audience, purpose, question and
+  // talking points from the campaign and ignores the ones sent here.
   campaignOutreachId: z.number().int().positive().optional(),
   // What the CAMPAIGN is called, as opposed to `name` above, which is what
   // this one turf is called. A campaign has no row of its own — it is the
@@ -175,10 +179,14 @@ const QUESTION_MESSAGE = {
   path: ['communityInputQuestion'],
 }
 
-export const CreateDoorKnockingTurfSchema =
-  CreateDoorKnockingTurfFields.strict()
-    .refine(walkSettingsTogether, WALK_SETTINGS_MESSAGE)
-    .refine(questionTravelsWithPurpose, QUESTION_MESSAGE)
+// Win takes the Campaign Manager card's key alone; its card puts out no
+// priority check. Like Serve's link, only a new campaign's anchor carries it.
+export const CreateDoorKnockingTurfSchema = CreateDoorKnockingTurfFields.extend(
+  { proposalKey: z.string().uuid().optional() },
+)
+  .strict()
+  .refine(walkSettingsTogether, WALK_SETTINGS_MESSAGE)
+  .refine(questionTravelsWithPurpose, QUESTION_MESSAGE)
 
 export type CreateDoorKnockingTurf = z.infer<
   typeof CreateDoorKnockingTurfSchema

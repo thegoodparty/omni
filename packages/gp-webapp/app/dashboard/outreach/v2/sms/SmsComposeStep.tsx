@@ -20,6 +20,7 @@ import {
   FilterPillGroup,
   IconButton,
   type ProtectedSpec,
+  seamlessFieldHost,
   TokenField,
   type TokenFieldRef,
   type TokenSpec,
@@ -264,7 +265,7 @@ export const SmsComposeStep = ({
           </Card>
         )}
 
-        <Card className="gap-0 p-4">
+        <Card className={cn('gap-0 p-4', seamlessFieldHost)}>
           {imagePreviewUrl ? (
             <div className="relative mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element -- local

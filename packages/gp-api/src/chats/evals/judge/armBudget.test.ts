@@ -10,11 +10,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENTS, findAgent, type AgentEntry } from './agents'
+import type { CaseList } from './cases'
+import { attemptsFor } from './sweepArm'
 import {
   BASE_BOUNDS_CHAT,
   BASE_CHAT_ATTEMPTS,
   BASE_HONOURS_ADMISSION,
+  BASE_READS_AGENT_ATTEMPTS,
   BASE_WALKS_CONCURRENTLY,
+  BASE_WALKS_EXTRA_CASES,
   baseWalksConcurrently,
   budgetOutputLines,
   resolveAdmission,
@@ -25,6 +29,7 @@ import {
 } from './armBudget'
 import {
   DEFAULT_JUDGE_CONFIG,
+  MAX_LIST_ATTEMPTS_PER_CASE,
   type JudgeConfig,
   type ShapeBudget,
 } from './config'
@@ -36,6 +41,7 @@ import {
   capturableAgents,
   chatBudgetMs,
   chatTurnMsFor,
+  walkedCases,
 } from './runners/backgroundDispatch'
 import { SWEEP_VALUES } from './fixtures/sweep'
 import {
@@ -207,6 +213,8 @@ const intoArmEnv = (outputs: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
     JUDGE_BACKGROUND_ADMITTED: outputs.admitted,
     JUDGE_BACKGROUND_REFUSED: outputs.refused,
     JUDGE_ARM_BUDGET_MS: outputs.arm_budget_ms,
+    JUDGE_BACKGROUND_EXTRA_CASES: outputs.extra_cases,
+    JUDGE_BACKGROUND_AGENT_ATTEMPTS: outputs.agent_attempts,
   })
 
 // The slots are the arm's own and never travel, so every fixture carries the
@@ -235,6 +243,115 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
       maxInFlight: DEFAULT_JUDGE_CONFIG.background.maxInFlight,
     })
     expect([...(arm.backgroundAdmitted ?? [])]).toEqual(admitted)
+  })
+
+  // CONTROLS PAST THE CAP reach both arms as the resolver named them, and an
+  // arm then walks them after the capped cases, in list order.
+  it('carries the extra control cases through intact', () => {
+    const arm = parseArmEnv(
+      intoArmEnv(
+        PARSE(
+          budgetOutputLines(
+            configWith({ attemptsPerCase: 1, maxCases: 3 }),
+            ['race_opponent_summary'],
+            [],
+            ARM_BUDGET_MS,
+            new Map([['race_opponent_summary', ['control']]]),
+          ),
+        ),
+      ),
+    )
+    expect(arm.backgroundExtraCases?.get('race_opponent_summary')).toEqual([
+      'control',
+    ])
+  })
+
+  // A LIST'S OWN ATTEMPTS reach both arms as the resolver named them.
+  it('carries the per-agent attempts through intact', () => {
+    const arm = parseArmEnv(
+      intoArmEnv(
+        PARSE(
+          budgetOutputLines(
+            configWith({ attemptsPerCase: 1, maxCases: 3 }),
+            ['race_opponent_summary'],
+            [],
+            ARM_BUDGET_MS,
+            new Map(),
+            new Map([['race_opponent_summary', 3]]),
+          ),
+        ),
+      ),
+    )
+    expect(arm.backgroundAgentAttempts?.get('race_opponent_summary')).toBe(3)
+  })
+
+  // THE ARM WALKS WHAT IT WAS TOLD: Melecia's control sits ninth in a list
+  // capped at three, so without the named extra it is never run.
+  it('walks a named control past the cap, after the capped cases', () => {
+    const arm = parseArmEnv(
+      intoArmEnv(
+        PARSE(
+          budgetOutputLines(
+            configWith({ attemptsPerCase: 1, maxCases: 3 }),
+            ['race_opponent_summary'],
+            [],
+            ARM_BUDGET_MS,
+            new Map([['race_opponent_summary', ['control']]]),
+          ),
+        ),
+      ),
+    )
+    const agent = findAgent('race_opponent_summary')
+    if (agent === undefined) throw new Error('not registered')
+    const { loadCases } = armDeps(arm, armConfigFor(arm))
+    const ids = loadCases(agent).cases.map((one) => one.caseId)
+    expect(ids).toHaveLength(4)
+    expect(ids.at(-1)).toBe('control')
+  })
+
+  // AN OLD BASE, end to end: its arm does not read the extras, so the
+  // resolver names none, and what reaches the arms says none.
+  it('hands both arms no extras against a base that cannot walk them', () => {
+    const agent: AgentEntry = {
+      agentId: 'a',
+      shape: 'background',
+      cases: 'a.json',
+      status: 'wired',
+    }
+    const withControl = () => ({
+      runs: 1,
+      runMs: 60_000,
+      caseIds: ['a-c1'],
+      controlIds: ['control'],
+    })
+    const resolved = resolveAdmission(
+      ['a'],
+      '/base',
+      DEFAULT_JUDGE_CONFIG,
+      [agent],
+      {
+        candidate: withControl,
+        base: withControl,
+        honoursAdmission: () => true,
+        walksConcurrently: () => true,
+        walksExtraCases: () => false,
+      },
+    )
+    expect(resolved.admitted).toEqual(['a'])
+    const arm = parseArmEnv(
+      intoArmEnv(
+        PARSE(
+          budgetOutputLines(
+            configWith({ attemptsPerCase: 1, maxCases: 1 }),
+            resolved.admitted,
+            resolved.refused,
+            ARM_BUDGET_MS,
+            resolved.extraCases,
+          ),
+        ),
+      ),
+    )
+    expect(arm.backgroundExtraCases?.size).toBe(0)
   })
 
   // A REASON CAN SAY ANYTHING — a zod message is several lines, and a reason
@@ -342,6 +459,67 @@ describe('the probe for whether the base arm reads the admitted list', () => {
     ],
   ])('does not mistake %s for an arm that reads it', (_label, text) => {
     expect(BASE_HONOURS_ADMISSION.test(text)).toBe(false)
+  })
+})
+
+describe('the probe for whether the base arm walks extra control cases', () => {
+  it('finds the schema key in this branch', () => {
+    expect(
+      BASE_WALKS_EXTRA_CASES.test(
+        readFileSync(join(__dirname, 'sweepEnv.ts'), 'utf8'),
+      ),
+    ).toBe(true)
+  })
+
+  it.each([
+    ['an old arm schema with other JUDGE_ keys', OLD_ARM_SCHEMA],
+    ['the name in a comment', '  // JUDGE_BACKGROUND_EXTRA_CASES\n'],
+    ['the name as a string', "    'JUDGE_BACKGROUND_EXTRA_CASES',\n"],
+  ])('does not mistake %s for an arm that reads it', (_label, text) => {
+    expect(BASE_WALKS_EXTRA_CASES.test(text)).toBe(false)
+  })
+})
+
+describe("the probe for whether the base arm reads a list's own attempts", () => {
+  it('finds the schema key in this branch', () => {
+    expect(
+      BASE_READS_AGENT_ATTEMPTS.test(
+        readFileSync(join(__dirname, 'sweepEnv.ts'), 'utf8'),
+      ),
+    ).toBe(true)
+  })
+
+  it.each([
+    ['an old arm schema with other JUDGE_ keys', OLD_ARM_SCHEMA],
+    ['the name in a comment', '  // JUDGE_BACKGROUND_AGENT_ATTEMPTS\n'],
+    ['the name as a string', "    'JUDGE_BACKGROUND_AGENT_ATTEMPTS',\n"],
+  ])('does not mistake %s for an arm that reads it', (_label, text) => {
+    expect(BASE_READS_AGENT_ATTEMPTS.test(text)).toBe(false)
+  })
+})
+
+describe('the cases an arm walks', () => {
+  const list = ['t1', 't2', 't3', 't4', 'control', 't5'].map((caseId) => ({
+    caseId,
+  }))
+  const ids = (cases: readonly { caseId: string }[]) =>
+    cases.map((one) => one.caseId)
+
+  it('takes the first cases, then the named controls, in list order', () => {
+    expect(ids(walkedCases(list, 3, ['control']))).toEqual([
+      't1',
+      't2',
+      't3',
+      'control',
+    ])
+  })
+
+  it('does not walk a named case twice when the cap already took it', () => {
+    expect(ids(walkedCases(list, 3, ['t2']))).toEqual(['t1', 't2', 't3'])
+  })
+
+  it('takes the first cases alone when none are named', () => {
+    expect(ids(walkedCases(list, 3))).toEqual(['t1', 't2', 't3'])
   })
 })
 
@@ -651,6 +829,126 @@ describe('resolveAdmission', () => {
     }
   })
 
+  // CONTROLS PAST THE CAP: walked by both arms only when both lists hold
+  // them out and the base arm reads the decision, and priced into the runs.
+  describe('control cases past the cap', () => {
+    const withControls = (controlIds: string[]) => (one: AgentEntry) => ({
+      ...walk(minutes(10), 1, [`${one.agentId}-c1`]),
+      controlIds,
+    })
+    const resolve = (
+      candidate: string[],
+      base: string[],
+      walksExtraCases = true,
+    ) =>
+      resolveAdmission(['a'], '/base', DEFAULT_JUDGE_CONFIG, registry, {
+        candidate: withControls(candidate),
+        base: (_dir, one) => withControls(base)(one),
+        honoursAdmission: () => true,
+        walksConcurrently: () => true,
+        walksExtraCases: () => walksExtraCases,
+      })
+
+    it('names a control both lists hold out', () => {
+      expect(resolve(['control'], ['control']).extraCases.get('a')).toEqual([
+        'control',
+      ])
+    })
+
+    it('names none that only this branch holds out', () => {
+      expect(resolve(['control'], []).extraCases.size).toBe(0)
+    })
+
+    it('names none when the base arm would not walk them', () => {
+      expect(resolve(['control'], ['control'], false).extraCases.size).toBe(0)
+    })
+
+    // Priced into the wave: one run for the capped case and one for the
+    // control, against slots for one, refuses the agent rather than putting
+    // a run in flight that the slots never counted.
+    it('counts a control run against the slots', () => {
+      const result = resolveAdmission(
+        ['a'],
+        '/base',
+        {
+          ...DEFAULT_JUDGE_CONFIG,
+          background: { attemptsPerCase: 1, maxCases: 1, maxInFlight: 1 },
+        },
+        registry,
+        {
+          candidate: withControls(['control']),
+          base: (_dir, one) => withControls(['control'])(one),
+          honoursAdmission: () => true,
+          walksConcurrently: () => true,
+          walksExtraCases: () => true,
+        },
+      )
+      expect(result.admitted).toEqual([])
+      expect(result.extraCases.size).toBe(0)
+    })
+  })
+
+  // A LIST'S OWN ATTEMPTS, decided here from this branch's list and named to
+  // both arms, so neither arm reads its own list's count on a sweep.
+  describe("a list's own attempts", () => {
+    const resolve = (
+      listAttempts: number | undefined,
+      readsAgentAttempts = true,
+      maxInFlight = 12,
+    ) =>
+      resolveAdmission(
+        ['a'],
+        '/base',
+        {
+          ...DEFAULT_JUDGE_CONFIG,
+          background: { attemptsPerCase: 1, maxCases: 3, maxInFlight },
+        },
+        registry,
+        {
+          candidate: (one) => walk(minutes(10), 1, [`${one.agentId}-c1`]),
+          base: (_dir, one) => walk(minutes(10), 1, [`${one.agentId}-c1`]),
+          honoursAdmission: () => true,
+          walksConcurrently: () => true,
+          readsAgentAttempts: () => readsAgentAttempts,
+          listAttempts: () => listAttempts,
+        },
+      )
+
+    it('names the count the list asks for', () => {
+      expect(resolve(3).agentAttempts.get('a')).toBe(3)
+    })
+
+    it('names nothing for a list that sets none', () => {
+      expect(resolve(undefined).agentAttempts.size).toBe(0)
+    })
+
+    // An older base arm walks every agent at the sweep default, so naming a
+    // count to one arm only would pair three runs with one.
+    it('names nothing when the base arm would not read it', () => {
+      expect(resolve(3, false).agentAttempts.size).toBe(0)
+    })
+
+    // Priced into the wave: three attempts of one case against two slots.
+    it('counts every attempt against the slots', () => {
+      const result = resolve(3, true, 2)
+      expect(result.admitted).toEqual([])
+      expect(result.agentAttempts.size).toBe(0)
+    })
+
+    it('hands both arms the count as one output line', () => {
+      expect(
+        budgetOutputLines(
+          DEFAULT_JUDGE_CONFIG,
+          ['a'],
+          [],
+          ARM_BUDGET_MS,
+          new Map(),
+          new Map([['a', 3]]),
+        ),
+      ).toContain('agent_attempts={"a":3}\n')
+    })
+  })
+
   // ATTEMPTS ON THE BASE SIDE. At 1 attempt, dropping attempts from the base
   // cost changed nothing; at 2 it is the whole difference between 45 minutes
   // that fit and 90 that do not.
@@ -937,11 +1235,111 @@ describe('reading the budget an arm was handed', () => {
     'JUDGE_BACKGROUND_MAX_CASES',
     'JUDGE_BACKGROUND_ADMITTED',
     'JUDGE_BACKGROUND_REFUSED',
+    'JUDGE_BACKGROUND_EXTRA_CASES',
+    'JUDGE_BACKGROUND_AGENT_ATTEMPTS',
     'JUDGE_ARM_BUDGET_MS',
   ])('refuses %s with no attempts', (name) => {
     expect(() => parseArmEnv(armEnvFor({ [name]: '3' }))).toThrow(
       /half a budget/,
     )
+  })
+
+  // Blank or absent is "no extras", the way a blank admitted list is read
+  // under the budget's switch, never an error: every sweep before a list had
+  // a control past the cap writes `extra_cases={}` or nothing.
+  it.each<[string, Record<string, string>]>([
+    ['absent', {}],
+    ['blank', { JUDGE_BACKGROUND_EXTRA_CASES: '' }],
+    ['an empty object', { JUDGE_BACKGROUND_EXTRA_CASES: '{}' }],
+  ])('reads %s extras as none', (_label, extra) => {
+    const arm = parseArmEnv(
+      armEnvFor({ JUDGE_BACKGROUND_ATTEMPTS: '1', ...extra }),
+    )
+    expect(arm.backgroundExtraCases?.size).toBe(0)
+  })
+
+  // An extra-cases list that is not what the resolver writes is refused, not
+  // read as "none": an arm that walked no control while the other walked one
+  // would pay for a run that pairs with nothing.
+  it.each(['not json', '["a"]', '{"a":"control"}', '{"a":[1]}', 'null'])(
+    'refuses %j as an extra-cases list',
+    (raw) => {
+      expect(() =>
+        parseArmEnv(
+          armEnvFor({
+            JUDGE_BACKGROUND_ATTEMPTS: '1',
+            JUDGE_BACKGROUND_EXTRA_CASES: raw,
+          }),
+        ),
+      ).toThrow(SweepEnvError)
+    },
+  )
+
+  it.each<[string, Record<string, string>]>([
+    ['absent', {}],
+    ['blank', { JUDGE_BACKGROUND_AGENT_ATTEMPTS: '' }],
+    ['an empty object', { JUDGE_BACKGROUND_AGENT_ATTEMPTS: '{}' }],
+  ])('reads %s per-agent attempts as none', (_label, extra) => {
+    const arm = parseArmEnv(
+      armEnvFor({ JUDGE_BACKGROUND_ATTEMPTS: '1', ...extra }),
+    )
+    expect(arm.backgroundAgentAttempts?.size).toBe(0)
+  })
+
+  // ON A SWEEP the arm walks the count both arms were handed, never its own
+  // list's, which on the base arm is the base ref's list. On a local run,
+  // where nothing was handed over, the list's own count stands.
+  it("walks the handed count on a sweep and the list's own locally", () => {
+    const summary = findAgent('race_opponent_summary')
+    if (summary === undefined) throw new Error('not in the registry')
+    const list: CaseList = {
+      agentId: 'race_opponent_summary',
+      shape: 'background',
+      placeholder: false,
+      attemptsPerCase: 2,
+      cases: [],
+      source: 'race_opponent_summary.json',
+    }
+    const sweep = parseArmEnv(
+      armEnvFor({
+        JUDGE_BACKGROUND_ATTEMPTS: '1',
+        JUDGE_BACKGROUND_AGENT_ATTEMPTS: '{"race_opponent_summary":3}',
+      }),
+    )
+    expect(attemptsFor(summary, DEFAULT_JUDGE_CONFIG, sweep, list)).toBe(3)
+    const unnamed = parseArmEnv(armEnvFor({ JUDGE_BACKGROUND_ATTEMPTS: '1' }))
+    expect(attemptsFor(summary, DEFAULT_JUDGE_CONFIG, unnamed, list)).toBe(1)
+    const local = parseArmEnv(armEnvFor())
+    expect(attemptsFor(summary, DEFAULT_JUDGE_CONFIG, local, list)).toBe(2)
+  })
+
+  it('reads the per-agent attempts the resolver wrote', () => {
+    const arm = parseArmEnv(
+      armEnvFor({
+        JUDGE_BACKGROUND_ATTEMPTS: '1',
+        JUDGE_BACKGROUND_AGENT_ATTEMPTS: '{"race_opponent_summary":3}',
+      }),
+    )
+    expect(arm.backgroundAgentAttempts?.get('race_opponent_summary')).toBe(3)
+  })
+
+  // Over the ceiling, fractional or not a count: refused, never walked at a
+  // number the plan did not price.
+  it.each([
+    'not json',
+    '{"a":0}',
+    '{"a":1.5}',
+    '{"a":"3"}',
+    `{"a":${MAX_LIST_ATTEMPTS_PER_CASE + 1}}`,
+  ])('refuses %j as per-agent attempts', (raw) => {
+    expect(() =>
+      parseArmEnv(
+        armEnvFor({
+          JUDGE_BACKGROUND_ATTEMPTS: '1',
+          JUDGE_BACKGROUND_AGENT_ATTEMPTS: raw,
+        }),
+      ),
+    ).toThrow(SweepEnvError)
   })
 
   // A refusal list that is not what the resolver writes is refused, not read

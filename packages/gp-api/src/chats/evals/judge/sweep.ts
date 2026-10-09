@@ -18,6 +18,12 @@ import {
   type JudgeSpend,
 } from './actualCost'
 import { AGENTS, type AgentEntry } from './agents'
+import {
+  contractFor,
+  readOutputContracts,
+  withOutputContract,
+  type ContractRead,
+} from './outputContract'
 import { armGap, windowOf } from './armGap'
 import { createRng } from './bootstrap'
 import {
@@ -108,6 +114,10 @@ export interface JudgingDeps {
   baseControls?: (agent: AgentEntry) => ReadonlySet<string> | null
   // The plan job's estimate, printed beside what was actually spent.
   estimateUsd?: string
+  // A background agent's required output fields, from this checkout's
+  // manifest and the base ref's. Injected so a test need not stand a manifest
+  // on disk.
+  outputContract?: (agent: AgentEntry) => ContractRead
 }
 
 // Only a background list carries either field, so a chat agent costs no read.
@@ -295,6 +305,9 @@ export const judgeSweep = async (
   const registry = deps.registry ?? AGENTS
   const loadCases = deps.loadCases ?? loadCaseList
   const caseJudging = deps.caseJudging ?? readCaseJudging
+  const outputContract =
+    deps.outputContract ??
+    ((agent: AgentEntry) => readOutputContracts(agent.agentId, env.baseDir))
   const baseControls =
     deps.baseControls ??
     ((agent: AgentEntry) => readBaseControls(env.baseDir, agent))
@@ -430,6 +443,12 @@ export const judgeSweep = async (
       candidateControls.size === 0 ? new Set() : baseControls(entry),
     )
     const unscoredCaseIds = controls.unscored
+    // Never a refusal: an agent whose manifest names no contract is judged
+    // without the line, and the report says so.
+    const contract =
+      entry.shape === 'background'
+        ? contractFor(outputContract(entry))
+        : { lines: null }
 
     try {
       // Refuses two arms that hashed to the same config unless the request
@@ -437,7 +456,13 @@ export const judgeSweep = async (
       // nothing to compare and a sweep would have spent money proving two
       // identical things identical.
       const normalized = withCaseDimensions(
-        withConditions(normalizeAgent(forAgent, rng, config, options), judging),
+        withConditions(
+          withOutputContract(
+            normalizeAgent(forAgent, rng, config, options),
+            contract.lines,
+          ),
+          judging,
+        ),
         caseDimensionsByCase(entry, loadCases),
       )
       if (normalized.identicalConfig !== null) {
@@ -465,7 +490,12 @@ export const judgeSweep = async (
       const before = meter.snapshot()
       let judgments
       try {
-        judgments = await judgeAll(meter.llm, normalized.judgeable, config)
+        judgments = await judgeAll(
+          meter.llm,
+          normalized.judgeable,
+          config,
+          unscoredCaseIds,
+        )
       } finally {
         judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
       }
@@ -500,10 +530,21 @@ export const judgeSweep = async (
         })
         continue
       }
+      const { handling, ...scored } = scoreAgent(
+        { normalized, judgments, unscoredCaseIds },
+        config,
+      )
       scores.push({
-        ...scoreAgent({ normalized, judgments, unscoredCaseIds }, config),
+        ...scored,
+        // Dropped when no model was called: the canned judge answers `no`
+        // for every run, and a section of shared failures nobody judged
+        // would read as a finding.
+        ...(env.spends && handling !== undefined && { handling }),
         ...(controls.scoredAnyway !== undefined && {
           controlsScoredAnyway: controls.scoredAnyway,
+        }),
+        ...(contract.note !== undefined && {
+          outputContractNote: contract.note,
         }),
       })
     } catch (err) {
@@ -734,6 +775,13 @@ export const cannedVerdict = (
   overall: { reasoning: CANNED_REASONING, verdict: 'cannot_determine' },
 })
 
+// Whether the panel schema asks the per-run `handled` question, which it
+// does exactly when the case carries a handling sentence.
+const asksHandled = (schema: z.ZodType): boolean => {
+  const wire = schema instanceof z.ZodPipe ? schema.in : schema
+  return wire instanceof z.ZodObject && 'handled' in wire.shape
+}
+
 // The dimension keys a panel schema requires, read off the schema itself: the
 // canned judge is handed nothing else, and a case with its own dimensions
 // requires keys the config does not name.
@@ -756,8 +804,15 @@ export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   // judgment — which reads as a broken judge and is how the first version of
   // this got every case wrong while still printing a report.
   jsonCompletion: async ({ schema }) => ({
+    // `no` for both runs because nothing read either one; the report under a
+    // canned judge already says no model was called.
     object: schema.parse(
-      toWireVerdict(cannedVerdict(config, requiredDimensions(schema, config))),
+      toWireVerdict({
+        ...cannedVerdict(config, requiredDimensions(schema, config)),
+        ...(asksHandled(schema) && {
+          handled: { X: 'no' as const, Y: 'no' as const },
+        }),
+      }),
     ),
     tokens: 0,
     model: 'canned-judge',

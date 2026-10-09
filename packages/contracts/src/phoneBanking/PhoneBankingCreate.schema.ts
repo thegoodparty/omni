@@ -76,6 +76,9 @@ export const PhoneBankingCreateSchema = z
     // The campaign-plan task the flow was opened from. Stored on the list's
     // outreach so the task list can mark that task done.
     trackerTaskId: z.string().min(1).optional(),
+    // The Campaign Manager card this list was started from. Win carries the
+    // key alone: its card puts out no priority check.
+    proposalKey: z.string().uuid().optional(),
   })
   .strict()
   .refine(questionMatchesPurpose.check, questionMatchesPurpose.params)

@@ -645,7 +645,8 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).toContain('never work out a sample or a cost yourself')
     expect(prompt).toContain('On the card, count stays the whole audience')
-    expect(prompt).toContain('Present the text with present_outreach_proposal')
+    expect(prompt).toContain('Present outreach with present_outreach_proposal')
+    expect(prompt).toContain('I am calling for Renee, candidate for')
     expect(prompt).toContain(
       'Do not save a list for it with crud_saved_filters',
     )
@@ -656,10 +657,28 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const block = prompt
       .slice(prompt.indexOf('SAMPLING RULES'))
       .split('\n\n')[0]
-    expect(block).toContain('WHAT THE TEXT NEEDS')
+    expect(block).toContain('WHAT EACH CHANNEL NEEDS')
     expect(block).not.toContain('constituent')
     expect(block).not.toContain('official')
     expect(block).not.toContain('{{first_name}}')
+  })
+
+  it('reads past sends only where the tool is registered', () => {
+    const base = ctx({})
+    expect(buildCampaignManagerSystemPrompt(base)).not.toContain(
+      'PAST OUTREACH',
+    )
+    const withRead = buildCampaignManagerSystemPrompt(base, [
+      'read_past_outreach',
+    ])
+    expect(withRead).toContain('PAST OUTREACH')
+    expect(withRead).not.toContain('present_past_outreach')
+    expect(
+      buildCampaignManagerSystemPrompt(base, [
+        'read_past_outreach',
+        'present_past_outreach',
+      ]),
+    ).toContain('present_past_outreach')
   })
 
   it('asks choices as a card only where the clarify tool is registered', () => {
@@ -673,14 +692,16 @@ describe('buildCampaignManagerSystemPrompt', () => {
     ])
     expect(withClarify).toContain('QUESTIONS')
     expect(withClarify).toContain('never as a list in prose')
-    expect(withClarify).not.toContain('When you recommend more than one text')
+    expect(withClarify).not.toContain(
+      'When you recommend more than one piece of outreach',
+    )
 
     expect(
       buildCampaignManagerSystemPrompt(base, [
         'ask_clarify_question',
         'present_outreach_proposal',
       ]),
-    ).toContain('When you recommend more than one text')
+    ).toContain('When you recommend more than one piece of outreach')
   })
 
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {

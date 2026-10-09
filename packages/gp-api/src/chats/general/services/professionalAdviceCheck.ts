@@ -12,8 +12,12 @@ export const PROFESSIONAL_ADVICE_DISCLAIMER =
 
 // The exact failure from the CoS eval qual review: statute citations,
 // explicit legal/criminal liability, and formal-complaint filing language.
+// Exported on its own so a chat whose ordinary replies quote section numbers
+// can leave it out by identity rather than by matching the pattern's text.
+export const SECTION_MARK_SIGNAL = /§/
+
 export const ADVICE_SIGNALS: RegExp[] = [
-  /§/,
+  SECTION_MARK_SIGNAL,
   /\bRCW\b/,
   /\bU\.S\.C\./,
   /\bStat\./,

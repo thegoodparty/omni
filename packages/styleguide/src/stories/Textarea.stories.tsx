@@ -1,8 +1,9 @@
 import * as React from 'react'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { Textarea } from '../components/ui/textarea'
+import { Textarea, seamlessFieldHost } from '../components/ui/textarea'
 import { Label } from '../components/ui/label'
 import { Card } from '../components/ui/card'
+import { cn } from '../lib/utils'
 
 const meta: Meta<typeof Textarea> = {
   title: 'Components/Textarea',
@@ -31,7 +32,7 @@ export const Playground: Story = {
       control: 'inline-radio',
       options: ['default', 'seamless'],
       description:
-        'Seamless drops the border and padding so the field sits inside a card, and keeps the focus ring.',
+        'Seamless drops the border and padding so the field sits inside a card; the card takes seamlessFieldHost and draws the focus ring.',
     },
     disabled: { control: 'boolean' },
     rows: { control: { type: 'number', min: 1, max: 20, step: 1 } },
@@ -48,11 +49,11 @@ export const Playground: Story = {
 }
 
 // The outreach composers' field: the card is the visible boundary, so the
-// field has none of its own. Tab into it to see the focus ring it keeps.
+// field has none of its own. Tab into it to see the card take the focus ring.
 export const Seamless: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
-    <Card className="w-full max-w-md p-4">
+    <Card className={cn('w-full max-w-md p-4', seamlessFieldHost)}>
       <Textarea
         variant="seamless"
         className="min-h-[140px] resize-none [field-sizing:content]"

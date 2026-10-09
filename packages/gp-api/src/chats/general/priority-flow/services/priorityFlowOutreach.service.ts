@@ -57,6 +57,9 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     const rows = await this.findMany({
       where: {
         organizationSlug,
+        // An org can hold a Campaign and an ElectedOffice at once, and a
+        // Win row carries the slug too; only campaignId null is the office's.
+        campaignId: null,
         // `not` alone compiles to SQL `<>`, which drops every NULL row. Nearly
         // all outreach has no priority, so that silently emptied the list.
         ...(priorityId === null
@@ -64,6 +67,23 @@ export class PriorityFlowOutreachService extends createPrismaBase(
           : {
               OR: [{ priorityId: { not: priorityId } }, { priorityId: null }],
             }),
+        ...(channel === undefined ? {} : { outreachType: channel }),
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      take: MAX_ROWS,
+    })
+    return this.withReplyCounts(rows, 'office')
+  }
+
+  // A campaign's sends, by campaignId: an org can hold a Campaign and an
+  // ElectedOffice at once, so its slug alone would mix in the office's sends.
+  async forCampaign(
+    campaignId: number,
+    channel?: OutreachType,
+  ): Promise<PastOutreachRow[]> {
+    const rows = await this.findMany({
+      where: {
+        campaignId,
         ...(channel === undefined ? {} : { outreachType: channel }),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },

@@ -65,15 +65,37 @@ describe('CampaignTurfList', () => {
       data: turfs as never,
     })
 
-  const renderList = (props: { onOverlayOpenChange?: () => void } = {}) =>
+  const renderList = (
+    props: { onOverlayOpenChange?: () => void; canAddTurfs?: boolean } = {},
+  ) =>
     render(
       <CampaignTurfList
         isServe={false}
         anchorOutreachId={30}
         outreachId={30}
+        canAddTurfs
         {...props}
       />,
     )
+
+  // Opens the door-knocking page straight onto the drawing surface for this
+  // campaign.
+  it('links Add turf onto the map for this campaign', async () => {
+    mockTurfs()
+    renderList()
+
+    expect(
+      await screen.findByRole('link', { name: 'Add turf' }),
+    ).toHaveAttribute('href', '/dashboard/door-knocking?campaignOutreachId=30')
+  })
+
+  it('offers no Add turf on a finished or archived campaign', async () => {
+    mockTurfs()
+    renderList({ canAddTurfs: false })
+
+    expect(await screen.findByText('Elm St & 5th')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Add turf' })).toBeNull()
+  })
 
   it('renders a row per turf with its counts', async () => {
     mockTurfs([turf({ id: 12 }), turf({ id: 13, name: 'Oak Ave' })])
@@ -192,6 +214,21 @@ describe('CampaignTurfList', () => {
 
   // The drawer's `onInteractOutside` guard depends on this, and it is
   // invisible from inside this component.
+  it('lists the newest turf first', async () => {
+    mockTurfs([
+      turf({ id: 12, name: 'First' }),
+      turf({ id: 14, name: 'Third' }),
+      turf({ id: 13, name: 'Second' }),
+    ])
+    renderList()
+
+    await screen.findByText('First')
+    const names = screen
+      .getAllByText(/^(First|Second|Third)$/)
+      .map((node) => node.textContent)
+    expect(names).toEqual(['Third', 'Second', 'First'])
+  })
+
   it('names the knock press for whether the turf has a route', async () => {
     // The route is bought at the first knock, so an unrouted press does
     // something the others do not: it plans one, and asks walking or

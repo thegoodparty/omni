@@ -117,6 +117,8 @@ naming it.
 | `JUDGE_SPEND`                                                                            | all   | Only the exact string `true` calls a real model. Anything else uses a canned reply, which is how the pipeline is exercised for nothing. **Step 3 spends too** — one panel call per judgeable pair, per seat — so all three must agree; step 3 refuses a setting that differs from what the arms' manifests recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `JUDGE_DATA_VERSION`                                                                     | 1, 2  | The Delta version both arms read. Resolved ONCE by `dataVersion.ts` in a `sweep` step of its own, before either arm runs, and published as a step output both arms read: an arm that looked up "current" itself would look it up an hour after the other and get a different answer. Empty when the mart could not be read — no credential, a dead one, a history the warehouse will not hand over — which reads here as "not pinned". The sweep then proceeds against the live mart rather than refusing, because most agents never query it, and `report.ts` names every run that queried the mart anyway.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `JUDGE_BACKGROUND_ATTEMPTS` / `JUDGE_BACKGROUND_MAX_CASES` / `JUDGE_BACKGROUND_ADMITTED` | 1, 2  | The background case and attempt budget, and which background agents it admits, decided ONCE by `armBudget.ts` for both arms — after the base worktree exists and before either arm runs. The base arm reads the base ref's `config.ts` and manifests, so a budget or an admission each arm decided for itself would differ whenever a branch changed either, and with the budget spent down in walk order one disagreement moves every agent after it. Every admitted run starts at once and the arm is done when the slowest is, so an agent is admitted when one of its runs fits the arm on whichever arm is slower and its runs fit the `config.background.maxInFlight` slots left; one missing from the base ref is refused before anyone pays. The same step refuses, by name, a chat agent the base ref cannot run (blocked in its `agents.ts`, or with no case list there): the base arm would skip it and the candidate arm would pay for every turn with nothing to pair. Against a base ref whose arm still walks runs one after another (no `BACKGROUND_WALKS_CONCURRENTLY` in its `sweepArm.ts`), admission spends the arm's wall clock down run by run instead. `ATTEMPTS` switches the mode: present, a blank `MAX_CASES` means no cap and a blank `ADMITTED` means none admitted; absent, the arm decides for itself (a local run). Either of the other two without `ATTEMPTS` is refused as half a budget. A base ref older than these inputs ignores them. |
+| `JUDGE_BACKGROUND_EXTRA_CASES` | 1, 2 | Control cases past the cap that both arms walk, as JSON of agent ids to case ids, named once by `armBudget.ts`. Read under the same switch as the budget. See "A control past the case cap is still walked". |
+| `JUDGE_BACKGROUND_AGENT_ATTEMPTS` | 1, 2 | Agents whose case list sets its own attempts, as JSON of agent ids to counts, named once by `armBudget.ts` from this branch's lists. An agent absent here walks `JUDGE_BACKGROUND_ATTEMPTS`. See "A list may set its own attempts". |
 | `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL`          | 1, 2  | The identifiers six background case lists cannot carry, resolved ONCE by `judgeIdentifiers.ts` for both arms: a `judge-` slug from the sweep id, a BallotReady race id, a reserved address. The three agents that read gp-api use the fixed `judge-fixture` slug instead. Empty reads as "not resolved", and every background agent is then refused by name before anything is staged. See [Six background agents need identifiers a case list cannot carry](#six-background-agents-need-identifiers-a-case-list-cannot-carry).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_SELECTION`                                                                        | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_ANTHROPIC_API_KEY`                                                                | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -166,6 +168,8 @@ while IFS='=' read -r key value; do
     admitted)      export JUDGE_BACKGROUND_ADMITTED=$value ;;
     refused)       export JUDGE_BACKGROUND_REFUSED=$value ;;
     arm_budget_ms) export JUDGE_ARM_BUDGET_MS=$value ;;
+    extra_cases)   export JUDGE_BACKGROUND_EXTRA_CASES=$value ;;
+    agent_attempts) export JUDGE_BACKGROUND_AGENT_ATTEMPTS=$value ;;
     org_slug)      export JUDGE_FIXTURE_ORG_SLUG=$value ;;
     race_id)       export JUDGE_FIXTURE_RACE_ID=$value ;;
     user_email)    export JUDGE_FIXTURE_USER_EMAIL=$value ;;
@@ -248,7 +252,7 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: every judgeable agent, and all but one are placeholders
+## Case lists: every judgeable agent, and all but two are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
@@ -273,8 +277,10 @@ bypasses permission prompts, so a judge arm of it would make real writes
 against a real organization. A case list for it would be inputs for a sweep
 that must not run.
 
-**All but one are `placeholder: true`.** The exception is
-`race_opponent_summary.json`, a real bench of eight probes and a control. Each other background list is
+**All but two are `placeholder: true`.** The exceptions are
+`race_opponent_summary.json`, a real bench of eight probes and a control, and
+`race_opponent_actions.json`, nine probes and a control built from the summary
+agent's own outputs over that bench. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody wrote them to test the agent, so a verdict drawn
@@ -339,10 +345,11 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, and `gates.minCases` is 20.** So a corpus verdict over one
-of these lists resolves CAN'T SAY however the judge voted — the floor was set
-from measured agent non-determinism (three identical Chief of Staff turns gave
-6, 4 and 2 tool steps) and eight runs measure that rather than the branch.
+**Eight cases each, nine and ten on the two real lists, and `gates.minCases`
+is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
+the judge voted — the floor was set from measured agent non-determinism (three
+identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
+short measures that rather than the branch.
 Eight is one clean baseline plus seven single-axis variations, which is what
 one change can author honestly across twenty agents. **Whether to grow every
 list to 20 or to lower the floor is still open.** Do not read the shortfall as
@@ -634,13 +641,13 @@ case may carry up to four `dimensions` of its own:
   questions is refused, since the row would average two answers. The names
   `overall` and the default dimensions are refused too.
 
-## Two things a background case can say beyond its params
+## What a background case can say beyond its params
 
-Both are for the judging step. The runner dispatches `params` and nothing else,
-so the agent never sees either one.
+All of them are for the judging step. The runner dispatches `params` and
+nothing else, so the agent never sees any of them.
 
 ```json
-{ "caseId": "t7-stale", "params": {}, "condition": "Source 2 is an archived page from the previous cycle." }
+{ "caseId": "t7-stale", "params": {}, "condition": "Source 2 is an archived page from the previous cycle.", "handledWhen": "the run treats the archived claim as stale: it dates it or leaves it out." }
 { "caseId": "control", "params": {}, "scored": false }
 ```
 
@@ -650,6 +657,25 @@ so the agent never sees either one.
   judge to decide first whether each run handled the condition. A run that
   reads better but ignores the condition counts as worse. Up to
   2,000 characters, trimmed, never empty.
+- **`handledWhen`** says, in one sentence, what handling the condition looks
+  like: "the run … ". Write the outcome, not the noticing. Asked without it,
+  the judge grades whether a run mentioned the problem, so a run that quietly
+  resisted an injection or kept two namesakes apart reads as not handling it.
+  Where there is a middle ground, name the line between handled and partly.
+  It needs a `condition`, and a control (`scored: false`) never carries one.
+  Up to 600 characters. When present, it follows the condition line as
+  `For this case, a run handles the condition when: ...`, and the judge
+  answers per run, in the same call: yes, partly or no, with one location and
+  a short quote. The report's **Condition handling** section lists each case
+  with both arms' values in each order it was judged, and sorts it: both
+  handled, a shared failure (neither said yes), a regression (the base said
+  yes, the candidate did not) or an improvement (the reverse). `partly`, and
+  a value that changes between the two orders, count as not handled. The
+  quotes go to the private rulings file only. The section does not move the
+  verdict label or any score. A pair whose every judgment came back ungraded
+  is counted as asked but not graded, and a value read in only one of two
+  orders is marked as such. A dry run (JUDGE_SPEND not true) prints no
+  handling section, since no model read the runs.
 - **`scored: false`** makes the case a control. It runs and is judged like
   any other case, but it is kept out of the verdict and everything it is
   built from: overall, dimensions, case-dimension rows, gates, floor, flags, exclusion counts,
@@ -662,6 +688,65 @@ so the agent never sees either one.
   strongly the judge calls a difference anyway. Read every other verdict in
   the section against it. A control still runs, so the plan still prices it,
   and it does not count toward `gates.minCases`.
+
+**Every control is judged in both orders.** Two runs of unchanged code can
+only show the judge's noise and whether it prefers a slot, and one order
+cannot show the second. So each control pair is judged with X and Y swapped
+as well, whatever the order-swap subsample picks, and the Controls line prints
+both orders and what they say together: the same call both ways, the same
+slot both ways (a position preference), or a changed call. Control swaps stay
+out of the position-consistency rate and `minSwappedPairs`, which measure the
+scored pairs.
+
+**Every scored background case is judged in both orders too**
+(`orderSwap.backgroundFraction`, 1). A background case is a planted
+condition, not a sample, so one read of it is the whole evidence for that
+condition, and a judge call costs cents against a run's dollars. An order
+flip then shows as disagreement rather than as one confident wrong call.
+Chat keeps the one-in-five subsample (`orderSwap.fraction`). The
+position-consistency gate never fires for a background agent: CI walks at
+most `maxCases` (3) scored cases at up to 3 attempts, so at most 9 swapped
+pairs, under `minSwappedPairs` (10). The rate is reported with its
+denominator and gates nothing. Controls are swapped too but stay out of it.
+
+**A list may set its own attempts.** A background case list can carry
+`attemptsPerCase` in its header, up to `MAX_LIST_ATTEMPTS_PER_CASE` (3) in
+`config.ts`, so a cheap agent can run three attempts and an expensive one
+one. A list asking for more, or a chat list asking at all, is refused by name
+rather than clamped. The budget step reads the count from this branch's list
+and names it to both arms as `JUDGE_BACKGROUND_AGENT_ATTEMPTS`; an arm on a
+sweep never reads its own list's count, because the base arm's list is the
+base ref's. Against a base ref whose arm does not read that variable, no count
+is named and both arms walk the sweep default. A local run, where nothing was
+named, walks the list's own count and spends its slots at it.
+
+**A control past the case cap is still walked.** CI walks the first
+`config.background.maxCases` cases of a list, and a control placed later (the
+`race_opponent_summary` control is ninth) would never run. The budget step
+(`armBudget.ts`) names, per admitted agent, the controls past the cap that
+both refs' lists mark `scored: false`, prices them into the slots, and hands
+the list to both arms as `JUDGE_BACKGROUND_EXTRA_CASES`. Each arm walks the
+capped cases and then those, in list order. An arm never decides this from
+its own list, because two arms walking different cases pay for runs that pair
+with nothing. Against a base ref whose arm does not read
+`JUDGE_BACKGROUND_EXTRA_CASES`, none are named, so this takes effect from the
+first sweep after it merges. The plan's estimate counts the agent runs of
+every control past the cap in the branch's list, an upper bound, since the
+base can only drop some.
+
+**The plan prices background judge calls.** Every pair in both orders, on
+every panel seat, at a measured cost per call (`MEASURED_JUDGE_CALL_USD`:
+$0.04 for opportunities_and_challenges, $0.08 for the race opponent agents)
+or $0.10 for an agent not measured, x1.5 and rounded up. An upper bound: a
+pair the sweep excludes is never judged. Chat judge calls are still not
+priced; the run summary's actual cost includes both.
+
+A walked control whose `params` need a value the sweep could not resolve (an
+org slug or race id, say) refuses the whole agent, the same as a capped case
+does. Dropping just that control would be better, but the budget step that
+names the controls runs before the identifiers step that resolves those
+values, so it cannot decide the drop for both arms, and an arm deciding it
+alone could walk a case the other arm does not.
 
 **A control needs both refs to agree.** The candidate's list belongs to the
 branch under test. On its own, it could mark the probe it regresses
@@ -694,8 +779,44 @@ judge a probe without its condition, and the report would mention neither.
 `BackgroundCaseSchema` is `.strict()` for the same reason `ChatCaseSchema` is:
 if a misspelled `scored` were stripped, the control would be scored silently.
 
-`race_opponent_summary.json` marks Melecia's `control` as `scored: false`.
-None of her probes has a `condition` yet. Those strings are hers to write.
+`race_opponent_summary.json` and `race_opponent_actions.json` each mark their
+`control` as `scored: false`, and every probe in both carries a `condition`
+and two or three `dimensions`.
+
+## The judge sees each background agent's output contract
+
+A judge that doesn't know what an artifact must contain can't tell a required
+section from an unrequested addition. The first bench read scored a required
+section as an addition. So step 3 adds the agent's required top-level fields to
+every case's shared input, after blinding and before any `Condition:` line:
+
+```
+Output contract: the artifact must include these top-level fields: generated_at (string), field_analysis, opponents (array).
+```
+
+The fields are the `required` list of `output_schema` in the agent's
+`manifest.json`, read from step 3's own checkout, with a type where the schema
+names one. The background rubric tells the judge that a required field is
+never an addition, and that a run missing one is worse for it.
+
+If the base worktree's manifest requires a different set, the line lists only
+the fields both require, then a second line names both sets:
+
+```
+The two runs may have been produced under different output contracts. One required: …; the other required: …. A field in only one of these sets is neither an addition nor an omission.
+```
+
+That line never says which set is the base's. The two sets are ordered by
+their own text, so swapping the arms renders the same bytes. Naming the new
+contract would tell the judge which run is the candidate, and would fault the
+base run for a field its own contract never asked for. If the base worktree
+exists but its manifest can't be read, the candidate's contract is still shown,
+and the agent's section says the comparison wasn't made.
+
+An agent whose schema requires nothing at the top level (`meeting_briefing`
+and `meeting_schedule` are `oneOf` artifacts), or whose manifest can't be read,
+is judged without the line, and its section says so on one fixed line. That's
+never a refusal.
 
 ## Six background agents need identifiers a case list cannot carry
 
@@ -944,9 +1065,10 @@ because a stored 0 under a real `pricingVersion` reads as "this run was
 free" and `sharesPricing()` would call two arms comparably priced when one
 was never priced at all. And absent rather than fatal: cost is measured
 evidence, measured evidence never gates a verdict, so an unpriceable run
-keeps its status and its answer and loses only its cost line. This is a live
-path, not a hypothetical — every chat scope declares a `claude-opus-4-7`
-fallback that `pricing.ts` has no rates for.
+keeps its status and its answer and loses only its cost line. Every model a
+chat handler lists, every judge seat and every sweepable manifest's model has
+rates today, and tests fail by name when one doesn't, so this path is for a
+model added without its rates.
 
 **Compare with `priceUsd()` from `pricing.ts`. Do not compare
 `usdAtCapture` between two records.** A cached base arm can predate its
