@@ -417,6 +417,21 @@ describe('evaluation intervals', () => {
     expect(gapped).toEqual([])
   })
 
+  // `keepFiringFor` only holds through an evaluation that ran and failed its
+  // threshold. An idle count returns no series, `noDataState: OK` resets the
+  // alert to Normal, and the hold is skipped, so a burst a minute apart pages
+  // twice. The explicit zero is what keeps the idle minute an evaluation.
+  it('makes every held rule evaluate to zero when idle', () => {
+    const held = [...GLOBAL_ALERTS, ...routeErrorAlerts()].filter(
+      (alert) => alert.type === 'log' && alert.keepFiringFor !== undefined,
+    )
+    expect(held.length).toBeGreaterThan(0)
+
+    for (const alert of held) {
+      expect(alert.expr, alert.slug).toMatch(/ or vector\(0\)$/)
+    }
+  })
+
   // The test that was missing. Every rule above can pass its own ceiling while
   // the set as a whole is many times over the allowance, because the allowance
   // is one number shared by all of them — and it was: 787 against 100 on

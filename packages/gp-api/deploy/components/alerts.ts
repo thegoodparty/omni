@@ -353,6 +353,13 @@ const LOKI_ATTRIBUTION_PROSE = [
  * way). That is one read of the stream per day, 1x ingest, and a page 30 to 90
  * seconds after the line is written.
  *
+ * The query ends in `or vector(0)`, and the hold depends on it. An idle
+ * `sum(count_over_time(...))` returns no series, which `noDataState: OK`
+ * turns straight back into Normal and skips `keepFiringFor` entirely, so a
+ * burst a minute apart would page twice. The explicit zero makes an idle
+ * minute a real evaluation that fails the threshold, which is the only state
+ * `keepFiringFor` holds through. It costs nothing to read.
+ *
  * These rules used to carry 5-minute to 1-hour windows, read as range queries,
  * and the width was doing a different job: holding the alert open after the
  * event, so a burst spread over a few minutes stayed one page. `keepFiringFor`
@@ -410,7 +417,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Synthesis run used the in-repo theme prompt"',
-      '[1m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
     for: '0m',
@@ -433,7 +440,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // message_Body; match its `type` (pollCreation / pollExpansion /
     // pollAnalysisComplete) so sibling jobs that share the consumer (AI
     // content, websites) don't page the serve-bugs group.
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [1m]))',
+    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [1m])) or vector(0)',
     threshold: 0,
     for: '0m',
     // An event rule: see EVENT RULES above GLOBAL_ALERTS.
@@ -461,7 +468,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| json',
       '| detected_level = "error"',
       '| context =~ "Peerly.+Service"',
-      '[1m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
     // Zero, because one error has always paged here and a one-minute window
@@ -493,7 +500,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "P2P outreach finalize failed after payment"',
-      '[1m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
     // An event rule: see EVENT RULES above GLOBAL_ALERTS. This used to read a
@@ -530,7 +537,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "CRITICAL robocall"',
-      '[1m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
     // An event rule, for the reason given on the paid-not-scheduled sibling.
@@ -563,7 +570,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "CRITICAL win sms"',
-      '[1m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
     // An event rule, for the reason given on the paid-not-scheduled sibling.
@@ -671,7 +678,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       '|= "DoorKnockingPackBuildFailed"',
       '| json',
       '| event = "DoorKnockingPackBuildFailed"',
-      '[1m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
     // Zero for the reason given on win-peerly-warnings: one failed build has
