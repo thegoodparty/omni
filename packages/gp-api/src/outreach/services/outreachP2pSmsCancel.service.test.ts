@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto'
-import { BadRequestException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { addHours } from 'date-fns'
 import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachP2pSmsCancelService } from '@/outreach/services/outreachP2pSmsCancel.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
@@ -24,6 +29,7 @@ let refundIntentSpy: ReturnType<typeof vi.spyOn>
 let voidSpy: ReturnType<typeof vi.spyOn>
 let sessionSpy: ReturnType<typeof vi.spyOn>
 let deleteJobSpy: ReturnType<typeof vi.spyOn>
+let notifyCanceledSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -46,8 +52,14 @@ const mockIntent = (
     ...overrides,
   }) as unknown as Stripe.Response<Stripe.PaymentIntent>
 
+// A refund result with the given Stripe status (the only field the release reads).
+const refundResult = (status: string): Stripe.Response<Stripe.Refund> =>
+  ({ status }) as unknown as Stripe.Response<Stripe.Refund>
+
 beforeEach(async () => {
   vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+  // Keep the in-flight `refunding` poll short so race/stranded tests resolve fast.
+  vi.stubEnv('WIN_SMS_REFUND_POLL_MS', '40')
   cancel = service.app.get(OutreachP2pSmsCancelService)
   outreachService = service.app.get(OutreachService)
 
@@ -57,7 +69,7 @@ beforeEach(async () => {
     .mockResolvedValue(mockIntent())
   refundChargeSpy = vi
     .spyOn(stripe, 'refundCharge')
-    .mockResolvedValue({} as Stripe.Response<Stripe.Refund>)
+    .mockResolvedValue(refundResult('succeeded'))
   refundIntentSpy = vi
     .spyOn(stripe, 'refundPaymentIntent')
     .mockResolvedValue({} as Stripe.Response<Stripe.Refund>)
@@ -67,6 +79,9 @@ beforeEach(async () => {
     .mockResolvedValue({} as Stripe.Response<Stripe.Checkout.Session>)
   deleteJobSpy = vi
     .spyOn(service.app.get(PeerlyP2pJobService), 'deleteJob')
+    .mockResolvedValue(undefined)
+  notifyCanceledSpy = vi
+    .spyOn(service.app.get(OutreachNotificationService), 'notifyCanceled')
     .mockResolvedValue(undefined)
 
   const campaignId = 7700
@@ -197,6 +212,23 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 
+  it('posts the CAS canceled notice on a hold-model cancel (parity with the shared body)', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'requires_capture' }))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+    })
+
+    await cancel.cancel(outreachId, campaign.id, {
+      canceledBy: String(service.user.id),
+      byAdmin: true,
+    })
+
+    expect(notifyCanceledSpy).toHaveBeenCalledOnce()
+    expect(notifyCanceledSpy.mock.calls[0]?.[0]).toMatchObject({
+      canceledByAdmin: true,
+    })
+  })
+
   it('refuses a capturing row (money mid-flight) and leaves it untouched', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.capturing,
@@ -231,6 +263,26 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     // checkout-session refund path is never touched.
     expect(sessionSpy).not.toHaveBeenCalled()
     expect(refundIntentSpy).not.toHaveBeenCalled()
+  })
+
+  it('does NOT report refunded when Stripe returns a non-committed refund status', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    // Stripe accepted the refund but it did not process (e.g. the bank rejected).
+    refundChargeSpy.mockResolvedValue(refundResult('failed'))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+    // Reverted so a retry re-attempts under the stable key; never reported
+    // refunded, and the spine is not flipped canceled.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.captured,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.pending)
   })
 
   it('branches on the LIVE intent, not a stale satellite state', async () => {
@@ -387,6 +439,61 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 
+  it('re-attempts and actually refunds when the refund owner reverts refunding → captured', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    // The row is mid-refund by another owner. That owner then hits a transient
+    // Stripe error and reverts refunding → captured — so this caller must NOT
+    // report success off the `refunding` observation; it must re-attempt and
+    // issue the refund itself.
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.refunding,
+      chargeIntentId: CHARGE_ID,
+    })
+
+    // Start the cancel (its first poll observes `refunding` and begins sleeping),
+    // then commit the owner's revert so the next poll reads `captured`.
+    const cancelP = cancel.cancel(outreachId, campaign.id)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await service.prisma.outreachP2pSms.updateMany({
+      where: { outreachId },
+      data: { settleState: P2pSmsSettleState.captured },
+    })
+
+    const { refunded } = await cancelP
+
+    expect(refunded).toBe(true)
+    expect(refundChargeSpy).toHaveBeenCalledWith(
+      CHARGE_ID,
+      `p2p-sms-refund-${CHARGE_ID}`,
+    )
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.refunded,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+  })
+
+  it('surfaces UNRESOLVED (no false refund, spine not flipped) when a refunding owner is stranded', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    // The owner claimed `refunding` and never resolved it (crashed between the
+    // CAS claim and the Stripe call). The caller must not report refunded and
+    // must not cancel the spine — it waits out the bound, then surfaces pending
+    // for the slice-F reconcile sweep.
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.refunding,
+      chargeIntentId: CHARGE_ID,
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    )
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    // Still refunding (left for the reconcile sweep) and the spine is NOT canceled.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.refunding,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.pending)
+  })
+
   it('refunds exactly once when a deny and a cancel race the same charge', async () => {
     retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
     // Hold the refund in flight so the loser reliably observes the winner's
@@ -394,7 +501,7 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     refundChargeSpy.mockImplementation(
       () =>
         new Promise((resolve) =>
-          setTimeout(() => resolve({} as Stripe.Response<Stripe.Refund>), 50),
+          setTimeout(() => resolve(refundResult('succeeded')), 50),
         ),
     )
     const outreachId = await createHold({

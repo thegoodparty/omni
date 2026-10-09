@@ -19,6 +19,8 @@ let retrieveSpy: ReturnType<typeof vi.spyOn>
 let refundChargeSpy: ReturnType<typeof vi.spyOn>
 let voidSpy: ReturnType<typeof vi.spyOn>
 let deleteJobSpy: ReturnType<typeof vi.spyOn>
+let requestCanvassersSpy: ReturnType<typeof vi.spyOn>
+let activateJobSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -41,6 +43,10 @@ const mockIntent = (
     ...overrides,
   }) as unknown as Stripe.Response<Stripe.PaymentIntent>
 
+// A refund result with the given Stripe status (the only field the release reads).
+const refundResult = (status: string): Stripe.Response<Stripe.Refund> =>
+  ({ status }) as unknown as Stripe.Response<Stripe.Refund>
+
 beforeEach(async () => {
   vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
   admin = service.app.get(OutreachSmsAdminService)
@@ -51,11 +57,16 @@ beforeEach(async () => {
     .mockResolvedValue(mockIntent())
   refundChargeSpy = vi
     .spyOn(stripe, 'refundCharge')
-    .mockResolvedValue({} as Stripe.Response<Stripe.Refund>)
+    .mockResolvedValue(refundResult('succeeded'))
   voidSpy = vi.spyOn(stripe, 'voidHold').mockResolvedValue(undefined)
-  deleteJobSpy = vi
-    .spyOn(service.app.get(PeerlyP2pJobService), 'deleteJob')
-    .mockResolvedValue(undefined)
+  const peerly = service.app.get(PeerlyP2pJobService)
+  deleteJobSpy = vi.spyOn(peerly, 'deleteJob').mockResolvedValue(undefined)
+  requestCanvassersSpy = vi
+    .spyOn(peerly, 'requestCanvassers')
+    .mockResolvedValue(undefined as never)
+  activateJobSpy = vi
+    .spyOn(peerly, 'activateJob')
+    .mockResolvedValue(undefined as never)
 
   const campaignId = 8800
   orgSlug = `campaign-${campaignId}`
@@ -196,12 +207,79 @@ describe('OutreachSmsAdminService.deny', () => {
     await expect(
       admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' }),
     ).rejects.toThrow()
-    // Money never moved — the job delete is first and its failure aborts the deny.
+    // The job delete runs before the release and its failure aborts the deny, so
+    // money never moves (the denial CAS committed first; the stranded row is a
+    // slice-F reconcile case).
     expect(refundChargeSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.captured,
     )
-    expect((await readSpine(outreachId)).deniedAt).toBeNull()
+  })
+
+  it('aborts when a concurrent approve won the CAS (no job delete, no refund)', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    // Simulate approve having committed first: approvedAt is stamped, so deny's
+    // claim CAS matches nothing.
+    const outreachId = await createRow({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+    })
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { approvedAt: new Date(), approvedBy: 'other@gp.org' },
+    })
+
+    await expect(
+      admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' }),
+    ).rejects.toBeInstanceOf(ConflictException)
+    expect(deleteJobSpy).not.toHaveBeenCalled()
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect(voidSpy).not.toHaveBeenCalled()
+    const spine = await readSpine(outreachId)
+    expect(spine.deniedAt).toBeNull()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.captured,
+    )
+  })
+
+  it('deny racing approve: exactly one wins the CAS; a losing deny refunds nothing', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    const outreachId = await createRow({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+    })
+
+    const [approveRes, denyRes] = await Promise.allSettled([
+      admin.approve(outreachId, { approvedBy: 'appr@gp.org' }),
+      admin.deny(outreachId, { deniedBy: 'deny@gp.org', reason: 'x' }),
+    ])
+
+    // Symmetric CAS claims: exactly one of approve/deny commits; the other
+    // aborts, so the row never ends with BOTH approvedAt and deniedAt.
+    const fulfilled = [approveRes, denyRes].filter(
+      (r) => r.status === 'fulfilled',
+    )
+    expect(fulfilled).toHaveLength(1)
+    const spine = await readSpine(outreachId)
+    expect(Boolean(spine.approvedAt) !== Boolean(spine.deniedAt)).toBe(true)
+
+    if (spine.approvedAt) {
+      // Approve won: deny aborted before touching the job or the money.
+      expect(refundChargeSpy).not.toHaveBeenCalled()
+      expect(deleteJobSpy).not.toHaveBeenCalled()
+      expect((await readSatellite(outreachId)).settleState).toBe(
+        P2pSmsSettleState.captured,
+      )
+    } else {
+      // Deny won: refunded + job neutralized, and approve never booked.
+      expect(refundChargeSpy).toHaveBeenCalledTimes(1)
+      expect(requestCanvassersSpy).not.toHaveBeenCalled()
+      expect((await readSatellite(outreachId)).settleState).toBe(
+        P2pSmsSettleState.refunded,
+      )
+    }
+    // The activation spy exists only so approve's best-effort activation no-ops.
+    void activateJobSpy
   })
 
   it('leaves a NON-satellite deny as the send-back-for-edits stamp (no money, no job delete)', async () => {

@@ -653,12 +653,16 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     )
   }
 
-  // Terminal deny for a hold-model row: neutralize the vendor job, release the
-  // money through the shared charge-keyed refund terminal, then stamp the denial.
-  // Idempotent: a retry after a delete/release/stamp failure re-runs each step
-  // (the delete no-ops on an already-gone job; the release is a no-op on a settled
-  // satellite). The denial stamp is LAST (not committed before the money moves),
-  // so a release failure leaves the row re-deniable rather than stranded.
+  // Terminal deny for a hold-model row: CLAIM the denial via a guarded CAS FIRST
+  // (symmetric with approve, so the two can never interleave — see the claim
+  // below), and only on a won claim neutralize the vendor job then release the
+  // money through the shared charge-keyed refund terminal. Because the denial is
+  // committed by the claim, a transient delete/release failure strands the row
+  // denied-but-unreleased (the retry's CAS matches nothing) — deferred to the
+  // slice-F reconcile sweep; the charge-keyed idempotent release means a manual
+  // retry never double-refunds. This is the better trade than a read-only
+  // pre-check, which would let a concurrent approve book/send between the read
+  // and the action and then refund an already-booked send.
   private async denyHold(
     outreachId: number,
     input: DenySmsOutreachRequest,
@@ -670,45 +674,54 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (!row || !row.campaignId) {
       throw new NotFoundException('Scheduled SMS campaign not found')
     }
-    // Only a reviewable (not yet approved, not already denied, not sent) row can
-    // be denied — mirrors the non-satellite deny's CAS. Without this, a captured
-    // row sitting in the Sent tab (status completed) could be denied and
-    // REFUNDED for a delivered send. A read-only pre-check (not a claim) so a
-    // release failure stays retryable; two racing denies both pass it and the
-    // release + stamp below are idempotent.
-    if (
-      !row.status ||
-      !REVIEWABLE_STATUSES.includes(row.status) ||
-      row.approvedAt ||
-      row.deniedAt
-    ) {
-      throw new ConflictException(
-        'This campaign is not awaiting review any more',
-      )
-    }
-
-    // Delete the vendor job FIRST and throw on failure (the cancel discipline),
-    // so a denied send can never fire: releasing the money before the job is gone
-    // would risk a free delivered send if the delete then failed.
-    if (row.projectId) {
-      await this.peerlyP2pJobService.deleteJob(row.projectId)
-      this.invalidateVendorReads(row.projectId)
-    }
-
-    // Release the hold (refund if captured, void if authorized). Refuses a
-    // `capturing` row (money mid-flight) — the deny retries once it settles.
-    await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
-
-    // Stamp the denial for the audit trail. A hold-model deny is a terminal money
-    // action, not the reversible send-back-for-edits stamp.
-    await this.model.updateMany({
-      where: { id: outreachId },
+    // Claim the denial FIRST via a guarded CAS, SYMMETRIC with approve's claim —
+    // so approve and deny can never interleave on one row. A read-only pre-check
+    // would leave a TOCTOU window where a concurrent approve commits `approvedAt`
+    // and books/sends canvassers between the read and deny's action, after which
+    // deny would delete the job and refund an already-booked/sent campaign. The
+    // CAS closes that: only a still-reviewable, un-approved, un-denied row claims,
+    // and the row ends with exactly one of approvedAt/deniedAt. REVIEWABLE_STATUSES
+    // also excludes a completed (sent) row, so a delivered send is never refunded.
+    // NOTE: deny intentionally still permits `in_progress` (the sweep ratchets an
+    // unapproved row there on its send day), matching the hand-booking window the
+    // console works from; a completed row is the terminal that is refused.
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        status: { in: REVIEWABLE_STATUSES },
+        approvedAt: null,
+        deniedAt: null,
+      },
       data: {
         deniedAt: new Date(),
         deniedBy: input.deniedBy,
         deniedReason: input.reason,
       },
     })
+    if (claimed.count === 0) {
+      // A concurrent approve (or deny) already decided this row, or it is sent:
+      // abort WITHOUT deleting the job or moving any money.
+      throw new ConflictException(
+        'This campaign is not awaiting review any more',
+      )
+    }
+
+    // We own the denial (committed above). Neutralize the job FIRST and throw on
+    // failure (the cancel discipline), so a denied send can never fire: releasing
+    // the money before the job is gone would risk a free delivered send if the
+    // delete then failed.
+    // TODO(slice F): a denial whose job delete or release then fails transiently
+    // leaves a denied-but-unreleased row (the deleteJob-before-release strand) —
+    // the slice-F reconcile sweep finishes it; the charge-keyed idempotent release
+    // means a manual retry never double-refunds.
+    if (row.projectId) {
+      await this.peerlyP2pJobService.deleteJob(row.projectId)
+      this.invalidateVendorReads(row.projectId)
+    }
+
+    // Release the hold (refund if captured, void if authorized). Refuses a
+    // `capturing` row (money mid-flight) — reconciled by slice F.
+    await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
 
     const updated = await this.model.findFirstOrThrow({
       where: { id: outreachId },

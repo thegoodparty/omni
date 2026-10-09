@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { isBefore } from 'date-fns'
 import Stripe from 'stripe'
@@ -15,6 +16,7 @@ import {
   P2pSmsSettleState,
 } from '../../generated/prisma'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
+import { OutreachNotificationService } from './outreachNotification.service'
 
 // Stripe leaves latest_charge as a string id or an expanded Charge; normalize to
 // the charge id the charge-keyed refund targets (same as the capture service).
@@ -22,6 +24,18 @@ const resolveChargeId = (intent: Stripe.PaymentIntent): string | null => {
   const charge = intent.latest_charge
   if (!charge) return null
   return typeof charge === 'string' ? charge : charge.id
+}
+
+// How long a CAS loser waits out another owner's in-flight `refunding` claim
+// before concluding the owner is stranded. A refund commits in well under a
+// second; env-overridable so tests resolve without real waits.
+const REFUND_RESOLVE_POLL_ATTEMPTS = 10
+const refundResolvePollMs = (): number => {
+  // `??` only guards undefined; an empty or non-numeric env would collapse to 0
+  // (Number('') === 0, Number('x') === NaN → setTimeout treats both as 0) and
+  // busy-loop the DB. Fall back unless it parses to a positive, finite number.
+  const parsed = Number(process.env.WIN_SMS_REFUND_POLL_MS)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 300
 }
 
 type Satellite = {
@@ -58,6 +72,7 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly freeTexts: OutreachP2pSmsFreeTextsService,
+    private readonly notifications: OutreachNotificationService,
   ) {
     super()
   }
@@ -143,8 +158,48 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     const { refunded } = await this.releaseHold(outreachId)
 
     await this.markSpineCanceled(outreachId, attribution)
+    await this.tryNotifyCanceled(outreachId, campaignId, attribution)
 
     return this.result(outreachId, refunded)
+  }
+
+  // The CAS "canceled" Slack notice (covering the candidate route and the admin
+  // console), fired after the cancel fully committed — parity with the shared
+  // immediate-charge body, which posts it for non-satellite p2p cancels. The
+  // satellite delegate returns before that block, so it posts the notice here.
+  // Best-effort end to end: a Slack failure never fails or retries a completed
+  // cancel. Skipped on the idempotent-terminal early-returns (the first cancel
+  // already posted it), so a repeat cancel never double-posts.
+  private async tryNotifyCanceled(
+    outreachId: number,
+    campaignId: number,
+    attribution?: { canceledBy: string; byAdmin: boolean },
+  ): Promise<void> {
+    try {
+      const notifRow = await this.client.outreach.findFirst({
+        where: { id: outreachId },
+        include: { voterFileFilter: true },
+      })
+      const campaignWithUser = await this.client.campaign.findFirst({
+        where: { id: campaignId },
+        include: { user: true },
+      })
+      if (notifRow && campaignWithUser?.user) {
+        await this.notifications.notifyCanceled({
+          user: campaignWithUser.user,
+          campaign: campaignWithUser,
+          outreach: notifRow,
+          textCount: notifRow.textCount ?? undefined,
+          billableTextCount: notifRow.billableTextCount ?? undefined,
+          canceledByAdmin: attribution?.byAdmin ?? false,
+        })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, campaignId },
+        'win sms cancel: CAS cancel notice failed; the cancel is unaffected',
+      )
+    }
   }
 
   // The money half for the admin DENY of a hold-model row (the vendor job delete
@@ -192,13 +247,30 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
           refunded: satellite.settleState === P2pSmsSettleState.refunded,
         }
       }
-      // Another release already holds the single-owner refund claim (a deny and a
-      // cancel racing the same charge): it will commit under the stable
-      // charge-keyed idempotency key, so report the in-flight refund rather than
-      // looping to a spurious failure or racing a second one. A permanently
-      // stuck `refunding` (owner crashed mid-refund) is a slice-F reconcile case.
+      // Another release holds the single-owner refund claim (a deny and a cancel
+      // racing the same charge). DO NOT assume it committed: the owner can revert
+      // `refunding → captured` on a transient Stripe error, or crash between the
+      // CAS claim and the Stripe call. Reporting "refunded" here (and letting the
+      // caller flip the spine) when no refund committed would tell the candidate
+      // their money is back while it never left. So wait for it to resolve:
+      //   refunded  → report the committed refund
+      //   reverted  → re-attempt (fall through; claim the CAS ourselves)
+      //   stranded  → surface UNRESOLVED without reporting a refund or flipping
+      //               the spine, for the slice-F `refunding` reconcile sweep.
+      // TODO(slice F): reconcile a row stranded in `refunding` (owner crashed
+      // between the CAS claim and the Stripe refund).
       if (satellite.settleState === P2pSmsSettleState.refunding) {
-        return { refunded: true }
+        const resolution = await this.awaitRefundResolution(outreachId)
+        if (resolution === 'refunded') return { refunded: true }
+        if (resolution === 'stranded') {
+          throw new ServiceUnavailableException(
+            'The refund for this campaign is still processing. ' +
+              'Check back shortly.',
+          )
+        }
+        // Reverted (or the row otherwise left `refunding`): re-attempt — the next
+        // loop iteration re-reads and claims the refund CAS itself.
+        continue
       }
       if (satellite.settleState === P2pSmsSettleState.capturing) {
         // A capture claimed the row mid-release. We cannot void (money may be
@@ -340,8 +412,12 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     })
     if (claimed.count === 0) return false
 
+    let refund: Stripe.Response<Stripe.Refund>
     try {
-      await this.stripe.refundCharge(chargeId, `p2p-sms-refund-${chargeId}`)
+      refund = await this.stripe.refundCharge(
+        chargeId,
+        `p2p-sms-refund-${chargeId}`,
+      )
     } catch (err) {
       // No commit yet: revert so a later attempt retries. The stable key makes a
       // replay refund once even if this call actually landed.
@@ -349,10 +425,24 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
         { err, outreachId },
         'win sms release: refund failed; reverting refunding → captured to retry',
       )
-      await this.model.updateMany({
-        where: { outreachId, settleState: P2pSmsSettleState.refunding },
-        data: { settleState: P2pSmsSettleState.captured },
-      })
+      await this.revertRefundingToCaptured(outreachId)
+      throw new BadGatewayException(
+        'The refund could not be processed. Try again.',
+      )
+    }
+
+    // A refund Stripe ACCEPTED but did not actually process (`failed`/`canceled`,
+    // or any status that is not money-on-its-way) must NOT be reported as
+    // refunded — the candidate would be told their money is back when it never
+    // left. Revert so a retry re-attempts under the stable key. `succeeded` is
+    // done; `pending` is committed and processing (cards settle near-instantly).
+    if (refund.status !== 'succeeded' && refund.status !== 'pending') {
+      this.logger.error(
+        { outreachId, chargeId, status: refund.status },
+        'win sms release: refund not committed (status not succeeded/pending); ' +
+          'reverting refunding → captured to retry',
+      )
+      await this.revertRefundingToCaptured(outreachId)
       throw new BadGatewayException(
         'The refund could not be processed. Try again.',
       )
@@ -392,6 +482,16 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     return true
   }
 
+  // Releases the in-flight refund claim back to captured so a later attempt
+  // retries. The charge-keyed idempotency key makes that replay refund at most
+  // once even if the reverted call had in fact landed at Stripe.
+  private async revertRefundingToCaptured(outreachId: number): Promise<void> {
+    await this.model.updateMany({
+      where: { outreachId, settleState: P2pSmsSettleState.refunding },
+      data: { settleState: P2pSmsSettleState.captured },
+    })
+  }
+
   private async claim(
     outreachId: number,
     from: P2pSmsSettleState[],
@@ -402,6 +502,28 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       data: { settleState: to },
     })
     return claimed.count > 0
+  }
+
+  // Waits out another owner's in-flight `refunding` claim. Returns `refunded`
+  // once the owner commits, `reattempt` once it reverts (to captured) or the row
+  // otherwise leaves `refunding` so the caller claims the refund itself, or
+  // `stranded` if it never resolves within the bound — the owner crashed between
+  // the CAS claim and the Stripe call, which only the slice-F reconcile sweep can
+  // safely finish.
+  private async awaitRefundResolution(
+    outreachId: number,
+  ): Promise<'refunded' | 'reattempt' | 'stranded'> {
+    for (let i = 0; i < REFUND_RESOLVE_POLL_ATTEMPTS; i++) {
+      await new Promise((resolve) => setTimeout(resolve, refundResolvePollMs()))
+      const row = await this.model.findUnique({
+        where: { outreachId },
+        select: { settleState: true },
+      })
+      if (!row) return 'reattempt'
+      if (row.settleState === P2pSmsSettleState.refunded) return 'refunded'
+      if (row.settleState !== P2pSmsSettleState.refunding) return 'reattempt'
+    }
+    return 'stranded'
   }
 
   private isTerminal(state: P2pSmsSettleState): boolean {
