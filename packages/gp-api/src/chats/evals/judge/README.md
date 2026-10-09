@@ -280,7 +280,7 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: every judgeable agent, and all but three are placeholders
+## Case lists: every judgeable agent, and all but four are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
@@ -305,11 +305,12 @@ bypasses permission prompts, so a judge arm of it would make real writes
 against a real organization. A case list for it would be inputs for a sweep
 that must not run.
 
-**All but three are `placeholder: true`.** The exceptions are
+**All but four are `placeholder: true`.** The exceptions are
 `race_opponent_summary.json`, a real bench of eight probes and a control,
 `race_opponent_actions.json`, nine probes and a control built from the summary
-agent's own outputs over that bench, and `opportunities_and_challenges.json`,
-eight probes and a control built from one sanitised dispatch. Each other background list is
+agent's own outputs over that bench, `opportunities_and_challenges.json`,
+eight probes and a control built from one sanitised dispatch, and
+`campaign_tracker_tasks.json`, eight probes and a control built the same way. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody wrote them to test the agent, so a verdict drawn
@@ -374,7 +375,7 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, nine to ten on the three real lists, and `gates.minCases`
+**Eight cases each, nine to ten on the four real lists, and `gates.minCases`
 is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
 the judge voted — the floor was set from measured agent non-determinism (three
 identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
@@ -808,10 +809,11 @@ judge a probe without its condition, and the report would mention neither.
 `BackgroundCaseSchema` is `.strict()` for the same reason `ChatCaseSchema` is:
 if a misspelled `scored` were stripped, the control would be scored silently.
 
-`race_opponent_summary.json`, `race_opponent_actions.json` and
-`opportunities_and_challenges.json` each mark their `control` as
-`scored: false`, and every probe in all three carries a `condition` and two or
-three `dimensions`.
+`race_opponent_summary.json`, `race_opponent_actions.json`,
+`opportunities_and_challenges.json` and `campaign_tracker_tasks.json` each mark
+their `control` as `scored: false`, every probe in all four carries a
+`condition` and two or three `dimensions`, and every probe that plants a
+mutation carries a `handledWhen`; the unmutated baseline carries none.
 
 ## The judge sees each background agent's output contract
 
