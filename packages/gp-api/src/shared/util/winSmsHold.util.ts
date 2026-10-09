@@ -17,3 +17,10 @@ export const WIN_SMS_HOLD_MIN_CENTS = 50
 // A card authorization is valid ~7 days; the real deadline is read off the PI
 // when present (see the hold service).
 export const WIN_SMS_HOLD_WINDOW_DAYS = 7
+
+// How long a satellite must have sat untouched in an in-flight claim before the
+// reconcile sweeps treat it as stranded (the owner crashed between its CAS claim
+// and the Stripe call). A refund/release commits in well under a second, so 15
+// minutes is far longer than any live owner holds a claim — it never races a
+// release still in flight (outreachP2pSmsReconcile.service.ts).
+export const P2P_SMS_REFUNDING_STALE_MINUTES = 15

@@ -279,9 +279,9 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       //   refunded  → report the committed refund
       //   reverted  → re-attempt (fall through; claim the CAS ourselves)
       //   stranded  → surface UNRESOLVED without reporting a refund or flipping
-      //               the spine, for the slice-F `refunding` reconcile sweep.
-      // TODO(slice F): reconcile a row stranded in `refunding` (owner crashed
-      // between the CAS claim and the Stripe refund).
+      //               the spine; the refunding reconcile sweep
+      //               (outreachP2pSmsReconcile.service.ts) verifies against
+      //               Stripe and finishes the refund.
       if (satellite.settleState === P2pSmsSettleState.refunding) {
         const resolution = await this.awaitRefundResolution(outreachId)
         if (resolution === 'refunded') return { refunded: true }
@@ -371,7 +371,8 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
         this.logger.error(
           { outreachId, intentStatus: intent.status },
           'CRITICAL win sms release: satellite captured but PI not succeeded; ' +
-            'refusing to guess. TODO(slice F): reconcile this charge',
+            'refusing to guess — a human must reconcile this charge ' +
+            '(win-sms-critical alert)',
         )
         throw new BadGatewayException(
           'This payment is in an unexpected state and was left untouched.',
@@ -414,7 +415,7 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       this.logger.error(
         { outreachId },
         'CRITICAL win sms release: succeeded PI carries no charge; cannot ' +
-          'refund. TODO(slice F): reconcile this charge',
+          'refund — a human must reconcile this charge (win-sms-critical alert)',
       )
       throw new BadGatewayException(
         'This payment is missing its charge record and was left untouched.',
@@ -561,9 +562,9 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     // must run REGARDLESS of the void outcome — symmetric with the refund path —
     // so a voidHold failure can never strand (burn) the offer this send redeemed.
     // voidHold swallows its own errors today; the catch guards that contract so
-    // the restore below is unconditional even if it ever threw.
-    // TODO(slice F): a void that did not land needs a reconcile sweep to re-void
-    // it; the hold otherwise auto-expires within the auth lifetime with no charge.
+    // the restore below is unconditional even if it ever threw. A void that does
+    // not land needs no reconcile: the row is terminal `voided` and the hold
+    // auto-expires within the auth lifetime with no charge.
     try {
       await this.stripe.voidHold(authorizationIntentId)
     } catch (err) {
@@ -641,7 +642,8 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       this.logger.error(
         { err, outreachId },
         'CRITICAL win sms release: free-texts restore failed after unwind; ' +
-          'the offer may be stuck consumed. TODO(slice F): reconcile',
+          'the offer may be stuck consumed; a human must reconcile ' +
+          '(win-sms-critical alert)',
       )
     }
   }

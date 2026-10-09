@@ -533,6 +533,48 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
+    slug: 'win-sms-critical',
+    name: '[Win] p2p SMS send/settlement CRITICAL',
+    type: 'log',
+    // The Win p2p SMS hold-billing chain (capture, cancel/deny release, and the
+    // slice-F reconcile sweeps) logs `CRITICAL win sms ...` on every exceptional
+    // money path a human must look at: a hold captured at Stripe whose DB commit
+    // was lost, a captured satellite whose PI is not succeeded, a succeeded PI
+    // with no charge to refund, a free-texts offer whose restore failed after an
+    // unwind, and a stranded `refunding` row the reconcile sweep could not
+    // resolve. Every one shares the `CRITICAL win sms` prefix, so a single line
+    // filter catches every path. They should almost never fire; each is a money-
+    // integrity event, not routine error noise — the p2p SMS counterpart of
+    // win-robocall-critical above.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "CRITICAL win sms"',
+      '[5m]))',
+    ].join(' '),
+    threshold: 0,
+    // Fire on the first evaluation that sees the line, not after a sustain
+    // window: a CRITICAL is a single point-in-time event, and the [5m] window
+    // below holds it in view until the next evaluation, so `for: 0m` catches it
+    // reliably without the window-edge risk a sustain requirement would add.
+    for: '0m',
+    // A [5m] window evaluated every 5 minutes is a re-read factor of 1 — the
+    // cheapest a Loki alert can be. The robocall sibling runs an identical
+    // matcher on a [1h] window every 5 minutes (factor 12), but the shared Loki
+    // query budget has no room for a second rule that wide (see
+    // global-alerts.test.ts); a point event needs no wide window once `for` is
+    // 0m. Detection latency is one evaluation, ~5 minutes — nothing real for a
+    // money-integrity event that needs a human, not a rollback.
+    timeRangeSeconds: 300,
+    evaluationIntervalSeconds: 300,
+    message: [
+      'A Win p2p SMS send/settlement CRITICAL was logged in the last few minutes — a money-integrity event that needs a human.',
+      'Click *View in Grafana* and search "CRITICAL win sms" for the log line: it names the outreachId and the exact failure (capture commit lost / captured-but-PI-not-succeeded / succeeded-PI-no-charge / free-texts restore failed / stranded refunding). The refunding and captured cases are the money-sensitive ones — money owed back that no refund recorded, or a charge in an unexpected state.',
+      'These are not self-healing beyond the automatic reconcile sweeps; check the OutreachP2pSms settleState and the Stripe hold/charge/refund for the named outreachId before assuming recovery.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'metric',

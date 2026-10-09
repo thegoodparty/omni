@@ -264,13 +264,16 @@ const MAX_REREAD_FACTOR = 24
  * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
  * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
  * GB/day, or roughly half the allowance, leaving the other half for humans and
- * for whatever the next alert needs. The set totals 124 today.
+ * for whatever the next alert needs. The set totals 130 today — at the ceiling.
  *
  * WHAT THE REMAINING HEADROOM WILL AND WILL NOT BUY, since this is where the
- * next person will want to spend it. 118 of those 124 are the eleven
+ * next person will want to spend it. 124 of those 130 are the thirteen
  * hand-written log alerts; the five route alerts are 5 and the door-knocking
- * recording rule is 1. Another rule at the per-rule ceiling of 24 does not fit,
- * and neither does putting the four Geoapify tiers back on Loki — a 24h window
+ * recording rule is 1. The set now sits AT the total ceiling, so the next log
+ * alert cannot be a hand-written Loki rule at all — it needs a recording rule
+ * (win-sms-critical is at the minimum factor of 1 already: a [5m] window read
+ * every 5 minutes). A rule at the per-rule ceiling of 24 does not fit, and
+ * neither does putting the four Geoapify tiers back on Loki — a 24h window
  * cannot be evaluated more than once an hour without breaching that ceiling on
  * its own, so four of them is 96. That is why door-knocking spend is the one
  * thing still read through a recording rule.

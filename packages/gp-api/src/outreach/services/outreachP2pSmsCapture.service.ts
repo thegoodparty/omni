@@ -657,8 +657,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       this.logger.error(
         { err, outreachId },
         'CRITICAL win sms capture: free-texts restore failed after a ' +
-          'capture-time void; the offer may be stuck consumed. ' +
-          'TODO(slice F): reconcile',
+          'capture-time void; the offer may be stuck consumed; a human must ' +
+          'reconcile (win-sms-critical alert)',
       )
     }
   }
