@@ -2209,17 +2209,17 @@ export type APIEndpoints = {
 
   'POST /v1/test-mode/organizations': {
     Request: CreateTestOrganizationRequest
-    Response: { slug: string }
+    Response: TestModeState
   }
 
   'POST /v1/test-mode/apply': {
     Request: ApplyTestModeRequest
-    Response: void
+    Response: TestModeState
   }
 
   'DELETE /v1/test-mode/organizations/:slug': {
     Request: {}
-    Response: void
+    Response: TestModeState
   }
 }
 

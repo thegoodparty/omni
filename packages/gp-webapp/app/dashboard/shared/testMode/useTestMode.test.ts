@@ -54,7 +54,12 @@ describe('useTestMode', () => {
         if (route === 'GET /v1/test-mode')
           return Promise.resolve({ data: { organizations: [], active: null } })
         if (route === 'POST /v1/test-mode/organizations')
-          return Promise.resolve({ data: { slug: 'test-org-abc' } })
+          return Promise.resolve({
+            data: {
+              organizations: [],
+              active: { slug: 'test-org-abc', type: 'campaign', families: {} },
+            },
+          })
         return Promise.resolve({ data: null })
       })
 
@@ -86,7 +91,12 @@ describe('useTestMode', () => {
         if (route === 'GET /v1/test-mode')
           return Promise.resolve({ data: { organizations: [], active: null } })
         if (route === 'POST /v1/test-mode/organizations')
-          return Promise.resolve({ data: { slug: 'test-eo-xyz' } })
+          return Promise.resolve({
+            data: {
+              organizations: [],
+              active: { slug: 'test-eo-xyz', type: 'campaign', families: {} },
+            },
+          })
         return Promise.resolve({ data: null })
       })
 

@@ -39,7 +39,10 @@ export const useTestMode = () => {
       // eligibility, which the org-picker's setSelectedSlug deliberately
       // skips. A full invalidateQueries() covers both.
       await queryClient.invalidateQueries()
-      setSelectedSlug(data.slug)
+      const createdSlug = data.active?.slug
+      if (createdSlug) {
+        setSelectedSlug(createdSlug)
+      }
       // A not-onboarded elected office lands on serve onboarding; every
       // other creation goes to post-auth-redirect.
       if (
