@@ -1198,9 +1198,8 @@ reading it the old way.
 bullet is how to open and the last is how to close (where the ask goes), both
 as notes rather than a scripted greeting. The candidate is named by first name
 in the third person and never as "I", so the card reads correctly whether the
-candidate or a volunteer is holding it; that is what lets the webapp show a
-free-text card with no composed introduction or thank-you around it. Legacy
-four-line cards keep both. `POST /v1/outreach/door-knocking/draft` and its
+candidate or a volunteer is holding it; the webapp shows every stored card as written,
+with no composed introduction or thank-you around it. `POST /v1/outreach/door-knocking/draft` and its
 `serve/` sibling return one `draft`. A fresh draft is 4 or 5 bullets, one
 action each, about the campaign's (or the office's) goal rather than the
 person at the door, assembled server-side so every line starts with the bullet marker. An

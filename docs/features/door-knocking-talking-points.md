@@ -23,22 +23,20 @@ campaign in general.
 
 ## The card
 
-A list saved with free text stores the whole card, from how to open to how to
-close, and the walk shows exactly those lines. The opening and the close are
-bullets like any other ("Open warm, thank them for the time.", "Close by asking
-if they want updates."), so the candidate can edit them.
+The walk shows a list's stored talking points exactly as written, with
+nothing composed around them. A free-text card carries its own opening and
+close as bullets like any other ("Open warm, thank them for the time.", "Close
+by asking if they want updates."), so the candidate can edit them.
 
 They are written as notes in the third person ("Say what the candidate is
-already doing", with their first name), never as "I", so the same card works for the candidate and for a
-volunteer. That is what lets the walk drop the composed introduction: a note
-cannot make a volunteer claim to be the candidate the way a scripted "Hi, I'm"
-line could.
+already doing", with their first name), never as "I", so the same card works
+for the candidate and for a volunteer.
 
-Lists frozen before free text stored only the middle of the card. The walk
-still frames those with the introduction `useDoorScript` composes for whoever
-is reading (candidate, team member, volunteer, Serve official) and closes them
-with `DEPARTURE_NOTE`. A list with no stored card falls back to the composed
-introduction and the candidate's issue stances.
+Lists frozen before free text stored four plain lines. They are not migrated
+and not told apart: they show as those four sentences, also with nothing
+around them. The app's composed introduction is only for a list with no stored
+card, where it sits above the candidate's issue stances (or alone, on Serve),
+so that card is never empty.
 
 There is no website call-to-action line. The model never writes a URL, phone
 number or QR code.
@@ -177,32 +175,18 @@ and both surfaces repeat their header on every page.
 `readTalkingPoints` in `native/talkingPointsCard.ts` turns the stored string
 into the card's lines, each `{ text, bullet }`:
 
-1. **Legacy rows.** Exactly four lines, at least one non-blank, none starting
-   with the bullet marker. These are lists frozen before free text (question,
-   context, a call to action that may be blank, ask). Every non-blank line
-   shows as a bullet. These rows are not migrated.
-2. **Free text.** Anything else: split on newlines, blank lines dropped. A line
-   starting with the marker is a bullet (marker stripped); any other line shows
-   as written. A marker with nothing after it is dropped.
-3. **Empty or absent.** Null, and `useDoorScript` falls back to the candidate's
-   own issue stances, as it does for lists created before the step existed.
+- **Stored text.** Split on newlines, each line trimmed, blank lines dropped.
+  A line starting with the marker is a bullet (marker stripped); any other line
+  shows as written. A marker with nothing after it is dropped. A card frozen
+  before free text goes through the same rule, so its four lines show as
+  sentences.
+- **Empty or absent.** Null, and `useDoorScript` falls back to the composed
+  introduction and the candidate's own issue stances, as it does for lists
+  created before the step existed.
 
-Case 1 is framed with the composed introduction and closes with
-`DEPARTURE_NOTE` as a bullet. Case 2 carries its own opening and close, so the
-walk shows it as written with no introduction above it and nothing appended.
-`DoorScript.tsx` groups
-consecutive bullets into one list and renders other lines as paragraphs.
-
-**Known edge:** new free text that is exactly four plain lines, none
-bulleted, is indistinguishable from a legacy row. It shows as four bullets
-inside the composed frame, so its own opening and close are repeated by the
-introduction and `DEPARTURE_NOTE`. It needs a candidate to delete every marker
-from a four-bullet draft. Telling legacy rows apart by when they were saved,
-rather than by shape, would need a field the route payload does not carry.
-
-Lists saved between the free-text release and this one hold bullets with no
-opening or close of their own, and now show without the composed frame. They
-are hours old at most, so they are not special-cased.
+Nothing is composed around a stored card, so the reader never has to tell an
+old card from a new one. `DoorScript.tsx` groups consecutive bullets into one
+list and renders other lines as paragraphs.
 
 Stored points replace the issue stances rather than joining them, and the
 stances query is not spent when a list has points.
@@ -289,6 +273,6 @@ there is no surface to edit them from afterwards. Persisting `purpose` keeps
 that open without a later migration.
 
 **Serve is in scope.** The Serve prompt never says "candidate" or "campaign",
-and a legacy card's composed introduction never introduces a sitting official
-as a candidate for their own seat, the mistake `buildServeIntro` exists to
-prevent.
+and the composed introduction on a list with no card never introduces a
+sitting official as a candidate for their own seat, the mistake
+`buildServeIntro` exists to prevent.
