@@ -51,6 +51,7 @@ import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildCampaignManagerOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { buildCampaignManagerListProposalTool } from '../crm-tools/presentListProposal.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
@@ -619,6 +620,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           contacts: this.contacts,
           organization: ctx.organization,
         })
+      }
+      // Saved through the same voter-file route the outreach cards use,
+      // which a free campaign can reach; the card's button holds the Pro
+      // gate.
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+        filterTools.present_list_proposal =
+          buildCampaignManagerListProposalTool()
       }
       // The catalog is built over the filter tools so its description names
       // only the ones registered beside it. It is still listed first, as it
