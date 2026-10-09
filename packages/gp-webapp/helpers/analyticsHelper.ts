@@ -198,7 +198,6 @@ export const EVENTS = {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
-      ClickCommunity: 'Navigation - Dashboard: Click Community',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
       ClickPolls: 'Navigation - Dashboard: Click Polls',
@@ -452,7 +451,6 @@ export const EVENTS = {
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
-    OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
     // Fires once per page entry when the org has no resolvable district, so the
     // page can only offer the support handoff. 437 active campaigns are in that
     // state; this measures how many actually land here, which is what would
@@ -568,16 +566,11 @@ export const EVENTS = {
     RunningAgainst: {
       ClickAddNew: 'Profile - Running Against: Click Add New',
       SubmitAddNew: 'Profile - Running Against: Submit Add New',
-      CancelAddNew: 'Profile - Running Against: Cancel Add New',
       ClickEdit: 'Profile - Running Against: Click Edit',
       SubmitEdit: 'Profile - Running Against: Submit Edit',
-      CancelEdit: 'Profile - Running Against: Cancel Edit',
-      ClickDelete: 'Profile - Running Against: Click Delete',
       ClickSave: 'Profile - Running Against: Click Save',
     },
-    TopIssues: {
-      CancelEdit: 'Profile - Top Issues: Cancel Edit',
-    },
+    TopIssues: {},
     PolicyPriorities: {
       ClickAdd: 'Profile - Policy Priorities: Click Add',
       ClickEdit: 'Profile - Policy Priorities: Click Edit',
@@ -683,12 +676,8 @@ export const EVENTS = {
     },
   },
   CandidateWebsite: {
-    Started: 'Candidate Website - Started',
     Continued: 'Candidate Website - Continued',
-    Unpublished: 'Candidate Website - Unpublished',
     Edited: 'Candidate Website - Edited',
-    StartedDomainSelection: 'Candidate Website - Started domain selection',
-    SelectedDomain: 'Candidate Website - Selected domain',
   },
   Candidacy: {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',

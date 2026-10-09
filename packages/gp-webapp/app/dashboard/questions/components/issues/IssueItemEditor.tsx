@@ -6,7 +6,6 @@ import { IssuePositionsList } from 'app/dashboard/questions/components/issues/Is
 import { IssueItemLabel } from 'app/dashboard/questions/components/issues/IssueItemLabel'
 import { IssueEditorButtons } from 'app/dashboard/questions/components/issues/IssueEditorButtons'
 import { CandidatePositionStatement } from 'app/dashboard/questions/components/issues/CandidatePositionStatement'
-import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import type { ComponentProps } from 'react'
 import type { EditIssuePosition, IssueOption } from './issueTypes'
 import type { CandidatePosition } from 'helpers/types'
@@ -80,7 +79,6 @@ const IssueItemEditor = ({
   }
 
   const onCancel = () => {
-    trackEvent(EVENTS.Profile.TopIssues.CancelEdit)
     setEditIssuePosition(null)
   }
 

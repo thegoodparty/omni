@@ -26,7 +26,6 @@ export default function RunningAgainstCard({
   }
 
   function handleDelete(): void {
-    trackEvent(EVENTS.Profile.RunningAgainst.ClickDelete)
     onDelete()
   }
 
@@ -36,7 +35,6 @@ export default function RunningAgainstCard({
   }
 
   function handleCancel(): void {
-    trackEvent(EVENTS.Profile.RunningAgainst.CancelEdit)
     setShowEdit(false)
   }
 
