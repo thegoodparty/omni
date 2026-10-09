@@ -100,6 +100,9 @@ const CONTROLLER_OWNERS: Partial<
   'campaigns/:id/positions': [WIN],
   'campaigns/tasks': [WIN],
   'campaigns/tcr-compliance': [WIN],
+  // Staff-only test organizations; a 5xx here blocks whoever is testing
+  // either product, and the flag keeps real candidates off the route.
+  'test-mode': BOTH,
   'campaigns/mine/update-history': [WIN],
   'admin/campaign': [WIN],
   'admin/campaigns': [WIN],
