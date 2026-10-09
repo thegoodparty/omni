@@ -732,10 +732,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
     // CAPTURE edge (a): attempt the capture only AFTER finalize and the
     // free-texts redemption have run — the discount is read at capture from the
-    // per-send stamp (`billableTextCount`) that `markFreeTextsConsumed` writes
-    // in the block above, so capturing earlier would miss an eligible campaign's
-    // discount and overcharge. If the build is already `ready` (the common
-    // ordering — the list is built before checkout), this captures now;
+    // per-send stamp (`OutreachP2pSms.freeTextsApplied`) that `redeemFreeTexts`
+    // writes in the block above, so capturing earlier would miss an eligible
+    // campaign's discount and overcharge. If the build is already `ready` (the
+    // common ordering — the list is built before checkout), this captures now;
     // otherwise it no-ops and the build-ready edge or the backstop sweep fires
     // once the list finishes. Best-effort: a capture failure must not fail the
     // webhook (finalize already ran, and the backstop re-captures), and it runs
