@@ -9,7 +9,10 @@ import { MAX_AUDIENCE_RECIPIENTS } from 'src/contacts/utils/audienceResolution.u
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
-import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
+import {
+  calcTextAmountInCents,
+  maxTextsForAmountInCents,
+} from 'src/shared/util/textPricing.util'
 import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
 import { p2pPhoneListRequestSchema } from 'src/vendors/peerly/schemas/p2pPhoneListRequest.schema'
@@ -154,18 +157,39 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       )
     }
 
+    let amount: number
     if (build.buildStatus !== PhoneListBuildStatus.ready) {
-      return this.resolvePreBuildHoldAmount(build)
+      amount = await this.resolvePreBuildHoldAmount(build)
+    } else {
+      const builtContactCount = await this.billedCountFromCapturedList(
+        build,
+        clientContactCount,
+        campaignId,
+        phoneListToken,
+      )
+      const undiscounted = calcTextAmountInCents(builtContactCount)
+      amount = undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
     }
 
-    const builtContactCount = await this.billedCountFromCapturedList(
-      build,
-      clientContactCount,
-      campaignId,
-      phoneListToken,
-    )
-    const undiscounted = calcTextAmountInCents(builtContactCount)
-    return undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
+    // HARD send cap (slice D2b — never oversend): persist the paid text count
+    // this hold covers onto the build NOW, at session-creation, so the async
+    // build-upload caps to it even when its resolve runs before the payment
+    // webhook links the hold (the race D2a's satellite-link cap could not
+    // close). The paid session's amount equals the authorized hold, so this
+    // value is exactly `maxTextsForAmountInCents(authorizedAmountInCents)`. Only
+    // a real hold (amount > 0) caps — a forgiven/free amount places no hold and
+    // sends nothing to cap (and a pre-build $0 is refused upstream anyway).
+    //
+    // Awaited, fail-closed on purpose: if the cap cannot be persisted, checkout
+    // is blocked rather than letting a hold be authorized with no cap in place —
+    // the safe posture for the money gate this slice exists to guarantee.
+    if (amount > 0) {
+      await this.peerlyPhoneListCapture.persistSendCap(
+        build.id,
+        maxTextsForAmountInCents(amount),
+      )
+    }
+    return amount
   }
 
   // The pre-build hold amount: the has-cell match count of the EXACT filter the

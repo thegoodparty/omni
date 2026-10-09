@@ -187,7 +187,40 @@ describe('OutreachP2pSmsCaptureService', () => {
       )
     })
 
-    it('returns null when no hold is authorized for the build (no cap applied)', async () => {
+    it('returns the PERSISTED build cap with no hold linked yet — order-independent (cap set at session creation, before the webhook link)', async () => {
+      // The oversend race: the build resolves and uploads BEFORE the payment
+      // webhook links the hold to the satellite. The persisted sendCapTexts
+      // (stamped at session creation) still caps it — no satellite hold needed.
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: 250 })
+      sms.findFirst.mockResolvedValue(null)
+
+      const cap = await service.resolveSendCapForBuild(BUILD_ID)
+
+      expect(cap).toBe(250)
+      // The persisted field short-circuits — the satellite is never consulted.
+      expect(sms.findFirst).not.toHaveBeenCalled()
+      expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: BUILD_ID } }),
+      )
+    })
+
+    it('prefers the persisted build cap over the satellite hold when both exist', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: 10 })
+      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(10)
+      expect(sms.findFirst).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the satellite hold when the build carries no persisted cap', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
+      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(LEADS_LOADED)
+    })
+
+    it('returns null when no cap is persisted and no hold is authorized (no cap applied)', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
       sms.findFirst.mockResolvedValue(null)
       expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
     })

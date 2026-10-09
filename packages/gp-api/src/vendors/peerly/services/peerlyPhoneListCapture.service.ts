@@ -58,6 +58,38 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     await this.model.update({ where: { id: buildId }, data: { token } })
   }
 
+  // HARD send cap (Win SMS hold, slice D2b — never oversend). Persists the paid
+  // text count the hold covers (`maxTextsForAmountInCents(holdAmount)`) onto the
+  // build at checkout-session time — when the hold amount is first computed,
+  // BEFORE the payment webhook links the hold. The build-upload reads this field
+  // (not the satellite link, which only exists post-webhook), so the cap binds
+  // whether the resolve runs before or after the hold link.
+  //
+  // RATCHETS DOWN ONLY (money-safety): writes the new value only when it is
+  // LOWER than what is stored (or nothing is stored). calculateAmount runs on
+  // EVERY checkout-session creation, and two sessions for the same build need
+  // not price identically — the pre-build estimate re-reads a live people-db
+  // count that can grow, and the ready path (leads_loaded) differs from the
+  // estimate. A later, higher-priced session that is NEVER paid must not raise
+  // the cap above the hold that WAS authorized, or resolveSendCapForBuild would
+  // hand the upload a cap larger than the paid count. Taking the minimum keeps
+  // the persisted cap <= `maxTextsForAmountInCents` of the smallest priced
+  // session, which is <= that of whichever session is actually paid — so the
+  // upload can never exceed the paid count, whichever session paid. A cap that
+  // ends up below the paid hold only UNDER-sends (capture bills the actual
+  // uploaded count, clamped to the hold, so never an overcharge). `updateMany`
+  // (no throw on a missing/deleted build) guarded on id + the lower-or-null
+  // predicate, so the write is a single idempotent statement.
+  async persistSendCap(buildId: string, sendCapTexts: number): Promise<void> {
+    await this.model.updateMany({
+      where: {
+        id: buildId,
+        OR: [{ sendCapTexts: null }, { sendCapTexts: { gt: sendCapTexts } }],
+      },
+      data: { sendCapTexts },
+    })
+  }
+
   // Advances the pre-created `queued` row to `processing` with the Peerly
   // token and the two exclusion counts, and writes the recipient rows —
   // together, so a list Peerly never received can never gain recipient rows
