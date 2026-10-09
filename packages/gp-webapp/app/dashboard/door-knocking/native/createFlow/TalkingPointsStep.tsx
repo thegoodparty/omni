@@ -11,6 +11,7 @@ import {
   cn,
   IconButton,
   Input,
+  seamlessFieldHost,
   TokenField,
   type TokenFieldRef,
 } from '@styleguide'
@@ -174,7 +175,7 @@ export const TalkingPointsStep = ({
         </Card>
       )}
 
-      <Card className="gap-5 p-4">
+      <Card className={cn('gap-5 p-4', seamlessFieldHost)}>
         {intro && (
           <ComposedSection
             label="Introduction"
