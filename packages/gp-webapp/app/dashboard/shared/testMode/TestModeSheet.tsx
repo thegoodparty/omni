@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetHeader,
   SheetTitle,
@@ -116,14 +117,14 @@ export function TestModeSheet({ open, onOpenChange }: Props) {
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
-          className="w-full sm:max-w-lg overflow-y-auto"
+          className="w-full sm:max-w-lg"
           aria-describedby={undefined}
         >
           <SheetHeader>
             <SheetTitle>Test mode</SheetTitle>
           </SheetHeader>
 
-          <div className="mt-6 space-y-8 px-1">
+          <SheetBody className="mt-2 gap-8">
             {/* Create form */}
             <section className="space-y-4">
               <h2 className="text-sm font-semibold">New test organization</h2>
@@ -368,7 +369,7 @@ export function TestModeSheet({ open, onOpenChange }: Props) {
                 </div>
               </section>
             )}
-          </div>
+          </SheetBody>
         </SheetContent>
       </Sheet>
 
