@@ -3,9 +3,7 @@
 // for the actual billable count once the vendor reports it — hold +
 // capture-actual, not prepay-on-estimate. Terminal states cover the ways a hold
 // ends: captured (money taken), voided (hold released, no charge), refunded
-// (money returned). hold_failed is the terminal for a declined card. The hold
-// and settlement transitions themselves land in later slices; this slice only
-// seeds pending_payment.
+// (money returned). hold_failed is the terminal for a declined card.
 enum P2pSmsSettleState {
   pending_payment
   // The single-owner claim held while the pay-time Stripe hold is in flight.
@@ -15,6 +13,11 @@ enum P2pSmsSettleState {
   // the actual billable count — the guard against capturing the same send twice.
   capturing
   captured
+  // The single-owner claim held while a captured charge is being refunded (on a
+  // cancel or deny). Claimed BEFORE the Stripe refund so a deny and a cancel
+  // racing the same charge cannot both issue one; reverted to captured on a
+  // transient failure so a retry re-runs. Mirrors capturing.
+  refunding
   voided
   refunded
   // The terminal for a declined card.

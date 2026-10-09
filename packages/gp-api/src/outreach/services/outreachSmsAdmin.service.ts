@@ -34,6 +34,7 @@ import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.se
 import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
 import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
 import { OutreachService } from './outreach.service'
+import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
@@ -201,6 +202,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
     private readonly outreachService: OutreachService,
+    private readonly p2pSmsCancel: OutreachP2pSmsCancelService,
     private readonly notifications: OutreachNotificationService,
   ) {
     super()
@@ -599,6 +601,22 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     input: DenySmsOutreachRequest,
   ): Promise<SmsApprovalQueueItem> {
+    // Hold model: a row carrying an OutreachP2pSms satellite was funded by a
+    // manual-capture hold that is by this point captured (the approve gate only
+    // lets a `captured` row reach canvasser booking), so denying it must RELEASE
+    // the money — refund if captured, void if still authorized — and neutralize
+    // the vendor job so a denied send can never go out. This is distinct from the
+    // send-back-for-edits deny below: a non-satellite row keeps that behavior
+    // byte-for-byte. SATELLITE-gated, not flag-gated — a captured/authorized hold
+    // is released even on a WIN_SMS_HOLD_BILLING rollback.
+    const satellite = await this.client.outreachP2pSms.findUnique({
+      where: { outreachId },
+      select: { outreachId: true },
+    })
+    if (satellite) {
+      return this.denyHold(outreachId, input)
+    }
+
     const denied = await this.model.updateMany({
       where: {
         id: outreachId,
@@ -622,6 +640,75 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         'This campaign is not awaiting review any more',
       )
     }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const registrations = await this.registrationsByCampaign([updated])
+    return this.toQueueItem(
+      updated,
+      registrations.get(updated.campaignId ?? -1),
+      null,
+    )
+  }
+
+  // Terminal deny for a hold-model row: neutralize the vendor job, release the
+  // money through the shared charge-keyed refund terminal, then stamp the denial.
+  // Idempotent: a retry after a delete/release/stamp failure re-runs each step
+  // (the delete no-ops on an already-gone job; the release is a no-op on a settled
+  // satellite). The denial stamp is LAST (not committed before the money moves),
+  // so a release failure leaves the row re-deniable rather than stranded.
+  private async denyHold(
+    outreachId: number,
+    input: DenySmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, outreachType: OutreachType.p2p },
+      include: queueInclude,
+    })
+    if (!row || !row.campaignId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    // Only a reviewable (not yet approved, not already denied, not sent) row can
+    // be denied — mirrors the non-satellite deny's CAS. Without this, a captured
+    // row sitting in the Sent tab (status completed) could be denied and
+    // REFUNDED for a delivered send. A read-only pre-check (not a claim) so a
+    // release failure stays retryable; two racing denies both pass it and the
+    // release + stamp below are idempotent.
+    if (
+      !row.status ||
+      !REVIEWABLE_STATUSES.includes(row.status) ||
+      row.approvedAt ||
+      row.deniedAt
+    ) {
+      throw new ConflictException(
+        'This campaign is not awaiting review any more',
+      )
+    }
+
+    // Delete the vendor job FIRST and throw on failure (the cancel discipline),
+    // so a denied send can never fire: releasing the money before the job is gone
+    // would risk a free delivered send if the delete then failed.
+    if (row.projectId) {
+      await this.peerlyP2pJobService.deleteJob(row.projectId)
+      this.invalidateVendorReads(row.projectId)
+    }
+
+    // Release the hold (refund if captured, void if authorized). Refuses a
+    // `capturing` row (money mid-flight) — the deny retries once it settles.
+    await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
+
+    // Stamp the denial for the audit trail. A hold-model deny is a terminal money
+    // action, not the reversible send-back-for-edits stamp.
+    await this.model.updateMany({
+      where: { id: outreachId },
+      data: {
+        deniedAt: new Date(),
+        deniedBy: input.deniedBy,
+        deniedReason: input.reason,
+      },
+    })
 
     const updated = await this.model.findFirstOrThrow({
       where: { id: outreachId },
