@@ -351,7 +351,12 @@ export default function ListDetailSheet({
             />
           )}
 
-          {!isUniverse && segment && <ListMapSection segment={segment} />}
+          {/* Same gate as the sheet's own query: a deep link opens the sheet
+              for a non-Pro candidate, and the map's GET /v1/contacts is
+              Pro-gated server-side. */}
+          {!isUniverse && segment && canUseProFeatures && (
+            <ListMapSection segment={segment} />
+          )}
 
           <div className="flex flex-col gap-2">
             <SectionLabel>
