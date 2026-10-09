@@ -11,6 +11,7 @@ import { createGzip } from 'node:zlib'
 import { once } from 'node:events'
 import { DownloadPeopleDTO } from '../schemas/people.schema'
 import { buildCsvSql } from './databricksVoterSql.util'
+import type { PeopleDataset } from '../services/peopleDataset.service'
 import { DatabricksVoterService } from './databricksVoter.service'
 import { readCsvChunkBody } from './csvChunkBody.util'
 import {
@@ -33,13 +34,14 @@ export class DatabricksVoterDownloadService {
 
   async streamPeopleCsv(
     dto: DownloadPeopleDTO,
+    dataset: PeopleDataset,
     res: FastifyReply,
     responseOptions?: {
       filename?: string
       extraHeaders?: Record<string, string>
     },
   ): Promise<void> {
-    const district = await this.voters.resolveDistrict(dto.districtId)
+    const district = await this.voters.resolveDistrict(dto.districtId, dataset)
     const sql = buildCsvSql({
       district,
       filters: dto.filters,

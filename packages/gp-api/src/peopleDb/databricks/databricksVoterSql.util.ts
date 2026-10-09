@@ -17,14 +17,19 @@ import {
   type RuledParty,
 } from '../utils/politicalParty.rules'
 import { DOWNLOAD_COLUMNS, type ExcludableVoterColumn } from '../voter.select'
+import type { PeopleDataset } from '../services/peopleDataset.service'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 
 const TABLE = (name: string): string =>
   `${PEOPLE_DBX_CATALOG}.${PEOPLE_DBX_SCHEMA}.${name}`
 
-const VOTER_TABLE_NAME = 'gp_api_voters'
+const PEOPLE_TABLE_NAMES: Record<PeopleDataset, string> = {
+  voters: 'gp_api_voters',
+  constituents: 'gp_api_constituents',
+}
 
-export const VOTER_TABLE = TABLE(VOTER_TABLE_NAME)
+export const peopleTable = (dataset: PeopleDataset): string =>
+  TABLE(PEOPLE_TABLE_NAMES[dataset])
 
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
@@ -107,6 +112,8 @@ const num = (value: string | number): number => {
 
 export type DbxDistrict = {
   districtId: string
+  dataset: PeopleDataset
+  table: string
   state: string
   districtType: string
   districtName: string
@@ -288,10 +295,11 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
   return null
 }
 
-// Voter_Independent_Affinity is a non-nullable BOOLEAN, so this compares
+// Voter_Independent_Affinity is a BOOLEAN set on every voter, so this compares
 // against a boolean literal instead of taking the presence-check path every
-// other has-* filter uses: `IS NOT NULL` there would match all 219M rows and
-// silently un-filter the request. Selecting both values is likewise no
+// other has-* filter uses: `IS NOT NULL` there would match all 219M voters and
+// silently un-filter the request. It is NULL on the consumer-only rows of the
+// constituents table, which neither literal matches. Selecting both values is likewise no
 // constraint at all, so it returns null rather than an always-true clause.
 const buildIndependentAffinityFilter = (op?: FilterOperator): string | null => {
   if (!op) return null
@@ -713,7 +721,7 @@ export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
     `SELECT COUNT(*) AS count,` +
     ` AVG(${col('Age_Int')}) AS avgAge,` +
     ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome` +
-    ` FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+    ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
@@ -742,7 +750,7 @@ export const buildListDetailAggregatesSql = (
     ` COUNT_IF(${landline}) AS robocall,` +
     ` COUNT_IF(${anyPhonePresentSql()}) AS phoneBanking,` +
     ` COUNT_IF(${addressPresentSql()}) AS doorKnocking` +
-    ` FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+    ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
@@ -756,7 +764,7 @@ export const buildCountSql = (
     ? `COUNT(DISTINCT ${householdKey()})`
     : 'COUNT(*)'
   const sql =
-    `SELECT ${countExpr} AS voter_count FROM ${VOTER_TABLE} v` +
+    `SELECT ${countExpr} AS voter_count FROM ${args.district.table} v` +
     ` ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
@@ -775,7 +783,7 @@ export const buildOverlapCountSql = (
   const savedSetsClause =
     savedClauses.length > 0 ? `(${savedClauses.join(' OR ')})` : 'FALSE'
   const sql =
-    `SELECT COUNT(*) AS overlap_count FROM ${VOTER_TABLE} v` +
+    `SELECT COUNT(*) AS overlap_count FROM ${args.district.table} v` +
     ` ${scope} AND ${savedSetsClause}`
   return { sql, params: bag.params }
 }
@@ -792,7 +800,7 @@ export const buildPersonSql = (
     .join(', ')
   const scope = buildScopeSql(bag, args)
   const sql =
-    `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
+    `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
     // Lowercased for the same reason idList is: this column is a STRING and
     // compares byte-exact, where the Postgres path cast to `uuid` and folded
     // case. z.guid() accepts a mixed-case guid and passes it through, so
@@ -826,7 +834,7 @@ export const buildPrecinctsSql = (args: {
   const sql =
     `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
     ` COUNT(*) AS voters` +
-    ` FROM ${VOTER_TABLE} v ${scope}` +
+    ` FROM ${args.district.table} v ${scope}` +
     ` GROUP BY ${col('County')}, ${col('Precinct')}` +
     ` ORDER BY voters DESC, county ASC, precinct ASC` +
     ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
@@ -850,7 +858,7 @@ export const buildPageSql = (
   const scope = buildScopeSql(bag, args)
   if (!args.groupByHousehold) {
     const sql =
-      `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
+      `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
       ` ORDER BY ${col('id')}` +
       ` LIMIT ${bag.bind(num(args.take), 'INT')}` +
       ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
@@ -868,7 +876,7 @@ export const buildPageSql = (
     ` COUNT(*) OVER (PARTITION BY ${key}) AS ${ident('householdSize')},` +
     ` ROW_NUMBER() OVER (PARTITION BY ${key}` +
     ` ORDER BY ${col('id')}) AS rn` +
-    ` FROM ${VOTER_TABLE} v ${scope}`
+    ` FROM ${args.district.table} v ${scope}`
   const sql =
     `SELECT * EXCEPT (rn) FROM (${inner}) WHERE rn = 1` +
     ` ORDER BY ${ident('householdId')}, ${ident('id')}` +
@@ -922,7 +930,7 @@ export const buildSampleSql = (
   }
 
   const sql =
-    `SELECT ${projection} FROM ${VOTER_TABLE} v ${parts.join(' ')}` +
+    `SELECT ${projection} FROM ${args.district.table} v ${parts.join(' ')}` +
     ` LIMIT ${bag.bind(num(args.size), 'INT')}`
   return { sql, params: bag.params }
 }
@@ -940,7 +948,7 @@ export const buildCsvSql = (
         `nvl(CAST(${col(column)} AS STRING), '') AS ${ident(header)}`,
     )
     .join(', ')
-  const sql = `SELECT ${projection} FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+  const sql = `SELECT ${projection} FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
@@ -1008,7 +1016,7 @@ export const buildDoorKnockingEvaluateSql = (
     ` ${lngDouble} AS ${ident('lng')},` +
     ` ${currentUnitKey()} AS ${ident('addressKey')},` +
     ` nvl(${col('Residence_Addresses_AddressLine')}, '') AS ${ident('displayAddress')}` +
-    ` FROM ${VOTER_TABLE} v ${parts.join(' ')}` +
+    ` FROM ${args.district.table} v ${parts.join(' ')}` +
     // LIMIT cap + 1 so an overflowing polygon is detected without counting.
     // The caller rejects rather than truncating.
     ` LIMIT ${bag.bind(num(args.maxPeople) + 1, 'INT')}`
@@ -1091,7 +1099,7 @@ export const buildDoorKnockingResidentsSql = (args: {
     ` (${col('StateVoterID')} IS NOT NULL) AS ${ident('registered')},` +
     ` ${projection},` +
     ` ${key} AS ${ident('addressKey')}` +
-    ` FROM ${VOTER_TABLE} v ${scope} AND ${ROOFTOP_ONLY} AND ${match}` +
+    ` FROM ${args.district.table} v ${scope} AND ${ROOFTOP_ONLY} AND ${match}` +
     ` LIMIT ${bag.bind(num(args.residentsCap) + 1, 'INT')}`
   return { sql, params: bag.params }
 }
@@ -1173,7 +1181,7 @@ export const buildPackSql = (args: { district: DbxDistrict }): DbxStatement => {
     ` AS ${ident('hasCellPhone')},` +
     ` (${col('VoterTelephones_LandlineFormatted')} IS NOT NULL)` +
     ` AS ${ident('hasLandline')}` +
-    ` FROM ${VOTER_TABLE} v ${scope}` +
+    ` FROM ${args.district.table} v ${scope}` +
     ` AND ${ROOFTOP_ONLY}` +
     ` AND ${latDouble} IS NOT NULL AND ${lngDouble} IS NOT NULL`
   return { sql, params: bag.params }

@@ -154,7 +154,7 @@ export function transformToPersonOutput(
 ): PersonOutputFormat {
   return {
     id: person.id,
-    lalVoterId: person.LALVOTERID,
+    lalVoterId: person.LALVOTERID ?? null,
     firstName: person.FirstName ?? null,
     middleName: person.MiddleName ?? null,
     lastName: person.LastName ?? null,

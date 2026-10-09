@@ -2,7 +2,6 @@ import {
   buildScopeSql,
   col,
   createBag,
-  VOTER_TABLE,
   type DbxScopeArgs,
   type DbxStatement,
 } from './databricksVoterSql.util'
@@ -30,7 +29,7 @@ export const buildRankPrecinctsSql = (args: DbxScopeArgs): DbxStatement => {
   const sql =
     `SELECT ${county} AS county, ${precinct} AS precinct,` +
     ` COUNT(*) AS voters` +
-    ` FROM ${VOTER_TABLE} v ${scope}` +
+    ` FROM ${args.district.table} v ${scope}` +
     ` AND ${precinct} IS NOT NULL AND length(trim(${precinct})) > 0` +
     ` GROUP BY ${county}, ${precinct}` +
     ` ORDER BY voters DESC` +

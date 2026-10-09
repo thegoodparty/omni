@@ -6148,7 +6148,7 @@ describe('door-knocking routes', () => {
       })
       const packSpy = vi
         .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
-        .mockImplementation((_request, signal) => {
+        .mockImplementation((_request, _dataset, signal) => {
           startBuild(signal)
           return new Promise<Buffer>(() => undefined)
         })

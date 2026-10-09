@@ -793,6 +793,7 @@ export class P2pPhoneListUploadService {
     const audience = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
+      dataset: await this.contactsService.resolvePeopleDataset(organization),
       excludePersonIds,
       pageSize: SEGMENT_PAGE_SIZE,
       maxRecipients: MAX_PHONE_LIST_RECIPIENTS,

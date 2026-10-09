@@ -13,12 +13,16 @@ import {
   type DbxDistrict,
 } from './databricksVoterSql.util'
 
+const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
+
 const CITY: DbxDistrict = {
   districtId: '635757db-0000-0000-0000-000000000000',
   state: 'IL',
   districtType: 'City',
   districtName: 'SPRINGFIELD',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const STATEWIDE: DbxDistrict = {
@@ -27,6 +31,8 @@ const STATEWIDE: DbxDistrict = {
   districtType: 'State',
   districtName: 'IL',
   useVoterOnlyPath: true,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const EMPTY_FILTERS = filtersSchema.parse({})

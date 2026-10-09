@@ -226,27 +226,22 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
     expect(dto?.filters.filterOperators.voterStatus).toBeUndefined()
   })
 
-  it('is a no-op for a Serve (eo-) org — no override lookup, even with an override row present', async () => {
+  // Voter likelihood is Win-only: Voter_Status is NULL on the consumer-only
+  // rows a Serve org may read. The request is refused before any override
+  // lookup or warehouse read.
+  it('refuses the filter for a Serve (eo-) org, with no override lookup', async () => {
     const slug = await setupEoOrg('serve-skip')
     const personId = randomUUID()
-    // A voter_likelihood row should never exist for an eo- org in production
-    // (the write path 400s for eo- orgs) — seeding one anyway proves the
-    // filter path is skipped by construction (hasElectedOfficeAccess), not
-    // merely because no row exists.
     await setOverride(slug, personId, 'super')
     const findPeopleSpy = spyOnFindPeople()
 
-    await service.client.post(
+    const response = await service.client.post(
       '/v1/contacts/count',
       { audienceSuperVoters: true },
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    const dto = findPeopleSpy.mock.calls[0]?.[0]
-    expect(dto?.idOverrides).toBeUndefined()
-    expect(dto?.filters.filterOperators.voterStatus).toEqual({
-      operator: 'eq',
-      value: 'Super',
-    })
+    expect(response.status).toBe(400)
+    expect(findPeopleSpy).not.toHaveBeenCalled()
   })
 })

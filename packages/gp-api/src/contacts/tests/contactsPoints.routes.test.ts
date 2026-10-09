@@ -158,7 +158,7 @@ describe('POST /v1/contacts/points', () => {
 
     await points(slug, { genderMale: true })
 
-    expect(spy.mock.calls[0]?.[1]).toEqual({ requireRooftopAccuracy: false })
+    expect(spy.mock.calls[0]?.[2]).toEqual({ requireRooftopAccuracy: false })
   })
 
   it('passes the truncation flag through rather than swallowing it', async () => {

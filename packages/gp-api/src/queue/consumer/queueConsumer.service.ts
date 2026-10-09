@@ -971,8 +971,10 @@ export class QueueConsumerService {
       // so resolve it once instead of letting every findPersonByPhone re-query
       // the campaign. Bound the fan-out (see PEOPLE_LOOKUP_CONCURRENCY) so a
       // large poll can't burst hundreds of simultaneous requests at People-API.
-      const proAccess =
-        await this.contactsService.resolveProAccess(organization)
+      const [proAccess, dataset] = await Promise.all([
+        this.contactsService.resolveProAccess(organization),
+        this.contactsService.resolvePeopleDataset(organization),
+      ])
       const lookups = await pmap(
         unmappedPhones,
         async (normalized) => {
@@ -982,6 +984,7 @@ export class QueueConsumerService {
               digitsOnly,
               organization,
               proAccess,
+              dataset,
             )
             return { phone: normalized, personId: person?.id ?? null }
           } catch (err) {

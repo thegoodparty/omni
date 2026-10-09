@@ -122,8 +122,8 @@ describe('unresolvable segment on the list/download paths', () => {
     const filter = await service.prisma.voterFileFilter.create({
       data: {
         organizationSlug: slug,
-        name: 'Super voters',
-        audienceSuperVoters: true,
+        name: 'Cell phones',
+        hasCellPhone: true,
       },
     })
     const findPeopleSpy = spyOnFindPeople()
@@ -137,11 +137,10 @@ describe('unresolvable segment on the list/download paths', () => {
     expect(findPeopleSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         filters: expect.objectContaining({
-          filterOperators: expect.objectContaining({
-            voterStatus: { operator: 'eq', value: 'Super' },
-          }),
+          filters: expect.arrayContaining(['hasCellPhone']),
         }),
       }),
+      expect.anything(),
     )
   })
 })

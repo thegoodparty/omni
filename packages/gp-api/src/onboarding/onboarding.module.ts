@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { LlmModule } from '@/llm/llm.module'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
@@ -15,6 +16,7 @@ import { LocalNewsCacheService } from './services/localNewsCache.service'
   imports: [
     LlmModule,
     ContactsModule,
+    PeopleQueryModule,
     ElectionsModule,
     OrganizationsModule,
     ClerkModule,

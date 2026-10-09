@@ -19,11 +19,20 @@ import {
   buildSearchSql,
   buildVoterFiltersSql,
   buildPersonSql,
+  buildDoorKnockingEvaluateSql,
+  buildDoorKnockingResidentsSql,
+  buildPackSql,
   createBag,
   MAX_PRECINCT_OPTIONS,
-  VOTER_TABLE,
+  peopleTable,
   type DbxDistrict,
 } from './databricksVoterSql.util'
+import { buildDistrictStatsSql } from './databricksDistrictStatsSql.util'
+import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
+
+const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
+const CONSTITUENTS_TABLE =
+  'goodparty_data_catalog.mart_gp_api.gp_api_constituents'
 
 const CONGRESSIONAL: DbxDistrict = {
   districtId: '635757db-0000-0000-0000-000000000000',
@@ -31,6 +40,8 @@ const CONGRESSIONAL: DbxDistrict = {
   districtType: 'US_Congressional_District',
   districtName: '29',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const STATEWIDE: DbxDistrict = {
@@ -39,6 +50,8 @@ const STATEWIDE: DbxDistrict = {
   districtType: 'State',
   districtName: 'CA',
   useVoterOnlyPath: true,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const noFilters = (): FilterData => filtersSchema.parse({})
@@ -74,10 +87,10 @@ describe('buildScopeSql', () => {
     expect(sql.toLowerCase()).not.toContain('join')
   })
 
-  // The service principal holds a least-privilege grant on exactly two tables.
-  // Any other table name reaching a query is a permission error in production,
-  // so pin the whole builder surface to those two.
-  it('only ever names the two tables the grant covers', () => {
+  // The service principal's grant is scoped to the mart_gp_api schema. Any
+  // other table name reaching a query is a permission error in production, so
+  // pin the whole builder surface to the one people table the district names.
+  it('only ever names the people table the district resolved to', () => {
     const scope = { district: CONGRESSIONAL, filters: noFilters() }
     const statements = [
       buildCountSql(scope),
@@ -96,7 +109,7 @@ describe('buildScopeSql', () => {
       const tables = sql.match(qualified) ?? []
       expect(new Set(tables).size).toBeLessThanOrEqual(1)
       for (const table of tables) {
-        expect(table).toBe(VOTER_TABLE)
+        expect(table).toBe(VOTERS_TABLE)
       }
     }
   })
@@ -634,7 +647,7 @@ describe('aggregate and page queries', () => {
         ' COUNT_IF((v.`Residence_Addresses_AddressLine` IS NOT NULL' +
         " AND v.`Residence_Addresses_AddressLine` != ''))" +
         ' AS doorKnocking' +
-        ` FROM ${VOTER_TABLE} v` +
+        ` FROM ${VOTERS_TABLE} v` +
         ' WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
     )
     expect(params).toEqual([
@@ -1032,7 +1045,7 @@ describe('buildPrecinctsSql', () => {
     const { sql } = buildPrecinctsSql({ district: CONGRESSIONAL })
     expect(sql).toContain('COUNT(*) AS voters')
     expect(sql).toContain('GROUP BY v.`County`, v.`Precinct`')
-    expect(sql).toContain(`FROM ${VOTER_TABLE} v`)
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
   })
 
   it('scopes to the district the same way every other read does', () => {
@@ -1068,4 +1081,74 @@ describe('buildPrecinctsSql', () => {
     expect(sql).toContain('v.`State` = :p0')
     expect(sql).not.toContain('v.`State` = :p0 AND v.`State`')
   })
+})
+
+describe('people table selection', () => {
+  it('maps each dataset to its mart table', () => {
+    expect(peopleTable('voters')).toBe(VOTERS_TABLE)
+    expect(peopleTable('constituents')).toBe(CONSTITUENTS_TABLE)
+  })
+
+  const statementsFor = (district: DbxDistrict) => {
+    const scope = { district, filters: noFilters() }
+    return [
+      buildCountSql(scope),
+      buildAggregatesSql(scope),
+      buildListDetailAggregatesSql(scope),
+      buildPageSql({ ...scope, columns: ['id'], take: 1, skip: 0 }),
+      buildPageSql({
+        ...scope,
+        columns: ['id'],
+        take: 1,
+        skip: 0,
+        groupByHousehold: true,
+      }),
+      buildOverlapCountSql({ ...scope, savedFilterSets: [] }),
+      buildPersonSql({
+        ...scope,
+        columns: ['id'],
+        id: '11111111-1111-1111-1111-111111111111',
+      }),
+      buildPrecinctsSql({ district }),
+      buildSampleSql({
+        ...scope,
+        columns: ['id'],
+        size: 10,
+        seed: 1,
+        hashDivisor: 2,
+      }),
+      buildCsvSql(scope),
+      buildDoorKnockingEvaluateSql({
+        ...scope,
+        bbox: { minLat: 0, maxLat: 1, minLng: 0, maxLng: 1 },
+        maxPeople: 10,
+      }),
+      buildDoorKnockingResidentsSql({
+        district,
+        addressKeys: ['1 MAIN ST||12345'],
+        residentsCap: 10,
+      }),
+      buildPackSql({ district }),
+      buildDistrictStatsSql(district),
+      buildRankPrecinctsSql(scope),
+    ]
+  }
+
+  it.each([
+    ['voters', VOTERS_TABLE, CONSTITUENTS_TABLE],
+    ['constituents', CONSTITUENTS_TABLE, VOTERS_TABLE],
+  ] as const)(
+    'every builder reads the %s table and never the other',
+    (dataset, table, otherTable) => {
+      const district: DbxDistrict = {
+        ...CONGRESSIONAL,
+        dataset,
+        table: peopleTable(dataset),
+      }
+      for (const { sql } of statementsFor(district)) {
+        expect(sql).toContain(`FROM ${table} v`)
+        expect(sql).not.toContain(otherTable)
+      }
+    },
+  )
 })

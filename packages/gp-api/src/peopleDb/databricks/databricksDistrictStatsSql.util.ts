@@ -2,7 +2,6 @@ import {
   buildScopeSql,
   col,
   createBag,
-  VOTER_TABLE,
   type DbxDistrict,
   type DbxStatement,
 } from './databricksVoterSql.util'
@@ -175,7 +174,7 @@ export const buildDistrictStatsSql = (district: DbxDistrict): DbxStatement => {
   const sql =
     `WITH scoped AS (SELECT ${projections},` +
     ` ${col('VoterTelephones_CellPhoneFormatted')} AS cell` +
-    ` FROM ${VOTER_TABLE} v ${scope})` +
+    ` FROM ${district.table} v ${scope})` +
     ` SELECT CASE ${dimensionCase} ELSE ${quote(TOTAL_DIMENSION)} END AS dimension,` +
     ` coalesce(${labelCoalesce}, ${quote('all')}) AS label,` +
     ` COUNT(*) AS count, COUNT(cell) AS with_cell` +

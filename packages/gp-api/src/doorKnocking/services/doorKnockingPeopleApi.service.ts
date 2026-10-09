@@ -9,6 +9,7 @@ import {
 import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { VoterPackService } from '@/peopleDb/services/voterPack.service'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
@@ -32,6 +33,7 @@ export class DoorKnockingPeopleApiService {
 
   evaluate(args: {
     districtId: string
+    dataset: PeopleDataset
     bbox: Bbox
     filters: FilterObject
     idOverrides?: IdOverrides
@@ -53,11 +55,13 @@ export class DoorKnockingPeopleApiService {
           ? { excludePersonIds: args.excludePersonIds }
           : {}),
       }),
+      args.dataset,
     )
   }
 
   residents(args: {
     districtId: string
+    dataset: PeopleDataset
     addressKeys: string[]
     targetPersonIds: string[]
   }): Promise<DoorKnockingResidentsResponse> {
@@ -67,13 +71,15 @@ export class DoorKnockingPeopleApiService {
         addressKeys: args.addressKeys,
         targetPersonIds: args.targetPersonIds,
       }),
+      args.dataset,
     )
   }
 
   pack(
     request: DoorKnockingPackRequest,
+    dataset: PeopleDataset,
     signal?: AbortSignal,
   ): Promise<Buffer> {
-    return this.voterPack.build(request, signal)
+    return this.voterPack.build(request, dataset, signal)
   }
 }

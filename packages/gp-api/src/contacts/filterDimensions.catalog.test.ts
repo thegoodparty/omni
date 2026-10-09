@@ -219,6 +219,7 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -238,6 +239,8 @@ describe('ContactsService.getFilterDimensions', () => {
     )
     expect(dimensions.some((d) => d.modes === 'win')).toBe(false)
     expect(dimensions.map((d) => d.key)).not.toContain('party')
+    expect(dimensions.map((d) => d.key)).not.toContain('audience')
+    expect(dimensions.map((d) => d.key)).not.toContain('voterStatus')
   })
 
   // Named rather than left to the `modes === 'win'` sweep above, because

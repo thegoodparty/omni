@@ -104,8 +104,10 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   language: ['English', 'Spanish', 'Other', 'Unknown'] as const,
   ideology: ['Conservative', 'Liberal', 'Moderate', 'Unknown'] as const,
   // An enum vocabulary rather than a boolean wire filter because the backing
-  // column (`Voter_Independent_Affinity`) is a non-nullable BOOLEAN: a
-  // presence check would match every row, silently un-filtering the request.
+  // column (`Voter_Independent_Affinity`) is a BOOLEAN set on every voter: a
+  // presence check would match every voter, silently un-filtering the
+  // request. It is NULL only on consumer-only rows of the constituents table,
+  // which never see this Win-only filter.
   independentAffinity: ['Yes', 'No'] as const,
 } as const
 

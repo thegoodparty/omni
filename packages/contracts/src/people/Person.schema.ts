@@ -94,7 +94,8 @@ export const isLegacyDoorKnockingUnitKey = (addressKey: string): boolean =>
 // people-api's PersonOutput exactly — keep them in lockstep to avoid drift.
 export const PersonSchema = z.object({
   id: z.string(),
-  lalVoterId: z.string(),
+  // Null on consumer-only rows (Serve constituents with no voter record).
+  lalVoterId: z.string().nullable(),
   firstName: z.string().nullable(),
   middleName: z.string().nullable(),
   lastName: z.string().nullable(),

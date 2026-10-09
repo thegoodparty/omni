@@ -188,7 +188,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     key: 'audience',
     label: 'Voter Likelihood',
     kind: 'boolean-group',
-    modes: 'both',
+    modes: 'win',
     provenance: 'modeled',
     values: AUDIENCE_VOTER_STATUS_VALUES.map(({ field, value }) => ({
       key: field,
@@ -465,7 +465,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     key: 'voterStatus',
     label: 'Voter Status',
     kind: 'multi-value',
-    modes: 'both',
+    modes: 'win',
     // Same Voter_Status column as 'audience' above, different spelling —
     // keep the two marks in sync (pinned by test).
     provenance: 'modeled',
