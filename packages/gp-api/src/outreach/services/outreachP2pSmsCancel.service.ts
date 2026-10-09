@@ -539,10 +539,23 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       return { settled: refunded, refunded }
     }
 
-    // Normal path: a live (or unreadable) hold → void best-effort.
+    // Normal path: a live (or unreadable) hold → void best-effort. The row is
+    // already terminally `voided` and the hold auto-expires within its ~7-day
+    // auth lifetime, so a void failure never charges. The free-texts restore
+    // must run REGARDLESS of the void outcome — symmetric with the refund path —
+    // so a voidHold failure can never strand (burn) the offer this send redeemed.
+    // voidHold swallows its own errors today; the catch guards that contract so
+    // the restore below is unconditional even if it ever threw.
     // TODO(slice F): a void that did not land needs a reconcile sweep to re-void
     // it; the hold otherwise auto-expires within the auth lifetime with no charge.
-    await this.stripe.voidHold(authorizationIntentId)
+    try {
+      await this.stripe.voidHold(authorizationIntentId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'win sms release: voidHold threw; hold auto-expires, offer still restored',
+      )
+    }
     await this.restoreFreeTextsBestEffort(outreachId)
     this.logger.info({ outreachId }, 'win sms hold voided')
     return { settled: true, refunded: false }

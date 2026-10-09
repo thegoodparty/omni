@@ -189,6 +189,33 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     expect(deleteJobSpy).toHaveBeenCalledWith('peerly-job-1')
   })
 
+  it('restores the free-texts offer even when voidHold throws (void-path symmetry)', async () => {
+    // voidHold swallows its own errors today, but the restore must not depend on
+    // that: a throw from voidHold must never strand (burn) the offer this send
+    // redeemed. The row is already terminal `voided` and the hold auto-expires,
+    // so the cancel still completes without a 502.
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'requires_capture' }))
+    voidSpy.mockRejectedValueOnce(new Error('stripe void boom'))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+    })
+    await markOfferRedeemed(outreachId)
+
+    const { refunded } = await cancel.cancel(outreachId, campaign.id)
+
+    expect(refunded).toBe(false)
+    expect(voidSpy).toHaveBeenCalledWith(INTENT_ID)
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.voided,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+    const campaignAfter = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(campaignAfter.hasFreeTextsOffer).toBe(true)
+    expect(campaignAfter.freeTextsOfferRedeemedAt).toBeNull()
+  })
+
   it('refunds the captured charge when a captured send is canceled', async () => {
     retrieveSpy.mockResolvedValue(
       mockIntent({ status: 'succeeded', latest_charge: CHARGE_ID }),
