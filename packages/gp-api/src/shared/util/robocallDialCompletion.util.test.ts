@@ -171,4 +171,17 @@ describe('estimateRobocallDialCompletion', () => {
       }),
     ).toThrow(RangeError)
   })
+
+  it('rejects a non-positive audience size', () => {
+    // A 0/negative audience would silently return startAt unchanged (even
+    // off-hours), feeding a later caller an invalid next-start; reject it the
+    // same way as a non-positive rate rather than return an off-window instant.
+    expect(() =>
+      estimateRobocallDialCompletion({
+        audienceSize: 0,
+        callsPerMinute: 120,
+        startAt: at('2026-06-15 06:00:00'),
+      }),
+    ).toThrow(RangeError)
+  })
 })

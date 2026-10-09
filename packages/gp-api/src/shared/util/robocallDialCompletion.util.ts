@@ -63,6 +63,9 @@ export const estimateRobocallDialCompletion = ({
   startAt,
   timeZone = SCHEDULE_TZ,
 }: EstimateDialCompletionParams): Date => {
+  if (audienceSize <= 0) {
+    throw new RangeError('audienceSize must be a positive number')
+  }
   if (callsPerMinute <= 0) {
     throw new RangeError('callsPerMinute must be a positive number')
   }
