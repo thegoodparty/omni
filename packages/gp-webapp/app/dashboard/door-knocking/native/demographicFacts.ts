@@ -92,6 +92,10 @@ const withFallback = (
 // hand it to `withFallback` and print "Not on file" — which reads as a gap in
 // the voter file rather than as a fact this product does not state to an
 // elected official. An absent row says nothing, which is the whole rule.
+//
+// **Turnout likelihood is dropped on Serve too.** Serve can read consumer
+// records, which carry no vote history, so the row would print "Not on file"
+// for every resident who is not on the voter roll.
 export const voterDemographicFacts = (
   target: Pick<
     RoutePayloadTarget,
@@ -111,10 +115,12 @@ export const voterDemographicFacts = (
     // Unlikely), while "voter status" in this industry means active-or-inactive
     // registration — a column we do not have. The canvas's label would name
     // this field as something it isn't.
-    { label: 'Turnout likelihood', value: target.turnoutLikelihood },
     ...(isServe
       ? []
-      : [{ label: 'Political party', value: target.politicalParty }]),
+      : [
+          { label: 'Turnout likelihood', value: target.turnoutLikelihood },
+          { label: 'Political party', value: target.politicalParty },
+        ]),
   ])
 
 // The canvas's "Demographic information": the personal profile, which is
