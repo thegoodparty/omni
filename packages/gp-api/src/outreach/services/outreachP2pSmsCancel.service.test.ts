@@ -309,6 +309,34 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     )
   })
 
+  it('voidAuthorized refunds (never strands voided) when the live PI is unexpectedly succeeded', async () => {
+    // releaseHold's first read sees requires_capture (→ void path). By the time
+    // voidAuthorized re-reads after winning the void claim, the PI is succeeded —
+    // the "impossible" captured-slipped-in case. Defense in depth: the money must
+    // be refunded, never left stranded in voided with a captured charge.
+    retrieveSpy
+      .mockResolvedValueOnce(mockIntent({ status: 'requires_capture' }))
+      .mockResolvedValue(
+        mockIntent({ status: 'succeeded', latest_charge: CHARGE_ID }),
+      )
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      chargeIntentId: null,
+    })
+
+    const { refunded } = await cancel.cancel(outreachId, campaign.id)
+
+    expect(refunded).toBe(true)
+    expect(refundChargeSpy).toHaveBeenCalledWith(
+      CHARGE_ID,
+      `p2p-sms-refund-${CHARGE_ID}`,
+    )
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.refunded,
+    )
+  })
+
   it('restores the free-texts offer on a void', async () => {
     retrieveSpy.mockResolvedValue(mockIntent({ status: 'requires_capture' }))
     const outreachId = await createHold({

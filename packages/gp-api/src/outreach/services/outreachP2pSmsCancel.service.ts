@@ -330,11 +330,11 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       }
 
       if (intent.status === 'requires_capture') {
-        const done = await this.voidAuthorized(
+        const { settled, refunded } = await this.voidAuthorized(
           outreachId,
           satellite.authorizationIntentId,
         )
-        if (done) return { refunded: false }
+        if (settled) return { refunded }
         continue
       }
 
@@ -459,27 +459,72 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
 
   // VOID a live hold. Claims authorized → voided (single owner) before the void,
   // then releases the hold best-effort — a lost void never fails the release (the
-  // auth auto-expires within its ~7-day lifetime regardless). Returns false when
-  // it lost the claim (the caller re-reads and retries — e.g. a capture advanced
-  // the row to captured, which the next attempt refunds instead).
+  // auth auto-expires within its ~7-day lifetime regardless). `settled: false`
+  // means it lost the claim (the caller re-reads and retries — e.g. a capture
+  // advanced the row to captured, which the next attempt refunds instead).
   private async voidAuthorized(
     outreachId: number,
     authorizationIntentId: string,
-  ): Promise<boolean> {
+  ): Promise<{ settled: boolean; refunded: boolean }> {
     const claimed = await this.claim(
       outreachId,
       [P2pSmsSettleState.authorized],
       P2pSmsSettleState.voided,
     )
-    if (!claimed) return false
+    if (!claimed) return { settled: false, refunded: false }
 
-    // Best-effort (StripeService.voidHold logs its own failure).
+    // DEFENSE-IN-DEPTH: re-read the live PI AFTER winning the void claim. The
+    // authorized → voided claim and capture's authorized → capturing claim are
+    // mutually exclusive, and capture stamps `capturing` before it ever captures
+    // the PI — so the PI can never be `succeeded` here today. But if that
+    // serialization is ever broken by a future change, NEVER leave a captured
+    // charge stranded in `voided`: route it to the shared refund path instead.
+    let intent: Stripe.PaymentIntent | null = null
+    try {
+      intent = await this.stripe.retrievePaymentIntent(authorizationIntentId)
+    } catch (err) {
+      // Can't confirm; fall through to the best-effort void (the status quo). A
+      // void of an already-captured PI is a Stripe no-op voidHold swallows, and a
+      // slice-F reconcile catches a voided row whose PI is succeeded.
+      this.logger.warn(
+        { err, outreachId },
+        'win sms release: PI re-read before void failed; voiding best-effort',
+      )
+    }
+
+    if (intent?.status === 'succeeded') {
+      this.logger.error(
+        { outreachId },
+        'CRITICAL win sms release: PI succeeded under a void claim ' +
+          '(authorized/capturing serialization violated); refunding, not voiding',
+      )
+      // Undo the void claim so the shared charge-keyed refund path can claim it;
+      // never issues a Stripe void (none was placed), so no inconsistency.
+      const reverted = await this.model.updateMany({
+        where: { outreachId, settleState: P2pSmsSettleState.voided },
+        data: { settleState: P2pSmsSettleState.captured },
+      })
+      if (reverted.count === 0) return { settled: false, refunded: false }
+      const satellite = await this.model.findUnique({
+        where: { outreachId },
+        select: {
+          settleState: true,
+          authorizationIntentId: true,
+          chargeIntentId: true,
+        },
+      })
+      if (!satellite) return { settled: false, refunded: false }
+      const refunded = await this.refundCaptured(outreachId, satellite, intent)
+      return { settled: refunded, refunded }
+    }
+
+    // Normal path: a live (or unreadable) hold → void best-effort.
     // TODO(slice F): a void that did not land needs a reconcile sweep to re-void
     // it; the hold otherwise auto-expires within the auth lifetime with no charge.
     await this.stripe.voidHold(authorizationIntentId)
     await this.restoreFreeTextsBestEffort(outreachId)
     this.logger.info({ outreachId }, 'win sms hold voided')
-    return true
+    return { settled: true, refunded: false }
   }
 
   // Releases the in-flight refund claim back to captured so a later attempt
