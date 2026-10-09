@@ -1843,6 +1843,36 @@ describe('door-knocking routes', () => {
       })
     })
 
+    // A Serve list saved before voter likelihood became Win-only still
+    // carries it. The walk is built from the rest of the list rather than
+    // refused, the same as every other read of that list.
+    it('drops a stored voter likelihood predicate from a Serve list', async () => {
+      const { filterId, headers } = await serveOrg('likelihood')
+      await service.prisma.voterFileFilter.update({
+        where: { id: filterId },
+        data: { audienceSuperVoters: true, voterStatus: ['Likely'] },
+      })
+      stubVendors()
+      const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+
+      const res = await service.client.post(
+        '/v1/door-knocking/serve/turfs',
+        {
+          voterFileFilterId: filterId,
+          name: 'EO turf',
+          color: '#3355ff',
+          geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
+        },
+        { ...headers, validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(201)
+      const lastCall = vi.mocked(peopleApi.evaluate).mock.calls.at(-1)
+      expect(lastCall?.[0].filters).not.toHaveProperty('voterStatus')
+    })
+
     // A walk drawn from a priority's check card is that check going out. The
     // card's link rides on the anchor envelope, and a second walk drawn from
     // the same card is its own campaign and records nothing new.

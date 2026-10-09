@@ -173,11 +173,10 @@ describe('buildDoorKnockingResidentsSql', () => {
     expect(sql).toContain('CASE WHEN')
   })
 
-  it('casts key components to string so the INT direction columns coalesce', () => {
-    // Residence_Addresses_PrefixDirection / _SuffixDirection are INT in the
-    // mart, and Spark will not coalesce an INT with ''. Without the cast the
-    // legacy key would fail to compile rather than produce the empty segment
-    // Postgres produces.
+  it('casts every key component to string before it coalesces', () => {
+    // Spark will not coalesce a non-string column with ''. The cast keeps
+    // every component of the legacy key on the empty segment Postgres
+    // produces, whatever the column's type.
     const { sql } = build([LEGACY_KEY])
     expect(sql).toContain(
       'coalesce(cast(v.`Residence_Addresses_PrefixDirection` AS STRING)',

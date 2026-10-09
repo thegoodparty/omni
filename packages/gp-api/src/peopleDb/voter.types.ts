@@ -99,10 +99,10 @@ export interface Voter {
   Mailing_Addresses_DPBC: string | null
   Mailing_Addresses_ExtraAddressLine: string | null
   Mailing_Addresses_HouseNumber: string | null
-  Mailing_Addresses_PrefixDirection: number | null
+  Mailing_Addresses_PrefixDirection: string | null
   Mailing_Addresses_State: string | null
   Mailing_Addresses_StreetName: string | null
-  Mailing_Addresses_SuffixDirection: number | null
+  Mailing_Addresses_SuffixDirection: string | null
   Mailing_Addresses_Zip: string | null
   Mailing_Addresses_ZipPlus4: string | null
   Mailing_Families_FamilyID: string | null // Unique alpha-numeric ID starting with an M' for 'Mailing' that is common to all members of a mailing household address but different from all other mailing households.'
@@ -129,10 +129,10 @@ export interface Voter {
   Residence_Addresses_LatLongAccuracy: string | null
   Residence_Addresses_Latitude: string | null
   Residence_Addresses_Longitude: string | null
-  Residence_Addresses_PrefixDirection: number | null
+  Residence_Addresses_PrefixDirection: string | null
   Residence_Addresses_State: string | null
   Residence_Addresses_StreetName: string | null
-  Residence_Addresses_SuffixDirection: number | null
+  Residence_Addresses_SuffixDirection: string | null
   Residence_Addresses_Zip: string | null
   Residence_Addresses_ZipPlus4: string | null
   Residence_HHParties_Description: string | null // Same as Mailing HH Parties calculation but based on those sharing the same residence address rather than those sharing the same mailing address

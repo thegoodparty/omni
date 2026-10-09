@@ -13,6 +13,7 @@ import { shapesToSave, type ListShape } from 'app/dashboard/shared/listShapes'
 import { listPeopleQueryKey } from '../map/useListPeople'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
+import filterSections from '../../shared/filters.config'
 import CrmSheet from '../shared/CrmSheet'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import { boundarySaveErrorMessage } from '../shared/boundarySaveError'
@@ -48,6 +49,16 @@ import { useListWizardPolygonCount } from './useListWizardPolygonCount'
 import OverlapBar from './OverlapBar'
 
 type WizardStepName = 'branch' | 'conditions' | 'boundary' | 'name'
+
+// Voter Likelihood is Win-only, so VoterFileStep renders no pill for it on
+// Serve. A Serve list saved before that rule must not re-seed one nobody can
+// see or clear: left out of the seed, the key saves as false, which clears it.
+const VOTER_LIKELIHOOD_OPTION_KEYS = new Set(
+  filterSections
+    .flatMap((section) => section.fields)
+    .filter((field) => field.key === 'voter_likely')
+    .flatMap((field) => field.options.map((option) => option.key)),
+)
 
 // ENG-10767: per-stage funnel events (see the ListWizard registry comment in
 // analyticsHelper.ts) — this wizard is URL-stable, so RouteTracker page views
@@ -158,7 +169,14 @@ export default function CreateListWizard({
     setStepIndex(0)
     setBranch(null)
     setDemographicFilters(
-      editingSegment ? segmentToVoterFileFilters(editingSegment) : {},
+      editingSegment
+        ? Object.fromEntries(
+            Object.entries(segmentToVoterFileFilters(editingSegment)).filter(
+              ([key]) =>
+                !isElectedOfficial || !VOTER_LIKELIHOOD_OPTION_KEYS.has(key),
+            ),
+          )
+        : {},
     )
     setSupportStatus(editingSegment?.supportStatus ?? [])
     setPrecincts(

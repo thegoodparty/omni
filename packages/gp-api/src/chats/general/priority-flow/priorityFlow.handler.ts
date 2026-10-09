@@ -196,11 +196,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const resolved = await this.districtResolver?.resolveByOrgSlug(
       ctx.organizationSlug,
     )
-    if (!resolved) return ctx
     // Once per turn, so every constituent-data call in it reads one table.
+    // Resolved before the district check because the CRM tools register
+    // without a district and describe the same dataset.
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
       : 'voters'
+    if (!resolved) return { ...ctx, peopleDataset }
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
@@ -370,6 +372,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       crmTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
+        peopleDataset: ctx.peopleDataset,
       })
       // A stage-gate check is often a few blocks, and precinct is the one
       // geographic filter describe_filter_dimensions cannot list.
@@ -382,12 +385,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
+          peopleDataset: ctx.peopleDataset,
         })
       }
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(crmTools),
+        peopleDataset: ctx.peopleDataset,
       })
       Object.assign(tools, crmTools)
     }

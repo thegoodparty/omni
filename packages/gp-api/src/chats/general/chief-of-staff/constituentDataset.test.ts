@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
+import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import type { FeaturesService } from '@/features/services/features.service'
 import type { LlmTool } from '@/llm/services/llm.service'
+import {
+  DATA_SOURCE_ROUTING_RULES,
+  dataSourceRoutingRules,
+} from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { CampaignManagerHandler } from '../campaign-manager/campaignManager.handler'
@@ -16,6 +21,7 @@ import type { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefi
 import type { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { CONSTITUENT_TABLES_BY_DATASET } from './services/constituentDataScope'
 import type { PrioritiesToolPort } from './services/prioritiesPort'
+import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 const FILTERS = [
   { column: 'state_postal_code', value: 'MI' },
@@ -53,6 +59,9 @@ const buildProvider = () => ({
 const buildChiefOfStaff = (
   provider: DatabricksProvider,
   peopleDatasets: PeopleDatasetService,
+  resolvedDistrict: { state: string } | null = {
+    state: 'MI',
+  },
 ) => {
   const slug = 'eo-lansing'
   const context = {
@@ -82,11 +91,13 @@ const buildChiefOfStaff = (
   } as unknown as ChiefOfStaffContextService
   const resolver = {
     resolveByOrgSlug: vi.fn(() =>
-      Promise.resolve({
-        state: 'MI',
-        l2DistrictType: 'City',
-        l2DistrictName: 'Lansing',
-      }),
+      Promise.resolve(
+        resolvedDistrict && {
+          ...resolvedDistrict,
+          l2DistrictType: 'City',
+          l2DistrictName: 'Lansing',
+        },
+      ),
     ),
     toMandatoryFilters: vi.fn(() => FILTERS),
   } as unknown as DistrictResolverService
@@ -103,8 +114,10 @@ const buildChiefOfStaff = (
     provider,
     resolver,
     undefined,
-    undefined,
-    undefined,
+    {
+      getFilterDimensions: vi.fn(() => []),
+    } as unknown as ContactsService,
+    {} as VoterFileFilterService,
     undefined,
     undefined,
     undefined,
@@ -213,5 +226,57 @@ describe('constituent data table per people dataset', () => {
     expect(ctx.peopleDataset).toBe('voters')
     expect(description).toContain('FROM serve_agent_voters')
     expect(description).not.toContain('not registered to vote')
+  })
+
+  it('gives the CRM tools the routing rules for the turn dataset', async () => {
+    const handler = buildChiefOfStaff(
+      buildProvider(),
+      peopleDatasetsWithFlag(true),
+    )
+    const tools = handler.buildTools(await handler.loadContext('c1', 7))
+
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'crud_saved_filters',
+    ]) {
+      expect(descriptionOf(tools[name])).toContain(
+        dataSourceRoutingRules('constituents'),
+      )
+      expect(descriptionOf(tools[name])).not.toContain(
+        DATA_SOURCE_ROUTING_RULES,
+      )
+    }
+  })
+
+  it('keeps the CRM tools on the voters routing rules with the flag off', async () => {
+    const handler = buildChiefOfStaff(
+      buildProvider(),
+      peopleDatasetsWithFlag(false),
+    )
+    const tools = handler.buildTools(await handler.loadContext('c1', 7))
+
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'crud_saved_filters',
+    ]) {
+      expect(descriptionOf(tools[name])).toContain(DATA_SOURCE_ROUTING_RULES)
+    }
+  })
+
+  it('resolves the dataset for the CRM tools when the district does not', async () => {
+    const handler = buildChiefOfStaff(
+      buildProvider(),
+      peopleDatasetsWithFlag(true),
+      null,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+
+    expect(ctx.peopleDataset).toBe('constituents')
+    expect(handler.buildTools(ctx).query_constituent_data).toBeUndefined()
+    expect(descriptionOf(handler.buildTools(ctx).count_contacts)).toContain(
+      dataSourceRoutingRules('constituents'),
+    )
   })
 })

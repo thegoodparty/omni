@@ -128,14 +128,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     const resolved = await this.districtResolver?.resolveByOrgSlug(
       ctx.organizationSlug,
     )
-    if (!resolved) return ctx
-    const districtFilters = this.districtResolver
-      ? this.districtResolver.toMandatoryFilters(resolved)
-      : null
     // Once per turn, so every constituent-data call in it reads one table.
+    // Resolved before the district check because the CRM tools register
+    // without a district and describe the same dataset.
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
       : 'voters'
+    if (!resolved) return { ...ctx, peopleDataset }
+    const districtFilters = this.districtResolver
+      ? this.districtResolver.toMandatoryFilters(resolved)
+      : null
     const constituentToolEnabled =
       !!this.constituentProvider &&
       this.constituentTables[peopleDataset].length > 0
@@ -272,6 +274,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       crmTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
+        peopleDataset: ctx.peopleDataset,
       })
       // Beside describe_filter_dimensions rather than with the saved-list
       // tools: it IS the vocabulary read for the one dimension the catalog
@@ -290,6 +293,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
+          peopleDataset: ctx.peopleDataset,
         })
         // Registered with the saved-list tool rather than beside the other
         // reads: the only id it can legitimately be given is one
@@ -307,6 +311,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(crmTools),
+        peopleDataset: ctx.peopleDataset,
       })
       Object.assign(tools, crmTools)
       // A proposal is sent against a saved list, so it is offered only where

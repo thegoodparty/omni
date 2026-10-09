@@ -9,7 +9,10 @@ import {
   PRO_FILTERING_REQUIRED_MESSAGE,
   type ContactsService,
 } from '@/contacts/services/contacts.service'
-import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
+import {
+  DATA_SOURCE_ROUTING_RULES,
+  dataSourceRoutingRules,
+} from '@/llm/tools/dataSourceRouting'
 import { buildCountContactsTool } from './countContacts.tool'
 
 const ORGANIZATION = { slug: 'win-campaign' } as Organization
@@ -18,6 +21,7 @@ const buildTool = (countContacts: ContactsService['countContacts']) =>
   buildCountContactsTool({
     contacts: { countContacts },
     organization: ORGANIZATION,
+    peopleDataset: 'voters',
   })
 
 describe('buildCountContactsTool', () => {
@@ -76,5 +80,16 @@ describe('buildCountContactsTool', () => {
   it('carries the cross-catalog routing rules in its description', () => {
     const tool = buildTool(vi.fn(() => Promise.resolve({ count: 0 })))
     expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
+  })
+
+  it('carries the routing rules for the constituents dataset it was given', () => {
+    const tool = buildCountContactsTool({
+      contacts: { countContacts: vi.fn() },
+      organization: { slug: 'eo-1' } as Organization,
+      peopleDataset: 'constituents',
+    })
+    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+    expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
+    expect(tool.description).not.toMatch(/voter-file mart/)
   })
 })

@@ -158,6 +158,30 @@ describe('serve phone banking routes', () => {
       },
     )
 
+    // A list saved before voter likelihood became Win-only still carries it;
+    // the call list is built from the rest of the list rather than refused.
+    it('drops a stored voter likelihood predicate from the saved list', async () => {
+      await service.prisma.voterFileFilter.update({
+        where: { id: filter.id },
+        data: { audienceSuperVoters: true, voterStatus: ['Likely'] },
+      })
+      const findPeople = mockPeoplePage([
+        fakePerson({ cellPhone: '3075660002' }),
+      ])
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody(),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      expect(findPeople).toHaveBeenCalled()
+      for (const [dto] of findPeople.mock.calls) {
+        expect(JSON.stringify(dto)).not.toMatch(/voterStatus|Super|Likely/)
+      }
+    })
+
     it('rejects a Win-only purpose slug', async () => {
       mockPeoplePage([fakePerson()])
       const res = await service.client.post(

@@ -21,6 +21,7 @@ describe('RobocallPhonebookService', () => {
   let contacts: {
     findContactsForFilter: ReturnType<typeof vi.fn>
     resolvePeopleDataset: ReturnType<typeof vi.fn>
+    dropSavedVoterLikelihoodForElectedOffice: ReturnType<typeof vi.fn>
   }
   let organizations: { findFirst: ReturnType<typeof vi.fn> }
   let voterFileFilterService: {
@@ -43,6 +44,9 @@ describe('RobocallPhonebookService', () => {
     contacts = {
       findContactsForFilter: vi.fn(),
       resolvePeopleDataset: vi.fn().mockResolvedValue('voters'),
+      dropSavedVoterLikelihoodForElectedOffice: vi.fn(
+        (_organization: unknown, filter: unknown) => filter,
+      ),
     }
     organizations = { findFirst: vi.fn().mockResolvedValue({ id: 1 }) }
     voterFileFilterService = {

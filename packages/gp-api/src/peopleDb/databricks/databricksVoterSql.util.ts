@@ -952,11 +952,10 @@ export const buildCsvSql = (
   return { sql, params: bag.params }
 }
 
-// Unit-granularity twin of householdKey(), in Spark dialect. Cast to STRING
-// before COALESCE because two of the legacy key's columns are INT in the mart
-// (the permanently-NULL direction columns), and Spark will not COALESCE an INT
-// with ''. The Postgres builder casts for the same reason, so a legacy key
-// composed here is byte-identical to one composed there.
+// Unit-granularity twin of householdKey(), in Spark dialect. Every component
+// is cast to STRING before COALESCE, because Spark will not COALESCE a
+// non-string column with ''. The Postgres builder casts the same way, so a
+// legacy key composed here is byte-identical to one composed there.
 const unitKey = (columns: readonly string[]): string =>
   `concat_ws('|', ${columns
     .map((name) => `upper(trim(coalesce(cast(${col(name)} AS STRING), '')))`)

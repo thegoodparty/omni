@@ -6,7 +6,8 @@ import {
   type ContactsService,
 } from '@/contacts/services/contacts.service'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
-import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
+import { dataSourceRoutingRules } from '@/llm/tools/dataSourceRouting'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
 export type CountContactsOutput = { count: number } | { error: string }
 
@@ -37,6 +38,7 @@ const toToolError = (
 export const buildCountContactsTool = (deps: {
   contacts: Pick<ContactsService, 'countContacts'>
   organization: Organization
+  peopleDataset: PeopleDataset
 }): LlmStreamTool<typeof countContactsInputSchema> => ({
   description:
     'Count the contacts matching a filter, using the same filter shape and ' +
@@ -46,7 +48,7 @@ export const buildCountContactsTool = (deps: {
     'the organization cannot run the filter (e.g. a Win campaign without ' +
     'Pro, or a political-party filter on an elected-office organization).' +
     '\n\n' +
-    DATA_SOURCE_ROUTING_RULES,
+    dataSourceRoutingRules(deps.peopleDataset),
   inputSchema: countContactsInputSchema,
   execute: async (input): Promise<CountContactsOutput> => {
     try {

@@ -24,7 +24,8 @@ import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/use
 // SegmentResponse carrying `null`, not absent keys the create schema would
 // silently strip).
 export const useDuplicateList = () => {
-  const { selectList, isWinContext, isWinContextReady } = useContactsTable()
+  const { selectList, isWinContext, isWinContextReady, isElectedOfficial } =
+    useContactsTable()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
@@ -51,6 +52,18 @@ export const useDuplicateList = () => {
 
       const payload: Record<string, unknown> = {
         ...rest,
+        // Voter Likelihood is Win-only and gp-api refuses it on a Serve
+        // save, so a Serve list saved before that rule copies without it.
+        ...(isElectedOfficial
+          ? {
+              audienceSuperVoters: false,
+              audienceLikelyVoters: false,
+              audienceUnreliableVoters: false,
+              audienceUnlikelyVoters: false,
+              audienceUnknown: false,
+              voterStatus: [],
+            }
+          : {}),
         name: trimCustomSegmentName(`${name || 'List'} (copy)`),
         ...(activityConditions
           ? {

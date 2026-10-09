@@ -620,7 +620,11 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         'Saved list not found for this organization',
       )
     }
-    const filterInput: ContactsFilterResolutionInput = filter
+    const filterInput: ContactsFilterResolutionInput =
+      this.contactsService.dropSavedVoterLikelihoodForElectedOffice(
+        organization,
+        filter,
+      )
 
     const recipients: ResolvedRecipient[] = []
     let excludedOptedOutCount = 0

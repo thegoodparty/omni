@@ -217,7 +217,11 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     if (!filter) {
       throw new BadRequestException('Constituent list not found')
     }
-    const filterInput: ContactsFilterResolutionInput = { ...filter }
+    const filterInput: ContactsFilterResolutionInput =
+      this.contactsService.dropSavedVoterLikelihoodForElectedOffice(
+        organization,
+        filter,
+      )
 
     const optedOutPersonIds = await this.resolveOptOutScrub(organizationSlug)
     let excludedOptedOutCount = 0

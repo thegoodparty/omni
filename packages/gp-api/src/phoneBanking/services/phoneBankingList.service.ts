@@ -242,9 +242,12 @@ export class PhoneBankingListService extends createPrismaBase(
     const { districtId, dataset } =
       await this.contacts.resolveEligibleDistrict(organization)
 
-    const filterInput = await this.loadPersistedFilter(
-      input.voterFileFilterId,
-      organization.slug,
+    const filterInput = this.contacts.dropSavedVoterLikelihoodForElectedOffice(
+      organization,
+      await this.loadPersistedFilter(
+        input.voterFileFilterId,
+        organization.slug,
+      ),
     )
 
     const resolved = await this.contacts.resolveSavedFilterForQuery(
