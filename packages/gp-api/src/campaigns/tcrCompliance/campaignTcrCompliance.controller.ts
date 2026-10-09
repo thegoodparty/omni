@@ -497,12 +497,17 @@ export class CampaignTcrComplianceController {
         campaignVerifyToken,
       )
 
-    await this.tcrComplianceService.model.update({
-      where: { id: tcrCompliance.id },
-      data: {
-        status: TcrComplianceStatus.pending,
-      },
-    })
+    // Only a row still awaiting its PIN moves to review. The PIN form is
+    // only shown at that stage, and an internal-testing row approved by the
+    // admin checkbox must never be downgraded by a stray submit.
+    if (tcrCompliance.status === TcrComplianceStatus.submitted) {
+      await this.tcrComplianceService.model.update({
+        where: { id: tcrCompliance.id },
+        data: {
+          status: TcrComplianceStatus.pending,
+        },
+      })
+    }
 
     if (!tcrCompliance.internalTestingAt) {
       try {
