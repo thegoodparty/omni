@@ -8,6 +8,7 @@ import {
 import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
 import type { HighlightSnippet } from './extractHighlight'
 import { guardrailLine } from '@/chats/general/services/guardrailLines'
+import { SUPPORT_EMAIL } from '@/chats/general/product-knowledge/productKnowledgePrompt'
 import {
   buildSystemPrompt,
   GUARDRAIL_DECLINE,
@@ -148,6 +149,7 @@ describe('buildSystemPrompt', () => {
     expect(out).toContain('give the line in place of the rest')
     expect(out).toContain('someone may be in danger')
     expect(out).toContain('what you can do for them')
+    expect(out).toContain(`send them to ${SUPPORT_EMAIL}`)
     expect(out).toContain('GUARDRAILS line in place of an answer')
   })
 
