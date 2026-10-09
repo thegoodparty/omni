@@ -155,9 +155,6 @@ export const convertVoterFileFilterToFilters = (
     'campaignId',
     'campaign',
     'outreaches',
-    'registeredVoterTrue',
-    'registeredVoterFalse',
-    'registeredVoterUnknown',
     // Resolved by the activity-condition/support-status resolution engine
     // (CRM feature 4 task 05), not this generic key->filter loop — an
     // activityConditions array of objects or a supportStatus string array

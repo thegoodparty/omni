@@ -41,8 +41,6 @@ export const voterFilterBaseSchema = z.object({
   ideologyModerate: z.boolean().optional(),
   ideologyUnknown: z.boolean().optional(),
   // New boolean flags to allow FE to pass simple true/false values
-  registeredVoterTrue: z.boolean().optional(),
-  registeredVoterFalse: z.boolean().optional(),
   likelyMarried: z.boolean().optional(),
   likelySingle: z.boolean().optional(),
   married: z.boolean().optional(),

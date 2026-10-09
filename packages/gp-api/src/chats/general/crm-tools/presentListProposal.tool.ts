@@ -7,7 +7,6 @@ import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 // The contract carries it loosely because the card only passes it through.
 const presentListProposalInput = ListProposalSchema.extend({
   filters: voterFilterBaseSchema
-    .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
     .strict()
     .describe('The exact filter you counted with in count_contacts.'),
 })
