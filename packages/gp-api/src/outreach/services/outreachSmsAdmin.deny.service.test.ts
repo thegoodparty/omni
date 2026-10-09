@@ -1,10 +1,13 @@
-import { BadRequestException, ConflictException } from '@nestjs/common'
+import { BadGatewayException, ConflictException } from '@nestjs/common'
 import { addHours } from 'date-fns'
 import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
-import { OutreachP2pSmsCancelService } from '@/outreach/services/outreachP2pSmsCancel.service'
+import {
+  HoldStillSettlingException,
+  OutreachP2pSmsCancelService,
+} from '@/outreach/services/outreachP2pSmsCancel.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
@@ -283,7 +286,49 @@ describe('OutreachSmsAdminService.deny', () => {
     void activateJobSpy
   })
 
-  it('reverts the denial stamp when release refuses a capturing row, so a retry is not stranded', async () => {
+  it('reverts the denial ONLY for the capturing refusal, so a retry after the capture settles succeeds', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    // Money mid-flight: the REAL releaseHold refuses a `capturing` row with
+    // HoldStillSettlingException, after the denial CAS already committed. No
+    // release transition commits on that path, so reverting the denial is safe.
+    const outreachId = await createRow({
+      settleState: P2pSmsSettleState.capturing,
+      chargeIntentId: CHARGE_ID,
+    })
+
+    // The typed, money-safe refusal surfaces unchanged (not a stranded-CAS 409).
+    await expect(
+      admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' }),
+    ).rejects.toBeInstanceOf(HoldStillSettlingException)
+
+    const reverted = await readSpine(outreachId)
+    expect(reverted.deniedAt).toBeNull()
+    expect(reverted.deniedBy).toBeNull()
+    expect(reverted.deniedReason).toBeNull()
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.capturing,
+    )
+
+    // The capture settles; the row is reviewable again, so the retry succeeds
+    // instead of hitting a stale-CAS Conflict, and now refunds.
+    await service.prisma.outreachP2pSms.update({
+      where: { outreachId },
+      data: { settleState: P2pSmsSettleState.captured },
+    })
+    await admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' })
+    expect(refundChargeSpy).toHaveBeenCalledWith(
+      CHARGE_ID,
+      `p2p-sms-refund-${CHARGE_ID}`,
+    )
+    const resolved = await readSpine(outreachId)
+    expect(resolved.deniedAt).not.toBeNull()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.refunded,
+    )
+  })
+
+  it('keeps the denial committed on a NON-capturing release failure (never reopens a refund-and-send window)', async () => {
     retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
     const outreachId = await createRow({
       settleState: P2pSmsSettleState.captured,
@@ -291,35 +336,28 @@ describe('OutreachSmsAdminService.deny', () => {
     })
 
     const cancelService = service.app.get(OutreachP2pSmsCancelService)
-    const releaseSpy = vi
-      .spyOn(cancelService, 'releaseForDeny')
-      .mockRejectedValueOnce(
-        new BadRequestException(
-          'The payment for this campaign is still being processed. ' +
-            'Try again in a moment.',
-        ),
-      )
-
-    // First attempt: release refuses (simulating a `capturing` row). The
-    // original error must surface, not a ConflictException from a stranded CAS.
-    await expect(
-      admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' }),
-    ).rejects.toBeInstanceOf(BadRequestException)
-
-    const reverted = await readSpine(outreachId)
-    expect(reverted.deniedAt).toBeNull()
-    expect(reverted.deniedBy).toBeNull()
-    expect(reverted.deniedReason).toBeNull()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      P2pSmsSettleState.captured,
+    // A failure AFTER a refund may have committed (e.g. the refunding → refunded
+    // DB write threw): NOT a HoldStillSettlingException, so the denial must stay
+    // committed — reverting it would let an approve send an already-refunded row.
+    vi.spyOn(cancelService, 'releaseForDeny').mockRejectedValueOnce(
+      new BadGatewayException('db write failed after refund'),
     )
 
-    // Second attempt (the capture has since settled): the row is reviewable
-    // again, so the retry succeeds instead of hitting a stale-CAS Conflict.
-    await admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' })
-    expect(releaseSpy).toHaveBeenCalledTimes(2)
-    const resolved = await readSpine(outreachId)
-    expect(resolved.deniedAt).not.toBeNull()
+    await expect(
+      admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' }),
+    ).rejects.toBeInstanceOf(BadGatewayException)
+
+    // Denial stays committed: the row is NOT reviewable/approvable again.
+    const stillDenied = await readSpine(outreachId)
+    expect(stillDenied.deniedAt).not.toBeNull()
+    expect(stillDenied.deniedBy).toBe('cas@gp.org')
+    expect(stillDenied.deniedReason).toBe('bad')
+
+    // A second deny finds no reviewable row (deniedAt set) → ConflictException,
+    // proving no refund-and-also-send window opened.
+    await expect(
+      admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' }),
+    ).rejects.toBeInstanceOf(ConflictException)
   })
 
   it('leaves a NON-satellite deny as the send-back-for-edits stamp (no money, no job delete)', async () => {

@@ -44,6 +44,13 @@ type Satellite = {
   chargeIntentId: string | null
 }
 
+// Release refused because the hold is `capturing` (money mid-flight): a
+// transient, retryable condition that commits NO release transition and moves
+// NO money. Deny keys its denial-stamp revert off this exact type — every other
+// release failure may already have moved money, so only this one is safe to
+// heal by making the row reviewable again.
+export class HoldStillSettlingException extends BadRequestException {}
+
 // Release (void + refund) for a Win p2p SMS HOLD-MODEL row — one whose
 // OutreachP2pSms satellite exists. A hold-model send runs its money off the
 // satellite settleState, so canceling or denying it means unwinding the hold
@@ -275,8 +282,10 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       if (satellite.settleState === P2pSmsSettleState.capturing) {
         // A capture claimed the row mid-release. We cannot void (money may be
         // landing) or refund (not committed yet) — refuse so the caller retries
-        // once the capture settles.
-        throw new BadRequestException(
+        // once the capture settles. Typed so deny can tell this money-safe,
+        // retryable refusal (revert the denial) apart from a failure that may
+        // have moved money (keep the denial committed).
+        throw new HoldStillSettlingException(
           'The payment for this campaign is still being processed. ' +
             'Try again in a moment.',
         )
@@ -460,8 +469,10 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
   // VOID a live hold. Claims authorized → voided (single owner) before the void,
   // then releases the hold best-effort — a lost void never fails the release (the
   // auth auto-expires within its ~7-day lifetime regardless). `settled: false`
-  // means it lost the claim (the caller re-reads and retries — e.g. a capture
-  // advanced the row to captured, which the next attempt refunds instead).
+  // means it did not void and the caller re-reads and retries — it lost the claim
+  // (a capture advanced the row to captured, which the next attempt refunds), or
+  // the post-claim PI re-read failed and it reverted voided → authorized rather
+  // than void an unconfirmed (possibly captured) PI.
   private async voidAuthorized(
     outreachId: number,
     authorizationIntentId: string,
@@ -473,23 +484,33 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     )
     if (!claimed) return { settled: false, refunded: false }
 
-    // DEFENSE-IN-DEPTH: re-read the live PI AFTER winning the void claim. The
-    // authorized → voided claim and capture's authorized → capturing claim are
-    // mutually exclusive, and capture stamps `capturing` before it ever captures
-    // the PI — so the PI can never be `succeeded` here today. But if that
-    // serialization is ever broken by a future change, NEVER leave a captured
-    // charge stranded in `voided`: route it to the shared refund path instead.
+    // Re-read the live PI AFTER winning the void claim: a capture can have
+    // landed even though we won the authorized → voided claim. A lost
+    // capture-response reverts capturing → authorized while the PI is already
+    // `succeeded`, so a cancel/deny whose first read saw `requires_capture` can
+    // win this void claim with the charge already captured. NEVER leave a
+    // captured charge stranded in `voided`: route it to the shared refund path.
     let intent: Stripe.PaymentIntent | null = null
     try {
       intent = await this.stripe.retrievePaymentIntent(authorizationIntentId)
     } catch (err) {
-      // Can't confirm; fall through to the best-effort void (the status quo). A
-      // void of an already-captured PI is a Stripe no-op voidHold swallows, and a
-      // slice-F reconcile catches a voided row whose PI is succeeded.
+      // Can't confirm the live PI — and it may be `succeeded` (see above).
+      // Voiding here would stamp a terminal `voided` over a captured charge and
+      // strand it unrefunded while reporting refunded:false. Instead revert
+      // voided → authorized and return not-settled so the outer release loop
+      // re-reads and re-decides (refund when succeeded, or surface a retryable
+      // 502 when reads keep failing, hold intact) — never void an unconfirmed PI.
       this.logger.warn(
         { err, outreachId },
-        'win sms release: PI re-read before void failed; voiding best-effort',
+        'win sms release: PI re-read before void failed; reverting ' +
+          'voided → authorized for the release loop to re-decide',
       )
+      await this.claim(
+        outreachId,
+        [P2pSmsSettleState.voided],
+        P2pSmsSettleState.authorized,
+      )
+      return { settled: false, refunded: false }
     }
 
     if (intent?.status === 'succeeded') {

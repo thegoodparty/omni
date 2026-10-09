@@ -34,7 +34,10 @@ import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.se
 import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
 import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
 import { OutreachService } from './outreach.service'
-import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
+import {
+  HoldStillSettlingException,
+  OutreachP2pSmsCancelService,
+} from './outreachP2pSmsCancel.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
@@ -656,15 +659,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   // Terminal deny for a hold-model row: CLAIM the denial via a guarded CAS FIRST
   // (symmetric with approve, so the two can never interleave — see the claim
   // below), and only on a won claim neutralize the vendor job then release the
-  // money through the shared charge-keyed refund terminal. Because the denial is
-  // committed by the claim, a job-delete or release failure (e.g. a `capturing`
-  // row refusing release) would otherwise strand the row denied-but-unreleased
-  // with no retry able to re-claim it; denyHold reverts the denial stamp on any
-  // such failure so the row stays reviewable and a later retry (once the
-  // capture settles) actually succeeds — self-healing without slice F for the
-  // deny path. This is the better trade than a read-only pre-check, which would
-  // let a concurrent approve book/send between the read and the action and then
-  // refund an already-booked send.
+  // money through the shared charge-keyed refund terminal. The denial is
+  // committed by the claim, so the catch distinguishes TWO failure classes. A
+  // `capturing` refusal (money mid-flight, HoldStillSettlingException) commits no
+  // release and moves no money, so it self-heals: the denial stamp is reverted
+  // and a retry succeeds once the capture settles. EVERY other delete/release
+  // failure may already have moved money (a refund committed, then a DB write
+  // threw), so the denial stays committed and the row is left denied-but-
+  // unreleased for the slice-F reconcile — never reverted, so it can never
+  // become sendable again while a refund is outstanding (a revert would reopen a
+  // refund-and-also-send window). This is the better trade than a read-only
+  // pre-check, which would let a concurrent approve book/send between the read
+  // and the action and then refund an already-booked send.
   private async denyHold(
     outreachId: number,
     input: DenySmsOutreachRequest,
@@ -723,17 +729,22 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       // committed on that path, so there is never money moved without a denial.
       await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
     } catch (err) {
-      // Revert the denial stamp so the row goes back to awaiting-review instead
-      // of being stranded denied-but-unreleased: a retry's CAS would otherwise
-      // match nothing (deniedAt already set) and fail with a ConflictException
-      // even once the transient cause (e.g. a `capturing` row) clears. The
-      // vendor job delete is idempotent, so re-running this method on retry is
-      // safe. approvedAt stays null throughout (approve requires deniedAt null,
-      // so it can't have raced in), making this guard belt-and-suspenders.
-      await this.model.updateMany({
-        where: { id: outreachId, approvedAt: null },
-        data: { deniedAt: null, deniedBy: null, deniedReason: null },
-      })
+      // ONLY the `capturing` refusal is safe to heal by reverting the denial: it
+      // throws BEFORE any release transition commits, so no money moved, and the
+      // revert lets a retry succeed once the capture settles (the vendor job
+      // delete is idempotent, so re-running is safe). ANY other failure here may
+      // already have moved money — a refund can commit and then a DB write throw
+      // — so reverting would make the row reviewable/approvable again and open a
+      // refund-and-also-send window; instead keep the denial committed and leave
+      // the row denied-but-unreleased for the slice-F reconcile. approvedAt stays
+      // null throughout (approve requires deniedAt null), making the guard
+      // belt-and-suspenders. The original error is rethrown unchanged either way.
+      if (err instanceof HoldStillSettlingException) {
+        await this.model.updateMany({
+          where: { id: outreachId, approvedAt: null },
+          data: { deniedAt: null, deniedBy: null, deniedReason: null },
+        })
+      }
       throw err
     }
 

@@ -337,6 +337,83 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     )
   })
 
+  it('voidAuthorized never strands a captured charge when the recheck read FAILS: reverts to authorized and the loop refunds', async () => {
+    // Outer read (attempt 0) sees requires_capture → voidAuthorized wins the
+    // void claim, then its PI recheck THROWS while the charge is really
+    // succeeded (a lost capture-response reverted capturing → authorized). The
+    // catch must revert voided → authorized and NOT void; the outer loop then
+    // re-reads the now-succeeded PI and refunds. The captured charge is never
+    // stranded unrefunded behind a terminal `voided`.
+    retrieveSpy
+      .mockResolvedValueOnce(mockIntent({ status: 'requires_capture' }))
+      .mockRejectedValueOnce(new Error('stripe unavailable'))
+      .mockResolvedValue(
+        mockIntent({ status: 'succeeded', latest_charge: CHARGE_ID }),
+      )
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      chargeIntentId: null,
+    })
+
+    const { refunded } = await cancel.cancel(outreachId, campaign.id)
+
+    expect(refunded).toBe(true)
+    expect(refundChargeSpy).toHaveBeenCalledWith(
+      CHARGE_ID,
+      `p2p-sms-refund-${CHARGE_ID}`,
+    )
+    // The failed recheck never voided the (captured) charge.
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.refunded,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+  })
+
+  it('voidAuthorized reverts to authorized and voids on the retry (never on the failed-recheck attempt)', async () => {
+    // The recheck fails once, then recovers to a still-live hold: the void must
+    // happen exactly once, on the retry — never on the attempt whose recheck
+    // could not confirm the PI.
+    retrieveSpy
+      .mockResolvedValueOnce(mockIntent({ status: 'requires_capture' }))
+      .mockRejectedValueOnce(new Error('stripe unavailable'))
+      .mockResolvedValue(mockIntent({ status: 'requires_capture' }))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+    })
+
+    const { refunded } = await cancel.cancel(outreachId, campaign.id)
+
+    expect(refunded).toBe(false)
+    expect(voidSpy).toHaveBeenCalledOnce()
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.voided,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+  })
+
+  it('voidAuthorized surfaces a retryable 502 (hold intact, not voided) when reads keep failing', async () => {
+    // Attempt 0 reaches voidAuthorized; its recheck and every later read throw.
+    // The row must end back in authorized (the hold intact) and the release must
+    // surface a retryable BadGateway — never a terminal `voided`, never a void.
+    retrieveSpy
+      .mockResolvedValueOnce(mockIntent({ status: 'requires_capture' }))
+      .mockRejectedValue(new Error('stripe down'))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.authorized,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.pending)
+  })
+
   it('restores the free-texts offer on a void', async () => {
     retrieveSpy.mockResolvedValue(mockIntent({ status: 'requires_capture' }))
     const outreachId = await createHold({
