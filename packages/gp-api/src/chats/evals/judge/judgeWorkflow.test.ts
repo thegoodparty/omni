@@ -1970,3 +1970,95 @@ describe('judge workflows stay under the expression length limit', () => {
     },
   )
 })
+
+// THE API IS ASKED ABOUT THE SCHEMA BEFORE ANYTHING IS PAID FOR. Every judge
+// test drives a fake model, so a verdict schema the API refuses passed the
+// suite and failed every judgment of the next sweep (#2534). The preflight
+// makes one real panel call at the largest schema, and it only helps if it
+// runs before the base worktree is made and before either arm dispatches.
+describe('judge.yml checks the judge schema before spending', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const PREFLIGHT = "Check the model API accepts the judge's schema"
+  const preflight = steps.find((step) => step.name === PREFLIGHT)
+
+  it('runs before the base worktree and both arms', () => {
+    const at = names.indexOf(PREFLIGHT)
+    expect(at).toBeGreaterThan(-1)
+    for (const later of [
+      'Check out the base arm into its own worktree',
+      'Capture the base arm',
+      'Capture the candidate arm',
+    ]) {
+      expect(names.indexOf(later)).toBeGreaterThan(at)
+    }
+  })
+
+  it('runs the preflight entry, only under spend, with the real key', () => {
+    expect(preflight?.body).toContain('npx tsx "$PREFLIGHT_ENTRY"')
+    expect(spendsLive(preflight?.body ?? '')).toBe(true)
+    expect(envValue(preflight?.body ?? '', KEY_ENV)).toBe(
+      '${{ secrets.ANTHROPIC_API_KEY }}',
+    )
+  })
+
+  it('points at an entry that exists', () => {
+    const entry = /^ {2}PREFLIGHT_ENTRY: (.+)$/m.exec(yaml)?.[1]
+    expect(entry).toBe('src/chats/evals/judge/schemaPreflight.ts')
+    expect(
+      statSync(path.resolve(__dirname, '../../../..', entry ?? '')).isFile(),
+    ).toBe(true)
+  })
+
+  // A branch from before the check has no entry; the sweep goes on rather
+  // than failing on a file the branch never had.
+  it('skips a branch that predates the entry', () => {
+    const stdout = execFileSync(
+      'bash',
+      ['-c', runBlockOf(preflight?.body ?? '')],
+      {
+        env: {
+          ...process.env,
+          PREFLIGHT_ENTRY: '/nonexistent/schemaPreflight.ts',
+        },
+        encoding: 'utf8',
+      },
+    )
+    expect(stdout).toContain('predates the schema preflight')
+  })
+})
+
+// THE POST-MERGE CHECK RUNS MAIN'S CODE ONLY. omni gives same-repo pull
+// request workflows its secrets, so a PR trigger would hand the Anthropic key
+// to unreviewed code.
+describe('judge-schema-check.yml', () => {
+  const yaml = readFileSync(
+    path.resolve(path.dirname(WORKFLOW), 'judge-schema-check.yml'),
+    'utf8',
+  )
+  const triggers = /^on:\n((?: {2}.*\n|\s*\n)*)/m.exec(yaml)?.[1] ?? ''
+
+  it('never runs on a pull request', () => {
+    expect(triggers).not.toMatch(/pull_request/)
+    expect(triggers).toMatch(/^ {2}push:\n {4}branches: \[main\]/m)
+  })
+
+  it('runs when the judge changes', () => {
+    expect(triggers).toContain("'packages/gp-api/src/chats/evals/judge/**'")
+  })
+
+  it('reads the repository and nothing more', () => {
+    expect(/^permissions:\n((?: {2}.*\n)*)/m.exec(yaml)?.[1]).toBe(
+      '  contents: read\n',
+    )
+  })
+
+  it('runs the preflight under spend with the real key', () => {
+    expect(yaml).toContain('npx tsx src/chats/evals/judge/schemaPreflight.ts')
+    expect(yaml).toMatch(/^ {10}JUDGE_SPEND: 'true'$/m)
+    expect(yaml).toContain(
+      'ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+    )
+  })
+})

@@ -102,6 +102,9 @@ env:
   # Pure functions living in a vitest file cannot be, and a "test" that is
   # really a program is how a job goes green having done nothing.
   JUDGING_ENTRY: src/chats/evals/judge/sweep.ts
+  # One real panel call with the largest schema the judge can send, run
+  # before either arm spends. Under tsx for the judging entry's reason.
+  PREFLIGHT_ENTRY: src/chats/evals/judge/schemaPreflight.ts
   # Resolves the one Delta version both arms read. Under tsx for the same
   # reason the judging entry is: it needs no `useTestService()`, so a workflow
   # step can invoke it as a command and capture its stdout.
@@ -1623,6 +1626,29 @@ jobs:
           # match and why this cannot be raised here alone;
           # judgeWorkflow.test.ts holds them equal.
           role-duration-seconds: 14400
+
+      # ONE REAL PANEL CALL, BEFORE ANYTHING IS DISPATCHED. Every judge test
+      # drives a fake model, which never sees the JSON Schema a request
+      # carries, so a verdict schema the API refuses passes the suite and
+      # fails every judgment of the next sweep after both arms are paid for.
+      # That shipped once (#2534). This asks the API the question first, at
+      # the largest schema the judge can send, for a cent or two.
+      #
+      # Run from the checkout the judging step uses, with the key the judging
+      # step already holds, so it adds no new place a key can be read from. A
+      # branch that predates the check has no entry to run and skips it.
+      - name: Check the model API accepts the judge's schema
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          JUDGE_SPEND: 'true'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$PREFLIGHT_ENTRY" ]; then
+            echo 'this branch predates the schema preflight, so it is skipped'
+            exit 0
+          fi
+          npx tsx "$PREFLIGHT_ENTRY"
 
       # WHERE THE RECORDS GO: the private artifacts bucket, under `_judge/`,
       # so a sweep can be re-graded and read case by case after the job is

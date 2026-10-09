@@ -1,0 +1,51 @@
+name: Judge schema check
+
+# AFTER A JUDGE CHANGE REACHES MAIN, ask the model API whether it still
+# accepts the largest verdict schema the judge can send. Every judge test
+# drives a fake model, so a schema the API refuses passes the suite; #2534
+# shipped one, and every judgment of the next sweep came back ungraded.
+#
+# On push to main only, never on a pull request. omni gives same-repo pull
+# request workflows its secrets, and a PR-triggered job would run unreviewed
+# code with the Anthropic key. Here the code is main's, already reviewed. A
+# live sweep runs the same check before it dispatches anything.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/gp-api/src/chats/evals/judge/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: judge-schema-check
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Judge schema preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      # The same workspace the sweep's judging step runs in.
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: packages/gp-api
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+      - name: Ask the model API to accept the judge's largest schema
+        working-directory: packages/gp-api
+        env:
+          JUDGE_SPEND: 'true'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          npx tsx src/chats/evals/judge/schemaPreflight.ts

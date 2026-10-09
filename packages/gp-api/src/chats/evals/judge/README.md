@@ -191,6 +191,31 @@ client trying to log in at boot (`@Timeout(0)` on
 `PeerlyHttpService.authenticate`) with `.env.test`'s stub credentials, and no
 judged agent calls Peerly. It is noise, not the failure.
 
+## The model API is asked about the schema before anything is spent
+
+Every judge test drives a fake model, and a fake never sees the JSON Schema a
+panel request carries. So a verdict schema the API refuses passes the suite
+and fails every judgment of the next sweep. That shipped once: the API limits
+optional and union parameters and the compiled grammar's size, and two merged
+changes put the schema past them.
+
+`schemaPreflight.ts` makes one real panel call, through `judgeCase`, with the
+largest schema the judge can send: the default dimensions, the most case
+dimensions a list may carry, and the per-run handled fields. It fails with a
+fixed sentence naming the limit, never the API's own text. One call costs
+about two cents. It runs in two places:
+
+- **Before a live sweep spends anything**, as the sweep job's first step after
+  credentials. A branch that predates the entry skips it.
+- **After a judge change reaches main**, in `judge-schema-check.yml`. That
+  workflow runs on push to `main` only. A pull request trigger would hand the
+  Anthropic key to unreviewed code, because omni gives same-repo pull request
+  workflows its secrets.
+
+Run it locally with `JUDGE_SPEND=true npx tsx
+src/chats/evals/judge/schemaPreflight.ts` from `packages/gp-api`. Without the
+switch it makes no call.
+
 ## The arms are sequential, and the TDD says otherwise
 
 The TDD claims the orchestrator alternates arms in time — "base, candidate,
