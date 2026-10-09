@@ -854,8 +854,7 @@ over interaction rows with a non-null `support_answer`; a "list" =
   `tests/contactsAgeFilters.routes.test.ts`,
   `tests/contactsVoterLikelihoodOverride.routes.test.ts`,
   `tests/contactsMade.routes.test.ts`,
-  `tests/contactsAffinityIdeologyFilters.routes.test.ts`,
-  `contacts.e2e.ts`.
+  `tests/contactsAffinityIdeologyFilters.routes.test.ts`.
   Assistant/UI parity: `chats/general/crm-tools/countContactsParity.routes.test.ts`.
 - Resolution + derivation: `src/contactInteraction/tests/`, including
   `contactsMadeResolution.service.test.ts` (the bucket SQL + the
