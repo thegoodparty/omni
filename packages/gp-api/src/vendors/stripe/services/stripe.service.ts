@@ -540,6 +540,18 @@ export class StripeService {
     )
   }
 
+  // Lists the refunds already issued against a charge. The Win SMS refunding
+  // reconcile sweep reads this BEFORE acting on a row stranded in `refunding`,
+  // so it can tell a refund that already committed (the owner crashed after
+  // Stripe landed it) from one that never ran — and stamp refunded without a
+  // second refund in the former case. The charge-keyed idempotency key would
+  // replay the pre-crash refund at most once anyway, but reading first avoids a
+  // needless Stripe write and is what lets the sweep verify before it moves money.
+  async listChargeRefunds(chargeId: string): Promise<Stripe.Refund[]> {
+    const refunds = await this.stripe.refunds.list({ charge: chargeId })
+    return refunds.data
+  }
+
   async retrieveCheckoutSession(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
