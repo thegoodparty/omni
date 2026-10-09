@@ -15,6 +15,7 @@ import {
 import { calcTextAmountInCents } from '../../../shared/util/textPricing.util'
 import { P2pPhoneListUploadService } from './p2pPhoneListUpload.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
+import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 
 const service = useTestService()
 
@@ -1470,6 +1471,91 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
           where: { peerlyPhoneListId: build.id },
         }),
       ).toBe(PAID_TEXTS)
+    })
+
+    it('Win SMS hold: persistSendCap RATCHETS DOWN — a later higher-priced session never raises the cap above the paid hold', async () => {
+      const campaign = await seedWinCampaign()
+      const build = await createQueuedRow(campaign.id)
+      const capture = service.app.get(PeerlyPhoneListCaptureService)
+
+      // First (paid) session prices 100 texts.
+      await capture.persistSendCap(build.id, 100)
+      // A later, never-paid session re-prices higher (voter file grew) — must
+      // NOT raise the cap above the authorized hold.
+      await capture.persistSendCap(build.id, 500)
+      let row = await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      })
+      expect(row?.sendCapTexts).toBe(100)
+
+      // A lower re-price DOES lower it (conservative: never above any session).
+      await capture.persistSendCap(build.id, 60)
+      row = await service.prisma.peerlyPhoneList.findUnique({
+        where: { id: build.id },
+      })
+      expect(row?.sendCapTexts).toBe(60)
+    })
+
+    it('Win SMS hold: the PERSISTED cap binds with the hold linked AFTER the resolve (order-independent)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const campaign = await seedWinCampaign()
+      const build = await createQueuedRow(campaign.id)
+
+      // The oversend race: NO satellite hold is linked to this build yet (the
+      // payment webhook has not landed), but the cap was persisted onto the
+      // build at checkout-session creation — 2 paid texts.
+      const PAID_TEXTS = 2
+      await service.prisma.peerlyPhoneList.update({
+        where: { id: build.id },
+        data: { sendCapTexts: PAID_TEXTS },
+      })
+
+      // The build resolves FIVE reachable people — more than the paid count —
+      // while the hold is still unlinked.
+      const people = Array.from({ length: 5 }, (_, i) =>
+        personPayload({
+          id: `00000000-0000-0000-0000-00000000e0${i}0`,
+          cellPhone: `55522222${i}0`,
+        }),
+      )
+      stubPeopleApi(people)
+      const upload = stubPeerlyUpload()
+
+      await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      // Capped to the PERSISTED paid count though no satellite hold existed at
+      // resolve time — the link can land afterward and nothing oversends.
+      const uploadArgs = upload.mock.calls[0]?.[0] as { csvBuffer: Buffer }
+      const csvLines = uploadArgs.csvBuffer.toString('utf-8').trim().split('\n')
+      expect(csvLines).toHaveLength(1 + PAID_TEXTS)
+      expect(
+        await service.prisma.peerlyPhoneListRecipient.count({
+          where: { peerlyPhoneListId: build.id },
+        }),
+      ).toBe(PAID_TEXTS)
+
+      // The hold links only NOW (webhook lands after the resolve) — the upload
+      // was already capped, so the ordering never mattered.
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: WIN_SLUG,
+          outreachType: OutreachType.p2p,
+          status: OutreachStatus.pending_payment,
+        },
+      })
+      await service.prisma.outreachP2pSms.create({
+        data: {
+          outreachId: outreach.id,
+          peerlyPhoneListId: build.id,
+          settleState: P2pSmsSettleState.authorized,
+          authorizationIntentId: 'pi_order_indep',
+          authorizedAmountInCents: calcTextAmountInCents(PAID_TEXTS),
+        },
+      })
+      expect(upload).toHaveBeenCalledTimes(1)
     })
 
     it('Win SMS hold: no cap is applied when no hold is authorized for the build (uploads the full audience)', async () => {

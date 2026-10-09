@@ -217,19 +217,36 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     await this.settleClaimed(outreachId)
   }
 
-  // SEND CAP (team decision 2 — never oversend). The money-safe recipient cap for
-  // a build's send: the largest text count the authorized hold covers
-  // (maxTextsForAmountInCents on authorizedAmountInCents). The phone-list build
+  // HARD SEND CAP (team decision 2 — never oversend). The money-safe recipient
+  // cap for a build's send: the largest text count the hold covers
+  // (maxTextsForAmountInCents on the authorized amount). The phone-list build
   // reads this before uploading recipients to Peerly and truncates to it, so the
   // uploaded list — and the Peerly send that reads it — can never exceed what was
   // billed, even if re-resolving the filter yields a larger audience than the
-  // pre-pay estimate. Returns null when the flag is off or no hold is authorized
-  // for this build yet, so the caller applies no cap. The hold is found through
-  // the satellite link set at hold time (peerlyPhoneListId), the same handle the
-  // capture half uses; capturing/captured are included so a re-run after the
-  // money moved still caps.
+  // pre-pay estimate.
+  //
+  // ORDER-INDEPENDENT (slice D2b): the cap is read PRIMARILY from the build's own
+  // persisted `sendCapTexts`, stamped at checkout-session creation — when the
+  // hold amount is first computed, BEFORE the payment webhook links the hold to
+  // the satellite. So the cap binds whether the build resolves before or after
+  // the hold link: the field is set by session creation, which always precedes
+  // the completed payment (and thus the link). This closes the oversend race the
+  // satellite-only lookup could not — that link lands at the webhook, which can
+  // follow the build's resolve, leaving the pre-D2b query empty and the first
+  // upload uncapped. The satellite query is kept as a FALLBACK for a build whose
+  // cap was never persisted (e.g. a hold authorized by some path that skipped
+  // session-creation persistence, or a reaper rebuild after the link exists);
+  // capturing/captured are included there so a re-run after the money moved still
+  // caps. Returns null when the flag is off or no paid hold exists/was expected.
   async resolveSendCapForBuild(buildId: string): Promise<number | null> {
     if (!isWinSmsHoldBillingEnabled()) return null
+
+    const build = await this.client.peerlyPhoneList.findUnique({
+      where: { id: buildId },
+      select: { sendCapTexts: true },
+    })
+    if (build?.sendCapTexts != null) return build.sendCapTexts
+
     const hold = await this.model.findFirst({
       where: {
         peerlyPhoneListId: buildId,

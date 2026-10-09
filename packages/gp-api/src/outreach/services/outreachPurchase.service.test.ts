@@ -2,7 +2,10 @@ import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { FREE_TEXTS_OFFER } from '@/shared/constants/freeTextsOffer'
 import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
-import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
+import {
+  calcTextAmountInCents,
+  maxTextsForAmountInCents,
+} from '@/shared/util/textPricing.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { ContactsService } from 'src/contacts/services/contacts.service'
 import { MAX_AUDIENCE_RECIPIENTS } from 'src/contacts/utils/audienceResolution.util'
@@ -41,6 +44,7 @@ const mockPeerlyPhoneListService = {
 const mockPeerlyPhoneListCapture = {
   findFirst: vi.fn(),
   countRecipients: vi.fn(),
+  persistSendCap: vi.fn(),
 } as unknown as PeerlyPhoneListCaptureService
 
 const mockContactsService = {
@@ -103,6 +107,7 @@ const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   buildAttempts: 0,
   excludedOptedOutCount: 0,
   excludedDuplicatePhoneCount: 0,
+  sendCapTexts: null,
 }
 
 const PHONE_LIST_DETAILS_FIXTURE = {
@@ -1005,6 +1010,31 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(
         mockCampaignsService.checkFreeTextsEligibility,
       ).not.toHaveBeenCalled()
+      // HARD send cap (D2b): persisted onto the build at session creation so the
+      // upload caps to the paid count regardless of the hold-link timing.
+      expect(mockPeerlyPhoneListCapture.persistSendCap).toHaveBeenCalledWith(
+        CAPTURED_LIST_FIXTURE.id,
+        maxTextsForAmountInCents(amount),
+      )
+    })
+
+    it('flag ON: does NOT persist a send cap for a forgiven ($0) amount (no hold, nothing to cap)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      // This file has no per-test mock reset, so clear the shared spy before
+      // asserting it was never called on THIS path.
+      vi.mocked(mockPeerlyPhoneListCapture.persistSendCap).mockClear()
+      mockServerLeadsLoaded(10)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValue(false)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 10,
+      })
+
+      expect(amount).toBe(0)
+      expect(mockPeerlyPhoneListCapture.persistSendCap).not.toHaveBeenCalled()
     })
 
     it('flag OFF: still applies the free-texts discount (inert)', async () => {
@@ -1092,6 +1122,13 @@ describe('OutreachPurchaseHandlerService', () => {
       // Priced off the merged-filter has-cell count, undiscounted — the upper
       // bound the hold authorizes before the list exists.
       expect(amount).toBe(calcTextAmountInCents(5000))
+      // HARD send cap (D2b): the pre-build path persists the cap onto the build
+      // at session creation — BEFORE the webhook link — so the background build
+      // upload caps to it even if it resolves before the hold links.
+      expect(mockPeerlyPhoneListCapture.persistSendCap).toHaveBeenCalledWith(
+        CAPTURED_LIST_FIXTURE.id,
+        maxTextsForAmountInCents(amount),
+      )
       // Counted the SAME way the build does: findContactsForFilter with
       // hasCellPhone forced, never a saved-filter-only aggregate.
       expect(mockContactsService.findContactsForFilter).toHaveBeenCalledWith(
