@@ -46,10 +46,36 @@ export class CallhubPermanentError extends BadGatewayException {
   }
 }
 
+// A transient CallHub failure whose transience is read off the RESPONSE BODY
+// (a recoverable `detail` code) rather than the HTTP status — the throttle
+// cases, which CallHub reports as a 400 the status alone would misread as
+// permanent. Extends BadGatewayException so every existing caller is unchanged
+// (still a 502, still not a CallhubPermanentError, so staging/send still treat
+// it as transient and revert rather than fail). The distinct class only lets a
+// retrying caller READ the code and act on the specific throttle — the send
+// sweep backs off the rest of its pass on `over_cps_limit`.
+export class CallhubRecoverableError extends BadGatewayException {
+  readonly callhubDetail?: string
+
+  constructor(
+    objectOrError?: string | object,
+    descriptionOrOptions?: string | HttpExceptionOptions,
+    callhubDetail?: string,
+  ) {
+    super(objectOrError, descriptionOrOptions)
+    this.callhubDetail = callhubDetail
+  }
+}
+
 // CallHub's out-of-account-credit code on a launch 4xx. Permanent for retry
 // purposes (waiting adds no credit), but worth a distinct operator alert since
 // topping up the CallHub account unblocks it.
 export const CALLHUB_LOW_CREDIT_DETAIL = 'low_credit'
+
+// CallHub's calls-per-second throttle code on a launch 4xx (see
+// RECOVERABLE_4XX_DETAILS below). Recoverable by waiting, so the send sweep
+// backs off the rest of its pass on it rather than failing the run.
+export const CALLHUB_OVER_CPS_LIMIT_DETAIL = 'over_cps_limit'
 
 // The vendor detail is not guaranteed to be a normalized string (see
 // isRecoverableDetail above), so guard the type and match
@@ -58,6 +84,12 @@ export const CALLHUB_LOW_CREDIT_DETAIL = 'low_credit'
 export const isLowCreditDetail = (detail?: string): boolean =>
   typeof detail === 'string' &&
   detail.trim().toLowerCase() === CALLHUB_LOW_CREDIT_DETAIL
+
+// Same type/normalization discipline as isLowCreditDetail: the send sweep's
+// back-off must survive a non-string or `Over_CPS_Limit` variant.
+export const isOverCpsLimitDetail = (detail?: string): boolean =>
+  typeof detail === 'string' &&
+  detail.trim().toLowerCase() === CALLHUB_OVER_CPS_LIMIT_DETAIL
 
 // CallHub `detail` codes that arrive on a 4xx but are NOT properties of the
 // request, so the identical call succeeds on the next attempt.
@@ -83,7 +115,7 @@ export const isLowCreditDetail = (detail?: string): boolean =>
 // Add to this list only a code that is genuinely recoverable by waiting. A code
 // that describes the request (a rejected caller ID, a malformed payload) belongs
 // on the permanent side, because retrying it burns the hold window to no end.
-const RECOVERABLE_4XX_DETAILS = ['over_cps_limit']
+const RECOVERABLE_4XX_DETAILS = [CALLHUB_OVER_CPS_LIMIT_DETAIL]
 
 const isRecoverableDetail = (data?: CallhubErrorData): boolean => {
   const detail = data?.detail
@@ -133,8 +165,19 @@ export class CallhubErrorHandlingService {
         status < 500 &&
         !RECOVERABLE_4XX.includes(status) &&
         !isRecoverableDetail(data)
-      throw permanent
-        ? new CallhubPermanentError(
+      if (permanent) {
+        throw new CallhubPermanentError(
+          customMessage ?? generic,
+          { cause: error },
+          typeof data?.detail === 'string' ? data.detail : undefined,
+        )
+      }
+      // Transient. When the transience came from a recoverable BODY detail (a
+      // throttle like over_cps_limit on an otherwise-permanent 400), carry the
+      // code so a retrying caller can back off specifically on it; a
+      // status-based transient (5xx/429/401/408) has no such code to surface.
+      throw isRecoverableDetail(data)
+        ? new CallhubRecoverableError(
             customMessage ?? generic,
             { cause: error },
             typeof data?.detail === 'string' ? data.detail : undefined,

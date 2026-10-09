@@ -240,6 +240,28 @@ export class OutreachNotificationService {
     )
   }
 
+  /**
+   * Alert CAS when a robocall is past its scheduled date and still has not
+   * dialed — failure-mode-agnostic, so it surfaces a silent tail (a stuck
+   * staged/authorized run) no settle-state-specific sweep catches. Carries the
+   * campaign/outreach id, the scheduled date, how overdue it is, and the current
+   * settle state so ops can triage without a DB read. Best-effort.
+   */
+  async notifyRobocallOverdue(
+    campaignSlug: string,
+    outreachId: number,
+    scheduledLabel: string,
+    overdueLabel: string,
+    settleState: string,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `🚨 Robocall overdue — ${campaignSlug} · outreach #${outreachId} · ` +
+        `scheduled ${scheduledLabel}, ~${overdueLabel} overdue and still not ` +
+        `dialed (state: ${settleState}). Needs manual review.`,
+      outreachId,
+    )
+  }
+
   private async postRobocallLine(
     text: string,
     outreachId: number,
