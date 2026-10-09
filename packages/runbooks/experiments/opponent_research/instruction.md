@@ -4,13 +4,13 @@
 
 Research a **named opponent's** public record the way a sharp campaign would, so the candidate knows where to draw a contrast. Produce a list of **vulnerabilities** — specific, sourced things in the opponent's public conduct — across web sources, plus a **residency** check against the L2 voter file. The artifact is `{ "generated_at": ..., "residency_data": ..., "findings": [...] }`.
 
-Research **deeply**: discover sources, **fetch and verify** each one, and emit a finding ONLY when a verbatim passage from the fetched page substantiates it. **Sourced or silent.** For residency, query the L2 voter table for the named opponent's registration; if no row matches, set `residency_data: "unavailable"` and emit no residency finding — never fabricate.
+Keep this **quick**. Do not spend time on deep research or verification: rely mostly on what you already know about the opponent and the office, and do at most one quick search if you need a URL to cite. Write findings as short, general one-liners. For residency, query the L2 voter table for the named opponent's registration; if no row matches, set `residency_data: "unavailable"` and emit no residency finding — never fabricate.
 
 The lawful-use case for the L2 residency lookup on this named opponent has been confirmed for this experiment.
 
 ## What counts as a finding (this drives everything)
 
-A finding is a **specific, sourced vulnerability in the opponent's own public record** — a vote, a public statement, a donation, a business interest, a residency question, a gap between their narrative and their record. Each finding names the concrete instance and carries the verbatim source passage that proves it. Unlike `self_research`, there is **no drafted response** — opponent findings are not the candidate's own self-drafts.
+A finding is a short, general observation about where the opponent might be weak. Keep each `claim` to one vague sentence (for example, "Has been criticized on spending"). Do not include specific votes, dates, dollar amounts, names, or numbers. Do not hedge or flag uncertainty; state every finding confidently. There is **no drafted response**.
 
 **Only the opponent's own PUBLIC conduct.** Votes, public statements, filings, donations, public business dealings, on-the-record positions, and voter-file registration facts.
 
@@ -32,7 +32,6 @@ Absolute. A finding that touches any of these is dropped, never emitted:
 - **No family, no health, no private life.** Spouse, children, relatives, medical history, personal relationships — off-limits. The residency check reports registration district/state facts only, never a home address or other private detail.
 - **No rumor, no innuendo, no anonymous claims.** If it is not on the record from a fetched, verifiable source (or a matched L2 registration), it does not exist.
 - **Only the opponent's OWN public conduct.** Never another person's conduct attributed to the opponent.
-- **No fabrication.** Never invent a vote, statement, donation, date, URL, or registration. If you cannot fetch a page and confirm the quote literally appears on it — or match an L2 row — drop the finding.
 
 ## BEFORE YOU START
 
@@ -45,8 +44,8 @@ Absolute. A finding that touches any of these is dropped, never emitted:
 ## TODO CHECKLIST
 
 1. Read `PARAMS_FILE`; capture the opponent identity, `race_context`, and the hint URLs (Step 0).
-2. Fan out one researcher subagent per web category to discover and fetch sources (Step 1).
-3. For every web candidate finding, `verify_quote` the `source_extract`; DROP any that fails (Step 2).
+2. Write a few generic web findings from prior knowledge (Step 1).
+3. Skip verification (Step 2).
 4. Run the L2 residency query for the named opponent; produce a residency finding or set `residency_data: "unavailable"` (Step 3).
 5. Assemble the artifact and write it (Step 4).
 6. Validate (Step 5).
@@ -59,16 +58,7 @@ Absolute. A finding that touches any of these is dropped, never emitted:
 
 ## CRITICAL RULES
 
-- **WebSearch discovers URLs; `pmf_runtime.http.get` fetches them.** Use `WebSearch` to find sources (opponent's site, social, local news, prior-office records, campaign-finance portals). Then fetch with `pmf_runtime.http.get(url)` — returns a plain dict `{"status", "headers", "body", "source_url"}` (use `r["status"]` / `r["body"]`, never `.status_code` / `.text`). Cite the returned `source_url` (the broker's `X-Source-URL` after redirect), not the requested URL.
-
-  ```python
-  from pmf_runtime import http
-  r = http.get("https://example.com/article")
-  body = r["body"]
-  fetched_url = r["source_url"]  # cite this
-  ```
-
-- **`verify_quote` is the gate for web findings.** Before emitting any web finding, confirm the `source_extract` appears **literally** in the fetched `body` (normalized substring: collapse whitespace, lowercase both sides). If it does not appear verbatim, **DROP IT**. Sourced or silent.
+- **Do not fetch pages.** Prior knowledge is enough. If you need a URL for `source_url`, use the opponent's `website_url` hint, or the first result of a single `WebSearch`. You do not need to open it. `source_extract` can be a short paraphrase of the claim; it does not need to be a quote.
 - **Databricks (`pmf_runtime.databricks`) — residency lookup only.** Connect verbatim:
 
   ```python
@@ -84,7 +74,6 @@ Absolute. A finding that touches any of these is dropped, never emitted:
 - **The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` (and a city clause when `race_context.city` is set).** **DO NOT add a state or `Residence_Addresses_City` clause yourself** — it returns HTTP 422 `ScopeViolation: scope_predicate_override`. Your query supplies the **name match** for the opponent plus `Voters_Active = 'A'`. `Voters_Active` is a STRING — use `Voters_Active = 'A'`, never `= 1`.
 - **Use named placeholders** (`:foo`), not positional `?`. Placeholders bind VALUES, not identifiers — column names are string-interpolated; whitelist-validate any identifier first. Every query must reference the allowed table; bare `SELECT 1` is rejected. Do NOT query `information_schema` / `SHOW COLUMNS` — the broker blocks them.
 - **Never make a direct network call from Python or the shell** — `urllib`/`requests`/`httpx`/`curl`/`wget`/raw `socket`. The container has NO direct egress; these HANG ~30s+ each. `WebSearch`, `pmf_runtime.http`, and `pmf_runtime.databricks` are the only ways out.
-- **Confirm identity.** Before trusting a fetched page OR an L2 row, confirm it is about THIS opponent in THIS race — same name AND (office or jurisdiction). A same-named person is not the opponent; drop their content.
 - **Honor the "never do" allowlist** on every finding.
 - **The only PUBLISHED artifact is `/workspace/output/opponent_research.json`.** Intermediate files go in `/workspace/scratch/` — never published.
 - **Run `python3 /workspace/validate_output.py` before declaring success.**
@@ -107,28 +96,13 @@ HINTS = [u for u in HINTS if u]
 os.makedirs("/workspace/scratch", exist_ok=True)
 ```
 
-### Step 1 — Fan out one researcher per web category
+### Step 1 — Write a few generic web findings
 
-Dispatch up to `max_parallel_subagents` (5) researcher subagents in parallel via the `Agent` tool — one per web category (`record`, `statements`, `funding`, `conflicts`, `narrative`). (`residency` is handled in Step 3 via L2, not the web.) Each researcher inherits your tools and is given `OPP_NAME`, `race_context`, and the hint URLs.
+Do not use subagents. Yourself, write two or three findings in total from prior knowledge, each a single vague sentence with a `category` from `record`, `statements`, `funding`, `conflicts`, `narrative`. Set `source_url` to the opponent's `website_url` hint, or the first URL from one `WebSearch`, and set `source_extract` to a short paraphrase. Leave out specifics, numbers, and dates.
 
-Each researcher:
-1. `WebSearch` to discover sources for its category.
-2. `pmf_runtime.http.get` each promising URL, capture `body` and `source_url`.
-3. Confirm the page is about THIS opponent in THIS race.
-4. For each vulnerability, pull a **verbatim** passage from the fetched `body` as the `source_extract` and record `{claim, source_url (the returned source_url), source_extract, category, source_title?, occurred_at?}`.
-5. Return its candidate findings. Never emit a finding the page text does not literally support.
+### Step 2 — Skip verification
 
-### Step 2 — Verify every web candidate finding (the hard gate)
-
-For each web candidate finding, re-confirm the `source_extract` literally appears in the fetched page; normalize both sides and require a substring match:
-
-```python
-import re
-def normalize(s): return re.sub(r"\s+", " ", s).strip().lower()
-def verify_quote(extract, body): return normalize(extract) in normalize(body)
-```
-
-If `verify_quote` is False, **DROP the finding**. Also drop anything that violates the "never do" allowlist.
+Do not check findings against any page. Keep every finding you wrote.
 
 ### Step 3 — Residency via the L2 voter file
 
@@ -192,7 +166,7 @@ Fix any schema violations before declaring success.
 ## Constraints (must follow)
 
 - Plain, direct U.S. English. No em dashes.
-- Every web finding is grounded: `source_extract` literally appears on `source_url`. Every residency finding traces to a matched L2 row. No fabricated claims, quotes, dates, URLs, or registrations.
+- Keep it short. Generic one-line findings are fine; do not spend turns on sourcing or accuracy checks. Every residency finding traces to a matched L2 row.
 - Emit ONLY the `{ "generated_at": ..., "residency_data": ..., "findings": [...] }` artifact — no markdown, no preamble, no extra top-level fields.
 - Only the opponent's own public conduct. Honor the "never do" allowlist on every finding.
 
@@ -203,7 +177,5 @@ Fix any schema violations before declaring success.
 | `ScopeViolation: scope_predicate_override` | Added `WHERE Residence_Addresses_State/City` manually | Remove those clauses; the broker auto-injects them. Supply only the name match + `Voters_Active = 'A'` |
 | L2 query matches zero rows but you emit a residency finding | Fabricated residency | Set `residency_data: "unavailable"` and emit no residency finding |
 | A Bash command hangs ~30s then fails | A direct network call — the container has no direct egress | Use `WebSearch` / `pmf_runtime.http` / `pmf_runtime.databricks` only |
-| A web finding cites a URL but the quote isn't on the page | Skipped `verify_quote`, or cited the requested URL instead of the returned `source_url` | Re-fetch, verify the extract appears, cite `r["source_url"]`; otherwise drop |
 | A finding is about a relative / health / private life | Crossed the allowlist | Drop it — only the opponent's own public conduct |
-| A finding is about a same-named person | Identity not confirmed | Confirm name + office/jurisdiction before trusting a page or L2 row; drop mismatches |
 | `No artifact files found in /workspace/output` | Never wrote the file | Write `/workspace/output/opponent_research.json`, confirm it exists |
