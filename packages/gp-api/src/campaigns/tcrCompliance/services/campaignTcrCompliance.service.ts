@@ -803,7 +803,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     const existing = await this.fetchByCampaignId(campaign.id)
-    if (existing?.internalTestingApprovedAt) {
+    if (existing?.internalTestingAt) {
       return existing
     }
     if (existing) {
@@ -818,7 +818,6 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         data: {
           campaignId: campaign.id,
           status: TcrComplianceStatus.approved,
-          internalTestingApprovedAt: now,
           internalTestingAt: now,
           ein: INTERNAL_TESTING_PLACEHOLDER,
           postalAddress: INTERNAL_TESTING_PLACEHOLDER,
@@ -837,7 +836,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // real compliance record that landed in between.
       if (isPrismaError(err, 'P2002')) {
         const raced = await this.fetchByCampaignId(campaign.id)
-        if (raced?.internalTestingApprovedAt) {
+        if (raced?.internalTestingAt) {
           return raced
         }
         if (raced) {
@@ -861,7 +860,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     if (!existing) {
       return
     }
-    if (!existing.internalTestingApprovedAt) {
+    if (!existing.internalTestingAt) {
       throw new ConflictException(
         'Campaign has a real TCR compliance record; refusing to delete it',
       )

@@ -10,6 +10,7 @@ import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { P2pSmsSettleState } from 'src/generated/prisma'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { OutreachService } from './outreach.service'
+import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 
 const OUTREACH_ID = 7788
 const CAMPAIGN_ID = 9911
@@ -44,6 +45,7 @@ describe('OutreachP2pSmsCaptureService', () => {
   let service: OutreachP2pSmsCaptureService
   let sms: {
     findMany: ReturnType<typeof vi.fn>
+    findFirst: ReturnType<typeof vi.fn>
     findUnique: ReturnType<typeof vi.fn>
     updateMany: ReturnType<typeof vi.fn>
   }
@@ -59,6 +61,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     voidHold: ReturnType<typeof vi.fn>
   }
   let outreachService: { finalizeOutreachPurchase: ReturnType<typeof vi.fn> }
+  let freeTexts: { restore: ReturnType<typeof vi.fn> }
   const settingState = () => callSetting(sms)
 
   // Authorized hold + ready build with a stable count — the rendezvous
@@ -110,7 +113,12 @@ describe('OutreachP2pSmsCaptureService', () => {
 
   beforeEach(async () => {
     vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-    sms = { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() }
+    sms = {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      updateMany: vi.fn(),
+    }
     outreach = { findUnique: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() }
     peerlyPhoneList = { findUnique: vi.fn() }
     stripe = {
@@ -121,6 +129,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     outreachService = {
       finalizeOutreachPurchase: vi.fn().mockResolvedValue(undefined),
     }
+    freeTexts = { restore: vi.fn().mockResolvedValue(true) }
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -131,6 +140,7 @@ describe('OutreachP2pSmsCaptureService', () => {
         },
         { provide: StripeService, useValue: stripe },
         { provide: OutreachService, useValue: outreachService },
+        { provide: OutreachP2pSmsFreeTextsService, useValue: freeTexts },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -152,6 +162,78 @@ describe('OutreachP2pSmsCaptureService', () => {
       capturedAmountInCents: AUTHORIZED,
       chargeIntentId: 'ch_test',
       peerlyPhoneListId: BUILD_ID,
+    })
+  })
+
+  describe('resolveSendCapForBuild (send cap — never oversend)', () => {
+    it('returns the paid count (max texts the hold covers) for an authorized build', async () => {
+      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+
+      const cap = await service.resolveSendCapForBuild(BUILD_ID)
+
+      // The hold authorized AUTHORIZED cents = calc(500), so the cap is 500 — the
+      // largest count whose price does not exceed the hold.
+      expect(cap).toBe(LEADS_LOADED)
+      // Found through the satellite link (peerlyPhoneListId), only for a live hold.
+      expect(sms.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            peerlyPhoneListId: BUILD_ID,
+            settleState: {
+              in: [
+                P2pSmsSettleState.authorized,
+                P2pSmsSettleState.capturing,
+                P2pSmsSettleState.captured,
+              ],
+            },
+          }),
+        }),
+      )
+    })
+
+    it('returns the PERSISTED build cap with no hold linked yet — order-independent (cap set at session creation, before the webhook link)', async () => {
+      // The oversend race: the build resolves and uploads BEFORE the payment
+      // webhook links the hold to the satellite. The persisted sendCapTexts
+      // (stamped at session creation) still caps it — no satellite hold needed.
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: 250 })
+      sms.findFirst.mockResolvedValue(null)
+
+      const cap = await service.resolveSendCapForBuild(BUILD_ID)
+
+      expect(cap).toBe(250)
+      // The persisted field short-circuits — the satellite is never consulted.
+      expect(sms.findFirst).not.toHaveBeenCalled()
+      expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: BUILD_ID } }),
+      )
+    })
+
+    it('prefers the persisted build cap over the satellite hold when both exist', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: 10 })
+      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(10)
+      expect(sms.findFirst).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the satellite hold when the build carries no persisted cap', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
+      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(LEADS_LOADED)
+    })
+
+    it('returns null when no cap is persisted and no hold is authorized (no cap applied)', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
+      sms.findFirst.mockResolvedValue(null)
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
+    })
+
+    it('returns null when the flag is off (inert)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
+      // Flag off short-circuits before any DB read.
+      expect(sms.findFirst).not.toHaveBeenCalled()
     })
   })
 
@@ -298,6 +380,8 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
     expect(stripe.voidHold).toHaveBeenCalledWith(INTENT_ID)
     expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+    // A capture-time void hands the free-texts offer back (closes C1's TODO).
+    expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
   })
 
   it('reconciles an already-succeeded PI without a second capture', async () => {
@@ -321,6 +405,8 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
     expect(stripe.voidHold).not.toHaveBeenCalled()
     expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+    // A lapsed-hold void also restores the free-texts offer (closes C1's TODO).
+    expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
   })
 
   it('reverts to authorized (no terminal) when the capture call fails', async () => {

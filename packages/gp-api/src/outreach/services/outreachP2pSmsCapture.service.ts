@@ -6,7 +6,10 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
-import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
+import {
+  calcTextAmountInCents,
+  maxTextsForAmountInCents,
+} from 'src/shared/util/textPricing.util'
 import {
   isWinSmsHoldBillingEnabled,
   WIN_SMS_HOLD_MIN_CENTS,
@@ -18,6 +21,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { OutreachService } from './outreach.service'
+import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 
 // Backstop only — capture fires inline from both edges, so a quarter-hour net
 // is enough to catch a dropped signal. The minute space is saturated by the
@@ -89,6 +93,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   constructor(
     private readonly stripe: StripeService,
     private readonly outreachService: OutreachService,
+    private readonly freeTexts: OutreachP2pSmsFreeTextsService,
   ) {
     super()
   }
@@ -212,6 +217,58 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     })
     if (claim.count === 0) return
     await this.settleClaimed(outreachId)
+  }
+
+  // HARD SEND CAP (team decision 2 — never oversend). The money-safe recipient
+  // cap for a build's send: the largest text count the hold covers
+  // (maxTextsForAmountInCents on the authorized amount). The phone-list build
+  // reads this before uploading recipients to Peerly and truncates to it, so the
+  // uploaded list — and the Peerly send that reads it — can never exceed what was
+  // billed, even if re-resolving the filter yields a larger audience than the
+  // pre-pay estimate.
+  //
+  // ORDER-INDEPENDENT (slice D2b): the cap is read PRIMARILY from the build's own
+  // persisted `sendCapTexts`, stamped at checkout-session creation — when the
+  // hold amount is first computed, BEFORE the payment webhook links the hold to
+  // the satellite. So the cap binds whether the build resolves before or after
+  // the hold link: the field is set by session creation, which always precedes
+  // the completed payment (and thus the link). This closes the oversend race the
+  // satellite-only lookup could not — that link lands at the webhook, which can
+  // follow the build's resolve, leaving the pre-D2b query empty and the first
+  // upload uncapped. The satellite query is kept as a FALLBACK for a build whose
+  // cap was never persisted (e.g. a hold authorized by some path that skipped
+  // session-creation persistence, or a reaper rebuild after the link exists);
+  // capturing/captured are included there so a re-run after the money moved still
+  // caps. Returns null when the flag is off or no paid hold exists/was expected.
+  async resolveSendCapForBuild(buildId: string): Promise<number | null> {
+    if (!isWinSmsHoldBillingEnabled()) return null
+
+    const build = await this.client.peerlyPhoneList.findUnique({
+      where: { id: buildId },
+      select: { sendCapTexts: true },
+    })
+    if (build?.sendCapTexts != null) return build.sendCapTexts
+
+    const hold = await this.model.findFirst({
+      where: {
+        peerlyPhoneListId: buildId,
+        authorizedAmountInCents: { not: null },
+        settleState: {
+          in: [
+            P2pSmsSettleState.authorized,
+            P2pSmsSettleState.capturing,
+            P2pSmsSettleState.captured,
+          ],
+        },
+      },
+      select: { authorizedAmountInCents: true },
+      // Deterministic + conservative: a build is linked 1:1 to its hold, but if
+      // two satellites ever pointed at one build, cap to the SMALLEST authorized
+      // amount so the send can never exceed any hold that paid for it.
+      orderBy: { authorizedAmountInCents: 'asc' },
+    })
+    if (hold?.authorizedAmountInCents == null) return null
+    return maxTextsForAmountInCents(hold.authorizedAmountInCents)
   }
 
   // EDGE (b): called right after the build finisher stamps a list `ready`. Finds
@@ -401,6 +458,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           'parked voided, not charged',
       )
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+      await this.restoreFreeTextsBestEffort(outreachId)
       return
     }
 
@@ -463,9 +521,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
 
     // HOLD LAPSED: expired / canceled / never capturable. Nothing was captured,
     // so park `voided` and surface CRITICAL — a fresh-charge recovery is a
-    // later concern, never a blind charge here.
-    // TODO(win-sms-hold slice E): a void here must restore the free-texts offer
-    // redeemed at hold time (the release/cancel slice owns that restore).
+    // later concern, never a blind charge here. Restore the free-texts offer this
+    // send redeemed at hold time, since the void means it is never billed.
     if (intent.status !== 'requires_capture') {
       this.logger.error(
         { outreachId, intentStatus: intent.status },
@@ -473,6 +530,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           'parked voided, send uncharged',
       )
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+      await this.restoreFreeTextsBestEffort(outreachId)
       return
     }
 
@@ -497,10 +555,12 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // ZERO / SUB-MINIMUM: Stripe refuses a capture under its 50c floor, so a
     // final amount below it is released, not captured — void the hold and park
     // `voided`. Covers a $0 amount (e.g. every contact free or scrubbed) too.
-    // TODO(win-sms-hold slice E): restore the free-texts offer on this void.
+    // Restore the free-texts offer this send redeemed: the void means it never
+    // bills, so the offer must go back to the campaign.
     if (captureAmount < WIN_SMS_HOLD_MIN_CENTS) {
       await this.stripe.voidHold(authorizationIntentId)
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+      await this.restoreFreeTextsBestEffort(outreachId)
       this.logger.info(
         { outreachId, captureAmount },
         'win sms capture: final amount below the floor; voided the hold',
@@ -583,6 +643,24 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       where: { outreachId, settleState: P2pSmsSettleState.capturing },
       data: { settleState: to },
     })
+  }
+
+  // A capture-time VOID (lapsed/anomalous/sub-floor hold) owes the free-texts
+  // offer back the same way the cancel/deny release does: this send redeemed it
+  // at hold time but the void means it is never billed. Best-effort + guarded on
+  // the campaign redeemed marker (the restore helper is idempotent), so it never
+  // double-grants and never fails the settlement over a transient restore error.
+  private async restoreFreeTextsBestEffort(outreachId: number): Promise<void> {
+    try {
+      await this.freeTexts.restore(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'CRITICAL win sms capture: free-texts restore failed after a ' +
+          'capture-time void; the offer may be stuck consumed. ' +
+          'TODO(slice F): reconcile',
+      )
+    }
   }
 
   // The discounted capture amount, computed the SAME way the immediate-charge

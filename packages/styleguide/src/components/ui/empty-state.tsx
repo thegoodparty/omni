@@ -12,6 +12,7 @@ import { cn } from '../../lib/utils'
 // what to do about it, in that order. The sentence is one line of twenty
 // words or fewer; anything longer is explaining the system.
 function EmptyState({
+  icon,
   title,
   message,
   action,
@@ -23,6 +24,9 @@ function EmptyState({
   // as the whole of what is there — a panel that has room for it, not a
   // one-line row in a table.
   title?: React.ReactNode
+  // Above the title: a Spinner while something is on its way, or an icon
+  // that names the empty thing. Optional, like the title.
+  icon?: React.ReactNode
   message: React.ReactNode
   // The one thing to do about it. Optional, because plenty of empty states
   // are a statement rather than an invitation — an archive with nothing in
@@ -38,6 +42,7 @@ function EmptyState({
       )}
       {...props}
     >
+      {icon}
       {/* Tighter than the card's own `gap-4`: a title and the sentence it
           heads are one block, and the CTA is the thing that sits apart
           from them. With no title this renders exactly as the single

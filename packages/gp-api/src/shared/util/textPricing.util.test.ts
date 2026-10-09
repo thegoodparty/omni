@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
-import { calcTextAmountInCents } from './textPricing.util'
+import {
+  calcTextAmountInCents,
+  maxTextsForAmountInCents,
+} from './textPricing.util'
 
 describe('PRICE_PER_TEXT_TENTH_CENTS', () => {
   it('is 3.5 cents per text expressed as tenth-cents', () => {
@@ -42,5 +45,30 @@ describe('calcTextAmountInCents', () => {
   it('handles a large count without precision drift', () => {
     // 123456 * 35 = 4,320,960 tenth-cents; (4,320,960 + 5) / 10 = 432096.5 → 432096.
     expect(calcTextAmountInCents(123456)).toBe(432096)
+  })
+})
+
+describe('maxTextsForAmountInCents', () => {
+  it('returns 0 for an amount that covers no whole text', () => {
+    expect(maxTextsForAmountInCents(0)).toBe(0)
+    // 1 text costs 4c, so anything under 4c buys zero texts.
+    expect(maxTextsForAmountInCents(3)).toBe(0)
+  })
+
+  it('inverts round multiples (350c buys 100 texts, 3500c buys 1000)', () => {
+    expect(maxTextsForAmountInCents(350)).toBe(100)
+    expect(maxTextsForAmountInCents(3500)).toBe(1000)
+  })
+
+  // THE MONEY-SAFETY INVARIANT the Win SMS hold send cap relies on: pricing the
+  // capped count never exceeds the authorized amount, and one more text would.
+  // So a send capped at maxTextsForAmountInCents(hold) can never cost more than
+  // the hold, and capture (clamped to the hold) is never clamped down.
+  it('is the largest count whose price does not exceed the amount', () => {
+    for (const cents of [0, 4, 7, 35, 50, 349, 350, 351, 1750, 432096]) {
+      const maxTexts = maxTextsForAmountInCents(cents)
+      expect(calcTextAmountInCents(maxTexts)).toBeLessThanOrEqual(cents)
+      expect(calcTextAmountInCents(maxTexts + 1)).toBeGreaterThan(cents)
+    }
   })
 })

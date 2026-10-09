@@ -78,6 +78,7 @@ import { OutreachRobocallDeferredHoldService } from './services/outreachRobocall
 import { OutreachRobocallStrandedService } from './services/outreachRobocallStranded.service'
 import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
+import { OutreachRobocallOverdueAlertService } from './services/outreachRobocallOverdueAlert.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
 import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
 import { OutreachRobocallCancelService } from './services/outreachRobocallCancel.service'
@@ -97,6 +98,8 @@ import { OutreachNotificationService } from './services/outreachNotification.ser
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
 import { OutreachP2pSmsHoldService } from './services/outreachP2pSmsHold.service'
 import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.service'
+import { OutreachP2pSmsCancelService } from './services/outreachP2pSmsCancel.service'
+import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTexts.service'
 
 @Module({
   imports: [
@@ -219,6 +222,7 @@ import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.s
     OutreachRobocallStrandedService,
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
+    OutreachRobocallOverdueAlertService,
     OutreachRobocallHoldFailureService,
     OutreachRobocallWebhookService,
     OutreachRobocallCancelService,
@@ -241,6 +245,8 @@ import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.s
     OutreachPurchaseHandlerService,
     OutreachP2pSmsHoldService,
     OutreachP2pSmsCaptureService,
+    OutreachP2pSmsCancelService,
+    OutreachP2pSmsFreeTextsService,
     OutreachMaterializationService,
     OutreachAssignmentService,
   ],

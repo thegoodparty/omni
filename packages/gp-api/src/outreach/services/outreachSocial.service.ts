@@ -167,6 +167,9 @@ export class OutreachSocialService extends createPrismaBase(
             outreachType: OutreachType.socialMedia,
             status: OutreachStatus.completed,
             name: input.name,
+            ...('trackerTaskId' in input && {
+              trackerTaskId: input.trackerTaskId,
+            }),
             ...(proposalKey !== undefined && { proposalKey }),
             ...(serveScope && {
               priorityId: serveScope.priorityId,

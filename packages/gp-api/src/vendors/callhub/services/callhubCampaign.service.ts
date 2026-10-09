@@ -34,6 +34,17 @@ const EXPIRATION_WINDOW_DAYS = 7
 // the 8am legal floor.
 const DAILY_START_TIME = '09:00'
 const DAILY_STOP_TIME = '21:00'
+// Calls per minute to request on each created campaign. CallHub's account-wide
+// VB cap is ~60 calls/min SHARED across every scheduled/running campaign and a
+// new campaign defaults to `frequency: 60` (the whole pool), so a second
+// campaign cannot START (`over_cps_limit`, incident 2026-10-08). A low default
+// lets ~6 campaigns coexist under the cap; env-tunable (and raise the account
+// cap with CallHub for more throughput — support@callhub.io, billed monthly).
+const DEFAULT_CALLS_PER_MINUTE = 10
+const callsPerMinute = (): number => {
+  const raw = Number(process.env.CALLHUB_VB_CALLS_PER_MINUTE)
+  return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_CALLS_PER_MINUTE
+}
 
 interface CreateVoiceBroadcastParams {
   name: string
@@ -89,6 +100,7 @@ export class CallhubCampaignService {
     const body: CreateVbCampaignBody = {
       name: params.name,
       phonebooks: [params.phonebookPkStr],
+      frequency: callsPerMinute(),
       script: {
         label: params.name,
         live_message: { audiofile: params.mediaFileId },

@@ -617,6 +617,22 @@ export class P2pPhoneListUploadService {
       existingToken,
     } = params
 
+    // HARD SEND CAP (Win SMS hold, team decision 2 — never oversend): the
+    // uploaded list must not exceed what was billed, even if re-resolving the
+    // filter here yields a larger audience than the pre-pay estimate. Caps the
+    // recipients at the paid count the hold covers.
+    //
+    // ORDER-INDEPENDENT (slice D2b): the cap is persisted on the build at
+    // checkout-session creation (resolveSendCapForBuild reads that
+    // `sendCapTexts` field), which always precedes the completed payment — and
+    // thus the payment-webhook hold link. So the cap is present here whether this
+    // resolve runs before or after the hold link, closing the race where the
+    // first async build pass beat the webhook and uploaded uncapped. The only
+    // ordering with no persisted cap is a resolve that runs before the user even
+    // reaches checkout (resolve-before-estimate); there the pre-pay estimate is a
+    // genuine upper bound of this already-smaller resolve, so uncapped is safe.
+    const sendCap = await this.p2pSmsCapture.resolveSendCapForBuild(buildId)
+
     let phoneList: {
       csvBuffer: Buffer
       recipients: PhoneListRecipient[]
@@ -628,6 +644,7 @@ export class P2pPhoneListUploadService {
         organization,
         excludePersonIds,
         isInteractive,
+        sendCap,
       )
     } catch (error) {
       // The row's buildError mirrors whatever is ABOUT TO BE thrown to the
@@ -761,6 +778,10 @@ export class P2pPhoneListUploadService {
     organization: Organization,
     excludePersonIds: Set<string>,
     isInteractive: boolean,
+    // The Win SMS hold send cap: stop resolving recipients once this many have
+    // been collected, so the uploaded list never exceeds the paid count. Null
+    // applies no cap (flag off, or no hold authorized for this build yet).
+    sendCap: number | null = null,
   ): Promise<{
     csvBuffer: Buffer
     recipients: PhoneListRecipient[]
@@ -813,6 +834,10 @@ export class P2pPhoneListUploadService {
 
     let next = await audience.next()
     while (!next.done) {
+      // SEND CAP: stop at the paid count so the uploaded list (and the Peerly
+      // send that reads it) never exceeds what the hold authorized. A capped-down
+      // send is fine — we charge the hold and send the hold's worth.
+      if (sendCap !== null && recipients.length >= sendCap) break
       const person = next.value
       recipients.push({ personId: person.id, phone: person.cellPhone })
       rows.push(
@@ -833,7 +858,12 @@ export class P2pPhoneListUploadService {
     return {
       csvBuffer: Buffer.from(rows.join('\n') + '\n', 'utf-8'),
       recipients,
-      excludedDuplicatePhoneCount: next.value.excludedDuplicatePhoneCount,
+      // The duplicate-phone tally is only available from the generator's return
+      // value, which requires exhausting it. A cap-truncated build breaks early,
+      // so that observability count is reported as 0 rather than a partial tally.
+      excludedDuplicatePhoneCount: next.done
+        ? next.value.excludedDuplicatePhoneCount
+        : 0,
     }
   }
 

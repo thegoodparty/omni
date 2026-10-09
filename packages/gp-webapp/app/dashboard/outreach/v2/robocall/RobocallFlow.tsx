@@ -666,6 +666,7 @@ export const RobocallFlow = ({
       audioKey: audioUpload.key,
       callbackNumber,
       ...(script.trim() ? { script } : {}),
+      ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
     })
   }
 
@@ -1218,6 +1219,7 @@ export const RobocallFlow = ({
           script={script}
           campaignName={campaignName}
           campaignPlanDueDate={campaignPlanDueDate}
+          trackerTaskId={tracker?.trackerTaskId}
           audienceName={audience.selectedList?.name ?? 'your list'}
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}

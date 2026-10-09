@@ -305,6 +305,21 @@ describe('POST /v1/outreach/drafts', () => {
     expect(satellite.compliancePassedAt).not.toBeNull()
   })
 
+  it('keeps the campaign-plan task a robocall draft was started from', async () => {
+    const res = await service.client.post(
+      '/v1/outreach/drafts',
+      { ...robocallDraftBody(), trackerTaskId: 'tracker-task-1' },
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    // So a later resume that schedules it still closes that task.
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(row.trackerTaskId).toBe('tracker-task-1')
+  })
+
   it('accepts a robocall draft sent as multipart with no file', async () => {
     const body = robocallDraftBody()
     const form = new FormData()

@@ -34,6 +34,10 @@ import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.se
 import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
 import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
 import { OutreachService } from './outreach.service'
+import {
+  HoldStillSettlingException,
+  OutreachP2pSmsCancelService,
+} from './outreachP2pSmsCancel.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
@@ -201,6 +205,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
     private readonly outreachService: OutreachService,
+    private readonly p2pSmsCancel: OutreachP2pSmsCancelService,
     private readonly notifications: OutreachNotificationService,
   ) {
     super()
@@ -599,6 +604,22 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     input: DenySmsOutreachRequest,
   ): Promise<SmsApprovalQueueItem> {
+    // Hold model: a row carrying an OutreachP2pSms satellite was funded by a
+    // manual-capture hold that is by this point captured (the approve gate only
+    // lets a `captured` row reach canvasser booking), so denying it must RELEASE
+    // the money — refund if captured, void if still authorized — and neutralize
+    // the vendor job so a denied send can never go out. This is distinct from the
+    // send-back-for-edits deny below: a non-satellite row keeps that behavior
+    // byte-for-byte. SATELLITE-gated, not flag-gated — a captured/authorized hold
+    // is released even on a WIN_SMS_HOLD_BILLING rollback.
+    const satellite = await this.client.outreachP2pSms.findUnique({
+      where: { outreachId },
+      select: { outreachId: true },
+    })
+    if (satellite) {
+      return this.denyHold(outreachId, input)
+    }
+
     const denied = await this.model.updateMany({
       where: {
         id: outreachId,
@@ -621,6 +642,110 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       throw new ConflictException(
         'This campaign is not awaiting review any more',
       )
+    }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const registrations = await this.registrationsByCampaign([updated])
+    return this.toQueueItem(
+      updated,
+      registrations.get(updated.campaignId ?? -1),
+      null,
+    )
+  }
+
+  // Terminal deny for a hold-model row: CLAIM the denial via a guarded CAS FIRST
+  // (symmetric with approve, so the two can never interleave — see the claim
+  // below), and only on a won claim neutralize the vendor job then release the
+  // money through the shared charge-keyed refund terminal. The denial is
+  // committed by the claim, so the catch distinguishes TWO failure classes. A
+  // `capturing` refusal (money mid-flight, HoldStillSettlingException) commits no
+  // release and moves no money, so it self-heals: the denial stamp is reverted
+  // and a retry succeeds once the capture settles. EVERY other delete/release
+  // failure may already have moved money (a refund committed, then a DB write
+  // threw), so the denial stays committed and the row is left denied-but-
+  // unreleased for the slice-F reconcile — never reverted, so it can never
+  // become sendable again while a refund is outstanding (a revert would reopen a
+  // refund-and-also-send window). This is the better trade than a read-only
+  // pre-check, which would let a concurrent approve book/send between the read
+  // and the action and then refund an already-booked send.
+  private async denyHold(
+    outreachId: number,
+    input: DenySmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, outreachType: OutreachType.p2p },
+      include: queueInclude,
+    })
+    if (!row || !row.campaignId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    // Claim the denial FIRST via a guarded CAS, SYMMETRIC with approve's claim —
+    // so approve and deny can never interleave on one row. A read-only pre-check
+    // would leave a TOCTOU window where a concurrent approve commits `approvedAt`
+    // and books/sends canvassers between the read and deny's action, after which
+    // deny would delete the job and refund an already-booked/sent campaign. The
+    // CAS closes that: only a still-reviewable, un-approved, un-denied row claims,
+    // and the row ends with exactly one of approvedAt/deniedAt. REVIEWABLE_STATUSES
+    // also excludes a completed (sent) row, so a delivered send is never refunded.
+    // NOTE: deny intentionally still permits `in_progress` (the sweep ratchets an
+    // unapproved row there on its send day), matching the hand-booking window the
+    // console works from; a completed row is the terminal that is refused.
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        status: { in: REVIEWABLE_STATUSES },
+        approvedAt: null,
+        deniedAt: null,
+      },
+      data: {
+        deniedAt: new Date(),
+        deniedBy: input.deniedBy,
+        deniedReason: input.reason,
+      },
+    })
+    if (claimed.count === 0) {
+      // A concurrent approve (or deny) already decided this row, or it is sent:
+      // abort WITHOUT deleting the job or moving any money.
+      throw new ConflictException(
+        'This campaign is not awaiting review any more',
+      )
+    }
+
+    // We own the denial (committed above). Neutralize the job FIRST and throw on
+    // failure (the cancel discipline), so a denied send can never fire: releasing
+    // the money before the job is gone would risk a free delivered send if the
+    // delete then failed.
+    try {
+      if (row.projectId) {
+        await this.peerlyP2pJobService.deleteJob(row.projectId)
+        this.invalidateVendorReads(row.projectId)
+      }
+
+      // Release the hold (refund if captured, void if authorized). Refuses a
+      // `capturing` row (money mid-flight) with a throw — no state transition is
+      // committed on that path, so there is never money moved without a denial.
+      await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
+    } catch (err) {
+      // ONLY the `capturing` refusal is safe to heal by reverting the denial: it
+      // throws BEFORE any release transition commits, so no money moved, and the
+      // revert lets a retry succeed once the capture settles (the vendor job
+      // delete is idempotent, so re-running is safe). ANY other failure here may
+      // already have moved money — a refund can commit and then a DB write throw
+      // — so reverting would make the row reviewable/approvable again and open a
+      // refund-and-also-send window; instead keep the denial committed and leave
+      // the row denied-but-unreleased for the slice-F reconcile. approvedAt stays
+      // null throughout (approve requires deniedAt null), making the guard
+      // belt-and-suspenders. The original error is rethrown unchanged either way.
+      if (err instanceof HoldStillSettlingException) {
+        await this.model.updateMany({
+          where: { id: outreachId, approvedAt: null },
+          data: { deniedAt: null, deniedBy: null, deniedReason: null },
+        })
+      }
+      throw err
     }
 
     const updated = await this.model.findFirstOrThrow({

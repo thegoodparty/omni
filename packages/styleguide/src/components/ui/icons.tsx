@@ -36,6 +36,7 @@ export {
   ChevronsUpDown as ChevronsUpDownIcon,
   CircleAlert as CircleAlertIcon,
   CircleSlash as CircleSlashIcon,
+  CircleSlash2 as CircleSlash2Icon,
   CircleUserRound as CircleUserRoundIcon,
   ContactRound as ContactRoundIcon,
   ClipboardList as ClipboardListIcon,
@@ -68,6 +69,7 @@ export {
   MapPinOff as MapPinOffIcon,
   Menu as MenuIcon,
   MessageSquare as MessageSquareIcon,
+  MessagesSquare as MessagesSquareIcon,
   Mic as MicIcon,
   Minus as MinusIcon,
   Plus as PlusIcon,
@@ -147,4 +149,5 @@ export {
   LocateFixed as LocateFixedIcon,
   LocateOff as LocateOffIcon,
   Activity as ActivityIcon,
+  FlaskConical as FlaskConicalIcon,
 } from 'lucide-react'

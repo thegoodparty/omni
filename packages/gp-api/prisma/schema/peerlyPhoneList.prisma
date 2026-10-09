@@ -50,6 +50,18 @@ model PeerlyPhoneList {
   // still-loading list. Null on rows stamped ready before this column
   // existed, and on any row not yet ready.
   leadsLoaded                  Int?                       @map("leads_loaded")
+  // The HARD Win SMS send cap (team decision 2 — never oversend): the largest
+  // text count the hold authorized for THIS build covers
+  // (`maxTextsForAmountInCents(holdAmount)`). Persisted at checkout-session
+  // creation (when the hold amount is computed, slice D2b) — i.e. BEFORE the
+  // payment webhook links the hold — so the build-upload reads it regardless of
+  // whether the resolve runs before or after the hold link, closing the
+  // oversend race D2a's satellite-link cap could not (the link lands at the
+  // webhook, which can follow the resolve). `buildPhoneList` truncates the
+  // uploaded recipients to it, so a filter that re-resolves larger than the
+  // pre-pay estimate can never upload/send more than was billed. Null when the
+  // flag is off or no paid hold is expected (a free/sub-50c send places none).
+  sendCapTexts                 Int?                       @map("send_cap_texts")
   // How many times the async build handler has claimed this row (queued ->
   // building). The stale-building reaper uses this to stop retrying and
   // park the row `failed` instead of re-queuing it forever.

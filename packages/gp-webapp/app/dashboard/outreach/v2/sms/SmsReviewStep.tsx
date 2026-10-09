@@ -74,6 +74,10 @@ interface SmsReviewStepProps {
   phoneListToken: string | null
   excludedOptedOutCount: number | null
   excludedDuplicatePhoneCount: number | null
+  // Pay-before-ready (Win SMS hold billing): the total is the pre-pay estimate,
+  // a ceiling the capture bills down to the actual reachable list — so the pay
+  // card states the price as a ceiling instead of a flat charge.
+  priceIsCeiling?: boolean
   // Draft creation happens in the flow; until it lands there is no session
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
@@ -107,6 +111,7 @@ export const SmsReviewStep = ({
   phoneListToken,
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
+  priceIsCeiling = false,
   preparing,
   prepareError,
   buildFailed = false,
@@ -438,10 +443,15 @@ export const SmsReviewStep = ({
             </Alert>
           )}
           <Alert variant="info" icon={<InfoIcon className="size-4" />}>
-            <AlertTitle>${money(totalDollars)} due today</AlertTitle>
+            <AlertTitle>
+              {priceIsCeiling
+                ? `Up to $${money(totalDollars)}`
+                : `$${money(totalDollars)} due today`}
+            </AlertTitle>
             <AlertDescription>
-              One-time charge for this campaign. Your Pro subscription is billed
-              separately.
+              {priceIsCeiling
+                ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
+                : 'One-time charge for this campaign. Your Pro subscription is billed separately.'}
             </AlertDescription>
           </Alert>
         </>

@@ -113,14 +113,14 @@ const SHARED_AREAS: ProductArea[] = [
   },
 ]
 
-// Win: the candidate product. Campaign Manager is the home tab.
+// Win: the candidate product. Home is the home tab.
 const WIN_AREAS: ProductArea[] = [
   {
     navId: 'campaign-tracker-dashboard',
-    name: 'Campaign Manager',
+    name: 'Home',
     path: '/dashboard',
     modes: ['win'],
-    does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
+    does: 'The home tab, and where this chat lives, leading with the plan’s next task. While it rolls out, some candidates still see this tab named Campaign Manager, with the week’s top tasks listed under their progress.',
     inside: [
       'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
@@ -132,6 +132,7 @@ const WIN_AREAS: ProductArea[] = [
       'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
       'Asking the chat to reach voters gets an outreach card for one channel: a text, phone banking, door knocking or a social post. The card’s button opens that channel’s Voter Outreach flow with the audience and message filled in, to review before it goes out; a text is paid for there',
       'A text card can go to a random sample of voters instead of everyone, sized the way polls are, with the cost of each',
+      'Asking the chat to build a list of voters gets a list card with a Create list button; once pressed, the card links to that list in Voter Data',
       'Asking how an earlier send did gets its numbers in the reply, and can leave cards for those sends that open each one in Voter Outreach',
     ],
   },
@@ -151,7 +152,7 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
-    does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    does: 'The campaign as a timeline of tasks in three phases (Launch, Active campaign, Get out the vote), with the full written plan under the Campaign strategy card at the top. Every candidate gets one; finishing the Campaign Story personalizes it. A task started from its own button (a text, a robocall, a call list, a social post, door knocking) is marked done on its own once that outreach is scheduled. Skip on the next task offers Show in 3 days (never past its due date) or, for anything but ballot access, Not for me; either can be brought back with Bring it back in the task menu. While it rolls out, some candidates still see the earlier page: the plan with their tasks grouped by phase below it.',
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {

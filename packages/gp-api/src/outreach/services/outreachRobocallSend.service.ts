@@ -5,12 +5,15 @@ import { ZodError } from 'zod'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { sleep } from '@/shared/util/sleep.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import {
   CallhubPermanentError,
+  CallhubRecoverableError,
   isLowCreditDetail,
+  isOverCpsLimitDetail,
 } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -29,6 +32,33 @@ import { OutreachNotificationService } from './outreachNotification.service'
 // matters here.
 const ROBOCALL_SEND_SWEEP_CRON = '4,14,24,34,44,54 * * * *'
 const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
+
+// A sweep pass launches at most `robocallSendMaxPerSweep()` due runs, oldest
+// send first and spaced `robocallSendLaunchSpacingMs()` apart, so a batch
+// coming due together never bursts past CallHub's calls-per-second limit. An
+// over-the-limit START 400s `over_cps_limit` (transient), reverting the run to
+// `authorized`, so an unspaced burst re-throttles every pass and never dials —
+// the Oct 8 incident. The cron (every 10 min) then drains a backlog at this
+// rate, not all at once.
+//
+// Both are env-overridable so ops can retune once CallHub raises the account
+// CPS limit, and an explicit 0 is HONORED (never read as unset): MAX_PER_SWEEP
+// = 0 is the incident kill-switch — `take: 0` selects no rows, pausing every
+// robocall launch with no code deploy; SPACING_MS = 0 drops the delay. Only an
+// unset / empty / non-finite / negative value falls back to the default. Read
+// at CALL time (functions, not consts) so a test can stub the env — the same
+// pattern as outreachSmsAdmin.service.ts's vendorReadTimeoutMs.
+const envInt = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  // Floor to an integer so a fractional value never reaches `take` (which
+  // expects an Int). A non-finite / negative value falls back to the default.
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback
+}
+const robocallSendMaxPerSweep = () =>
+  envInt(process.env.ROBOCALL_SEND_MAX_PER_SWEEP, 2)
+const robocallSendLaunchSpacingMs = () =>
+  envInt(process.env.ROBOCALL_SEND_LAUNCH_SPACING_MS, 3000)
 
 // A `dialing` row whose updatedAt is older than this is assumed stranded — a
 // process that died between winning the dial claim and committing/reverting, or
@@ -52,6 +82,14 @@ const ROBOCALL_DIALING_STALE_MINUTES = 15
 //   - `transient`: a lost/5xx response or a non-STARTED 200 — retry via the
 //     status read (revert on PAUSED, leave dialing on unresolved).
 type LaunchOutcome = 'permanent' | 'shape' | 'transient'
+
+// The sweep's per-row signal from startCampaign. `throttled` means CallHub
+// rejected the START with `over_cps_limit` — it is actively throttling — so the
+// sweep stops launching more rows THIS pass (adaptive back-off). Every other
+// outcome (launched, reverted, failed, skipped) is `done` and lets the sweep
+// continue. startCampaign's own money/dial handling is identical either way;
+// this only governs whether the next row in the pass is attempted.
+type StartCampaignResult = 'throttled' | 'done'
 
 // The send-time dial slice: STARTs a staged, still-paid robocall's CallHub
 // voice-broadcast campaign once its send time has arrived. THIS is the step that
@@ -97,6 +135,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
     const now = new Date()
+    const launchSpacingMs = robocallSendLaunchSpacingMs()
     const arrived = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.authorized,
@@ -107,11 +146,22 @@ export class OutreachRobocallSendService extends createPrismaBase(
         },
       },
       select: { outreachId: true },
+      // Oldest-due first so the most overdue (soonest to lapse) drain first.
+      // `outreachId` breaks ties into a TOTAL order so both prod replicas pick
+      // the identical oldest-N set — otherwise date ties could order
+      // differently per replica, and the union would exceed N launches/pass.
+      // take: 0 (the kill-switch) selects no rows, so nothing launches.
+      orderBy: [{ outreach: { date: 'asc' } }, { outreachId: 'asc' }],
+      take: robocallSendMaxPerSweep(),
     })
 
-    for (const { outreachId } of arrived) {
+    for (const [index, { outreachId }] of arrived.entries()) {
+      // Space launches within a pass so N near-simultaneous STARTs don't trip
+      // CallHub's CPS limit; not before the first, not after the last.
+      if (index > 0) await sleep(launchSpacingMs)
+      let result: StartCampaignResult
       try {
-        await this.startCampaign(outreachId)
+        result = await this.startCampaign(outreachId)
       } catch (err) {
         // Per-record isolation: one draft's Stripe/DB failure must not abort
         // dialing the rest. The next sweep retries it.
@@ -119,6 +169,22 @@ export class OutreachRobocallSendService extends createPrismaBase(
           { err, outreachId },
           'robocall send failed for a draft; continuing sweep',
         )
+        continue
+      }
+      if (result === 'throttled') {
+        // ADAPTIVE BACK-OFF: CallHub rejected this START with over_cps_limit, so
+        // it is actively throttling right now. Stop launching the rest of this
+        // pass rather than firing more STARTs that would also 400 and revert —
+        // do not keep firing into a vendor we KNOW is throttling. The throttled
+        // row reverted to `authorized` via reconcile, and every un-attempted row
+        // is untouched, so the next 10-min pass retries the oldest-due again:
+        // the fixed cap + spacing bound each pass, and the cron cadence is the
+        // cross-pass convergence back toward the limit.
+        this.logger.warn(
+          { outreachId },
+          'robocall send backing off: CallHub over_cps_limit; ending this pass',
+        )
+        break
       }
     }
 
@@ -150,7 +216,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     }
   }
 
-  async startCampaign(outreachId: number): Promise<void> {
+  async startCampaign(outreachId: number): Promise<StartCampaignResult> {
     // DIAL CLAIM (never dial twice): elect exactly one dialer. Only a staged,
     // paid draft (authorized AND a CallHub campaign already created) can
     // transition to `dialing`; a row already dialing/dialed, or one not yet
@@ -164,7 +230,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
       },
       data: { settleState: RobocallSettleState.dialing },
     })
-    if (claim.count === 0) return
+    if (claim.count === 0) return 'done'
 
     const draft = await this.findFirst({
       where: { outreachId },
@@ -175,7 +241,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
       // launch without a campaign handle — release the claim so a later sweep
       // can retry rather than stranding the row in `dialing`.
       await this.revertClaim(outreachId)
-      return
+      return 'done'
     }
     const pkStr = draft.callhubCampaignPkStr
     // The candidate to email if the hold turns out dead — the sweep has no user
@@ -194,7 +260,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
       const intentId = draft.authorizationIntentId
       if (!intentId) {
         await this.markHoldNotLive(outreachId, userId, null)
-        return
+        return 'done'
       }
       let intent: Stripe.PaymentIntent
       try {
@@ -209,7 +275,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
       }
       if (intent.status !== 'requires_capture') {
         await this.markHoldNotLive(outreachId, userId, intent.status)
-        return
+        return 'done'
       }
     }
 
@@ -226,7 +292,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
         { outreachId, dialingCampaignPkStr: pkStr },
         'CRITICAL robocall reached dial with no compliance pass; not dialing',
       )
-      return
+      return 'done'
     }
 
     // LAUNCH (outside any DB transaction): START the PAUSED campaign so it dials.
@@ -263,16 +329,39 @@ export class OutreachRobocallSendService extends createPrismaBase(
           outreachId,
         )
       }
-      await this.reconcileDialing(
-        outreachId,
-        pkStr,
-        err instanceof CallhubPermanentError
-          ? 'permanent'
-          : err instanceof ZodError
-            ? 'shape'
-            : 'transient',
-      )
-      return
+      // A CPS throttle is a transient recoverable-by-body reject
+      // (CallhubRecoverableError, NOT CallhubPermanentError), so reconcile
+      // treats it as `transient` and reverts the row to `authorized` on the
+      // confirmed-PAUSED read — unchanged money handling. The only new behavior:
+      // signal the sweep to back off the rest of this pass so it stops firing
+      // STARTs into a vendor that is actively throttling. A genuine permanent
+      // failure is NOT a throttle and still fails via reconcile below.
+      const throttled =
+        err instanceof CallhubRecoverableError &&
+        isOverCpsLimitDetail(err.callhubDetail)
+      try {
+        await this.reconcileDialing(
+          outreachId,
+          pkStr,
+          err instanceof CallhubPermanentError
+            ? 'permanent'
+            : err instanceof ZodError
+              ? 'shape'
+              : 'transient',
+        )
+      } catch (reconcileErr) {
+        // A reconcile DB write (revert/commit/failSend) can throw. If it
+        // escaped here, the sweep's outer catch would `continue` instead of
+        // `break` and keep firing STARTs at a throttling vendor — the burst
+        // this feature prevents. Swallow it so the throttle signal below is
+        // always reached; the row is left in `dialing` for the stale-dialing
+        // sweep to recover, exactly as an unresolved reconcile already is.
+        this.logger.error(
+          { err: reconcileErr, outreachId },
+          'robocall reconcile after launch failure threw; preserving signal',
+        )
+      }
+      return throttled ? 'throttled' : 'done'
     }
 
     // A 200 is not proof of a START: CallHub can echo PAUSE / null / {} (all of
@@ -285,10 +374,11 @@ export class OutreachRobocallSendService extends createPrismaBase(
         'robocall launch did not read back STARTED; reconciling',
       )
       await this.reconcileDialing(outreachId, pkStr)
-      return
+      return 'done'
     }
 
     await this.commitDialed(outreachId, pkStr)
+    return 'done'
   }
 
   // Recovers a `dialing` row stranded past the stale window. First re-claims it

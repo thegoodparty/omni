@@ -148,6 +148,12 @@ model OutreachRobocall {
   completedCallCount     Int?                @map("completed_call_count")
   // When the completion sweep last polled CallHub for this run's count.
   completionPolledAt     DateTime?           @map("completion_polled_at")
+  // When the overdue-alert sweep first posted the "past its scheduled date and
+  // still not dialed" CAS Slack for this run. The sweep claims the alert with a
+  // single-owner CAS guarded on this being NULL, so the run is paged ONCE across
+  // replicas and repeat passes rather than every pass while it stays stuck. Read
+  // only by that dedupe — it never gates a dial, hold, or capture.
+  overdueAlertedAt       DateTime?           @map("overdue_alerted_at")
   // A reward promotion code applied on the pay step. CAS mints these in Stripe
   // as single-use, amount-off codes; Stripe only applies a code to a Checkout
   // Session or invoice, never to the manual-capture hold this run pays with, so

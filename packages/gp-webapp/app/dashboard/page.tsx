@@ -9,7 +9,7 @@ import { redirect } from 'next/navigation'
 import type { TcrCompliance } from 'helpers/types'
 
 const meta = pageMetaData({
-  title: 'Campaign Dashboard | GoodParty.org',
+  title: 'Home | GoodParty.org',
   description: 'Campaign Dashboard',
   slug: '/dashboard',
 })

@@ -174,7 +174,7 @@ export const InContext: Story = {
             </span>
           </div>
           <Button variant="secondary" onClick={() => setDone((v) => !v)}>
-            {done ? 'Reset' : 'Mark complete'}
+            {done ? 'Reset' : 'Mark done'}
           </Button>
         </div>
       )

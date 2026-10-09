@@ -309,6 +309,9 @@ interface CreateListFlowProps {
   // from `?campaignOutreachId=` on the URL — the drawer's "Add another
   // turf" affordance is what sets it.
   campaignOutreachId?: number
+  // The campaign-plan task the walk was started from. Rides on a new
+  // campaign's anchor turf only, so the task is marked done once.
+  trackerTaskId?: string
   // Joining a campaign only: bumped by the page when the drawing panel's
   // Save is pressed with turfs on it, and the write's state reported back
   // so the panel can say it is saving or why it failed.
@@ -431,6 +434,7 @@ export default function CreateListFlow({
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
+  trackerTaskId,
   joinSaveRequest = 0,
   onJoinSaveStateChange,
   proposalLink,
@@ -1289,6 +1293,7 @@ export default function CreateListFlow({
         // them its siblings. The server validates the id is a door-knocking
         // Outreach in the same Win/Serve scope before writing.
         ...(anchorId !== undefined ? { campaignOutreachId: anchorId } : {}),
+        ...(anchorId === undefined && trackerTaskId ? { trackerTaskId } : {}),
         // What the campaign is called, as against what this turf is called.
         // Sent on every turf of a new campaign, and written on every
         // envelope. Not sent when joining: that campaign owns its own name,

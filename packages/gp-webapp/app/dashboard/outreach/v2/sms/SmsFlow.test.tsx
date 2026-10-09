@@ -103,6 +103,12 @@ vi.mock('helpers/createOutreach', () => ({
   createOutreach: vi.fn(async () => ({ id: 55 })),
 }))
 
+// Win SMS hold-billing flag — default off (unchanged flow); flipped per test.
+const winSmsHoldRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('app/shared/experiments/winSmsHoldFlag', () => ({
+  useWinSmsHoldFlag: () => ({ ready: true, enabled: winSmsHoldRef.enabled }),
+}))
+
 const completeFreePurchase = vi.fn(
   async (
     _type: string,
@@ -253,6 +259,16 @@ const TCR_FIXTURE = {
 describe('SmsFlow', () => {
   beforeEach(() => {
     campaignState.campaign = campaignState.base()
+    winSmsHoldRef.enabled = false
+    // Reset the module mock a pay-before-ready test overrides to 'building', so
+    // it never leaks a non-ready build into a later test.
+    vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
+      buildStatus: 'ready',
+      phoneListId: 77,
+      leadsLoaded: 1200,
+      excludedOptedOutCount: 3,
+      excludedDuplicatePhoneCount: 1,
+    })
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
     gateRef.set({
@@ -395,6 +411,70 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  })
+
+  // Drives purpose → audience → schedule → compose → review for a PAID send
+  // (no free-texts offer), leaving the phone-list build still 'building'.
+  const reachReviewWhileBuilding = async () => {
+    // Shared module mock — clear so a prior test's call doesn't leak in.
+    vi.mocked(createOutreach).mockClear()
+    campaignState.campaign.hasFreeTextsOffer = false
+    vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
+      buildStatus: 'building',
+    })
+    mockDraft()
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await userEvent.click(await screen.findByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/AI body \(warm\) for introduce_myself/)
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  }
+
+  describe('Win SMS hold billing: pay before the build is ready', () => {
+    it('flag ON: creates the draft on the estimate while the build is still building (no phoneListId)', async () => {
+      winSmsHoldRef.enabled = true
+
+      await reachReviewWhileBuilding()
+
+      // The draft is written pre-build, priced off the 1,200 reachable estimate,
+      // with NO numeric phoneListId — gp-api stamps it at the build-ready edge.
+      await waitFor(() => expect(createOutreach).toHaveBeenCalled())
+      const payload = vi.mocked(createOutreach).mock.calls[0]?.[0]
+      expect(payload).toMatchObject({
+        textCount: 1200,
+        billableTextCount: 1200,
+      })
+      expect(payload).not.toHaveProperty('phoneListId')
+    })
+
+    it('flag OFF: waits for the build — no draft is created while it is still building', async () => {
+      winSmsHoldRef.enabled = false
+
+      await reachReviewWhileBuilding()
+
+      // The review step sits in its preparing (spinner) state; nothing is
+      // written until the phone list is ready.
+      await waitFor(() =>
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Review & pay' }),
+        ).toBeInTheDocument(),
+      )
+      expect(createOutreach).not.toHaveBeenCalled()
+    })
   })
 
   describe('event invite details', () => {

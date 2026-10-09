@@ -45,6 +45,7 @@ import {
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
+import { useWinSmsHoldFlag } from 'app/shared/experiments/winSmsHoldFlag'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_TYPES,
@@ -684,6 +685,30 @@ export const SmsFlow = ({
   const selectedList = audience.selectedList
   const reachableCount = audience.reachableCount
 
+  // Win p2p SMS hold billing: the pay step can render on the pre-pay estimate
+  // before the phone-list build is ready (gp-api runs the matching rollout
+  // behind WIN_SMS_HOLD_BILLING). Read with exposure tracking only on the Win
+  // surface — SmsFlow is shared with Serve, which is not in this experiment.
+  const { enabled: winSmsHoldEnabled } = useWinSmsHoldFlag(isWinSms)
+  const holdBillingActive = isWinSms && winSmsHoldEnabled
+  // Mirrors the review step's isFree: a send the free-texts offer fully covers
+  // reads/takes the free path. Pay-before-ready is a paid flow only — a free
+  // pre-build send places no hold and gp-api refuses it (it must wait for the
+  // list), so a free send keeps the unchanged spinner-until-ready sequence.
+  const isFreeSend =
+    Boolean(campaign?.hasFreeTextsOffer) &&
+    (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
+  // A build-ready list always has its numeric phoneListId; before that, only a
+  // paid hold-billing send may pay (on the estimate), and only once the Peerly
+  // upload token exists (the checkout links the hold through it) and the build
+  // has not failed.
+  const payBeforeReady =
+    holdBillingActive &&
+    !isFreeSend &&
+    !phoneList?.phoneListId &&
+    !!phoneListToken &&
+    !phoneListBuildFailed
+
   const draftMutation = useMutation({
     mutationFn: (input: SmsFlowDraftInput) => surface.endpoints.draft(input),
   })
@@ -1313,6 +1338,7 @@ export const SmsFlow = ({
         name: name.trim(),
         voterFileFilterId: audience.selectedListId,
         script: composedMessage,
+        ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
       },
       image,
     )
@@ -1386,12 +1412,21 @@ export const SmsFlow = ({
     if (draftOutreachId || isDraftCreatingRef.current) return
     // A dateless resumed row must never reach the create: `scheduledAt`
     // covers it, and is load-bearing rather than defensive.
-    if (!campaign?.id || !phoneList?.phoneListId || !scheduledAt) return
+    if (!campaign?.id || !scheduledAt) return
+    // The list must be built before the draft — UNLESS a paid hold-billing send
+    // is paying before the build is ready (payBeforeReady), where the draft is
+    // created with no numeric phoneListId and gp-api's build-ready finalize edge
+    // stamps it and submits the send once the list exists.
+    if (!phoneList?.phoneListId && !payBeforeReady) return
     isDraftCreatingRef.current = true
     setDraftCreateError(false)
     const generation = draftGenerationRef.current
+    // Pre-build (pay-before-ready): the count is the pre-pay estimate, a ceiling
+    // gp-api's capture bills down to the actual leads_loaded. Once ready it is
+    // the real leads_loaded (unchanged).
+    const count = phoneList?.leadsLoaded ?? reachableCount ?? 0
     const discount = campaign?.hasFreeTextsOffer
-      ? Math.min(phoneList.leadsLoaded, FREE_TEXTS_OFFER.COUNT)
+      ? Math.min(count, FREE_TEXTS_OFFER.COUNT)
       : 0
     // Never beside draftOutreachId: the server takes a card's key on a fresh
     // draft only, since a saved one was built without it.
@@ -1426,10 +1461,16 @@ export const SmsFlow = ({
             ...(audience.selectedListId
               ? { voterFileFilterId: audience.selectedListId }
               : {}),
-            phoneListId: phoneList.phoneListId,
-            textCount: phoneList.leadsLoaded,
-            billableTextCount: phoneList.leadsLoaded - discount,
+            // Omitted on the pay-before-ready path (null until the build
+            // finishes); gp-api accepts a null phoneListId under the flag and
+            // stamps it at the build-ready finalize edge.
+            ...(phoneList?.phoneListId
+              ? { phoneListId: phoneList.phoneListId }
+              : {}),
+            textCount: count,
+            billableTextCount: count - discount,
             ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
+            ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
             // Resume: the server converts this row in place, so no second
             // row is written and the saved image and script stand.
             ...(resumed && savedDraft
@@ -1460,7 +1501,7 @@ export const SmsFlow = ({
                 channel: 'text',
                 isServe: surface.isServe,
                 campaignName: name.trim(),
-                recipientCount: phoneList.leadsLoaded,
+                recipientCount: count,
                 sendDate: scheduledAt,
                 outreachCampaignId: outreach.id,
                 ...(audience.selectedListId !== null
@@ -1492,6 +1533,8 @@ export const SmsFlow = ({
     draftOutreachId,
     campaign,
     phoneList,
+    payBeforeReady,
+    reachableCount,
     scheduledAt,
     composedMessage,
     name,
@@ -1508,16 +1551,20 @@ export const SmsFlow = ({
     // Peerly sends it — the send is hours or days later and nothing on the
     // client is alive to see it. `sendDate` carries that gap: it is the
     // scheduled day, never the event's own timestamp.
+    // Pay-before-ready: the list is still building at completion, so fall back
+    // to the estimate the send was priced on — never report 0 recipients / $0
+    // for a paid pre-build send.
+    const completedCount = phoneList?.leadsLoaded ?? reachableCount ?? 0
     const discount = campaign?.hasFreeTextsOffer
-      ? Math.min(phoneList?.leadsLoaded ?? 0, FREE_TEXTS_OFFER.COUNT)
+      ? Math.min(completedCount, FREE_TEXTS_OFFER.COUNT)
       : 0
-    const billable = Math.max((phoneList?.leadsLoaded ?? 0) - discount, 0)
+    const billable = Math.max(completedCount - discount, 0)
     trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
       ...outreachEventProps({
         channel: 'text',
         isServe: surface.isServe,
         campaignName: name.trim(),
-        recipientCount: phoneList?.leadsLoaded ?? 0,
+        recipientCount: completedCount,
         sendDate: scheduledAt,
         // Always present on a paid channel, 0 included: a send fully covered
         // by the free-texts offer is a zero-cost text campaign, not a channel
@@ -1729,12 +1776,6 @@ export const SmsFlow = ({
           disabled: eventDetails.event === null,
         }
       : baseCta
-
-  // Mirrors the review step's isFree: a free send reads "Review and send" /
-  // "Schedule campaign" instead of the pay vocabulary (design prototype).
-  const isFreeSend =
-    Boolean(campaign?.hasFreeTextsOffer) &&
-    (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
 
   return (
     <OutreachFlowShell
@@ -2069,7 +2110,12 @@ export const SmsFlow = ({
             surface.isServe ? PURCHASE_TYPES.SERVE_TEXT : PURCHASE_TYPES.TEXT
           }
           purchaseMetaData={{
-            contactCount: phoneList?.leadsLoaded ?? 0,
+            // Pay-before-ready: the estimate stands in for leads_loaded (gp-api
+            // re-derives the billed amount from the phone-list token, so this is
+            // only a non-zero hint that passes the contactCount guard).
+            contactCount:
+              phoneList?.leadsLoaded ??
+              (payBeforeReady ? (reachableCount ?? 0) : 0),
             pricePerContact: dollarsToCents(PRICE_PER_MESSAGE) || 0,
             outreachType: surface.isServe
               ? OUTREACH_TYPES.text
@@ -2088,7 +2134,10 @@ export const SmsFlow = ({
             composedMessage={composedMessage}
             imagePreviewUrl={previewUrl}
             contactCount={
-              buildMode ? reachableCount : (phoneList?.leadsLoaded ?? 0)
+              buildMode
+                ? reachableCount
+                : (phoneList?.leadsLoaded ??
+                  (payBeforeReady ? reachableCount : 0))
             }
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
@@ -2097,10 +2146,15 @@ export const SmsFlow = ({
             excludedDuplicatePhoneCount={
               phoneList?.excludedDuplicatePhoneCount ?? null
             }
+            // Pay-before-ready: the amount is the estimate ceiling the capture
+            // bills down to the actual reachable list — the pay card says so.
+            priceIsCeiling={payBeforeReady}
             preparing={
               !buildMode &&
               !phoneListBuildFailed &&
-              (!phoneList || (!draftOutreachId && !draftCreateError))
+              (payBeforeReady
+                ? !draftOutreachId && !draftCreateError
+                : !phoneList || (!draftOutreachId && !draftCreateError))
             }
             prepareError={draftCreateError}
             buildFailed={phoneListBuildFailed}
