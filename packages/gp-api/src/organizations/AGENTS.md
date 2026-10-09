@@ -348,3 +348,10 @@ launch, contacts' district resolution, the CRM) feeds it straight into
 via `OrganizationsService.resolveOrgData`, the same resolver `PATCH
 /v1/organizations/:slug` uses — a `ballotReadyPositionId` that doesn't resolve
 to a position is a 400, matching `applyPatch`.
+
+## Org list degrades when election-api is down
+
+`listOrganizations` (`GET /v1/organizations`) is the app shell's bootstrap call.
+If the election-api position/district lookup throws a `BadGatewayException`, the
+org is returned with `position: null` and `district: null` (and a warn log)
+instead of 502ing the whole list. Detail routes still fail loudly.

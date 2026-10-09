@@ -3,6 +3,7 @@ import { VoterIssueLevel } from '@/elections/types/elections.types'
 import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIssueLevelFromPositionLevel.util'
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -169,7 +170,9 @@ export class OrganizationsService extends createPrismaBase(
     })
     return await Promise.all(
       sortOrganizations(orgs, new Date()).map(async (org) => {
-        const friendly = await this.makeFriendly(org)
+        const friendly = await this.makeFriendly(org, {
+          degradeOnUpstreamFailure: true,
+        })
         return {
           ...friendly,
           role: this.viewerRole(org, userId),
@@ -732,6 +735,11 @@ export class OrganizationsService extends createPrismaBase(
       campaign: Campaign | null
       electedOffice: ElectedOffice | null
     },
+    // The org list is the app shell's bootstrap call, so a transient
+    // election-api outage must not 502 it. With this set, an upstream failure
+    // resolves the org with no position/district instead of throwing; the
+    // detail routes still fail loudly.
+    { degradeOnUpstreamFailure = false } = {},
   ): Promise<FriendlyOrganization> {
     const [position, overrideDistrict] = await Promise.all([
       org.positionId
@@ -749,7 +757,16 @@ export class OrganizationsService extends createPrismaBase(
       org.overrideDistrictId
         ? this.electionsService.getDistrict(org.overrideDistrictId)
         : Promise.resolve(null),
-    ])
+    ]).catch((error: unknown) => {
+      if (degradeOnUpstreamFailure && error instanceof BadGatewayException) {
+        this.logger.warn(
+          { err: error, slug: org.slug },
+          'Election API unavailable; listing organization without position',
+        )
+        return [null, null] as const
+      }
+      throw error
+    })
 
     const rawDistrict = overrideDistrict ?? position?.district
     const district: OrgDistrict | null = rawDistrict
