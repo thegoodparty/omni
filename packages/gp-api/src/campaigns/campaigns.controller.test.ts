@@ -10,7 +10,7 @@ import {
 import { Campaign, Organization, User, UserRole } from '../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignsController } from './campaigns.controller'
 import { CreateCampaignSchema } from './schemas/updateCampaign.schema'
 import { CampaignPlanVersionsService } from './services/campaignPlanVersions.service'
@@ -301,6 +301,10 @@ describe('CampaignsController', () => {
       name: null,
     } as User
 
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
     it('returns the campaign with positionName, raceTargetMetrics, and the owner name', async () => {
       const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
         ...mockCampaign,
@@ -318,6 +322,7 @@ describe('CampaignsController', () => {
         positionName: 'Mayor',
         raceTargetMetrics: null,
         ownerName: 'Jared Smith',
+        winSmsHoldBillingEnabled: false,
       })
       expect(result).not.toHaveProperty('user')
     })
@@ -358,6 +363,31 @@ describe('CampaignsController', () => {
 
       expect(result.raceTargetMetrics).toEqual(liveMetrics)
       expect(result.positionName).toBe('Mayor')
+    })
+
+    it('exposes winSmsHoldBillingEnabled: false when the env flag is unset', async () => {
+      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+        ...mockCampaign,
+        organization: {} as Organization,
+        user: owner,
+      }
+
+      const result = await controller.findMine(campaignWithRelations)
+
+      expect(result.winSmsHoldBillingEnabled).toBe(false)
+    })
+
+    it('exposes winSmsHoldBillingEnabled: true when WIN_SMS_HOLD_BILLING=true', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+        ...mockCampaign,
+        organization: {} as Organization,
+        user: owner,
+      }
+
+      const result = await controller.findMine(campaignWithRelations)
+
+      expect(result.winSmsHoldBillingEnabled).toBe(true)
     })
   })
 
