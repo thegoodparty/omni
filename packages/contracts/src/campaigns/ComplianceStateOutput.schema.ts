@@ -40,12 +40,12 @@ export const ComplianceStateOutputSchema = z.object({
   // at `awaiting_pin`; null before Peerly has sent the PIN (or on an
   // unrecognized method). The FE uses it to tell the candidate where to look.
   pinDelivery: PinDeliverySchema.nullable(),
-  // Set when the record was created by the admin "treat as 10DLC approved
-  // (internal testing)" checkbox: status is approved with no Peerly identity,
-  // so UI gates pass but real P2P sends stay blocked.
-  internalTestingApprovedAt: z.string().datetime({ offset: true }).nullable(),
+  // Set when the row is synthetic: created by the admin "treat as 10DLC
+  // approved (internal testing)" checkbox or by staff Test mode. No Peerly
+  // identity exists for it, so UI gates pass but real P2P sends stay blocked.
+  internalTestingAt: z.string().datetime({ offset: true }).nullable(),
   // Whether a TcrCompliance row exists at all — gp-admin uses it (with
-  // internalTestingApprovedAt null) to detect real compliance in progress and
+  // internalTestingAt null) to detect real compliance in progress and
   // disable the internal-testing checkbox.
   hasComplianceRecord: z.boolean(),
   // The persisted committee name off the TcrCompliance row — the copy every

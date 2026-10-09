@@ -716,7 +716,6 @@ export class TestModeService {
       | 'cvValidationFailedAt'
       | 'cvValidationFailureReasons'
       | 'kickoffSentAt'
-      | 'internalTestingApprovedAt'
     > = {
       status: TcrComplianceStatus.submitted,
       peerlyIdentityId: null,
@@ -724,7 +723,6 @@ export class TestModeService {
       cvValidationFailedAt: null,
       cvValidationFailureReasons: [],
       kickoffSentAt: null,
-      internalTestingApprovedAt: null,
       ...(preset === 'in_progress' ? { kickoffSentAt: now } : {}),
       ...(preset === 'filing_hold'
         ? {
@@ -746,10 +744,7 @@ export class TestModeService {
           }
         : {}),
       ...(preset === 'approved'
-        ? {
-            status: TcrComplianceStatus.approved,
-            internalTestingApprovedAt: now,
-          }
+        ? { status: TcrComplianceStatus.approved }
         : {}),
       ...(preset === 'rejected'
         ? { status: TcrComplianceStatus.rejected }

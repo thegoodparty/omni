@@ -837,7 +837,7 @@ describe('OutreachService', () => {
     it('blocks a P2P send with a testing-specific message for an internal-testing approval', async () => {
       mockTcrFindFirstOrThrow.mockResolvedValue({
         peerlyIdentityId: null,
-        internalTestingApprovedAt: new Date(),
+        internalTestingAt: new Date(),
       })
 
       await expect(
@@ -857,7 +857,7 @@ describe('OutreachService', () => {
     it('blocks a P2P send with the generic message when no Peerly identity exists', async () => {
       mockTcrFindFirstOrThrow.mockResolvedValue({
         peerlyIdentityId: null,
-        internalTestingApprovedAt: null,
+        internalTestingAt: null,
       })
 
       await expect(
