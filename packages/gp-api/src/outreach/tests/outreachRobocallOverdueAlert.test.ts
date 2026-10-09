@@ -141,6 +141,24 @@ describe('OutreachRobocallOverdueAlertService.sweepOverdueAlerts (prod)', () => 
     expect((await readSatellite(outreachId)).overdueAlertedAt).not.toBeNull()
   })
 
+  it('alerts for a run stuck in `dialing` (stale-recovery oscillating)', async () => {
+    // A run whose stale-dialing recovery keeps throwing never leaves `dialing`
+    // and never records `dialedAt`, 30+ min past its send — the silent tail the
+    // alert exists to surface. It must page despite not being pre-dial.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+      staged: true,
+    })
+
+    await overdue.sweepOverdueAlerts()
+
+    expect(alertSpy).toHaveBeenCalledTimes(1)
+    const [, id, , , state] = alertSpy.mock.calls[0] ?? []
+    expect(id).toBe(outreachId)
+    expect(state).toBe(RobocallSettleState.dialing)
+    expect((await readSatellite(outreachId)).overdueAlertedAt).not.toBeNull()
+  })
+
   it('does NOT re-alert on a second sweep (dedupe CAS)', async () => {
     await createDraft({ staged: true })
 

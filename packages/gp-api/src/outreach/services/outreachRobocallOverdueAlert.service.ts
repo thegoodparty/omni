@@ -28,15 +28,22 @@ const ROBOCALL_OVERDUE_SWEEP_JOB = 'robocallOverdueAlertSweep'
 // undialed well after several send passes have had their chance.
 const ROBOCALL_OVERDUE_GRACE_MINUTES = 30
 
-// How a robocall row reads before it has dialed: the two pre-dial settle states
-// a stuck run can sit in. `authorized` covers both a never-staged run (the
-// stranded sweep's domain once it also passes that sweep's own window) AND a
-// staged run (callhubCampaignPkStr set) that the send sweep keeps failing to
+// The settle states a paid, scheduled run sits in while it has NOT recorded a
+// dial (all have `dialedAt` null). `authorized` covers both a never-staged run
+// (the stranded sweep's domain once it also passes that sweep's own window) AND
+// a staged run (callhubCampaignPkStr set) that the send sweep keeps failing to
 // dial — the exact silent tail the stranded sweep SKIPS (it matches only
 // callhubCampaignPkStr IS NULL). `staging` covers a run stuck mid-stage.
-const PRE_DIAL_STATES = [
+// `dialing` covers a run whose stale-dialing recovery keeps failing: each pass
+// re-claims it (bumping updatedAt) then throws before committing/reverting, so
+// it oscillates in `dialing` forever, 30+ min past its send with `dialedAt`
+// still null — precisely the silent tail this alert exists to page. A healthy
+// dial commits `dialedAt` within seconds, so the grace + `dialedAt IS NULL`
+// guard never pages an in-flight dial.
+const UNDIALED_STATES = [
   RobocallSettleState.authorized,
   RobocallSettleState.staging,
+  RobocallSettleState.dialing,
 ]
 
 // Alerts CAS when a robocall is past its scheduled date and still has not
@@ -71,7 +78,7 @@ export class OutreachRobocallOverdueAlertService extends createPrismaBase(
     const overdueCutoff = subMinutes(now, ROBOCALL_OVERDUE_GRACE_MINUTES)
     const overdue = await this.model.findMany({
       where: {
-        settleState: { in: PRE_DIAL_STATES },
+        settleState: { in: UNDIALED_STATES },
         dialedAt: null,
         // Not yet paged. The CAS below re-asserts this, so this filter is only a
         // cheap pre-screen, not the dedupe guarantee.
@@ -134,7 +141,7 @@ export class OutreachRobocallOverdueAlertService extends createPrismaBase(
       where: {
         outreachId,
         overdueAlertedAt: null,
-        settleState: { in: PRE_DIAL_STATES },
+        settleState: { in: UNDIALED_STATES },
         dialedAt: null,
       },
       data: { overdueAlertedAt: now },
