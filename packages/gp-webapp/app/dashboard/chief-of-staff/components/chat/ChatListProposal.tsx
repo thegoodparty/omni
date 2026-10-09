@@ -141,8 +141,10 @@ export default function ChatListProposal({
           {peopleCount(proposal.count, mode)}
         </span>
         {/* Held back until the lookup answers: a card whose list already
-            exists must never offer to make it again, even for a frame. */}
-        {existing.isPending ? null : (
+            exists must never offer to make it again, even for a frame. On
+            Win it also waits for the campaign the Pro gate reads, since the
+            save route itself does not refuse a free campaign. */}
+        {existing.isPending || (mode === 'win' && !campaign) ? null : (
           <Button
             type="button"
             size="small"

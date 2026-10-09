@@ -208,6 +208,26 @@ describe('ChatListProposal', () => {
       expect(posted).toBe(false)
     })
 
+    it('holds the button until the campaign has loaded', async () => {
+      campaign.current = null
+      api.mock(
+        'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey',
+        { status: 404, data: {} },
+      )
+      render(
+        <ChatListProposal
+          proposal={proposal('8b7d2f4e-5c1a-4b9e-9f2d-1a2b3c4d5e68')}
+          mode="win"
+          onCreated={vi.fn()}
+        />,
+      )
+
+      expect(await screen.findByText('24,361 voters')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Create list' }),
+      ).not.toBeInTheDocument()
+    })
+
     it('links a saved list to Voter Data instead of the map', async () => {
       campaign.current = { id: 9, isPro: true }
       api.mock(
