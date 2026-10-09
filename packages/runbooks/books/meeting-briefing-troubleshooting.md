@@ -1,0 +1,28 @@
+# Meeting briefing troubleshooting
+
+Symptom, cause and fix for the `meeting_briefing` experiment, for whoever reads a failed run. This table ended `experiments/meeting_briefing/instruction.md` until 2026-10-09. Every fix in it is also a rule the instruction states in its own steps, so the agent lost nothing when the table moved here.
+
+## Why it moved: the prompt has a size cap
+
+The Fargate runner builds the system prompt from its own capability section, a short output-contract section and the experiment instruction, and the Claude Agent SDK hands that one string to the `claude` binary as a single process argument. Linux refuses any single argument over 131,072 bytes. A run that trips the cap dies before its first turn, and the only trace is this line in `logs/workspace/logs/__main___errors.log`:
+
+```
+Failed to start Claude Code: [Errno 7] Argument list too long
+```
+
+Measured on 2026-10-09, the harness sections take 5,856 bytes, which leaves about 125,000 bytes for the instruction. This instruction crossed that line on 2026-10-06 (123,607 bytes ran; 127,036 did not) and production briefings produced no artifact for three nights. `scripts/python/test_experiment_manifests.py` now fails any instruction over 124,000 bytes, and this table is the first thing that came out to make room. Check the size of any instruction with `wc -c experiments/<id>/instruction.md`.
+
+## Failure modes
+
+| Symptom                                                                       | Cause                                                                                                                           | Fix                                                                                                                                        |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Broker logs `ScopeViolation: scope_predicate_override`                        | Agent added `WHERE Residence_Addresses_State = ?` or `WHERE Residence_Addresses_City = ?` on the L2 table                       | Remove the state clause (broker auto-injects state); never add a city clause (city is not in PARAMS, broker does not auto-inject one)      |
+| Broker 422 on `/databricks/query` repeatedly                                  | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table                                                   | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables`                                                |
+| Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
+| `mean_score` comes back NULL for a picked column                              | Column has no coverage in this state (~51 `hs_*` columns exist only in the 12-state December 2025 delivery)                     | Not an error: null the item's `constituent_sentiment` with `haystaq_status: "no_column"` (Step 16); never coerce to 0 or re-query          |
+| `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
+| Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
+| `contract_violation` callback after agent claimed success                     | The runner's schema validator caught a missing/wrong-typed field the agent didn't notice                                        | Run `python3 /workspace/validate_output.py` (schema-only shim) to catch shape errors BEFORE declaring success                              |
+| Legistar API returns 403 `"Token is required"`                                | Jurisdiction has gated their Granicus API                                                                                       | Scrape `legistar.{client}.gov/Calendar.aspx` and related portal pages per Step 2                                                           |
+| District mean suspiciously close to state mean                                | L2 district value format mismatch (e.g. `'25'` vs `'NEW YORK CITY CNCL DIST 25 (EST.)'`) caused silent fall-back to state scope | Discover the exact value via a `SELECT DISTINCT` query before binding                                                                      |
+| `awaiting_agenda` placeholder item fails schema validation                    | Agent invented a custom `tier_reason` string                                                                                    | Use `["placeholder"]` exactly per Step 3                                                                                                   |

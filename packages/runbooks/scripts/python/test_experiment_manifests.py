@@ -99,6 +99,30 @@ def test_each_manifest_has_instruction(manifest_path: Path):
     assert instruction.read_text().strip(), f"{instruction.relative_to(REPO_ROOT)} is empty"
 
 
+# The Fargate runner builds the system prompt from its own capability section,
+# a short output-contract section and the instruction, and the Claude Agent SDK
+# hands that one string to the `claude` binary as a single process argument.
+# Linux refuses any single argument over 131,072 bytes, and a run that trips it
+# dies before its first turn with "[Errno 7] Argument list too long". The
+# harness sections measured 5,856 bytes on 2026-10-09, which leaves about
+# 125,000 for the instruction; a manifest preamble or the subagent fan-out
+# section takes a little more. meeting_briefing crossed the cap on 2026-10-06
+# and production wrote no briefing for three nights. See
+# books/meeting-briefing-troubleshooting.md.
+INSTRUCTION_MAX_BYTES = 124_000
+
+
+@pytest.mark.parametrize("manifest_path", _all_manifest_paths(), ids=lambda p: p.parent.name)
+def test_instruction_fits_in_one_process_argument(manifest_path: Path):
+    instruction = manifest_path.parent / "instruction.md"
+    size = len(instruction.read_bytes())
+    assert size <= INSTRUCTION_MAX_BYTES, (
+        f"{instruction.relative_to(REPO_ROOT)} is {size:,} bytes; the runner passes the system "
+        f"prompt as one process argument and an instruction over {INSTRUCTION_MAX_BYTES:,} bytes "
+        "fails at start (books/meeting-briefing-troubleshooting.md)"
+    )
+
+
 # PARAMS_JSON is only set when params fit inline; large params arrive via the
 # broker with no such env var, so a read of it fails on exactly those runs.
 # Any mention at all, not just a read: no legitimate one is left in what the
