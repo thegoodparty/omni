@@ -811,8 +811,9 @@ if a misspelled `scored` were stripped, the control would be scored silently.
 
 `race_opponent_summary.json`, `race_opponent_actions.json`,
 `opportunities_and_challenges.json` and `campaign_tracker_tasks.json` each mark
-their `control` as `scored: false`, and every probe in all four carries a
-`condition`, a `handledWhen` and two or three `dimensions`.
+their `control` as `scored: false`, every probe in all four carries a
+`condition` and two or three `dimensions`, and every probe that plants a
+mutation carries a `handledWhen`; the unmutated baseline carries none.
 
 ## The judge sees each background agent's output contract
 
