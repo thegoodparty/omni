@@ -16,6 +16,13 @@ vi.mock('../shared/WebsiteSunsetModalController', () => ({
 vi.mock('../campaign-manager/CampaignManagerHome', () => ({
   default: () => <div data-testid="campaign-manager-home" />,
 }))
+vi.mock('../campaign-manager/legacy/LegacyCampaignManagerHome', () => ({
+  default: () => <div data-testid="legacy-campaign-manager-home" />,
+}))
+let mockFlag = { ready: true, enabled: true }
+vi.mock('@shared/experiments/nextTaskExperienceFlag', () => ({
+  useNextTaskExperienceFlag: () => mockFlag,
+}))
 
 const props = {
   pathname: '/dashboard',
@@ -28,5 +35,18 @@ describe('DashboardContent', () => {
     render(<DashboardContent {...props} />)
 
     expect(screen.getByTestId('campaign-manager-home')).toBeInTheDocument()
+  })
+
+  it('keeps the Campaign Manager home while next-task-experience is off', () => {
+    mockFlag = { ready: true, enabled: false }
+    render(<DashboardContent {...props} />)
+
+    expect(
+      screen.getByTestId('legacy-campaign-manager-home'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('campaign-manager-home'),
+    ).not.toBeInTheDocument()
+    mockFlag = { ready: true, enabled: true }
   })
 })

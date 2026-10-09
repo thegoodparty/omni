@@ -65,6 +65,7 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
+import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import { openSupportChat } from '@shared/utils/supportWidget'
 import { MembershipBanner } from './membership/MembershipBanner'
@@ -286,8 +287,19 @@ export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
   prioritiesEnabled = false,
+  nextTaskExperience = false,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
+  // Behind `next-task-experience`: Home and the checklist plan icon, with
+  // Your Story after Voter Data. Off keeps Campaign Manager, the scroll icon
+  // and Your Story above the plan.
+  if (!nextTaskExperience) {
+    menuItems[0] = {
+      ...menuItems[0]!,
+      label: NAV_LABELS.campaignManager,
+      v2Icon: NAV_HEADER_ICONS.dashboard,
+    }
+  }
 
   // Community Issues nav mirrors page-level access (serveAccess.ts): both are
   // elected-office existence alone.
@@ -352,17 +364,30 @@ export const getDashboardMenuItems = (
     (prioritiesShown ? 1 : 0)
 
   // The campaign tracker tab, right after Campaign Manager.
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
-
-  // "Your Story" follows the daily-use tabs, right after Voter Data (whichever
-  // form of it this org gets: Win's contacts, the Pro upsell, or Serve's).
-  const voterDataItemIndex = menuItems.findIndex(
-    (item) =>
-      item === WIN_CONTACTS_MENU_ITEM ||
-      item === VOTER_DATA_UPGRADE_ITEM ||
-      item === CONTACTS_MENU_ITEM,
+  menuItems.splice(
+    afterCampaignManager,
+    0,
+    nextTaskExperience
+      ? CAMPAIGN_PLAN_MENU_ITEM
+      : { ...CAMPAIGN_PLAN_MENU_ITEM, v2Icon: NAV_HEADER_ICONS.scroll },
   )
-  menuItems.splice(voterDataItemIndex + 1, 0, CAMPAIGN_STORY_MENU_ITEM)
+
+  if (nextTaskExperience) {
+    // "Your Story" follows the daily-use tabs, right after Voter Data
+    // (whichever form of it this org gets: Win's contacts, the Pro upsell,
+    // or Serve's).
+    const voterDataItemIndex = menuItems.findIndex(
+      (item) =>
+        item === WIN_CONTACTS_MENU_ITEM ||
+        item === VOTER_DATA_UPGRADE_ITEM ||
+        item === CONTACTS_MENU_ITEM,
+    )
+    menuItems.splice(voterDataItemIndex + 1, 0, CAMPAIGN_STORY_MENU_ITEM)
+  } else {
+    // "Your Story" just above the plan (the story is what the tracker and
+    // plan are generated from).
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
@@ -387,6 +412,7 @@ export default function DashboardMenu({
     useElectedOffice()
   const organization = useOrganization()
   const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
+  const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
 
   const menuItems = useMemo(
     () =>
@@ -394,8 +420,14 @@ export default function DashboardMenu({
         !!electedOffice,
         isElectedOfficeLoading,
         prioritiesEnabled,
+        nextTaskExperience,
       ),
-    [electedOffice, isElectedOfficeLoading, prioritiesEnabled],
+    [
+      electedOffice,
+      isElectedOfficeLoading,
+      prioritiesEnabled,
+      nextTaskExperience,
+    ],
   )
 
   // Team accounts (ENG-10816/10827), moved from the primary nav into the

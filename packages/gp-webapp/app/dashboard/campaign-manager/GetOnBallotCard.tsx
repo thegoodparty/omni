@@ -12,7 +12,7 @@ const BALLOT_DISMISSED_KEY = 'campaign-manager-ballot-dismissed'
 // The two "not on the ballot yet" onboarding answers, each with the copy that
 // matches where they actually are: one has decided and needs to file, the other
 // is still weighing it and asked what it takes.
-export const BALLOT_CARD_COPY = {
+const BALLOT_CARD_COPY = {
   'qualified-not-filed': {
     title: "Great. Let's get you on the ballot",
     description:

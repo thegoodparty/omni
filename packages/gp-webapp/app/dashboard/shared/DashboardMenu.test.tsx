@@ -5,16 +5,36 @@ const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
   prioritiesEnabled = false,
+  nextTaskExperience = true,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
   prioritiesEnabled?: boolean
+  nextTaskExperience?: boolean
 } = {}) =>
   getDashboardMenuItems(
     isElectedOffice,
     isElectedOfficeLoading,
     prioritiesEnabled,
+    nextTaskExperience,
   )
+
+describe('getDashboardMenuItems — next-task-experience flag', () => {
+  it('names the home tab Home, with the checklist plan icon, when on', () => {
+    const [home] = links()
+    expect(home?.label).toBe('Home')
+  })
+
+  it('keeps Campaign Manager, with Your Story above the plan, when off', () => {
+    const items = links({ nextTaskExperience: false })
+    expect(items[0]?.label).toBe('Campaign Manager')
+    expect(items.map((item) => item.id).slice(0, 3)).toEqual([
+      'campaign-tracker-dashboard',
+      'campaign-story-dashboard',
+      'campaign-plan-dashboard',
+    ])
+  })
+})
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {

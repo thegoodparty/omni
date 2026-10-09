@@ -67,10 +67,10 @@ test.describe('campaign story flow', () => {
 
     await completeOnboardingUpToPledge(page)
 
-    // The pledge CTA is "Meet your campaign manager"; submitting lands on Home
-    // (/dashboard). Its first-landing greeting sits over the plan's next task,
-    // and a test campaign never gets plan tasks (the plan endpoint returns
-    // early for it), so assert the landing itself.
+    // The pledge CTA is "Meet your campaign manager"; submitting lands on the
+    // Campaign Manager home (/dashboard), which shows the "meet your campaign
+    // manager" card for a brand-new candidate (no ?personalize, so the chat
+    // does not auto-open here).
     const submit = page
       .getByRole('button', { name: /meet your campaign manager/i })
       .first()
@@ -78,13 +78,17 @@ test.describe('campaign story flow', () => {
     await expect(submit).toBeEnabled()
     await submit.click()
 
+    // Onboarding lands on /dashboard?welcome=1, which Home reads once.
     await page.waitForURL(/\/dashboard(\?welcome=1)?$/, { timeout: 30000 })
     await expect(
-      page.getByRole('heading', { name: 'Home', level: 1 }),
+      page.getByRole('heading', {
+        name: 'Meet your virtual Campaign Manager',
+        level: 2,
+      }),
     ).toBeVisible({ timeout: 30000 })
   })
 
-  test('campaign plan tab generates without asking, and the story link opens the intake', async ({
+  test('campaign plan tab generates without asking, and invites the story alongside it', async ({
     page,
   }) => {
     // Dedicated user: this scenario depends on the story being empty, so it
@@ -93,14 +97,10 @@ test.describe('campaign story flow', () => {
 
     await page.goto('/dashboard/campaign-plan')
 
-    // A test campaign never gets plan tasks (the plan endpoint returns early
-    // for it), so the page stays on the state a real candidate sees while
-    // the plan is made: it says so, and the tasks arrive on their own.
-    await expect(
-      page.getByRole('heading', {
-        name: 'Your campaign plan is being created',
-      }),
-    ).toBeVisible({ timeout: 30000 })
+    // The story-pinned card is on the plan itself, so reaching it proves the
+    // plan rendered rather than a gate standing in front of it.
+    const storyLink = page.getByRole('link', { name: /add your story/i })
+    await expect(storyLink).toBeVisible({ timeout: 30000 })
 
     // Nobody generates their own plan: opening the tab is the request, so
     // there is nothing here to press. Asserted by role+name rather than by
@@ -109,11 +109,13 @@ test.describe('campaign story flow', () => {
       page.getByRole('button', { name: /generate my campaign plan/i }),
     ).toHaveCount(0)
 
-    // The plan's story task links to /dashboard?personalize=1, which opens
-    // the Campaign Manager chat straight into the story intake, so assert the
-    // intake copy the chat streams. With no task rows here, open the link the
-    // row carries directly.
-    await page.goto('/dashboard?personalize=1')
+    // The story is still invited, via the same /dashboard?personalize=1 deep
+    // link, which opens the Campaign Manager chat straight into the story
+    // intake (rather than showing the meet-card home) — so assert the intake
+    // copy the chat streams, not the meet-card heading, which is hidden once
+    // the chat opens.
+    await storyLink.click()
+    await page.waitForURL('**/dashboard**', { timeout: 30000 })
     await expect(page.getByText(/get your Campaign Story down/i)).toBeVisible({
       timeout: 30000,
     })

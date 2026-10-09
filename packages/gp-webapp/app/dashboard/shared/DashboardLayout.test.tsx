@@ -56,6 +56,7 @@ vi.mock('@styleguide/components/ui/icons', () => ({
   SwordsIcon: () => null,
   ScrollTextIcon: () => null,
   HouseIcon: () => null,
+  LayoutDashboardIcon: () => null,
   ListChecksIcon: () => null,
   BookOpenIcon: () => null,
   CircleUserRoundIcon: () => null,

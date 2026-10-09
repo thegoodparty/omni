@@ -1,5 +1,6 @@
 'use client'
 
+import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { User } from 'helpers/types'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -56,8 +57,9 @@ const CampaignPlanRouter = ({
   // the rail. Only the tracker hero puts a CTA in the bar (the passed-election
   // gate has none) — the bar tracks that itself, so the same config serves
   // both branches below.
+  const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
   const navHeader: DashboardNavHeaderConfig = {
-    icon: 'checklist',
+    icon: nextTaskExperience ? 'checklist' : 'scroll',
     label: NAV_LABELS.campaignPlan,
   }
 

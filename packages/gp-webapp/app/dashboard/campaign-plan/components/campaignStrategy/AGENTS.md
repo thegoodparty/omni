@@ -20,6 +20,17 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 
 ## Patterns / non-obvious logic
 
+- **Behind `next-task-experience`.** This timeline plan and the next-task
+  Home are one flag (`app/shared/experiments/nextTaskExperienceFlag.ts`).
+  Off renders the pages they replace, kept as they were in
+  `campaign-plan/components/legacy/` and `campaign-manager/legacy/`, and the
+  nav keeps "Campaign Manager", the scroll plan icon and Your Story above the
+  plan. Removing the flag means deleting both `legacy/` folders, the off
+  branches in `DashboardContent`, `CampaignPlanPage`, `CampaignPlanRouter`,
+  `DashboardMenu` and `DashboardLayout`, and the old nav label and icon keys.
+  The server changes (dates, skip, tasks closing themselves) apply to
+  everyone either way.
+
 - **Phase headings stick at both ends.** Each phase's heading (name, a
   progress bar of done over not-set-aside tasks) sticks to the top while its tasks scroll,
   and the phases still ahead stack at the bottom, above the chat dock (its

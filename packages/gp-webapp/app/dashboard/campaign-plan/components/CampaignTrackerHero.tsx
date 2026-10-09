@@ -1,7 +1,6 @@
 'use client'
 
 import { DownloadIcon, IconButton } from '@styleguide'
-import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 
 interface CampaignTrackerHeroProps {
@@ -30,7 +29,6 @@ const CampaignTrackerHero = ({
   downloading,
   canDownload,
 }: CampaignTrackerHeroProps): React.JSX.Element => {
-  const isMobile = useIsMobile()
   const headline =
     candidateName && race
       ? `${candidateName} for ${race}`
@@ -47,25 +45,23 @@ const CampaignTrackerHero = ({
     <section className="mb-8">
       {/* size="small" so the CTA clears the title bar's fixed h-14 without
           growing it past the other pages' bars. */}
-      {/* Desktop only: below lg the bar exists only to carry a CTA, and the
-          plan's own Executive Summary card already offers the download. */}
-      {!isMobile && (
-        <DashboardNavHeaderAction>
-          <IconButton
-            type="button"
-            variant="outline"
-            size="small"
-            onClick={onDownload}
-            loading={downloading}
-            disabled={!canDownload}
-            aria-label="Download Campaign Plan"
-            className="shrink-0"
-          >
-            <DownloadIcon className="size-4" aria-hidden />
-          </IconButton>
-        </DashboardNavHeaderAction>
-      )}
-      <h1 className="text-2xl font-semibold text-foreground">{headline}</h1>
+      <DashboardNavHeaderAction>
+        <IconButton
+          type="button"
+          variant="outline"
+          size="small"
+          onClick={onDownload}
+          loading={downloading}
+          disabled={!canDownload}
+          aria-label="Download Campaign Plan"
+          className="shrink-0"
+        >
+          <DownloadIcon className="size-4" aria-hidden />
+        </IconButton>
+      </DashboardNavHeaderAction>
+      <h1 className="text-foreground text-3xl font-bold sm:text-4xl">
+        {headline}
+      </h1>
       {metaLine && (
         <p className="text-muted-foreground mt-1 text-base">{metaLine}</p>
       )}
