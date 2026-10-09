@@ -213,6 +213,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
+        internalTestingAt: null,
         createdAt: { lt: cutoff },
         // Pre-payment submissions intentionally sit with
         // kickoffSentAt null until payment; only sweep campaigns that are
@@ -357,6 +358,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: { not: null },
           peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+          internalTestingAt: null,
         },
       })
 
@@ -750,6 +752,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     const pendingTcrCompliances = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.pending,
+        internalTestingAt: null,
       },
     })
     if (pendingTcrCompliances.length) {
@@ -810,11 +813,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     try {
+      const now = new Date()
       return await this.model.create({
         data: {
           campaignId: campaign.id,
           status: TcrComplianceStatus.approved,
-          internalTestingApprovedAt: new Date(),
+          internalTestingApprovedAt: now,
+          internalTestingAt: now,
           ein: INTERNAL_TESTING_PLACEHOLDER,
           postalAddress: INTERNAL_TESTING_PLACEHOLDER,
           committeeName: INTERNAL_TESTING_PLACEHOLDER,
@@ -1473,6 +1478,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return this.buildSubmitToPeerlyResponse(existing)
     }
 
+    if (existing.internalTestingAt) {
+      throw new ConflictException(
+        'P2P submission is not available for test organizations',
+      )
+    }
+
     // Billing-outage hold: a prior submission hit Peerly's unrecoverable
     // "No payment method available" billing error. Retrying re-fails and spams
     // Peerly, so an agent resume / kickoff re-dispatch that lands here during
@@ -1946,8 +1957,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // Pre-payment submissions defer dispatch to the payment
     // webhook so the agent never provisions a domain/site for an unpaid
     // candidate. Already-Pro submissions (post-payment
-    // resubmission) enqueue immediately, as before.
-    if (campaign.isPro) {
+    // resubmission) enqueue immediately, as before. Test-org rows skip
+    // dispatch entirely — internalTestingAt marks them synthetic.
+    if (campaign.isPro && !record.internalTestingAt) {
       try {
         await this.claimAndEnqueueKickoff(record, user.clerkId)
       } catch (err) {
@@ -2439,12 +2451,16 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   async checkTcrRegistrationStatus(peerlyIdentityId: string) {
-    const { campaign } = await this.model.findFirstOrThrow({
+    const record = await this.model.findFirstOrThrow({
       where: { peerlyIdentityId },
       include: {
         campaign: true,
       },
     })
+    const { campaign } = record
+    if (record.internalTestingAt) {
+      return Boolean(record.status === TcrComplianceStatus.approved)
+    }
     let useCases: PeerlyIdentityUseCase[]
     try {
       useCases =
@@ -2470,6 +2486,11 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     if (!tcrCompliance) {
       throw new NotFoundException(
         'TCR compliance does not exist for this campaign',
+      )
+    }
+    if (tcrCompliance.internalTestingAt) {
+      throw new ConflictException(
+        'PIN resend is not available for test organizations',
       )
     }
     // Non-prod deploys short-circuit the Peerly submission (see
@@ -2571,13 +2592,18 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
   async retrieveCampaignVerifyToken(
     pin: string,
-    { peerlyIdentityId }: TcrCompliance,
+    { peerlyIdentityId, internalTestingAt }: TcrCompliance,
   ) {
     // In non-prod deploys, TCR submission to Peerly is short-circuited
     // (see websites.service.ts verifyLive), so there is no real Peerly
     // identity / PIN to verify against. Accept any PIN so testers can
     // exercise the rest of the compliance flow.
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+      return NON_PROD_BYPASS_CV_TOKEN
+    }
+    // Test-org rows have no real Peerly identity; return the bypass token so
+    // the submit-cv-pin flow can complete without touching Peerly.
+    if (internalTestingAt) {
       return NON_PROD_BYPASS_CV_TOKEN
     }
     if (!peerlyIdentityId) {

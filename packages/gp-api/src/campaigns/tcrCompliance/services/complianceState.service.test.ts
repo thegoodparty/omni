@@ -52,6 +52,7 @@ const mockTcr = (
       TcrCompliance,
       | 'status'
       | 'peerlyIdentityId'
+      | 'internalTestingAt'
       | 'internalTestingApprovedAt'
       | 'cvValidationFailedAt'
     >
@@ -60,11 +61,13 @@ const mockTcr = (
   TcrCompliance,
   | 'status'
   | 'peerlyIdentityId'
+  | 'internalTestingAt'
   | 'internalTestingApprovedAt'
   | 'cvValidationFailedAt'
 > => ({
   status: TcrComplianceStatus.submitted,
   peerlyIdentityId: null,
+  internalTestingAt: null,
   internalTestingApprovedAt: null,
   cvValidationFailedAt: null,
   ...overrides,

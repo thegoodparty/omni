@@ -126,10 +126,22 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
   private async resolvePeerlyCvState(
     stage: ComplianceStage,
     campaign: Campaign,
-    tcrCompliance: Pick<TcrCompliance, 'peerlyIdentityId'> | null,
+    tcrCompliance: Pick<
+      TcrCompliance,
+      'peerlyIdentityId' | 'internalTestingAt'
+    > | null,
   ): Promise<Pick<ComplianceStateOutput, 'peerlyCvStatus' | 'pinDelivery'>> {
     if (stage !== ComplianceStage.awaiting_pin) {
       return { peerlyCvStatus: null, pinDelivery: null }
+    }
+
+    // Test-org rows have no real Peerly identity; report APPROVED so the PIN
+    // screen is reachable but no real Peerly call is made.
+    if (tcrCompliance?.internalTestingAt) {
+      return {
+        peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: null,
+      }
     }
 
     // Non-prod short-circuits Peerly submission (see websites.service.ts
@@ -195,6 +207,7 @@ export const deriveComplianceStage = (
     TcrCompliance,
     | 'status'
     | 'internalTestingApprovedAt'
+    | 'internalTestingAt'
     | 'peerlyIdentityId'
     | 'cvValidationFailedAt'
   > | null,
@@ -216,6 +229,24 @@ export const deriveComplianceStage = (
     tcrCompliance.status === TcrComplianceStatus.error
   ) {
     return ComplianceStage.tcr_rejected
+  }
+
+  // Test-org synthetic rows have no domain/website footprint — derive stage
+  // from status, cvValidationFailedAt, and peerlyIdentityId only.
+  if (tcrCompliance.internalTestingAt) {
+    if (tcrCompliance.status === TcrComplianceStatus.approved) {
+      return ComplianceStage.tcr_approved
+    }
+    if (tcrCompliance.status === TcrComplianceStatus.pending) {
+      return ComplianceStage.tcr_in_review
+    }
+    if (tcrCompliance.cvValidationFailedAt) {
+      return ComplianceStage.filing_review_hold
+    }
+    if (!tcrCompliance.peerlyIdentityId) {
+      return ComplianceStage.ready_to_submit
+    }
+    return ComplianceStage.awaiting_pin
   }
 
   // A live website is a hard precondition for submitting to Peerly, so it

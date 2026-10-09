@@ -504,29 +504,31 @@ export class CampaignTcrComplianceController {
       },
     })
 
-    try {
-      await this.analytics.track(
-        user.id,
-        EVENTS.Outreach.CompliancePinSubmitted,
-        { source: 'compliance_flow' },
-      )
-    } catch (e) {
-      // TODO: Alert on this.
-      this.logger.error(
-        { e },
-        `Failed to track compliance PIN submitted event for user ${user.id}`,
-      )
-    }
-    try {
-      await this.sendPinSubmittedSingleSend(user.email, {
-        source: 'compliance_flow',
-      })
-    } catch (err) {
-      this.logger.error(
-        { err, userId: user.id },
-        'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
-          'the workflow email path still fires from the Segment event',
-      )
+    if (!tcrCompliance.internalTestingAt) {
+      try {
+        await this.analytics.track(
+          user.id,
+          EVENTS.Outreach.CompliancePinSubmitted,
+          { source: 'compliance_flow' },
+        )
+      } catch (e) {
+        // TODO: Alert on this.
+        this.logger.error(
+          { e },
+          `Failed to track compliance PIN submitted event for user ${user.id}`,
+        )
+      }
+      try {
+        await this.sendPinSubmittedSingleSend(user.email, {
+          source: 'compliance_flow',
+        })
+      } catch (err) {
+        this.logger.error(
+          { err, userId: user.id },
+          'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
+            'the workflow email path still fires from the Segment event',
+        )
+      }
     }
 
     return campaignVerifyBrand

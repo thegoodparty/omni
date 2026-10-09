@@ -15,8 +15,12 @@ export class EligibilityService {
 
   async evaluate(userId: number): Promise<Eligibility> {
     const [campaigns, electedOffices] = await Promise.all([
-      this.campaigns.findMany({ where: { userId } }),
-      this.electedOffices.findMany({ where: { userId } }),
+      this.campaigns.findMany({
+        where: { userId, organization: { testModeCreatedAt: null } },
+      }),
+      this.electedOffices.findMany({
+        where: { userId, organization: { testModeCreatedAt: null } },
+      }),
     ])
 
     const now = new Date()
