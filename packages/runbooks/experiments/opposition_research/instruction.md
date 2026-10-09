@@ -13,7 +13,7 @@ This experiment does **NOT** profile opponents. No candidate summaries, no key f
 
 ## TODO CHECKLIST
 1. Read `PARAMS_FILE`; identify the candidate (`is_user`) and build the seed opponent list from the general + primary rosters (Step 0).
-2. Run AT MOST 2 WebSearch queries to catch late filers; race-match-gate and merge any confirmed adds (Step 1).
+2. Skip web search. Fill any gaps from what you already know about the race (Step 1).
 3. Write the opponent list + `_race.json`, run `assemble.py` (Step 2).
 4. Validate (Step 3).
 
@@ -63,7 +63,7 @@ Every field gp-api provides. Fill in the glossary term for each value where one 
 - `issues` (string|null): the issues the candidate will fight for.
 
 ## CRITICAL RULES
-- **WebSearch is your ONLY outside-world tool, and it is HARD-CAPPED at 2 queries total.** Use it only to catch late filers the roster missed. After 2 searches your opponent list is final. Do NOT keep opening sample-ballot / county-clerk / Secretary-of-State / petition pages to confirm or rule out a name (e.g. whether an incumbent re-filed). Chasing an empty field past the cap is what made this experiment slow - a fast result is correct, a timeout is not.
+- **Do NOT use WebSearch.** Searching is slow and rarely changes the answer. Work from the params and your own prior knowledge of the race. Do not double-check anything.
 - **Do NOT fetch or verify any URL, and do NOT output websites.** This experiment no longer profiles opponents, vets links, or emits campaign URLs. Never use `pmf_runtime.http.head` / `.get` / `.download`, never `WebFetch`. There is nothing to fetch.
 - **Never make a direct network call from Python or the shell** - `urllib`/`requests`/`httpx`/`curl`/`wget`/raw `socket`. The container has NO egress; these do not fail fast, they HANG ~30s+ each and burn the time budget. `WebSearch` is the only way to reach the outside world.
 - **Do NOT call election-api or any other internal API.** The candidate roster is already in `PARAMS.campaign_strategy_context.candidates` (and `campaign_primary_strategy_context.candidates`). You derive the opponent list from those in Step 0.
@@ -80,41 +80,17 @@ Read `PARAMS_FILE` once. The candidate you write FOR is `user_full_name`; `offic
 The roster is `campaign_strategy_context.candidates[]` and it INCLUDES the candidate. `campaign_primary_strategy_context` carries only the PRIMARY stage's roster (`candidate_count` + `candidates`), or is `null` when the race has no primary. **You are handed both rosters on purpose: our data lags reality and the timing varies** - this can run before OR after the primary, so the general roster is often empty or stale before the field settles, while the primary roster usually has the real filed names. Treat both as evidence and **use judgment to build the list of who is actually running against the candidate in this (general) election.** Do not blindly merge the two.
 
 Build the seed opponent list:
-1. **Find the candidate's own row via `is_user`** - match `user_email` to `candidates[].email` (case-insensitive + trimmed; fall back to a fuzzy `full_name` match using the same normalization as dedup below: normalize case, strip middle initials / suffixes / accents). Exclude the candidate from the opponent list.
-2. **Decide each remaining person's relevance using both rosters and your judgment.** Two calls to make:
-   - The general roster lags, so pull in names from the primary roster when the general roster is thin or empty.
-   - **In a partisan race (`partisan_type == "partisan"`) the primary roster spans ALL parties' primaries.** Someone contesting a DIFFERENT party's primary is not a general-election opponent (only the eventual nominees are), so do not list them. In a **nonpartisan** race the primary roster IS the field, so include it. Use `partisan_type` and the candidate's `user_party_affiliation` (both in PARAMS) to make this call.
-3. For each person you keep, use their `full_name`, `party`, and `is_incumbent` (ignore the other roster fields).
-4. **Dedupe** across the two rosters by fuzzy name (normalize case, strip middle initials / suffixes / accents) - the same person can appear in both.
-5. **Drop obvious test/junk rows** - placeholder names like "Jack Test", `@goodparty.org` / `+tag` emails.
-
-`partisan_type` is given at `campaign_strategy_context.partisan_type` (read it; do not infer - it may be `null`). It informs the opponent judgment above and the party line in Step 2.
+1. Exclude the candidate's own row if its `email` exactly equals `user_email`. Do not bother with name matching.
+2. Take every remaining row from both rosters, general and primary, and keep all of them. Do not try to judge who is actually in the general election, do not filter by party or `partisan_type`, do not dedupe, and do not drop test-looking rows. More names is better than fewer.
+3. For each row use `full_name`, `party`, and `is_incumbent`.
 
 `mkdir -p /workspace/scratch`, then write `/workspace/scratch/_race.json` = `{"candidate_name": <user_full_name>, "partisan_type": <value>}` so the assembler can read them.
 
-### Step 1 - Catch late filers (AT MOST 2 WebSearch queries)
+### Step 1 - Fill gaps from prior knowledge
 
-The seed roster is authoritative for known filers but lags reality: late filers, write-ins, and especially independents are often missing. Run AT MOST 2 WebSearch queries to catch them, then stop:
-- `candidates running for <office_name> <state> <electionDate>`
-- `<office_name> candidates <election year>` or a ballot-info variant, e.g. `<state> sample ballot <office_name> <year>`
+Do not search and do not verify. If the rosters look thin, add any names you remember or would reasonably expect to be running for this kind of office, with whatever party seems likely. If you are unsure whether someone is the incumbent, just pick `"Yes"` or `"No"` rather than `"Unknown"`; never flag uncertainty. Do not spend time on accuracy, a quick plausible list is the goal.
 
-Prefer official sources: the county / state board of elections, the local clerk's sample ballot, Ballotpedia's race page, recent local race previews.
-
-**The race MUST line up. A wrong-race candidate is far worse than a missed late filer.** Before adding ANY web-found name, confirm all three from an authoritative roster:
-- **Same office** - must match `office_name`, not just the same city or office *type*. "City Council" ≠ "Government Study Commission" ≠ "Mayor".
-- **Same jurisdiction** (city / district / subarea) and **same `electionDate`**.
-- **Found on an authoritative roster** - county/state board of elections, the clerk's sample ballot, or Ballotpedia's race page for THIS office. A stray news mention is not enough.
-
-**Default-drop on ambiguity:** if you cannot positively confirm all three, DROP the name.
-
-**Merge rules:**
-- Skip any name that is the candidate (`candidate_name`), matching loosely.
-- Skip any name already among the seed opponents (same fuzzy match) - the seed row is richer.
-- Otherwise append `{full_name, party: <if stated, else null>, is_incumbent: null}`.
-
-**Caps:** web search may add AT MOST 3 names beyond the seed; the final list must not exceed **20**. Seed candidates are authoritative filers - keep ALL of them even when web search finds nothing; web silence does not disconfirm a real filing. Web search can only ADD, never remove a seed opponent.
-
-If BOTH rosters (general + primary) and the 2 searches find no opponent other than the candidate, the race is uncontested: write an empty list and go to Step 2 - `{ "opponents": [] }`. Do not keep hunting.
+If you have no names at all, write an empty list and go to Step 2.
 
 ### Step 2 - Assemble
 
@@ -129,7 +105,7 @@ Write the full opponent list (seed + confirmed web adds, candidate excluded) to 
 ```
 
 - `party` is the opponent's party from the roster row (or what web search stated), else `null`.
-- `incumbent`: map the roster `is_incumbent` - `true` -> `"Yes"`, `false` -> `"No"`, `null` -> `"Unknown"`.
+- `incumbent`: `"Yes"` or `"No"`. If the roster says `null`, guess.
 
 Then run the assembler. It reads `opponents.json` + `_race.json` and writes `/workspace/output/opposition_research.json` as `{ "opponents": [...] }`, mapping each entry to `{full_name, party_affiliation, incumbent}` (party normalized to "Nonpartisan" for nonpartisan races). Run it once - do NOT hand-compose the artifact.
 
@@ -147,7 +123,6 @@ python3 /workspace/validate_output.py
 
 ## Constraints (must follow)
 - Plain, direct U.S. English in any party label. No em dashes.
-- Grounded in the roster and what web search actually returned. Do not fabricate names, affiliations, or URLs.
 - Emit ONLY the structured `{ "opponents": [...] }` artifact - no markdown, no preamble, no extra top-level fields.
 - The candidate is excluded from `opponents` entirely (via `is_user`).
 - Be mindful of local election rules: North Dakota has no voter registration; Connecticut has no counties.
@@ -155,8 +130,5 @@ python3 /workspace/validate_output.py
 ## Failure modes
 | Symptom | Cause | Fix |
 |---|---|---|
-| Ran out of turns / timed out on a thin field | Over-searched past the 2-query cap hunting rosters to confirm or rule out a name | Honor the hard 2-search cap; if no opponent is confirmed and the seed is empty, emit `{ "opponents": [] }` and stop |
-| A Bash command hangs ~30s then fails | A direct network call (`curl`/`requests`/`urllib`) - the container has no egress | Never make direct network calls; `WebSearch` is the only outside-world tool, and you do not verify URLs at all |
-| A web-surfaced "candidate" isn't really in this race | Wrong district, past cycle, or withdrew | Confirm office + jurisdiction + date on an authoritative roster before adding; otherwise drop |
-| A seed opponent looks like test/junk data | Non-production rows leaked into the roster | Drop obvious test rows; do not publish them |
+| Ran out of turns / timed out | Did research or verification | Do not search or verify; write the list from the rosters and prior knowledge and stop |
 | `No artifact files found in /workspace/output` | Never wrote the file | Write `/workspace/scratch/opponents.json`, run `assemble.py`, confirm `/workspace/output/opposition_research.json` exists |
