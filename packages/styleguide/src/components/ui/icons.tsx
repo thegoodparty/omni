@@ -149,4 +149,5 @@ export {
   LocateFixed as LocateFixedIcon,
   LocateOff as LocateOffIcon,
   Activity as ActivityIcon,
+  FlaskConical as FlaskConicalIcon,
 } from 'lucide-react'

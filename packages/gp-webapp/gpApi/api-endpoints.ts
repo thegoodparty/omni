@@ -109,6 +109,9 @@ import type {
   RecommendedListVariant,
   MyAssignmentsResponse,
   TrackerTaskSkipReason,
+  TestModeState,
+  CreateTestOrganizationRequest,
+  ApplyTestModeRequest,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -2184,6 +2187,37 @@ export type APIEndpoints = {
 
   // Deletes the list (and its entries/persons/interactions via cascade).
   'DELETE /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: void
+  }
+
+  // Races by zip — election-api via gp-api proxy. Filters to general-election
+  // races; callers that want only future races pass timeframe: 'future'.
+  'GET /v1/elections/races-by-year': {
+    Request: {
+      zipcode: string
+      timeframe: 'future' | 'past' | 'all'
+    }
+    Response: Race[]
+  }
+
+  // Test mode — staff-only endpoints gated by TestModeGuard on gp-api.
+  'GET /v1/test-mode': {
+    Request: {}
+    Response: TestModeState
+  }
+
+  'POST /v1/test-mode/organizations': {
+    Request: CreateTestOrganizationRequest
+    Response: { slug: string }
+  }
+
+  'POST /v1/test-mode/apply': {
+    Request: ApplyTestModeRequest
+    Response: void
+  }
+
+  'DELETE /v1/test-mode/organizations/:slug': {
     Request: {}
     Response: void
   }

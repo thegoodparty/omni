@@ -69,6 +69,7 @@ import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienc
 import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import { openSupportChat } from '@shared/utils/supportWidget'
 import { MembershipBanner } from './membership/MembershipBanner'
+import { TestModeMenuItem } from './testMode/TestModeMenuItem'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -683,6 +684,7 @@ const NewNavMenu = ({
       {!isMobile && (
         <SidebarFooter>
           <MembershipBanner />
+          <TestModeMenuItem />
           <SidebarMenu>
             <SidebarMenuItemComponent>
               <DropdownMenu>
