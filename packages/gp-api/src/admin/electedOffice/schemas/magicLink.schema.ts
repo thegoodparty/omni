@@ -16,6 +16,9 @@ export const CreateMagicLinkSchema = z.object({
   // BallotReady person node id. When present, we pre-fill the elected office
   // (position + term dates) from BR's office-holder record.
   personId: z.string().optional(),
+  // The id of the HubSpot Contact the card runs on. Stored on the user so the
+  // elected office's Office Holder record can link to that Contact.
+  hubspotContactId: z.string().optional(),
 })
 
 export class CreateMagicLinkDto extends createZodDto(CreateMagicLinkSchema) {}

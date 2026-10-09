@@ -258,6 +258,10 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID: { tier: 'optional' },
   HUBSPOT_POLL_RESULTS_EMAIL_ID: { tier: 'optional' },
   HUBSPOT_BRIEFING_READY_EMAIL_ID: { tier: 'optional' },
+  HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: { tier: 'optional' },
+  HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: { tier: 'optional' },
+  HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID: { tier: 'optional' },
+  HUBSPOT_OFFICE_HOLDER_COMPANY_ASSOCIATION_TYPE_ID: { tier: 'optional' },
 
   MAILGUN_API_KEY: { tier: 'optional' },
   MAILGUN_INTERCEPT_EMAIL: { tier: 'optional' },

@@ -8,14 +8,16 @@ token as a HubSpot secret and hits the admin endpoint:
 
 ```
 POST /v1/admin/elected-office/magic-link
-{ email, firstName, lastName, personId? }
+{ email, firstName, lastName, personId?, hubspotContactId? }
 ```
 
 gp-api provisions a passwordless Clerk user, mints a sign-in token, optionally
 pre-fills the `ElectedOffice` from BallotReady (when the contact has a
 `br_person_id`), and returns the `/serve/welcome?__clerk_ticket=...` redemption
-URL. **The browser card never sees the M2M token** — only the server-side
-function does.
+URL. It also stores the Contact's `hs_object_id` (sent as `hubspotContactId`)
+on the new user, so the elected office's Office Holder record links back to
+this Contact. **The browser card never sees the M2M token** — only the
+server-side function does.
 
 ## Emailing the link
 
@@ -85,10 +87,11 @@ src/app/
 
 ## Required contact property
 
-The card forwards `email`, `firstname`, `lastname`, and `br_person_id`. Create a
-custom contact property **`br_person_id`** (single-line text) holding the
-contact's BallotReady person id to enable office/term pre-fill. Without it the
-EO still onboards, just with nothing pre-filled.
+The card forwards `email`, `firstname`, `lastname`, `br_person_id`, and
+HubSpot's built-in `hs_object_id`. Create a custom contact property
+**`br_person_id`** (single-line text) holding the contact's BallotReady person
+id to enable office/term pre-fill. Without it the EO still onboards, just with
+nothing pre-filled.
 
 ## Deploy
 
