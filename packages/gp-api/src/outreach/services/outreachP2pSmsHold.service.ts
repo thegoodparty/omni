@@ -177,21 +177,6 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     )
   }
 
-  // Records, per send and server-side, that THIS send redeemed the free-texts
-  // offer — the authoritative signal the capture reads to apply the discount.
-  // Called from the purchase handler the moment the offer is consumed for this
-  // outreach (before redeemFreeTexts flips the campaign flag), so the capture
-  // never has to trust the client-writable billableTextCount or the
-  // once-per-campaign redeemed marker. Idempotent: a webhook retry re-stamps the
-  // same true. The satellite row already exists (recordHold seeded it on the
-  // same paid path before finalize).
-  async markFreeTextsApplied(outreachId: number): Promise<void> {
-    await this.model.updateMany({
-      where: { outreachId },
-      data: { freeTextsApplied: true },
-    })
-  }
-
   // Resolves the durable PeerlyPhoneList row id (the uuid primary key, which the
   // satellite's peerlyPhoneListId FK points at) from the Peerly upload token.
   // Token is unique per list, so a missing token or an unknown one returns null

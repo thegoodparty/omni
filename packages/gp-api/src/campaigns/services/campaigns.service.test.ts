@@ -969,6 +969,240 @@ describe('CampaignsService - redeemFreeTexts', () => {
       expect(mockAnalytics.track).not.toHaveBeenCalled()
     })
   })
+
+  // Win SMS hold billing: the per-send OutreachP2pSms.freeTextsApplied stamp
+  // (the ONLY signal the capture reads for the discount) must be set ONLY for
+  // the send that actually wins the campaign's one-time offer. Stamping it
+  // inside the SAME transaction as the CAS is what guarantees that — see the
+  // dedicated race describe below for the concurrent-sends proof.
+  describe('win sms hold billing: per-send stamp (winSmsHoldOutreachId)', () => {
+    it('stamps the satellite freeTextsApplied when the CAS wins', async () => {
+      const campaignId = 123
+      const outreachId = 555
+      const mockSatelliteUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
+
+      mockPrismaClient.$transaction = vi.fn(
+        async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
+          const mockTx = {
+            campaign: {
+              updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+              findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
+            },
+            outreachP2pSms: { updateMany: mockSatelliteUpdateMany },
+          }
+          return await callback(mockTx as unknown as TransactionClient)
+        },
+      ) as MockedFunction<PrismaClient['$transaction']>
+
+      await service.redeemFreeTexts(campaignId, outreachId)
+
+      expect(mockSatelliteUpdateMany).toHaveBeenCalledWith({
+        where: { outreachId },
+        data: { freeTextsApplied: true },
+      })
+    })
+
+    it('never touches the satellite when no outreachId is given (flag off / free path)', async () => {
+      const campaignId = 123
+      const mockSatelliteUpdateMany = vi.fn()
+
+      mockPrismaClient.$transaction = vi.fn(
+        async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
+          const mockTx = {
+            campaign: {
+              updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+              findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
+            },
+            outreachP2pSms: { updateMany: mockSatelliteUpdateMany },
+          }
+          return await callback(mockTx as unknown as TransactionClient)
+        },
+      ) as MockedFunction<PrismaClient['$transaction']>
+
+      await service.redeemFreeTexts(campaignId)
+
+      expect(mockSatelliteUpdateMany).not.toHaveBeenCalled()
+    })
+
+    it('never stamps the satellite when the campaign CAS loses', async () => {
+      const campaignId = 123
+      const outreachId = 555
+      const mockSatelliteUpdateMany = vi.fn()
+
+      mockPrismaClient.$transaction = vi.fn(
+        async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
+          const mockTx = {
+            campaign: {
+              updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+              findUnique: vi.fn(),
+            },
+            outreachP2pSms: { updateMany: mockSatelliteUpdateMany },
+          }
+          return await callback(mockTx as unknown as TransactionClient)
+        },
+      ) as MockedFunction<PrismaClient['$transaction']>
+
+      await expect(
+        service.redeemFreeTexts(campaignId, outreachId),
+      ).rejects.toThrow(BadRequestException)
+      expect(mockSatelliteUpdateMany).not.toHaveBeenCalled()
+    })
+  })
+})
+
+// A stand-in for the one `campaign` row plus the per-send `OutreachP2pSms`
+// satellite rows two racing sends contend over. Both the campaign CAS and the
+// satellite stamp defer past a macrotask so two concurrent redeemFreeTexts
+// calls really do interleave — the same device `patchCampaignDetails write
+// contention` uses below.
+const buildFreeTextsRaceModule = async () => {
+  const campaignRow = { hasFreeTextsOffer: true }
+  const satelliteRows = new Map<number, { freeTextsApplied: boolean }>()
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  const mockCampaignUpdateMany = vi.fn(
+    async ({ where }: { where: { hasFreeTextsOffer?: boolean } }) => {
+      await tick()
+      if (where.hasFreeTextsOffer && campaignRow.hasFreeTextsOffer) {
+        campaignRow.hasFreeTextsOffer = false
+        return { count: 1 }
+      }
+      return { count: 0 }
+    },
+  )
+  const mockCampaignFindUnique = vi.fn(async () => {
+    await tick()
+    return { userId: 7 }
+  })
+  const mockSatelliteUpdateMany = vi.fn(
+    async ({
+      where,
+      data,
+    }: {
+      where: { outreachId: number }
+      data: { freeTextsApplied: boolean }
+    }) => {
+      await tick()
+      const row = satelliteRows.get(where.outreachId)
+      if (!row) return { count: 0 }
+      row.freeTextsApplied = data.freeTextsApplied
+      return { count: 1 }
+    },
+  )
+  const mockTransaction = vi.fn(
+    async (callback: Parameters<PrismaClient['$transaction']>[0]) =>
+      callback({
+        campaign: {
+          updateMany: mockCampaignUpdateMany,
+          findUnique: mockCampaignFindUnique,
+        },
+        outreachP2pSms: { updateMany: mockSatelliteUpdateMany },
+      } as unknown as Parameters<
+        Parameters<PrismaClient['$transaction']>[0]
+      >[0]),
+  ) as MockedFunction<PrismaClient['$transaction']>
+
+  const mockPrismaService = { $transaction: mockTransaction }
+
+  const module: TestingModule = await Test.createTestingModule({
+    providers: [
+      { provide: PrismaService, useValue: mockPrismaService },
+      { provide: UsersService, useValue: {} },
+      { provide: CrmCampaignsService, useValue: {} },
+      { provide: SegmentService, useValue: {} },
+      {
+        provide: AnalyticsService,
+        useValue: { track: vi.fn(), identify: vi.fn() },
+      },
+      { provide: CampaignPlanVersionsService, useValue: {} },
+      { provide: StripeService, useValue: {} },
+      { provide: GooglePlacesService, useValue: {} },
+      { provide: ElectionsService, useValue: {} },
+      { provide: BallotReadyService, useValue: {} },
+      { provide: OrganizationsService, useValue: {} },
+      { provide: SlackService, useValue: {} },
+      { provide: CampaignTasksService, useValue: {} },
+      { provide: CampaignTrackerTasksService, useValue: {} },
+      { provide: PinoLogger, useValue: createMockLogger() },
+      CampaignsService,
+    ],
+  }).compile()
+
+  const service = module.get<CampaignsService>(CampaignsService)
+  Object.defineProperty(service, '_prisma', {
+    get: () => mockPrismaService,
+    configurable: true,
+  })
+  Object.defineProperty(service, 'logger', {
+    get: () => createMockLogger(),
+    configurable: true,
+  })
+
+  return { service, campaignRow, satelliteRows }
+}
+
+describe('CampaignsService - redeemFreeTexts race (Win SMS hold free-texts undercharge)', () => {
+  // Reproduces the money-safety bug: two genuinely-eligible sends on ONE
+  // campaign race the one-time free-texts offer. Before the fix, the per-send
+  // satellite stamp (OutreachP2pSms.freeTextsApplied — the ONLY signal the Win
+  // SMS hold capture reads for the discount) was set unconditionally before
+  // the campaign CAS ran, so the LOSER kept a `true` stamp it never earned and
+  // would be undercharged (~$175) at capture. The fix stamps the satellite in
+  // the SAME transaction as the CAS win, so only the winner is ever stamped.
+  it('stamps exactly the CAS winner; the loser stays unstamped and pays full price', async () => {
+    const { service, satelliteRows } = await buildFreeTextsRaceModule()
+    const campaignId = 123
+    const winnerOutreachId = 901
+    const loserOutreachId = 902
+    satelliteRows.set(winnerOutreachId, { freeTextsApplied: false })
+    satelliteRows.set(loserOutreachId, { freeTextsApplied: false })
+
+    const results = await Promise.allSettled([
+      service.redeemFreeTexts(campaignId, winnerOutreachId),
+      service.redeemFreeTexts(campaignId, loserOutreachId),
+    ])
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.find((r) => r.status === 'rejected')
+    expect(rejected?.reason).toBeInstanceOf(BadRequestException)
+
+    // Exactly one satellite row ends up stamped true (the CAS winner); the
+    // other was never touched and keeps its honest `false`.
+    const stampedTrueCount = [...satelliteRows.values()].filter(
+      (row) => row.freeTextsApplied,
+    ).length
+    expect(stampedTrueCount).toBe(1)
+  })
+
+  it('still grants the discount when only one eligible send is in flight', async () => {
+    const { service, satelliteRows } = await buildFreeTextsRaceModule()
+    const campaignId = 123
+    const outreachId = 901
+    satelliteRows.set(outreachId, { freeTextsApplied: false })
+
+    await service.redeemFreeTexts(campaignId, outreachId)
+
+    expect(satelliteRows.get(outreachId)?.freeTextsApplied).toBe(true)
+  })
+
+  // Idempotency: a Stripe webhook replay for a send that already won runs
+  // into a campaign that's already redeemed (hasFreeTextsOffer false), so the
+  // CAS loses on the replay exactly like a genuine loser would — and the
+  // already-true stamp from the original win is left alone, never flipped
+  // back by the replay's failed attempt.
+  it('a replay after the campaign already redeemed throws and does not flip the stamp back', async () => {
+    const { service, campaignRow, satelliteRows } =
+      await buildFreeTextsRaceModule()
+    const campaignId = 123
+    const outreachId = 901
+    satelliteRows.set(outreachId, { freeTextsApplied: true })
+    campaignRow.hasFreeTextsOffer = false // already redeemed by the original call
+
+    await expect(
+      service.redeemFreeTexts(campaignId, outreachId),
+    ).rejects.toThrow(BadRequestException)
+    expect(satelliteRows.get(outreachId)?.freeTextsApplied).toBe(true)
+  })
 })
 
 describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {

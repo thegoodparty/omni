@@ -681,20 +681,28 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
             campaignId,
           )
           if (stamped) {
-            // Win SMS hold billing: record the per-send, server-authoritative
-            // "this send redeemed the offer" signal BEFORE flipping the campaign
-            // flag, so the capture's discount decision never depends on the
-            // client-supplied billableTextCount. Ordered before redeemFreeTexts
-            // so there is no instant where the offer is consumed (flag flipped)
-            // but the per-send signal is still unset — which the capture gate
-            // would otherwise read as "full price" and overcharge.
+            // Win SMS hold billing: the per-send, server-authoritative "this
+            // send redeemed the offer" signal (OutreachP2pSms.freeTextsApplied,
+            // the ONLY thing the capture reads for the discount) must mean
+            // "this send WON the campaign's one-time offer" — never merely
+            // "this send was eligible". Two concurrent eligible sends on the
+            // SAME campaign both reach this line; only one can win the CAS
+            // inside redeemFreeTexts. Passing outreachId lets redeemFreeTexts
+            // stamp the satellite in the SAME transaction as the CAS win, so a
+            // losing send's stamp is never set — it throws before the stamp
+            // runs, and the catch below surfaces the failure so Stripe
+            // retries (which then sees hasOffer=false and no-ops, idempotent).
             if (
               isWinSmsHoldBillingEnabled() &&
               paymentIntentId.startsWith('cs_')
             ) {
-              await this.p2pSmsHold.markFreeTextsApplied(outreachId)
+              await this.campaignsService.redeemFreeTexts(
+                campaignId,
+                outreachId,
+              )
+            } else {
+              await this.campaignsService.redeemFreeTexts(campaignId)
             }
-            await this.campaignsService.redeemFreeTexts(campaignId)
             this.logger.info(
               `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
             )
@@ -724,10 +732,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
     // CAPTURE edge (a): attempt the capture only AFTER finalize and the
     // free-texts redemption have run — the discount is read at capture from the
-    // per-send stamp (`billableTextCount`) that `markFreeTextsConsumed` writes
-    // in the block above, so capturing earlier would miss an eligible campaign's
-    // discount and overcharge. If the build is already `ready` (the common
-    // ordering — the list is built before checkout), this captures now;
+    // per-send stamp (`OutreachP2pSms.freeTextsApplied`) that `redeemFreeTexts`
+    // writes in the block above, so capturing earlier would miss an eligible
+    // campaign's discount and overcharge. If the build is already `ready` (the
+    // common ordering — the list is built before checkout), this captures now;
     // otherwise it no-ops and the build-ready edge or the backstop sweep fires
     // once the list finishes. Best-effort: a capture failure must not fail the
     // webhook (finalize already ran, and the backstop re-captures), and it runs

@@ -729,10 +729,11 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return null
     }
 
-    // The ONLY discount signal: the per-send, server-set flag the purchase
-    // handler stamps the moment THIS send redeems the offer. Never the
-    // client-writable billableTextCount, and never a campaign-level marker that
-    // a later same-campaign send could ride to an unearned discount.
+    // The ONLY discount signal: the per-send, server-set flag
+    // CampaignsService.redeemFreeTexts stamps IN THE SAME TRANSACTION as the
+    // campaign-level CAS win. Never the client-writable billableTextCount, and
+    // never a campaign-level marker that a later same-campaign send could ride
+    // to an unearned discount.
     const offerApplied = outreach.p2pSms?.freeTextsApplied ?? false
 
     // REDEMPTION-PENDING GATE: the hold is recorded `authorized` before the
@@ -741,9 +742,9 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // redemption has not run yet (the webhook is mid-flight, or a retry is
     // pending after a crash between authorize and redeem) — capturing now would
     // bill an eligible send at full price. Wait: a later edge/sweep captures
-    // once the retry finalizes the offer. The stamp lands before redeemFreeTexts
-    // flips the flag, so there is no window where both are "off" for an eligible
-    // send mid-redemption.
+    // once the retry finalizes the offer. The stamp and the flag flip commit (or
+    // roll back) together in redeemFreeTexts's own transaction, so there is no
+    // window where the flag is flipped but this send's stamp is still unset.
     if (outreach.campaign?.hasFreeTextsOffer && !offerApplied) return null
 
     return {
