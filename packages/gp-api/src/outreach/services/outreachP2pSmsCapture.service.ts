@@ -6,7 +6,10 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
-import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
+import {
+  calcTextAmountInCents,
+  maxTextsForAmountInCents,
+} from 'src/shared/util/textPricing.util'
 import {
   isWinSmsHoldBillingEnabled,
   WIN_SMS_HOLD_MIN_CENTS,
@@ -212,6 +215,41 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     })
     if (claim.count === 0) return
     await this.settleClaimed(outreachId)
+  }
+
+  // SEND CAP (team decision 2 — never oversend). The money-safe recipient cap for
+  // a build's send: the largest text count the authorized hold covers
+  // (maxTextsForAmountInCents on authorizedAmountInCents). The phone-list build
+  // reads this before uploading recipients to Peerly and truncates to it, so the
+  // uploaded list — and the Peerly send that reads it — can never exceed what was
+  // billed, even if re-resolving the filter yields a larger audience than the
+  // pre-pay estimate. Returns null when the flag is off or no hold is authorized
+  // for this build yet, so the caller applies no cap. The hold is found through
+  // the satellite link set at hold time (peerlyPhoneListId), the same handle the
+  // capture half uses; capturing/captured are included so a re-run after the
+  // money moved still caps.
+  async resolveSendCapForBuild(buildId: string): Promise<number | null> {
+    if (!isWinSmsHoldBillingEnabled()) return null
+    const hold = await this.model.findFirst({
+      where: {
+        peerlyPhoneListId: buildId,
+        authorizedAmountInCents: { not: null },
+        settleState: {
+          in: [
+            P2pSmsSettleState.authorized,
+            P2pSmsSettleState.capturing,
+            P2pSmsSettleState.captured,
+          ],
+        },
+      },
+      select: { authorizedAmountInCents: true },
+      // Deterministic + conservative: a build is linked 1:1 to its hold, but if
+      // two satellites ever pointed at one build, cap to the SMALLEST authorized
+      // amount so the send can never exceed any hold that paid for it.
+      orderBy: { authorizedAmountInCents: 'asc' },
+    })
+    if (hold?.authorizedAmountInCents == null) return null
+    return maxTextsForAmountInCents(hold.authorizedAmountInCents)
   }
 
   // EDGE (b): called right after the build finisher stamps a list `ready`. Finds

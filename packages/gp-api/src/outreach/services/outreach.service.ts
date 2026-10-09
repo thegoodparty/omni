@@ -407,7 +407,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       if (!createOutreachDto.script) {
         throw new BadRequestException('Script is required for P2P outreach')
       }
-      if (!createOutreachDto.phoneListId) {
+      // Win SMS hold pay-before-build (D2a): under the flag a p2p draft can be
+      // created and paid while its phone-list build is still in progress — R1's
+      // build-ready finalize edge stamps the numeric phoneListId and submits the
+      // send once the list exists. Flag off, the list must already be built
+      // (unchanged).
+      if (!createOutreachDto.phoneListId && !isWinSmsHoldBillingEnabled()) {
         throw new BadRequestException(
           'Phone list ID is required for P2P outreach',
         )

@@ -10,7 +10,9 @@ import {
   OfficeLevel,
   OutreachStatus,
   OutreachType,
+  P2pSmsSettleState,
 } from '../../../generated/prisma'
+import { calcTextAmountInCents } from '../../../shared/util/textPricing.util'
 import { P2pPhoneListUploadService } from './p2pPhoneListUpload.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 
@@ -1415,6 +1417,87 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
           where: { peerlyPhoneListId: build.id },
         }),
       ).toBe(1)
+    })
+
+    it('Win SMS hold: caps the uploaded list at the PAID count when the resolved audience grew past the hold', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const campaign = await seedWinCampaign()
+      const build = await createQueuedRow(campaign.id)
+
+      // A paid pre-build send authorized for 2 texts, linked to THIS build.
+      const PAID_TEXTS = 2
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: WIN_SLUG,
+          outreachType: OutreachType.p2p,
+          status: OutreachStatus.pending_payment,
+        },
+      })
+      await service.prisma.outreachP2pSms.create({
+        data: {
+          outreachId: outreach.id,
+          peerlyPhoneListId: build.id,
+          settleState: P2pSmsSettleState.authorized,
+          authorizationIntentId: 'pi_cap_test',
+          authorizedAmountInCents: calcTextAmountInCents(PAID_TEXTS),
+        },
+      })
+
+      // The build now re-resolves the filter and finds FIVE reachable people —
+      // more than the hold paid for.
+      const people = Array.from({ length: 5 }, (_, i) =>
+        personPayload({
+          id: `00000000-0000-0000-0000-00000000c0${i}0`,
+          cellPhone: `55500000${i}0`,
+        }),
+      )
+      stubPeopleApi(people)
+      const upload = stubPeerlyUpload()
+
+      await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      // The CSV Peerly received carries the header plus EXACTLY the paid count —
+      // never the full grown audience. Never oversend.
+      const uploadArgs = upload.mock.calls[0]?.[0] as { csvBuffer: Buffer }
+      const csvLines = uploadArgs.csvBuffer.toString('utf-8').trim().split('\n')
+      expect(csvLines).toHaveLength(1 + PAID_TEXTS)
+      // And the captured recipient rows (which materialization reads) match.
+      expect(
+        await service.prisma.peerlyPhoneListRecipient.count({
+          where: { peerlyPhoneListId: build.id },
+        }),
+      ).toBe(PAID_TEXTS)
+    })
+
+    it('Win SMS hold: no cap is applied when no hold is authorized for the build (uploads the full audience)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const campaign = await seedWinCampaign()
+      const build = await createQueuedRow(campaign.id)
+
+      const people = Array.from({ length: 3 }, (_, i) =>
+        personPayload({
+          id: `00000000-0000-0000-0000-00000000d0${i}0`,
+          cellPhone: `55511111${i}0`,
+        }),
+      )
+      stubPeopleApi(people)
+      const upload = stubPeerlyUpload()
+
+      await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      const uploadArgs = upload.mock.calls[0]?.[0] as { csvBuffer: Buffer }
+      const csvLines = uploadArgs.csvBuffer.toString('utf-8').trim().split('\n')
+      expect(csvLines).toHaveLength(1 + people.length)
+      expect(
+        await service.prisma.peerlyPhoneListRecipient.count({
+          where: { peerlyPhoneListId: build.id },
+        }),
+      ).toBe(people.length)
     })
 
     it('concurrent double delivery builds and uploads to Peerly exactly once (claim CAS)', async () => {
