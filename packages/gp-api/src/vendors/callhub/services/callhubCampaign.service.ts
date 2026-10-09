@@ -13,6 +13,11 @@ import {
 } from '../schemas/callhubCampaign.schema'
 import { CallhubErrorHandlingService } from './callhubErrorHandling.service'
 import { CallhubHttpService } from './callhubHttp.service'
+import {
+  DAILY_START_TIME,
+  DAILY_STOP_TIME,
+  SCHEDULE_TZ,
+} from '@/shared/util/robocallDialWindow.const'
 
 // Trailing slash is load-bearing: POST /v1/vb_campaign (no slash) returns the
 // campaign list instead of creating one.
@@ -21,19 +26,13 @@ const CREATE_PATH = '/v1/vb_campaign/'
 // reason as the create path. pk_str is a STRING end-to-end — CallHub ids exceed
 // JS's safe-integer range, so it is never coerced to a number.
 const LAUNCH_PATH_PREFIX = '/v1/voice_broadcasts/'
-// use_contact_tz applies the daily window in each contact's own tz, but a
-// contact whose tz is unknown falls back to this schedule tz. Central keeps
-// that fallback window within legal US calling hours; UTC would fire it at
-// ~1am-1pm Eastern (a TCPA violation).
-const SCHEDULE_TZ = 'America/Chicago'
+// SCHEDULE_TZ / DAILY_START_TIME / DAILY_STOP_TIME are the window CallHub dials
+// in, imported from the shared source the dial-completion estimator also reads
+// (robocallDialWindow.const) so the two can never drift.
 const CALLHUB_DATE_FORMAT = 'yyyy-MM-dd HH:mm:ss'
 // How long after the start the broadcast may keep dialing before it expires —
 // enough for a large landline list to drain.
 const EXPIRATION_WINDOW_DAYS = 7
-// Per-contact calling window (via use_contact_tz). A 9am floor is stricter than
-// the 8am legal floor.
-const DAILY_START_TIME = '09:00'
-const DAILY_STOP_TIME = '21:00'
 // Calls per minute to request on each created campaign. CallHub's account-wide
 // VB cap is ~60 calls/min SHARED across every scheduled/running campaign and a
 // new campaign defaults to `frequency: 60` (the whole pool), so a second
