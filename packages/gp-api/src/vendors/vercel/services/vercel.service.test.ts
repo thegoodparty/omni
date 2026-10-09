@@ -1,6 +1,8 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SDKError } from '@vercel/sdk/models/sdkerror'
+import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { VercelService } from './vercel.service'
 
@@ -77,5 +79,39 @@ describe('VercelService when not configured', () => {
     await expect(service.listDomains()).rejects.toBeInstanceOf(
       BadRequestException,
     )
+  })
+})
+
+describe('VercelService.isVercelTransientError', () => {
+  const service = new VercelService({
+    setContext: vi.fn(),
+    error: vi.fn(),
+  } as unknown as PinoLogger)
+  const httpMeta = (status: number) => ({
+    response: new Response('', { status }),
+    request: new Request('https://api.vercel.com/'),
+    body: '',
+  })
+
+  it.each([500, 502, 429])('is true for VercelError %i', (status) => {
+    expect(
+      service.isVercelTransientError(new VercelError('x', httpMeta(status))),
+    ).toBe(true)
+  })
+
+  it.each([500, 502, 429])('is true for SDKError %i', (status) => {
+    expect(
+      service.isVercelTransientError(new SDKError('x', httpMeta(status))),
+    ).toBe(true)
+  })
+
+  it.each([400, 404])('is false for VercelError %i', (status) => {
+    expect(
+      service.isVercelTransientError(new VercelError('x', httpMeta(status))),
+    ).toBe(false)
+  })
+
+  it('is false for a plain Error', () => {
+    expect(service.isVercelTransientError(new Error('502'))).toBe(false)
   })
 })

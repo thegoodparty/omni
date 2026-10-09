@@ -1454,11 +1454,10 @@ export class DomainsService
       } catch (error) {
         // The order is already placed and charged; a transient Vercel blip while
         // polling must not mark the domain inactive and strand the purchase.
-        if (
-          attempt < REGISTRAR_ORDER_POLL_MAX_ATTEMPTS &&
-          this.vercel.isVercelTransientError(error)
-        ) {
-          await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
+        if (this.vercel.isVercelTransientError(error)) {
+          if (attempt < REGISTRAR_ORDER_POLL_MAX_ATTEMPTS) {
+            await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
+          }
           continue
         }
         throw error
@@ -1476,6 +1475,10 @@ export class DomainsService
         await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
       }
     }
+    this.logger.error(
+      { orderId, domainName },
+      'Registrar order was placed and charged but its status could not be confirmed; reconcile manually',
+    )
     throw new Error(
       `Registrar order ${orderId} for ${domainName} did not complete after ` +
         `${REGISTRAR_ORDER_POLL_MAX_ATTEMPTS} polls`,

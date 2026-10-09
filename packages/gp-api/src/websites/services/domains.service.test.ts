@@ -1990,6 +1990,49 @@ describe('DomainsService', () => {
       )
     })
 
+    it('retries a transient error on the final poll and reports the order id when the budget is exhausted', async () => {
+      vi.useFakeTimers()
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      const getRegistrarOrderMock = vi
+        .fn()
+        .mockRejectedValue(new Error('502 Bad Gateway'))
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        isVercelTransientError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        getRegistrarOrder: getRegistrarOrderMock,
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+
+      const registration = service.completeDomainRegistration(10, contact, {
+        skipPaymentVerification: true,
+      })
+      const assertion =
+        expect(registration).rejects.toBeInstanceOf(BadGatewayException)
+      await vi.advanceTimersByTimeAsync(3_000 * 20)
+      await assertion
+
+      expect(getRegistrarOrderMock).toHaveBeenCalledTimes(15)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ orderId: 'order_123' }),
+        expect.stringContaining('placed and charged'),
+      )
+    })
+
     it('marks the domain inactive and throws when the registrar order fails', async () => {
       Object.assign(mockPrisma.domain, {
         findFirst: vi.fn(),
