@@ -228,6 +228,32 @@ describe('POST /v1/test-mode/organizations', () => {
     ])
   })
 
+  it('refuses a won-race bundle that would land one org over the cap', async () => {
+    await Promise.all(
+      Array.from({ length: TEST_ORGANIZATION_CAP - 1 }, (_, i) =>
+        service.prisma.organization.create({
+          data: {
+            slug: `eo-cap-${i}`,
+            ownerId: service.user.id,
+            testModeCreatedAt: new Date(),
+          },
+        }),
+      ),
+    )
+
+    const res = await service.client.post(
+      '/v1/test-mode/organizations',
+      campaignBundle({ election: 'passed_won' }),
+    )
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(
+      await service.prisma.campaign.count({
+        where: { userId: service.user.id },
+      }),
+    ).toBe(0)
+  })
+
   it('refuses the sixteenth test org', async () => {
     await Promise.all(
       Array.from({ length: TEST_ORGANIZATION_CAP }, (_, i) =>

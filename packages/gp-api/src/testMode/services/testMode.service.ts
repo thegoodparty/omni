@@ -141,7 +141,12 @@ export class TestModeService {
     user: User,
     body: CreateTestOrganizationRequest,
   ): Promise<TestModeState> {
-    await this.assertUnderCap(user)
+    // A won-race bundle inserts two orgs; reserve both up front so the
+    // campaign org is never committed only for the office to hit the cap.
+    await this.assertUnderCap(
+      user,
+      body.type === 'campaign' && body.election === 'passed_won' ? 2 : 1,
+    )
 
     const slug =
       body.type === 'campaign'
@@ -257,11 +262,11 @@ export class TestModeService {
     return this.getState(user)
   }
 
-  private async assertUnderCap(user: User) {
+  private async assertUnderCap(user: User, needed = 1) {
     const count = await this.organizations.model.count({
       where: { ownerId: user.id, testModeCreatedAt: { not: null } },
     })
-    if (count >= TEST_ORGANIZATION_CAP) {
+    if (count + needed > TEST_ORGANIZATION_CAP) {
       throw new ConflictException(
         `You already have ${TEST_ORGANIZATION_CAP} test organizations. Delete one first.`,
       )
