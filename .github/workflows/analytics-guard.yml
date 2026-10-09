@@ -57,9 +57,21 @@ jobs:
         id: guard
         if: env.GOVERNANCE_GUARD_MODE != 'off'
         working-directory: packages/runbooks/scripts/python
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set +e
-          base=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          # A stacked PR's base branch is often deleted when the PR under it merges, and
+          # then origin/$BASE_REF does not exist. The base commit GitHub recorded on the
+          # PR still does, so fetch it by SHA rather than error out unchecked.
+          base_tip=$(git rev-parse -q --verify "origin/$BASE_REF^{commit}")
+          if [ -z "$base_tip" ]; then
+            echo "::notice::origin/$BASE_REF is gone; comparing against the PR's recorded base $BASE_SHA"
+            git fetch -q --no-tags origin "$BASE_SHA"
+            base_tip=$BASE_SHA
+          fi
+          base=$(git merge-base "$base_tip" HEAD)
           echo "base=$base" >> "$GITHUB_OUTPUT"
           uv run governance_guard.py check --base "$base" --head HEAD \
             --markdown "$RUNNER_TEMP/guard.md" --summary "$RUNNER_TEMP/guard-full.md" \
