@@ -3,8 +3,10 @@ import { newFixtureUserEmail } from '@/users/util/users.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignStatus } from '@goodparty_org/contracts'
 import {
+  BadGatewayException,
   ConflictException,
   ForbiddenException,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
 import { Campaign, Organization, User, UserRole } from '../generated/prisma'
@@ -320,6 +322,37 @@ describe('CampaignsController', () => {
         ownerName: 'Jared Smith',
       })
       expect(result).not.toHaveProperty('user')
+    })
+
+    it('returns positionName null when election-api is unavailable', async () => {
+      vi.spyOn(
+        organizationsService,
+        'resolvePositionContext',
+      ).mockRejectedValue(new BadGatewayException('election-api down'))
+
+      const result = await controller.findMine({
+        ...mockCampaign,
+        organization: {} as Organization,
+        user: owner,
+      })
+
+      expect(result.positionName).toBeNull()
+      expect(result.ownerName).toBe('Jared Smith')
+    })
+
+    it('rethrows non-upstream errors from position resolution', async () => {
+      vi.spyOn(
+        organizationsService,
+        'resolvePositionContext',
+      ).mockRejectedValue(new InternalServerErrorException('missing'))
+
+      await expect(
+        controller.findMine({
+          ...mockCampaign,
+          organization: {} as Organization,
+          user: owner,
+        }),
+      ).rejects.toBeInstanceOf(InternalServerErrorException)
     })
 
     it('returns ownerName null when the owner has no usable name', async () => {

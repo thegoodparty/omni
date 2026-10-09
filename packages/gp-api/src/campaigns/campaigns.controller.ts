@@ -19,6 +19,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  BadGatewayException,
   ForbiddenException,
   Get,
   HttpCode,
@@ -114,10 +115,21 @@ export class CampaignsController {
     const { organization: org, user: owner, ...campaignFields } = campaign
 
     const [{ positionName }, liveMetrics] = await Promise.all([
-      this.organizations.resolvePositionContext({
-        customPositionName: org?.customPositionName,
-        positionId: org?.positionId,
-      }),
+      this.organizations
+        .resolvePositionContext({
+          customPositionName: org?.customPositionName,
+          positionId: org?.positionId,
+        })
+        .catch((error: unknown) => {
+          // positionName is display-only. A blip in election-api (surfaced as
+          // BadGatewayException) must not take down the whole campaign load.
+          if (!(error instanceof BadGatewayException)) throw error
+          this.logger.warn(
+            { error },
+            'election-api unavailable, returning campaign without positionName',
+          )
+          return { ballotReadyPositionId: null, positionName: null }
+        }),
       this.campaigns.fetchLiveRaceTargetMetrics(campaign),
     ])
 
