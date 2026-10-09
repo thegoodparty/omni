@@ -537,6 +537,27 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     expect(after.freeTextsOfferRedeemedAt).toBeNull()
   })
 
+  it('still restores free-texts and settles voided when voidHold throws', async () => {
+    voidSpy.mockRejectedValue(new Error('stripe unavailable'))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
+      projectId: null,
+      sendInHours: -24,
+    })
+    await markOfferRedeemed(outreachId)
+
+    await expect(reconcile.sweepStrandedAuthorized()).resolves.not.toThrow()
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.voided,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+    const after = await readCampaign()
+    expect(after.hasFreeTextsOffer).toBe(true)
+    expect(after.freeTextsOfferRedeemedAt).toBeNull()
+  })
+
   it('voids exactly once across a double-run (spine pending_payment → canceled CAS)', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,

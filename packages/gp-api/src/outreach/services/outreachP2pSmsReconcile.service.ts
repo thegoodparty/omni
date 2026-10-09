@@ -327,10 +327,18 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
 
     // Void best-effort: the satellite is already terminal `voided` and the hold
     // auto-expires within its ~7-day auth lifetime, so a void failure never
-    // charges. Hand back any free-texts offer regardless — symmetric with the
-    // cancel/deny void path.
+    // charges. The free-texts restore must run REGARDLESS of the void outcome —
+    // symmetric with the cancel/deny void path — so a voidHold throw can never
+    // strand (burn) the offer this send redeemed.
     if (authorizationIntentId) {
-      await this.stripe.voidHold(authorizationIntentId)
+      try {
+        await this.stripe.voidHold(authorizationIntentId)
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId },
+          'win sms release: voidHold threw; hold auto-expires, offer still restored',
+        )
+      }
     }
     await this.restoreBestEffort(outreachId)
     this.logger.info(
