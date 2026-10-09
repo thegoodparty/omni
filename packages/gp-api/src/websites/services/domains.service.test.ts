@@ -39,6 +39,7 @@ import { DomainAvailability } from '@aws-sdk/client-route-53-domains'
 import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 import { VercelError } from '@vercel/sdk/models/vercelerror'
+import { SDKError } from '@vercel/sdk/models/sdkerror'
 import { AuthCodeRequester } from '../domains.types'
 
 const mockUser = createMockUser()
@@ -2000,13 +2001,18 @@ describe('DomainsService', () => {
       })
       service.onModuleInit()
       vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
-      const getRegistrarOrderMock = vi
-        .fn()
-        .mockRejectedValue(new Error('502 Bad Gateway'))
+      const realVercel = new VercelService(createMockLogger())
+      const getRegistrarOrderMock = vi.fn().mockRejectedValue(
+        new SDKError('Bad Gateway', {
+          response: new Response('', { status: 502 }),
+          request: new Request('https://api.vercel.com/'),
+          body: '',
+        }),
+      )
       Object.assign(mockVercel, {
         getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
         isVercelNotFoundError: vi.fn().mockReturnValue(true),
-        isVercelTransientError: vi.fn().mockReturnValue(true),
+        isVercelTransientError: realVercel.isVercelTransientError,
         purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
         getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
         getRegistrarOrder: getRegistrarOrderMock,
@@ -2027,6 +2033,11 @@ describe('DomainsService', () => {
       await assertion
 
       expect(getRegistrarOrderMock).toHaveBeenCalledTimes(15)
+      expect(mockPrisma.domain.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: DomainStatus.inactive },
+        }),
+      )
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ orderId: 'order_123' }),
         expect.stringContaining('placed and charged'),

@@ -118,6 +118,11 @@ const DOMAIN_PURCHASE_IN_PROGRESS_MESSAGE =
 const REGISTRAR_ORDER_POLL_INTERVAL_MS = 3_000
 const REGISTRAR_ORDER_POLL_MAX_ATTEMPTS = 15
 
+// The registrar order was placed and charged but its status could not be
+// confirmed. The domain must not be marked inactive: that would strand a paid
+// purchase and make a retry fail with "no longer available".
+class RegistrarOrderUnconfirmedError extends Error {}
+
 const GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS = 'candidate-domains@goodparty.org'
 
 const { ENABLE_DOMAIN_PURCHASE } = process.env
@@ -1385,10 +1390,12 @@ export class DomainsService
       } catch (error) {
         this.logger.error({ error }, 'Error registering domain with Vercel:')
 
-        await this.model.update({
-          where: { id: domain.id },
-          data: { status: DomainStatus.inactive },
-        })
+        if (!(error instanceof RegistrarOrderUnconfirmedError)) {
+          await this.model.update({
+            where: { id: domain.id },
+            data: { status: DomainStatus.inactive },
+          })
+        }
 
         throw new BadGatewayException(
           `Failed to register domain with Vercel: ${
@@ -1443,6 +1450,7 @@ export class DomainsService
     orderId: string,
     domainName: string,
   ): Promise<void> {
+    let lastPollTransientlyFailed = false
     for (
       let attempt = 1;
       attempt <= REGISTRAR_ORDER_POLL_MAX_ATTEMPTS;
@@ -1451,10 +1459,12 @@ export class DomainsService
       let order: Awaited<ReturnType<VercelService['getRegistrarOrder']>>
       try {
         order = await this.vercel.getRegistrarOrder(orderId)
+        lastPollTransientlyFailed = false
       } catch (error) {
         // The order is already placed and charged; a transient Vercel blip while
         // polling must not mark the domain inactive and strand the purchase.
         if (this.vercel.isVercelTransientError(error)) {
+          lastPollTransientlyFailed = true
           if (attempt < REGISTRAR_ORDER_POLL_MAX_ATTEMPTS) {
             await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
           }
@@ -1479,10 +1489,14 @@ export class DomainsService
       { orderId, domainName },
       'Registrar order was placed and charged but its status could not be confirmed; reconcile manually',
     )
-    throw new Error(
+    const message =
       `Registrar order ${orderId} for ${domainName} did not complete after ` +
-        `${REGISTRAR_ORDER_POLL_MAX_ATTEMPTS} polls`,
-    )
+      `${REGISTRAR_ORDER_POLL_MAX_ATTEMPTS} polls`
+    // Only a status we never managed to read is "unconfirmed"; an order seen
+    // pending on every poll keeps the existing inactive behavior.
+    throw lastPollTransientlyFailed
+      ? new RegistrarOrderUnconfirmedError(message)
+      : new Error(message)
   }
 
   async configureDomain(websiteId: number) {
