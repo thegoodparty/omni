@@ -53,22 +53,16 @@ const mockTcr = (
       | 'status'
       | 'peerlyIdentityId'
       | 'internalTestingAt'
-      | 'internalTestingApprovedAt'
       | 'cvValidationFailedAt'
     >
   >,
 ): Pick<
   TcrCompliance,
-  | 'status'
-  | 'peerlyIdentityId'
-  | 'internalTestingAt'
-  | 'internalTestingApprovedAt'
-  | 'cvValidationFailedAt'
+  'status' | 'peerlyIdentityId' | 'internalTestingAt' | 'cvValidationFailedAt'
 > => ({
   status: TcrComplianceStatus.submitted,
   peerlyIdentityId: null,
   internalTestingAt: null,
-  internalTestingApprovedAt: null,
   cvValidationFailedAt: null,
   ...overrides,
 })
@@ -283,7 +277,7 @@ describe('deriveComplianceStage', () => {
         null,
         mockTcr({
           status: TcrComplianceStatus.approved,
-          internalTestingApprovedAt: new Date(),
+          internalTestingAt: new Date(),
         }),
       ),
     ).toBe(ComplianceStage.tcr_approved)

@@ -430,7 +430,6 @@ describe('CampaignTcrComplianceController', () => {
         ...mockTcrCompliance,
         status: TcrComplianceStatus.approved,
         internalTestingAt: new Date('2026-10-01T00:00:00Z'),
-        internalTestingApprovedAt: new Date('2026-10-01T00:00:00Z'),
       })
 
       await controller.submitCampaignVerifyPIN(
