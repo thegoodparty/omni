@@ -29,7 +29,12 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   branches in `DashboardContent`, `CampaignPlanPage`, `CampaignPlanRouter`,
   `DashboardMenu` and `DashboardLayout`, and the old nav label and icon keys.
   The server changes (dates, skip, tasks closing themselves) apply to
-  everyone either way.
+  everyone either way. Both Homes fire the same task events
+  (`Campaign Plan - Task Action Taken` on a CTA click, `Dashboard - Campaign
+  Task Completed` on Mark done, `source: 'campaign_manager'`), so the arms
+  compare on one series split by the flag's exposure. The control's prompt
+  cards fire `Campaign Manager - Prompt Card Action Taken`, which goes with
+  `campaign-manager/legacy/` when the flag is removed.
 
 - **Phase headings stick at both ends.** Each phase's heading (name, a
   progress bar of done over not-set-aside tasks) sticks to the top while its tasks scroll,
