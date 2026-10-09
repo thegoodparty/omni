@@ -7,6 +7,7 @@ import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { ContactsService } from 'src/contacts/services/contacts.service'
 import { MAX_AUDIENCE_RECIPIENTS } from 'src/contacts/utils/audienceResolution.util'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
+import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { PeerlyPhoneList } from 'src/generated/prisma'
 import { PhoneListState } from 'src/vendors/peerly/peerly.types'
 import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
@@ -43,12 +44,16 @@ const mockPeerlyPhoneListCapture = {
 } as unknown as PeerlyPhoneListCaptureService
 
 const mockContactsService = {
-  getListDetail: vi.fn(),
+  findContactsForFilter: vi.fn(),
 } as unknown as ContactsService
 
 const mockOrganizationsService = {
   findFirst: vi.fn(),
 } as unknown as OrganizationsService
+
+const mockVoterFileFilterService = {
+  findByIdAndOrganizationSlug: vi.fn(),
+} as unknown as VoterFileFilterService
 
 const mockP2pSmsHold = {
   recordHold: vi.fn(),
@@ -68,6 +73,7 @@ const service = new OutreachPurchaseHandlerService(
   mockPeerlyPhoneListCapture,
   mockContactsService,
   mockOrganizationsService,
+  mockVoterFileFilterService,
   mockP2pSmsHold,
   mockP2pSmsCapture,
   mockLogger,
@@ -1036,55 +1042,61 @@ describe('OutreachPurchaseHandlerService', () => {
     // --- PRE-BUILD estimate (slice D2a): pay before the list is built. ---
     //
     // This file has no per-test mock reset, so an unconsumed `...Once` queue
-    // leaks into the next test. These two helpers queue exactly what each path
-    // consumes: a build-row lookup, and (only when the path reaches it) the
-    // match-count read.
+    // leaks into the next test. These helpers queue exactly what each path
+    // consumes, in order: the build-row lookup (carrying the request snapshot the
+    // estimate now reads), then the saved-filter lookup, then the has-cell count.
 
-    // A build that has NOT reached `ready` yet. voterFileFilterId null exercises
-    // the "needs a saved list" guard, which throws BEFORE any match-count read —
-    // so such a test must NOT queue one.
-    const queuePreBuildRow = (voterFileFilterId: number | null) => {
+    // A build NOT yet `ready`, carrying the request snapshot the build will
+    // re-resolve — the estimate reads THIS, not the row's voterFileFilterId
+    // column, so it prices the same merged filter the build resolves.
+    const queuePreBuildRow = (
+      requestSnapshot: Record<string, unknown> | null,
+    ) => {
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce({
         ...CAPTURED_LIST_FIXTURE,
         buildStatus: 'processing',
         peerlyListId: null,
-        voterFileFilterId,
+        requestSnapshot: requestSnapshot as never,
       })
     }
 
-    const queueMatchCount = (smsReachable: number | null) => {
+    const queueSavedFilter = (savedFilter: Record<string, unknown> | null) => {
+      vi.mocked(
+        mockVoterFileFilterService.findByIdAndOrganizationSlug,
+      ).mockResolvedValueOnce(savedFilter as never)
+    }
+
+    const queueCount = (totalResults: number) => {
       vi.mocked(mockOrganizationsService.findFirst).mockResolvedValueOnce({
         slug: CAPTURED_LIST_FIXTURE.organizationSlug,
       } as never)
-      vi.mocked(mockContactsService.getListDetail).mockResolvedValueOnce({
-        demographics: { people: 0, avgAge: null, avgIncome: null },
-        reachability: {
-          sms: smsReachable,
-          robocall: null,
-          phoneBanking: null,
-          doorKnocking: null,
-          polls: null,
-        },
-        outreachHistory: [],
-      })
+      vi.mocked(
+        mockContactsService.findContactsForFilter,
+      ).mockResolvedValueOnce({
+        people: [],
+        pagination: { totalResults },
+      } as never)
     }
 
-    it('flag ON + build NOT ready: holds the UNDISCOUNTED match-count estimate (reachability.sms), not a live leads_loaded fetch', async () => {
+    it('flag ON + build NOT ready: holds the UNDISCOUNTED has-cell count of the merged filter, not a live leads_loaded fetch', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-      queuePreBuildRow(55)
-      queueMatchCount(5000)
+      queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
+      queueSavedFilter({ id: 55, search: null })
+      queueCount(5000)
 
       const amount = await service.calculateAmount({
         ...purchaseMetadata,
         contactCount: 4000,
       })
 
-      // Priced off the match count, undiscounted — the upper bound the hold
-      // authorizes before the list exists.
+      // Priced off the merged-filter has-cell count, undiscounted — the upper
+      // bound the hold authorizes before the list exists.
       expect(amount).toBe(calcTextAmountInCents(5000))
-      // The estimate came from the saved list, re-derived server-side.
-      expect(mockContactsService.getListDetail).toHaveBeenCalledWith(
-        { segment: 55 },
+      // Counted the SAME way the build does: findContactsForFilter with
+      // hasCellPhone forced, never a saved-filter-only aggregate.
+      expect(mockContactsService.findContactsForFilter).toHaveBeenCalledWith(
+        expect.objectContaining({ hasCellPhone: true }),
+        { resultsPerPage: 1, page: 1 },
         expect.objectContaining({
           slug: CAPTURED_LIST_FIXTURE.organizationSlug,
         }),
@@ -1095,38 +1107,82 @@ describe('OutreachPurchaseHandlerService', () => {
       ).not.toHaveBeenCalled()
     })
 
+    it('flag ON + build NOT ready: estimate reflects a snapshot that WIDENS the saved filter (search null overrides a saved search) — the upper bound holds', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      // Saved filter is narrowed by a search term; the round-tripped build request
+      // sends search: null, so the build resolves a WIDER audience. The estimate
+      // must count that merged (wider) filter, not the saved narrowing.
+      queuePreBuildRow({ name: 'x', voterFileFilterId: 55, search: null })
+      queueSavedFilter({ id: 55, search: 'narrow-term' })
+      queueCount(9000)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 4000,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(9000))
+      // The count ran against the MERGED filter: the snapshot's null search
+      // overrides the saved narrowing, so the wider audience is what was priced.
+      expect(mockContactsService.findContactsForFilter).toHaveBeenCalledWith(
+        expect.objectContaining({ search: null, hasCellPhone: true }),
+        { resultsPerPage: 1, page: 1 },
+        expect.anything(),
+      )
+    })
+
     it('flag ON + build NOT ready: requires build-ready when the estimate is a free ($0/sub-50c) send', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // 10 reachable = 35c, below Stripe's 50c floor: a pre-build free send would
       // place no hold and strand, so it is refused until the build is ready.
-      queuePreBuildRow(55)
-      queueMatchCount(10)
+      queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
+      queueSavedFilter({ id: 55, search: null })
+      queueCount(10)
 
       await expect(
         service.calculateAmount({ ...purchaseMetadata, contactCount: 10 }),
       ).rejects.toThrow(BadRequestException)
     })
 
-    it('flag ON + build NOT ready: rejects a pre-build pay with no saved voter list (no segment to estimate)', async () => {
+    it('flag ON + build NOT ready: rejects a pre-build pay with no saved voter list in the snapshot', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-      // No saved list: throws BEFORE any match-count read, so none is queued.
+      // Snapshot carries no voterFileFilterId: throws BEFORE any filter/count
+      // read, so none is queued.
+      queuePreBuildRow({ name: 'x' })
+
+      await expect(
+        service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
+      ).rejects.toThrow(BadRequestException)
+      expect(
+        mockVoterFileFilterService.findByIdAndOrganizationSlug,
+      ).not.toHaveBeenCalled()
+      expect(mockContactsService.findContactsForFilter).not.toHaveBeenCalled()
+    })
+
+    it('flag ON + build NOT ready: fails closed on a missing/invalid request snapshot', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      // A null snapshot is what the async build itself would reject (park failed),
+      // so the estimate must not fall back to some other filter — it throws.
       queuePreBuildRow(null)
 
       await expect(
         service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
       ).rejects.toThrow(BadRequestException)
-      // Fail-closed: never queries the match count without a segment.
-      expect(mockContactsService.getListDetail).not.toHaveBeenCalled()
+      expect(
+        mockVoterFileFilterService.findByIdAndOrganizationSlug,
+      ).not.toHaveBeenCalled()
     })
 
-    it('flag ON + build NOT ready: fails closed when the match count is unavailable (null reachability.sms)', async () => {
+    it('flag ON + build NOT ready: fails closed when the snapshot references a filter this org cannot see', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-      queuePreBuildRow(55)
-      queueMatchCount(null)
+      queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
+      queueSavedFilter(null)
 
       await expect(
         service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
       ).rejects.toThrow(BadRequestException)
+      // Never counts off an unresolved filter.
+      expect(mockContactsService.findContactsForFilter).not.toHaveBeenCalled()
     })
 
     it('flag ON + build FAILED: refuses checkout (a hold would strand — no build-ready edge)', async () => {
@@ -1141,16 +1197,19 @@ describe('OutreachPurchaseHandlerService', () => {
       await expect(
         service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
       ).rejects.toThrow(BadRequestException)
-      // Rejected on build status alone — never reaches the estimate (no org
-      // lookup, no match-count read).
-      expect(mockOrganizationsService.findFirst).not.toHaveBeenCalled()
-      expect(mockContactsService.getListDetail).not.toHaveBeenCalled()
+      // Rejected on build status alone — never reaches the estimate (no filter
+      // lookup, no count).
+      expect(
+        mockVoterFileFilterService.findByIdAndOrganizationSlug,
+      ).not.toHaveBeenCalled()
+      expect(mockContactsService.findContactsForFilter).not.toHaveBeenCalled()
     })
 
     it('flag ON + build NOT ready: refuses a filter over the phone-list limit (a hold would strand — the build cannot complete)', async () => {
       vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-      queuePreBuildRow(55)
-      queueMatchCount(MAX_AUDIENCE_RECIPIENTS + 1)
+      queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
+      queueSavedFilter({ id: 55, search: null })
+      queueCount(MAX_AUDIENCE_RECIPIENTS + 1)
 
       await expect(
         service.calculateAmount({ ...purchaseMetadata, contactCount: 4000 }),
@@ -1169,7 +1228,7 @@ describe('OutreachPurchaseHandlerService', () => {
 
       expect(amount).toBe(calcTextAmountInCents(500))
       // The ready path never reaches the pre-build match-count estimate.
-      expect(mockContactsService.getListDetail).not.toHaveBeenCalled()
+      expect(mockContactsService.findContactsForFilter).not.toHaveBeenCalled()
     })
 
     it('flag ON: records the hold before finalizing a paid (cs_) session', async () => {

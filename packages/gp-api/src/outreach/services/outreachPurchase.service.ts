@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { isAxiosError } from 'axios'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { ContactsService } from 'src/contacts/services/contacts.service'
+import {
+  ContactsFilterResolutionInput,
+  ContactsService,
+} from 'src/contacts/services/contacts.service'
 import { MAX_AUDIENCE_RECIPIENTS } from 'src/contacts/utils/audienceResolution.util'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
@@ -9,6 +12,8 @@ import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
+import { p2pPhoneListRequestSchema } from 'src/vendors/peerly/schemas/p2pPhoneListRequest.schema'
+import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import {
   isWinSmsHoldBillingEnabled,
   WIN_SMS_HOLD_MIN_CENTS,
@@ -29,6 +34,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly contactsService: ContactsService,
     private readonly organizationsService: OrganizationsService,
+    private readonly voterFileFilterService: VoterFileFilterService,
     private readonly p2pSmsHold: OutreachP2pSmsHoldService,
     private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
     private readonly logger: PinoLogger,
@@ -162,40 +168,39 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
   }
 
-  // The pre-build hold amount: the has-cell match count of the build's saved
-  // voter list (getListDetail reachability.sms) priced undiscounted.
+  // The pre-build hold amount: the has-cell match count of the EXACT filter the
+  // build will resolve, priced undiscounted.
   //
-  // UPPER-BOUND PROOF (money-safety): reachability.sms is the same pre-pay figure
-  // the webapp shows, and is provably >= the eventual leads_loaded, because the
-  // build is strictly SUBTRACTIVE from it: it resolves the same filter with
-  // hasCellPhone forced (the reachability.sms set), then removes rows with an
-  // incomplete address, duplicate phones and org opt-outs, and Peerly then runs
-  // its own DNC scrub. So capture (clamped to this hold) is never clamped DOWN,
-  // and the send never costs more than was authorized.
+  // UPPER-BOUND PROOF (money-safety): the build resolves the request snapshot
+  // MERGED over the saved filter (resolveFilterInput: `{ ...savedFilter,
+  // ...snapshotFilterInput }`) with hasCellPhone forced, then subtracts
+  // (incomplete address, duplicate phones, org opt-outs) and Peerly runs its DNC
+  // scrub. This estimate counts that SAME merged filter with hasCellPhone forced
+  // (and WITHOUT the opt-out subtraction, so it is if anything larger) — so it is
+  // provably >= the eventual leads_loaded regardless of what the client round-
+  // trips. Pricing off the saved filter ALONE would break the bound: the FE
+  // round-trips the whole row, and a saved narrowing (e.g. `search`) that the
+  // snapshot overrides to null (search is nullish) would make the build resolve a
+  // WIDER audience than a saved-filter-only count saw.
   private async resolvePreBuildHoldAmount(build: {
-    voterFileFilterId: number | null
     organizationSlug: string
+    requestSnapshot: unknown
   }): Promise<number> {
-    // A SAVED voter list is required so the estimate is the filter's has-cell
-    // count. Without one the only match count getListDetail could give is the
-    // whole district's (segment undefined) — a valid but absurdly loose upper
-    // bound that would place a huge hold. Fail closed instead.
-    if (build.voterFileFilterId === null) {
-      throw new BadRequestException(
-        'A saved voter list is required to pay before the phone list is built',
-      )
-    }
+    const mergedFilter = await this.resolveBuildMergedFilter(build)
 
-    const matchCount = await this.resolveSmsMatchCount(
-      build.voterFileFilterId,
+    const matchCount = await this.countSmsReachable(
+      mergedFilter,
       build.organizationSlug,
     )
 
-    // OVER THE BUILD LIMIT: the build refuses a filter matching more than
-    // MAX_AUDIENCE_RECIPIENTS (resolveFilterAudience's cap, which the build
-    // measures on the same hasCellPhone-forced count this estimate reads). A hold
-    // placed on such a filter would strand — the build can never complete to
-    // finalize/capture it. Refuse checkout before the hold is placed.
+    // OVER THE BUILD LIMIT (conservative, fail-closed): the async build caps on
+    // RESOLVED recipients (matchCount minus incomplete-address/duplicate/opt-out
+    // rows), not this matched has-cell count, so matchCount is an UPPER bound of
+    // what the build would resolve. Refusing when it exceeds the cap can turn away
+    // a filter the build could still complete (matched over the cap but resolving
+    // under it) — the safe error: it never places a hold on a filter whose build
+    // would overrun the cap and strand it. A precise check would need the full
+    // resolution, which is the build's job, not the estimate's.
     if (matchCount > MAX_AUDIENCE_RECIPIENTS) {
       throw new BadRequestException(
         `This voter list matches over the ${MAX_AUDIENCE_RECIPIENTS} ` +
@@ -220,13 +225,51 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return estimate
   }
 
-  // The has-cell match count for a saved voter list — the pre-pay SMS
-  // reachability figure (getListDetail reachability.sms), re-derived server-side
-  // so the hold never trusts a client-supplied count. Money code: a missing org
-  // or a null count fails closed rather than placing a hold off an unknown
-  // basis.
-  private async resolveSmsMatchCount(
-    voterFileFilterId: number,
+  // Rebuilds the EXACT filter the queued build will resolve, from the build's own
+  // stored request snapshot — mirroring P2pPhoneListUploadService.resolveFilterInput
+  // (`{ ...savedFilter, ...snapshotFilterInput }`) so the estimate and the build
+  // can never diverge. Fail-closed: an absent/invalid snapshot (the async build
+  // itself would reject it and park `failed`) and a missing saved list both throw
+  // rather than estimating off a different filter. A SAVED voter list is required
+  // (the pre-build flow is saved-list based) so the estimate is never the whole
+  // district's has-cell count.
+  private async resolveBuildMergedFilter(build: {
+    organizationSlug: string
+    requestSnapshot: unknown
+  }): Promise<ContactsFilterResolutionInput> {
+    const parsed = p2pPhoneListRequestSchema.safeParse(build.requestSnapshot)
+    if (!parsed.success) {
+      throw new BadRequestException(
+        'The phone list build request is missing or invalid; cannot estimate',
+      )
+    }
+    const { name: _name, ...filterInput } = parsed.data
+    if (!filterInput.voterFileFilterId) {
+      throw new BadRequestException(
+        'A saved voter list is required to pay before the phone list is built',
+      )
+    }
+    const filter =
+      await this.voterFileFilterService.findByIdAndOrganizationSlug(
+        filterInput.voterFileFilterId,
+        build.organizationSlug,
+      )
+    if (!filter) {
+      throw new BadRequestException('Voter list not found for this purchase')
+    }
+    // EXACTLY the build's merge order — snapshot fields override the saved row.
+    return { ...filter, ...filterInput }
+  }
+
+  // Counts the has-cell-phone set of a resolved filter the SAME way the build
+  // does: findContactsForFilter with hasCellPhone forced, read as the page-1
+  // total. This is the build's own matched count (resolveFilterAudience forces
+  // the same constraint and pages off the same total); the build then only
+  // subtracts from it, so this is a true upper bound of leads_loaded. The opt-out
+  // scrub is deliberately NOT applied here — omitting it can only make the count
+  // larger, which keeps the bound. Money code: a missing org fails closed.
+  private async countSmsReachable(
+    mergedFilter: ContactsFilterResolutionInput,
     organizationSlug: string,
   ): Promise<number> {
     const organization = await this.organizationsService.findFirst({
@@ -235,17 +278,12 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     if (!organization) {
       throw new BadRequestException('Organization not found for this purchase')
     }
-    const detail = await this.contactsService.getListDetail(
-      { segment: voterFileFilterId },
+    const { pagination } = await this.contactsService.findContactsForFilter(
+      { ...mergedFilter, hasCellPhone: true },
+      { resultsPerPage: 1, page: 1 },
       organization,
     )
-    const smsReachable = detail.reachability.sms
-    if (smsReachable === null) {
-      throw new BadRequestException(
-        'Could not estimate the SMS-reachable audience for this list',
-      )
-    }
-    return smsReachable
+    return pagination.totalResults
   }
 
   // p2p purchases must never bill off the client-supplied contactCount — it
