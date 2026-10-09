@@ -52,8 +52,15 @@ describe('OrganizationsService', () => {
       memberships: [],
     }
 
+    const mockFindMany = vi.fn()
+    beforeEach(() => {
+      ;(service as unknown as { _prisma: unknown })._prisma = {
+        organization: { findMany: mockFindMany },
+      }
+    })
+
     it('lists the org without a position when election-api is unreachable', async () => {
-      vi.spyOn(service.model, 'findMany').mockResolvedValue([org] as never)
+      mockFindMany.mockResolvedValue([org])
       mockGetPositionById.mockRejectedValue(new BadGatewayException('down'))
 
       const result = await service.listOrganizations(1)
@@ -67,7 +74,7 @@ describe('OrganizationsService', () => {
     })
 
     it('still throws non-upstream errors', async () => {
-      vi.spyOn(service.model, 'findMany').mockResolvedValue([org] as never)
+      mockFindMany.mockResolvedValue([org])
       mockGetPositionById.mockRejectedValue(new Error('boom'))
 
       await expect(service.listOrganizations(1)).rejects.toThrow('boom')
