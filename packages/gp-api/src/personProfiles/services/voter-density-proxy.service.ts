@@ -26,6 +26,16 @@ interface ElectionApiVoterDensity {
 const CACHE_TTL_MS = 60_000
 const MAX_CACHE_ENTRIES = 1_000
 
+// A crawl burst on the public page can make election-api briefly shed or slow
+// requests (5xx, resets, timeouts). One bounded retry absorbs those blips so
+// they do not surface as 502s; a sustained outage still fails after the retry.
+const UPSTREAM_TIMEOUT_MS = 15_000
+const UPSTREAM_RETRY_DELAY_MS = 250
+const MAX_UPSTREAM_ATTEMPTS = 2
+
+const isTransient = (error: unknown): boolean =>
+  isAxiosError(error) && (!error.response || error.response.status >= 500)
+
 /**
  * Serves the public /people page's heat map out of election-db, where the
  * precomputed cells sit beside the `District` they are keyed on, so one call
@@ -98,27 +108,42 @@ export class VoterDensityProxyService {
     this.cache.set(personId, { value, expiresAtMs: now + CACHE_TTL_MS })
   }
 
-  /** Resolves to null on a 404; throws a 502 on anything else. */
+  /** Resolves to null on a 404; retries transient failures once, else 502. */
   private async getFromElectionApi<T>(
     url: string,
     personId: string,
     failureMessage: string,
   ): Promise<T | null> {
-    try {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.fetchOnce<T>(url)
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.status === 404) {
+          return null
+        }
+        if (attempt < MAX_UPSTREAM_ATTEMPTS && isTransient(error)) {
+          await new Promise((r) => setTimeout(r, UPSTREAM_RETRY_DELAY_MS))
+          continue
+        }
+        this.logger.error({ error, personId, attempt }, failureMessage)
+        throw new BadGatewayException('Failed to resolve district')
+      }
+    }
+  }
+
+  private async fetchOnce<T>(url: string): Promise<T | null> {
+    {
       // election-api is M2M-locked; attach the Clerk bearer like every other
       // gp-api → election-api caller. Without it these reads 401 (a 401 is not
       // a 404, so the caller would 502 instead of degrading to "no district").
       const headers = await this.tokenService.authHeader()
       const response = await lastValueFrom(
-        this.httpService.get<T>(url, { headers }),
+        this.httpService.get<T>(url, {
+          headers,
+          timeout: UPSTREAM_TIMEOUT_MS,
+        }),
       )
       return response.data ?? null
-    } catch (error) {
-      if (isAxiosError(error) && error.response?.status === 404) {
-        return null
-      }
-      this.logger.error({ error, personId }, failureMessage)
-      throw new BadGatewayException('Failed to resolve district')
     }
   }
 
