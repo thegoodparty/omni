@@ -76,9 +76,11 @@ describe('public-campaigns-lookup-error-ratio', () => {
     expect(alert!.expr).toContain('response_statusCode != 404')
   })
 
-  // Without a floor, a quiet window turns one stray 500 into a page.
+  // Without a floor, a quiet window turns one stray 500 into a page. The
+  // floor filters the denominator in place, so under it there is nothing to
+  // divide by and the rule reads no data.
   it('holds fire below a minimum volume of resolvable lookups', () => {
-    expect(alert!.expr).toMatch(/and .*> \d+/s)
+    expect(alert!.expr).toMatch(/\/ \( sum.*\[10m\]\)\) > \d+ \) \)$/s)
   })
 })
 
@@ -133,7 +135,7 @@ describe('public-person-profiles-error-ratio', () => {
   // Per route, so a quiet route cannot page on a single 500. The series drops
   // out below the floor, which grafana.ts maps to OK via noDataState.
   it('holds fire below a minimum volume of resolvable lookups', () => {
-    expect(alert!.expr).toMatch(/and .*> \d+/s)
+    expect(alert!.expr).toMatch(/\/ \( sum by .*\[10m\]\)\) > \d+ \) \)$/s)
   })
 
   // What this rule has and the sibling does not. Grafana turns each returned
@@ -177,15 +179,15 @@ describe('public-person-profiles-error-ratio', () => {
   // And in the denominator too. Failures that are not also traffic push the
   // ratio above 100% during a pure timeout wave, and leave the volume floor
   // guarding a smaller population than the ratio it is supposed to qualify.
-  // Three occurrences: once as a failure, and once in each of the two places
-  // the non-404 population is counted — the ratio, and the floor.
+  // Two occurrences: once as a failure, and once in the non-404 population,
+  // which the floor now filters in place rather than counting a second time.
   it('counts that request as traffic as well as as a failure', () => {
     expect(alert!.expr).toContain(
       '( response_statusCode != 404 ) or ( response_statusCode = "" )',
     )
 
     const occurrences = alert!.expr.match(/response_statusCode = ""/g) ?? []
-    expect(occurrences.length).toBe(3)
+    expect(occurrences.length).toBe(2)
   })
 
   // The prose is what the responder reads at 3am, and a rule that pages on a
@@ -197,20 +199,33 @@ describe('public-person-profiles-error-ratio', () => {
   })
 })
 
+/** Seconds covered by every range vector in a LogQL expression, summed. */
+const totalRangeSeconds = (expr: string) =>
+  [...expr.matchAll(/\[(\d+)([smhd])\]/g)].reduce(
+    (sum, [, amount, unit]) => sum + toSeconds(amount!, unit!),
+    0,
+  )
+
 /**
  * How many times a day a rule re-reads the same logs. Loki bills the bytes an
- * evaluation decompresses, and an evaluation decompresses its whole fetch
- * window, so a rule's daily read volume is proportional to window ÷ interval
- * and to nothing else about the query.
+ * evaluation decompresses. Log rules run as instant queries, which read each
+ * range vector in the expression once and nothing else, so a rule's daily read
+ * volume is the sum of its vectors ÷ its interval and nothing else about the
+ * query changes it. A ratio with `[10m]` on each side of the division reads
+ * twenty minutes per evaluation.
  *
- * It is also, conveniently, the rule's daily read volume expressed as a
- * multiple of what we ingest — which is the unit the allowance is denominated
- * in. A rule at 96 reads 96x our ingest per day.
+ * It is also, conveniently, the rule's daily read volume as a multiple of the
+ * gp-api prod stream, which is the only stream any of them selects. A rule at
+ * 12 reads twelve days of gp-api prod logs every day.
+ *
+ * This used to be fetch window ÷ interval, and it undercounted by more than
+ * half. The rules ran as range queries then, which read the fetch window PLUS
+ * the vector, and the ratio rules counted their denominator twice.
  */
 const rereadFactor = (alert: Alert | RecordingRule) =>
   'metric' in alert
     ? (alert.fromSeconds - alert.toSeconds) / alert.intervalSeconds
-    : (alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS) /
+    : totalRangeSeconds(alert.expr) /
       (alert.evaluationIntervalSeconds ?? DEFAULT_EVALUATION_SECONDS)
 
 /**
@@ -254,41 +269,36 @@ const MAX_REREAD_FACTOR = 24
 /**
  * The most of the allowance every scheduled read may be budgeted for, together.
  *
- * The allowance is 100x ingest and it is shared three ways this number has to
- * respect: every rule in the set, BOTH environments (dev and prod provision the
- * same definitions and each reads its own stream, so the pair spends the sum),
- * and ad-hoc queries — measured at 149 GB/day on 2026-09-29, about 14% of the
- * allowance, which nothing in a test can bound.
+ * The allowance is 100x ingest, and it is shared by every rule in this set and
+ * by ad-hoc queries, which nothing in a test can bound (about 300 GB/day
+ * averaged over the week to 2026-10-09, nearly all of it agents through the
+ * Grafana MCP). Only prod provisions alerting, so the set is spent once.
  *
- * Calibration, so this is a measurement rather than a preference: on 2026-09-29
- * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
- * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
- * GB/day, or roughly half the allowance, leaving the other half for humans and
- * for whatever the next alert needs. The set totals 130 today — at the ceiling.
+ * Calibration, so this is a measurement rather than a preference. One unit is
+ * one day of the gp-api prod stream, which every rule here selects: on
+ * 2026-10-09 an instant [10m] read of it was 19-21 MB at mid-morning traffic,
+ * so a unit is 2-3 GB/day. At 120 that is 240-360 GB/day, a fifth to a
+ * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
+ * over the month), leaving the rest for humans and agents.
  *
- * WHAT THE REMAINING HEADROOM WILL AND WILL NOT BUY, since this is where the
- * next person will want to spend it. 124 of those 130 are the thirteen
- * hand-written log alerts; the five route alerts are 5 and the door-knocking
- * recording rule is 1. The set now sits AT the total ceiling, so the next log
- * alert cannot be a hand-written Loki rule at all — it needs a recording rule
- * (win-sms-critical is at the minimum factor of 1 already: a [5m] window read
- * every 5 minutes). A rule at the per-rule ceiling of 24 does not fit, and
- * neither does putting the four Geoapify tiers back on Loki — a 24h window
- * cannot be evaluated more than once an hour without breaching that ceiling on
- * its own, so four of them is 96. That is why door-knocking spend is the one
- * thing still read through a recording rule.
+ * The set totals 92 today: 7 for the seven event rules at the floor of 1, 5
+ * for the five route rules, 1 for the door-knocking recording rule, and 79
+ * for the six that need a window wider than their interval (the two ratio
+ * rules at 20 each, admin impersonation at 10, the two 6h rules at 12 each,
+ * the email lookup at 5). Before the move to instant queries and the removal
+ * of dev alerting the same rules cost about 340 per environment, twice over.
  *
- * The factor is a per-rule lower bound rather than an exact cost, which the
- * calibration absorbs on average and is worth knowing when reading one line of
- * the breakdown: the two ratio rules evaluate their stream three times inside a
- * single expression (numerator, denominator, volume floor), so each costs about
- * three times what its factor says.
+ * A rule that fires on any occurrence of a line belongs at the floor: a [1m]
+ * window every minute with `keepFiringFor` (EVENT RULES in alerts.ts). A rule
+ * that needs a wide window pays that width every evaluation, so that is where
+ * the headroom goes.
  *
- * If this test fails, the answer is almost never a bigger number here. It is a
- * recording rule: one Loki read a minute, shared by every alert that wants a
- * window wider than a minute. See RECORDING_RULES in provisioned-alerts.ts.
+ * If this test fails, the answer is almost never a bigger number here. It is
+ * a narrower window, a slower interval, or a recording rule: one Loki read a
+ * minute, shared by every alert that wants a window wider than a minute. See
+ * RECORDING_RULES in provisioned-alerts.ts.
  */
-const MAX_TOTAL_REREAD_FACTOR = 130
+const MAX_TOTAL_REREAD_FACTOR = 120
 
 describe('people-person-id-repoint-collision', () => {
   const alert = GLOBAL_ALERTS.find(
@@ -372,6 +382,39 @@ describe('evaluation intervals', () => {
       .map((rule) => `${rule.slug}: ${rereadFactor(rule)} re-reads/day`)
 
     expect(offenders).toEqual([])
+  })
+
+  // Log rules are instant queries, so what a rule reads is its range vector
+  // and the window Grafana shows is only a label. Holding the two equal keeps
+  // that label true: the rule list, the message and the bill describe the
+  // same span.
+  it('shows every log rule the window it reads', () => {
+    const mismatched = scheduledLokiReads()
+      .filter((rule): rule is Alert => !('metric' in rule))
+      .filter(
+        (rule) =>
+          (rule.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS) !==
+          widestRangeSeconds(rule.expr),
+      )
+      .map((rule) => rule.slug)
+
+    expect(mismatched).toEqual([])
+  })
+
+  // A window narrower than the interval leaves a gap no evaluation reads, and
+  // a line in it never pages. Equal is the floor, which is what the event
+  // rules and the route rules sit at.
+  it('leaves no gap between one evaluation and the next', () => {
+    const gapped = scheduledLokiReads()
+      .filter((rule): rule is Alert => !('metric' in rule))
+      .filter(
+        (rule) =>
+          widestRangeSeconds(rule.expr) <
+          (rule.evaluationIntervalSeconds ?? DEFAULT_EVALUATION_SECONDS),
+      )
+      .map((rule) => rule.slug)
+
+    expect(gapped).toEqual([])
   })
 
   // The test that was missing. Every rule above can pass its own ceiling while

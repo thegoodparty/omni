@@ -221,17 +221,36 @@ export type Alert = {
   notify?: SlackGroup | SlackGroup[]
 
   /**
-   * How far back (in seconds) the alerting engine fetches data from the
-   * datasource on each evaluation. Defaults to 600 (10 minutes). The
-   * effective lookback of a range vector is capped by this window — a `[1h]`
-   * vector with a 600s fetch only ever sees 10 minutes of data — so set it
-   * >= the largest range vector in `expr` when the full window must be
-   * visible. Alerts that predate this field keep the 600s cap on purpose:
-   * their firing behavior was tuned under it, and widening the fetch would
-   * change sensitivity and re-fire duration. Retune those deliberately, not
-   * in passing.
+   * The rule's window in Grafana, in seconds. Defaults to 600 (10 minutes).
+   *
+   * ON A LOG RULE THIS DOES NOT DECIDE WHAT IS READ. Log rules run as instant
+   * queries, which Loki evaluates at the window's end and which read exactly
+   * the range vector in `expr`: a `[1h]` vector reads an hour whatever this
+   * says. Set it equal to the widest vector anyway: it is what Grafana shows
+   * as the rule's window, and the tests hold the two together so a message
+   * quoting one cannot disagree with the other.
+   *
+   * It used to be described as a cap on the vector, and that was never true.
+   * The rules ran as range queries then, which read the fetch window PLUS the
+   * vector, and `reduce: last` kept the newest non-empty point, so a
+   * `[15m]` rule on a 600s fetch read 25 minutes every minute and stayed
+   * firing for 25 minutes after one event, while its message said ten.
    */
   timeRangeSeconds?: number
+
+  /**
+   * How long the alert keeps firing after its condition stops holding, as
+   * Grafana's `keep_firing_for`. Unset means it resolves on the first clean
+   * evaluation.
+   *
+   * This is what lets a rare-event rule read one minute instead of an hour.
+   * A `threshold: 0` rule only needs its window to cover the gap between
+   * evaluations to see every line; the long windows those rules used to carry
+   * were holding the alert open after the event, so that a burst spread over
+   * a few minutes stayed one page rather than firing, resolving and firing
+   * again. Holding it open here costs no reads at all.
+   */
+  keepFiringFor?: `${number}m` | `${number}h`
 
   /**
    * How far behind the evaluation the fetch window ends, in seconds. Defaults
@@ -251,12 +270,14 @@ export type Alert = {
    * 60.
    *
    * This is a cost lever as much as a latency one. Loki bills the bytes each
-   * evaluation decompresses, and `timeRangeSeconds` decides that, so a rule's
-   * daily read volume is its window divided by its interval: a 6h window on
-   * the 60s default re-reads the same six hours 1,440 times a day. A rule
-   * whose window is measured in hours does not need minute-resolution
-   * evaluation, and paying for it is how a handful of rules can dominate the
-   * Loki bill — see docs/observability.md § Query cost.
+   * evaluation decompresses, and the range vectors in `expr` decide that, so
+   * a rule's daily read volume is the sum of its vectors divided by its
+   * interval: a 6h window on the 60s default re-reads the same six hours
+   * 1,440 times a day, and a ratio with a `[10m]` vector on each side of the
+   * division reads twenty minutes per evaluation, not ten. A rule whose
+   * window is measured in hours does not need minute-resolution evaluation,
+   * and paying for it is how a handful of rules can dominate the Loki bill —
+   * see docs/observability.md § Query cost.
    *
    * Grafana evaluates a rule group as a unit, so grafana.ts buckets the global
    * alerts into one group per distinct interval. Raising this also raises the
