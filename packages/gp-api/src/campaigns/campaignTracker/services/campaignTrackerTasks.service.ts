@@ -1,5 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
-import { addDays, differenceInCalendarDays, format, startOfDay } from 'date-fns'
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
+import {
+  addDays,
+  differenceInCalendarDays,
+  differenceInCalendarWeeks,
+  format,
+} from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 import {
@@ -7,16 +16,29 @@ import {
   CampaignTaskType,
   ExperimentRun,
   ExperimentRunStatus,
+  OutreachStatus,
   Prisma,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
+  CAMPAIGN_TASK_CATALOG,
+  campaignPhaseWindows,
+  canPutOffTask,
+  canSetTaskAsideForGood,
+  resolveTrackerTaskDate,
+  timelineElectionDate,
+  trackerTaskPutOffDate,
+  trackerTimelineStart,
+  VOTER_CONTACT_SCHEDULE,
+  type TaskTiming,
+  type TrackerTaskSkipReason,
+} from '@goodparty_org/contracts'
+import {
   CENTRAL_TIMEZONE,
-  isDateTodayOrFuture,
   mondayOfWeekUtc,
   nextMondayUtcMidnight,
+  getMidnightForDate,
   parseIsoDateAsUTC,
-  parseIsoDateString,
 } from 'src/shared/util/date.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -52,6 +74,18 @@ import {
 
 type TrackerParams = AgentJobContracts['campaign_tracker_tasks']['Input']
 
+// Outreach in these states hasn't been scheduled, so it completes no task.
+// `in_progress` is deliberately absent: a call list or a door-knocking walk
+// is created in it, and its task ("Create your call list", "Plan your door
+// knocking") is the setting up, which that create finishes.
+const NOT_SCHEDULED_OUTREACH_STATUSES: OutreachStatus[] = [
+  OutreachStatus.draft,
+  OutreachStatus.pending_payment,
+  OutreachStatus.canceled,
+  OutreachStatus.denied,
+  OutreachStatus.failed,
+]
+
 // Runtime guard over the CAP artifact — the manifest output_schema in Zod form.
 const trackerArtifactSchema = z.object({
   generated_at: z.string(),
@@ -75,6 +109,23 @@ const trackerArtifactSchema = z.object({
 // Campaign Tracker tasks live in their own table (campaign_tracker_tasks) so the
 // new tracker coexists with existing users' campaign_task rows. The completion
 // flow mirrors CampaignTasksService against the new model.
+// The plan's voter-contact sends, which follow their own compressed schedule.
+const VOTER_CONTACT_IDS = new Set<string>(
+  VOTER_CONTACT_SCHEDULE.map((send) => send.catalogId),
+)
+
+// The timing kinds dated from the timeline's start rather than the election,
+// which alignTrackerTaskDates keeps on the timeline.
+const TIMELINE_DATED_KINDS = new Set<TaskTiming['kind']>([
+  'asap',
+  'onboardingWeek',
+  'preLaunch',
+  'launch',
+  'jurisdiction',
+  'recurring',
+  'perItem',
+])
+
 @Injectable()
 export class CampaignTrackerTasksService extends createPrismaBase(
   MODELS.CampaignTrackerTask,
@@ -307,6 +358,47 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     return count > 0
   }
 
+  // A task whose button launched an outreach (a text, a robocall, a call
+  // list, a social post, door knocking) is done once that outreach is
+  // scheduled: the candidate did the work, and sending it is on us. The
+  // outreach carries the task's id from the flow; this ticks the task on the
+  // next read and clears the link in the same transaction, so it happens
+  // once and a later "Mark not done" sticks. Until it is paid for (or while
+  // it is a draft, or once it is canceled, denied or failed) it is not
+  // scheduled, and the task stays open.
+  async completeTasksWithScheduledOutreach(
+    campaign: Campaign,
+  ): Promise<number> {
+    const sends = await this.client.outreach.findMany({
+      where: {
+        campaignId: campaign.id,
+        trackerTaskId: { not: null },
+        status: { notIn: NOT_SCHEDULED_OUTREACH_STATUSES },
+      },
+      select: { id: true, trackerTaskId: true },
+    })
+    if (sends.length === 0) return 0
+
+    const taskIds = sends.flatMap((send) =>
+      send.trackerTaskId ? [send.trackerTaskId] : [],
+    )
+    return this.client.$transaction(async (tx) => {
+      const { count } = await tx.campaignTrackerTask.updateMany({
+        where: {
+          campaignId: campaign.id,
+          id: { in: taskIds },
+          completed: false,
+        },
+        data: { completed: true },
+      })
+      await tx.outreach.updateMany({
+        where: { id: { in: sends.map((send) => send.id) } },
+        data: { trackerTaskId: null },
+      })
+      return count
+    })
+  }
+
   // Remove the deterministic outreach (text/robocall) rows. Called from the
   // weekly cron when the candidate has lost their primary: a lost-primary race
   // is over, so the plan's general-election contact schedule no longer applies
@@ -322,15 +414,74 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     return count
   }
 
+  // Default rows are dated once, when the tracker starts. Bring the open ones
+  // back onto the campaign's timeline on read, so rows dated by the old
+  // signup-relative rules, or before the candidate changed their race, land
+  // in the right phase. The voter-contact sends move too, so a late joiner's
+  // past-due sends are compressed into the time ahead of them. Other
+  // election-relative rows (the GOTV dates) were always right and stay.
+  async alignTrackerTaskDates(campaign: Campaign): Promise<number> {
+    const rows = await this.model.findMany({
+      where: { campaignId: campaign.id, isDefaultTask: true },
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        completed: true,
+        isDefaultTask: true,
+        skipReason: true,
+      },
+    })
+    const start = trackerTimelineStart(rows)
+    if (!start) return 0
+    const windows = campaignPhaseWindows(
+      start,
+      this.resolveElectionDate(campaign),
+    )
+    const moves = rows.flatMap((row) => {
+      // Done, or dated by the candidate when they put it off.
+      if (row.completed || row.skipReason === 'later') return []
+      const entry = CAMPAIGN_TASK_CATALOG.find(
+        (task) => task.title === row.title,
+      )
+      if (
+        !entry ||
+        !(
+          TIMELINE_DATED_KINDS.has(entry.timing.kind) ||
+          VOTER_CONTACT_IDS.has(entry.id)
+        )
+      ) {
+        return []
+      }
+      const date = getMidnightForDate(resolveTrackerTaskDate(entry, windows))
+      return date.getTime() === row.date.getTime()
+        ? []
+        : [
+            {
+              id: row.id,
+              date,
+              week: Math.max(0, differenceInCalendarWeeks(date, start)),
+            },
+          ]
+    })
+    if (moves.length === 0) return 0
+    await this.client.$transaction(
+      moves.map(({ id, date, week }) =>
+        this.model.update({ where: { id }, data: { date, week } }),
+      ),
+    )
+    return moves.length
+  }
+
   private resolveElectionDate(campaign: Campaign): Date | null {
     const { electionDate, primaryElectionDate } = campaign.details ?? {}
-    // A past date anchors nothing: a returning candidate's campaign row keeps
-    // last cycle's election until they update their race, and outreach dated
-    // off it would post a finished schedule to CAS. General first, primary as
-    // the fallback, skipping whichever has passed (mirrors the legacy task
-    // generator's hasFutureDate).
-    const chosen = [electionDate, primaryElectionDate].find((date) =>
-      isDateTodayOrFuture(date),
+    // A past date anchors nothing: outreach dated off last cycle's election
+    // would post a finished schedule to CAS. General first, primary as the
+    // fallback, skipping whichever has passed; the webapp builds its phase
+    // windows with the same rule.
+    const chosen = timelineElectionDate(
+      { general: electionDate, primary: primaryElectionDate },
+      new Date(),
     )
     // Parse as UTC midnight, not local: date-only strings via parseIsoDateString
     // land on local midnight, which on a server east of UTC shifts the date back
@@ -570,7 +721,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         (task) => {
           let date: Date
           if (task.date) {
-            date = startOfDay(parseIsoDateString(task.date))
+            date = getMidnightForDate(parseIsoDateAsUTC(task.date))
           } else {
             date = addDays(weekStart, Math.min(datelessOffset, 6))
             datelessOffset += 1
@@ -905,6 +1056,52 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           ...(updateHistoryId !== undefined && { updateHistoryId }),
         },
       })
+    })
+  }
+
+  // Puts a task off or sets it aside, without completing it, so it still
+  // counts as open work everywhere that reads completion. 'later' moves its
+  // date a few days out (the candidate's own date from then on, which the
+  // timeline realignment leaves alone); 'notForMe' holds until undone.
+  async skipTask(
+    { id: campaignId }: Campaign,
+    id: string,
+    reason: TrackerTaskSkipReason,
+  ) {
+    const task = await this.model.findFirst({ where: { campaignId, id } })
+    if (!task) {
+      throw new NotFoundException(`Tracker task ${id} not found`)
+    }
+    if (reason === 'notForMe' && !canSetTaskAsideForGood(task.title)) {
+      throw new BadRequestException(
+        `Tracker task ${id} is required and can only be put off`,
+      )
+    }
+    if (reason === 'later' && !canPutOffTask(task.title)) {
+      throw new BadRequestException(
+        `Tracker task ${id} is dated by fact and can't be put off`,
+      )
+    }
+    const now = new Date()
+    return this.model.update({
+      where: { id: task.id },
+      data: {
+        skipReason: reason,
+        skippedAt: now,
+        snoozedUntil: null,
+        ...(reason === 'later' ? { date: trackerTaskPutOffDate(now) } : {}),
+      },
+    })
+  }
+
+  async unSkipTask({ id: campaignId }: Campaign, id: string) {
+    const task = await this.model.findFirst({ where: { campaignId, id } })
+    if (!task) {
+      throw new NotFoundException(`Tracker task ${id} not found`)
+    }
+    return this.model.update({
+      where: { id: task.id },
+      data: { skipReason: null, skippedAt: null, snoozedUntil: null },
     })
   }
 

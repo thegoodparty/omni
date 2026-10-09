@@ -1313,6 +1313,7 @@ export const SmsFlow = ({
         name: name.trim(),
         voterFileFilterId: audience.selectedListId,
         script: composedMessage,
+        ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
       },
       image,
     )
@@ -1430,6 +1431,7 @@ export const SmsFlow = ({
             textCount: phoneList.leadsLoaded,
             billableTextCount: phoneList.leadsLoaded - discount,
             ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
+            ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
             // Resume: the server converts this row in place, so no second
             // row is written and the saved image and script stand.
             ...(resumed && savedDraft

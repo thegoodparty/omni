@@ -86,6 +86,25 @@ Verb plus object, in the user's frame. "Start verification", "Save and exit",
 specific and irreversible is about to happen. Never a button that requires
 the caption to explain it.
 
+A button that opens an assistant about the thing in front of the user says
+"Ask about this", not "Chat", "Chat about this" or "Discuss in chat". Ask is
+what the user wants, an answer; chat is only the place it opens, so chat
+names the panel ("Chat about this draft"), never the button. The ordinances
+selection toolbar and the next-step card are the reference implementations.
+
+Anything that can be finished (a task, a turf) uses the same words
+everywhere:
+
+- **Mark done** finishes it, and **Mark not done** undoes that. Not "Mark as
+  done", "Mark complete" or "Reopen"; the two stay the same short shape, and
+  "done" matches the "Done" status the item then shows.
+- **Skip** opens the ways to set it aside: **Show in 3 days** moves its date,
+  and **Not for me** sets it aside until **Bring it back**.
+
+The plan's tasks, the next-step card and door knocking's turfs are the
+reference implementations. Changing one of these words means changing it
+everywhere it appears, in the same change.
+
 ### 7. Reuse the phrase we already use
 
 The same question should read the same way in every channel. Before writing

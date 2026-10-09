@@ -40,6 +40,9 @@ export const RobocallDraftCreateRequestSchema = z.object({
       message: 'campaignPlanDueDate must be a valid calendar date',
     })
     .optional(),
+  // The campaign-plan task the flow was opened from. Stored on the outreach
+  // so the task list can mark that task done once the robocall is scheduled.
+  trackerTaskId: z.string().min(1).optional(),
   // Converts an existing `draft` row in place instead of inserting (resume).
   draftOutreachId: z.number().int().positive().optional(),
 })

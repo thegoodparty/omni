@@ -6,11 +6,13 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
+import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import type { ChatStreamEvent } from '../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import { buildCampaignManagerIntro } from './campaignManagerChat'
 import CampaignManagerHome from './CampaignManagerHome'
+import { FIRST_LANDING_HEADLINE, HOME_HEADLINES } from './homeHeadlines'
 import { CampaignManagerChatProvider } from './CampaignManagerChatProvider'
 
 type SurfaceProps = React.ComponentProps<
@@ -20,8 +22,8 @@ type SurfaceProps = React.ComponentProps<
 // The chat dock (footer + surface + open/story controls) lives in the
 // always-present CampaignManagerChatProvider (mounted in DashboardLayout in
 // production); the home reads it from context. Render the same composition here
-// so the meet card (home) and the footer/surface (provider) wire up as they do
-// in the app.
+// so the card (home) and the footer/surface (provider) wire up as they do in
+// the app.
 const renderHome = () =>
   render(
     <CampaignManagerChatProvider>
@@ -61,7 +63,7 @@ const mockRouterReplace = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
   usePathname: () => '/dashboard',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }))
 
 const surfacePropsMock = vi.fn<(props: SurfaceProps) => void>()
@@ -92,6 +94,25 @@ const latestSurfaceProps = (): SurfaceProps => {
   return call[0]
 }
 
+let mockTasks: CampaignTrackerTask[] = []
+const mockToggleMutate = vi.fn()
+const mockSetAside = vi.fn()
+
+const doorsTask: CampaignTrackerTask = {
+  id: 'doors-1',
+  title: 'Knock on Doors',
+  description: 'Knock your target doors to connect with voters face-to-face.',
+  cta: null,
+  link: null,
+  flowType: 'doorKnocking',
+  week: 1,
+  date: '2026-10-09T00:00:00.000Z',
+  completed: false,
+  phase: 'active',
+  proRequired: true,
+  isDefaultTask: false,
+}
+
 vi.mock(
   '../campaign-plan/components/campaignStrategy/useTrackerTasks',
   async (importOriginal) => ({
@@ -99,12 +120,16 @@ vi.mock(
       typeof import('../campaign-plan/components/campaignStrategy/useTrackerTasks')
     >()),
     useTrackerTasks: (): TrackerTasksResult => ({
-      tasks: [],
+      tasks: mockTasks,
       isPending: false,
       isError: false,
       isGeneratingDynamic: false,
     }),
-    useToggleTrackerTaskComplete: () => ({ mutate: vi.fn(), isPending: false }),
+    useToggleTrackerTaskComplete: () => ({
+      mutate: mockToggleMutate,
+      isPending: false,
+    }),
+    useSetTrackerTaskAside: () => ({ mutate: mockSetAside, isPending: false }),
   }),
 )
 
@@ -138,8 +163,8 @@ vi.mock('../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
 
-// No prior conversations, so the first-run "meet" card renders. Partial-mock so
-// the footer's history popover keeps its real useDeleteConversation.
+// No prior conversations. Partial-mock so the footer's history popover keeps
+// its real useDeleteConversation.
 vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('../chief-of-staff/data/use-chat-history')
@@ -147,8 +172,7 @@ vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
   useChatHistory: () => ({ data: [] }),
 }))
 
-// The story card transitively renders here too; default to an incomplete
-// story so both first-run cards are present for this smoke test.
+// An incomplete story, so the manager still offers to personalize.
 vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(() => ({
     isComplete: false,
@@ -189,10 +213,13 @@ beforeEach(() => {
   streamMessageMock.mockReset()
   mockRouterReplace.mockReset()
   surfacePropsMock.mockClear()
+  mockTasks = []
+  mockToggleMutate.mockReset()
+  mockSetAside.mockReset()
 })
 
-// Opens the manager chat onto its seeded greeting: clicking "meet your
-// campaign manager" resolves the conversation, and listMessages returns the
+// Opens the manager chat onto its seeded greeting: opening the footer chat
+// resolves the conversation, and listMessages returns the
 // server-seeded greeting as the sole assistant message (played back, then
 // committed to history).
 async function openOnSeededGreeting(): Promise<void> {
@@ -210,7 +237,7 @@ async function openOnSeededGreeting(): Promise<void> {
   const user = userEvent.setup()
   renderHome()
   await user.click(
-    screen.getByRole('button', { name: /meet your campaign manager/i }),
+    screen.getByRole('button', { name: /open campaign manager chat/i }),
   )
   await waitFor(() => expect(screen.getByText(/^Hi Renee/)).toBeInTheDocument())
 }
@@ -219,9 +246,13 @@ describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     renderHome()
 
+    // The card is only ever a plan task, never one of the manager's prompts.
     expect(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: 'Personalize your campaign' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Meet your virtual Campaign Manager'),
+    ).not.toBeInTheDocument()
     // The footer chat bar uses the campaign-manager open label, not CoS.
     expect(
       screen.getByRole('button', { name: /open campaign manager chat/i }),
@@ -341,7 +372,7 @@ describe('CampaignManagerHome', () => {
 })
 
 describe('CampaignManagerHome story auto-launch', () => {
-  it('starts the story flow (opens + hidden sentinel kickoff) when the story card is clicked', async () => {
+  it('starts the story flow (opens + hidden sentinel kickoff) from the deep link', async () => {
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     listMessagesMock.mockResolvedValue([])
     streamMessageMock.mockReturnValue(
@@ -350,12 +381,8 @@ describe('CampaignManagerHome story auto-launch', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
-    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
 
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
@@ -394,12 +421,8 @@ describe('CampaignManagerHome story auto-launch', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
-    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
 
     // The story-intake reply streams in.
     await waitFor(() =>
@@ -411,7 +434,7 @@ describe('CampaignManagerHome story auto-launch', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('opens the manager without a kickoff via the meet card', async () => {
+  it('opens the manager without a kickoff from the footer chat', async () => {
     await openOnSeededGreeting()
 
     expect(latestSurfaceProps().open).toBe(true)
@@ -428,12 +451,8 @@ describe('CampaignManagerHome story auto-launch', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
-    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
     await waitFor(() =>
       expect(latestSurfaceProps().pendingKickoff).toBe(
         CAMPAIGN_MANAGER_START_STORY_SENTINEL,
@@ -492,13 +511,11 @@ describe('CampaignManagerHome story auto-launch', () => {
     )
   })
 
-  it('renders the post-start compliance card alongside the banner (ENG-10866)', () => {
+  it('renders the texting compliance card, so a pending PIN has a home', () => {
     renderHome()
 
-    // The banner only covers "never started" — every post-start state (PIN
-    // entry, in review, approved, denied) lives in this card. Shipping the
-    // home without it left candidates awaiting a PIN with no compliance
-    // surface here at all, so PIN entry existed only in account settings.
+    // PR #1273: without the card, a candidate awaiting their PIN had no
+    // dashboard surface at all, since the banner hides once a record exists.
     expect(
       screen.getByTestId('pro-upgrade-3-compliance-card'),
     ).toBeInTheDocument()
@@ -512,77 +529,225 @@ describe('CampaignManagerHome story auto-launch', () => {
   })
 })
 
-describe('CampaignManagerHome meet-card dismissal', () => {
-  // Query including aria-hidden: an open chat drawer aria-hides the dashboard
-  // behind it, so a still-mounted (undismissed) meet card would otherwise read
-  // as absent. This distinguishes "removed from the DOM" (dismissed) from
-  // "present but behind the open chat" (not dismissed).
-  const meetHeading = () =>
-    screen.queryByRole('heading', {
-      name: 'Meet your virtual Campaign Manager',
-      level: 2,
-      hidden: true,
+describe('CampaignManagerHome headline', () => {
+  it('heads the card with a line for its kind of task', async () => {
+    mockTasks = [doorsTask]
+    renderHome()
+
+    const heading = await screen.findByRole('heading', { level: 2 })
+    expect(HOME_HEADLINES.doorKnocking).toContain(heading.textContent)
+  })
+
+  it('greets the first landing after onboarding once, then strips the marker', async () => {
+    mockTasks = [doorsTask]
+    window.history.replaceState({}, '', '/dashboard?welcome=1')
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: FIRST_LANDING_HEADLINE,
+      }),
+    ).toBeInTheDocument()
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard', {
+      scroll: false,
     })
+  })
+})
 
-  it('shows the meet card for a fresh candidate', () => {
-    renderHome()
-    expect(meetHeading()).toBeInTheDocument()
+describe('CampaignManagerHome with no next task', () => {
+  // A Thursday: this week runs Oct 5-11, next week starts Oct 12.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
   })
 
-  it('keeps the meet card when only the story flow is started', async () => {
-    createMock.mockResolvedValue({ conversationId: 'conv_1' })
-    listMessagesMock.mockResolvedValue([])
-    streamMessageMock.mockReturnValue(
-      makeStream([
-        { type: 'text', delta: 'Tell me your why.' },
-        { type: 'done', assistantMessageId: 'a1' },
-      ]),
-    )
-    const user = userEvent.setup()
-    renderHome()
-    expect(meetHeading()).toBeInTheDocument()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Personalize your campaign' }),
-    )
-    await waitFor(() =>
-      expect(latestSurfaceProps().pendingKickoff).toBe(
-        CAMPAIGN_MANAGER_START_STORY_SENTINEL,
-      ),
-    )
-
-    // Starting the story is not "meeting the manager", so the card stays.
-    expect(meetHeading()).toBeInTheDocument()
+  // The week's AI-picked tasks, which carry their own dates.
+  const activeTask = (
+    over: Partial<CampaignTrackerTask>,
+  ): CampaignTrackerTask => ({
+    ...doorsTask,
+    isDefaultTask: false,
+    ...over,
   })
 
-  it('dismisses the meet card when the manager is opened via the footer chat box', async () => {
-    createMock.mockResolvedValue({ conversationId: 'conv_1' })
-    listMessagesMock.mockResolvedValue([])
+  it('celebrates a finished week and pulls next week forward on request', async () => {
+    mockTasks = [
+      activeTask({
+        id: 'done',
+        date: '2026-10-06T00:00:00.000Z',
+        completed: true,
+      }),
+      activeTask({
+        id: 'ahead',
+        title: 'Make phone bank calls',
+        flowType: 'phoneBanking',
+        date: '2026-10-13T00:00:00.000Z',
+      }),
+    ]
     const user = userEvent.setup()
     renderHome()
-    expect(meetHeading()).toBeInTheDocument()
 
-    await user.click(
-      screen.getByRole('button', { name: /open campaign manager chat/i }),
+    expect(
+      await screen.findByText('You finished this week’s tasks'),
+    ).toBeInTheDocument()
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(HOME_HEADLINES.weekDone).toContain(heading.textContent)
+
+    await user.click(screen.getByRole('button', { name: 'Get a head start' }))
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'Make phone bank calls',
+      }),
+    ).toBeInTheDocument()
+    expect(HOME_HEADLINES.phoneBanking).toContain(
+      screen.getByRole('heading', { level: 2 }).textContent,
     )
-
-    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
   })
 
-  it('dismisses the meet card on its own click and keeps it dismissed on remount', async () => {
-    createMock.mockResolvedValue({ conversationId: 'conv_1' })
-    listMessagesMock.mockResolvedValue([])
-    const user = userEvent.setup()
-    const { unmount } = renderHome()
-
-    await user.click(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
-    )
-    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
-
-    // Persisted: a fresh mount does not bring it back.
-    unmount()
+  it('says nothing is due, without celebrating, in a week with no tasks', async () => {
+    mockTasks = [activeTask({ id: 'later', date: '2026-10-27T00:00:00.000Z' })]
     renderHome()
-    expect(meetHeading()).not.toBeInTheDocument()
+
+    expect(await screen.findByText('Nothing due this week')).toBeInTheDocument()
+    expect(screen.getByText('Check back next week.')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Get a head start' }),
+    ).not.toBeInTheDocument()
+    expect(HOME_HEADLINES.caughtUp).toContain(
+      screen.getByRole('heading', { level: 2 }).textContent,
+    )
+  })
+})
+
+describe('CampaignManagerHome marking a task done', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
+  const setupTask = (
+    over: Partial<CampaignTrackerTask>,
+  ): CampaignTrackerTask => ({
+    ...doorsTask,
+    flowType: null,
+    phase: 'preLaunch',
+    isDefaultTask: true,
+    proRequired: false,
+    ...over,
+  })
+
+  it('stacks the plan’s next tasks behind the front card', async () => {
+    mockTasks = [
+      setupTask({ id: 'ein', title: 'Get your EIN', date: '2026-10-09' }),
+      setupTask({
+        id: 'bank',
+        title: 'Open a campaign bank account',
+        date: '2026-10-10',
+      }),
+    ]
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Get your EIN' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+  })
+
+  it('completes on the first press, without asking to confirm', async () => {
+    mockTasks = [
+      setupTask({ id: 'ein', title: 'Get your EIN', date: '2026-10-09' }),
+    ]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(await screen.findByRole('button', { name: 'Mark done' }))
+
+    expect(mockToggleMutate).toHaveBeenCalledWith({
+      id: 'ein',
+      completed: true,
+    })
+    expect(screen.queryByText('Mark this task done?')).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignManagerHome skipping a task', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
+  const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
+    ...doorsTask,
+    flowType: null,
+    phase: 'preLaunch',
+    isDefaultTask: true,
+    proRequired: false,
+    date: '2026-10-30T00:00:00.000Z',
+    ...over,
+  })
+
+  it('offers to put it off or drop it, and saves the choice', async () => {
+    mockTasks = [task({ id: 'ein', title: 'Get your EIN' })]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(await screen.findByRole('button', { name: 'Skip' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: 'Not for me' }))
+
+    expect(mockSetAside).toHaveBeenCalledWith({
+      id: 'ein',
+      reason: 'notForMe',
+    })
+  })
+
+  it('only lets a required task be put off', async () => {
+    mockTasks = [
+      task({
+        id: 'sigs',
+        title: 'Submit your Ballot Access Signatures',
+        date: '2026-10-10T00:00:00.000Z',
+      }),
+    ]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(await screen.findByRole('button', { name: 'Skip' }))
+    // Its date is the state's deadline, which we don't know, so the
+    // snooze isn't capped to it.
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: 'Not for me' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('never offers to put off a date that is a fact', async () => {
+    mockTasks = [
+      task({
+        id: 'reg',
+        title: 'Voter Registration Deadline',
+        date: '2026-10-10T00:00:00.000Z',
+      }),
+    ]
+    const user = userEvent.setup()
+    renderHome()
+
+    await user.click(await screen.findByRole('button', { name: 'Skip' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Not for me' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: 'Show in 3 days' }),
+    ).not.toBeInTheDocument()
   })
 })

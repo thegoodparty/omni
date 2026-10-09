@@ -1,4 +1,8 @@
 import { expect, test } from '@playwright/test'
+import {
+  NEXT_TASK_EXPERIENCE_FLAG,
+  setFlagOverrides,
+} from 'src/helpers/campaignStory.helper'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import {
   blockSlowScripts,
@@ -44,6 +48,8 @@ test.describe('Login Functionality', () => {
     await initialPage.close()
 
     const page = await browser.newPage()
+    // This spec checks the Campaign Manager home.
+    await setFlagOverrides(page, { [NEXT_TASK_EXPERIENCE_FLAG]: 'off' })
 
     await NavigationHelper.navigateToPage(page, '/login')
     await NavigationHelper.dismissOverlays(page)

@@ -235,6 +235,15 @@ export const EVENTS = {
       // Completion only — an uncomplete is a correction, not an activation
       // signal, and an event named Completed must not fire on one.
       TaskCompleted: 'Dashboard - Campaign Task Completed',
+      // Every other choice a candidate makes on a plan task (start its work,
+      // ask about it, put it off, set it aside, bring it back, mark it not
+      // done), from Home's card or the plan page. `action` says which and
+      // `source` says where, matching the outreach flows' own `source`.
+      TaskActionTaken: 'Campaign Plan - Task Action Taken',
+      // The Campaign strategy window: opened, then closed with how far into
+      // the plan the candidate read (scroll depth, deepest section, time).
+      CampaignStrategyViewed: 'Campaign Plan - Campaign Strategy Viewed',
+      CampaignStrategyClosed: 'Campaign Plan - Campaign Strategy Closed',
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',

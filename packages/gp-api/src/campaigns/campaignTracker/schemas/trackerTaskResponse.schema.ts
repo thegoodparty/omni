@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { zCoerceDate } from '@goodparty_org/contracts'
+import {
+  TrackerTaskSkipReasonSchema,
+  zCoerceDate,
+} from '@goodparty_org/contracts'
 
 // Response shape for GET /campaigns/tracker-tasks. Mirrors the
 // CampaignTrackerTask Prisma model the endpoint returns (raw rows from
@@ -23,6 +26,9 @@ export const CampaignTrackerTaskResponseSchema = z.object({
   defaultAiTemplateId: z.string().nullable(),
   completed: z.boolean(),
   phase: z.string().nullable(),
+  skipReason: TrackerTaskSkipReasonSchema.nullable(),
+  skippedAt: zCoerceDate().nullable(),
+  snoozedUntil: zCoerceDate().nullable(),
   campaignId: z.number().int(),
   updateHistoryId: z.number().int().nullable(),
 })
