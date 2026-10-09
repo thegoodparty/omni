@@ -604,12 +604,15 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 
-  it('surfaces UNRESOLVED (no false refund, spine not flipped) when a refunding owner is stranded', async () => {
+  it('refuses on an in-flight refunding claim WITHOUT deleting the job or flipping the spine', async () => {
     retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
-    // The owner claimed `refunding` and never resolved it (crashed between the
-    // CAS claim and the Stripe call). The caller must not report refunded and
-    // must not cancel the spine — it waits out the bound, then surfaces pending
-    // for the slice-F reconcile sweep.
+    // Another owner holds the single-owner `refunding` claim (and already deleted
+    // the vendor job before claiming it). This cancel must refuse at the initial
+    // read — never fall through to re-delete the job or re-enter the release and
+    // leave the spine pending with the job gone and money unresolved. A retry
+    // completes once that owner resolves; a stranded claim keeps surfacing this
+    // for the slice-F reconcile. (This is also the stranded-refunding surfacing:
+    // no false refund, spine not flipped.)
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.refunding,
       chargeIntentId: CHARGE_ID,
@@ -619,6 +622,9 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
       ServiceUnavailableException,
     )
     expect(refundChargeSpy).not.toHaveBeenCalled()
+    // The vendor job is NOT deleted here (the refunding owner already did), and
+    // nothing re-enters the release before refusing.
+    expect(deleteJobSpy).not.toHaveBeenCalled()
     // Still refunding (left for the reconcile sweep) and the spine is NOT canceled.
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.refunding,

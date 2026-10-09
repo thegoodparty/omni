@@ -125,6 +125,22 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       )
     }
 
+    // Another release owner (a racing cancel or deny) holds the single-owner
+    // refund claim — and already deleted the vendor job before claiming it (the
+    // delete precedes the `refunding` CAS in every release path). SKIP the
+    // redundant job delete and go straight to the shared release, which awaits
+    // that owner's outcome: committed → flip the spine canceled; reverted → this
+    // cancel claims the refund itself; stranded (owner crashed between claim and
+    // Stripe) → releaseHold surfaces 503 WITHOUT flipping the spine or re-deleting
+    // a job, for the slice-F reconcile — never a false "canceled" over unmoved
+    // money, and never an orphaned live job (the owner's delete stands).
+    if (satellite.settleState === P2pSmsSettleState.refunding) {
+      const { refunded } = await this.releaseHold(outreachId)
+      await this.markSpineCanceled(outreachId, attribution)
+      await this.tryNotifyCanceled(outreachId, campaignId, attribution)
+      return this.result(outreachId, refunded)
+    }
+
     const spine = await this.client.outreach.findFirstOrThrow({
       where: { id: outreachId, campaignId },
     })
