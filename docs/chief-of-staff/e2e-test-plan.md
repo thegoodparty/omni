@@ -53,8 +53,8 @@ Important constraint: there is **no HTTP endpoint that inserts a briefing
 artifact**. In a deployed environment the only way a `MeetingBriefing` row is
 created is the real pipeline: gp-ai writes the artifact to S3, enqueues
 a "run completed" message on SQS, and the queue consumer fetches the artifact
-from S3 and writes the row. The gp-api e2e harness has no database connection
-and no S3/SQS access; it is pure HTTP black-box.
+from S3 and writes the row. The deployed e2e harness has no database connection,
+so it cannot insert one either.
 
 ### Why not fake the briefing over SQS, like polls does?
 
@@ -156,25 +156,6 @@ Not yet executed against a live env (needs `BASE_URL` and `CLERK_SECRET_KEY`).
 Verified: e2e typecheck, eslint, prettier, and selectors checked against the
 actual components.
 
-### gp-api e2e: CoS chat flow — DEFERRED (redundant + blocked on EO bootstrap)
-
-Originally planned as a separate gp-api e2e spec asserting the SSE chunk
-sequence and the `crud_priorities` side-effect. Deferred because:
-
-- The gp-api `e2e-tests/` harness has no specs yet and no elected-office helper;
-  creating an EO purely over the API (no "I won my race" UI) is unclear, while
-  the gp-webapp helper already solves it.
-- The gp-webapp chat test above exercises the same `/v1/chats` SSE path
-  end-to-end, so a gp-api-only SSE spec is largely redundant.
-- The chat controller contract (create / messages / history / replay /
-  soft-delete) is already covered deterministically by
-  `general-chats.controller.integration.test.ts` (LLM mocked).
-
-If we later want the explicit tool-firing side-effect assertion at the API
-layer, it belongs in the gp-webapp spec using the helper's returned `client`
-(create chat -> stream a "add a priority" message -> assert it appears in
-`GET /v1/priorities`), not in a new gp-api harness.
-
 A follow-up could add a third UI case: dismiss ("Skip") a task card and assert
 it moves to the Archive sub-view at `/dashboard/chief-of-staff/archive`. Not
 built yet (needs a generated card present, which depends on the dev briefing
@@ -242,8 +223,6 @@ material, and watch tool-use reliability if we do.
       (`cardsFromBriefing.test.ts`). To cover briefing cards in the UI you need
       a seeded briefing for the test office (test-seed endpoint or the real
       pipeline).
-- [ ] gp-api e2e CoS chat spec — deferred (redundant with the UI chat test +
-      blocked on an EO-over-API bootstrap). See the deferred section above.
 
 Definition of done: `npm run verify` green for the gp-api integration tests
 (the bridge test passes); the gp-webapp spec green on the per-PR `E2E` check.

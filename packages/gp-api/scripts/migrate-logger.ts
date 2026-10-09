@@ -512,7 +512,6 @@ const run = () => {
       path.includes('/src/') &&
       !path.includes('.spec.') &&
       !path.includes('.test.') &&
-      !path.includes('.e2e.') &&
       !SKIP_FILES.some((skip) => path.endsWith(skip))
     )
   })
