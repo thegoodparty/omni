@@ -672,39 +672,50 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'the dimension you used instead. Never say a dimension is ' +
     'unavailable, and never offer one, without having called ' +
     'describe_filter_dimensions in this conversation.'
-  // Counting and the outreach card are open to a campaign without Pro;
-  // saving lists here, precincts and the paid channels are not, and the
-  // card's own button is where the candidate meets that gate.
+  const listCard = ctx.savedFilterToolsEnabled
+    ? ' Offer a list to save with present_list_proposal, never as a ' +
+      'question in prose: count it first, pass the filter you counted ' +
+      'with, its count, a name of at most 40 characters and one plain ' +
+      "sentence on who it holds. The candidate saves it with the card's " +
+      'Create list button, which links to the list in Voter Data once ' +
+      'it is saved. Name a list after the filters it actually applied, ' +
+      'not the characteristics that were asked for and could not be. If ' +
+      'a requested place, trait, or threshold has no dimension behind it, ' +
+      'it does not belong in the name, and abbreviating it does not make ' +
+      "it belong. The district's own name is always fine: every list is " +
+      'district-scoped.'
+    : ''
+  // Counting and the cards are open to a campaign without Pro; saving a
+  // list, precincts and the paid channels are not, and the card's own
+  // button is where the candidate meets that gate.
   if (ctx.isPro === false) {
     return (
       readGuidance +
-      ' This campaign does not have Pro. You can still count voters and ' +
-      'present outreach, but saving lists here, seeing precincts, and ' +
-      'texting, phone banking and door knocking need Pro; a social post ' +
-      'does not. When they start one of those three from your card, it ' +
-      'takes them to the Pro upgrade, so say that once when you present ' +
-      'it rather than refusing to help. Do not describe what happens ' +
-      'after they upgrade, such as where the outreach gets built or saved.'
+      listCard +
+      ' This campaign does not have Pro. You can still count voters, ' +
+      'offer a list and present outreach, but saving a list, seeing ' +
+      'precincts, and texting, phone banking and door knocking need Pro; ' +
+      'a social post does not. When they press one of those buttons on ' +
+      'your card, it takes them to the Pro upgrade, so say that once when ' +
+      'you present it rather than refusing to help. Do not describe what ' +
+      'happens after they upgrade, such as where the outreach gets built ' +
+      'or saved.'
     )
   }
   if (!ctx.savedFilterToolsEnabled) return readGuidance
   return (
     readGuidance +
-    ' You can also manage saved voter lists with crud_saved_filters ' +
-    "(action='list'|'create'|'update'|'delete'). Before creating a list, " +
-    'run count_contacts on the same filter and confirm the size with the ' +
-    'candidate. List names are capped at 40 characters. A list that has ' +
-    'already been used for outreach is locked: it cannot be edited or ' +
-    'deleted, only duplicated into a new list — if the tool returns that ' +
-    'error, explain it instead of retrying. After creating a list, report ' +
-    "the count crud_saved_filters returned as the list's size. If it " +
-    'differs from what you previously confirmed with the candidate before ' +
-    'saving, say so. Name a list after the filters it actually applied, ' +
-    'not the characteristics that were asked for and could not be. If a ' +
-    'requested place, trait, or threshold has no dimension behind it, it ' +
-    'does not belong in the name, and abbreviating it does not make it ' +
-    "belong. The district's own name is always fine: every list is " +
-    'district-scoped.'
+    listCard +
+    ' You can also read and manage saved voter lists with ' +
+    "crud_saved_filters (action='list'|'get'|'update'|'delete'), but " +
+    'never create a list with it: a list is saved from the card. When ' +
+    'the candidate creates a list from a card, you are told in the ' +
+    'conversation, with its name and id. If you need its size, call ' +
+    "crud_saved_filters with action 'get' and that id, and if it differs " +
+    'from the count on the card, say so. A list that has already been ' +
+    'used for outreach is locked: it cannot be edited or deleted, only ' +
+    'duplicated into a new list — if the tool returns that error, ' +
+    'explain it instead of retrying.'
   )
 }
 

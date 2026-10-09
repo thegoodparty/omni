@@ -705,6 +705,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(withWrites)).toContain('crud_saved_filters')
     expect(Object.keys(withWrites)).toContain('size_outreach_sample')
     expect(Object.keys(withWrites)).toContain('present_outreach_proposal')
+    expect(Object.keys(withWrites)).toContain('present_list_proposal')
 
     const noService = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
@@ -712,6 +713,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(noService)).not.toContain('crud_saved_filters')
     expect(Object.keys(noService)).not.toContain('size_outreach_sample')
     expect(Object.keys(noService)).not.toContain('present_outreach_proposal')
+    expect(Object.keys(noService)).not.toContain('present_list_proposal')
 
     const flagOff = buildCrmHandler(
       buildContacts(),
@@ -720,6 +722,33 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
     expect(Object.keys(flagOff)).not.toContain('size_outreach_sample')
     expect(Object.keys(flagOff)).not.toContain('present_outreach_proposal')
+    expect(Object.keys(flagOff)).not.toContain('present_list_proposal')
+  })
+
+  it('offers a list card to a campaign without Pro, in candidate words', async () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(
+      ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true, isPro: false }),
+    )
+    expect(Object.keys(tools)).not.toContain('crud_saved_filters')
+    const tool = tools.present_list_proposal
+    if (!tool || 'kind' in tool) throw new Error('not registered')
+    const card = {
+      name: 'East side renters',
+      summary: 'Renters on the east side.',
+      filters: { homeownerNo: true },
+    }
+
+    expect(await tool.execute({ ...card, count: 1200 })).toEqual({
+      presented: true,
+    })
+    expect(await tool.execute({ ...card, count: 0 })).toEqual({
+      error: expect.stringContaining('counted nobody'),
+    })
+    expect(descriptionOf(tool)).toContain('Voter Data')
+    expect(descriptionOf(tool)).not.toContain('map')
   })
 
   it('presents every channel as a card in candidate words', async () => {

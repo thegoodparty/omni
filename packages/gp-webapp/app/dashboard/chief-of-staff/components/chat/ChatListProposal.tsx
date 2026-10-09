@@ -8,8 +8,16 @@ import { FetchError } from 'ofetch'
 import { Button } from '@styleguide'
 import type { ListProposal, ShowListMap } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { useState } from 'react'
 import { useOrganization } from '@shared/organization-picker'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
+import { CompactCardLink } from 'app/dashboard/shared/agent-chat/cards/cardShell'
+import {
+  peopleCount,
+  type CardMode,
+} from 'app/dashboard/shared/agent-chat/cards/proposalPresentation'
 import ChatListMap from './ChatListMap'
 
 export type ChatListProposalPayload = ListProposal & { proposalKey: string }
@@ -48,6 +56,9 @@ const CardFrame = ({ children }: { children: React.ReactNode }) => (
 
 interface ChatListProposalProps {
   proposal: ChatListProposalPayload
+  // Campaign Manager is Win: voters, a Pro gate on saving, and no map yet,
+  // so a saved list links to Voter Data instead.
+  mode?: CardMode
   onRefineArea?: (list: ShowListMap) => void
   // The list now exists. The conversation has to be told, because the write
   // goes browser -> API and the model would otherwise answer the next
@@ -60,10 +71,13 @@ interface ChatListProposalProps {
 // shown, with its Draw shapes button, so there is no second step to ask for.
 export default function ChatListProposal({
   proposal,
+  mode = 'serve',
   onRefineArea,
   onCreated,
 }: ChatListProposalProps) {
   const orgSlug = useOrganization()?.slug
+  const [campaign] = useCampaign()
+  const [pitchOpen, setPitchOpen] = useState(false)
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
   const existing = useQuery(
@@ -92,6 +106,18 @@ export default function ChatListProposal({
     onError: () => errorSnackbar('Failed to create list'),
   })
 
+  if (existing.data && mode === 'win') {
+    return (
+      <div className="my-3 w-full">
+        <CompactCardLink
+          title={existing.data.name ?? proposal.name}
+          subtitle={`Created · ${peopleCount(proposal.count, mode)}`}
+          href={`/dashboard/contacts/lists/${existing.data.id}`}
+        />
+      </div>
+    )
+  }
+
   if (existing.data) {
     return (
       <ChatListMap
@@ -112,7 +138,7 @@ export default function ChatListProposal({
       </div>
       <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
         <span className="text-xs text-muted-foreground">
-          {`${proposal.count.toLocaleString()} constituents`}
+          {peopleCount(proposal.count, mode)}
         </span>
         {/* Held back until the lookup answers: a card whose list already
             exists must never offer to make it again, even for a frame. */}
@@ -121,12 +147,24 @@ export default function ChatListProposal({
             type="button"
             size="small"
             loading={create.isPending}
-            onClick={() => create.mutate()}
+            onClick={() =>
+              mode === 'win' && campaign && !campaign.isPro
+                ? setPitchOpen(true)
+                : create.mutate()
+            }
           >
             Create list
           </Button>
         )}
       </div>
+      {mode === 'win' && campaign ? (
+        <ProPitchDialog
+          open={pitchOpen}
+          onOpenChange={setPitchOpen}
+          source="campaign_manager"
+          channel="voter-data"
+        />
+      ) : null}
     </CardFrame>
   )
 }
