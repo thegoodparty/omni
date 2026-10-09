@@ -12,10 +12,12 @@ import {
   WIN_SMS_HOLD_MIN_CENTS,
 } from 'src/shared/util/winSmsHold.util'
 import {
+  OutreachStatus,
   P2pSmsSettleState,
   PhoneListBuildStatus,
   Prisma,
 } from '../../generated/prisma'
+import { OutreachService } from './outreach.service'
 
 // Backstop only — capture fires inline from both edges, so a quarter-hour net
 // is enough to catch a dropped signal. The minute space is saturated by the
@@ -84,7 +86,10 @@ interface CaptureBilling {
 export class OutreachP2pSmsCaptureService extends createPrismaBase(
   MODELS.OutreachP2pSms,
 ) {
-  constructor(private readonly stripe: StripeService) {
+  constructor(
+    private readonly stripe: StripeService,
+    private readonly outreachService: OutreachService,
+  ) {
     super()
   }
 
@@ -126,6 +131,22 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     })
 
     for (const { outreachId } of candidates) {
+      // FINALIZE backstop: a pre-build draft paid before its build finished is
+      // submitted to Peerly only at the build-ready edge, which (unlike the
+      // webhook's build-before-pay finalize) has no Stripe redelivery behind it.
+      // Re-attempt it here so a dropped build-ready edge still sends the paid
+      // draft. Idempotent + single-owner (the pending_payment -> pending claim),
+      // so an already-finalized draft is a no-op. Isolated from the capture
+      // below: a send failure must not stop the money capture, and vice versa.
+      try {
+        await this.finalizePreBuildDraft(outreachId)
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId },
+          'win sms pre-build finalize failed in sweep; continuing',
+        )
+      }
+
       try {
         await this.captureHold(outreachId)
       } catch (err) {
@@ -193,23 +214,31 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     await this.settleClaimed(outreachId)
   }
 
-  // EDGE (b): called right after the build finisher stamps a list `ready`. The
-  // hold is keyed by outreach, the list by its numeric Peerly id, and
-  // Outreach.phoneListId equals that id — so this finds every outreach billing
-  // against the just-ready list and attempts the capture whose hold is already
-  // authorized. Whichever of edge (a)/(b) runs second is the one that captures.
+  // EDGE (b): called right after the build finisher stamps a list `ready`. Finds
+  // the authorized holds against the just-ready list through the SATELLITE link
+  // (OutreachP2pSms.peerlyPhoneListId, stamped at hold time by recordHold), not
+  // Outreach.phoneListId. A pre-build draft's Outreach.phoneListId is null until
+  // this same build-ready edge stamps it moments earlier, so the satellite link
+  // is the order-independent handle; a build-before-pay draft is linked just the
+  // same. Whichever of edge (a)/(b) runs second is the one that captures.
   async captureHoldsForReadyList(peerlyListId: number): Promise<void> {
     if (!isWinSmsHoldBillingEnabled()) return
 
-    const outreaches = await this.client.outreach.findMany({
-      where: {
-        phoneListId: peerlyListId,
-        p2pSms: { settleState: P2pSmsSettleState.authorized },
-      },
+    const build = await this.client.peerlyPhoneList.findUnique({
+      where: { peerlyListId },
       select: { id: true },
     })
+    if (!build) return
 
-    for (const { id: outreachId } of outreaches) {
+    const holds = await this.model.findMany({
+      where: {
+        peerlyPhoneListId: build.id,
+        settleState: P2pSmsSettleState.authorized,
+      },
+      select: { outreachId: true },
+    })
+
+    for (const { outreachId } of holds) {
       try {
         await this.captureHold(outreachId)
       } catch (err) {
@@ -219,6 +248,111 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
         )
       }
     }
+  }
+
+  // FINALIZE build-ready edge: called right after the build finisher stamps a
+  // list `ready`, from BOTH finisher paths (the browser status poll and the
+  // server cron), BEFORE the capture edge above. A p2p draft paid before its
+  // build finished was NOT submitted to Peerly at the payment webhook (finalize
+  // deferred on a null phoneListId); now the list exists, so stamp its numeric
+  // id onto the draft and submit it. Finds the drafts through the satellite link
+  // and defers each to finalizePreBuildDraft. Self-gated; a build-before-pay
+  // draft was already finalized at the webhook and is a no-op here.
+  async finalizeDraftsForReadyList(peerlyListId: number): Promise<void> {
+    if (!isWinSmsHoldBillingEnabled()) return
+
+    const build = await this.client.peerlyPhoneList.findUnique({
+      where: { peerlyListId },
+      select: { id: true },
+    })
+    if (!build) return
+
+    // Only `authorized` holds can have a deferred, unsent paid draft: once the
+    // send is submitted and the money captured the row leaves `authorized`, and
+    // the projectId gate on capture keeps an unsent draft here until it sends.
+    const holds = await this.model.findMany({
+      where: {
+        peerlyPhoneListId: build.id,
+        settleState: P2pSmsSettleState.authorized,
+      },
+      select: { outreachId: true },
+    })
+
+    for (const { outreachId } of holds) {
+      try {
+        await this.finalizePreBuildDraft(outreachId)
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, peerlyListId },
+          'win sms pre-build finalize failed from the build-ready edge; ' +
+            'the backstop sweep will retry',
+        )
+      }
+    }
+  }
+
+  // Finalizes ONE pre-build paid draft once its build is ready: stamp the numeric
+  // Peerly list id onto the Outreach (only when still null, so a build-before-pay
+  // draft the client already stamped is untouched), then submit it to Peerly.
+  // Idempotent + single-owner: the stamp fills a null phoneListId, and
+  // finalizeOutreachPurchase's pending_payment -> pending claim elects exactly
+  // one finalizer across the two edges and the backstop. Only a draft that
+  // actually completed checkout (a recorded Stripe session) and is still
+  // pending_payment is submitted; an already-finalized or never-paid draft is a
+  // no-op. Resolves readiness through the satellite link so it never trusts a
+  // not-yet-stamped Outreach.phoneListId.
+  private async finalizePreBuildDraft(outreachId: number): Promise<void> {
+    if (!isWinSmsHoldBillingEnabled()) return
+
+    const outreach = await this.client.outreach.findUnique({
+      where: { id: outreachId },
+      select: {
+        id: true,
+        campaignId: true,
+        status: true,
+        phoneListId: true,
+        stripeCheckoutSessionId: true,
+        p2pSms: { select: { peerlyPhoneListId: true } },
+      },
+    })
+    // A finalize needs a campaign (p2p is always campaign-scoped), a completed
+    // checkout (the recorded session), and a draft still awaiting its send.
+    if (
+      !outreach?.campaignId ||
+      !outreach.stripeCheckoutSessionId ||
+      outreach.status !== OutreachStatus.pending_payment
+    ) {
+      return
+    }
+
+    // Stamp the numeric list id from the linked build when the draft has none
+    // yet. The link is the satellite's own FK, so this never depends on a count
+    // the capture half reads.
+    if (outreach.phoneListId === null) {
+      const linkedBuildId = outreach.p2pSms?.peerlyPhoneListId
+      if (!linkedBuildId) return
+      const build = await this.client.peerlyPhoneList.findUnique({
+        where: { id: linkedBuildId },
+        select: { peerlyListId: true, buildStatus: true },
+      })
+      if (
+        !build ||
+        build.buildStatus !== PhoneListBuildStatus.ready ||
+        build.peerlyListId === null
+      ) {
+        return
+      }
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, phoneListId: null },
+        data: { phoneListId: build.peerlyListId },
+      })
+    }
+
+    await this.outreachService.finalizeOutreachPurchase(
+      outreachId,
+      outreach.campaignId,
+      outreach.stripeCheckoutSessionId,
+    )
   }
 
   // Recovers a `capturing` row stranded past the stale window. First re-claims
@@ -486,11 +620,24 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       where: { id: outreachId },
       select: {
         phoneListId: true,
+        projectId: true,
         campaign: { select: { hasFreeTextsOffer: true } },
         p2pSms: { select: { freeTextsApplied: true } },
       },
     })
     if (!outreach?.phoneListId) return null
+
+    // NEVER CAPTURE AN UNSENT SEND. projectId is the Peerly job id, stamped only
+    // once submitDraftToPeerly succeeds. In the pre-build flow finalize (the
+    // send) and capture (the money) both fire at the build-ready edge; if the
+    // send submission fails, finalize reverts the row to pending_payment but the
+    // hold is still `authorized`, so without this gate the capture that runs next
+    // in the same pass would charge for a send that never went out and settle the
+    // row out of `authorized`, hiding it from the finalize backstop forever. This
+    // keeps the hold `authorized` until the send is confirmed, so the backstop
+    // re-finalizes. In the build-before-pay flow projectId is always set before
+    // capture runs, so this is a no-op there.
+    if (!outreach.projectId) return null
 
     const build = await this.client.peerlyPhoneList.findUnique({
       where: { peerlyListId: outreach.phoneListId },

@@ -33,6 +33,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { EmailService } from 'src/email/email.service'
 import { ASSET_DOMAIN, WEBAPP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
+import { isWinSmsHoldBillingEnabled } from 'src/shared/util/winSmsHold.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
@@ -443,13 +444,52 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // to decide whether to refund, and the draft row does not record a charge
     // that never produced a send.
     chargeRef?: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    // Win SMS hold pre-build rendezvous (flag-gated, inert off): a p2p draft
+    // paid before its phone-list build finished carries no numeric phoneListId
+    // yet, and submitDraftToPeerly needs it. Defer finalize to the build-ready
+    // edge (OutreachP2pSmsCaptureService.finalizeDraftsForReadyList), which
+    // stamps phoneListId once the list exists and re-enters here. The
+    // build-before-pay flow always has phoneListId on the draft and never
+    // defers, so the current flow is unchanged. Peeking before the claim keeps a
+    // deferred draft at pending_payment (never transitioned), and phoneListId
+    // only ever goes null -> set, so a build that finishes between this peek and
+    // the claim simply finalizes from the build-ready edge instead.
+    //
+    // Deferral is SCOPED to a draft whose satellite is already linked to its
+    // building list (`peerlyPhoneListId`, stamped by recordHold on the paid
+    // path): only such a draft is recoverable by the build-ready edge (which
+    // finds work through that link). A draft with no link — notably the free
+    // ($0) path, which places no hold and seeds no link — is NOT deferred, so it
+    // is never silently stranded waiting for an edge that cannot find it.
+    if (isWinSmsHoldBillingEnabled()) {
+      const draft = await this.model.findFirst({
+        where: { id: outreachId, campaignId },
+        select: {
+          phoneListId: true,
+          outreachType: true,
+          p2pSms: { select: { peerlyPhoneListId: true } },
+        },
+      })
+      if (
+        draft?.outreachType === OutreachType.p2p &&
+        draft.phoneListId === null &&
+        draft.p2pSms?.peerlyPhoneListId != null
+      ) {
+        this.logger.info(
+          { outreachId, campaignId },
+          'p2p finalize deferred: phone-list build not ready; the build-ready edge will finalize',
+        )
+        return false
+      }
+    }
+
     const claimed = await this.claimDraftForFinalize(
       outreachId,
       campaignId,
       chargeRef,
     )
-    if (!claimed) return
+    if (!claimed) return false
 
     const outreach = await this.model.findUniqueOrThrow({
       where: { id: outreachId },
@@ -532,7 +572,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         { outreachId, campaignId: campaign.id },
         'Campaign has no user — skipping finalize notifications',
       )
-      return
+      return true
     }
 
     await this.tryNotifySuccess(user, campaign, finalized, {
@@ -541,6 +581,8 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       textCount: outreach.textCount ?? undefined,
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
+
+    return true
   }
 
   /**

@@ -64,6 +64,7 @@ describe('P2pController', () => {
   }
   let mockP2pSmsCapture: {
     captureHoldsForReadyList: ReturnType<typeof vi.fn>
+    finalizeDraftsForReadyList: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
 
@@ -90,6 +91,7 @@ describe('P2pController', () => {
     }
     mockP2pSmsCapture = {
       captureHoldsForReadyList: vi.fn().mockResolvedValue(undefined),
+      finalizeDraftsForReadyList: vi.fn().mockResolvedValue(undefined),
     }
     mockRes = createMockReply()
     controller = new P2pController(
@@ -260,8 +262,12 @@ describe('P2pController', () => {
         123,
         500,
       )
-      // Edge (b): the browser poll that first stamps ready also fires the
-      // capture, so a hold authorized for this list is not left to the backstop.
+      // Edge (b): the browser poll that first stamps ready also finalizes any
+      // pre-build paid draft (deferred at the webhook) and fires the capture, so
+      // neither is left to the backstop.
+      expect(mockP2pSmsCapture.finalizeDraftsForReadyList).toHaveBeenCalledWith(
+        123,
+      )
       expect(mockP2pSmsCapture.captureHoldsForReadyList).toHaveBeenCalledWith(
         123,
       )
@@ -331,8 +337,11 @@ describe('P2pController', () => {
       expect(
         mockPeerlyPhoneListCapture.isLeadsLoadedStable,
       ).not.toHaveBeenCalled()
-      // Already ready before this poll: the capture edge fired on the original
-      // transition, so a repeat poll must not re-fire it.
+      // Already ready before this poll: the finalize + capture edges fired on
+      // the original transition, so a repeat poll must not re-fire them.
+      expect(
+        mockP2pSmsCapture.finalizeDraftsForReadyList,
+      ).not.toHaveBeenCalled()
       expect(mockP2pSmsCapture.captureHoldsForReadyList).not.toHaveBeenCalled()
       expect(mockRes.status).not.toHaveBeenCalled()
       expect(result).toEqual({

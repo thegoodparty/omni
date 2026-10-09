@@ -33,6 +33,7 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
     upsert: ReturnType<typeof vi.fn>
     updateMany: ReturnType<typeof vi.fn>
   }
+  let peerlyPhoneList: { findUnique: ReturnType<typeof vi.fn> }
   let stripe: {
     retrieveCheckoutSession: ReturnType<typeof vi.fn>
     retrievePaymentIntent: ReturnType<typeof vi.fn>
@@ -48,6 +49,7 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
 
   beforeEach(async () => {
     model = { upsert: vi.fn(), updateMany: vi.fn() }
+    peerlyPhoneList = { findUnique: vi.fn() }
     stripe = {
       retrieveCheckoutSession: vi
         .fn()
@@ -58,7 +60,10 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         OutreachP2pSmsHoldService,
-        { provide: PrismaService, useValue: { outreachP2pSms: model } },
+        {
+          provide: PrismaService,
+          useValue: { outreachP2pSms: model, peerlyPhoneList },
+        },
         { provide: StripeService, useValue: stripe },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
@@ -90,6 +95,84 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
       authorizedAmountInCents: 10500,
     })
     expect(stamp?.data?.captureBefore).toEqual(new Date('2026-02-01T00:00:00Z'))
+  })
+
+  it('links the satellite to its building phone list from the upload token', async () => {
+    model.updateMany.mockResolvedValue({ count: 1 })
+    peerlyPhoneList.findUnique.mockResolvedValue({ id: 'ppl-uuid-9' })
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+      phoneListToken: 'tok-xyz',
+    })
+
+    expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith({
+      where: { token: 'tok-xyz' },
+      select: { id: true },
+    })
+    // The link is its OWN idempotent update (guarded on peerlyPhoneListId null),
+    // separate from the authorize CAS, so a replay whose token now resolves can
+    // backfill a link an earlier authorize left unset.
+    const linkCall = model.updateMany.mock.calls
+      .map((call) => call[0])
+      .find((args) => args?.data?.peerlyPhoneListId === 'ppl-uuid-9')
+    expect(linkCall?.where).toMatchObject({
+      outreachId: OUTREACH_ID,
+      peerlyPhoneListId: null,
+    })
+    expect(authorizedCall()?.data).not.toHaveProperty('peerlyPhoneListId')
+  })
+
+  it('backfills the link on a replay even when the authorize CAS no-ops (already authorized)', async () => {
+    // Replay: the row is already past pending_payment, so the authorize CAS
+    // matches nothing (count 0) — but the separate link update still backfills a
+    // peerlyPhoneListId an earlier, token-less authorize left null.
+    model.updateMany.mockResolvedValue({ count: 0 })
+    peerlyPhoneList.findUnique.mockResolvedValue({ id: 'ppl-uuid-9' })
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+      phoneListToken: 'tok-xyz',
+    })
+
+    const linkCall = model.updateMany.mock.calls
+      .map((call) => call[0])
+      .find((args) => args?.data?.peerlyPhoneListId === 'ppl-uuid-9')
+    expect(linkCall?.where).toMatchObject({
+      outreachId: OUTREACH_ID,
+      peerlyPhoneListId: null,
+    })
+  })
+
+  it('leaves the satellite unlinked (no peerlyPhoneListId) when the token resolves to nothing', async () => {
+    model.updateMany.mockResolvedValue({ count: 1 })
+    peerlyPhoneList.findUnique.mockResolvedValue(null)
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+      phoneListToken: 'tok-unknown',
+    })
+
+    // The hold is still authorized; peerlyPhoneListId is simply omitted so the
+    // CAS does not overwrite it with null.
+    const stamp = authorizedCall()
+    expect(stamp?.data?.settleState).toBe(P2pSmsSettleState.authorized)
+    expect(stamp?.data).not.toHaveProperty('peerlyPhoneListId')
+  })
+
+  it('does not look up a phone list when no token is supplied', async () => {
+    model.updateMany.mockResolvedValue({ count: 1 })
+
+    await service.recordHold({
+      outreachId: OUTREACH_ID,
+      checkoutSessionId: SESSION_ID,
+    })
+
+    expect(peerlyPhoneList.findUnique).not.toHaveBeenCalled()
+    expect(authorizedCall()?.data).not.toHaveProperty('peerlyPhoneListId')
   })
 
   it('stamps straight from pending_payment via a single CAS (no hold_pending)', async () => {

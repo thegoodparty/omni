@@ -35,9 +35,17 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
   async recordHold({
     outreachId,
     checkoutSessionId,
+    phoneListToken,
   }: {
     outreachId: number
     checkoutSessionId: string
+    // The Peerly phone-list upload token this send bills against, from the
+    // checkout metadata. Resolves the PeerlyPhoneList row so the hold links to
+    // its building list NOW — before the list is `ready` and before
+    // Outreach.phoneListId exists. The build-ready edge (finalize) and the
+    // capture both find a pre-build draft through this satellite link rather
+    // than Outreach.phoneListId, which is null until the build finishes.
+    phoneListToken?: string
   }): Promise<void> {
     const intent = await this.resolveHeldIntent(checkoutSessionId)
     if (!intent) {
@@ -59,6 +67,38 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
       })
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err
+    }
+
+    // LINK the satellite to its building PeerlyPhoneList by the upload token.
+    // This is the only handle to the list before it is `ready`, so it is what the
+    // build-ready finalize edge and the capture use to find a pre-build draft
+    // (whose Outreach.phoneListId is still null). Written as its OWN idempotent
+    // update (guarded on peerlyPhoneListId IS NULL), separate from the authorize
+    // CAS below — so a webhook replay whose token now resolves backfills a link
+    // that an earlier authorize left unset, which the pending_payment-guarded CAS
+    // could never add once the row is past pending_payment.
+    //
+    // The link is provably set in practice: resolvePhoneListId looks the row up
+    // by its globally-@unique, immutable token, and resolveBilledContactCount
+    // already proved that token belongs to this campaign ({token, campaignId})
+    // and threw before the Stripe session was ever created — so by the time this
+    // webhook runs the row exists and the token still resolves. The only way to
+    // reach the null branch is deleting the PeerlyPhoneList between checkout and
+    // the webhook, which nothing does; it is logged (loud, observable) but not
+    // fatal, because an unlinked hold simply lapses and releases at the ~7-day
+    // Stripe auth with NO charge — the capture projectId gate never charges for a
+    // send that was not submitted.
+    const peerlyPhoneListId = await this.resolvePhoneListId(phoneListToken)
+    if (peerlyPhoneListId === null) {
+      this.logger.warn(
+        { outreachId, checkoutSessionId, phoneListToken },
+        'win sms hold: could not resolve phone list from token; satellite left unlinked',
+      )
+    } else {
+      await this.model.updateMany({
+        where: { outreachId, peerlyPhoneListId: null },
+        data: { peerlyPhoneListId },
+      })
     }
 
     // VERIFY BEFORE STAMPING: a confirmed PI that did not reach requires_capture
@@ -138,6 +178,21 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
       where: { outreachId },
       data: { freeTextsApplied: true },
     })
+  }
+
+  // Resolves the durable PeerlyPhoneList row id (the uuid primary key, which the
+  // satellite's peerlyPhoneListId FK points at) from the Peerly upload token.
+  // Token is unique per list, so a missing token or an unknown one returns null
+  // and the caller leaves the satellite unlinked rather than guessing.
+  private async resolvePhoneListId(
+    phoneListToken: string | undefined,
+  ): Promise<string | null> {
+    if (!phoneListToken) return null
+    const list = await this.client.peerlyPhoneList.findUnique({
+      where: { token: phoneListToken },
+      select: { id: true },
+    })
+    return list?.id ?? null
   }
 
   // Resolves the manual-capture PaymentIntent behind a completed checkout
