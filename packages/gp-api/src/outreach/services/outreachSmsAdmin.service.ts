@@ -657,12 +657,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   // (symmetric with approve, so the two can never interleave — see the claim
   // below), and only on a won claim neutralize the vendor job then release the
   // money through the shared charge-keyed refund terminal. Because the denial is
-  // committed by the claim, a transient delete/release failure strands the row
-  // denied-but-unreleased (the retry's CAS matches nothing) — deferred to the
-  // slice-F reconcile sweep; the charge-keyed idempotent release means a manual
-  // retry never double-refunds. This is the better trade than a read-only
-  // pre-check, which would let a concurrent approve book/send between the read
-  // and the action and then refund an already-booked send.
+  // committed by the claim, a job-delete or release failure (e.g. a `capturing`
+  // row refusing release) would otherwise strand the row denied-but-unreleased
+  // with no retry able to re-claim it; denyHold reverts the denial stamp on any
+  // such failure so the row stays reviewable and a later retry (once the
+  // capture settles) actually succeeds — self-healing without slice F for the
+  // deny path. This is the better trade than a read-only pre-check, which would
+  // let a concurrent approve book/send between the read and the action and then
+  // refund an already-booked send.
   private async denyHold(
     outreachId: number,
     input: DenySmsOutreachRequest,
@@ -710,18 +712,30 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // failure (the cancel discipline), so a denied send can never fire: releasing
     // the money before the job is gone would risk a free delivered send if the
     // delete then failed.
-    // TODO(slice F): a denial whose job delete or release then fails transiently
-    // leaves a denied-but-unreleased row (the deleteJob-before-release strand) —
-    // the slice-F reconcile sweep finishes it; the charge-keyed idempotent release
-    // means a manual retry never double-refunds.
-    if (row.projectId) {
-      await this.peerlyP2pJobService.deleteJob(row.projectId)
-      this.invalidateVendorReads(row.projectId)
-    }
+    try {
+      if (row.projectId) {
+        await this.peerlyP2pJobService.deleteJob(row.projectId)
+        this.invalidateVendorReads(row.projectId)
+      }
 
-    // Release the hold (refund if captured, void if authorized). Refuses a
-    // `capturing` row (money mid-flight) — reconciled by slice F.
-    await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
+      // Release the hold (refund if captured, void if authorized). Refuses a
+      // `capturing` row (money mid-flight) with a throw — no state transition is
+      // committed on that path, so there is never money moved without a denial.
+      await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
+    } catch (err) {
+      // Revert the denial stamp so the row goes back to awaiting-review instead
+      // of being stranded denied-but-unreleased: a retry's CAS would otherwise
+      // match nothing (deniedAt already set) and fail with a ConflictException
+      // even once the transient cause (e.g. a `capturing` row) clears. The
+      // vendor job delete is idempotent, so re-running this method on retry is
+      // safe. approvedAt stays null throughout (approve requires deniedAt null,
+      // so it can't have raced in), making this guard belt-and-suspenders.
+      await this.model.updateMany({
+        where: { id: outreachId, approvedAt: null },
+        data: { deniedAt: null, deniedBy: null, deniedReason: null },
+      })
+      throw err
+    }
 
     const updated = await this.model.findFirstOrThrow({
       where: { id: outreachId },

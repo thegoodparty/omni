@@ -1,9 +1,10 @@
-import { ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import { addHours } from 'date-fns'
 import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
+import { OutreachP2pSmsCancelService } from '@/outreach/services/outreachP2pSmsCancel.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
@@ -280,6 +281,45 @@ describe('OutreachSmsAdminService.deny', () => {
     }
     // The activation spy exists only so approve's best-effort activation no-ops.
     void activateJobSpy
+  })
+
+  it('reverts the denial stamp when release refuses a capturing row, so a retry is not stranded', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    const outreachId = await createRow({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+    })
+
+    const cancelService = service.app.get(OutreachP2pSmsCancelService)
+    const releaseSpy = vi
+      .spyOn(cancelService, 'releaseForDeny')
+      .mockRejectedValueOnce(
+        new BadRequestException(
+          'The payment for this campaign is still being processed. ' +
+            'Try again in a moment.',
+        ),
+      )
+
+    // First attempt: release refuses (simulating a `capturing` row). The
+    // original error must surface, not a ConflictException from a stranded CAS.
+    await expect(
+      admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+
+    const reverted = await readSpine(outreachId)
+    expect(reverted.deniedAt).toBeNull()
+    expect(reverted.deniedBy).toBeNull()
+    expect(reverted.deniedReason).toBeNull()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.captured,
+    )
+
+    // Second attempt (the capture has since settled): the row is reviewable
+    // again, so the retry succeeds instead of hitting a stale-CAS Conflict.
+    await admin.deny(outreachId, { deniedBy: 'cas@gp.org', reason: 'bad' })
+    expect(releaseSpy).toHaveBeenCalledTimes(2)
+    const resolved = await readSpine(outreachId)
+    expect(resolved.deniedAt).not.toBeNull()
   })
 
   it('leaves a NON-satellite deny as the send-back-for-edits stamp (no money, no job delete)', async () => {
