@@ -614,7 +614,14 @@ def apply_intents(findings: list[Finding], base: Snapshot, head: Snapshot,
 
 
 def _areas_text(reach: er.Reach) -> str:
-    return ", ".join(a.label for a in reach.areas) or "nowhere live"
+    names: dict[str, str] = {}
+    for a in reach.areas:
+        names.setdefault(er.slug(a.label), a.label)
+    return ", ".join(names.values()) or "nowhere live"
+
+
+def _area_names(reach: er.Reach) -> frozenset[str]:
+    return frozenset(er.slug(a.label) for a in reach.areas)
 
 
 def _relabel_fix(event: str, after: er.Reach) -> str:
@@ -649,7 +656,9 @@ def surface_findings(base: Snapshot, head: Snapshot, b_idx: er.ReachIndex,
             continue
         if before.dashboard_wide and after.dashboard_wide:
             continue
-        dropped = before.area_keys - after.area_keys
+        # By name, not route: a page that moves (/dashboard/profile to /profile) under the
+        # same area name leaves the label right, and a relabel row would change nothing.
+        dropped = _area_names(before) - _area_names(after)
         revived = not before.areas
         if dropped or revived:
             out.append(Finding(
