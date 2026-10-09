@@ -33,6 +33,7 @@ import { EmailService } from 'src/email/email.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
+import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { OutreachService } from './outreach.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -153,6 +154,9 @@ describe('OutreachService', () => {
       // requireCompliantScript reads the campaign owner's name as one of the
       // candidate-name candidates; the TCR record above supplies the other.
       user: { findUnique: vi.fn().mockResolvedValue(null) },
+      // cancelOutreach probes for a hold-model satellite before the shared body;
+      // no satellite here, so these tests stay on the immediate-charge path.
+      outreachP2pSms: { findUnique: vi.fn().mockResolvedValue(null) },
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -212,6 +216,10 @@ describe('OutreachService', () => {
         },
         {
           provide: OutreachRobocallCancelService,
+          useValue: { cancel: vi.fn() },
+        },
+        {
+          provide: OutreachP2pSmsCancelService,
           useValue: { cancel: vi.fn() },
         },
         OutreachService,

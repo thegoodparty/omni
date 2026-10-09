@@ -10,6 +10,7 @@ import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { P2pSmsSettleState } from 'src/generated/prisma'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { OutreachService } from './outreach.service'
+import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 
 const OUTREACH_ID = 7788
 const CAMPAIGN_ID = 9911
@@ -60,6 +61,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     voidHold: ReturnType<typeof vi.fn>
   }
   let outreachService: { finalizeOutreachPurchase: ReturnType<typeof vi.fn> }
+  let freeTexts: { restore: ReturnType<typeof vi.fn> }
   const settingState = () => callSetting(sms)
 
   // Authorized hold + ready build with a stable count — the rendezvous
@@ -127,6 +129,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     outreachService = {
       finalizeOutreachPurchase: vi.fn().mockResolvedValue(undefined),
     }
+    freeTexts = { restore: vi.fn().mockResolvedValue(true) }
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -137,6 +140,7 @@ describe('OutreachP2pSmsCaptureService', () => {
         },
         { provide: StripeService, useValue: stripe },
         { provide: OutreachService, useValue: outreachService },
+        { provide: OutreachP2pSmsFreeTextsService, useValue: freeTexts },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -376,6 +380,8 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
     expect(stripe.voidHold).toHaveBeenCalledWith(INTENT_ID)
     expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+    // A capture-time void hands the free-texts offer back (closes C1's TODO).
+    expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
   })
 
   it('reconciles an already-succeeded PI without a second capture', async () => {
@@ -399,6 +405,8 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
     expect(stripe.voidHold).not.toHaveBeenCalled()
     expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+    // A lapsed-hold void also restores the free-texts offer (closes C1's TODO).
+    expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
   })
 
   it('reverts to authorized (no terminal) when the capture call fails', async () => {

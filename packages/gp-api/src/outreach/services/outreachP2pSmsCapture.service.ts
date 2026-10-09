@@ -21,6 +21,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { OutreachService } from './outreach.service'
+import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 
 // Backstop only — capture fires inline from both edges, so a quarter-hour net
 // is enough to catch a dropped signal. The minute space is saturated by the
@@ -92,6 +93,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   constructor(
     private readonly stripe: StripeService,
     private readonly outreachService: OutreachService,
+    private readonly freeTexts: OutreachP2pSmsFreeTextsService,
   ) {
     super()
   }
@@ -456,6 +458,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           'parked voided, not charged',
       )
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+      await this.restoreFreeTextsBestEffort(outreachId)
       return
     }
 
@@ -518,9 +521,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
 
     // HOLD LAPSED: expired / canceled / never capturable. Nothing was captured,
     // so park `voided` and surface CRITICAL — a fresh-charge recovery is a
-    // later concern, never a blind charge here.
-    // TODO(win-sms-hold slice E): a void here must restore the free-texts offer
-    // redeemed at hold time (the release/cancel slice owns that restore).
+    // later concern, never a blind charge here. Restore the free-texts offer this
+    // send redeemed at hold time, since the void means it is never billed.
     if (intent.status !== 'requires_capture') {
       this.logger.error(
         { outreachId, intentStatus: intent.status },
@@ -528,6 +530,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           'parked voided, send uncharged',
       )
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+      await this.restoreFreeTextsBestEffort(outreachId)
       return
     }
 
@@ -552,10 +555,12 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // ZERO / SUB-MINIMUM: Stripe refuses a capture under its 50c floor, so a
     // final amount below it is released, not captured — void the hold and park
     // `voided`. Covers a $0 amount (e.g. every contact free or scrubbed) too.
-    // TODO(win-sms-hold slice E): restore the free-texts offer on this void.
+    // Restore the free-texts offer this send redeemed: the void means it never
+    // bills, so the offer must go back to the campaign.
     if (captureAmount < WIN_SMS_HOLD_MIN_CENTS) {
       await this.stripe.voidHold(authorizationIntentId)
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+      await this.restoreFreeTextsBestEffort(outreachId)
       this.logger.info(
         { outreachId, captureAmount },
         'win sms capture: final amount below the floor; voided the hold',
@@ -638,6 +643,24 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       where: { outreachId, settleState: P2pSmsSettleState.capturing },
       data: { settleState: to },
     })
+  }
+
+  // A capture-time VOID (lapsed/anomalous/sub-floor hold) owes the free-texts
+  // offer back the same way the cancel/deny release does: this send redeemed it
+  // at hold time but the void means it is never billed. Best-effort + guarded on
+  // the campaign redeemed marker (the restore helper is idempotent), so it never
+  // double-grants and never fails the settlement over a transient restore error.
+  private async restoreFreeTextsBestEffort(outreachId: number): Promise<void> {
+    try {
+      await this.freeTexts.restore(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'CRITICAL win sms capture: free-texts restore failed after a ' +
+          'capture-time void; the offer may be stuck consumed. ' +
+          'TODO(slice F): reconcile',
+      )
+    }
   }
 
   // The discounted capture amount, computed the SAME way the immediate-charge

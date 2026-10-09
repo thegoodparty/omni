@@ -53,6 +53,7 @@ import {
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
+import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { collapseDoorKnockingCampaigns } from '../util/collapseDoorKnockingCampaigns.util'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
@@ -115,6 +116,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly emailService: EmailService,
     private readonly analytics: AnalyticsService,
     private readonly robocallCancel: OutreachRobocallCancelService,
+    private readonly p2pSmsCancel: OutreachP2pSmsCancelService,
   ) {
     super()
   }
@@ -1099,6 +1101,25 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // and refuses a run that has already dialed.
     if (outreach.outreachType === OutreachType.robocall) {
       return this.robocallCancel.cancel(outreachId, campaignId, attribution)
+    }
+    // Win SMS hold model: a p2p row that carries an OutreachP2pSms satellite runs
+    // its money off the satellite settleState (hold → capture → refund), so
+    // canceling means voiding the hold or refunding the captured charge off the
+    // satellite intent — not the shared checkout-session refund below. Delegated
+    // like the robocall branch, never a fork of the shared body (which would
+    // regress Serve + the immediate-charge path). Gated on the satellite's
+    // EXISTENCE, not the flag: once a row IS a hold its money guards apply even on
+    // a WIN_SMS_HOLD_BILLING rollback, so the kill switch can never strand held
+    // money. A non-satellite p2p row has no satellite here and falls through to
+    // the unchanged shared body.
+    if (outreach.outreachType === OutreachType.p2p) {
+      const satellite = await this.client.outreachP2pSms.findUnique({
+        where: { outreachId },
+        select: { outreachId: true },
+      })
+      if (satellite) {
+        return this.p2pSmsCancel.cancel(outreachId, campaignId, attribution)
+      }
     }
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }

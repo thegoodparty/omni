@@ -527,6 +527,19 @@ export class StripeService {
     )
   }
 
+  // Full refund issued against the CHARGE rather than the PaymentIntent (Win SMS
+  // hold release). The durable charge id is recorded on the satellite at capture
+  // time, so a refund keyed on it survives a lapsed hold and keys its idempotency
+  // to the specific money movement — a deny and a cancel racing the same charge
+  // pass the same key and so can never refund twice. Callers pass a stable
+  // charge-derived key.
+  async refundCharge(chargeId: string, idempotencyKey: string) {
+    return await this.stripe.refunds.create(
+      { charge: chargeId },
+      { idempotencyKey },
+    )
+  }
+
   async retrieveCheckoutSession(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
