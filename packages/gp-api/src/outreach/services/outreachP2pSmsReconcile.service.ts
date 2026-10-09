@@ -247,11 +247,12 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     }
   }
 
-  // Sweep 3: void a hold stranded in `authorized` on a past-due draft that never
-  // submitted to Peerly (projectId null), so it can never send or capture — its
-  // reserved money would otherwise sit until the ~7-day auth expiry. Releasing
-  // money is the safe direction. CONSERVATIVE on purpose: only a pending/
-  // pending_payment, past-due, projectId-null, authorized row.
+  // Sweep 3: cancel + void a hold stranded in `authorized` on a past-due draft
+  // that never finalized — still `pending_payment` with no `projectId`, so it
+  // was never submitted to Peerly and can never send or capture. Its reserved
+  // money would otherwise sit until the ~7-day auth expiry while the spine shows
+  // "Scheduled" forever. CONSERVATIVE on purpose: ONLY a `pending_payment`,
+  // past-due, projectId-null, authorized row (NOT `pending` — see the claim).
   @Cron(P2P_SMS_STRANDED_RECONCILE_CRON, {
     name: 'p2pSmsStrandedAuthorizedReconcileSweep',
     timeZone: EASTERN_TIMEZONE,
@@ -266,9 +267,12 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
         settleState: P2pSmsSettleState.authorized,
         outreach: {
           projectId: null,
-          status: {
-            in: [OutreachStatus.pending, OutreachStatus.pending_payment],
-          },
+          // pending_payment ONLY, never pending: a build-ready finalize claims
+          // the draft pending_payment -> pending BEFORE it submits to Peerly
+          // (claimDraftForFinalize, outreach.service.ts), so a `pending` row is
+          // a finalize already in flight (or its backstop's to retry) — never
+          // this sweep's to void.
+          status: OutreachStatus.pending_payment,
           date: { lt: now },
         },
       },
@@ -291,36 +295,37 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     outreachId: number,
     authorizationIntentId: string | null,
   ): Promise<void> {
-    // Claim authorized → voided (single owner across replicas) BEFORE any void.
-    const claimed = await this.model.updateMany({
-      where: { outreachId, settleState: P2pSmsSettleState.authorized },
-      data: { settleState: P2pSmsSettleState.voided },
-    })
-    if (claimed.count === 0) return
-
-    // Defense in depth against a finalize that stamped projectId (submitted the
-    // send to Peerly) between candidate selection and this claim: voiding a hold
-    // on a submitted send would be a free delivered send. Re-read the spine; if
-    // it now carries a projectId, undo the claim (the hold is still live) and
-    // leave the row for the capture path.
-    const spine = await this.client.outreach.findUnique({
-      where: { id: outreachId },
-      select: { projectId: true },
-    })
-    if (spine?.projectId) {
-      await this.model.updateMany({
-        where: { outreachId, settleState: P2pSmsSettleState.voided },
-        data: { settleState: P2pSmsSettleState.authorized },
+    // RACE-CLOSING claim. A build-ready finalize of this same draft submits to
+    // Peerly only AFTER claimDraftForFinalize moves the spine
+    // `pending_payment -> pending`, and finalize never touches settleState — so
+    // the spine `status` field is the one lock the void and the finalize share.
+    // Claim it `pending_payment -> canceled` here: whichever of the two commits
+    // first wins the row (same row, same guarded field), and the loser's claim
+    // matches nothing. Winning therefore GUARANTEES the send was not and can no
+    // longer be submitted, so voiding the hold can never destroy a hold for a
+    // delivered send. The cancel and the satellite `authorized -> voided` stamp
+    // commit in ONE transaction, so a crash can never leave the spine canceled
+    // with the hold still recorded authorized. projectId:null is belt — finalize
+    // stamps it only after it has already left pending_payment.
+    const claimed = await this.client.$transaction(async (tx) => {
+      const spine = await tx.outreach.updateMany({
+        where: {
+          id: outreachId,
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        },
+        data: { status: OutreachStatus.canceled, canceledAt: new Date() },
       })
-      this.logger.warn(
-        { outreachId },
-        'win sms reconcile: stranded-authorized gained a projectId mid-claim; ' +
-          'reverted the void, left for capture',
-      )
-      return
-    }
+      if (spine.count === 0) return false
+      await tx.outreachP2pSms.updateMany({
+        where: { outreachId, settleState: P2pSmsSettleState.authorized },
+        data: { settleState: P2pSmsSettleState.voided },
+      })
+      return true
+    })
+    if (!claimed) return
 
-    // Void best-effort: the row is already terminal `voided` and the hold
+    // Void best-effort: the satellite is already terminal `voided` and the hold
     // auto-expires within its ~7-day auth lifetime, so a void failure never
     // charges. Hand back any free-texts offer regardless — symmetric with the
     // cancel/deny void path.
@@ -330,7 +335,7 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     await this.restoreBestEffort(outreachId)
     this.logger.info(
       { outreachId },
-      'win sms reconcile: voided a stranded authorized hold',
+      'win sms reconcile: canceled + voided a stranded pending_payment hold',
     )
   }
 

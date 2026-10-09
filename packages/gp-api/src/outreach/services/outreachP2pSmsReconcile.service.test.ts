@@ -514,9 +514,10 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
 })
 
 describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
-  it('voids a past-due authorized draft that never submitted to Peerly', async () => {
+  it('cancels + voids a never-finalized pending_payment stranded draft', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
       projectId: null,
       sendInHours: -24,
     })
@@ -528,15 +529,18 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.voided,
     )
+    // The spine is flipped canceled, not left lingering pending_payment.
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
     // Free-texts offer handed back.
     const after = await readCampaign()
     expect(after.hasFreeTextsOffer).toBe(true)
     expect(after.freeTextsOfferRedeemedAt).toBeNull()
   })
 
-  it('voids exactly once across a double-run (authorized → voided CAS)', async () => {
+  it('voids exactly once across a double-run (spine pending_payment → canceled CAS)', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
       projectId: null,
     })
 
@@ -547,33 +551,36 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.voided,
     )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 
-  it('reverts the void and leaves the row for capture if a projectId appears mid-claim', async () => {
+  it('does NOT void a draft whose status has advanced to pending (in-flight finalize)', async () => {
+    // A build-ready finalize claims the draft pending_payment → pending BEFORE
+    // it submits to Peerly and leaves settleState authorized throughout. A
+    // `pending` row is therefore a finalize in flight (the send may be landing),
+    // and the hold must NOT be voided — voiding it would destroy a hold for a
+    // delivered send. The pending_payment-only filter + CAS loses this race by
+    // construction.
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending,
       projectId: null,
+      sendInHours: -24,
     })
-    // Simulate a finalize that stamped projectId (submitted the send) between
-    // candidate selection and the post-claim re-read fence.
-    vi.spyOn(service.prisma.outreach, 'findUnique').mockResolvedValueOnce({
-      projectId: 'peerly-raced-in',
-    } as unknown as Awaited<
-      ReturnType<typeof service.prisma.outreach.findUnique>
-    >)
 
     await reconcile.sweepStrandedAuthorized()
 
-    // The hold must NOT be voided on a send that is now submitted.
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.authorized,
     )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.pending)
   })
 
   it('does NOT select a draft already submitted to Peerly (projectId set)', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
       projectId: 'peerly-live-job',
     })
 
@@ -585,9 +592,10 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     )
   })
 
-  it('does NOT select a future-dated authorized draft', async () => {
+  it('does NOT select a future-dated pending_payment draft', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
       projectId: null,
       sendInHours: 48,
     })
@@ -603,6 +611,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
   it('does NOT select a captured (already-paid) past-due row', async () => {
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.captured,
+      spineStatus: OutreachStatus.pending_payment,
       chargeIntentId: CHARGE_ID,
       projectId: null,
     })
@@ -615,23 +624,11 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     )
   })
 
-  it('does NOT select a completed (sent) row', async () => {
-    const outreachId = await createHold({
-      settleState: P2pSmsSettleState.authorized,
-      projectId: null,
-      spineStatus: OutreachStatus.completed,
-    })
-
-    await reconcile.sweepStrandedAuthorized()
-
-    expect(voidSpy).not.toHaveBeenCalled()
-    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.completed)
-  })
-
   it('no-ops with the flag off', async () => {
     vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
       projectId: null,
     })
 
@@ -647,6 +644,7 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     await createHold({
       settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
       projectId: null,
     })
 
