@@ -75,6 +75,9 @@ import {
 type TrackerParams = AgentJobContracts['campaign_tracker_tasks']['Input']
 
 // Outreach in these states hasn't been scheduled, so it completes no task.
+// `in_progress` is deliberately absent: a call list or a door-knocking walk
+// is created in it, and its task ("Create your call list", "Plan your door
+// knocking") is the setting up, which that create finishes.
 const NOT_SCHEDULED_OUTREACH_STATUSES: OutreachStatus[] = [
   OutreachStatus.draft,
   OutreachStatus.pending_payment,

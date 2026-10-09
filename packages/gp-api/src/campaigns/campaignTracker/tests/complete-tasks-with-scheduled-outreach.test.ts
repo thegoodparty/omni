@@ -71,6 +71,14 @@ describe('Campaign tracker tasks - done once their outreach is scheduled', () =>
     expect(after.trackerTaskId).toBeNull()
   })
 
+  it('marks a set-up task done once its call list or walk exists', async () => {
+    // Call lists and door-knocking walks are created in_progress; their task
+    // is the setting up, not every call or door.
+    const { task } = await setup(OutreachStatus.in_progress)
+
+    expect((await readTask(task.id))?.completed).toBe(true)
+  })
+
   it('leaves the task open while the outreach waits on payment', async () => {
     const { task, outreach } = await setup(OutreachStatus.pending_payment)
 
