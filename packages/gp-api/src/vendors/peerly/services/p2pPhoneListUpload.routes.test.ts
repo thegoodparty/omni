@@ -1338,7 +1338,7 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
     })
 
     it('ON: creates the queued row, enqueues after it commits, and returns {buildId, token: null} without building in-request', async () => {
-      vi.stubEnv('P2P_PHONE_LIST_ASYNC_BUILD', 'true')
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       await seedWinCampaign()
       const upload = stubPeerlyUpload()
       const enqueue = vi

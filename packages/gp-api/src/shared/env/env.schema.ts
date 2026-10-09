@@ -334,7 +334,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
-  P2P_PHONE_LIST_ASYNC_BUILD: { tier: 'optional' },
   WIN_SMS_HOLD_BILLING: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },

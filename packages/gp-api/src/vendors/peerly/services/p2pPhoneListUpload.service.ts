@@ -37,6 +37,7 @@ import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PhoneListState } from '../peerly.types'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { isWinSmsHoldBillingEnabled } from '@/shared/util/winSmsHold.util'
 
 // Mirrors outreachMaterialization.service.ts's paging shape. Not shared as an
 // export — each contacts-pipeline consumer keeps its own copy (see that
@@ -57,12 +58,11 @@ type P2pPhoneListFilterInput = Omit<
   'name'
 >
 
-// Kill switch for Voter Outreach 2.0's async build (S3b). Read live, never
-// cached at module load, so a test can `vi.stubEnv` it and so a prod
-// cutover needs no redeploy. Defaults OFF: this slice ships inert, and the
-// synchronous build below is unchanged until someone flips it.
-const isAsyncBuildEnabled = (): boolean =>
-  process.env.P2P_PHONE_LIST_ASYNC_BUILD === 'true'
+// Voter Outreach 2.0's async build (S3b) ships behind the SAME kill switch as
+// Win p2p SMS hold-billing: the async build was the whole reason hold-billing
+// exists (pay-before-ready needs a build that can still be running when
+// checkout happens), so the two ship and roll back together as one flag.
+const isAsyncBuildEnabled = (): boolean => isWinSmsHoldBillingEnabled()
 
 // A `building` row whose updatedAt is older than this is assumed abandoned
 // (the handler crashed, was OOM-killed, or lost its SQS message before

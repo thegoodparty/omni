@@ -505,6 +505,12 @@ export interface Campaign {
   // Owner's display name from GET /v1/campaigns/mine — the campaign's
   // candidate for team members whose own session-user name is not it.
   ownerName?: string | null
+  // gp-api's WIN_SMS_HOLD_BILLING kill switch, surfaced here because the
+  // browser can't read a server env var. The server never trusts this value
+  // back — every money path re-checks the flag itself. Optional (not every
+  // fixture/mock sets it) — absent reads as off, same as the flag's own
+  // default.
+  winSmsHoldBillingEnabled?: boolean
   user?: User
   organization?: {
     positionId?: string | null

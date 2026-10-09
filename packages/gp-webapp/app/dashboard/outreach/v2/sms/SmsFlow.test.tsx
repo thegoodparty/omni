@@ -103,12 +103,6 @@ vi.mock('helpers/createOutreach', () => ({
   createOutreach: vi.fn(async () => ({ id: 55 })),
 }))
 
-// Win SMS hold-billing flag — default off (unchanged flow); flipped per test.
-const winSmsHoldRef = vi.hoisted(() => ({ enabled: false }))
-vi.mock('app/shared/experiments/winSmsHoldFlag', () => ({
-  useWinSmsHoldFlag: () => ({ ready: true, enabled: winSmsHoldRef.enabled }),
-}))
-
 const completeFreePurchase = vi.fn(
   async (
     _type: string,
@@ -128,17 +122,20 @@ vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
     completeFreePurchase(type, meta),
 }))
 
-// The flow reads campaign (details/office, free-texts offer, ownerName) and
-// user (first name) from their providers; both are context-mocked at the
-// hook level. The campaign is a mutable ref so the team-member case can swap
-// ownerName; the base is the owner-composing shape (session user Jane IS the
-// owner), matching the real GET /v1/campaigns/mine payload.
+// The flow reads campaign (details/office, free-texts offer, ownerName, the
+// WIN_SMS_HOLD_BILLING flag) and user (first name) from their providers; both
+// are context-mocked at the hook level. The campaign is a mutable ref so
+// per-test cases can flip fields (ownerName, winSmsHoldBillingEnabled); the
+// base is the owner-composing shape (session user Jane IS the owner),
+// matching the real GET /v1/campaigns/mine payload — hold billing defaults
+// off (unchanged flow) and is flipped per test.
 const campaignState = vi.hoisted(() => {
   const base = () => ({
     id: 9,
     isPro: true,
     hasFreeTextsOffer: true,
     ownerName: 'Jane Doe',
+    winSmsHoldBillingEnabled: false,
     positionName: undefined as string | undefined,
     details: { normalizedOffice: 'City Council' } as {
       normalizedOffice?: string
@@ -259,7 +256,6 @@ const TCR_FIXTURE = {
 describe('SmsFlow', () => {
   beforeEach(() => {
     campaignState.campaign = campaignState.base()
-    winSmsHoldRef.enabled = false
     // Reset the module mock a pay-before-ready test overrides to 'building', so
     // it never leaks a non-ready build into a later test.
     vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
@@ -446,7 +442,7 @@ describe('SmsFlow', () => {
 
   describe('Win SMS hold billing: pay before the build is ready', () => {
     it('flag ON: creates the draft on the estimate while the build is still building (no phoneListId)', async () => {
-      winSmsHoldRef.enabled = true
+      campaignState.campaign.winSmsHoldBillingEnabled = true
 
       await reachReviewWhileBuilding()
 
@@ -462,7 +458,7 @@ describe('SmsFlow', () => {
     })
 
     it('flag OFF: waits for the build — no draft is created while it is still building', async () => {
-      winSmsHoldRef.enabled = false
+      campaignState.campaign.winSmsHoldBillingEnabled = false
 
       await reachReviewWhileBuilding()
 
@@ -477,9 +473,9 @@ describe('SmsFlow', () => {
     })
 
     it('flag ON + async build (null token): reaches pay-before-ready off the buildId', async () => {
-      winSmsHoldRef.enabled = true
-      // Async build (gp-api P2P_PHONE_LIST_ASYNC_BUILD): no token yet, only the
-      // build id — the biggest lists pay while they build.
+      campaignState.campaign.winSmsHoldBillingEnabled = true
+      // Async build (gp-api, same WIN_SMS_HOLD_BILLING flag): no token yet,
+      // only the build id — the biggest lists pay while they build.
       vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
         ok: true,
         token: null,
@@ -499,7 +495,7 @@ describe('SmsFlow', () => {
     })
 
     it('flag OFF + async build (null token): errors at audience, does not advance (unchanged)', async () => {
-      winSmsHoldRef.enabled = false
+      campaignState.campaign.winSmsHoldBillingEnabled = false
       vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
         ok: true,
         token: null,
