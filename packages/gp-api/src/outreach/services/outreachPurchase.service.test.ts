@@ -1483,8 +1483,28 @@ describe('OutreachPurchaseHandlerService', () => {
       })
     })
 
-    it('flag OFF + buildId (no token): resolves via the legacy path, places NO hold or cap (inert)', async () => {
+    it('flag OFF + buildId (no token): ignores the buildId entirely (byte-for-byte pre-slice behavior), never resolves by id', async () => {
       vi.mocked(mockPeerlyPhoneListCapture.persistSendCap).mockClear()
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockClear()
+
+      // The buildId handle only exists for the async-build path gated behind
+      // WIN_SMS_HOLD_BILLING. Flag off must behave exactly as it did before
+      // that slice — token-only — so a crafted buildId with no token is the
+      // same as supplying neither handle: refused before any lookup.
+      await expect(
+        service.calculateAmount({
+          ...purchaseMetadata,
+          phoneListToken: undefined,
+          phoneListBuildId: 'build-xyz',
+          contactCount: 6000,
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalled()
+      expect(mockPeerlyPhoneListCapture.persistSendCap).not.toHaveBeenCalled()
+    })
+
+    it('flag OFF + token AND buildId present: resolves by token only (buildId ignored), unchanged', async () => {
       mockServerLeadsLoaded(6000)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
@@ -1492,15 +1512,16 @@ describe('OutreachPurchaseHandlerService', () => {
 
       const amount = await service.calculateAmount({
         ...purchaseMetadata,
-        phoneListToken: undefined,
+        phoneListToken: 'token-abc',
         phoneListBuildId: 'build-xyz',
         contactCount: 6000,
       })
 
-      // Legacy discount applies and no send cap is persisted — the hold machinery
-      // (resolveWinSmsHoldAmount + persistSendCap) only runs under the flag.
       expect(amount).toBe(calcTextAmountInCents(6000 - FREE_TEXTS_OFFER.COUNT))
       expect(mockPeerlyPhoneListCapture.findFirst).toHaveBeenCalledWith({
+        where: { token: 'token-abc', campaignId: 111 },
+      })
+      expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalledWith({
         where: { id: 'build-xyz', campaignId: 111 },
       })
       expect(mockPeerlyPhoneListCapture.persistSendCap).not.toHaveBeenCalled()
