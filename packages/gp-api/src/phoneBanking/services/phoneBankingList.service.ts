@@ -41,6 +41,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { PhoneBankingAccessService } from './phoneBankingAccess.service'
+import { type AffinityColumn } from '@/peopleDb/affinityColumns.const'
 
 // Mirrors p2pPhoneListUpload.service.ts's SEGMENT_PAGE_SIZE — the page size
 // the resolved audience is paged through during a build.
@@ -304,6 +305,10 @@ export class PhoneBankingListService extends createPrismaBase(
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,
       contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      affinityColumn: await this.contacts.affinityColumnFor(
+        organization,
+        resolved.filters,
+      ),
       notAVoterIds,
       suppressedPhones,
       priorBatchPersonIds,
@@ -377,6 +382,7 @@ export class PhoneBankingListService extends createPrismaBase(
     filters: FilterObject
     idOverrides?: IdOverrides
     contactsMadeIdOverrides?: IdOverrides
+    affinityColumn?: AffinityColumn
     notAVoterIds: Set<string>
     suppressedPhones: Set<string>
     priorBatchPersonIds: Set<string>
@@ -392,6 +398,7 @@ export class PhoneBankingListService extends createPrismaBase(
       filters,
       idOverrides,
       contactsMadeIdOverrides,
+      affinityColumn,
       notAVoterIds,
       suppressedPhones,
       priorBatchPersonIds,
@@ -418,6 +425,7 @@ export class PhoneBankingListService extends createPrismaBase(
           filters,
           idOverrides,
           contactsMadeIdOverrides,
+          affinityColumn,
           search,
           resultsPerPage: BUILD_PAGE_SIZE,
           page,

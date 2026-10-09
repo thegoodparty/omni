@@ -65,6 +65,7 @@ import {
   mapDistrictStatsRows,
   type ComputedDistrictStats,
 } from './databricksDistrictStatsSql.util'
+import { type AffinityColumn } from '../affinityColumns.const'
 import { buildDistrictCensusSql } from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
@@ -204,6 +205,7 @@ export class DatabricksVoterService {
         filters: dto.filters,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     const [row] = rows
@@ -225,6 +227,7 @@ export class DatabricksVoterService {
         search: dto.search,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     const [row] = rows
@@ -251,6 +254,7 @@ export class DatabricksVoterService {
         savedFilterSets: dto.savedFilterSets,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     return PeopleOverlapCountResponseSchema.parse({
@@ -314,9 +318,10 @@ export class DatabricksVoterService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<number> {
     const { rows } = await this.run(
-      buildCountSql({ district, filters, idOverrides }),
+      buildCountSql({ district, filters, idOverrides, affinityColumn }),
     )
     return Number(rows[0]?.[0] ?? 0)
   }
@@ -329,9 +334,10 @@ export class DatabricksVoterService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<RankPrecinctsResult> {
     const { rows } = await this.run(
-      buildRankPrecinctsSql({ district, filters, idOverrides }),
+      buildRankPrecinctsSql({ district, filters, idOverrides, affinityColumn }),
     )
     const precincts: RankedPrecinct[] = rows.map((row) => ({
       county: row[0] ?? '',
@@ -353,6 +359,7 @@ export class DatabricksVoterService {
       search: dto.search,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
     }
     const page = Math.max(1, dto.page)
 
@@ -457,6 +464,7 @@ export class DatabricksVoterService {
       filters: dto.filters ?? EMPTY_FILTERS,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
       search: dto.search,
     }
 
@@ -524,6 +532,7 @@ export class DatabricksVoterService {
         filters: dto.filters,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
         bbox: dto.bbox,
         maxPeople: dto.maxPeople,
         excludePersonIds: dto.excludePersonIds,

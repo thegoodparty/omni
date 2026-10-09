@@ -214,6 +214,9 @@ describe('ContactsService — people-db (sole path)', () => {
       {} as never,
       mockStatsService as never,
       mockContactsMadeResolutionService as never,
+      {
+        resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
+      } as never,
       createMockLogger(),
     )
   })

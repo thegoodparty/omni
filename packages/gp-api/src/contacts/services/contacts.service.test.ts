@@ -202,6 +202,9 @@ describe('ContactsService', () => {
         {} as never,
         mockStatsService as never,
         mockContactsMadeResolutionService as never,
+        {
+          resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
+        } as never,
         createMockLogger(),
       )
       vi.clearAllMocks()

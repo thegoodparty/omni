@@ -11,6 +11,7 @@ import { ContactInteractionsController } from './contactInteractions.controller'
 import { ContactNotesController } from './contactNotes.controller'
 import { ContactsController } from './contacts.controller'
 import { ContactsService } from './services/contacts.service'
+import { IndependentAffinityColumnService } from './services/independentAffinityColumn.service'
 
 @Module({
   imports: [
@@ -30,7 +31,7 @@ import { ContactsService } from './services/contacts.service'
     ContactNotesController,
     ContactInteractionsController,
   ],
-  providers: [ContactsService],
-  exports: [ContactsService],
+  providers: [ContactsService, IndependentAffinityColumnService],
+  exports: [ContactsService, IndependentAffinityColumnService],
 })
 export class ContactsModule {}

@@ -67,6 +67,7 @@ model Campaign {
   raceOpponentFieldAnalysis RaceOpponentFieldAnalysis?
   raceOpponentStandoutActions RaceOpponentStandoutAction[]
   peerlyPhoneLists          PeerlyPhoneList[]
+  experimentAssignments     CampaignExperimentAssignment[]
 
   @@index([userId])
   @@map("campaign")

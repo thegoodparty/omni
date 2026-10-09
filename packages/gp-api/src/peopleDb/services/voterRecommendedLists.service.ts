@@ -7,6 +7,7 @@ import {
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
 import type { DbxDistrict } from '../databricks/databricksVoterSql.util'
 import type { FilterData } from '../schemas/filters.schema'
+import { type AffinityColumn } from '../affinityColumns.const'
 
 // The recommended-lists reads, routed through the read log like every other
 // voter read. One recommendation request issues several of these at once —
@@ -31,12 +32,18 @@ export class VoterRecommendedListsService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<number> {
     return this.readLog.measure({
       op: 'rec-count',
       districtId: district.districtId,
       read: () =>
-        this.databricks.countForFilter(district, filters, idOverrides),
+        this.databricks.countForFilter(
+          district,
+          filters,
+          idOverrides,
+          affinityColumn,
+        ),
     })
   }
 
@@ -44,11 +51,18 @@ export class VoterRecommendedListsService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<RankPrecinctsResult> {
     return this.readLog.measure({
       op: 'rec-rank-precincts',
       districtId: district.districtId,
-      read: () => this.databricks.rankPrecincts(district, filters, idOverrides),
+      read: () =>
+        this.databricks.rankPrecincts(
+          district,
+          filters,
+          idOverrides,
+          affinityColumn,
+        ),
     })
   }
 }

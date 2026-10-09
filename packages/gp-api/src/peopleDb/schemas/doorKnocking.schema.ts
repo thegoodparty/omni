@@ -4,13 +4,17 @@ import {
   DoorKnockingPackRequestSchema,
   DoorKnockingResidentsRequestSchema,
 } from '@goodparty_org/contracts'
+import { z } from 'zod'
 import { filtersSchema } from './filters.schema'
+import { AFFINITY_COLUMNS } from '../affinityColumns.const'
 
 // The wire shape is the contracts schema verbatim; only `filters` is swapped
 // for the server-side variant that transforms the grammar into the SQL
 // pipeline's FilterData.
 const evaluateSchema = DoorKnockingEvaluateRequestSchema.extend({
   filters: filtersSchema,
+  // See people.schema.ts. Set by gp-api only.
+  affinityColumn: z.enum(AFFINITY_COLUMNS).optional(),
 })
 
 export class DoorKnockingEvaluateDTO extends createZodDto(evaluateSchema) {}

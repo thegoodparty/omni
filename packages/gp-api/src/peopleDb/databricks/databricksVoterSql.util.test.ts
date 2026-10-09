@@ -397,6 +397,31 @@ describe('buildVoterFiltersSql', () => {
     expect(noBag.params).toEqual([])
   })
 
+  it("reads the campaign's experiment column when one is given", () => {
+    expect(
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ independentAffinity: { eq: 'Yes' } }),
+        undefined,
+        undefined,
+        'Indep_Openness_DOnly_Inc',
+      ),
+    ).toBe('v.`Indep_Openness_DOnly_Inc` = TRUE')
+  })
+
+  it('refuses an affinity column outside the allowlist', () => {
+    expect(() =>
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ independentAffinity: { eq: 'Yes' } }),
+        undefined,
+        undefined,
+        // @ts-expect-error -- an identifier that is not an affinity column
+        'Voter_Status; DROP TABLE x',
+      ),
+    ).toThrow()
+  })
+
   it('emits no independentAffinity clause when both values are selected', () => {
     expect(
       buildVoterFiltersSql(
