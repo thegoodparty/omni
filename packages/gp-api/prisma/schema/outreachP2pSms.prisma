@@ -47,13 +47,14 @@ model OutreachP2pSms {
   captureBefore           DateTime?         @map("capture_before")
   // How many times settlement has been attempted, to bound retries.
   payAttempt              Int               @default(0) @map("pay_attempt")
-  // Per-send, server-authoritative: set true the moment THIS send redeems the
-  // free-texts offer (in the purchase handler, before redeemFreeTexts flips the
-  // campaign flag). Capture reads THIS to apply the discount — never the
-  // client-writable billableTextCount or the once-per-campaign redeemed marker,
-  // which a later same-campaign send could otherwise ride to an unearned
-  // discount. Defaults false: a send that did not consume the offer is billed
-  // full price regardless of what it claimed.
+  // Per-send, server-authoritative: set true by CampaignsService.redeemFreeTexts
+  // IN THE SAME TRANSACTION as the campaign-level CAS win — never before it, so
+  // a losing concurrent send on the same campaign is never stamped. Capture
+  // reads THIS to apply the discount — never the client-writable
+  // billableTextCount or the once-per-campaign redeemed marker, which a later
+  // same-campaign send could otherwise ride to an unearned discount. Defaults
+  // false: a send that did not win the offer is billed full price regardless of
+  // what it claimed.
   freeTextsApplied        Boolean           @default(false) @map("free_texts_applied")
   // The Peerly phone-list build this settlement bills for. Nullable: the build
   // is assembled by the async job and may not exist when the settlement row is
