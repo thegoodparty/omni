@@ -1,6 +1,7 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { describe, expect, it, vi } from 'vitest'
+import { BadGatewayException } from '@nestjs/common'
 import { OrganizationRole } from '../generated/prisma'
 
 const service = useTestService()
@@ -189,6 +190,45 @@ describe('GET /v1/organizations', () => {
     expect(result.data.organizations[0]).toMatchObject({
       slug: 'campaign-5',
       campaignId: 5,
+    })
+  })
+
+  it('keeps the position when only the district override lookup fails', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
+      id: 'pos-district-down',
+      brPositionId: 'br-pos-district-down',
+      brDatabaseId: 'br-db-district-down',
+      state: 'CA',
+      name: 'Mayor',
+      district: {
+        id: 'dist-from-position',
+        state: 'CA',
+        L2DistrictType: 'City',
+        L2DistrictName: 'Position City',
+      },
+    })
+    vi.spyOn(electionsService, 'getDistrict').mockRejectedValue(
+      new BadGatewayException('election-api down'),
+    )
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-district-down',
+        ownerId: service.user.id,
+        positionId: 'pos-district-down',
+        overrideDistrictId: 'override-district',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toHaveLength(1)
+    expect(result.data.organizations[0]).toMatchObject({
+      slug: 'campaign-district-down',
+      position: { id: 'pos-district-down', name: 'Mayor' },
+      district: { id: 'dist-from-position' },
     })
   })
 

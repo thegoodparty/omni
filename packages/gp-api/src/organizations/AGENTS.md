@@ -352,6 +352,6 @@ to a position is a 400, matching `applyPatch`.
 ## Org list degrades when election-api is down
 
 `listOrganizations` (`GET /v1/organizations`) is the app shell's bootstrap call.
-If the election-api position/district lookup throws a `BadGatewayException`, the
-org is returned with `position: null` and `district: null` (and a warn log)
-instead of 502ing the whole list. Detail routes still fail loudly.
+If the election-api position or district-override lookup throws a
+`BadGatewayException`, only that leg is nulled (with a warn log); the other
+leg's result is kept. The list no longer 502s. Detail routes still fail loudly.

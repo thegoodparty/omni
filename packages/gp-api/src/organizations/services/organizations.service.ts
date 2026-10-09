@@ -741,6 +741,20 @@ export class OrganizationsService extends createPrismaBase(
     // detail routes still fail loudly.
     { degradeOnUpstreamFailure = false } = {},
   ): Promise<FriendlyOrganization> {
+    // Each leg degrades on its own so one failed lookup does not discard the
+    // other's result.
+    const degrade = (leg: string) => {
+      return (error: unknown): null => {
+        if (degradeOnUpstreamFailure && error instanceof BadGatewayException) {
+          this.logger.warn(
+            { err: error, slug: org.slug, leg },
+            `Election API unavailable; listing organization without ${leg}`,
+          )
+          return null
+        }
+        throw error
+      }
+    }
     const [position, overrideDistrict] = await Promise.all([
       org.positionId
         ? this.electionsService
@@ -753,20 +767,14 @@ export class OrganizationsService extends createPrismaBase(
               }
               return position
             })
+            .catch(degrade('position'))
         : Promise.resolve(null),
       org.overrideDistrictId
-        ? this.electionsService.getDistrict(org.overrideDistrictId)
+        ? this.electionsService
+            .getDistrict(org.overrideDistrictId)
+            .catch(degrade('district'))
         : Promise.resolve(null),
-    ]).catch((error: unknown) => {
-      if (degradeOnUpstreamFailure && error instanceof BadGatewayException) {
-        this.logger.warn(
-          { err: error, slug: org.slug },
-          'Election API unavailable; listing organization without position',
-        )
-        return [null, null] as const
-      }
-      throw error
-    })
+    ])
 
     const rawDistrict = overrideDistrict ?? position?.district
     const district: OrgDistrict | null = rawDistrict
