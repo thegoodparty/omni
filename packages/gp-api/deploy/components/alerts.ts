@@ -965,6 +965,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the denominator in place gives the same series (verified against prod
     // on 2026-10-09) for two thirds of the bytes, 20x ingest.
     timeRangeSeconds: 600,
+    // One evaluation per window: at the 60s default a 10m window was read 10
+    // times over, so at 600s it is read once, gaplessly (2x ingest). The page
+    // can arrive up to 10 minutes later, on a ratio that already waits
+    // `for: 10m`.
+    evaluationIntervalSeconds: 600,
     message: [
       'More than 10% of the campaign lookups that resolved to a claimed candidate returned a server error in the last 10 minutes.',
       'This endpoint backs the public candidate profiles on the marketing site: while it fails, claimed candidates render as unclaimed. 404s are excluded — most requests legitimately miss, because the caller asks about every candidate, not only claimed ones.',
@@ -1238,6 +1243,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     // in place instead of counting it again in an `and` leg. `sum by` on both
     // sides keeps the division one-to-one per route. 20x ingest.
     timeRangeSeconds: 600,
+    // One evaluation per window: at the 60s default a 10m window was read 10
+    // times over, so at 600s it is read once, gaplessly (2x ingest). The page
+    // can arrive up to 10 minutes later, on a ratio that already waits
+    // `for: 10m`.
+    evaluationIntervalSeconds: 600,
     summaryDetail: '`{{ $labels.request_endpoint }}`',
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
