@@ -32,43 +32,6 @@ test.describe('Admin - Campaign Management', () => {
     }
   })
 
-  test('should create a campaign as admin', async ({ request }, testInfo) => {
-    const testContext = (testInfo as TestInfoWithContext).testContext!
-    const email = generateRandomEmail()
-    const firstName = generateRandomName()
-    const lastName = generateRandomName()
-
-    const response = await request.post('/v1/admin/campaigns', {
-      headers: {
-        Authorization: `Bearer ${testContext.adminToken}`,
-      },
-      data: {
-        email,
-        firstName,
-        lastName,
-        phone: '5555555555',
-        zip: '12345-1234',
-        party: 'Independent',
-        adminUserEmail: adminEmail,
-      },
-    })
-
-    expect(response.status()).toBe(HttpStatus.CREATED)
-
-    const campaign = (await response.json()) as {
-      id: number
-      slug: string
-      userId: number
-    }
-    expect(campaign).toHaveProperty('id')
-    expect(campaign).toHaveProperty('slug')
-
-    testContext.testUser = {
-      userId: campaign.userId,
-      authToken: testContext.adminToken!,
-    }
-  })
-
   test('should update a campaign as admin', async ({ request }, testInfo) => {
     const testContext = (testInfo as TestInfoWithContext).testContext!
     const registerResponse = await registerUser(request, {

@@ -22,7 +22,6 @@ export const EVENTS = {
     UserDeleted: 'Account - User Deleted',
   },
   Onboarding: {
-    UserCreated: 'Onboarding - User Created',
     // Top of the magic-link funnel. Emitted when sales generates an onboarding
     // magic link for a lead, keyed to the provisioned user id + email. A single
     // funnel event for both flows — the `type` property ('serve' | 'win')
