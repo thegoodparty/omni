@@ -42,8 +42,7 @@ export const buildPresentListProposalTool = (): LlmStreamTool<
   execute: listProposalResult,
 })
 
-// The Campaign Manager's card has no map yet: once saved it reads as created
-// and links to the list in Voter Data.
+// Candidate words for the same card, which also becomes the list on a map.
 export const buildCampaignManagerListProposalTool = (): LlmStreamTool<
   typeof presentListProposalInput
 > => ({
@@ -53,8 +52,9 @@ export const buildCampaignManagerListProposalTool = (): LlmStreamTool<
     'pass that same filter as filters, with its count, a name of at most ' +
     '40 characters named after the filters it actually applies, and one ' +
     'plain sentence on who it holds. Nothing is saved until the candidate ' +
-    'presses the button, and once they do the card links to the list in ' +
-    'Voter Data. Use it instead of asking whether to save a list, and ' +
+    'presses the button, and once they do the card becomes the list on a ' +
+    'map, where they can draw shapes to narrow it, with a link to the list ' +
+    'in Voter Data. Use it instead of asking whether to save a list, and ' +
     'never save one yourself.',
   inputSchema: presentListProposalInput,
   execute: listProposalResult,

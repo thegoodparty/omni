@@ -677,8 +677,8 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
       'question in prose: count it first, pass the filter you counted ' +
       'with, its count, a name of at most 40 characters and one plain ' +
       "sentence on who it holds. The candidate saves it with the card's " +
-      'Create list button, which links to the list in Voter Data once ' +
-      'it is saved. Name a list after the filters it actually applied, ' +
+      'Create list button, and once it is saved the card becomes the list ' +
+      'on a map, with a link to it in Voter Data. Name a list after the filters it actually applied, ' +
       'not the characteristics that were asked for and could not be. If ' +
       'a requested place, trait, or threshold has no dimension behind it, ' +
       'it does not belong in the name, and abbreviating it does not make ' +
@@ -718,6 +718,28 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'explain it instead of retrying.'
   )
 }
+
+// The Chief of Staff's map rules, in candidate words. Gated on the tool, so
+// a session that cannot save a list is never told about a map of one.
+const listMapBlock = (toolNames: readonly string[]): string | null =>
+  toolNames.includes('show_list_map')
+    ? [
+        'LIST MAP RULES (apply whenever you call `show_list_map`):',
+        '- A list created from a `present_list_proposal` card already turns into its own map, so never call it for that list.',
+        "- Call it only to show a list that already exists when where its voters are is part of the answer. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed.",
+        '- The card speaks for itself, so do not narrate the map. Say what the list is and why, and let the map show where.',
+        '- The dots are markers, not a directory. You cannot see them, so never describe an individual voter, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.',
+        '',
+        'DRAWN AREA RULES (apply whenever the candidate draws on a map):',
+        '- The map carries a Draw shapes button. A shape the candidate draws is saved onto THAT list and narrows it in place: same list, same id, same name, fewer voters. It is not a new list.',
+        '- When a shape is saved from the conversation, you are told so. Treat that as the list having changed under you.',
+        "- Any count you quoted before the shape was drawn is now stale. Call `crud_saved_filters` with action 'get' and that id for the new one; `count_contacts` does not know about the shape.",
+        '- `hasBoundary` on a list tells you a shape exists, never where. You do not need to know where, because the list is already the shape.',
+        '- Never tell the candidate you cannot act on an area they drew. You can: report what the list now holds.',
+        '- You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. So offer the list from its filters first with `present_list_proposal`, and tell them that once they create it they can draw the area on its map. Never ask them to draw before you will build the list.',
+        '- Drawing is optional. Offer the map as a next step they may want, not as a step still owed.',
+      ].join('\n')
+    : null
 
 const people = (n: number): string => n.toLocaleString('en-US')
 const dollars = (texts: number): string =>
@@ -938,6 +960,7 @@ export const buildCampaignManagerSystemPrompt = (
     tasksBlock(ctx),
     dataBlock(ctx),
     crmToolsBlock(ctx),
+    listMapBlock(toolNames),
     outreachSamplingBlock(toolNames),
     pastOutreachBlock(toolNames),
     clarifyQuestionBlock(toolNames),

@@ -733,8 +733,8 @@ assistant uses it to hand over a text: both present a proposal card with the
 unsaved filter and the sample size, and the text flow saves the list when
 the user starts it.
 Every list reference it returns also carries `hasBoundary` — whether a shape
-is on the list, never where it is. A holder can draw one from the Chief of
-Staff transcript's own map card, so a list's size can change between turns
+is on the list, never where it is. A holder can draw one from either
+assistant's own map card in the transcript, so a list's size can change between turns
 with the model calling nothing; the webapp sends a hidden turn on that save
 and the flag is the recovery path for a conversation that missed it
 (`docs/cap-interactive-agents.md` § A drawn boundary reaches the

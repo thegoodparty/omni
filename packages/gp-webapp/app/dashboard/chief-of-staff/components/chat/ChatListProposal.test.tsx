@@ -44,8 +44,16 @@ vi.mock('helpers/useSnackbar', () => ({
 // own. The stub only says which list it was handed.
 vi.mock('./ChatListMap', () => ({
   __esModule: true,
-  default: ({ listId, name }: { listId: number; name: string }) => (
-    <div data-testid="list-map">{`${name} (${listId})`}</div>
+  default: ({
+    listId,
+    name,
+    mode,
+  }: {
+    listId: number
+    name: string
+    mode?: string
+  }) => (
+    <div data-testid="list-map" data-mode={mode}>{`${name} (${listId})`}</div>
   ),
 }))
 
@@ -228,7 +236,7 @@ describe('ChatListProposal', () => {
       ).not.toBeInTheDocument()
     })
 
-    it('links a saved list to Voter Data instead of the map', async () => {
+    it('turns a saved list into its map, in candidate words', async () => {
       campaign.current = { id: 9, isPro: true }
       api.mock(
         'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey',
@@ -242,12 +250,12 @@ describe('ChatListProposal', () => {
         />,
       )
 
-      const link = await screen.findByRole('link', {
-        name: /North Asheville homeowners/,
-      })
-      expect(link).toHaveAttribute('href', '/dashboard/contacts/lists/52')
-      expect(link).toHaveTextContent('Created · 24,361 voters')
-      expect(screen.queryByTestId('list-map')).not.toBeInTheDocument()
+      const map = await screen.findByTestId('list-map')
+      expect(map).toHaveTextContent('North Asheville homeowners (52)')
+      expect(map).toHaveAttribute('data-mode', 'win')
+      expect(
+        screen.queryByRole('button', { name: 'Create list' }),
+      ).not.toBeInTheDocument()
     })
   })
 })

@@ -261,10 +261,9 @@ The card's **Create list** button posts that filter to
 `POST /v1/voters/voter-file/filter` with a `proposalKey` derived from the
 conversation and the tool call (`mintProposalKey`), so a second press returns
 the first list, and `GET /v1/voters/voter-file/filter/by-proposal-key/:key`
-tells a reloaded card that its list already exists. Once it does, the Chief
-of Staff's card renders as that list's map card; the Campaign Manager's
-(`buildCampaignManagerListProposalTool`, mode `win`) reads as created and links
-to the list in Voter Data, and a free campaign's Create list opens the Pro
+tells a reloaded card that its list already exists. Once it does, the card
+renders as that list's map card in both assistants (`ChatListMap`, its copy
+keyed on the card's `mode`), and a free campaign's Create list opens the Pro
 pitch (`voter-data`) instead of saving. The write touches nothing the model sees, so
 the body sends a hidden turn (`listCreatedMessage`) naming the list and its id,
 through the same queue a drawn boundary uses. The prompt forbids asking
@@ -289,7 +288,8 @@ the assistant refusing:
    reference. That is the recovery path for a conversation that never saw
    the turn, and it is the whole of what the model learns about geometry:
    that a shape exists, never where it is.
-3. **The rules.** The Chief of Staff prompt's DRAWN AREA RULES say what a
+3. **The rules.** Both prompts' DRAWN AREA RULES (the Campaign Manager's in
+   candidate words, behind the same `show_list_map` registration) say what a
    shape does (narrows that list in place), where the new count comes from
    (`action: 'get'` by id — `count_contacts` cannot see a boundary), and
    that the model must never tell a holder it cannot act on an area they

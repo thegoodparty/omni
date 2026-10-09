@@ -1528,6 +1528,7 @@ function ChiefOfStaffChatThread({
                 <ChatListMap
                   {...m.listMap}
                   onRefineArea={refiningList ? undefined : setRefiningList}
+                  mode={cardMode}
                 />
               ) : null}
               {m.listProposal ? (
@@ -1584,6 +1585,7 @@ function ChiefOfStaffChatThread({
               <ChatListMap
                 {...liveListMap}
                 onRefineArea={refiningList ? undefined : setRefiningList}
+                mode={cardMode}
               />
             ) : null}
             {liveListProposal ? (
@@ -1743,6 +1745,7 @@ function ChiefOfStaffChatThread({
           list={refiningList}
           onClose={() => setRefiningList(null)}
           onSaved={handleBoundarySaved}
+          mode={cardMode}
         />
       )}
     </div>
