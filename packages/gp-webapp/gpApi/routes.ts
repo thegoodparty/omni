@@ -339,10 +339,6 @@ export const apiRoutes = {
       },
     },
     campaign: {
-      create: {
-        path: '/admin/campaigns',
-        method: 'POST',
-      },
       update: {
         path: '/admin/campaigns/:id',
         method: 'PUT',
