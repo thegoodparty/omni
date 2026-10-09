@@ -1,10 +1,8 @@
 import { differenceInMinutes } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import { describe, expect, it } from 'vitest'
-import {
-  estimateRobocallDialCompletion,
-  SCHEDULE_TZ,
-} from './robocallDialCompletion.util'
+import { estimateRobocallDialCompletion } from './robocallDialCompletion.util'
+import { SCHEDULE_TZ } from './robocallDialWindow.const'
 
 const EASTERN_TZ = 'America/New_York'
 

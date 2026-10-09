@@ -1,14 +1,10 @@
 import { addDays, addMinutes, differenceInMinutes, isBefore } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-
-// CallHub only dials inside a daily local window; these mirror the schedule
-// config createVoiceBroadcast sends to CallHub (daily_start_time /
-// daily_stop_time / timezone in vendors/callhub/services/callhubCampaign
-// .service.ts). CallHub enforces this same window at dial time, so an estimate
-// walked over these bounds is an estimate of the real run — keep them in sync.
-export const DAILY_START_TIME = '09:00'
-export const DAILY_STOP_TIME = '21:00'
-export const SCHEDULE_TZ = 'America/Chicago'
+import {
+  DAILY_START_TIME,
+  DAILY_STOP_TIME,
+  SCHEDULE_TZ,
+} from './robocallDialWindow.const'
 
 const LOCAL_DAY_FORMAT = 'yyyy-MM-dd'
 
