@@ -540,5 +540,8 @@ jobs:
       requested_by: ${{ github.event.comment.user.login }}
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      # The judge's own principal, which can read only the voter marts its
+      # chat agents query. The shared analytics principal is the fallback
+      # until the judge's secrets exist, and it has no grant on the catalog.
+      DATABRICKS_CLIENT_ID: ${{ secrets.JUDGE_DATABRICKS_CLIENT_ID || secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.JUDGE_DATABRICKS_CLIENT_SECRET || secrets.DATABRICKS_CLIENT_SECRET }}

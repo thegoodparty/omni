@@ -1930,6 +1930,24 @@ describe('the arms reach AWS on the role, not on the stub', () => {
   })
 })
 
+// The judge reads constituent data as its own principal, granted only the
+// voter marts. Both callers pass it, with the shared analytics principal as
+// the fallback until the judge's secrets exist; a caller that dropped the
+// judge's name would quietly sweep with a principal that has no grant.
+describe('judge callers pass the judge Databricks principal', () => {
+  it.each(['judge-comment.yml', 'judge-request.yml'])('%s', (name) => {
+    const text = readFileSync(
+      path.resolve(path.dirname(WORKFLOW), name),
+      'utf8',
+    )
+    for (const key of ['CLIENT_ID', 'CLIENT_SECRET']) {
+      expect(text).toContain(
+        `DATABRICKS_${key}: \${{ secrets.JUDGE_DATABRICKS_${key} || secrets.DATABRICKS_${key} }}`,
+      )
+    }
+  })
+})
+
 // GITHUB'S 21,000-CHARACTER EXPRESSION LIMIT. A `run:` script that contains
 // `${{` anywhere, even inside a shell comment, is evaluated as one expression,
 // and past 21,000 characters the whole workflow fails to parse: every
