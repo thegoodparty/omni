@@ -88,6 +88,14 @@ export class VercelService {
     )
   }
 
+  isVercelTransientError(e: unknown): boolean {
+    return (
+      e instanceof VercelError &&
+      (e.statusCode >= 500 ||
+        e.statusCode === Number(HttpStatus.TOO_MANY_REQUESTS))
+    )
+  }
+
   async getProjectDomain(domainName: string) {
     const { client, projectId, teamId } = this.requireClient()
     try {
