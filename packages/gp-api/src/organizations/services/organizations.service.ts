@@ -3,6 +3,7 @@ import { VoterIssueLevel } from '@/elections/types/elections.types'
 import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIssueLevelFromPositionLevel.util'
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -169,7 +170,9 @@ export class OrganizationsService extends createPrismaBase(
     })
     return await Promise.all(
       sortOrganizations(orgs, new Date()).map(async (org) => {
-        const friendly = await this.makeFriendly(org)
+        const friendly = await this.makeFriendly(org, {
+          degradeOnUpstreamFailure: true,
+        })
         return {
           ...friendly,
           role: this.viewerRole(org, userId),
@@ -732,7 +735,26 @@ export class OrganizationsService extends createPrismaBase(
       campaign: Campaign | null
       electedOffice: ElectedOffice | null
     },
+    // The org list is the app shell's bootstrap call, so a transient
+    // election-api outage must not 502 it. With this set, an upstream failure
+    // resolves the org with no position/district instead of throwing; the
+    // detail routes still fail loudly.
+    { degradeOnUpstreamFailure = false } = {},
   ): Promise<FriendlyOrganization> {
+    // Each leg degrades on its own so one failed lookup does not discard the
+    // other's result.
+    const degrade = (leg: string) => {
+      return (error: unknown): null => {
+        if (degradeOnUpstreamFailure && error instanceof BadGatewayException) {
+          this.logger.warn(
+            { err: error, slug: org.slug, leg },
+            `Election API unavailable; listing organization without ${leg}`,
+          )
+          return null
+        }
+        throw error
+      }
+    }
     const [position, overrideDistrict] = await Promise.all([
       org.positionId
         ? this.electionsService
@@ -745,9 +767,12 @@ export class OrganizationsService extends createPrismaBase(
               }
               return position
             })
+            .catch(degrade('position'))
         : Promise.resolve(null),
       org.overrideDistrictId
-        ? this.electionsService.getDistrict(org.overrideDistrictId)
+        ? this.electionsService
+            .getDistrict(org.overrideDistrictId)
+            .catch(degrade('district'))
         : Promise.resolve(null),
     ])
 

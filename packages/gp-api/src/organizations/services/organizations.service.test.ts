@@ -1,5 +1,6 @@
 import { ElectionsService } from '@/elections/services/elections.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { BadGatewayException } from '@nestjs/common'
 import { OrganizationsService } from './organizations.service'
 
 describe('OrganizationsService', () => {
@@ -25,10 +26,59 @@ describe('OrganizationsService', () => {
       cleanDistrictName: mockCleanDistrictName,
     } as unknown as ElectionsService)
     ;(
-      service as unknown as { logger: { error: ReturnType<typeof vi.fn> } }
-    ).logger = { error: vi.fn() }
+      service as unknown as {
+        logger: {
+          error: ReturnType<typeof vi.fn>
+          warn: ReturnType<typeof vi.fn>
+        }
+      }
+    ).logger = { error: vi.fn(), warn: vi.fn() }
 
     vi.clearAllMocks()
+  })
+
+  describe('listOrganizations', () => {
+    const org = {
+      slug: 'o1',
+      ownerId: 1,
+      positionId: 'p1',
+      overrideDistrictId: null,
+      customPositionName: null,
+      testModeCreatedAt: null,
+      createdAt: new Date('2025-01-01'),
+      campaign: null,
+      electedOffice: null,
+      owner: { firstName: 'A', lastName: 'B' },
+      memberships: [],
+    }
+
+    const mockFindMany = vi.fn()
+    beforeEach(() => {
+      ;(service as unknown as { _prisma: unknown })._prisma = {
+        organization: { findMany: mockFindMany },
+      }
+    })
+
+    it('lists the org without a position when election-api is unreachable', async () => {
+      mockFindMany.mockResolvedValue([org])
+      mockGetPositionById.mockRejectedValue(new BadGatewayException('down'))
+
+      const result = await service.listOrganizations(1)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toMatchObject({
+        slug: 'o1',
+        position: null,
+        district: null,
+      })
+    })
+
+    it('still throws non-upstream errors', async () => {
+      mockFindMany.mockResolvedValue([org])
+      mockGetPositionById.mockRejectedValue(new Error('boom'))
+
+      await expect(service.listOrganizations(1)).rejects.toThrow('boom')
+    })
   })
 
   describe('resolveOrgData', () => {
