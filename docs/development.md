@@ -101,3 +101,5 @@ See `packages/gp-api/prisma/AGENTS.md`.
 Before deep work in an app, read its `AGENTS.md` (commands, patterns, gotchas):
 `packages/gp-api/AGENTS.md`, `packages/gp-webapp/AGENTS.md`, and the nested ones in
 feature folders.
+
+<!-- swarm test PR 3: verifies the swarm PR flow -->
