@@ -191,6 +191,14 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Base images come from ECR Public. Anonymous pulls there are limited
+      # per IP and shared runners hit 429s; logged in, the limit is per
+      # account.
+      - name: Login to Amazon ECR Public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
       # ECR tags are immutable, so a re-run of this job after a successful
       # push would fail trying to overwrite the tag. Same SHA means same
       # source; reuse the existing image and skip the build.
@@ -221,6 +229,8 @@ jobs:
           # The runner is thrown away after the job; tearing the builder down
           # cost 10-20s of post-job time for nothing.
           cleanup: false
+          driver-opts: |
+            image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
 
       # The layer cache lives in ECR, not the GitHub Actions cache. This repo's
       # Actions cache sits over its 10GB cap, so the ~600MB dependency layer was

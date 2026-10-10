@@ -28,7 +28,7 @@ env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: gp-ai-projects
   # Static, so the image tag does not depend on the ECR login step. That is
-  # what lets a pull request build without AWS credentials at all.
+  # what lets a pull request build without the deploy role.
   ECR_REGISTRY: 333022194791.dkr.ecr.us-west-2.amazonaws.com
   SUBTREE: packages/gp-ai
 
@@ -279,17 +279,19 @@ jobs:
             echo "build-args=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # Base images and the buildkit image come from ECR Public. Anonymous
+      # pulls there are limited per IP and shared runners hit 429s; logged in,
+      # the limit is per account. So every build logs in to ECR Public. A pull
+      # request builds to validate the Dockerfile and throws the image away, so
+      # it gets a role that can only log in to ECR Public, never the deploy
+      # role and its ECR push.
+      - name: Configure AWS Credentials (ECR Public login)
+        if: github.event_name == 'pull_request'
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          driver-opts: |
-            image=moby/buildkit:latest
-            network=host
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-ecr-public-login
+          aws-region: ${{ env.AWS_REGION }}
 
-      # Only where something is actually pushed. A pull request builds to
-      # validate the Dockerfile and throws the image away, and every base
-      # image here is public, so a PR run needs no AWS access. It used to take
-      # credentials unconditionally and hold ECR push it never exercised.
       - name: Configure AWS Credentials
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: aws-actions/configure-aws-credentials@v5
@@ -297,9 +299,21 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Login to Amazon ECR Public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
       - name: Login to Amazon ECR
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
+            network=host
 
       # Build on PRs too (catches a broken Dockerfile before merge) but only
       # push from main — a PR pushing SHA tags would litter ECR with images for
