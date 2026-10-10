@@ -161,6 +161,26 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     spy.mockRestore()
   })
 
+  it('retries once on a transient upstream 5xx and then succeeds', async () => {
+    let calls = 0
+    const spy = mockHttp(() => {
+      calls += 1
+      return calls === 1
+        ? throwError(
+            () =>
+              new AxiosError('boom', 'ERR', undefined, undefined, {
+                status: 503,
+              } as never),
+          )
+        : densityResponse({ coverage: 0.5, cells: [] })
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(spy).toHaveBeenCalledTimes(2)
+    spy.mockRestore()
+  })
+
   it('400s on a non-uuid personId', async () => {
     const res = await get('not-a-uuid')
     expect(res.status).toBe(400)
