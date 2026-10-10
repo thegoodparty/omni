@@ -70,7 +70,6 @@ describe('OutreachServeSmsCreateService', () => {
   let contacts: {
     findContactsForFilter: ReturnType<typeof vi.fn>
     resolvePeopleDataset: ReturnType<typeof vi.fn>
-    dropSavedVoterLikelihoodForElectedOffice: ReturnType<typeof vi.fn>
   }
   let organizations: { findFirst: ReturnType<typeof vi.fn> }
   let filters: { findByIdAndOrganizationSlug: ReturnType<typeof vi.fn> }
@@ -86,9 +85,6 @@ describe('OutreachServeSmsCreateService', () => {
     contacts = {
       findContactsForFilter: vi.fn().mockResolvedValue(page(people(120))),
       resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
-      dropSavedVoterLikelihoodForElectedOffice: vi.fn(
-        (_organization: unknown, filter: unknown) => filter,
-      ),
     }
     organizations = {
       findFirst: vi.fn().mockResolvedValue({ id: 1, slug: ORG }),
@@ -97,7 +93,7 @@ describe('OutreachServeSmsCreateService', () => {
       findByIdAndOrganizationSlug: vi.fn().mockResolvedValue({
         id: FILTER_ID,
         organizationSlug: ORG,
-        veteranYes: true,
+        audienceSuperVoters: true,
       }),
     }
     texts = { findOptedOutPersonIds: vi.fn().mockResolvedValue([]) }
@@ -176,33 +172,10 @@ describe('OutreachServeSmsCreateService', () => {
         contacts.findContactsForFilter.mock.calls,
       ) as [Record<string, unknown>]
       expect(filterInput).toMatchObject({
-        veteranYes: true,
+        audienceSuperVoters: true,
         // Reachability belongs to the channel, forced by the shared helper.
         hasCellPhone: true,
       })
-    })
-
-    it('resolves the saved list with a stored voter likelihood predicate dropped', async () => {
-      const stored = {
-        id: FILTER_ID,
-        organizationSlug: ORG,
-        audienceSuperVoters: true,
-      }
-      filters.findByIdAndOrganizationSlug.mockResolvedValue(stored)
-      contacts.dropSavedVoterLikelihoodForElectedOffice.mockReturnValue({
-        ...stored,
-        audienceSuperVoters: false,
-      })
-
-      await service.createDraft(ORG, request())
-
-      expect(
-        contacts.dropSavedVoterLikelihoodForElectedOffice,
-      ).toHaveBeenCalledWith({ id: 1, slug: ORG }, stored)
-      const [filterInput] = firstOrThrow(
-        contacts.findContactsForFilter.mock.calls,
-      ) as [Record<string, unknown>]
-      expect(filterInput).toMatchObject({ audienceSuperVoters: false })
     })
 
     it('reports the duplicate-phone count off the generator return value', async () => {

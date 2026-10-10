@@ -548,7 +548,7 @@ export const OutreachDetailsDrawer = ({
 
   const displayDate = row?.date ?? row?.createdAt
   const voterFileFilter = (row as DetailRow | null)?.voterFileFilter
-  const audienceLabels = formatAudienceLabels(voterFileFilter || {}, isServe)
+  const audienceLabels = formatAudienceLabels(voterFileFilter || {})
   // The canvas always shows an audience pill; our rows only have one when the
   // campaign was sent to a saved list (social has no audience at all, and
   // phone banking's "all voters" source saves no filter).

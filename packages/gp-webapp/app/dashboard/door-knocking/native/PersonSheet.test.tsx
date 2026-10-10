@@ -1166,18 +1166,6 @@ describe('PersonSheet demographic information', () => {
     expect(within(demographicCard()).queryByText('Ethnicity group')).toBeNull()
   })
 
-  it('states only registration on the serve card, with no turnout row', () => {
-    renderSheet([fullTarget()], undefined, true)
-
-    const card = within(
-      screen.getByRole('heading', { name: 'Constituent demographics' })
-        .parentElement!,
-    )
-    expect(card.getByText('Registered to vote')).toBeInTheDocument()
-    expect(card.queryByText('Turnout likelihood')).toBeNull()
-    expect(card.queryByText('Super')).toBeNull()
-  })
-
   // The two presence-only columns hold a value meaning yes or nothing at all,
   // so absence is indistinguishable from unknown. Printing "No" would tell a
   // canvasser at the door that someone is not a veteran on no data at all.

@@ -33,20 +33,6 @@ describe('formatAudienceLabels', () => {
     ).toEqual(['Super'])
   })
 
-  it('drops voter likelihood labels on Serve and keeps the rest', () => {
-    const filters = {
-      audienceSuperVoters: true,
-      audienceUnknown: true,
-      genderFemale: true,
-    }
-    expect(formatAudienceLabels(filters, true)).toEqual(['Female'])
-    expect(formatAudienceLabels(filters)).toEqual([
-      'Super',
-      'Unknown Voters',
-      'Female',
-    ])
-  })
-
   it('returns an empty array when nothing is selected', () => {
     expect(formatAudienceLabels()).toEqual([])
     expect(formatAudienceLabels({})).toEqual([])

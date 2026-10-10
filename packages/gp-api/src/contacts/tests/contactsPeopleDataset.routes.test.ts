@@ -128,31 +128,3 @@ describe('POST /v1/contacts/count — people table', () => {
     }
   })
 })
-
-// Voter_Status is NULL on every consumer-only row, so a Serve list cut by
-// voter likelihood would silently drop every constituent who is not a voter.
-describe('POST /v1/contacts/count — voter likelihood is Win-only', () => {
-  it.each([
-    ['the audience booleans', { audienceSuperVoters: true }],
-    ['the raw voterStatus array', { voterStatus: ['Super'] }],
-  ])('rejects %s for a Serve (eo-) org', async (_label, body) => {
-    const slug = `eo-likelihood-${randomUUID()}`
-    await service.prisma.organization.create({
-      data: {
-        slug,
-        ownerId: service.user.id,
-        overrideDistrictId: randomUUID(),
-      },
-    })
-
-    const response = await service.client.post('/v1/contacts/count', body, {
-      headers: { [ORG_SLUG_HEADER]: slug },
-    })
-
-    expect(response.status).toBe(400)
-    expect(response.data).toMatchObject({
-      message:
-        'Voter likelihood filtering is not available for this organization',
-    })
-  })
-})

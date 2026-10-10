@@ -610,7 +610,18 @@ export const buildVoterFiltersSql = (
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)
         break
       case 'voterStatus': {
-        const voterStatusClause = buildFieldFilter(bag, 'Voter_Status', op)
+        const statusClause = buildFieldFilter(bag, 'Voter_Status', op)
+        // A row with no Voter_Status at all (consumer-only constituents)
+        // is Unknown too, the same way packEncoder shades it.
+        const selectsUnknown =
+          op?.operator === 'eq'
+            ? op.value === 'Unknown'
+            : op?.operator === 'in' &&
+              !!op.values?.map(String).includes('Unknown')
+        const voterStatusClause =
+          statusClause && selectsUnknown
+            ? `(${statusClause} OR ${col('Voter_Status')} IS NULL)`
+            : statusClause
         sql = hasIdOverrides(idOverrides)
           ? composeIdOverridesClause(voterStatusClause, idOverrides)
           : voterStatusClause

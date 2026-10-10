@@ -92,10 +92,7 @@ export class OutreachRobocallService extends createPrismaBase(
     }
 
     const landlineFilter: ContactsFilterResolutionInput = {
-      ...this.contacts.dropSavedVoterLikelihoodForElectedOffice(
-        organization,
-        filter,
-      ),
+      ...filter,
       hasLandline: true,
     }
     const { pagination } = await this.contacts.findContactsForFilter(

@@ -683,7 +683,7 @@ export default function PersonSheet({
               door stay name-only in the Household card above, and both paper
               surfaces omit all of it — see the AGENTS.md note. */}
           {/* The heading is the surface's word for the person, not for the
-              data: the rows underneath are voter-file columns on both
+              data: the two rows underneath are voter-file columns on both
               rails, but an elected official is not knocking a voter — they are
               knocking someone they already represent, whether or not that
               person is on the roll. */}

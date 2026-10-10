@@ -576,6 +576,46 @@ describe('buildVoterFiltersSql', () => {
     expect(bag.params).toEqual([{ name: 'p0', value: '31', type: 'INT' }])
   })
 
+  it('matches a NULL Voter_Status when Unknown is the only voterStatus', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ voterStatus: { eq: 'Unknown' } }),
+    )
+
+    expect(sql).toBe('(v.`Voter_Status` = :p0 OR v.`Voter_Status` IS NULL)')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('matches a NULL Voter_Status when Unknown is among other voterStatus values', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ voterStatus: { in: ['Super', 'Unknown'] } }),
+    )
+
+    expect(sql).toBe(
+      '(v.`Voter_Status` IN (:p0, :p1) OR v.`Voter_Status` IS NULL)',
+    )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Super', type: 'STRING' },
+      { name: 'p1', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('leaves NULL Voter_Status out when Unknown is not selected', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ voterStatus: { in: ['Super', 'Likely'] } }),
+    )
+
+    expect(sql).toBe('v.`Voter_Status` IN (:p0, :p1)')
+    expect(sql).not.toContain('IS NULL')
+  })
+
   it('scopes idOverrides to the voterStatus clause only', () => {
     const include = ['11111111-1111-1111-1111-111111111111']
     const exclude = ['22222222-2222-2222-2222-222222222222']

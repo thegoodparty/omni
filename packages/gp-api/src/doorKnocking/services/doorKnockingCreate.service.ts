@@ -382,10 +382,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // roster they walk would quietly disagree.
     const resolved = await this.contacts.resolveSavedFilterForQuery(
       organization,
-      this.contacts.dropSavedVoterLikelihoodForElectedOffice(
-        organization,
-        filter,
-      ),
+      filter,
     )
     if (resolved.empty) {
       // Nobody survives the list's own filters, so there is nothing to route —

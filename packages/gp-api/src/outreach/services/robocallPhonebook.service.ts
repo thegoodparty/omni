@@ -158,10 +158,7 @@ export class RobocallPhonebookService {
       )
     }
     const landlineFilter: ContactsFilterResolutionInput = {
-      ...this.contacts.dropSavedVoterLikelihoodForElectedOffice(
-        organization,
-        filter,
-      ),
+      ...filter,
       hasLandline: true,
     }
 

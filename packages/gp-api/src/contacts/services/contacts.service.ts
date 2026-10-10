@@ -304,8 +304,8 @@ export class ContactsService {
 
   // The filter vocabulary the AI assistant may describe and validate against,
   // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
-  // (party, ethnicity, voter likelihood), mirroring the
-  // assertNo*FilterForElectedOffice gates on the read side.
+  // (party, ethnicity), mirroring assertNoPartyFilterForElectedOffice and
+  // assertNoEthnicityFilterForElectedOffice on the read side.
   getFilterDimensions(organization: Organization): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
@@ -397,55 +397,6 @@ export class ContactsService {
       throw new BadRequestException(
         'Ethnicity filtering is not available for this organization',
       )
-    }
-  }
-
-  // Voter likelihood is Win-only. It reads `Voter_Status`, a turnout
-  // propensity the consumer-only rows of the constituents table do not carry
-  // (NULL there), so a Serve list cut by it would silently drop every
-  // constituent who is not a registered voter. The audience* booleans and the
-  // raw voterStatus array both land on this one key. Refused rather than
-  // dropped, for the reason the party gate refuses.
-  private assertNoVoterStatusFilterForElectedOffice(
-    organization: Organization,
-    filters: FilterObject,
-  ): void {
-    if (this.hasElectedOfficeAccess(organization) && 'voterStatus' in filters) {
-      throw new BadRequestException(
-        'Voter likelihood filtering is not available for this organization',
-      )
-    }
-  }
-
-  // A list an `eo-` org saved before voter likelihood became Win-only still
-  // carries it. Reading that list drops the predicate rather than 400ing, so
-  // the list, its detail, download and every outreach built on it keep
-  // working; a filter supplied in a request still 400s above. Callers apply
-  // this to a row read from voter_file_filter, never to request input.
-  dropSavedVoterLikelihoodForElectedOffice<
-    SavedFilter extends ContactsFilterResolutionInput,
-  >(organization: Organization, savedFilter: SavedFilter): SavedFilter {
-    if (
-      !this.hasElectedOfficeAccess(organization) ||
-      !('voterStatus' in convertVoterFileFilterToFilters(savedFilter))
-    ) {
-      return savedFilter
-    }
-    this.logger.warn(
-      {
-        organizationSlug: organization.slug,
-        voterFileFilterId: savedFilter.id,
-      },
-      'Dropped a voter likelihood predicate from a saved list for an elected-office organization',
-    )
-    return {
-      ...savedFilter,
-      audienceSuperVoters: false,
-      audienceLikelyVoters: false,
-      audienceUnreliableVoters: false,
-      audienceUnlikelyVoters: false,
-      audienceUnknown: false,
-      voterStatus: [],
     }
   }
 
@@ -602,7 +553,6 @@ export class ContactsService {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
     this.assertNoEthnicityFilterForElectedOffice(organization, baseFilters)
-    this.assertNoVoterStatusFilterForElectedOffice(organization, baseFilters)
     this.assertNoRecommendedListFilterForElectedOffice(
       organization,
       baseFilters,
@@ -1009,7 +959,6 @@ export class ContactsService {
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
-    this.assertNoVoterStatusFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
@@ -1532,11 +1481,7 @@ export class ContactsService {
     }
 
     const resolved = await Promise.all(
-      capped.map(async (storedFilter) => {
-        const savedFilter = this.dropSavedVoterLikelihoodForElectedOffice(
-          organization,
-          storedFilter,
-        )
+      capped.map(async (savedFilter) => {
         const savedBaseFilters = convertVoterFileFilterToFilters(savedFilter)
         // Party never reaches Serve (ENG-10696) — the write path doesn't
         // assert this on every saved-filter create/update, so a legacy or
@@ -1551,9 +1496,7 @@ export class ContactsService {
         // it either, and a pre-rule row still carries the six columns. The
         // predicate is named in the log rather than folded into one message,
         // because "which rule dropped this list" is the whole question
-        // someone reads this line to answer. Voter likelihood is not here:
-        // a pre-rule Serve list loses just that predicate above and joins
-        // the union at the size every other read of it now returns.
+        // someone reads this line to answer.
         const droppedPredicate = this.hasPartyFilterForElectedOffice(
           organization,
           savedBaseFilters,
@@ -1726,18 +1669,14 @@ export class ContactsService {
       return { ...aggregates, outreachHistory: [] }
     }
 
-    const savedFilter =
+    const filter =
       await this.voterFileFilterService.findByIdAndOrganizationSlug(
         segment,
         organization.slug,
       )
-    if (!savedFilter) {
+    if (!filter) {
       throw new NotFoundException('List not found')
     }
-    const filter = this.dropSavedVoterLikelihoodForElectedOffice(
-      organization,
-      savedFilter,
-    )
 
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
@@ -2266,7 +2205,6 @@ export class ContactsService {
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
-    this.assertNoVoterStatusFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
@@ -2304,7 +2242,6 @@ export class ContactsService {
       await this.resolveSavedFilterForQuery(organization, filter)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
-    this.assertNoVoterStatusFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
@@ -2369,7 +2306,6 @@ export class ContactsService {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
-    this.assertNoVoterStatusFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(
@@ -2399,7 +2335,6 @@ export class ContactsService {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
-    this.assertNoVoterStatusFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(organization, (params) =>
@@ -2512,9 +2447,9 @@ export class ContactsService {
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return { filters: builtInFilters, empty: false }
 
-    const customSegment = this.dropSavedVoterLikelihoodForElectedOffice(
+    const customSegment = await this.resolveCustomSegment(
+      resolvedSegment,
       organization,
-      await this.resolveCustomSegment(resolvedSegment, organization),
     )
     this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
     this.assertNoFollowUpFilterForCampaign(organization, customSegment)

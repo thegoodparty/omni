@@ -251,13 +251,7 @@ export class OutreachMaterializationService {
             'materialize robocall without filter context',
         )
       }
-      robocallFilter = {
-        ...this.contacts.dropSavedVoterLikelihoodForElectedOffice(
-          organization,
-          filter,
-        ),
-        hasLandline: true,
-      }
+      robocallFilter = { ...filter, hasLandline: true }
     }
 
     const segment = String(voterFileFilterId)

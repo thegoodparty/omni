@@ -20,10 +20,7 @@ import {
   Prisma,
   VoterFileFilter,
 } from '../../generated/prisma'
-import {
-  AUDIENCE_VOTER_STATUS_VALUES,
-  savedFilterBlockedForElectedOffice,
-} from '@/contacts/utils/voterFileFilter.utils'
+import { savedFilterBlockedForElectedOffice } from '@/contacts/utils/voterFileFilter.utils'
 import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
 import { VoterFileFilterSampleService } from './voterFileFilterSample.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
@@ -64,27 +61,6 @@ const assertShapeLabelsMatch = (
     geoPolyLabels.length !== shapePartCount(geoPoly)
   ) {
     throw new BadRequestException('Each drawn shape needs exactly one name')
-  }
-}
-
-// Voter likelihood is Win-only, so an `eo-` org may not save a list cut by it.
-// Only a value that selects something is refused: an edit sending `false` or
-// `[]` is how a list saved before the rule sheds it.
-const assertNoVoterLikelihoodForElectedOffice = (
-  organizationSlug: string,
-  data: Pick<
-    CreateVoterFileFilterSchema,
-    (typeof AUDIENCE_VOTER_STATUS_VALUES)[number]['field'] | 'voterStatus'
-  >,
-) => {
-  if (
-    organizationSlug.startsWith('eo-') &&
-    (AUDIENCE_VOTER_STATUS_VALUES.some(({ field }) => data[field]) ||
-      (data.voterStatus?.length ?? 0) > 0)
-  ) {
-    throw new BadRequestException(
-      'Voter likelihood filtering is not available for this organization',
-    )
   }
 }
 
@@ -224,7 +200,6 @@ export class VoterFileFilterService extends createPrismaBase(
       ...rest
     } = data
     assertShapeLabelsMatch(geoPoly, geoPolyLabels)
-    assertNoVoterLikelihoodForElectedOffice(organizationSlug, rest)
 
     // A card pressed twice, or pressed again after a reload, is one list.
     if (rest.proposalKey) {
@@ -396,7 +371,6 @@ export class VoterFileFilterService extends createPrismaBase(
 
     const { activityConditions, geoPoly, geoPolyLabels, ...rest } = data
     assertShapeLabelsMatch(geoPoly, geoPolyLabels)
-    assertNoVoterLikelihoodForElectedOffice(organizationSlug, rest)
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
