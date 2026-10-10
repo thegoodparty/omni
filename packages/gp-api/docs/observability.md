@@ -35,6 +35,8 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 
 `grafana.ts` provisions one Synthetic Monitoring check, `gp-api-<env>-health`, hitting `/v1/health` from three probes every 60s. It feeds the `health-check-probe-failure` rule, which is the only signal for "the service is unreachable from outside", as distinct from the in-process metrics every other global alert reads.
 
+The rule fires when more than 30% of probe executions fail over 5 minutes, sustained for 2 minutes. That is deliberately above one failed probe in a window: a single location failing once (a transient network blip between a probe and us) is 1/15 to 3/18 of the window and must not page. A real outage fails every location and clears 30% within about two minutes.
+
 **It is enabled in prod only.** Check executions bill against a single account-wide allowance (100,000/month) that every environment shares, and three probes a minute is 129,600/month per environment. Dev's copy was ~43% of our synthetic monitoring volume and bought nothing, because probe failures raise an alert whose `environment` label sends it to the `nowhere` contact point (see [Ownership](#ownership)). The dev check stays provisioned but disabled; dev has no alert rules for it to raise, so re-enabling it would also mean provisioning alerting there.
 
 The allowance is shared and account-wide, so this is the one alerting knob where **adding a check in any environment can put a different team's checks into overage**. Budget before adding probes or raising frequency: prod's three probes are 129,600/month against the 100,000 included.
