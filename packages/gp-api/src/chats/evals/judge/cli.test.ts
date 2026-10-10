@@ -119,9 +119,7 @@ describe('formatPlan', () => {
   // tell a correct line from one reporting the global list by accident.
   it('reports coverage for the registry it was given', () => {
     const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS), AGENTS)
-    expect(plan).toContain(
-      'coverage: 1 of 2 agents wired (1 on placeholder inputs, 1 blocked)',
-    )
+    expect(plan).toContain('coverage: 1 of 2 agents wired (1 blocked)')
   })
 
   // race_opponent_summary.json is the one case list not marked placeholder.
@@ -168,7 +166,7 @@ describe('run', () => {
 
   it('threads a caller-supplied registry all the way to the coverage line', () => {
     expect(run(['--agents=all', '--dry-run'], AGENTS).plan).toContain(
-      'coverage: 1 of 2 agents wired (1 on placeholder inputs, 1 blocked)',
+      'coverage: 1 of 2 agents wired (1 blocked)',
     )
   })
 

@@ -280,7 +280,7 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: every judgeable agent, and all but four are placeholders
+## Case lists: every judgeable agent, and all but five are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
@@ -305,12 +305,16 @@ bypasses permission prompts, so a judge arm of it would make real writes
 against a real organization. A case list for it would be inputs for a sweep
 that must not run.
 
-**All but four are `placeholder: true`.** The exceptions are
+**All but five are `placeholder: true`.** The exceptions are
 `race_opponent_summary.json`, a real bench of eight probes and a control,
 `race_opponent_actions.json`, nine probes and a control built from the summary
 agent's own outputs over that bench, `opportunities_and_challenges.json`,
 eight probes and a control built from one sanitised dispatch, and
-`campaign_tracker_tasks.json`, eight probes and a control built the same way. Each other background list is
+`campaign_tracker_tasks.json`, eight probes and a control built the same way,
+and `meeting_briefing.json`, seven probes and a control, the first list that
+stages a file for the runner: four of its cases carry `inputFiles`, a real
+agenda packet in the private inputs bucket that both arms read byte for byte,
+and three discover a past meeting live. Each other background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody wrote them to test the agent, so a verdict drawn
@@ -375,7 +379,7 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, nine to ten on the four real lists, and `gates.minCases`
+**Eight cases each, eight to ten on the five real lists, and `gates.minCases`
 is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
 the judge voted — the floor was set from measured agent non-determinism (three
 identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
