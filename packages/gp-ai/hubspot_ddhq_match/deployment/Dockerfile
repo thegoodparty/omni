@@ -1,5 +1,5 @@
 # Stage 1: Builder
-FROM python:3.12-slim AS builder
+FROM public.ecr.aws/docker/library/python:3.12-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -19,7 +19,7 @@ RUN uv sync --frozen --no-dev --package gp-ddhq-matcher
 WORKDIR /app
 
 # Stage 2: Runtime
-FROM python:3.12-slim
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 WORKDIR /app
 

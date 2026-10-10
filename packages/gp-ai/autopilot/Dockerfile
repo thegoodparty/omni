@@ -23,7 +23,7 @@
 # above. See gp-ai.yml's build job (task 13).
 
 # Stage 1: Builder
-FROM python:3.12-slim AS builder
+FROM public.ecr.aws/docker/library/python:3.12-slim AS builder
 
 WORKDIR /app
 
@@ -50,7 +50,7 @@ COPY autopilot/ ./autopilot/
 RUN uv sync --frozen --no-dev --package gp-autopilot
 
 # Stage 2: Runtime
-FROM python:3.12-slim
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 WORKDIR /app
 
