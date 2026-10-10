@@ -382,9 +382,11 @@ describe('saved list boundaries', () => {
 
     await createFilter(slug, { name: 'Rooftop off', geoPoly: SQUARE })
 
-    expect(evaluateSpy).toHaveBeenCalledWith(expect.anything(), {
-      requireRooftopAccuracy: false,
-    })
+    expect(evaluateSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { requireRooftopAccuracy: false },
+    )
   })
 
   it('re-freezes the membership when a boundary is redrawn', async () => {

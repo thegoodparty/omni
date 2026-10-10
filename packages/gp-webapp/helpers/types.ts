@@ -314,9 +314,6 @@ export interface VoterFileFilters {
   ethnicityUnknown?: boolean
   businessOwnerYes?: boolean
   businessOwnerUnknown?: boolean
-  registeredVoterTrue?: boolean
-  registeredVoterFalse?: boolean
-  registeredVoterUnknown?: boolean
   hasChildrenYes?: boolean
   hasChildrenNo?: boolean
   hasChildrenUnknown?: boolean

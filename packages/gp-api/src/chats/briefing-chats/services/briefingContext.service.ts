@@ -33,6 +33,9 @@ export interface BriefingContextResult {
   // The briefing's own org. Scope anything per-office (the voter-data district)
   // by this, never by the user: a user can hold offices in several orgs.
   organizationSlug: string
+  // The org owner decides which people table the district data reads
+  // (PeopleDatasetService keys the consumer-data flag on the owner).
+  organizationOwnerId: number
 }
 
 @Injectable()
@@ -113,6 +116,7 @@ export class BriefingContextService extends createPrismaBase(
       user,
       office,
       organizationSlug: briefing.electedOffice.organizationSlug,
+      organizationOwnerId: briefing.electedOffice.organization.ownerId,
     }
   }
 

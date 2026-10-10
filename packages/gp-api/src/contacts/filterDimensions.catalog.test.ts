@@ -17,10 +17,6 @@ import {
 // Schema fields deliberately absent from the catalog:
 // - search: free-text carryover from a saved search-result list, not a
 //   dimension the assistant should compose.
-// - registeredVoterTrue/False: accepted by the schema but dropped by
-//   convertVoterFileFilterToFilters (excludeFields), so filtering on them is
-//   a no-op — advertising them would let the assistant build filters that
-//   silently don't filter.
 // - age18_25/age25_35/age35_50/age50Plus: the overlapping split ENG-10752
 //   retired. Saved rows keep converting with their original bounds, but the
 //   catalog only advertises the mutually exclusive replacement ranges so the
@@ -33,8 +29,6 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // them would invite the assistant to invent precinct names. See the note
   // at the top of filterDimensions.catalog.ts.
   'precincts',
-  'registeredVoterTrue',
-  'registeredVoterFalse',
   'age18_25',
   'age25_35',
   'age35_50',
@@ -203,6 +197,7 @@ describe('FILTER_DIMENSIONS provenance', () => {
 describe('ContactsService.getFilterDimensions', () => {
   const buildService = () =>
     new ContactsService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

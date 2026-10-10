@@ -57,6 +57,7 @@ const baseCtx = (): PriorityFlowContext => ({
   anchorSummaries: [],
   districtFilters: null,
   constituentToolEnabled: false,
+  peopleDataset: 'voters',
 })
 
 describe('PriorityFlowHandler', () => {
@@ -101,7 +102,7 @@ describe('PriorityFlowHandler', () => {
       context,
       outreach,
       priorityStatus,
-      [],
+      { voters: [], constituents: [] },
       undefined,
       districtResolver as never,
     )
@@ -289,7 +290,7 @@ describe('PriorityFlowHandler', () => {
       context,
       outreach,
       priorityStatus,
-      [],
+      { voters: [], constituents: [] },
       undefined,
       undefined,
       { getDetail: vi.fn() },
@@ -314,7 +315,7 @@ describe('PriorityFlowHandler', () => {
       context,
       outreach,
       priorityStatus,
-      [],
+      { voters: [], constituents: [] },
       undefined,
       undefined,
       undefined,
@@ -325,6 +326,43 @@ describe('PriorityFlowHandler', () => {
       } as never,
       {} as never,
     )
+
+  it('reads the constituent table its org resolves to, once per turn', async () => {
+    const resolve = vi.fn(() => Promise.resolve('constituents' as const))
+    const handler = new PriorityFlowHandler(
+      store,
+      context,
+      outreach,
+      priorityStatus,
+      {
+        voters: [{ table: 'serve_agent_voters', dimensions: ['Voters_Age'] }],
+        constituents: [
+          { table: 'serve_agent_constituents', dimensions: ['Voters_Age'] },
+        ],
+      },
+      { query: vi.fn() },
+      {
+        resolveByOrgSlug: vi.fn(() =>
+          Promise.resolve({ state: 'MI', l2DistrictName: 'Lansing' }),
+        ),
+        toMandatoryFilters: vi.fn(() => [
+          { column: 'state_postal_code', value: 'MI' },
+        ]),
+      } as never,
+      undefined,
+      undefined,
+      undefined,
+      { resolve } as never,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    const tool = handler.buildTools(ctx).query_constituent_data
+
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(ctx.peopleDataset).toBe('constituents')
+    expect(tool && 'description' in tool && tool.description).toContain(
+      'FROM serve_agent_constituents',
+    )
+  })
 
   it("tells the assistant what day it is, in the office state's zone", () => {
     vi.useFakeTimers()

@@ -58,6 +58,10 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import {
+  type PeopleDataset,
+  PeopleDatasetService,
+} from '@/peopleDb/services/peopleDataset.service'
 import { DoorKnockingEvaluateDTO } from '@/peopleDb/schemas/doorKnocking.schema'
 import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import type { Bbox } from '@goodparty_org/contracts'
@@ -287,6 +291,7 @@ export class ContactsService {
     private readonly voterDownloadService: VoterDownloadService,
     private readonly voterDoorKnockingService: VoterDoorKnockingService,
     private readonly peopleStatsService: StatsService,
+    private readonly peopleDataset: PeopleDatasetService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly logger: PinoLogger,
   ) {
@@ -815,19 +820,32 @@ export class ContactsService {
     return { districtId: null }
   }
 
+  // Which people table this org reads. Batch callers fanning out over many
+  // reads for one org (phone lookups, paged audiences) resolve it once here
+  // and pass it back in, the same way they do resolveProAccess, so the flag
+  // is evaluated once per job rather than once per page.
+  async resolvePeopleDataset(
+    organization: Organization,
+  ): Promise<PeopleDataset> {
+    return this.peopleDataset.resolve(organization)
+  }
+
   // Door knocking resolves the same district (and passes the same
   // eligibility gate) as every other voter-data read — public so
   // DoorKnockingModule reuses this instead of duplicating the gate.
-  async resolveEligibleDistrictId(org: Organization): Promise<string> {
-    return this.withOrgDistrictResolution(
-      org,
-      async ({ districtId }) => districtId,
-    )
+  async resolveEligibleDistrict(
+    org: Organization,
+  ): Promise<{ districtId: string; dataset: PeopleDataset }> {
+    return this.withOrgDistrictResolution(org, async (params) => params)
   }
 
   private async withOrgDistrictResolution<Result>(
     org: Organization,
-    fn: (params: { districtId: string }) => Promise<Result>,
+    fn: (params: {
+      districtId: string
+      dataset: PeopleDataset
+    }) => Promise<Result>,
+    resolvedDataset?: PeopleDataset,
   ): Promise<Result> {
     const { districtId } = await this.resolveDistrictInfoFromOrg(org)
 
@@ -841,7 +859,8 @@ export class ContactsService {
 
     await this.assertVoterDataEligibility(org)
 
-    return fn({ districtId })
+    const dataset = resolvedDataset ?? (await this.peopleDataset.resolve(org))
+    return fn({ districtId, dataset })
   }
 
   // Serve / elected-office orgs keep their existing access untouched. For Win
@@ -876,7 +895,9 @@ export class ContactsService {
     // Optional pre-resolved pro-access. Batch callers (e.g. the poll-analysis
     // consumer fanning out over many phones for one org) resolve it once via
     // resolveProAccess() and pass it in; falls back to resolving here.
+    // `dataset` is pre-resolved the same way (resolvePeopleDataset).
     proAccess?: boolean,
+    dataset?: PeopleDataset,
   ) {
     const wantsProOnlyView =
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
@@ -897,18 +918,23 @@ export class ContactsService {
     if (!isPro) {
       return this.withOrgDistrictResolution(
         organization,
-        async ({ districtId }) =>
+        async (params) =>
           buildPreviewContacts({
             resultsPerPage,
             page,
-            totalResults: (await this.fetchStatsByDistrictId(districtId))
-              .totalConstituents,
+            totalResults: (
+              await this.fetchStatsByDistrictId(
+                params.districtId,
+                params.dataset,
+              )
+            ).totalConstituents,
           }),
+        dataset,
       )
     }
 
     const fetchPeople = (
-      districtParams: { districtId: string },
+      districtParams: { districtId: string; dataset: PeopleDataset },
       filters: FilterObject,
       idOverrides: IdOverrides | undefined,
       contactsMadeIdOverrides: IdOverrides | undefined,
@@ -917,7 +943,7 @@ export class ContactsService {
     ): Promise<PeopleListResponse> =>
       this.voterQueryService.findPeople(
         ListPeopleDTO.create({
-          ...districtParams,
+          districtId: districtParams.districtId,
           resultsPerPage,
           page,
           filters,
@@ -926,6 +952,7 @@ export class ContactsService {
           search: peopleSearch,
           groupByHousehold,
         }),
+        districtParams.dataset,
       )
 
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
@@ -953,6 +980,7 @@ export class ContactsService {
               groupByHousehold,
               effectiveSearch,
             ),
+      dataset,
     )
     return this.stripWinOnlyFieldsFromList(organization, response)
   }
@@ -993,8 +1021,10 @@ export class ContactsService {
   ): Promise<PeoplePrecinctsResponse> {
     await this.assertProAccess(organization)
 
-    return this.withOrgDistrictResolution(organization, ({ districtId }) =>
-      this.voterQueryService.findPrecincts(districtId),
+    return this.withOrgDistrictResolution(
+      organization,
+      ({ districtId, dataset }) =>
+        this.voterQueryService.findPrecincts(districtId, dataset),
     )
   }
 
@@ -1034,12 +1064,16 @@ export class ContactsService {
     // number matches the list it would save (ENG-10517/10518).
     const search = filterInput.search || undefined
 
-    const fetchCount = async (districtParams: {
+    const fetchCount = async ({
+      districtId,
+      dataset,
+    }: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<{ count: number }> => {
       const response = await this.voterQueryService.findPeople(
         ListPeopleDTO.create({
-          ...districtParams,
+          districtId,
           resultsPerPage: 1,
           page: 1,
           filters,
@@ -1048,6 +1082,7 @@ export class ContactsService {
           search,
           groupByHousehold: false,
         }),
+        dataset,
       )
       return { count: response.pagination.totalResults }
     }
@@ -1091,10 +1126,10 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams) => {
+      async ({ districtId, dataset }) => {
         const response = await this.voterQueryService.findPeople(
           ListPeopleDTO.create({
-            ...districtParams,
+            districtId,
             resultsPerPage: 1,
             page: 1,
             filters,
@@ -1103,6 +1138,7 @@ export class ContactsService {
             search: search || undefined,
             groupByHousehold: false,
           }),
+          dataset,
         )
         return { count: response.pagination.totalResults }
       },
@@ -1146,7 +1182,7 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId }) => {
+      async ({ districtId, dataset }) => {
         // Per part, unioned by id — the same shape (and the same reason)
         // as `resolveGeoMemberIds` below. A person inside two overlapping
         // parts is one person, so the pill the holder reads while dragging
@@ -1155,6 +1191,7 @@ export class ContactsService {
         for (const part of shapePolygons(geoPoly)) {
           const { people } = await this.evaluateWithinBbox(
             districtId,
+            dataset,
             polygonBbox(part),
             resolved,
           )
@@ -1208,7 +1245,7 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId }) => {
+      async ({ districtId, dataset }) => {
         const { people, truncated } =
           await this.voterDoorKnockingService.evaluatePoints(
             DoorKnockingEvaluateDTO.create({
@@ -1219,6 +1256,7 @@ export class ContactsService {
               contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
               maxPeople: MAP_POINTS_MAX,
             }),
+            dataset,
             // Same reason polygonPreview drops it: the rooftop gate is door
             // knocking's routing rule, and a dot the holder is about to draw
             // a shape around must be one the count will find.
@@ -1254,7 +1292,7 @@ export class ContactsService {
     }
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId }) => {
+      async ({ districtId, dataset }) => {
         // One scan PER PART, not one scan of the whole shape's bounding
         // box. The parts of a multi-shape boundary are typically a few
         // neighbourhoods scattered across a district, and the box around
@@ -1269,6 +1307,7 @@ export class ContactsService {
         for (const part of shapePolygons(geoPoly)) {
           const { people } = await this.evaluateWithinBbox(
             districtId,
+            dataset,
             polygonBbox(part),
             { filters: {} },
           )
@@ -1289,6 +1328,7 @@ export class ContactsService {
 
   private async evaluateWithinBbox(
     districtId: string,
+    dataset: PeopleDataset,
     bbox: Bbox,
     resolved: {
       filters: FilterObject
@@ -1306,6 +1346,7 @@ export class ContactsService {
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
           maxPeople: POLYGON_PREVIEW_MAX_PEOPLE,
         }),
+        dataset,
         // The contacts map draws every geocoded row, with no accuracy gate.
         // Counting rooftop-only would answer about a different population
         // than the one the holder just drew a shape around — every
@@ -1363,18 +1404,23 @@ export class ContactsService {
       return { count: 0 }
     }
 
-    const fetchOverlapCount = (districtParams: {
+    const fetchOverlapCount = ({
+      districtId,
+      dataset,
+    }: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<PeopleOverlapCountResponse> =>
       this.voterQueryService.getOverlapCount(
         OverlapCountDTO.create({
-          ...districtParams,
+          districtId,
           filters,
           idOverrides,
           contactsMadeIdOverrides,
           search,
           savedFilterSets,
         }),
+        dataset,
       )
 
     return this.withOrgDistrictResolution(organization, fetchOverlapCount)
@@ -1552,6 +1598,8 @@ export class ContactsService {
     pagination: { resultsPerPage: number; page: number; skipCount?: boolean },
     organization: Organization,
     excludePersonIds?: Set<string>,
+    // Pre-resolved by callers paging one org's audience (resolvePeopleDataset).
+    dataset?: PeopleDataset,
   ): Promise<PeopleListResponse> {
     if (!(await this.isProAccess(organization))) {
       throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
@@ -1579,10 +1627,11 @@ export class ContactsService {
 
     const fetchPeoplePage = (districtParams: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<PeopleListResponse> =>
       this.voterQueryService.findPeople(
         ListPeopleDTO.create({
-          ...districtParams,
+          districtId: districtParams.districtId,
           resultsPerPage: pagination.resultsPerPage,
           page: pagination.page,
           filters,
@@ -1592,11 +1641,13 @@ export class ContactsService {
           groupByHousehold: false,
           skipCount: pagination.skipCount ?? false,
         }),
+        districtParams.dataset,
       )
 
     const response = await this.withOrgDistrictResolution(
       organization,
       fetchPeoplePage,
+      dataset,
     )
     return this.stripWinOnlyFieldsFromList(organization, response)
   }
@@ -1739,15 +1790,16 @@ export class ContactsService {
   > {
     const aggregates = await this.withOrgDistrictResolution(
       organization,
-      (districtParams) =>
+      ({ districtId, dataset }) =>
         this.voterQueryService.getListDetailAggregates(
           AggregatesDTO.create({
-            ...districtParams,
+            districtId,
             filters: baseFilters,
             search,
             idOverrides,
             contactsMadeIdOverrides,
           }),
+          dataset,
         ),
     )
 
@@ -1775,14 +1827,21 @@ export class ContactsService {
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
-    const fetchSample = (districtParams: { districtId: string }) =>
+    const fetchSample = ({
+      districtId,
+      dataset,
+    }: {
+      districtId: string
+      dataset: PeopleDataset
+    }) =>
       this.voterQueryService.samplePeople(
         SamplePeopleDTO.create({
-          ...districtParams,
+          districtId,
           size: String(dto.size ?? 500),
           hasCellPhone: 'true',
           excludeIds: (dto.excludeIds ?? []) as string[],
         }),
+        dataset,
       )
 
     return this.withOrgDistrictResolution(organization, fetchSample)
@@ -1833,9 +1892,9 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams) => {
+      async ({ districtId, dataset }) => {
         const scope = {
-          ...districtParams,
+          districtId,
           filters,
           idOverrides,
           contactsMadeIdOverrides,
@@ -1848,6 +1907,7 @@ export class ContactsService {
             page: 1,
             groupByHousehold: false,
           }),
+          dataset,
         )
         const pool = pagination.totalResults
         // Widening a sample that already reached nearly everyone takes the
@@ -1860,6 +1920,7 @@ export class ContactsService {
             size: Math.min(sample.size, pool),
             seedKey: sample.seedKey,
           }),
+          dataset,
         )
         return people.map((person) => person.id)
       },
@@ -1875,11 +1936,13 @@ export class ContactsService {
     phone: string,
     organization: Organization,
     proAccess?: boolean,
+    dataset?: PeopleDataset,
   ): Promise<PersonOutput | null> {
     const result = await this.findContacts(
       { search: phone, segment: 'all', resultsPerPage: 1, page: 1 },
       organization,
       proAccess,
+      dataset,
     )
     return result.people[0] ?? null
   }
@@ -1898,12 +1961,17 @@ export class ContactsService {
       )
     }
 
-    const fetchPerson = (districtParams: {
+    const fetchPerson = ({
+      districtId,
+      dataset,
+    }: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<PersonOutput> =>
       this.voterQueryService.findPerson(
         id,
-        GetPersonQueryDTO.create(districtParams),
+        GetPersonQueryDTO.create({ districtId }),
+        dataset,
       )
 
     const person = await this.withOrgDistrictResolution(
@@ -2194,7 +2262,7 @@ export class ContactsService {
   }
 
   private streamPeopleDownload(
-    districtParams: { districtId: string },
+    { districtId, dataset }: { districtId: string; dataset: PeopleDataset },
     filters: FilterObject,
     idOverrides: IdOverrides | undefined,
     contactsMadeIdOverrides: IdOverrides | undefined,
@@ -2207,13 +2275,14 @@ export class ContactsService {
       `SameSite=Lax; Secure`
     return this.voterDownloadService.streamPeopleCsv(
       DownloadPeopleDTO.create({
-        ...districtParams,
+        districtId,
         filters,
         idOverrides,
         contactsMadeIdOverrides,
         groupByHousehold,
         excludeColumns,
       }),
+      dataset,
       res,
       {
         filename: 'contacts.csv',
@@ -2241,15 +2310,16 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams): Promise<number> => {
+      async ({ districtId, dataset }): Promise<number> => {
         const response = await this.voterQueryService.findPeople(
           ListPeopleDTO.create({
-            ...districtParams,
+            districtId,
             resultsPerPage: 1,
             page: 1,
             filters,
             groupByHousehold,
           }),
+          dataset,
         )
         return response.pagination.totalResults
       },
@@ -2319,8 +2389,10 @@ export class ContactsService {
   }
 
   async getDistrictStats(organization: Organization) {
-    return this.withOrgDistrictResolution(organization, ({ districtId }) =>
-      this.fetchStatsByDistrictId(districtId),
+    return this.withOrgDistrictResolution(
+      organization,
+      ({ districtId, dataset }) =>
+        this.fetchStatsByDistrictId(districtId, dataset),
     )
   }
 
@@ -2334,9 +2406,13 @@ export class ContactsService {
     return position?.district?.id ?? undefined
   }
 
-  async fetchStatsByDistrictId(districtId: string): Promise<StatsResponse> {
+  async fetchStatsByDistrictId(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<StatsResponse> {
     const stats = await this.peopleStatsService.findStats(
       StatsDTO.create({ districtId }),
+      dataset,
     )
 
     // A district with no stats row is the same user-facing state as an org

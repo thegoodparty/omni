@@ -225,6 +225,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     const audience = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
+      dataset: await this.contactsService.resolvePeopleDataset(organization),
       // Empty on purpose, with the scrub applied through `isEligible` below.
       // Handing the ids to people-api as an exclusion filter means those rows
       // never come back, so this route could only ever report how many people

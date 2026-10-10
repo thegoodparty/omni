@@ -12,6 +12,7 @@ import { PublicAccess } from 'src/authentication/decorators/PublicAccess.decorat
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
@@ -31,6 +32,7 @@ export class OnboardingContactsController {
   constructor(
     private readonly contactsService: ContactsService,
     private readonly organizations: OrganizationsService,
+    private readonly peopleDataset: PeopleDatasetService,
   ) {}
 
   @Get('stats')
@@ -75,6 +77,9 @@ export class OnboardingContactsController {
       )
     }
 
-    return this.contactsService.fetchStatsByDistrictId(districtId)
+    const dataset = organization
+      ? await this.peopleDataset.resolve(organization)
+      : 'voters'
+    return this.contactsService.fetchStatsByDistrictId(districtId, dataset)
   }
 }

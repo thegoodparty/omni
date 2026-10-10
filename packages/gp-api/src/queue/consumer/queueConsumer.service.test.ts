@@ -133,6 +133,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
     resolveProAccess: ReturnType<typeof vi.fn>
+    resolvePeopleDataset: ReturnType<typeof vi.fn>
   }
   let pollIssuesService: {
     model: { deleteMany: ReturnType<typeof vi.fn> }
@@ -201,6 +202,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
       resolveProAccess: vi.fn().mockResolvedValue(true),
+      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -377,6 +379,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -416,6 +419,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,
@@ -474,6 +478,8 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(result).toBe(true)
     // Pro-access resolved once, not once per phone.
     expect(contactsService.resolveProAccess).toHaveBeenCalledTimes(1)
+    // The people table is resolved once for the whole fan-out, not per phone.
+    expect(contactsService.resolvePeopleDataset).toHaveBeenCalledTimes(1)
     expect(contactsService.findPersonByPhone).toHaveBeenCalledTimes(
       phones.length,
     )
