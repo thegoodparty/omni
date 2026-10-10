@@ -56,6 +56,7 @@ const REAL_CASE_COUNTS: Readonly<Record<string, number>> = {
   race_opponent_actions: 10,
   opportunities_and_challenges: 9,
   campaign_tracker_tasks: 9,
+  meeting_briefing: 8,
 }
 
 // A background case's `params` is what the dispatch Lambda is called with, and

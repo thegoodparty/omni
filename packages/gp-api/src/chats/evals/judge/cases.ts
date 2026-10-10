@@ -408,6 +408,27 @@ export const BackgroundCaseSchema = z
     // for the same reason a record's input is opaque: only the runner knows
     // what an experiment's params mean.
     params: z.record(z.string(), JsonValueSchema),
+    // Files the runner stages into the agent's workspace before it boots,
+    // the hold-still route for an agent that reads a user-supplied document:
+    // both arms read the same object. The runner already carries and checks
+    // the field at dispatch (dest a plain filename, the key's length, the
+    // count, no placeholder token); until now no authored list carried it,
+    // and a strict schema without it refused the first one. The three names
+    // are the dispatch handler's own. Strict, like the case: a misspelled
+    // `dest` would otherwise stage the file under a name the agent never
+    // reads and the case would run as if nothing had been supplied.
+    inputFiles: z
+      .array(
+        z
+          .object({
+            bucket: z.string().min(1),
+            key: z.string().min(1),
+            dest: z.string().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .optional(),
     // What this case planted in or took out of `params`, for the JUDGE. A
     // probe tests a relationship between the artifact and the input, and a
     // judge not told what was planted has to find it unaided inside tens of

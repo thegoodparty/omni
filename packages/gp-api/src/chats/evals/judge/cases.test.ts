@@ -670,6 +670,44 @@ describe('a background case condition and scored flag', () => {
     ])
   })
 
+  // The runner reads `inputFiles` off the case and stages each one before
+  // the agent boots; the loader has to hand the field through untouched, or
+  // a staged case runs as a plain one and the hold the probe depends on is
+  // silently gone.
+  it('carries staged input files through to the runner', () => {
+    const staged = [
+      {
+        bucket: 'gp-agent-run-inputs-dev',
+        key: 'judge/a/p.pdf',
+        dest: 'agenda.pdf',
+      },
+    ]
+    const list = parse([{ caseId: 'staged', params: {}, inputFiles: staged }])
+    expect(
+      list.cases.map((one) =>
+        'inputFiles' in one ? one.inputFiles : undefined,
+      ),
+    ).toEqual([staged])
+  })
+
+  // A misspelled `dest` stripped by a lax schema would stage the file under
+  // a name the agent never reads; an empty list carries nothing and is a
+  // mistake rather than a case.
+  it('refuses a staged file with a key nobody defined, and an empty list', () => {
+    expect(() =>
+      parse([
+        {
+          caseId: 'c',
+          params: {},
+          inputFiles: [{ bucket: 'b', key: 'k', dest: 'agenda.pdf', dst: 'x' }],
+        },
+      ]),
+    ).toThrow(/case 0 \(caseId "c"\).*dst/)
+    expect(() => parse([{ caseId: 'c', params: {}, inputFiles: [] }])).toThrow(
+      CaseListError,
+    )
+  })
+
   // Stripped instead, a misspelled flag would score the control as an
   // ordinary case and nothing downstream could tell.
   it('refuses a misspelled field rather than dropping it', () => {
