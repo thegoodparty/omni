@@ -148,6 +148,16 @@ model OutreachRobocall {
   completedCallCount     Int?                @map("completed_call_count")
   // When the completion sweep last polled CallHub for this run's count.
   completionPolledAt     DateTime?           @map("completion_polled_at")
+  // When the serial send sweep ABORTed this dialed run's CallHub campaign to free
+  // the shared account calls/min pool for the next queued run — stamped once the
+  // run's ESTIMATED dial completion (dialedAt + estimate + a conservative buffer)
+  // has passed. Operational only: the row stays `dialed` and the completion sweep
+  // still settles + captures the full authorized estimate at dialedAt + 48h — this
+  // early abort NEVER touches money or settleState, only CallHub's pool slot. The
+  // serial gate reads it to tell a run still (estimated) dialing from one whose
+  // pool has been freed, and the free-and-advance step reads it to avoid
+  // re-aborting an already-freed run every pass. Read by nothing else.
+  poolFreedAt            DateTime?           @map("pool_freed_at")
   // When the overdue-alert sweep first posted the "past its scheduled date and
   // still not dialed" CAS Slack for this run. The sweep claims the alert with a
   // single-owner CAS guarded on this being NULL, so the run is paged ONCE across

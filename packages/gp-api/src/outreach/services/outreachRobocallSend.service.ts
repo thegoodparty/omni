@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { subMinutes } from 'date-fns'
+import { addMinutes, isBefore, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { estimateRobocallDialCompletion } from '@/shared/util/robocallDialCompletion.util'
 import { sleep } from '@/shared/util/sleep.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
@@ -33,21 +34,23 @@ import { OutreachNotificationService } from './outreachNotification.service'
 const ROBOCALL_SEND_SWEEP_CRON = '4,14,24,34,44,54 * * * *'
 const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
 
-// A sweep pass launches at most `robocallSendMaxPerSweep()` due runs, oldest
-// send first and spaced `robocallSendLaunchSpacingMs()` apart, so a batch
-// coming due together never bursts past CallHub's calls-per-second limit. An
-// over-the-limit START 400s `over_cps_limit` (transient), reverting the run to
-// `authorized`, so an unspaced burst re-throttles every pass and never dials —
-// the Oct 8 incident. The cron (every 10 min) then drains a backlog at this
-// rate, not all at once.
+// SERIAL SEND QUEUE. CallHub's account calls/min pool is SHARED across every
+// running voice-broadcast campaign, so two campaigns dialing at once contend for
+// it and the second's START 400s `over_cps_limit` (incident 2026-10-08). The
+// model is therefore strictly serial: at most ONE robocall dials at a time. The
+// sweep launches the single oldest-due run only when NO run is in flight, and
+// frees the shared pool (ABORTs the finished CallHub campaign) once the dialing
+// run's ESTIMATED completion has passed, letting the next queued run launch.
 //
-// Both are env-overridable so ops can retune once CallHub raises the account
-// CPS limit, and an explicit 0 is HONORED (never read as unset): MAX_PER_SWEEP
-// = 0 is the incident kill-switch — `take: 0` selects no rows, pausing every
-// robocall launch with no code deploy; SPACING_MS = 0 drops the delay. Only an
-// unset / empty / non-finite / negative value falls back to the default. Read
-// at CALL time (functions, not consts) so a test can stub the env — the same
-// pattern as outreachSmsAdmin.service.ts's vendorReadTimeoutMs.
+// ROBOCALL_SEND_MAX_PER_SWEEP is retained purely as the kill-switch the serial
+// model also honors: 0 pauses every launch with no deploy (`take: 0` selects no
+// rows); any value >= 1 launches the single oldest-due run (the serial gate caps
+// it at one — see `take` below). ROBOCALL_SEND_LAUNCH_SPACING_MS and the in-pass
+// `over_cps_limit` back-off are kept as a defensive multi-launch safety net: the
+// serial gate means only one run launches per pass, so neither normally fires,
+// but startCampaign's own throttle revert (the money-safe half of the back-off)
+// still protects the rare case where the gate lets two overlap. Read at CALL time
+// (functions, not consts) so a test can stub the env.
 const envInt = (value: string | undefined, fallback: number): number => {
   if (value === undefined || value === '') return fallback
   const parsed = Number(value)
@@ -59,6 +62,22 @@ const robocallSendMaxPerSweep = () =>
   envInt(process.env.ROBOCALL_SEND_MAX_PER_SWEEP, 2)
 const robocallSendLaunchSpacingMs = () =>
   envInt(process.env.ROBOCALL_SEND_LAUNCH_SPACING_MS, 3000)
+
+// A CONSERVATIVE buffer added to the estimated dial-completion instant before the
+// sweep frees (ABORTs) a dialed run's CallHub campaign. The one real risk of the
+// early free is aborting a run that is STILL dialing (estimate ran short) → calls
+// cut off (under-delivery) while the 48h completion sweep still captures the full
+// authorized estimate. So we err LONG: the dial-completion estimate itself is
+// already conservative (a single-zone walk — CallHub dials per contact timezone,
+// use_contact_tz, which spreads a national list wider and finishes SOONER than
+// the estimate), and this buffer adds slack on top for dial-rate variance and
+// vendor lag. 3h frees the pool ~16x sooner than the 48h settlement floor while
+// staying a small fraction of ROBOCALL_RUN_HOURS (48), so it can never approach
+// settlement timing. Env-overridable so ops can trade throughput against safety;
+// NEVER set it so short that the estimate biases toward an early abort. Read at
+// call time.
+const robocallDialEstimateBufferMinutes = () =>
+  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 180)
 
 // A `dialing` row whose updatedAt is older than this is assumed stranded — a
 // process that died between winning the dial claim and committing/reverting, or
@@ -100,6 +119,14 @@ type StartCampaignResult = 'throttled' | 'done'
 // status read — never a blind retry). No capture, no void, no CallHub completion
 // poll, no compliance table — those are other slices; this only READS the hold
 // and STARTs the campaign.
+//
+// The sweep runs this as a SERIAL QUEUE (serial-send phases 2+3, built on the
+// merged dial-completion estimator): at most one robocall dials at a time, since
+// CallHub's account calls/min pool is shared across running campaigns. It frees
+// that pool (ABORTs the finished campaign) once a dialing run's ESTIMATED
+// completion + a conservative buffer has passed, then launches the next queued
+// run. The early abort is OPERATIONAL ONLY — settlement and capture are untouched
+// and still fire at dialedAt + 48h.
 @Injectable()
 export class OutreachRobocallSendService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -135,7 +162,33 @@ export class OutreachRobocallSendService extends createPrismaBase(
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
     const now = new Date()
+
+    // FREE-AND-ADVANCE: for every dialed run whose ESTIMATED completion + buffer
+    // has passed, ABORT its CallHub campaign to release the shared account pool
+    // slot and stamp `poolFreedAt`. This is OPERATIONAL ONLY — the run stays
+    // `dialed` and the completion sweep still settles + captures the full
+    // authorized estimate at dialedAt + 48h. Runs BEFORE the serial gate so a
+    // run freed this pass no longer counts as in flight and the next queued run
+    // can launch below.
+    await this.freeCompletedDialingRuns(now)
+
+    // SERIAL GATE: at most ONE robocall dials at a time, because CallHub's
+    // account calls/min pool is shared across running campaigns. A run is "in
+    // flight" while it holds that pool: a `dialing` claim (actively launching or
+    // being stale-recovered), or a `dialed` run whose pool has NOT yet been freed
+    // (still estimated-dialing). When any is in flight, launch nothing this pass —
+    // the pool belongs to it. Bias toward NOT launching when unsure: a `dialing`
+    // row always blocks even though it may resolve back to authorized, and if the
+    // gate ever lets two overlap the second simply `over_cps_limit`s and reverts
+    // (startCampaign's throttle revert), losing no calls.
+    const inFlight = await this.hasRunInFlight()
+
     const launchSpacingMs = robocallSendLaunchSpacingMs()
+    // The serial model launches ONE run per pass: the single oldest-due run, and
+    // only when nothing is in flight. ROBOCALL_SEND_MAX_PER_SWEEP is kept as the
+    // kill-switch — 0 selects no rows (every launch paused, no deploy) — but is
+    // capped at one here so the per-pass maximum is always a single dial.
+    const take = inFlight ? 0 : Math.min(robocallSendMaxPerSweep(), 1)
     const arrived = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.authorized,
@@ -146,13 +199,12 @@ export class OutreachRobocallSendService extends createPrismaBase(
         },
       },
       select: { outreachId: true },
-      // Oldest-due first so the most overdue (soonest to lapse) drain first.
+      // Oldest-due first so the most overdue (soonest to lapse) dials first.
       // `outreachId` breaks ties into a TOTAL order so both prod replicas pick
-      // the identical oldest-N set — otherwise date ties could order
-      // differently per replica, and the union would exceed N launches/pass.
-      // take: 0 (the kill-switch) selects no rows, so nothing launches.
+      // the identical oldest run — otherwise a date tie could order differently
+      // per replica and two could launch at once. take: 0 selects no rows.
       orderBy: [{ outreach: { date: 'asc' } }, { outreachId: 'asc' }],
-      take: robocallSendMaxPerSweep(),
+      take,
     })
 
     for (const [index, { outreachId }] of arrived.entries()) {
@@ -213,6 +265,110 @@ export class OutreachRobocallSendService extends createPrismaBase(
           'robocall stale-dialing recovery failed; continuing sweep',
         )
       }
+    }
+  }
+
+  // Is any robocall still holding the shared CallHub account pool? A `dialing`
+  // claim (launching now, or stranded awaiting stale recovery) or a `dialed` run
+  // whose pool has not been freed (still estimated-dialing) both count. A run that
+  // has been freed (poolFreedAt set), settled, captured, or failed does not — its
+  // CallHub campaign no longer dials. The serial gate launches nothing while this
+  // is true. Conservative by construction: a transient `dialing` row blocks the
+  // queue for at most the stale window before recovery resolves it.
+  private async hasRunInFlight(): Promise<boolean> {
+    const count = await this.model.count({
+      where: {
+        OR: [
+          { settleState: RobocallSettleState.dialing },
+          { settleState: RobocallSettleState.dialed, poolFreedAt: null },
+        ],
+      },
+    })
+    return count > 0
+  }
+
+  // FREE-AND-ADVANCE: ABORT the CallHub campaign of every dialed run whose
+  // estimated dial completion + buffer has passed, releasing the shared account
+  // pool for the next queued run. OPERATIONAL ONLY — never touches settleState or
+  // money; the completion sweep still settles + captures the full authorized
+  // estimate at dialedAt + 48h, and its own best-effort abort becomes a harmless
+  // no-op on an already-aborted campaign.
+  private async freeCompletedDialingRuns(now: Date): Promise<void> {
+    // One source for the dial rate the estimate assumes AND the rate CallHub
+    // actually dials at (createVoiceBroadcast's frequency), so the estimate can
+    // never predict a finish the real dial has not reached.
+    const callsPerMinute = this.campaigns.getConfiguredCallsPerMinute()
+    const bufferMinutes = robocallDialEstimateBufferMinutes()
+
+    const dialing = await this.model.findMany({
+      where: {
+        settleState: RobocallSettleState.dialed,
+        poolFreedAt: null,
+        callhubCampaignPkStr: { not: null },
+      },
+      select: {
+        outreachId: true,
+        callhubCampaignPkStr: true,
+        billableCount: true,
+        dialedAt: true,
+      },
+    })
+
+    for (const row of dialing) {
+      // dialedAt is stamped at the dialing → dialed commit, and billableCount is
+      // non-null off the draft state; guard defensively rather than estimate on a
+      // missing input (which would throw) — such a row is simply left in flight.
+      if (!row.callhubCampaignPkStr || row.dialedAt === null) continue
+      if (row.billableCount === null || row.billableCount <= 0) continue
+
+      const estimatedDoneAt = addMinutes(
+        estimateRobocallDialCompletion({
+          audienceSize: row.billableCount,
+          callsPerMinute,
+          startAt: row.dialedAt,
+        }),
+        bufferMinutes,
+      )
+      // Still (estimated) dialing — leave the pool to it. Bias LONG: never free
+      // early, since an early abort cuts calls while the 48h capture charges full.
+      if (isBefore(now, estimatedDoneAt)) continue
+
+      try {
+        await this.freePool(row.outreachId, row.callhubCampaignPkStr)
+      } catch (err) {
+        // A transient CallHub abort failure must not abort freeing the rest; the
+        // run stays unfreed (poolFreedAt null) so it is retried next pass AND
+        // still counts as in flight — the money-safe direction: never advance the
+        // queue while the pool may still be occupied.
+        this.logger.error(
+          { err, outreachId: row.outreachId },
+          'robocall free-and-advance abort failed; leaving run in flight',
+        )
+      }
+    }
+  }
+
+  // ABORTs a dialed run's CallHub campaign to release its pool slot, then stamps
+  // `poolFreedAt` ONLY on a clean abort (abortVoiceBroadcast treats a 404 as
+  // already-retired and swallows it; a transient failure throws, so poolFreedAt
+  // stays null and the run is retried + stays in flight next pass). The stamp CAS
+  // is guarded on `dialed` + poolFreedAt null, so a row the completion sweep moved
+  // to `settling` under us is a harmless no-op (its abort already fired there).
+  private async freePool(outreachId: number, pkStr: string): Promise<void> {
+    await this.campaigns.abortVoiceBroadcast(pkStr)
+    const freed = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.dialed,
+        poolFreedAt: null,
+      },
+      data: { poolFreedAt: new Date() },
+    })
+    if (freed.count > 0) {
+      this.logger.info(
+        { outreachId, campaignPkStr: pkStr },
+        'robocall estimated dial completion passed; freed CallHub pool slot',
+      )
     }
   }
 

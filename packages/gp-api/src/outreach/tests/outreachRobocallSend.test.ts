@@ -22,15 +22,15 @@ import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubC
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { sleep } from '@/shared/util/sleep.util'
 import {
   Campaign,
   OutreachStatus,
   RobocallSettleState,
 } from '../../generated/prisma'
 
-// The sweep spaces launches with a real 3s sleep; stub it so the spacing is
-// assertable without the test actually waiting.
+// The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
+// one run launches per pass), but stub it so a test never waits a real 3s if a
+// future change ever re-enables a second launch.
 vi.mock('@/shared/util/sleep.util', () => ({
   sleep: vi.fn().mockResolvedValue(undefined),
 }))
@@ -42,6 +42,7 @@ let launchSpy: ReturnType<typeof vi.spyOn>
 let statusSpy: ReturnType<typeof vi.spyOn>
 let retrieveSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
+let abortSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -71,6 +72,16 @@ beforeEach(async () => {
   launchSpy = vi
     .spyOn(service.app.get(CallhubCampaignService), 'launchVoiceBroadcast')
     .mockResolvedValue({ pk_str: 'vb_1', status: 1 })
+  abortSpy = vi
+    .spyOn(service.app.get(CallhubCampaignService), 'abortVoiceBroadcast')
+    .mockResolvedValue(undefined)
+  // Pin the dial rate the free-and-advance estimate assumes, so the estimated
+  // completion is deterministic regardless of the CALLHUB_VB_CALLS_PER_MINUTE env
+  // (it defaults to 10 when unset; pinning it decouples the test from that).
+  vi.spyOn(
+    service.app.get(CallhubCampaignService),
+    'getConfiguredCallsPerMinute',
+  ).mockReturnValue(10)
   statusSpy = vi
     .spyOn(service.app.get(CallhubCampaignReportService), 'getCampaignStatus')
     .mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
@@ -114,6 +125,9 @@ const createDraft = async ({
   withCaptureBefore = false,
   compliancePassed = true,
   promoCoversTotal = false,
+  dialedAt,
+  poolFreedAt,
+  billableCount = 100,
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
@@ -123,6 +137,9 @@ const createDraft = async ({
   withCaptureBefore?: boolean
   compliancePassed?: boolean
   promoCoversTotal?: boolean
+  dialedAt?: Date
+  poolFreedAt?: Date
+  billableCount?: number
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -139,7 +156,7 @@ const createDraft = async ({
       outreachId: spine.id,
       audioKey: `robocall/996/${randomUUID()}.mp3`,
       callbackNumber: '+15125550123',
-      billableCount: 100,
+      billableCount,
       amountInCents: 450,
       settleState,
       ...(compliancePassed ? { compliancePassedAt: new Date() } : {}),
@@ -147,6 +164,8 @@ const createDraft = async ({
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(authorizedAmountInCents != null ? { authorizedAmountInCents } : {}),
       ...(withCaptureBefore ? { captureBefore: addDays(new Date(), 5) } : {}),
+      ...(dialedAt ? { dialedAt } : {}),
+      ...(poolFreedAt ? { poolFreedAt } : {}),
       promoCoversTotal,
     },
   })
@@ -635,67 +654,142 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
-  it('launches at most ROBOCALL_SEND_MAX_PER_SWEEP per pass, oldest send first', async () => {
-    // More due runs than the per-pass cap (default 2). The cap + the Oct-8
-    // spacing is what keeps a batch coming due together from bursting past
-    // CallHub's CPS limit. Created out of date order so `orderBy` (not the
-    // default insertion order) is what selects the two oldest.
+  it('launches only the single oldest-due run per pass (serial), leaving the rest', async () => {
+    // SERIAL: at most one robocall dials at a time, so even with several due runs
+    // the sweep launches only the oldest. Created out of date order so `orderBy`
+    // (not insertion order) is what picks the oldest.
     const newest = await createDraft({ sendInHours: -1 })
     const oldest = await createDraft({ sendInHours: -3 })
     const middle = await createDraft({ sendInHours: -2 })
 
     await send.sweepRobocallSend()
 
-    // Only the two oldest-due drafts dial this pass; the newest waits.
-    expect(launchSpy).toHaveBeenCalledTimes(2)
+    // Only the oldest-due run dials; the other two wait their turn.
+    expect(launchSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(oldest)).settleState).toBe(
       RobocallSettleState.dialed,
     )
     expect((await readSatellite(middle)).settleState).toBe(
-      RobocallSettleState.dialed,
+      RobocallSettleState.authorized,
     )
     expect((await readSatellite(newest)).settleState).toBe(
       RobocallSettleState.authorized,
     )
   })
 
-  it('launches every due run when the batch is within the cap', async () => {
-    const a = await createDraft({ sendInHours: -2 })
-    const b = await createDraft({ sendInHours: -1 })
+  it('does NOT launch a queued run while another is DIALING (serial gate)', async () => {
+    // A fresh `dialing` run holds the shared CallHub pool, so no queued run may
+    // launch this pass — even one whose send is due.
+    await createDraft({ settleState: RobocallSettleState.dialing })
+    const queued = await createDraft({ sendInHours: -1 })
 
     await send.sweepRobocallSend()
 
-    expect(launchSpy).toHaveBeenCalledTimes(2)
-    expect((await readSatellite(a)).settleState).toBe(
-      RobocallSettleState.dialed,
+    expect(launchSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(queued)).settleState).toBe(
+      RobocallSettleState.authorized,
     )
-    expect((await readSatellite(b)).settleState).toBe(
+  })
+
+  it('does NOT launch a queued run while a DIALED run has not been freed', async () => {
+    // A dialed run still within its estimated completion is in flight (its pool
+    // is not freed), so the serial gate blocks the queued run.
+    const inFlight = await createDraft({
+      settleState: RobocallSettleState.dialed,
+      dialedAt: new Date(),
+    })
+    const queued = await createDraft({ sendInHours: -1 })
+
+    await send.sweepRobocallSend()
+
+    expect(launchSpy).not.toHaveBeenCalled()
+    // Not freed (still within estimate+buffer), so no abort either.
+    expect(abortSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(inFlight)).poolFreedAt).toBeNull()
+    expect((await readSatellite(queued)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('frees a dialed run past its estimate+buffer and launches the next queued run', async () => {
+    // A dialed run whose estimated completion + buffer is long past: its pool is
+    // freed (CallHub campaign aborted, poolFreedAt stamped) and the next queued
+    // run then launches in the same pass. The early abort is OPERATIONAL ONLY —
+    // the settleState stays `dialed` for the 48h completion sweep to settle.
+    const done = await createDraft({
+      settleState: RobocallSettleState.dialed,
+      dialedAt: addHours(new Date(), -72),
+    })
+    const queued = await createDraft({ sendInHours: -1 })
+
+    await send.sweepRobocallSend()
+
+    // The finished run's pool was freed, money untouched.
+    expect(abortSpy).toHaveBeenCalledWith('vb_1')
+    const freed = await readSatellite(done)
+    expect(freed.poolFreedAt).not.toBeNull()
+    expect(freed.settleState).toBe(RobocallSettleState.dialed)
+    // With the pool freed, the next queued run dials.
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(queued)).settleState).toBe(
       RobocallSettleState.dialed,
     )
   })
 
-  it('spaces launches: sleeps between, not before the first or after the last', async () => {
-    const sleepMock = vi.mocked(sleep)
+  it('does NOT free a dialed run still within its estimate+buffer', async () => {
+    // The buffer is respected: a run dialed just now is not aborted, even though
+    // its raw audience would finish quickly — the conservative buffer errs long
+    // so a still-dialing run is never cut off.
+    const dialing = await createDraft({
+      settleState: RobocallSettleState.dialed,
+      dialedAt: new Date(),
+    })
 
-    // A single due run launches with no spacing sleep at all.
-    await createDraft({ sendInHours: -1 })
     await send.sweepRobocallSend()
-    expect(sleepMock).not.toHaveBeenCalled()
 
-    sleepMock.mockClear()
-
-    // Two more due runs dial this pass (the first is already dialed), so the
-    // sweep sleeps exactly once — between the two launches — with the spacing.
-    await createDraft({ sendInHours: -2 })
-    await createDraft({ sendInHours: -3 })
-    await send.sweepRobocallSend()
-    expect(sleepMock).toHaveBeenCalledTimes(1)
-    expect(sleepMock).toHaveBeenCalledWith(3000)
+    expect(abortSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(dialing)).poolFreedAt).toBeNull()
   })
 
-  it('kill-switch: ROBOCALL_SEND_MAX_PER_SWEEP=0 launches nothing; unset defaults to 2', async () => {
-    await createDraft({ sendInHours: -1 })
-    await createDraft({ sendInHours: -2 })
+  it('does not re-free a run whose pool was already freed', async () => {
+    // poolFreedAt set → the run is out of the free-and-advance candidate set, so
+    // the abort is never re-sent (it would spam the rate-limited CallHub API for
+    // the ~48h until the completion sweep settles).
+    await createDraft({
+      settleState: RobocallSettleState.dialed,
+      dialedAt: addHours(new Date(), -72),
+      poolFreedAt: addHours(new Date(), -1),
+    })
+
+    await send.sweepRobocallSend()
+
+    expect(abortSpy).not.toHaveBeenCalled()
+  })
+
+  it('leaves a run in flight when the free abort fails (queue stays blocked)', async () => {
+    // A transient CallHub abort failure must NOT stamp poolFreedAt: the run stays
+    // in flight so the queue does not advance while the pool may still be
+    // occupied, and the abort is retried next pass. The money-safe direction.
+    const done = await createDraft({
+      settleState: RobocallSettleState.dialed,
+      dialedAt: addHours(new Date(), -72),
+    })
+    const queued = await createDraft({ sendInHours: -1 })
+    abortSpy.mockRejectedValueOnce(new BadGatewayException('abort down'))
+
+    await send.sweepRobocallSend()
+
+    // Not freed, so still in flight → the queued run does not launch.
+    expect((await readSatellite(done)).poolFreedAt).toBeNull()
+    expect(launchSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(queued)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('kill-switch: ROBOCALL_SEND_MAX_PER_SWEEP=0 launches nothing; unset launches one', async () => {
+    const oldest = await createDraft({ sendInHours: -2 })
+    const newest = await createDraft({ sendInHours: -1 })
 
     // 0 is HONORED as the incident kill-switch — `take: 0` selects no rows, so
     // no due authorized run launches, with no deploy.
@@ -708,23 +802,23 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       }),
     ).toBe(2)
 
-    // Unset falls back to the default of 2: the same two rows now dial.
+    // Unset: the serial model launches exactly ONE (the oldest); the newer waits.
     vi.unstubAllEnvs()
     await send.sweepRobocallSend()
-    expect(launchSpy).toHaveBeenCalledTimes(2)
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(oldest)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect((await readSatellite(newest)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
   })
 
-  it('backs off the rest of the pass on over_cps_limit, leaving un-attempted rows authorized', async () => {
-    // Raise the cap so all three due runs are selected — the back-off, not the
-    // cap, is what must stop the launches after the throttle.
-    vi.stubEnv('ROBOCALL_SEND_MAX_PER_SWEEP', '5')
-    const oldest = await createDraft({ sendInHours: -3 })
-    const middle = await createDraft({ sendInHours: -2 })
-    const newest = await createDraft({ sendInHours: -1 })
-
-    // CallHub throttles the FIRST (oldest) START with over_cps_limit — a
-    // transient recoverable-by-body reject, so the status read (PAUSE) reverts it
-    // to authorized. The sweep must then STOP, not keep firing into the throttle.
+  it('a throttled launch reverts to authorized and dials on a later pass', async () => {
+    // The over_cps_limit back-off survives: a START CallHub throttles reverts the
+    // run to authorized (never lost), and a later clean pass dials it. With serial
+    // this is the self-correction if the gate ever lets two overlap.
+    const outreachId = await createDraft({ sendInHours: -1 })
     launchSpy.mockRejectedValueOnce(
       new CallhubRecoverableError(
         'over cps',
@@ -735,88 +829,27 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
     await send.sweepRobocallSend()
-
-    // Only the oldest was attempted; the back-off stopped the other two.
-    expect(launchSpy).toHaveBeenCalledTimes(1)
-    for (const id of [oldest, middle, newest]) {
-      expect((await readSatellite(id)).settleState).toBe(
-        RobocallSettleState.authorized,
-      )
-    }
-
-    // Convergence is the cron cadence: a later clean pass dials them (no throttle
-    // this time), so a throttled run is never abandoned — it retries next pass.
-    await send.sweepRobocallSend()
-    await send.sweepRobocallSend()
-    const dialed = await Promise.all(
-      [oldest, middle, newest].map(
-        async (id) => (await readSatellite(id)).settleState,
-      ),
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
     )
-    expect(dialed.every((s) => s === RobocallSettleState.dialed)).toBe(true)
+
+    await send.sweepRobocallSend()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
   })
 
-  it('does NOT back off on a non-throttle transient failure (keeps launching)', async () => {
-    // A plain transient launch failure (not over_cps_limit) must NOT stop the
-    // pass — only an active CPS throttle does. One launch fails (reverts via the
-    // PAUSED read), the sweep continues, the other dials.
-    const a = await createDraft({ sendInHours: -2 })
-    const b = await createDraft({ sendInHours: -1 })
-    launchSpy
-      .mockRejectedValueOnce(new BadGatewayException('response lost'))
-      .mockResolvedValue({ pk_str: 'vb_1', status: 1 })
+  it('a failing launch does not throw out of the sweep (per-record isolation)', async () => {
+    const outreachId = await createDraft({ sendInHours: -1 })
+    launchSpy.mockRejectedValueOnce(new BadGatewayException('boom'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await expect(send.sweepRobocallSend()).resolves.toBeUndefined()
 
-    // Both rows were attempted (the sweep did not break): one dialed, one
-    // reverted to authorized.
-    expect(launchSpy).toHaveBeenCalledTimes(2)
-    const states = [
-      (await readSatellite(a)).settleState,
-      (await readSatellite(b)).settleState,
-    ]
-    expect(states).toContain(RobocallSettleState.dialed)
-    expect(states).toContain(RobocallSettleState.authorized)
-  })
-
-  it('backs off even when reconcile throws after an over_cps_limit reject', async () => {
-    // A reconcile DB write can throw. If that exception escaped startCampaign,
-    // the sweep's outer catch would `continue` and keep firing STARTs at a
-    // throttling vendor — the burst this feature prevents. The throttle signal
-    // must survive the throw and still break the pass.
-    vi.stubEnv('ROBOCALL_SEND_MAX_PER_SWEEP', '5')
-    await createDraft({ sendInHours: -3 })
-    await createDraft({ sendInHours: -2 })
-    await createDraft({ sendInHours: -1 })
-
-    launchSpy.mockRejectedValueOnce(
-      new CallhubRecoverableError(
-        'over cps',
-        undefined,
-        CALLHUB_OVER_CPS_LIMIT_DETAIL,
-      ),
+    // The failed launch reverted via the PAUSED read; a later pass retries it.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
     )
-    // Force the reconcile of that throttled row to throw (a DB failure mid-
-    // reconcile). The default launch resolves STARTED, so without the fix the
-    // sweep would continue and dial the next row — this assertion catches it.
-    const reconcileSpy = vi
-      .spyOn(
-        send as unknown as {
-          reconcileDialing: (
-            outreachId: number,
-            pkStr: string,
-            outcome?: string,
-          ) => Promise<void>
-        },
-        'reconcileDialing',
-      )
-      .mockRejectedValueOnce(new Error('db write failed'))
-
-    await send.sweepRobocallSend()
-
-    expect(reconcileSpy).toHaveBeenCalledTimes(1)
-    expect(launchSpy).toHaveBeenCalledTimes(1)
   })
 
   it('dials only arrived drafts, once across repeat sweeps', async () => {
@@ -962,28 +995,6 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
     )
-  })
-
-  it('continues past a failing draft and dials the rest', async () => {
-    const a = await createDraft({ sendInHours: -1 })
-    const b = await createDraft({ sendInHours: -1 })
-    // One launch fails outright; its status read is PAUSED so it reverts.
-    launchSpy
-      .mockRejectedValueOnce(new BadGatewayException('boom'))
-      .mockResolvedValue({ pk_str: 'vb_ok', status: 1 })
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
-
-    await send.sweepRobocallSend()
-
-    const rows = [await readSatellite(a), await readSatellite(b)]
-    const dialed = rows.filter(
-      (r) => r.settleState === RobocallSettleState.dialed,
-    )
-    const authorized = rows.filter(
-      (r) => r.settleState === RobocallSettleState.authorized,
-    )
-    expect(dialed).toHaveLength(1)
-    expect(authorized).toHaveLength(1)
   })
 })
 
