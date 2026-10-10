@@ -265,6 +265,19 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Base images
+
+Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public
+(`public.ecr.aws/docker/library/<image>:<tag>`), never Docker Hub. Anonymous
+pulls from either are limited per IP, and shared GitHub runners kept failing
+with `429 Too Many Requests`. Logged-in ECR Public pulls are limited per AWS
+account, so every job that builds an image logs in to ECR Public first
+(`aws-actions/amazon-ecr-login` with `registry-type: public`). Main runs log
+in with `vars.AWS_ROLE_ARN`. gp-ai's pull request build, which never holds the
+deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
+can mint that login token (granted in `thegoodparty/ops`). Local builds need no
+login.
+
 ### Analytics guard
 
 `.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every
