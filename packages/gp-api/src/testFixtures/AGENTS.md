@@ -5,11 +5,11 @@ any script that needs a dev user in a known product state.
 
 ## Endpoints (all `AdminOrM2MGuard`, all 404 outside dev/preview)
 
-| Route                                 | Purpose                                                                 |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| `POST /v1/test-fixtures/users`        | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `serve`, `serve-won-race` |
-| `DELETE /v1/test-fixtures/users`      | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net |
-| `POST /v1/test-fixtures/users/:id/session` | Re-mint the 1h session token for runs longer than an hour          |
+| Route                                      | Purpose                                                                                            |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `POST /v1/test-fixtures/users`             | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `serve`, `serve-won-race` |
+| `DELETE /v1/test-fixtures/users`           | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                 |
+| `POST /v1/test-fixtures/users/:id/session` | Re-mint the 1h session token for runs longer than an hour                                          |
 
 The create/session responses carry credentials by contract (password, session
 token, a single-use Clerk `signInToken`, and a cookie triple) — **never log a
@@ -21,6 +21,15 @@ redeem `signInToken` on a public page
 `setActive`), then set the `organization-slug` cookie to select the org. The
 `sessionToken` / `token` cookie only authenticate direct gp-api calls — they
 do NOT log a browser into the webapp.
+
+## Shared state transitions
+
+`StateTransitionsService` (`services/stateTransitions.service.ts`, exported by
+`StateTransitionsModule`) holds the org-state recipes: find a race, create a
+launched campaign, create an elected office, promote a won race. The fixtures
+and the staff Test mode module (`src/testMode/`) both call it, and Test mode
+runs it in **prod**. So the env gate belongs on the fixtures controller,
+never in this service, and a recipe change ships to both callers.
 
 ## Gotchas
 
