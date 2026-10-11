@@ -85,6 +85,19 @@ export class CallhubCampaignService {
     this.logger.setContext(CallhubCampaignService.name)
   }
 
+  // The per-campaign calls/min `createVoiceBroadcast` stamps on every campaign it
+  // creates (CALLHUB_VB_CALLS_PER_MINUTE, default DEFAULT_CALLS_PER_MINUTE). The
+  // serial send sweep reads it HERE, from the one source staging dials at, so the
+  // dial-completion estimate can never diverge from the rate CallHub actually
+  // dials — a higher estimate rate than the real dial rate would predict an early
+  // finish and free the pool (abort) while calls are still going out. Read at call
+  // time, so a staging env change applies to both at once. NOTE: if ops ever
+  // raises this value, in-flight campaigns were staged at the OLD rate; drain them
+  // first (see callhub AGENTS.md), or the estimate will run short for them.
+  getConfiguredCallsPerMinute(): number {
+    return callsPerMinute()
+  }
+
   async createVoiceBroadcast(
     params: CreateVoiceBroadcastParams,
   ): Promise<CreateVbCampaignResult> {

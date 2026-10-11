@@ -60,6 +60,37 @@ HTTP routes of its own.
   billed monthly), not just this knob. The existing 5 stuck campaigns were
   created BEFORE this — lower their frequency in the CallHub dashboard (or
   re-stage) for them to dial.
+  - **The serial send sweep reads this value via
+    `getConfiguredCallsPerMinute()`** to estimate when a dialing run finishes and
+    the shared pool can be freed (`outreachRobocallSend.service.ts`). Two
+    consequences before RAISING it: (1) in-flight runs were STAGED at the old
+    rate, so the estimate (reading the new, higher rate) would predict an early
+    finish for them and free the pool while they are still dialing — cutting calls
+    — so DRAIN all dialing/dialed-unfreed runs first. (2) It is unconfirmed whether
+    CallHub reserves the pool for merely-SCHEDULED (PAUSED) campaigns as well as
+    running ones (this gotcha says "scheduled/running"); if it does, raising
+    frequency to the account cap means only one campaign can be STAGED at a time,
+    which the staging sweep does not currently enforce. Settle both before moving
+    the default toward the cap for the serial model.
+
+- **No reliable per-campaign dialed-call count read — the serial completion seam
+  lives in `outreachRobocallSend.service.ts`, not here.** CallHub's
+  `POST /v2/credits_usage/` (`campaign_type=6`) `voice_calls` turned out
+  ACCOUNT-WIDE, not per-broadcast, and omitted a required `start_date`, so the old
+  per-campaign `CallhubCreditsService` read was retired (settlement moved to time).
+  Because of that, the serial send sweep decides a dialed run is finished through a
+  completion SEAM (`isDoneDialing`) whose wired signal is a money-SAFE TIME FLOOR —
+  `estimateRobocallDialCompletion` walked at a conservative rate haircut (so it can
+  never abort a still-dialing run) plus a buffer. Correctness does NOT depend on the
+  serial model: the floor works in any mode. A serial-ONLY SPEEDUP — an account-wide
+  `voice_calls` delta (valid because exactly one robocall dials at a time, so the
+  account-wide count IS that campaign's) — is the documented extension point behind
+  the seam but is DEFERRED until a reliable account-wide read (with `start_date`, its
+  field semantics verified against a real completed run) or a true per-campaign CDR
+  signal lands. If you add such a read here, wire it as that speedup and keep the
+  time floor as the fallback. A `dialing` row whose status read never resolves is
+  force-failed by the sweep's deadlock backstop (it VOIDs the hold) so it can't
+  block the serial queue — that lives in `outreachRobocallSend.service.ts` too.
 
 ## Config
 
