@@ -975,16 +975,49 @@ class TestMintJudgeReplay:
     def _replay(self, mode="replay", key=None):
         return {"mode": mode, "key": key or self.SWEEP_KEY}
 
-    def test_replay_reaches_the_stored_ticket(self):
+    @pytest.mark.parametrize(
+        "mode,key",
+        [
+            ("record", SWEEP_KEY),
+            ("replay", SWEEP_KEY),
+            ("record", "_judge/replay/base/voter_targeting/abc123/t1-1"),
+            ("replay", "_judge/replay/seed/voter_targeting/t1"),
+        ],
+    )
+    def test_replay_reaches_the_stored_ticket(self, mode, key):
         store = MagicMock(spec=ScopeTicketStore)
 
-        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True, replay=self._replay("record"))
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True, replay=self._replay(mode, key))
 
         assert resp.status_code == 200
         ticket = store.put_ticket.call_args.args[0]
         assert ticket.replay is not None
-        assert ticket.replay.mode == "record"
-        assert ticket.replay.key == self.SWEEP_KEY
+        assert ticket.replay.mode == mode
+        assert ticket.replay.key == key
+
+    def test_a_refused_replay_never_reaches_the_override_read(self, monkeypatch):
+        """Every cheap refusal comes before the published-manifest read."""
+        monkeypatch.delenv("REPLAY_ENABLED")
+        store = MagicMock(spec=ScopeTicketStore)
+        s3 = _s3_serving(CLEAN_PUBLISHED)
+        override = {
+            "manifest_key": "_judge/voter_targeting/abc123/manifest.json",
+            "instruction_key": "_judge/voter_targeting/abc123/instruction.md",
+            "manifest_version_id": "m-1",
+            "instruction_version_id": "i-1",
+        }
+
+        resp = TestClient(_create_test_app(store=store, s3_client=s3)).post(
+            "/internal/mint-run-token",
+            json=_mint_payload(
+                run_id=self.JUDGE_RUN_ID, is_eval=True, experiment_override=override, replay=self._replay()
+            ),
+            headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        )
+
+        assert resp.status_code == 400
+        s3.get_object.assert_not_called()
+        store.put_ticket.assert_not_called()
 
     def test_a_mint_without_replay_stores_none(self):
         store = MagicMock(spec=ScopeTicketStore)

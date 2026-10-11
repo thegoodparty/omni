@@ -516,9 +516,9 @@ class TestJudgeReplayRef:
         with pytest.raises(ValueError, match="replay-only"):
             JudgeReplayRef(mode="record", key=SEED_KEY)
 
-    # The same vectors `packages/contracts` (JudgeReplay.schema.test.ts)
-    # refuses, so the TypeScript builder and this check cannot drift apart
-    # without one suite noticing.
+    # The same shapes `packages/contracts` (JudgeReplay.schema.test.ts)
+    # refuses, plus the trailing newline Python's `$` would admit, so the
+    # TypeScript builder and this check cannot drift apart unnoticed.
     @pytest.mark.parametrize(
         "key",
         [
