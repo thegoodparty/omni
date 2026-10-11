@@ -696,6 +696,14 @@ export {
   judgeRunId,
 } from './agentRuns/JudgeOverride.schema'
 export type { JudgeOverride } from './agentRuns/JudgeOverride.schema'
+export {
+  JUDGE_REPLAY_KEY_PREFIX,
+  JudgeReplaySchema,
+  judgeReplayBaseKey,
+  judgeReplaySeedKey,
+  judgeReplaySweepKey,
+} from './agentRuns/JudgeReplay.schema'
+export type { JudgeReplay } from './agentRuns/JudgeReplay.schema'
 
 export {
   BRIEFING_DATE_RANGE_VALUES,
