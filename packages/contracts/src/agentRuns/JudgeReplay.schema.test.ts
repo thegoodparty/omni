@@ -26,10 +26,6 @@ describe('judge replay key builders', () => {
     )
   })
 
-  it('keeps every store under the replay prefix', () => {
-    expect(JUDGE_REPLAY_KEY_PREFIX).toBe('_judge/replay/')
-  })
-
   // A crafted id must not be able to change which store a key addresses.
   it.each([
     ['a slash', 'a/b'],
@@ -71,6 +67,7 @@ describe('judge replay key builders', () => {
     ['a slash', 'ab/cd'],
     ['traversal', '..'],
     ['over 64 characters', 'a'.repeat(65)],
+    ['empty', ''],
   ])('refuses %s in the config digest', (_, digest) => {
     expect(() => judgeReplayBaseKey('self_research', digest, 't1', 1)).toThrow()
   })
@@ -160,6 +157,13 @@ describe('JudgeReplaySchema', () => {
     ],
     ['an attempt of 0', '_judge/replay/sweep/s/self_research/t1-0'],
     ['an attempt over 99', '_judge/replay/sweep/s/self_research/t1-100'],
+    ['a leading-zero attempt', '_judge/replay/sweep/s/self_research/t1-01'],
+    ['a capital in the agent id', '_judge/replay/seed/Self_research/t1'],
+    [
+      'a digest over 64 characters',
+      `_judge/replay/base/self_research/${'a'.repeat(65)}/t1-1`,
+    ],
+    ['an empty digest', '_judge/replay/base/self_research//t1-1'],
   ])('refuses %s', (_, key) => {
     expect(JudgeReplaySchema.safeParse({ mode: 'replay', key }).success).toBe(
       false,

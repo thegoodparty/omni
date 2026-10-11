@@ -4,13 +4,12 @@ import { JUDGE_KEY_PREFIX } from './JudgeOverride.schema'
 // The Universal Judge's page replay setting, carried on an agent dispatch
 // message as the optional field `_judge_replay`, beside `_judge_override`.
 //
-// Wire keys are snake_case for the same reason as the override: the dispatch
-// Lambda and the broker that read them are Python.
-//
 // The broker records the pages a run fetches (`record`) or serves recorded
 // copies and fetches live on a miss (`replay`), under the store `key` names.
 // The key is arm-free on purpose: the two arms' run ids differ, but a base
-// arm and the candidate compared against it share one store.
+// arm and the candidate compared against it share one store. A key names a
+// folder with no trailing slash, and the broker stores objects at
+// `${key}/<name>`; joining without the slash would let `t1-1` prefix `t1-10`.
 //
 // Validated as a whole shape, never as a prefix, for the reason the override
 // gives: a prefix check passes `_judge/replay/../x`. Every segment is pinned to
@@ -21,10 +20,12 @@ import { JUDGE_KEY_PREFIX } from './JudgeOverride.schema'
 
 export const JUDGE_REPLAY_KEY_PREFIX = `${JUDGE_KEY_PREFIX}replay/`
 
-// The bounds are what the dispatch Lambda and the broker enforce, so a key
-// the builders produce is never one those two refuse. The agent id is the
-// dispatch handler's experiment id shape; the case id bound matches the case
-// list loader's; an attempt is a list's attemptsPerCase, at most 3 today.
+// The dispatch Lambda and the broker will mirror these bounds
+// (`JUDGE_REPLAY_KEY_RE`), so a key the builders produce is never one those
+// two refuse. Port them with `re.fullmatch`: Python's `$` also matches before
+// a trailing newline. The agent id is the dispatch handler's experiment id
+// shape; the case id bound matches the case list loader's; an attempt is at
+// most 99 by this contract.
 const SEGMENT = '[A-Za-z0-9_-]{1,64}'
 const AGENT_ID = '[a-z][a-z0-9_]{0,63}'
 const CASE_ID = '[A-Za-z0-9_-]{1,80}'
