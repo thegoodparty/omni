@@ -706,10 +706,11 @@ def _validate_judge_replay(value, experiment_id: str) -> dict | None:
         raise ValueError(f"_judge_replay.mode must be one of {list(_JUDGE_REPLAY_MODES)}; got {_truncated(mode)}")
     if not isinstance(key, str):
         raise ValueError(f"_judge_replay.key must be a string, got {type(key).__name__}")
-    matches = [(kind, m) for kind, r in JUDGE_REPLAY_KEY_RES.items() if (m := r.fullmatch(key)) is not None]
-    if not matches:
+    kind, match = next(
+        ((kind, m) for kind, r in JUDGE_REPLAY_KEY_RES.items() if (m := r.fullmatch(key)) is not None), (None, None)
+    )
+    if match is None:
         raise ValueError(f"_judge_replay.key must be a _judge/replay/sweep/, base/ or seed/ key; got {_truncated(key)}")
-    kind, match = matches[0]
     # The bench writes a seed store and both arms only read it. A run
     # recording into one would mix live pages into planted ones.
     if kind == "seed" and mode == "record":

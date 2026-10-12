@@ -227,7 +227,7 @@ the store with an optional top-level
 "_judge_replay": { "mode": "record" | "replay", "key": "_judge/replay/..." }
 ```
 
-Ingest checks the shape only: exactly those two keys, a `key` that fully
+Ingest never reads the store. It checks for exactly those two keys, a `key` that fully
 matches one of the three store layouts in `manifest_loader.JUDGE_REPLAY_KEY_RES`
 (sweep, base cache or seed, built by `packages/contracts`), an `agentId` segment
 equal to `experiment_type`, and no `record` into a seed store. It also puts the
@@ -235,8 +235,9 @@ dispatch through the same judge gate as an override (judge run id, `dev` only),
 since mint would refuse it anyway. Nothing here reads the store.
 
 It rides `routing["replay"]` like `judge_override`, so the scheduler threads it
-to `launch_run`, which passes it to mint. The broker re-checks all of it on the
-ticket and acts on it only while its own `REPLAY_ENABLED` switch is on. The
+to `launch_run`, which passes it to mint. The broker re-checks all of it, and
+refuses the mint unless its own `REPLAY_ENABLED` switch is on (dev only), so such
+a run fails rather than running without replay. The
 broker's copy of the key patterns is held equal to this one by a test in
 `broker/tests/test_dynamodb_client.py`.
 

@@ -178,7 +178,7 @@ class TestReplayRequiresAJudgeRun:
     @pytest.mark.parametrize("environment", ["prod", "staging", ""])
     def test_refused_outside_dev(self, monkeypatch, environment):
         monkeypatch.setenv("ENVIRONMENT", environment)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="only accepted when ENVIRONMENT"):
             _parse({"mode": "record", "key": SWEEP_KEY})
 
     def test_a_rejected_judge_replay_reaches_the_dlq_without_a_callback(self, dispatch_env):
