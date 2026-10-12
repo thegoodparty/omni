@@ -6,7 +6,7 @@ Cross-route building blocks: providers, hooks, UI primitives, layouts, and featu
 
 | Subdir / file | Role |
 |---------------|------|
-| `user/UserProvider.tsx` | Auth state — loaded from cookie, exposed to the tree |
+| `user/UserProvider.tsx` | Auth state — loaded from cookie, exposed to the tree. Also copies a name edited in Clerk onto the gp-api user row (gp-api only reads Clerk's name at provisioning) |
 | `user/ImpersonationBanner.tsx`, `ImpersonatingTracker.tsx` | Impersonation state + global UI (Clerk-actor based; no separate context provider) |
 | `user/CampaignStatusProvider.tsx` | Campaign-level status flag |
 | `hooks/CampaignProvider.tsx` + `useCampaign.ts` | Current campaign context |

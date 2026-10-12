@@ -334,9 +334,12 @@ export type APIEndpoints = {
 
   // Partial profile update. /sign-up/phone uses it to land the Google
   // signup's phone on the user row before the registration form below
-  // submits, so HubSpot's contact carries it from the start.
+  // submits, so HubSpot's contact carries it from the start. UserProvider
+  // uses it to copy a name edited in Clerk onto the user row.
   'PUT /v1/users/me': {
-    Request: Partial<Pick<User, 'firstName' | 'lastName' | 'phone' | 'zip'>>
+    Request: Partial<
+      Pick<User, 'firstName' | 'lastName' | 'name' | 'phone' | 'zip'>
+    >
     Response: User
   }
 
