@@ -24,21 +24,23 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 import os
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from broker.dynamodb_client import JudgeReplayRef, ScopeTicket
 
 logger = logging.getLogger(__name__)
 
-# Per recording run. Write-once saves mean a URL fetched twice costs one
-# object, so a run that hits these has fetched hundreds of distinct pages.
+# Per recording run. Only saves that create an object count, so a URL
+# fetched twice costs one, and a run that hits these has fetched hundreds of
+# distinct pages.
 MAX_OBJECTS_PER_RUN = 500
 MAX_BYTES_PER_RUN = 500 * 1024 * 1024
 # Downloads go up to 250 MB live. One PDF shouldn't fill a run's budget, so
@@ -83,6 +85,27 @@ def _url_digest(url: str) -> str:
     return hashlib.sha256(normalize_url(url).encode("utf-8")).hexdigest()
 
 
+class _FetchMeta(BaseModel):
+    # Read back from S3, and in seeded mode written by a bench, so a bad one
+    # must read as a miss rather than reach the handler.
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    status: int = Field(..., ge=100, le=599)
+    content_type: str
+    final_url: str
+    byte_size: int = Field(..., ge=0)
+
+
+class _HeadMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    status: int = Field(..., ge=100, le=599)
+    final_url: str
+
+
+MetaT = TypeVar("MetaT", _FetchMeta, _HeadMeta)
+
+
 @dataclass(frozen=True)
 class RecordedFetch:
     status: int
@@ -107,7 +130,7 @@ class PageReplay:
 
     async def lookup_fetch(self, ticket: ScopeTicket, ref: JudgeReplayRef, url: str) -> RecordedFetch | None:
         base = f"{ref.key}/fetch/{_url_digest(url)}"
-        meta = await self._read_json(ticket, f"{base}.json")
+        meta = await self._read_meta(ticket, f"{base}.json", _FetchMeta)
         if meta is None:
             return None
         try:
@@ -116,23 +139,23 @@ class PageReplay:
             logger.warning("page_replay body read failed run_id=%s error=%s", ticket.run_id, type(e).__name__)
             return None
         stream = obj["Body"]
-        if obj.get("ContentLength") != meta["byte_size"]:
+        if obj.get("ContentLength") != meta.byte_size:
             stream.close()
             logger.warning("page_replay body size mismatch run_id=%s", ticket.run_id)
             return None
         return RecordedFetch(
-            status=meta["status"],
-            content_type=meta["content_type"],
-            final_url=meta["final_url"],
-            byte_size=meta["byte_size"],
+            status=meta.status,
+            content_type=meta.content_type,
+            final_url=meta.final_url,
+            byte_size=meta.byte_size,
             body=_stream_body(stream),
         )
 
     async def lookup_head(self, ticket: ScopeTicket, ref: JudgeReplayRef, url: str) -> RecordedHead | None:
-        meta = await self._read_json(ticket, f"{ref.key}/head/{_url_digest(url)}.json")
+        meta = await self._read_meta(ticket, f"{ref.key}/head/{_url_digest(url)}.json", _HeadMeta)
         if meta is None:
             return None
-        return RecordedHead(status=meta["status"], final_url=meta["final_url"])
+        return RecordedHead(status=meta.status, final_url=meta.final_url)
 
     def record_fetch(
         self,
@@ -149,23 +172,38 @@ class PageReplay:
     ) -> None:
         """Save one fetch. Runs after the response is sent, and never raises."""
         try:
+            # Only successful fetches are saved. An error page the base arm
+            # saw may be transient, and the candidate gets its own try.
+            if status >= 400:
+                return
             if body_path is not None and byte_size > MAX_RECORDED_DOWNLOAD_BYTES:
                 logger.info("page_replay download too large to record run_id=%s bytes=%d", ticket.run_id, byte_size)
                 return
-            meta = json.dumps(
-                {"status": status, "content_type": content_type, "final_url": final_url, "byte_size": byte_size}
-            ).encode("utf-8")
-            if not self._reserve(ticket, byte_size + len(meta), objects=2):
+            meta = (
+                _FetchMeta(status=status, content_type=content_type, final_url=final_url, byte_size=byte_size)
+                .model_dump_json()
+                .encode("utf-8")
+            )
+            size = byte_size + len(meta)
+            if not self._reserve(ticket, size, objects=2):
                 return
             base = f"{ref.key}/fetch/{_url_digest(url)}"
-            if body_path is not None:
-                with open(body_path, "rb") as f:
-                    created = self._put_once(ticket, f"{base}.body", f)
-            else:
-                created = self._put_once(ticket, f"{base}.body", body or b"")
+            try:
+                if body_path is not None:
+                    with open(body_path, "rb") as f:
+                        created = self._put_once(ticket, f"{base}.body", f)
+                else:
+                    created = self._put_once(ticket, f"{base}.body", body or b"")
+            except Exception:
+                created = False
+            if not created:
+                self._release(ticket, size, objects=2)
+                return
             # Only the writer that created the body writes its metadata, so a
-            # recording never pairs one response's body with another's headers.
-            if created:
+            # recording never pairs one response's body with another's
+            # headers. That makes a lost metadata write permanent for the URL,
+            # so it gets one retry.
+            if not self._put_once(ticket, f"{base}.json", meta):
                 self._put_once(ticket, f"{base}.json", meta)
         except Exception as e:
             logger.warning("page_replay record failed run_id=%s error=%s", ticket.run_id, type(e).__name__)
@@ -173,10 +211,13 @@ class PageReplay:
     def record_head(self, ticket: ScopeTicket, ref: JudgeReplayRef, url: str, *, status: int, final_url: str) -> None:
         """Save one HEAD check. Runs after the response is sent, and never raises."""
         try:
-            meta = json.dumps({"status": status, "final_url": final_url}).encode("utf-8")
+            if status >= 400:
+                return
+            meta = _HeadMeta(status=status, final_url=final_url).model_dump_json().encode("utf-8")
             if not self._reserve(ticket, len(meta), objects=1):
                 return
-            self._put_once(ticket, f"{ref.key}/head/{_url_digest(url)}.json", meta)
+            if not self._put_once(ticket, f"{ref.key}/head/{_url_digest(url)}.json", meta):
+                self._release(ticket, len(meta), objects=1)
         except Exception as e:
             logger.warning("page_replay record failed run_id=%s error=%s", ticket.run_id, type(e).__name__)
 
@@ -188,7 +229,7 @@ class PageReplay:
         except Exception as e:
             logger.warning("page_replay marker failed run_id=%s error=%s", ticket.run_id, type(e).__name__)
 
-    async def _read_json(self, ticket: ScopeTicket, key: str) -> dict | None:
+    async def _read_meta(self, ticket: ScopeTicket, key: str, model: type[MetaT]) -> MetaT | None:
         """A recording's metadata, or None for anything but a usable one.
 
         The broker has no ListBucket on the bucket, so a missing key comes
@@ -203,7 +244,7 @@ class PageReplay:
                 obj["Body"].close()
                 return None
             raw = await asyncio.to_thread(obj["Body"].read)
-            return json.loads(raw)
+            return model.model_validate_json(raw)
         except Exception as e:
             code = getattr(e, "response", {}).get("Error", {}).get("Code", type(e).__name__)
             if code not in ("NoSuchKey", "AccessDenied", "404", "403"):
@@ -254,6 +295,22 @@ class PageReplay:
             else:
                 logger.warning("page_replay reserve failed run_id=%s error=%s", ticket.run_id, code)
             return False
+
+    def _release(self, ticket: ScopeTicket, size: int, *, objects: int) -> None:
+        """Give back a reservation whose save created nothing, so duplicate
+        fetches and lost races don't use up the run's caps."""
+        try:
+            self._dynamodb.update_item(
+                TableName=self._table_name,
+                Key={"pk": {"S": ticket.pk}},
+                UpdateExpression="ADD replay_objects :objects, replay_bytes :size",
+                ConditionExpression="attribute_exists(pk)",
+                ExpressionAttributeValues={":objects": {"N": str(-objects)}, ":size": {"N": str(-size)}},
+            )
+        except Exception as e:
+            code = getattr(e, "response", {}).get("Error", {}).get("Code", type(e).__name__)
+            if code != "ConditionalCheckFailedException":
+                logger.warning("page_replay release failed run_id=%s error=%s", ticket.run_id, code)
 
 
 async def _stream_body(stream) -> AsyncIterator[bytes]:

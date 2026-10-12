@@ -78,11 +78,16 @@ class FakeS3:
     now: int = BASE_ISSUED + 10
     objects: dict[str, tuple[bytes, int]] = field(default_factory=dict)
     fail_puts: bool = False
+    # Fail the next N writes whose key ends with the suffix.
+    fail_next: dict[str, int] = field(default_factory=dict)
     get_error: str | None = None
 
     def put_object(self, *, Bucket, Key, Body, IfNoneMatch=None):
         assert Bucket == BUCKET
-        if self.fail_puts:
+        suffix = next((x for x, n in self.fail_next.items() if n > 0 and Key.endswith(x)), None)
+        if suffix is not None:
+            self.fail_next[suffix] -= 1
+        if self.fail_puts or suffix is not None:
             raise ClientError({"Error": {"Code": "InternalError", "Message": "boom"}}, "PutObject")
         if IfNoneMatch == "*" and Key in self.objects:
             raise ClientError({"Error": {"Code": "PreconditionFailed", "Message": "exists"}}, "PutObject")
@@ -241,12 +246,53 @@ class TestFetchReplay:
 
     def test_upstream_status_and_content_type_survive(self, ddb):
         h = Harness(ddb)
-        h.fetch(BASE, URL, _page(b'{"gone": true}', status=404, content_type="application/json"))
+        h.fetch(BASE, URL, _page(b'{"partial": true}', status=203, content_type="application/json"))
         h.as_candidate()
         r = h.fetch(CANDIDATE, URL, _page(b"live"))
-        assert r.headers["x-upstream-status"] == "404"
+        assert r.headers["x-upstream-status"] == "203"
         assert r.headers["content-type"] == "application/json"
-        assert r.content == b'{"gone": true}'
+        assert r.content == b'{"partial": true}'
+
+    @pytest.mark.parametrize("status", [403, 404, 429, 503])
+    def test_an_error_response_is_not_recorded(self, ddb, status):
+        h = Harness(ddb)
+        h.fetch(BASE, URL, _page(b"challenge page", status=status))
+        h.as_candidate()
+        assert h.fetch(CANDIDATE, URL, _page(b"live")).content == b"live"
+        assert h.s3.markers(CANDIDATE) == ["fetch-miss"]
+
+    @pytest.mark.parametrize(
+        "meta",
+        [
+            b'{"status": 200}',
+            b"[]",
+            b"not json",
+            b'{"status": "200", "content_type": "t", "final_url": "u", "byte_size": 8}',
+        ],
+    )
+    def test_unreadable_metadata_is_a_miss(self, ddb, meta):
+        h = Harness(ddb)
+        h.fetch(BASE, URL, _page(b"recorded"))
+        meta_key = next(k for k in h.s3.keys_under(f"{SWEEP_KEY}/fetch/") if k.endswith(".json"))
+        h.s3.objects[meta_key] = (meta, h.s3.objects[meta_key][1])
+        r = h.fetch(CANDIDATE, URL, _page(b"live"))
+        assert r.status_code == 200
+        assert r.content == b"live"
+
+    def test_metadata_comes_only_from_the_writer_that_created_the_body(self, ddb):
+        h = Harness(ddb)
+        h.s3.fail_next = {".json": 2}
+        h.fetch(BASE, URL, _page(b"first", final_url=URL + "/a"))
+        h.fetch(BASE, URL, _page(b"other", final_url=URL + "/b"))
+        h.as_candidate()
+        assert h.fetch(CANDIDATE, URL, _page(b"live")).content == b"live"
+
+    def test_one_failed_metadata_write_is_retried(self, ddb):
+        h = Harness(ddb)
+        h.s3.fail_next = {".json": 1}
+        h.fetch(BASE, URL, _page(b"recorded"))
+        h.as_candidate()
+        assert h.fetch(CANDIDATE, URL, _page(b"live")).content == b"recorded"
 
     def test_miss_fetches_live_and_marks_a_miss(self, ddb):
         h = Harness(ddb)
@@ -365,17 +411,19 @@ class TestNormalizedMatching:
 
 
 class TestDownloads:
-    def test_download_is_recorded_replayed_and_its_temp_file_removed(self, ddb):
+    def test_recorded_download_replays(self, ddb):
         h = Harness(ddb)
-        result = _download(b"%PDF-1.7 agenda")
-        live = h.fetch(BASE, URL + ".pdf", result)
-        assert live.content == b"%PDF-1.7 agenda"
-        assert not os.path.exists(result.body_path)
-
+        assert h.fetch(BASE, URL + ".pdf", _download(b"%PDF-1.7 agenda")).content == b"%PDF-1.7 agenda"
         h.as_candidate()
         replayed = h.fetch(CANDIDATE, URL + ".pdf", _page(b"live"))
         assert replayed.content == b"%PDF-1.7 agenda"
         assert replayed.headers["content-type"] == "application/pdf"
+
+    def test_recording_a_download_still_removes_its_temp_file(self, ddb):
+        h = Harness(ddb)
+        result = _download(b"%PDF-1.7 agenda")
+        h.fetch(BASE, URL + ".pdf", result)
+        assert not os.path.exists(result.body_path)
 
     def test_oversized_download_is_not_recorded_and_replays_as_a_miss(self, ddb, monkeypatch):
         monkeypatch.setattr(page_replay_module, "MAX_RECORDED_DOWNLOAD_BYTES", 8)
@@ -400,13 +448,30 @@ class TestDownloads:
 class TestHeadReplay:
     def test_hit_returns_the_recorded_status_without_a_request(self, ddb):
         h = Harness(ddb)
-        h.head_status = 403
-        assert h.head(BASE).json() == {"status": 403, "final_url": URL}
+        h.head_status = 204
+        assert h.head(BASE).json() == {"status": 204, "final_url": URL}
         h.as_candidate()
         h.head_status = 200
-        assert h.head(CANDIDATE).json() == {"status": 403, "final_url": URL}
+        assert h.head(CANDIDATE).json() == {"status": 204, "final_url": URL}
         assert h.head_calls == []
         assert h.s3.markers(CANDIDATE) == ["head-hit"]
+
+    def test_an_error_status_is_not_recorded(self, ddb):
+        h = Harness(ddb)
+        h.head_status = 404
+        h.head(BASE)
+        h.as_candidate()
+        h.head_status = 200
+        assert h.head(CANDIDATE).json()["status"] == 200
+        assert h.s3.markers(CANDIDATE) == ["head-miss"]
+
+    def test_unreadable_metadata_is_a_miss(self, ddb):
+        h = Harness(ddb)
+        h.head(BASE)
+        meta_key = h.s3.keys_under(f"{SWEEP_KEY}/head/")[0]
+        h.s3.objects[meta_key] = (b"[]", h.s3.objects[meta_key][1])
+        assert h.head(CANDIDATE).status_code == 200
+        assert h.head_calls == [URL]
 
     def test_miss_checks_live(self, ddb):
         h = Harness(ddb)
@@ -448,6 +513,25 @@ class TestRunCaps:
         h.fetch(BASE, f"{URL}/2", _page(b"x" * 100))
         assert len(h.s3.keys_under(f"{SWEEP_KEY}/fetch/")) == 2
 
+    def test_refetching_a_saved_url_does_not_use_up_the_cap(self, ddb, monkeypatch):
+        # One page (body and metadata), one HEAD record, then room for one more page.
+        monkeypatch.setattr(page_replay_module, "MAX_OBJECTS_PER_RUN", 5)
+        h = Harness(ddb)
+        for _ in range(3):
+            h.fetch(BASE, URL, _page(b"page"))
+            h.head(BASE)
+        h.fetch(BASE, f"{URL}/new", _page(b"page"))
+        assert len(h.s3.keys_under(f"{SWEEP_KEY}/fetch/")) == 4
+
+    def test_a_failed_save_does_not_use_up_the_cap(self, ddb, monkeypatch):
+        monkeypatch.setattr(page_replay_module, "MAX_OBJECTS_PER_RUN", 2)
+        h = Harness(ddb)
+        h.s3.fail_next = {".body": 3}
+        for n in range(3):
+            h.fetch(BASE, f"{URL}/{n}", _page(b"page"))
+        h.fetch(BASE, f"{URL}/ok", _page(b"page"))
+        assert len(h.s3.keys_under(f"{SWEEP_KEY}/fetch/")) == 2
+
     def test_caps_are_shared_by_every_broker_task(self, ddb, monkeypatch):
         monkeypatch.setattr(page_replay_module, "MAX_OBJECTS_PER_RUN", 2)
         first, second = Harness(ddb), Harness(ddb)
@@ -466,7 +550,7 @@ class TestRunCaps:
 
 class TestSwitchOff:
     @pytest.mark.parametrize("value", [None, "false", "1"])
-    def test_switch_off_records_and_replays_nothing(self, ddb, monkeypatch, value):
+    def test_switch_off_leaves_both_arms_live(self, ddb, monkeypatch, value):
         if value is None:
             monkeypatch.delenv("REPLAY_ENABLED")
         else:
@@ -488,7 +572,7 @@ class TestSwitchOff:
 
 
 class TestOutcomeMarkers:
-    def test_markers_are_empty_and_never_name_the_url(self, ddb):
+    def test_markers_carry_only_the_outcome(self, ddb):
         h = Harness(ddb)
         h.fetch(BASE, URL, _page(b"recorded"))
         h.as_candidate()
