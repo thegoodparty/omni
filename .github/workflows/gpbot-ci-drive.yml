@@ -141,6 +141,17 @@ concurrency:
 env:
   REPO: ${{ github.repository }}
   GH_TOKEN: ${{ github.token }}
+  # The branch a check is compared against to decide "already broken before this
+  # PR", and the branch the repo merges into. omni's is main; gp-marketing's is
+  # develop. Named here rather than written inline so that the gp-marketing copy
+  # of this file differs from it only in this block, the `on:` trigger and the
+  # checkout — see the note at the top of that copy.
+  BASE_BRANCH: main
+  # Which repo a fix run is launched against. handle_ci_fix validates this
+  # against an allowlist and picks the matching base branch and briefing; absent
+  # means omni, so sending it explicitly is what lets a second repo's copy of
+  # this file reach the same Lambda without it guessing.
+  FIX_REPO: ${{ github.repository }}
   # Terminal statuses that mean a check produced no usable verdict or a bad one.
   # Spans both rollup shapes: CheckRun conclusions and the Commit Statuses API's
   # states, whose failure spelling is ERROR as well as FAILURE — without ERROR a
@@ -273,14 +284,14 @@ jobs:
           # is a check red on main that reads as the PR's own problem and buys
           # it re-runs, or a fix run, to rediscover that main is broken.
           main_failing="$({ \
-            gh api "repos/$REPO/commits/main/check-runs" --paginate \
+            gh api "repos/$REPO/commits/$BASE_BRANCH/check-runs" --paginate \
               --jq '.check_runs[] | {name: .name, state: .conclusion}' 2>/dev/null; \
-            gh api "repos/$REPO/commits/main/status" \
+            gh api "repos/$REPO/commits/$BASE_BRANCH/status" \
               --jq '.statuses[] | {name: .context, state: .state}' 2>/dev/null; \
           } | jq -r --arg bad "$FAILED_CONCLUSIONS" \
                 'select(((.state // "") | ascii_upcase) as $c | ($bad | split(",")) | index($c)) | .name' \
             | sort -u)"
-          echo "failing on main: ${main_failing:-<none>}"
+          echo "failing on $BASE_BRANCH: ${main_failing:-<none>}"
 
           for pr in $PR_NUMBERS; do
             echo "::group::PR #$pr"
@@ -650,8 +661,8 @@ jobs:
                 aws lambda invoke \
                   --function-name "$LAMBDA_FUNCTION" \
                   --cli-binary-format raw-in-base64-out \
-                  --payload "$(jq -nc --arg t "$task_id" --argjson p "$pr" --arg m "$mode" \
-                      '{gpbot_ci_fix: true, clickup_task_id: $t, pr_number: $p, mode: $m}')" \
+                  --payload "$(jq -nc --arg t "$task_id" --argjson p "$pr" --arg m "$mode" --arg r "$FIX_REPO" \
+                      '{gpbot_ci_fix: true, clickup_task_id: $t, pr_number: $p, mode: $m, repo: $r}')" \
                   --cli-read-timeout 120 \
                   /tmp/ci-fix-response.json > /tmp/ci-fix-meta.json
                 cat /tmp/ci-fix-meta.json /tmp/ci-fix-response.json

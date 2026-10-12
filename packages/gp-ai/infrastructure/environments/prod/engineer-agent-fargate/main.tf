@@ -92,6 +92,17 @@ module "engineer_agent_fargate" {
   # it does not wait on a release train.
   escalate_analysis_to_work = true
 
+  # gp-marketing joins omni. THIS IS HALF THE FLIP — the other half is
+  # implement_repos in the clickup-bot root, and the two must name the same set
+  # or a ticket gets tagged for work the Lambda then refuses, which is what read
+  # as a broken pipeline on 2026-09-01.
+  #
+  # gp-marketing's ramp: the analyze-only period ran from 2026-09-11 and the
+  # repo now has both workflows the ramp asks for — gpbot-pr-triage.yml, so a
+  # bot PR gets a named owner, and gpbot-ci-drive.yml, so it gets driven to
+  # green and stays mergeable instead of rotting.
+  escalation_repos = "thegoodparty/omni,thegoodparty/gp-marketing"
+
   # #bugs, the same channel vars.GPBOT_PR_CHANNEL_ID names for the workflows.
   # Hardcoded here rather than read from a GitHub Actions variable because
   # nothing in Terraform can read one — so the id is written twice, in this file
