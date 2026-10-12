@@ -157,6 +157,19 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
   })
 
+  it('does NOT alert an authorized-but-UNSTAGED run', async () => {
+    // The send sweep only launches staged runs, so an un-staged authorized run
+    // is not in the queue the projection walks — counting it would risk burning
+    // the one-shot dedupe stamp on a run that cannot yet dial.
+    await createBlockingInFlightRun()
+    const outreachId = await createRobocall({ sendInHours: 1, staged: false })
+
+    await backlog.sweepBacklogAlerts()
+
+    expect(alertSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).backlogAlertedAt).toBeNull()
+  })
+
   it('does not re-alert on a second sweep (dedupe CAS)', async () => {
     await createBlockingInFlightRun()
     await createRobocall({ sendInHours: 1 })

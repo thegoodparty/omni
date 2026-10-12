@@ -85,15 +85,22 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
       bufferMinutes,
     )
 
-    // The full waiting queue: every paid run not yet dialing, in the SAME total
-    // dial order the send sweep launches in. Already-due runs (date <= now)
-    // STAY in the walk because they occupy the pool ahead of future runs, but
-    // only future runs are ALERTED below — a past-due run is the overdue
-    // sweep's domain.
+    // The waiting queue, EXACTLY the set the send sweep launches from: authorized
+    // AND staged (`callhubCampaignPkStr` set), in the SAME total dial order
+    // (`date` then `outreachId`). An authorized-but-UNSTAGED run is deliberately
+    // excluded — the send sweep cannot launch it until staging stamps its
+    // campaign pk, so counting it here would occupy a phantom pool slot, inflate
+    // the projected wait for runs behind it, and risk burning the one-shot
+    // `backlogAlertedAt` stamp on a false alert; a run is staged close to its
+    // send, so a near-due run (the one that can actually slip) is already in the
+    // set. Already-due runs (date <= now) STAY in the walk because they hold the
+    // pool ahead of future runs, but only future runs are ALERTED below — a
+    // past-due run is the overdue sweep's domain.
     const queueRows = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.authorized,
         billableCount: { not: null },
+        callhubCampaignPkStr: { not: null },
         outreach: {
           outreachType: OutreachType.robocall,
           status: {
