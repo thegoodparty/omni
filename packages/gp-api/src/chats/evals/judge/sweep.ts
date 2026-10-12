@@ -63,6 +63,7 @@ import {
   type AgentRulings,
   type ArmManifest,
   type RecordStore,
+  type ReplayOutcomes,
 } from './records'
 import {
   renderReport,
@@ -70,6 +71,7 @@ import {
   type AgentIdenticalConfig,
   type Refusal,
   type SeededTranscripts,
+  type PageReplaySummary,
   type StoredRulings,
   type SweepReport,
 } from './report'
@@ -217,6 +219,56 @@ const skipReasonFor = (
   manifests
     .flatMap((m) => m.skipped.filter((s) => s.agentId === agentId))
     .map((s) => s.reason)[0]
+
+// A candidate run is counted only when the base run of the same case and
+// attempt used the same store. A base arm with no replay setting (its code
+// predates replay), or one whose key differs, gave the candidate nothing to
+// replay, and its misses would read as a real but low hit rate.
+const pageReplaySummary = async (
+  store: RecordStore,
+  agentId: string,
+  records: readonly RunRecord[],
+): Promise<PageReplaySummary | undefined> => {
+  const candidates = records.filter(
+    (r) => r.arm === 'candidate' && r.pageReplay?.mode === 'replay',
+  )
+  if (candidates.length === 0) return undefined
+  const bases = records.filter((r) => r.arm === 'base')
+  const paired = candidates.flatMap((r) =>
+    r.pageReplay !== undefined &&
+    bases.some(
+      (b) =>
+        b.caseId === r.caseId &&
+        b.attempt === r.attempt &&
+        b.pageReplay?.key === r.pageReplay?.key,
+    )
+      ? [{ runId: r.runId, replay: r.pageReplay }]
+      : [],
+  )
+  if (paired.length === 0) {
+    return bases.some((b) => b.pageReplay !== undefined)
+      ? { agentId, state: 'inactive', why: 'keyMismatch' }
+      : { agentId, state: 'inactive', why: 'baseDidNotRecord' }
+  }
+  let counts: Awaited<ReturnType<RecordStore['replayOutcomes']>>[]
+  try {
+    counts = await Promise.all(
+      paired.map(({ runId, replay }) => store.replayOutcomes(replay, runId)),
+    )
+  } catch (err) {
+    console.error(`judge: listing ${agentId}'s page replay markers failed`, err)
+    return { agentId, state: 'unreadable', why: 'listFailed' }
+  }
+  const seen = counts.filter((c): c is ReplayOutcomes => c !== undefined)
+  if (seen.length < counts.length) {
+    return { agentId, state: 'unreadable', why: 'localStore' }
+  }
+  const hits = seen.reduce((sum, c) => sum + c.hits, 0)
+  const misses = seen.reduce((sum, c) => sum + c.misses, 0)
+  return hits + misses === 0
+    ? { agentId, state: 'inactive', why: 'noMarkers' }
+    : { agentId, state: 'counted', hits, misses }
+}
 
 const refusalFor = (
   agentId: string,
@@ -561,6 +613,17 @@ export const judgeSweep = async (
   }
 
   const unpinned = unpinnedMartReads(records)
+  const pageReplay = (
+    await Promise.all(
+      env.agentIds.map((agentId) =>
+        pageReplaySummary(
+          deps.store,
+          agentId,
+          records.filter((r) => r.agentId === agentId),
+        ),
+      ),
+    )
+  ).filter((summary) => summary !== undefined)
   // Over every record for the same reason the mart check is: a run excluded
   // from the comparison still produced an answer, and an answer that broke a
   // rule is a fact about the branch whether or not it was judgeable.
@@ -627,6 +690,7 @@ export const judgeSweep = async (
     ...(unpinned.length > 0 && { unpinnedMart: unpinned }),
     ...(broken.length > 0 && { invariantViolations: broken }),
     ...(rulings.length > 0 && { rulings }),
+    ...(pageReplay.length > 0 && { pageReplay }),
   }
 
   return {

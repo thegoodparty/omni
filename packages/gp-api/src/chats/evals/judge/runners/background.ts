@@ -2,7 +2,11 @@ import {
   JUDGE_RUN_ID_MAX_LENGTH,
   JUDGE_RUN_ID_PREFIX,
   judgeOverrideKeys,
+  judgeReplayBaseKey,
+  JudgeReplaySchema,
+  judgeReplaySweepKey,
   type JudgeOverride,
+  type JudgeReplay,
 } from '@goodparty_org/contracts'
 import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
@@ -136,6 +140,10 @@ export interface BackgroundRunInput {
   poll: PollOptions
   dataVersion?: string
   env?: NodeJS.ProcessEnv
+  // The page replay store, in place of the sweep's own. Set for a base arm
+  // captured for the cache, which records under its config digest so a later
+  // candidate compared against that cached base can replay what it saw.
+  replayKey?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +491,9 @@ export interface DispatchMessage {
   params: Record<string, JsonValue>
   priority: 'HIGH' | 'DEFAULT'
   _judge_override: JudgeOverride
+  // Omitted rather than null when unused: the dispatch Lambda checks it only
+  // when present, and an older broker refuses a mint that names it.
+  _judge_replay?: JudgeReplay
 }
 
 // Also reserved. The broker publishes a MUTABLE pointer at
@@ -505,6 +516,7 @@ export const buildDispatchMessage = (args: {
   clerkUserId?: string
   agentCase: BackgroundCase
   override: JudgeOverride
+  replay?: JudgeReplay
 }): DispatchMessage => {
   if (!EXPERIMENT_ID.test(args.agentId)) {
     throw new Error(
@@ -654,8 +666,36 @@ export const buildDispatchMessage = (args: {
     params,
     priority: 'DEFAULT',
     _judge_override: args.override,
+    ...(args.replay !== undefined && {
+      _judge_replay: JudgeReplaySchema.parse(args.replay),
+    }),
   }
 }
+
+// The base arm records the pages it fetches and the candidate is served the
+// same responses, so a difference between them is the code rather than the
+// web moving in the hour between arms. Arm-free, so both arms of a case and
+// attempt name one store. Only for the agents the registry marks, until the
+// first ones' hit rates have been read.
+export const pageReplayFor = (
+  input: Pick<
+    BackgroundRunInput,
+    'sweepId' | 'agentId' | 'arm' | 'attempt' | 'agentCase' | 'replayKey'
+  >,
+): JudgeReplay | undefined =>
+  findAgent(input.agentId)?.replaysPages !== true
+    ? undefined
+    : {
+        mode: input.arm === 'base' ? 'record' : 'replay',
+        key:
+          input.replayKey ??
+          judgeReplaySweepKey(
+            input.sweepId,
+            input.agentId,
+            input.agentCase.caseId,
+            input.attempt,
+          ),
+      }
 
 // A send rejection aborts the case, because nothing has been produced yet and
 // a synthesized record would report an outcome no run ever had. An accepted
@@ -1234,6 +1274,7 @@ export const runBackgroundCase = async (
     arm: input.arm,
     attempt: input.attempt,
   })
+  const replay = pageReplayFor(input)
   // Built before anything is written or sent, because every precondition the
   // dispatch handler enforces is checked in here: an agentId or a slug the
   // Lambda would reject must not first leave staged bytes in the bucket.
@@ -1244,6 +1285,7 @@ export const runBackgroundCase = async (
     clerkUserId: input.clerkUserId,
     agentCase: input.agentCase,
     override,
+    replay,
   })
 
   await stageAgentConfig(
@@ -1392,6 +1434,7 @@ export const runBackgroundCase = async (
       ? {}
       : { dataVersion: input.dataVersion }),
     liveWeb: summary.liveWeb,
+    ...(replay !== undefined && { pageReplay: replay }),
     status: failure === undefined ? 'produced' : 'infraError',
     ...(ci === undefined ? {} : { ci }),
   })
@@ -1593,7 +1636,23 @@ export const runBackgroundBaseArm = async (
     )
   }
 
-  const record = await runBackgroundCase(deps, input)
+  // Recordings expire after 14 days and cache entries after 90, so a reuse
+  // past 14 days replays from an empty store. Whoever wires the cache must
+  // treat such an entry as a miss for an agent that replays pages.
+  const record = await runBackgroundCase(
+    deps,
+    findAgent(input.agentId)?.replaysPages === true
+      ? {
+          ...input,
+          replayKey: judgeReplayBaseKey(
+            input.agentId,
+            digest,
+            caseId,
+            input.attempt,
+          ),
+        }
+      : input,
+  )
   // Never cache a run that cannot be compared, or one that hit a tool error.
   // A cached timeout, or a cached run with no readable artifact or trace,
   // would be reused by every later sweep, so one bad run would become a

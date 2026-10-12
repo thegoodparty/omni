@@ -8,6 +8,7 @@ import {
   S3Client,
   type GetObjectCommandOutput,
 } from '@aws-sdk/client-s3'
+import type { JudgeReplay } from '@goodparty_org/contracts'
 import { MimeTypes } from 'http-constants-ts'
 import { z } from 'zod'
 import { describeIssues } from './cases'
@@ -245,7 +246,37 @@ export interface RecordStore {
   // Resolves to where the rulings went, as a reader would look for them: a
   // file path or an `s3://` URL rather than the bare key.
   putRulings: (rulings: AgentRulings) => Promise<string>
+  // How the broker served one replaying run's page fetches, counted from the
+  // outcome markers it leaves under the store. Undefined when this store
+  // cannot see them: a local store keeps records on disk, while the markers
+  // are always in the artifacts bucket.
+  replayOutcomes: (
+    replay: JudgeReplay,
+    runId: string,
+  ) => Promise<ReplayOutcomes | undefined>
 }
+
+export interface ReplayOutcomes {
+  hits: number
+  misses: number
+}
+
+// `<fetch|head>-<hit|miss>-<uuid>`, written by the broker (gp-ai
+// `broker/page_replay.py`). Anything else under the prefix is not counted.
+const REPLAY_MARKER = /\/(?:fetch|head)-(hit|miss)-[0-9a-f]{32}$/
+
+export const countReplayMarkers = (keys: readonly string[]): ReplayOutcomes =>
+  keys.reduce(
+    (outcomes, key) => {
+      const outcome = REPLAY_MARKER.exec(key)?.[1]
+      return outcome === 'hit'
+        ? { ...outcomes, hits: outcomes.hits + 1 }
+        : outcome === 'miss'
+          ? { ...outcomes, misses: outcomes.misses + 1 }
+          : outcomes
+    },
+    { hits: 0, misses: 0 },
+  )
 
 // A killed capture leaves a truncated file, so the JSON parse is inside the
 // naming: `SyntaxError: Unexpected end of JSON input` with no filename is the
@@ -426,6 +457,8 @@ export const createLocalRecordStore = (root: string): RecordStore => {
         ),
       ),
 
+    replayOutcomes: async () => undefined,
+
     getManifest: async (sweepId, arm) => {
       const file = fileFor(manifestKey(sweepId, arm))
       // The read is inside the try and the parse is outside it, so a manifest
@@ -522,6 +555,13 @@ export const createS3RecordStore = (
         rulingsKey(rulings.sweepId, rulings.agentId),
         serializeRulings(rulings),
       )}`,
+
+    replayOutcomes: async (replay, runId) =>
+      countReplayMarkers(
+        await port.listKeys(
+          `${replay.key}/outcomes/${segment('runId', runId)}/`,
+        ),
+      ),
 
     getManifest: async (sweepId, arm) => {
       const key = manifestKey(sweepId, arm)

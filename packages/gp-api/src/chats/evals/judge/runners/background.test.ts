@@ -1,6 +1,8 @@
 import {
   JUDGE_RUN_ID_MAX_LENGTH,
   JudgeOverrideSchema,
+  judgeReplayBaseKey,
+  judgeReplaySweepKey,
 } from '@goodparty_org/contracts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -29,6 +31,7 @@ import {
   isJudgeRunId,
   JUDGE_RUN_ID_PREFIX,
   judgeRunId,
+  pageReplayFor,
   parseTrace,
   pollForObject,
   readCachedBaseArm,
@@ -2472,5 +2475,118 @@ describe('an unsubstituted placeholder in a case', () => {
       ready,
     )
     expect(record.status).toBe('produced')
+  })
+})
+
+// --- page replay --------------------------------------------------------------
+
+describe('page replay', () => {
+  // One of the agents the registry opts in. AGENT above is not one, which is
+  // what keeps every other test's dispatch free of the field.
+  const REPLAYING = 'race_opponent_collection'
+  const replayInput = (overrides: Partial<BackgroundRunInput> = {}) =>
+    runInput({ agentId: REPLAYING, ...overrides })
+  const sweepKey = (input: BackgroundRunInput) =>
+    judgeReplaySweepKey(
+      input.sweepId,
+      input.agentId,
+      input.agentCase.caseId,
+      input.attempt,
+    )
+  const sentMessage = (queue: FakeQueue) =>
+    JSON.parse(queue.sent[0]?.body ?? '{}')
+
+  it('has the two arms of an attempt share one store', () => {
+    const base = pageReplayFor(replayInput({ arm: 'base' }))
+    const candidate = pageReplayFor(replayInput({ arm: 'candidate' }))
+
+    expect(base).toEqual({ mode: 'record', key: sweepKey(replayInput()) })
+    expect(candidate).toEqual({ mode: 'replay', key: base?.key })
+  })
+
+  it('leaves an agent the registry does not opt in alone', () => {
+    expect(pageReplayFor(runInput({ arm: 'base' }))).toBeUndefined()
+  })
+
+  it('uses the store the caller names in place of the sweep one', () => {
+    const key = judgeReplayBaseKey(REPLAYING, 'digest1', 'brief-2025-11-04', 1)
+
+    expect(pageReplayFor(replayInput({ replayKey: key }))?.key).toBe(key)
+  })
+
+  it('stamps the dispatched setting on the record', async () => {
+    const input = replayInput({ arm: 'base' })
+    const queue = fakeQueue()
+
+    const record = await runBackgroundCase(
+      deps(completedRun(input, idFor(input)), queue, fakeClock()),
+      input,
+    )
+
+    const expected = { mode: 'record', key: sweepKey(input) }
+    expect(sentMessage(queue)._judge_replay).toEqual(expected)
+    expect(record.pageReplay).toEqual(expected)
+  })
+
+  it('omits the field entirely for an agent that does not replay', async () => {
+    const input = runInput()
+    const queue = fakeQueue()
+
+    const record = await runBackgroundCase(
+      deps(completedRun(input, idFor(input)), queue, fakeClock()),
+      input,
+    )
+
+    expect(sentMessage(queue)).not.toHaveProperty('_judge_replay')
+    expect(record).not.toHaveProperty('pageReplay')
+  })
+
+  it('refuses a sweep id the broker would refuse before anything is sent', async () => {
+    const input = replayInput({ sweepId: 'x'.repeat(65) })
+    const store = completedRun(input, idFor(input))
+    const queue = fakeQueue()
+
+    await expect(
+      runBackgroundCase(deps(store, queue, fakeClock()), input),
+    ).rejects.toThrow('unsafe input for a judge replay sweep key')
+    expect(store.puts).toHaveLength(0)
+    expect(queue.sent).toHaveLength(0)
+  })
+
+  it('refuses a setting the dispatch Lambda would refuse', () => {
+    expect(() =>
+      buildDispatchMessage({
+        runId: '_judge-swp1-c1-base-1',
+        agentId: REPLAYING,
+        organizationSlug: 'judge-fixture-org',
+        agentCase: { caseId: 'c1', params: {} },
+        override: {
+          manifest_key: `_judge/${REPLAYING}/abc/manifest.json`,
+          instruction_key: `_judge/${REPLAYING}/abc/instruction.md`,
+        },
+        replay: { mode: 'record', key: `_judge/replay/seed/${REPLAYING}/c1` },
+      }),
+    ).toThrow('a seed store is replay-only')
+  })
+
+  it('records a base captured for the cache under its config digest', async () => {
+    const input = replayInput({ arm: 'base' })
+    const queue = fakeQueue()
+
+    await runBackgroundBaseArm(
+      deps(completedRun(input, idFor(input)), queue, fakeClock()),
+      input,
+      METADATA_BUCKET,
+    )
+
+    expect(sentMessage(queue)._judge_replay).toEqual({
+      mode: 'record',
+      key: judgeReplayBaseKey(
+        REPLAYING,
+        backgroundConfigDigest(config),
+        input.agentCase.caseId,
+        input.attempt,
+      ),
+    })
   })
 })

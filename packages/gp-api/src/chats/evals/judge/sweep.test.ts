@@ -1902,3 +1902,107 @@ describe('what a sweep actually spent', () => {
     expect(result.markdown).not.toContain('Actual cost')
   })
 })
+
+describe('the page replay line', () => {
+  const KEY = '_judge/replay/sweep/swp/chief_of_staff/case-0-1'
+  const replaying = (baseRecords: boolean): RunRecord[] =>
+    pair('case-0', ['base answer', 'candidate answer']).map((record) =>
+      record.arm === 'candidate'
+        ? { ...record, pageReplay: { mode: 'replay', key: KEY } }
+        : baseRecords
+          ? { ...record, pageReplay: { mode: 'record', key: KEY } }
+          : record,
+    )
+  const counting = (
+    store: RecordStore,
+    replayOutcomes: RecordStore['replayOutcomes'],
+  ): RecordStore => ({ ...store, replayOutcomes })
+
+  it('reports how many candidate fetches the base run served', async () => {
+    const asked: string[] = []
+    const store = counting(await seeded(replaying(true)), async (_, runId) => {
+      asked.push(runId)
+      return { hits: 3, misses: 1 }
+    })
+
+    const result = await run(store)
+
+    expect(asked).toEqual([`${BASE.sweepId}:case-0:candidate:1`])
+    expect(result.markdown).toContain(
+      "Page replay: 3 of 4 page requests (75%) used the base run's copy; " +
+        '1 went live.',
+    )
+  })
+
+  it('says replay was not active when the base arm recorded nothing', async () => {
+    const replayOutcomes = vi.fn(async () => ({ hits: 0, misses: 4 }))
+    const store = counting(await seeded(replaying(false)), replayOutcomes)
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      'Page replay: not active. The base arm recorded nothing',
+    )
+    expect(replayOutcomes).not.toHaveBeenCalled()
+  })
+
+  it('counts nothing when the base recorded into another store', async () => {
+    const replayOutcomes = vi.fn(async () => ({ hits: 0, misses: 4 }))
+    const records = replaying(true).map((record) =>
+      record.arm === 'base'
+        ? {
+            ...record,
+            pageReplay: { mode: 'record' as const, key: `${KEY}0` },
+          }
+        : record,
+    )
+    const store = counting(await seeded(records), replayOutcomes)
+
+    const result = await run(store)
+
+    expect(result.report.pageReplay).toEqual([
+      { agentId: 'chief_of_staff', state: 'inactive', why: 'keyMismatch' },
+    ])
+    expect(replayOutcomes).not.toHaveBeenCalled()
+  })
+
+  it('says replay was not active, never 0%, when no marker came back', async () => {
+    const store = counting(await seeded(replaying(true)), async () => ({
+      hits: 0,
+      misses: 0,
+    }))
+
+    const result = await run(store)
+
+    expect(result.report.pageReplay).toEqual([
+      { agentId: 'chief_of_staff', state: 'inactive', why: 'noMarkers' },
+    ])
+    expect(result.markdown).not.toContain('Page replay: 0 of')
+  })
+
+  it('says the rate is unavailable when the store cannot see markers', async () => {
+    const result = await run(await seeded(replaying(true)))
+
+    expect(result.markdown).toContain('Page replay: hit rate unavailable')
+  })
+
+  it('keeps the verdict when listing the markers fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const store = counting(await seeded(replaying(true)), async () => {
+      throw new Error('AccessDenied')
+    })
+
+    const result = await run(store)
+
+    expect(result.exitCode).toBe(0)
+    expect(result.report.agents).toHaveLength(1)
+    expect(result.report.pageReplay?.[0]?.state).toBe('unreadable')
+  })
+
+  it('prints nothing for an agent whose candidate did not replay', async () => {
+    const result = await run(await seeded(cases(1)))
+
+    expect(result.report.pageReplay).toBeUndefined()
+    expect(result.markdown).not.toContain('Page replay')
+  })
+})

@@ -911,6 +911,60 @@ spent against an input nobody meant. The artifacts come back as errors or
 inventions, they come back _identical_, and the verdict looks like a real
 comparison.
 
+## Page replay: the candidate sees the pages the base arm saw
+
+The arms run over an hour apart, so a page an agent fetches can change in
+between, and the verdict would measure that along with the code. For the
+agents marked `replaysPages` in `agents.ts` (`opponent_research`,
+`race_opponent_collection` and `self_research`), the broker records every page
+the base arm fetches through `/http/fetch` and `/http/head`, and serves the
+candidate the same responses.
+
+How it works:
+
+- **Each dispatch names a store.** The base arm sends
+  `_judge_replay: { mode: 'record', key }` and the candidate sends
+  `mode: 'replay'` with the same key. The key comes from `judgeReplaySweepKey`
+  in `@goodparty_org/contracts`, and it holds the sweep, agent, case and
+  attempt but not the arm, so both arms of one attempt share it. The run record
+  keeps the setting as `pageReplay`.
+- **A match is on the URL the agent asked for,** after dropping the fragment
+  and tracking parameters, lowercasing the scheme and host, and sorting the
+  query. The candidate gets the base response unchanged, including its final
+  URL after redirects, so citations match too.
+- **A page with no recording is fetched live** and counts as a miss. That
+  includes any page the base arm never asked for, and any it asked for and got
+  an error on: only responses under 400 are recorded.
+- **Web search is never replayed.** It runs on Anthropic's side, so an agent
+  that finds its own sources by searching usually diverges there, before any
+  page is fetched. That's why replay starts with the three agents that fetch
+  canonical pages about a named person.
+
+The report prints one line per replaying agent under "Measured":
+`Page replay: 26 of 30 page requests (86%) used the base run's copy; 4 went
+live.` It counts the hit and miss markers the broker leaves for each candidate
+run (page fetches and HEAD checks), only where the base run of the same case
+and attempt recorded into the same store, and never prints a URL. Read a low rate as the candidate going somewhere
+the base didn't, usually because a search came back different. "Not active"
+means nothing was replayed, which is different from 0%. It shows up in two
+cases:
+
+- **The base arm recorded nothing.** The base arm runs the base ref's code, so
+  replay only starts once this code is on `main`.
+- **No marker came back.** Either the dispatch Lambda or the broker didn't
+  apply replay, or no page was fetched at all.
+
+It says the rate is unavailable when the markers can't be listed, including a
+sweep whose records went to a local directory.
+
+The broker applies replay only to dev judge runs, and only while its
+`REPLAY_ENABLED` switch is on (gp-ai `broker/page_replay.py`). Recordings live
+under `_judge/replay/` in the artifacts bucket and expire after 14 days. A base
+arm captured for the cache (`runBackgroundBaseArm`) records under its config
+digest instead (`judgeReplayBaseKey`), so a candidate compared against that
+cached base can replay from it by passing the same key as `replayKey`. That
+holds only for 14 days, while the cache entry lasts 90.
+
 ## Three agents read gp-api, and run as a seeded dev account
 
 `meeting_briefing` reads the official's priorities and community issues, and

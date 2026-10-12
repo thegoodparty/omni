@@ -45,6 +45,11 @@ const SweepIdSchema = NON_EMPTY.regex(
   // sentence is assembled.
   'names a directory in the record store, so it may contain only letters, ' +
     'digits, underscore and hyphen',
+).max(
+  64,
+  // The page replay key carries it as one segment, and the broker refuses a
+  // longer one, so it fails here before any arm is captured.
+  'is part of every page replay key, so it may be at most 64 characters',
 )
 
 // Deduped, the same way `parseAgentSelector` dedupes the CLI's list. A
