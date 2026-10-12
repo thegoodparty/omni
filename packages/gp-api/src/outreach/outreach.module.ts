@@ -79,6 +79,7 @@ import { OutreachRobocallStrandedService } from './services/outreachRobocallStra
 import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
 import { OutreachRobocallOverdueAlertService } from './services/outreachRobocallOverdueAlert.service'
+import { OutreachRobocallBacklogAlertService } from './services/outreachRobocallBacklogAlert.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
 import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
 import { OutreachRobocallCancelService } from './services/outreachRobocallCancel.service'
@@ -224,6 +225,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
     OutreachRobocallOverdueAlertService,
+    OutreachRobocallBacklogAlertService,
     OutreachRobocallHoldFailureService,
     OutreachRobocallWebhookService,
     OutreachRobocallCancelService,

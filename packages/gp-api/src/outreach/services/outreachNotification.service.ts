@@ -262,6 +262,28 @@ export class OutreachNotificationService {
     )
   }
 
+  /**
+   * Proactively warn CAS when the serial send queue's backlog is projected to
+   * push a robocall past its scheduled DAY — before it is actually late (that
+   * is `notifyRobocallOverdue`). Carries the campaign/outreach id, the scheduled
+   * day, and the projected dial day so ops can act (split a big list, reschedule,
+   * or raise the dial rate) while there is still time. Best-effort.
+   */
+  async notifyRobocallBacklogDelayed(
+    campaignSlug: string,
+    outreachId: number,
+    scheduledLabel: string,
+    projectedLabel: string,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `⏳ Robocall backlog — ${campaignSlug} · outreach #${outreachId} · ` +
+        `scheduled ${scheduledLabel} but the send queue won't reach it until ` +
+        `~${projectedLabel}. The backlog will push it past its day; consider ` +
+        `rescheduling or splitting a large list.`,
+      outreachId,
+    )
+  }
+
   private async postRobocallLine(
     text: string,
     outreachId: number,
