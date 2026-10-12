@@ -433,7 +433,10 @@ function OrgRow({
   const families = isActiveOrg && activeTestOrg ? activeTestOrg.families : null
 
   return (
-    <div className="rounded-md border p-3 space-y-2">
+    <div
+      className="rounded-md border p-3 space-y-2"
+      data-testid={`test-mode-org-${org.slug}`}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="truncate text-sm font-medium">{org.name}</span>
@@ -539,7 +542,7 @@ interface FamilyRowProps {
 
 function FamilyRow({ label, state, onApply, isApplying }: FamilyRowProps) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-1" data-testid={`test-mode-family-${label}`}>
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-muted-foreground w-20 shrink-0">
           {label}

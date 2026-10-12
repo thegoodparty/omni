@@ -265,6 +265,19 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Base images
+
+Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public
+(`public.ecr.aws/docker/library/<image>:<tag>`), never Docker Hub. Anonymous
+pulls from either are limited per IP, and shared GitHub runners kept failing
+with `429 Too Many Requests`. Logged-in ECR Public pulls are limited per AWS
+account, so every job that builds an image logs in to ECR Public first
+(`aws-actions/amazon-ecr-login` with `registry-type: public`). Main runs log
+in with `vars.AWS_ROLE_ARN`. gp-ai's pull request build, which never holds the
+deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
+can mint that login token (granted in `thegoodparty/ops`). Local builds need no
+login.
+
 ### Analytics guard
 
 `.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every
@@ -278,7 +291,10 @@ PR for a mechanical reason: a failed uv setup or `uv sync` makes the guard repor
 could not run and skips the runbooks suite with a warning, a comment-posting failure only
 warns, and `off` prints a warning and checks nothing. The full report (or the error)
 always goes to the job summary too, because the comment is capped at 60,000 characters.
-OKR legs come from the vendored sem copy at the PR's merge base, not the PR's own copy. The
+OKR legs come from the vendored sem copy at the PR's merge base, not the PR's own copy. A
+stacked PR whose base branch was deleted (because the PR under it merged) is compared
+against the base commit GitHub recorded on the PR, fetched by SHA, instead of erroring out
+unchecked. The
 runbooks suite (only when `packages/runbooks` changed) runs in the same job; its guard
 replay tests fail, rather than skip, when the Actions checkout is missing the history
 they replay against, since a skipped acceptance test would otherwise read as a pass.

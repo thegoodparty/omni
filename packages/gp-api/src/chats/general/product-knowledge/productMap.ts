@@ -62,7 +62,7 @@ const SHARED_AREAS: ProductArea[] = [
     name: 'Profile',
     path: '/dashboard/profile',
     modes: ['win', 'serve'],
-    does: 'Edit your own name, contact details, and campaign or office details.',
+    does: 'Edit your profile photo, party, bio, occupation, website, and campaign or office details.',
     inside: ['In the account menu, at the bottom of the left-hand menu'],
   },
   {
@@ -78,7 +78,11 @@ const SHARED_AREAS: ProductArea[] = [
     name: 'Account Settings',
     path: '/dashboard/account',
     modes: ['win', 'serve'],
-    does: 'Billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
+    does: 'Your name, sign-in details, notifications, billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
+    inside: [
+      'Edit details, on the first card, changes your first and last name',
+      'Manage sign-in, next to it, changes your sign-in email, phone, and password',
+    ],
   },
   {
     navId: 'nav-dash-support',

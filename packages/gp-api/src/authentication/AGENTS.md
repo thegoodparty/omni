@@ -97,3 +97,13 @@ Auth state is enforced globally via three guards registered in order. Most route
   `vendors/clerk/clerk.consts.ts`) and wrapped in `clerkCall()`, which also
   emits the span — the SDK uses undici, which our OTel setup does not
   instrument, so a call made without that wrapper is invisible in Tempo.
+- **gp-api owns the user's first and last name; Clerk holds a copy.** The
+  name enters through Clerk at sign-up and `findOrProvisionByClerk` copies it
+  once. After that the only writers are `PUT /v1/users/me` (the webapp's
+  Account Settings "Edit details" modal) and `PUT /v1/users/:id` (gp-admin),
+  both through `UsersService.updateUser`, which rebuilds `User.name` and pushes
+  the new first/last name to Clerk. A failed Clerk push is logged, not
+  thrown. The webapp hides Clerk's own name section
+  (`profileSection__profile`) wherever it opens Clerk's profile modal, so
+  there is no Clerk-side writer to drift from. The data pipeline builds the
+  public `/people/<slug>` from this name too.

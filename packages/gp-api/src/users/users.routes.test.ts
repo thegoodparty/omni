@@ -1,6 +1,8 @@
 import { useTestService } from '@/test-service'
 import { BadGatewayException, HttpStatus } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
+import { ClerkClient } from '@clerk/backend'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CrmUsersService } from './services/crmUsers.service'
 
 // Route-level coverage lives in its own file: users.service.test.ts calls
@@ -31,6 +33,96 @@ describe('GET /v1/users/me', () => {
 })
 
 describe('PUT /v1/users/me', () => {
+  const clerkUpdateUser = () =>
+    vi.spyOn(
+      service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN).users,
+      'updateUser',
+    )
+
+  beforeEach(() => {
+    clerkUpdateUser().mockResolvedValue({} as never)
+  })
+
+  it('rebuilds the full name and copies the change to Clerk', async () => {
+    const updateUser = clerkUpdateUser().mockResolvedValue({} as never)
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'Deepti',
+      lastName: 'Garg',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted).toMatchObject({
+      firstName: 'Deepti',
+      lastName: 'Garg',
+      name: 'Deepti Garg',
+    })
+    expect(updateUser).toHaveBeenCalledWith(service.user.clerkId, {
+      firstName: 'Deepti',
+      lastName: 'Garg',
+    })
+  })
+
+  it('rebuilds the full name from the stored last name when only the first name changes', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { firstName: 'Sumit', lastName: 'Garg', name: 'Sumit Garg' },
+    })
+    const updateUser = clerkUpdateUser().mockResolvedValue({} as never)
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'Deepti',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.name).toBe('Deepti Garg')
+    expect(updateUser).toHaveBeenCalledWith(service.user.clerkId, {
+      firstName: 'Deepti',
+      lastName: 'Garg',
+    })
+  })
+
+  it('keeps the saved name when the Clerk copy fails', async () => {
+    clerkUpdateUser().mockRejectedValue(new Error('clerk down'))
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'Deepti',
+      lastName: 'Garg',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.firstName).toBe('Deepti')
+  })
+
+  it('does not touch Clerk or the full name when the name is unchanged', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { firstName: 'Deepti', lastName: 'Garg', name: 'Dr. Deepti Garg' },
+    })
+    const updateUser = clerkUpdateUser().mockResolvedValue({} as never)
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'Deepti',
+      zip: '94587',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.name).toBe('Dr. Deepti Garg')
+    expect(updateUser).not.toHaveBeenCalled()
+  })
+
   it('capitalizes an all-lowercase name and keeps mixed case as typed', async () => {
     const res = await service.client.put('/v1/users/me', {
       firstName: 'stewart',

@@ -20,6 +20,11 @@ not impersonating, not an M2M or agent token, and the `staff-test-mode`
 Amplitude flag on. Every write 409s unless the target org carries
 `Organization.testModeCreatedAt`.
 
+The UI is `gp-webapp/app/dashboard/shared/testMode/` (its own `AGENTS.md`).
+Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
+`guards/TestMode.guard.test.ts`, and the Playwright spec
+`gp-webapp/e2e-tests/tests/app/dashboard/test-mode/test-mode.spec.ts`.
+
 ## Gotchas
 
 - Org creation reuses `StateTransitionsService` (`src/testFixtures/`), the
