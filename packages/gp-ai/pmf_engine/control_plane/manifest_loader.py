@@ -38,6 +38,21 @@ JUDGE_OVERRIDE_KEY_RE = re.compile(
     r"^_judge/(?P<agent_id>[A-Za-z0-9_-]{1,64})/(?P<digest>[A-Za-z0-9_-]{1,64})/(?P<leaf>manifest\.json|instruction\.md)$"
 )
 
+# Universal Judge page replay: the broker store a judge run records page
+# fetches into or replays them from (`_judge_replay` on the dispatch). The
+# shapes are the ones `packages/contracts` builds (JudgeReplay.schema.ts) and
+# the broker's ticket checks (`broker/dynamodb_client.JUDGE_REPLAY_KEY_RES`).
+# The broker's copy is separate because the Lambda zip has no import path to
+# it, so a test in the broker suite holds the two equal. Used with fullmatch.
+_REPLAY_SEGMENT = r"[A-Za-z0-9_-]{1,64}"
+_REPLAY_AGENT_ID = r"(?P<agent_id>[a-z][a-z0-9_]{0,63})"
+_REPLAY_CASE_ATTEMPT = r"[A-Za-z0-9_-]{1,80}-[1-9][0-9]?"
+JUDGE_REPLAY_KEY_RES = {
+    "sweep": re.compile(rf"_judge/replay/sweep/{_REPLAY_SEGMENT}/{_REPLAY_AGENT_ID}/{_REPLAY_CASE_ATTEMPT}"),
+    "base": re.compile(rf"_judge/replay/base/{_REPLAY_AGENT_ID}/{_REPLAY_SEGMENT}/{_REPLAY_CASE_ATTEMPT}"),
+    "seed": re.compile(rf"_judge/replay/seed/{_REPLAY_AGENT_ID}/[A-Za-z0-9_-]{{1,80}}"),
+}
+
 # Every run id a judge sweep dispatches carries this prefix. It is what
 # distinguishes a judge dispatch — which has no gp-api `experiment_run` row —
 # from a product one, for the two components that have to tell them apart

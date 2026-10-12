@@ -443,6 +443,16 @@ class TestJudgeContractAgreement:
         # what the TypeScript producer sizes its run ids against.
         assert broker_max == lambda_max == 36
 
+    def test_replay_key_regexes_match_the_dispatch_lambdas(self):
+        """The dispatch Lambda refuses a `_judge_replay` the broker would
+        refuse at mint, so a dispatch fails before it queues a job. Drift
+        would either queue runs that mint then rejects, or refuse keys the
+        judge really builds."""
+        from broker.dynamodb_client import JUDGE_REPLAY_KEY_RES as broker_res
+        from pmf_engine.control_plane.manifest_loader import JUDGE_REPLAY_KEY_RES as lambda_res
+
+        assert {k: r.pattern for k, r in broker_res.items()} == {k: r.pattern for k, r in lambda_res.items()}
+
     def test_version_id_alphabet_matches_the_request_models(self):
         from broker.dynamodb_client import _S3_VERSION_ID_RE
         from broker.endpoints.experiment_manifest import S3_VERSION_ID_PATTERN
