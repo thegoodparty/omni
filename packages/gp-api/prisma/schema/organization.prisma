@@ -31,6 +31,7 @@ model Organization {
   outreachAssignments               OutreachAssignment[]
   issueTags                         IssueTag[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
+  testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 
   @@index([ownerId])
   @@map("organization")

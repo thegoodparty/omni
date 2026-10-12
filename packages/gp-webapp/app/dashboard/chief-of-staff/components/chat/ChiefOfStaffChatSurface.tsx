@@ -129,29 +129,38 @@ export default function ChiefOfStaffChatSurface({
         className="flex h-[90vh] flex-col p-0"
         aria-describedby={undefined}
       >
-        <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-            <GoodPartyOrgLogo className="h-4 w-5" />
-          </span>
-          <div className="flex flex-col text-left">
-            <DrawerTitle>{title}</DrawerTitle>
-            <span className="text-xs text-muted-foreground">{subtitle}</span>
+        {/* DrawerHeader stacks its children in a column, so the row lives in
+            one child. Its close button sits beside this row; the row is 32px
+            tall so the close's -mt-1 centers on it. */}
+        <DrawerHeader className="border-b border-border px-4 py-5">
+          <div className="flex h-8 items-center gap-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+              <GoodPartyOrgLogo className="h-3.5 w-4" />
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col text-left">
+              <DrawerTitle className="truncate text-base leading-5">
+                {title}
+              </DrawerTitle>
+              <span className="truncate text-xs text-muted-foreground">
+                {subtitle}
+              </span>
+            </div>
+            {onNewChat && (
+              <Button
+                type="button"
+                variant="outline"
+                size="small"
+                className="shrink-0"
+                onClick={() => {
+                  setSelectedId(null)
+                  setNewChatNonce((n) => n + 1)
+                  onNewChat()
+                }}
+              >
+                New chat
+              </Button>
+            )}
           </div>
-          {onNewChat && (
-            <Button
-              type="button"
-              variant="outline"
-              size="small"
-              className="ml-auto"
-              onClick={() => {
-                setSelectedId(null)
-                setNewChatNonce((n) => n + 1)
-                onNewChat()
-              }}
-            >
-              New chat
-            </Button>
-          )}
         </DrawerHeader>
 
         <ChiefOfStaffChatBody

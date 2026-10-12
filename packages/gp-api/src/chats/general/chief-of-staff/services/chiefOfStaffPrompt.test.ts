@@ -43,6 +43,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  peopleDataset: 'voters',
   ...overrides,
 })
 
@@ -191,6 +192,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(
       buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: TOOLS }),
     ).not.toContain('multiSelect')
+  })
+
+  it('offers several outreach pieces as one multi-select question', () => {
+    const rule = 'never list them in prose'
+    const both = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [
+        ...TOOLS,
+        'ask_clarify_question',
+        'present_outreach_proposal',
+      ],
+    })
+    expect(both).toContain(rule)
+    expect(both).toContain('picks from a list you gave earlier')
+    expect(
+      buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: [...TOOLS, 'present_outreach_proposal'],
+      }),
+    ).not.toContain(rule)
   })
 
   it('checks in on a put-off check only with the reminder tool', () => {
@@ -532,6 +553,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain(
       'exclude unknowns rather than counting them as zero',
+    )
+  })
+
+  it('sizes the unknown group against the voter file on the voters dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain('a fifth to a third of the file')
+    expect(prompt).not.toContain('not registered to vote')
+  })
+
+  it('blames missing scores on non-registration on the constituents dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ peopleDataset: 'constituents' }),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).not.toContain('of the file')
+    expect(prompt).toContain(
+      'residents who are not registered to vote are never scored',
     )
   })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import CampaignStrategyTaskRow, {
   formatTaskDate,
@@ -38,20 +39,25 @@ describe('start outreach CTA', () => {
     unlocksAfter: null,
     isNext: false,
     completed: false,
+    setAside: null,
   } as const
 
-  it('opens the outreach flow in place with the channel and due date', () => {
+  it('opens the outreach flow in place with the channel and due date', async () => {
     const onStartOutreach = vi.fn()
     render(
       <ul>
         <CampaignStrategyTaskRow
           task={task}
-          index={1}
           onStartOutreach={onStartOutreach}
         />
       </ul>,
     )
-    fireEvent.click(screen.getByRole('button', { name: /start outreach/i }))
+    // The row's own actions sit in its "More options" menu.
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /start outreach/i }),
+    )
     // The task id rides the callback so the hub can put `trackerTaskId` on
     // the outreach completion event — see
     // docs/features/voter-outreach-analytics.md.
@@ -67,13 +73,13 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={{ ...task, completed: true }}
-          index={1}
           onStartOutreach={vi.fn()}
         />
       </ul>,
     )
+    // With no outreach to start and nothing else to do, the row has no menu.
     expect(
-      screen.queryByRole('button', { name: /start outreach/i }),
+      screen.queryByRole('button', { name: 'More options' }),
     ).not.toBeInTheDocument()
   })
 
@@ -82,13 +88,338 @@ describe('start outreach CTA', () => {
       <ul>
         <CampaignStrategyTaskRow
           task={{ ...task, channel: 'doorKnocking' }}
-          index={1}
           onStartOutreach={vi.fn()}
         />
       </ul>,
     )
+    // With no outreach to start and nothing else to do, the row has no menu.
     expect(
-      screen.queryByRole('button', { name: /start outreach/i }),
+      screen.queryByRole('button', { name: 'More options' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('setting a task aside from the plan', () => {
+  const task = {
+    id: 't2',
+    title: 'Knock on Doors',
+    description: 'Knock your target doors.',
+    channel: 'doorKnocking',
+    date: '2099-02-03T00:00:00.000Z',
+    param: null,
+    href: null,
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: true,
+    completed: false,
+    setAside: null,
+  } as const
+
+  it('offers the next task’s two ways to set it aside, in its menu', async () => {
+    const onSetAside = vi.fn()
+    render(
+      <ul>
+        <CampaignStrategyTaskRow task={task} onSetAside={onSetAside} />
+      </ul>,
+    )
+    const user = userEvent.setup()
+    // On the plan the next task looks like any other: its choices are in
+    // its menu.
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: 'Not for me' }))
+    expect(onSetAside).toHaveBeenCalledWith(task, 'notForMe')
+  })
+
+  it('says a not-for-me task is not for them, and can bring it back', async () => {
+    const onSetAside = vi.fn()
+    const setAside = {
+      ...task,
+      isNext: false,
+      setAside: 'notForMe',
+    } as const
+    render(
+      <ul>
+        <CampaignStrategyTaskRow task={setAside} onSetAside={onSetAside} />
+      </ul>,
+    )
+    expect(screen.getByText('Not for me')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Bring it back' }),
+    )
+    expect(onSetAside).toHaveBeenCalledWith(setAside, null)
+  })
+})
+
+describe('asking about a task', () => {
+  it('lives in the row’s menu, not on the row', async () => {
+    const onDiscuss = vi.fn()
+    const task = {
+      id: 't3',
+      title: 'Get your EIN',
+      description: 'Apply free on the IRS site.',
+      channel: 'general',
+      date: null,
+      param: null,
+      href: null,
+      hrefLabel: null,
+      priorityTier: 'P2',
+      proRequired: false,
+      status: 'live',
+      unlocksAfter: null,
+      isNext: false,
+      completed: false,
+      setAside: null,
+    } as const
+    render(
+      <ul>
+        <CampaignStrategyTaskRow task={task} onDiscuss={onDiscuss} />
+      </ul>,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Ask about this' }),
+    )
+    expect(onDiscuss).toHaveBeenCalledWith(task)
+  })
+})
+
+describe('a done task’s menu', () => {
+  it('only offers to mark it not done', async () => {
+    const onToggleComplete = vi.fn()
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't4',
+            title: 'Get your EIN',
+            description: 'Apply free on the IRS site.',
+            channel: 'general',
+            date: null,
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: false,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: false,
+            completed: true,
+            setAside: null,
+          }}
+          onToggleComplete={onToggleComplete}
+          onDiscuss={vi.fn()}
+          onSetAside={vi.fn()}
+        />
+      </ul>,
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['Mark not done'])
+    await user.click(items[0] as HTMLElement)
+    expect(onToggleComplete).toHaveBeenCalledWith('t4', false)
+  })
+})
+
+describe('the order of a task’s menu', () => {
+  const base = {
+    id: 't5',
+    title: 'Open a campaign bank account',
+    description: '',
+    channel: 'general',
+    date: '2099-02-03T00:00:00.000Z',
+    param: null,
+    href: null,
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: true,
+    completed: false,
+    setAside: null,
+  } as const
+
+  const menuLabels = async (
+    props: Partial<React.ComponentProps<typeof CampaignStrategyTaskRow>>,
+  ) => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={base}
+          onToggleComplete={vi.fn()}
+          onDiscuss={vi.fn()}
+          onSetAside={vi.fn()}
+          {...props}
+        />
+      </ul>,
+    )
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'More options' }))
+    return (await screen.findAllByRole('menuitem')).map(
+      (item) => item.textContent,
+    )
+  }
+
+  it('leads with marking it done, then asking about it, when it has no action', async () => {
+    expect(await menuLabels({ task: { ...base, isNext: false } })).toEqual([
+      'Mark done',
+      'Ask about this',
+      'Show in 3 days',
+      'Not for me',
+    ])
+  })
+
+  it('leads with the task’s own action when it has one', async () => {
+    expect(
+      await menuLabels({
+        task: { ...base, isNext: false },
+        getAction: () => ({
+          label: 'Plan your door knocking',
+          href: '/dashboard/door-knocking',
+          external: false,
+        }),
+      }),
+      // Work started elsewhere carries no task id, so Mark done stays.
+    ).toEqual([
+      'Plan your door knocking',
+      'Ask about this',
+      'Mark done',
+      'Show in 3 days',
+      'Not for me',
+    ])
+  })
+
+  it('offers no Mark done on the story task, which closes itself', async () => {
+    const labels = await menuLabels({
+      task: { ...base, isNext: false, title: 'Tell us your campaign story' },
+      getAction: () => ({
+        label: 'Add your story',
+        href: '/dashboard?personalize=1',
+        external: false,
+      }),
+    })
+    expect(labels).toContain('Add your story')
+    expect(labels).not.toContain('Mark done')
+  })
+})
+
+describe('the next task’s row', () => {
+  it('reads title, description, date, with no badge or buttons of its own', async () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't6',
+            title: 'Get your EIN',
+            description: 'Apply free on the IRS site.',
+            channel: 'general',
+            date: '2099-02-03T00:00:00.000Z',
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: false,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: true,
+            completed: false,
+            setAside: null,
+          }}
+          onToggleComplete={vi.fn()}
+          onDiscuss={vi.fn()}
+          onSetAside={vi.fn()}
+        />
+      </ul>,
+    )
+    const row = screen.getByRole('listitem')
+    const text = row.textContent ?? ''
+    expect(text.indexOf('Get your EIN')).toBeLessThan(
+      text.indexOf('Apply free'),
+    )
+    expect(text.indexOf('Apply free')).toBeLessThan(text.indexOf('Due Feb 3'))
+    expect(screen.queryByText('Do this next')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Mark done' }),
+    ).not.toBeInTheDocument()
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'More options' }))
+    for (const name of ['Mark done', 'Ask about this', 'Show in 3 days']) {
+      expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument()
+    }
+  })
+})
+
+describe('a Pro task’s row', () => {
+  it('carries no Pro label, since anyone can start a draft', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't7',
+            title: 'Introduction Text',
+            description: 'Introduce yourself to voters with a text.',
+            channel: 'text',
+            date: '2099-02-03T00:00:00.000Z',
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: true,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: false,
+            completed: false,
+            setAside: null,
+          }}
+        />
+      </ul>,
+    )
+    expect(screen.queryByText('Pro')).not.toBeInTheDocument()
+  })
+})
+
+describe('a done task’s row', () => {
+  it('says Done where the date was, without striking the title through', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{
+            id: 't8',
+            title: 'Get your EIN',
+            description: 'Apply free on the IRS site.',
+            channel: 'general',
+            date: '2099-02-03T00:00:00.000Z',
+            param: null,
+            href: null,
+            hrefLabel: null,
+            priorityTier: 'P2',
+            proRequired: false,
+            status: 'live',
+            unlocksAfter: null,
+            isNext: false,
+            completed: true,
+            setAside: null,
+          }}
+        />
+      </ul>,
+    )
+    expect(screen.getByText('Done')).toBeInTheDocument()
+    expect(screen.queryByText(/Due /)).not.toBeInTheDocument()
+    expect(screen.getByText('Get your EIN')).not.toHaveClass('line-through')
   })
 })

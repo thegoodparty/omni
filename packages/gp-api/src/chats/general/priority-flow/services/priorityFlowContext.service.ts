@@ -8,6 +8,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ChatAnchorSchema, type PriorityStatus } from '@goodparty_org/contracts'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import {
   PriorityFlowOutreachService,
   type PriorityAnchorSummary,
@@ -31,6 +32,9 @@ export interface PriorityFlowContext {
   anchorSummaries: PriorityAnchorSummary[]
   districtFilters: MandatoryFilter[] | null
   constituentToolEnabled: boolean
+  // Which people table the constituent-data tool reads. Defaults to 'voters'
+  // here; the handler resolves it per turn from PeopleDatasetService.
+  peopleDataset: PeopleDataset
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the
@@ -105,6 +109,7 @@ export class PriorityFlowContextService extends createPrismaBase(
       anchorSummaries: await this.outreach.summarizeAnchors(priority.id),
       districtFilters: null,
       constituentToolEnabled: false,
+      peopleDataset: 'voters',
     }
   }
 

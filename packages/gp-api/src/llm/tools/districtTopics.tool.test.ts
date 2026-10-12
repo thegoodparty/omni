@@ -109,8 +109,10 @@ describe('off-center baseline marker coupling', () => {
   const COVERAGE_MARKER = 'limited coverage'
 
   it('quotes both markers in the score semantics', () => {
-    expect(hsScoreSemantics('constituent')).toContain(OFFCENTER_MARKER)
-    expect(hsScoreSemantics('constituent')).toContain(COVERAGE_MARKER)
+    expect(hsScoreSemantics('constituent', 'voters')).toContain(
+      OFFCENTER_MARKER,
+    )
+    expect(hsScoreSemantics('constituent', 'voters')).toContain(COVERAGE_MARKER)
   })
 
   it('carries the off-center marker on both shifted-baseline columns', () => {

@@ -382,7 +382,8 @@ export const DoorKnockingRoutePayloadSchema = z.object({
   // this as best-effort, because a walk is worth more than an opener and
   // election-api being down is not a reason a canvasser cannot knock.
   representing: RoutePayloadRepresentingSchema.optional(),
-  // The list's frozen talking points, plain text, one line per section.
+  // The list's frozen talking points, plain text: four lines for a list made
+  // before free text, otherwise free text with DOOR_KNOCKING_BULLET lines.
   //
   // Riding the payload rather than fetched by a hook, for the reason `isServe`
   // gives above and `history` gives at length: the printable walk sheet and

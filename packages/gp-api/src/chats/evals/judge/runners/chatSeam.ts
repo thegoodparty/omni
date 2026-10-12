@@ -306,8 +306,19 @@ const runScript = async (
       })
       try {
         const output = await tool.execute(step.input)
-        options.onToolCallEnd?.({ name: step.tool, input: step.input, output })
-      } catch {
+        options.onToolCallEnd?.({
+          name: step.tool,
+          input: step.input,
+          output,
+          toolCallId,
+        })
+      } catch (error) {
+        options.onToolCallError?.({
+          name: step.tool,
+          input: step.input,
+          toolCallId,
+          error,
+        })
         // Swallowed on purpose, to match production: the AI SDK turns a
         // throwing tool into a tool-error result and runs the next step, so
         // the turn still answers — with less information. Letting it escape

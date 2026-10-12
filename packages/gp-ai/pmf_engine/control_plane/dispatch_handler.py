@@ -26,6 +26,7 @@ try:
     from .jsonschema_errors import format_validation_errors
     from .manifest_loader import (
         JUDGE_OVERRIDE_KEY_RE,
+        JUDGE_REPLAY_KEY_RES,
         JUDGE_RUN_ID_MAX_LENGTH,
         JUDGE_RUN_ID_PREFIX,
         JUDGE_RUN_ID_RE,
@@ -40,6 +41,7 @@ except ImportError:
     from jsonschema_errors import format_validation_errors  # type: ignore[no-redef]
     from manifest_loader import (  # type: ignore[no-redef]
         JUDGE_OVERRIDE_KEY_RE,
+        JUDGE_REPLAY_KEY_RES,
         JUDGE_RUN_ID_MAX_LENGTH,
         JUDGE_RUN_ID_PREFIX,
         JUDGE_RUN_ID_RE,
@@ -679,6 +681,48 @@ def _validate_judge_override(value, experiment_id: str) -> dict | None:
     return {"manifest_key": value["manifest_key"], "instruction_key": value["instruction_key"]}
 
 
+_JUDGE_REPLAY_FIELDS = frozenset({"mode", "key"})
+_JUDGE_REPLAY_MODES = ("record", "replay")
+
+
+def _validate_judge_replay(value, experiment_id: str) -> dict | None:
+    """Validate the `_judge_replay` dispatch field's shape. No S3 access.
+
+    Checked here as well as at mint so a malformed one fails the dispatch
+    before a ticket is minted or a job queued, the same as a bad override.
+    The broker reads the store, never this Lambda.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"_judge_replay must be an object, got {type(value).__name__}")
+    keys = set(value.keys())
+    if keys != _JUDGE_REPLAY_FIELDS:
+        raise ValueError(
+            f"_judge_replay must have exactly the keys {sorted(_JUDGE_REPLAY_FIELDS)}; got {_truncated(sorted(keys))}"
+        )
+    mode, key = value["mode"], value["key"]
+    if mode not in _JUDGE_REPLAY_MODES:
+        raise ValueError(f"_judge_replay.mode must be one of {list(_JUDGE_REPLAY_MODES)}; got {_truncated(mode)}")
+    if not isinstance(key, str):
+        raise ValueError(f"_judge_replay.key must be a string, got {type(key).__name__}")
+    kind, match = next(
+        ((kind, m) for kind, r in JUDGE_REPLAY_KEY_RES.items() if (m := r.fullmatch(key)) is not None), (None, None)
+    )
+    if match is None:
+        raise ValueError(f"_judge_replay.key must be a _judge/replay/sweep/, base/ or seed/ key; got {_truncated(key)}")
+    # The bench writes a seed store and both arms only read it. A run
+    # recording into one would mix live pages into planted ones.
+    if kind == "seed" and mode == "record":
+        raise ValueError("_judge_replay: a seed store is replay-only")
+    if match.group("agent_id") != experiment_id:
+        raise ValueError(
+            f"_judge_replay.key agentId segment {match.group('agent_id')!r} "
+            f"does not match experiment_type {experiment_id!r}"
+        )
+    return {"mode": mode, "key": key}
+
+
 def _bounded_int(field: str, value: object, bounds: tuple[int, int]) -> int:
     low, high = bounds
     # Truncated before interpolation: this message rides the error callback to
@@ -945,13 +989,17 @@ def parse_dispatch_message(body: str) -> dict:
     # `_judge_override` is never agent input. Absent on every product dispatch,
     # which is what keeps the no-override path unchanged.
     judge_override = _validate_judge_override(data.get("_judge_override"), data["experiment_type"])
+    # Same placement and same gate as the override: top-level, never agent
+    # input, and only on a judge run in dev. The broker refuses it otherwise,
+    # so letting it through here would only mint a ticket to fail.
+    judge_replay = _validate_judge_replay(data.get("_judge_replay"), data["experiment_type"])
     # The judge gate is on the RUN, not on the override arm. A sweep's base arm
     # carries a judge run id and no `_judge_override` at all, and it gets every
     # consequence the prefix implies — suppressed callbacks, no reaper, no
     # `latest.json` write, no gp-api row — so it has to pass the same checks.
     # Gating only the override arm would leave the base arm ungated in prod,
     # spending real money on a run nothing can observe or reconcile.
-    if data["run_id"].startswith(JUDGE_RUN_ID_PREFIX) or judge_override is not None:
+    if data["run_id"].startswith(JUDGE_RUN_ID_PREFIX) or judge_override is not None or judge_replay is not None:
         _validate_judge_dispatch(data["run_id"])
         if judge_override is not None:
             data["_judge_override"] = judge_override
@@ -1112,6 +1160,10 @@ def launch_run(
     # alongside the existing `input_files` allowlist. None on every product
     # dispatch, and the mint body omits the field entirely when it is None.
     experiment_override = experiment.get("judge_override")
+    # Judge page replay, carried like the override. None on every product
+    # dispatch, and the mint body then omits it, because MintRequest refuses
+    # an explicit null on a broker that predates the field.
+    replay = experiment.get("replay")
     # A judge-dispatched run — override arm or base arm — has no gp-api
     # `experiment_run` row, so the ticket must tell the broker never to send it
     # a results callback. The run id prefix is the signal; it is also what the
@@ -1141,6 +1193,7 @@ def launch_run(
             input_files=input_files,
             experiment_override=experiment_override,
             is_eval=is_eval,
+            replay=replay,
         )
     except BrokerError as e:
         logger.warning(f"Broker rejected {experiment_id} (run={message['run_id']}): {e.status_code} {e.detail}")
@@ -1546,6 +1599,9 @@ def handler(event: dict, context) -> dict:
             # scheduler threads it to launch_run unchanged: `_launch_one` passes
             # the whole routing dict through as `experiment`.
             routing["judge_override"] = allowlist
+        if message.get("_judge_replay") is not None:
+            # Rides `routing` for the same reason as the override above.
+            routing["replay"] = message["_judge_replay"]
         try:
             get_job_store().put_queued_job(
                 QueuedJob(

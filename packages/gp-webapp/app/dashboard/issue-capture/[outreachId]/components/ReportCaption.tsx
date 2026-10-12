@@ -24,7 +24,7 @@ const ReportCaption = ({
           {', '}
           <Link
             href={`/dashboard/issue-capture/${outreachId}/review`}
-            className="underline"
+            className="font-medium text-foreground underline underline-offset-2"
           >
             {copy.waitingForReview(denominators.pending)}
           </Link>

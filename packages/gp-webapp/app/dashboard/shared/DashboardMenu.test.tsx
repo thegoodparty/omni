@@ -5,16 +5,36 @@ const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
   prioritiesEnabled = false,
+  nextTaskExperience = true,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
   prioritiesEnabled?: boolean
+  nextTaskExperience?: boolean
 } = {}) =>
   getDashboardMenuItems(
     isElectedOffice,
     isElectedOfficeLoading,
     prioritiesEnabled,
+    nextTaskExperience,
   )
+
+describe('getDashboardMenuItems — next-task-experience flag', () => {
+  it('names the home tab Home, with the checklist plan icon, when on', () => {
+    const [home] = links()
+    expect(home?.label).toBe('Home')
+  })
+
+  it('keeps Campaign Manager, with Your Story above the plan, when off', () => {
+    const items = links({ nextTaskExperience: false })
+    expect(items[0]?.label).toBe('Campaign Manager')
+    expect(items.map((item) => item.id).slice(0, 3)).toEqual([
+      'campaign-tracker-dashboard',
+      'campaign-story-dashboard',
+      'campaign-plan-dashboard',
+    ])
+  })
+})
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -63,15 +83,24 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 })
 
 describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
-  it('always renders "Your Story" just above the tracker', () => {
+  it('renders "Your Story" right after Voter Data', () => {
     const items = links()
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
-    const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
+    const voterDataIdx = items.findIndex(
+      (i) => i.id === 'win-contacts-dashboard',
+    )
 
     expect(storyIdx).toBeGreaterThanOrEqual(0)
     expect(items[storyIdx]?.label).toBe('Your Story')
-    // It sits directly above the Campaign Plan tab.
-    expect(planIdx).toBe(storyIdx + 1)
+    expect(storyIdx).toBe(voterDataIdx + 1)
+  })
+
+  it('still renders right after the Voter Data upsell while the office loads', () => {
+    const items = links({ isElectedOfficeLoading: true })
+    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
+    const upsellIdx = items.findIndex((i) => i.id === 'upgrade-pro-dashboard')
+
+    expect(storyIdx).toBe(upsellIdx + 1)
   })
 })
 
@@ -200,8 +229,7 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
     const campaignManager = items.findIndex(
       (i) => i.id === 'campaign-tracker-dashboard',
     )
-    expect(items[campaignManager + 1]?.id).toBe('campaign-story-dashboard')
-    expect(items[campaignManager + 2]?.id).toBe('campaign-plan-dashboard')
+    expect(items[campaignManager + 1]?.id).toBe('campaign-plan-dashboard')
   })
 })
 

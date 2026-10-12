@@ -78,6 +78,8 @@ import { OutreachRobocallDeferredHoldService } from './services/outreachRobocall
 import { OutreachRobocallStrandedService } from './services/outreachRobocallStranded.service'
 import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
+import { OutreachRobocallOverdueAlertService } from './services/outreachRobocallOverdueAlert.service'
+import { OutreachRobocallBacklogAlertService } from './services/outreachRobocallBacklogAlert.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
 import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
 import { OutreachRobocallCancelService } from './services/outreachRobocallCancel.service'
@@ -95,6 +97,11 @@ import { OutreachServeComposeContextService } from './services/outreachServeComp
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
+import { OutreachP2pSmsHoldService } from './services/outreachP2pSmsHold.service'
+import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.service'
+import { OutreachP2pSmsCancelService } from './services/outreachP2pSmsCancel.service'
+import { OutreachP2pSmsReconcileService } from './services/outreachP2pSmsReconcile.service'
+import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTexts.service'
 
 @Module({
   imports: [
@@ -217,6 +224,8 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachRobocallStrandedService,
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
+    OutreachRobocallOverdueAlertService,
+    OutreachRobocallBacklogAlertService,
     OutreachRobocallHoldFailureService,
     OutreachRobocallWebhookService,
     OutreachRobocallCancelService,
@@ -237,6 +246,11 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachNotificationService,
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
+    OutreachP2pSmsHoldService,
+    OutreachP2pSmsCaptureService,
+    OutreachP2pSmsCancelService,
+    OutreachP2pSmsReconcileService,
+    OutreachP2pSmsFreeTextsService,
     OutreachMaterializationService,
     OutreachAssignmentService,
   ],
@@ -244,6 +258,9 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachService,
     OutreachDraftService,
     OutreachPurchaseHandlerService,
+    // The build finisher (PeerlyModule) calls this on the build-ready edge;
+    // PeerlyModule imports OutreachModule (forwardRef) to reach it.
+    OutreachP2pSmsCaptureService,
     OutreachAssignmentService,
     // The queue consumer's `outreachTextSend` case calls `requestSend` on
     // this; QueueConsumerModule imports OutreachModule to reach it.

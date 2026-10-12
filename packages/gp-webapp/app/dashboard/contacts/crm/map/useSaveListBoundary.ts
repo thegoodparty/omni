@@ -4,6 +4,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinVoterContext } from 'app/dashboard/shared/useWinVoterContext'
 import { shapesToSave, type ListShape } from 'app/dashboard/shared/listShapes'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import { boundarySaveErrorMessage } from '../shared/boundarySaveError'
@@ -39,6 +40,7 @@ export const useSaveListBoundary = (
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
+  const { isWin } = useWinVoterContext()
 
   return useMutation({
     mutationFn: (shapes: ListShape[]) =>
@@ -50,14 +52,19 @@ export const useSaveListBoundary = (
       const { geoPolyLabels } = shapesToSave(shapes)
       const shapeCount = geoPolyLabels?.length ?? 0
       const cleared = shapeCount === 0
-      trackEvent(EVENTS.ConstituentData.ListBoundarySaved, {
-        listId,
-        cleared,
-        // How many parts the saved boundary has, so "do holders actually
-        // draw more than one" is answerable without reading geometry back.
-        shapeCount,
-        surface,
-      })
+      trackEvent(
+        isWin
+          ? EVENTS.VoterData.ListBoundarySaved
+          : EVENTS.ConstituentData.ListBoundarySaved,
+        {
+          listId,
+          cleared,
+          // How many parts the saved boundary has, so "do holders actually
+          // draw more than one" is answerable without reading geometry back.
+          shapeCount,
+          surface,
+        },
+      )
       successSnackbar('List updated')
       // Who is in the list changed, so both the summary the sheet renders
       // and the members the map draws are stale. The chat reads the list row

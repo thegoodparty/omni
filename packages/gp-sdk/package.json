@@ -46,7 +46,7 @@
     "globals": "^15.15.0",
     "prettier": "^3.0.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
     "@clerk/backend": "^2.30.1",

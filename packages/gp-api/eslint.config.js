@@ -155,7 +155,7 @@ module.exports = defineConfig([
     'eslint.config.js',
   ]),
   {
-    files: ['src/**/*.test.ts', 'src/**/*.e2e.ts', 'src/**/test-utils/**/*.ts'],
+    files: ['src/**/*.test.ts', 'src/**/test-utils/**/*.ts'],
 
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
@@ -168,7 +168,7 @@ module.exports = defineConfig([
     },
   },
   {
-    files: ['seed/**/*.ts', 'e2e-tests/**/*.ts'],
+    files: ['seed/**/*.ts'],
 
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',

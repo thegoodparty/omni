@@ -145,6 +145,31 @@ class TestContractCompliance:
         loc = pub._compute_responses_location("test-campaign")
         assert loc == "prefix/path/consolidated/test-campaign_all_cluster_analysis.json"
 
+    @pytest.mark.asyncio
+    async def test_prompt_source_omitted_when_not_provided(self, publisher, call_log):
+        records = [_make_record("+1111111111", "poll-1")]
+        await publisher.publish_poll_completion(
+            poll_ids=["poll-1"], unified_records=records, campaign_name="test-campaign"
+        )
+
+        sqs_calls = [c for c in call_log if c[0] == "sqs_send_message"]
+        body = json.loads(sqs_calls[0][1]["MessageBody"])
+        assert "promptSource" not in body["data"]
+
+    @pytest.mark.asyncio
+    async def test_prompt_source_is_carried_onto_the_event(self, publisher, call_log):
+        records = [_make_record("+1111111111", "poll-1")]
+        await publisher.publish_poll_completion(
+            poll_ids=["poll-1"],
+            unified_records=records,
+            campaign_name="test-campaign",
+            prompt_source="fallback",
+        )
+
+        sqs_calls = [c for c in call_log if c[0] == "sqs_send_message"]
+        body = json.loads(sqs_calls[0][1]["MessageBody"])
+        assert body["data"]["promptSource"] == "fallback"
+
 
 class TestS3UploadBeforeSqsSend:
     @pytest.mark.asyncio
@@ -505,6 +530,31 @@ class TestFeedbackCompletion:
         )
 
         assert [c for c in call_log if c[0] == "s3_put_object"] == []
+
+    @pytest.mark.asyncio
+    async def test_prompt_source_omitted_when_not_provided(
+        self, publisher: SQSEventPublisher, call_log: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        await publisher.publish_feedback_completion(
+            source_type="constituent_feedback", source_id="run-1", unified_records=[_make_record("memo-a", "run-1")]
+        )
+
+        body = json.loads(next(c[1]["MessageBody"] for c in call_log if c[0] == "sqs_send_message"))
+        assert "promptSource" not in body["data"]
+
+    @pytest.mark.asyncio
+    async def test_prompt_source_is_carried_onto_the_event(
+        self, publisher: SQSEventPublisher, call_log: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        await publisher.publish_feedback_completion(
+            source_type="constituent_feedback",
+            source_id="run-1",
+            unified_records=[_make_record("memo-a", "run-1")],
+            prompt_source="hosted",
+        )
+
+        body = json.loads(next(c[1]["MessageBody"] for c in call_log if c[0] == "sqs_send_message"))
+        assert body["data"]["promptSource"] == "hosted"
 
     @pytest.mark.asyncio
     async def test_saves_the_event_locally(self, tmp_path: Path, mock_s3: MagicMock) -> None:

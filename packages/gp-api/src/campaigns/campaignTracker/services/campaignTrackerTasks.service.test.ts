@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { startOfDay } from 'date-fns'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
 import {
@@ -514,7 +513,7 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
     const rows = outreachRows()
     expect(rows).toHaveLength(7)
     expect(rows.map((r) => r.date)).toContainEqual(
-      startOfDay(parseIsoDateAsUTC('2099-03-03')),
+      parseIsoDateAsUTC('2099-03-03'),
     )
   })
 
@@ -613,7 +612,7 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     expect(created[0].week).toBe(1)
     expect(created[1].link).toBe('https://x.test')
     // event keeps its real date
-    expect(created[1].date).toEqual(new Date('2026-07-11T00:00:00'))
+    expect(created[1].date).toEqual(new Date('2026-07-11T00:00:00.000Z'))
   })
 
   it('stamps the next generation index when prior generations exist', async () => {

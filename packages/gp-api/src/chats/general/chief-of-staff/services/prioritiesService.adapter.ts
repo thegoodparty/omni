@@ -4,8 +4,9 @@ import {
   PriorityStepIdSchema,
   parsePriorityStatus,
 } from '@goodparty_org/contracts'
-import { PrioritySource } from '@/generated/prisma'
+import { Priority, PrioritySource } from '@/generated/prisma'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
+import { currentStepOf } from '@/priorities/util/priority.util'
 import {
   CreatePriorityInput,
   PrioritiesToolPort,
@@ -28,15 +29,11 @@ const toRecord = (row: PriorityRow): PriorityRecord => ({
   archivedAt: row.archivedAt ? formatISO(row.archivedAt) : null,
 })
 
-type PriorityFlowRow = {
-  status: Parameters<typeof parsePriorityStatus>[0]
-  currentStep: string | null
-  nextAction: string | null
-}
+type PriorityFlowRow = Pick<Priority, 'status' | 'currentStep' | 'nextAction'>
 
 const toFlowState = (row: PriorityFlowRow): PriorityFlowState => {
   const status = parsePriorityStatus(row.status)
-  const currentStep = PriorityStepIdSchema.safeParse(row.currentStep)
+  const currentStep = PriorityStepIdSchema.safeParse(currentStepOf(row))
   return {
     currentStep: currentStep.success ? currentStep.data : null,
     nextAction: row.nextAction,
@@ -63,6 +60,7 @@ export class PrioritiesServiceAdapter implements PrioritiesToolPort {
       input.electedOfficeId,
       { title: input.title, description: input.description },
       PrioritySource.user_stated,
+      'chief_of_staff',
     )
     return toRecord(row)
   }
@@ -79,7 +77,11 @@ export class PrioritiesServiceAdapter implements PrioritiesToolPort {
   }
 
   async archive(electedOfficeId: string, id: string): Promise<void> {
-    const archived = await this.priorities.archive(id, electedOfficeId)
+    const archived = await this.priorities.archive(
+      id,
+      electedOfficeId,
+      'chief_of_staff',
+    )
     if (!archived) throw new NotFoundException('Priority not found')
   }
 }

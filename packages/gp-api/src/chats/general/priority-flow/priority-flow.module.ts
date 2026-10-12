@@ -8,6 +8,7 @@ import { Module } from '@nestjs/common'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -21,7 +22,7 @@ import {
 import {
   CONSTITUENT_CATALOG,
   CONSTITUENT_SCHEMA,
-  CONSTITUENT_TABLES,
+  CONSTITUENT_TABLES_BY_DATASET,
 } from '../chief-of-staff/services/constituentDataScope'
 import { CommunityIssueReadAdapter } from '../chief-of-staff/services/communityIssueRead.adapter'
 import { COMMUNITY_ISSUE_READ_PORT } from '../chief-of-staff/services/communityIssueRead.port'
@@ -35,7 +36,7 @@ import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.ser
 export { PRIORITY_FLOW_MODELS }
 
 // Same aggregate-only Databricks provider the Chief of Staff scope builds: the
-// shared DATABRICKS_* credential against the serve_agent_voters mart. Returns
+// shared DATABRICKS_* credential against the mart_serve_agents schema. Returns
 // null unless host/path and a credential are set, so the constituent-data
 // tools never register until that credential is deployed.
 const constituentDataProviderFactory = (): DatabricksProvider | null => {
@@ -58,6 +59,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     CommunityIssuesModule,
     ContactsModule,
     VotersModule,
+    PeopleQueryModule,
   ],
   providers: [
     PriorityFlowHandler,
@@ -76,7 +78,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     },
     {
       provide: CONSTITUENT_TABLES_CONFIG,
-      useValue: CONSTITUENT_TABLES,
+      useValue: CONSTITUENT_TABLES_BY_DATASET,
     },
   ],
   exports: [PriorityFlowHandler],

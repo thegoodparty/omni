@@ -129,9 +129,12 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 // affordable — see ROUTE_ALERT_GROUPS.
 //
 // THE COST RULE, since it is the only thing that decides whether a shape here
-// is allowed: a rule's daily read volume, as a multiple of what we ingest, is
-// its fetch window divided by its evaluation interval. Gapless coverage needs
-// window >= interval, so ONE is the floor for any rule that must not miss
+// is allowed: a rule's daily read volume, as a multiple of the stream it
+// selects, is its range vector divided by its evaluation interval. The rules
+// run as instant queries, so the vector is all an evaluation reads. (Until
+// 2026-10-09 they ran as range queries, which read the fetch window on top of
+// the vector, so each of these read two minutes a minute, not one.) Gapless
+// coverage needs window >= interval, so ONE is the floor for any rule that must not miss
 // anything, and the only remaining lever is how many rules there are. 75 rules
 // at the floor is 75x ingest; five is five. `global-alerts.test.ts` sums this
 // across the estate and fails a PR that spends too much of the allowance.

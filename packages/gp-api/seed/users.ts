@@ -124,8 +124,8 @@ export const ensureClerkUser = async (
       clerkErrors[0]?.code === 'form_identifier_exists'
 
     if (isDuplicate) {
-      // Every preview shares one Clerk dev instance, so a first-boot seed
-      // reliably rides its rate limit. This lookup used to be the one Clerk
+      // Every local seed shares one Clerk dev instance, so a seed can ride its
+      // rate limit. This lookup used to be the one Clerk
       // call outside a catch: a 429 escaped it, rejected the enclosing pmap,
       // and killed the whole seed before campaigns were ever created.
       try {

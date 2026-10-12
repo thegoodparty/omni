@@ -115,12 +115,22 @@ export const CheckoutSessionProvider = ({
           setCheckoutSession(response.data)
           return response.data.clientSecret
         } else {
+          const body = response.data as { message?: string }
+          const serverMessage =
+            typeof body?.message === 'string' ? body.message : undefined
+          // gp-api writes its 4xx messages for the caller (its own
+          // BadRequest text, and the Stripe validation text the controller
+          // rethrows). A 5xx body is Nest boilerplate and an edge error page
+          // is not JSON at all, so neither is worth showing.
           const errorMessage =
-            (response.data as { data?: { error?: string } })?.data?.error ||
-            'Failed to create checkout session'
+            response.status < 500 && serverMessage
+              ? serverMessage
+              : 'Failed to create checkout session'
           setError(errorMessage)
           reportErrorToSentry(new Error('CheckoutSessionProvider error'), {
             message: errorMessage,
+            status: response.status,
+            serverMessage,
           })
           throw new Error(errorMessage)
         }

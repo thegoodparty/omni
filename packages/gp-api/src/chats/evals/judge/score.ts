@@ -1,3 +1,9 @@
+import type { ContractNote } from './outputContract'
+import {
+  conditionHandling,
+  handlingPairKey,
+  type ConditionHandling,
+} from './handling'
 import { bootstrapCi, createRng, mean, type Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
@@ -218,6 +224,12 @@ export interface AgentScore {
   // Cases the candidate's list marks `scored: false` that were scored anyway,
   // because the base ref's list does not hold them out or could not be read.
   controlsScoredAnyway?: ControlsScoredAnyway
+  // Set when a background agent was judged without its output contract,
+  // because the manifest requires no top-level field or could not be read.
+  outputContractNote?: ContractNote
+  // Per case, whether each arm reached the outcome its `handledWhen`
+  // sentence describes. Absent when no case carries one. Not in the label.
+  handling?: ConditionHandling
 }
 
 export interface ControlsScoredAnyway {
@@ -229,19 +241,39 @@ export interface ControlsScoredAnyway {
 // everything else here. On a control a call other than a tie is the judge's
 // own noise floor on this input, which is the number a reader needs before
 // trusting any other verdict in the section.
+export type ControlOutcome =
+  | 'candidate'
+  | 'base'
+  | 'tie'
+  | 'cannot_determine'
+  // Judged, but every seat failed.
+  | 'ungraded'
+  // Never reached the judge: excluded or missing an arm.
+  | 'not_judged'
+
 export interface ControlReading {
   caseId: string
   attempt: number
-  outcome:
-    | 'candidate'
-    | 'base'
-    | 'tie'
-    | 'cannot_determine'
-    // Judged, but every seat failed.
-    | 'ungraded'
-    // Never reached the judge: excluded or missing an arm.
-    | 'not_judged'
+  outcome: ControlOutcome
   magnitude: Magnitude | null
+  // The same pair with X and Y swapped. Every control is judged both ways, so
+  // this is absent only for a pair that never reached the judge.
+  swapped?: { outcome: ControlOutcome; magnitude: Magnitude | null }
+}
+
+// What the two orders together say about a control, oriented to the arms:
+// the same call both ways followed the outputs; opposite calls mean the judge
+// picked the same SLOT both times, which is a position preference.
+export type ControlPosition = 'sameCall' | 'sameSlot' | 'changed' | 'unread'
+
+export const controlPosition = (reading: ControlReading): ControlPosition => {
+  const swapped = reading.swapped?.outcome
+  const called = (one: ControlOutcome | undefined): boolean =>
+    one === 'candidate' || one === 'base' || one === 'tie'
+  if (!called(reading.outcome) || !called(swapped)) return 'unread'
+  if (reading.outcome === swapped) return 'sameCall'
+  if (reading.outcome !== 'tie' && swapped !== 'tie') return 'sameSlot'
+  return 'changed'
 }
 
 interface PairScore {
@@ -811,9 +843,9 @@ const orientedOutcome = (
   return oriented > 0 ? 'candidate' : 'base'
 }
 
-// The primary-order judgment, because that is the one every pair has; the
-// swapped one exists only for the subsample and measures position bias, not
-// the pair.
+// The primary-order judgment is the reading, and the swapped one sits beside
+// it: every control is judged both ways (see planJudgments), and the pair of
+// them is what shows a position preference.
 const controlReadings = (
   normalized: NormalizedAgent,
   judgments: readonly Judgment[],
@@ -822,24 +854,36 @@ const controlReadings = (
   const readings: ControlReading[] = []
   for (const one of normalized.judgeable) {
     if (!unscored.has(one.caseId)) continue
-    const judgment = judgments.find(
-      (j) =>
-        j.key.caseId === one.caseId &&
-        j.key.attempt === one.attempt &&
-        j.key.order === 'primary',
-    )
-    const overall =
-      judgment?.kind === 'graded' ? judgment.dimensions[OVERALL] : undefined
-    let outcome: ControlReading['outcome'] = 'ungraded'
-    if (judgment === undefined) outcome = 'not_judged'
-    else if (judgment.kind === 'graded' && overall !== undefined) {
-      outcome = orientedOutcome(orient(overall.verdict, judgment.slotMap))
+    const read = (
+      order: 'primary' | 'swapped',
+    ): { outcome: ControlOutcome; magnitude: Magnitude | null } | undefined => {
+      const judgment = judgments.find(
+        (j) =>
+          j.key.caseId === one.caseId &&
+          j.key.attempt === one.attempt &&
+          j.key.order === order,
+      )
+      if (judgment === undefined) return undefined
+      const overall =
+        judgment.kind === 'graded' ? judgment.dimensions[OVERALL] : undefined
+      if (judgment.kind !== 'graded' || overall === undefined) {
+        return { outcome: 'ungraded', magnitude: null }
+      }
+      return {
+        outcome: orientedOutcome(orient(overall.verdict, judgment.slotMap)),
+        magnitude: overall.magnitude ?? null,
+      }
     }
+    const primary = read('primary') ?? {
+      outcome: 'not_judged' as const,
+      magnitude: null,
+    }
+    const swapped = read('swapped')
     readings.push({
       caseId: one.caseId,
       attempt: one.attempt,
-      outcome,
-      magnitude: overall?.magnitude ?? null,
+      ...primary,
+      ...(swapped !== undefined && { swapped }),
     })
   }
   for (const one of [...normalized.excluded, ...normalized.unpaired]) {
@@ -977,5 +1021,19 @@ export const scoreAgent = (
     evidence: measure(allPairs),
     ci: candidateWithCi?.candidate.ci ?? null,
     controls: controlReadings(all, allJudgments, unscored),
+    ...handlingOf(judgments, normalized),
   }
+}
+
+const handlingOf = (
+  judgments: readonly Judgment[],
+  normalized: NormalizedAgent,
+): { handling?: ConditionHandling } => {
+  const asked = new Set(
+    normalized.judgeable
+      .filter((c) => c.payload.handledWhen !== undefined)
+      .map((c) => handlingPairKey(c.caseId, c.attempt)),
+  )
+  if (asked.size === 0) return {}
+  return { handling: conditionHandling(judgments, asked) }
 }

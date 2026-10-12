@@ -4,7 +4,10 @@ import {
   FILTER_DIMENSION_PROVENANCE_RULES,
   FILTER_DIMENSIONS,
 } from '@/contacts/filterDimensions.catalog'
-import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
+import {
+  DATA_SOURCE_ROUTING_RULES,
+  dataSourceRoutingRules,
+} from '@/llm/tools/dataSourceRouting'
 import {
   buildDescribeFilterDimensionsTool,
   registeredFilterConsumers,
@@ -37,6 +40,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
+      peopleDataset: 'voters',
     })
     const result = await tool.execute({})
     expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION)
@@ -48,6 +52,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
+      peopleDataset: 'voters',
     })
     expect(tool.inputSchema.safeParse({}).success).toBe(true)
     expect(
@@ -62,6 +67,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
+      peopleDataset: 'voters',
     })
     expect(tool.description).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
@@ -74,6 +80,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
+      peopleDataset: 'voters',
     })
     const result = await tool.execute({})
     if (!isDescribeFilterDimensionsOutput(result)) {
@@ -101,6 +108,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
+      peopleDataset: 'voters',
     })
     expect(instructionLine(tool.description)).toContain(
       'before composing any filter for count_contacts or crud_saved_filters',
@@ -123,6 +131,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: [],
+      peopleDataset: 'voters',
     })
     expect(instructionLine(tool.description)).not.toMatch(
       /count_contacts|crud_saved_filters/,
@@ -135,7 +144,19 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
+      peopleDataset: 'voters',
     })
     expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
+  })
+
+  it('carries the routing rules for the constituents dataset it was given', () => {
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions: vi.fn(() => []) },
+      organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
+      peopleDataset: 'constituents',
+    })
+    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+    expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

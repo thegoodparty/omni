@@ -152,8 +152,28 @@ describe('SnackbarProvider + useSnackbar', () => {
     )
   })
 
+  it.each(['/dashboard', '/dashboard/campaign-plan'])(
+    'clears the Campaign Manager chat dock on %s',
+    async (path) => {
+      mockPathname = path
+      render(
+        <SnackbarProvider>
+          <HarnessComponent />
+        </SnackbarProvider>,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }))
+      await screen.findByText('Saved!')
+
+      const toaster = document.querySelector<HTMLElement>(
+        '[data-sonner-toaster]',
+      )
+      expect(toaster?.style.getPropertyValue('--offset-bottom')).toBe('6rem')
+    },
+  )
+
   it('leaves the default toaster offset on non-CRM pages', async () => {
-    mockPathname = '/dashboard'
+    mockPathname = '/dashboard/polls'
     render(
       <SnackbarProvider>
         <HarnessComponent />

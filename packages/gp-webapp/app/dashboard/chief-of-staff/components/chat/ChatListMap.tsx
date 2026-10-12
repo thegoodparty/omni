@@ -5,6 +5,10 @@ import { Button, CropIcon } from '@styleguide'
 import type { ShowListMap } from '@goodparty_org/contracts'
 import { shapesFromSaved } from 'app/dashboard/shared/listShapes'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
+import {
+  peopleCount,
+  type CardMode,
+} from 'app/dashboard/shared/agent-chat/cards/proposalPresentation'
 import { useListPeople } from '../../../contacts/crm/map/useListPeople'
 import { useSavedList } from '../../../contacts/crm/map/useSavedList'
 
@@ -33,16 +37,17 @@ interface ChatListMapProps extends ShowListMap {
   // new key when it commits, which would unmount an overlay mounted here
   // and throw away a ring mid-draw.
   onRefineArea?: (list: ShowListMap) => void
+  mode?: CardMode
 }
 
 export default function ChatListMap({
   listId,
   name,
   onRefineArea,
+  mode = 'serve',
 }: ChatListMapProps) {
   const { people, total, truncated, isLoading, isError } = useListPeople(listId)
-  // Serve-only surface, so the labels are the constituent ones.
-  const labels = getContactsLabels(false)
+  const labels = getContactsLabels(mode === 'win')
   const { list } = useSavedList(listId)
   // Memoised for the same reason both sibling callers memoise it, and more
   // sharply here: ringsFromGeoJsonShape allocates a fresh array every call
@@ -74,7 +79,7 @@ export default function ChatListMap({
         <span className="truncate text-sm font-semibold">{name}</span>
         {!isLoading && !isError ? (
           <span className="shrink-0 text-xs text-muted-foreground">
-            {total.toLocaleString()} constituents
+            {peopleCount(total, mode)}
           </span>
         ) : null}
       </div>

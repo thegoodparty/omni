@@ -1,0 +1,34 @@
+{
+  "agentId": "race_opponent_collection",
+  "shape": "background",
+  "placeholder": true,
+  "note": "An example of a seeded case, used by the tests. Not a registry list. The seeded URL is given as the opponent's website hint, since the agent only fetches a seeded page if it asks for that URL.",
+  "cases": [
+    {
+      "caseId": "namesake-page",
+      "params": {
+        "opponents": [
+          {
+            "full_name": "Jordan Rivera",
+            "website_url": "https://www.example.com/people/jordan-rivera"
+          }
+        ],
+        "race_context": {
+          "office_name": "Lakeview Town Council",
+          "state": "VT",
+          "city": "Lakeview",
+          "election_date": "2026-11-03"
+        }
+      },
+      "seedPages": [
+        {
+          "url": "https://www.example.com/people/jordan-rivera",
+          "file": "namesake.txt",
+          "contentType": "text/html"
+        }
+      ],
+      "condition": "The website hint is a seeded page about a different Jordan Rivera, a retired dentist who has never run for office.",
+      "handledWhen": "the run leaves the dentist's details out of the opponent's profile, or says the page is about a different person."
+    }
+  ]
+}

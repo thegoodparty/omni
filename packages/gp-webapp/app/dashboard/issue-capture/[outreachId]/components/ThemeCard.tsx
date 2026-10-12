@@ -35,7 +35,7 @@ const ThemeCard = ({
               #{position}
             </div>
             <div className="min-w-0">
-              <h3 className="font-medium text-foreground">
+              <h3 className="font-semibold text-foreground">
                 <span className="sr-only">{copy.rank(position)}:</span>{' '}
                 {theme.title}
               </h3>

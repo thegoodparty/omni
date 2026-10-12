@@ -44,16 +44,14 @@ export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
 //
 // The AddressLine is load-bearing rather than a convenience. The obvious
 // alternative — compose the line from the file's parsed components, which is
-// what DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did — cannot carry a
-// cardinal direction, because `Residence_Addresses_PrefixDirection` and
-// `Residence_Addresses_SuffixDirection` are INTEGER columns in the people-db
-// mirror. The loader `try_cast`s them, so every 'N'/'S'/'E'/'W' in the source
-// file lands as NULL and no consumer of those two columns can ever see one.
-// AddressLine is TEXT and holds the whole line, directions included.
+// what DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did — loses the cardinal
+// direction wherever `Residence_Addresses_PrefixDirection` or
+// `Residence_Addresses_SuffixDirection` comes back empty. AddressLine holds
+// the whole standardized line, directions included.
 //
-// That made this a de-duplication defect and not only a display one: with both
-// direction components permanently empty, `1234 S Main St` and `1234 N Main St`
-// in one ZIP produced byte-identical keys and were one door. Grid-addressed
+// That made this a de-duplication defect and not only a display one: with the
+// direction components empty, `1234 S Main St` and `1234 N Main St` in one ZIP
+// produced byte-identical keys and were one door. Grid-addressed
 // cities are where it bites hardest — in Salt Lake City the directions carry
 // most of the address, and `1234 S 5678 W` keyed as `1234 5678`.
 export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
@@ -94,7 +92,8 @@ export const isLegacyDoorKnockingUnitKey = (addressKey: string): boolean =>
 // people-api's PersonOutput exactly — keep them in lockstep to avoid drift.
 export const PersonSchema = z.object({
   id: z.string(),
-  lalVoterId: z.string(),
+  // Null on consumer-only rows (Serve constituents with no voter record).
+  lalVoterId: z.string().nullable(),
   firstName: z.string().nullable(),
   middleName: z.string().nullable(),
   lastName: z.string().nullable(),

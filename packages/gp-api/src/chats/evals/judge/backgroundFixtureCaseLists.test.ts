@@ -30,6 +30,16 @@ const AUTHORED = [
 ] as const
 
 const CASES_PER_LIST = 8
+// The real benches among the six carry six to eight probes and a control
+// (trending_issues drops the hint probe, since the agent takes no hint); the
+// placeholder list keeps the eight-case shape.
+const casesExpected = (agentId: string): number =>
+  agentId === 'opportunities_and_challenges' ||
+  agentId === 'campaign_tracker_tasks'
+    ? 9
+    : agentId === 'trending_issues'
+      ? 7
+      : CASES_PER_LIST
 
 // WHICH PARAM carries which token, not merely that the token appears
 // somewhere in the file. A substring search over the whole list passes when
@@ -76,7 +86,7 @@ describe('the six fixture-backed background case lists', () => {
     '%s carries its tokens in the params that need them',
     (agentId) => {
       const cases = casesFor(agentId)
-      expect(cases).toHaveLength(CASES_PER_LIST)
+      expect(cases).toHaveLength(casesExpected(agentId))
       const pairs = pairsFor(agentId)
       expect(pairs.length, agentId).toBeGreaterThan(0)
       for (const one of cases) {
@@ -96,7 +106,7 @@ describe('the six fixture-backed background case lists', () => {
       casesFor(agentId),
       SWEEP_VALUES,
     )
-    expect(substituted).toHaveLength(CASES_PER_LIST)
+    expect(substituted).toHaveLength(casesExpected(agentId))
     for (const one of substituted) {
       for (const [name, key] of pairsFor(agentId)) {
         expect(one.params[key], `${agentId}/${one.caseId}.${key}`).toBe(

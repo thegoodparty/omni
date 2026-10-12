@@ -118,17 +118,19 @@ describe('DoorScript', () => {
     ).toBeInTheDocument()
   })
 
-  // The five-section card frozen with the list: the composed opener as the
-  // paragraph it has always been, then the stored lines and the close as
-  // bullets.
+  // The card frozen with the list: the composed opener as the paragraph it has
+  // always been, then the stored lines and the close.
   describe('with a stored card', () => {
-    const points = [
+    const lines = [
       'What would you fix around here first?',
       'Fix our roads with a real maintenance plan.',
       'Ask whether we can count on them in November.',
       'Thank them for their time.',
     ]
+    const points = lines.map((text) => ({ text, bullet: true }))
 
+    // A legacy four-line card reads exactly as it did: every line one bullet
+    // of a single list.
     it('reads the opener as a sentence and the sections as bullets', () => {
       render(
         <DoorScript
@@ -143,9 +145,45 @@ describe('DoorScript', () => {
       expect(
         script.getByText("Hi, I'm Jane Doe, running for City Council."),
       ).toBeInTheDocument()
-      points.forEach((point) =>
-        expect(script.getByText(point)).toBeInTheDocument(),
+      const list = script.getByRole('list')
+      expect(
+        within(list)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(lines)
+    })
+
+    it('reads a sentence as a paragraph and breaks the list around it', () => {
+      render(
+        <DoorScript
+          intro=""
+          issues={[]}
+          points={[
+            { text: 'I am knocking about the roads.', bullet: false },
+            { text: 'Ask what they would fix first.', bullet: true },
+            { text: 'Mention the maintenance plan.', bullet: true },
+            { text: 'Thank them either way.', bullet: false },
+            { text: 'Offer a yard sign.', bullet: true },
+          ]}
+          isServe={false}
+        />,
       )
+      const script = within(card())
+
+      expect(script.getByText('I am knocking about the roads.').tagName).toBe(
+        'P',
+      )
+      expect(script.getByText('Thank them either way.').tagName).toBe('P')
+      expect(
+        script.getAllByRole('list').map((list) =>
+          within(list)
+            .getAllByRole('listitem')
+            .map((item) => item.textContent),
+        ),
+      ).toEqual([
+        ['Ask what they would fix first.', 'Mention the maintenance plan.'],
+        ['Offer a yard sign.'],
+      ])
     })
 
     // Two sections can legitimately read alike — a purpose whose ask and whose
@@ -156,7 +194,10 @@ describe('DoorScript', () => {
         <DoorScript
           intro=""
           issues={[]}
-          points={['Ask them to the town hall.', 'Ask them to the town hall.']}
+          points={[
+            { text: 'Ask them to the town hall.', bullet: true },
+            { text: 'Ask them to the town hall.', bullet: true },
+          ]}
           isServe={false}
         />,
       )

@@ -19,7 +19,13 @@ vi.mock('@shared/organization-picker', () => ({
 }))
 vi.mock('helpers/analyticsHelper', () => ({
   trackEvent: vi.fn(),
-  EVENTS: { ConstituentData: { ListBoundarySaved: 'saved' } },
+  EVENTS: {
+    ConstituentData: { ListBoundarySaved: 'saved' },
+    VoterData: { ListBoundarySaved: 'voter-saved' },
+  },
+}))
+vi.mock('app/dashboard/shared/useWinVoterContext', () => ({
+  useWinVoterContext: () => ({ isWin: false, isReady: true }),
 }))
 
 const mockedRequest = vi.mocked(clientRequest)

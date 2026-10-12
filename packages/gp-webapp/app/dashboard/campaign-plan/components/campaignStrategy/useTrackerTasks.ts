@@ -9,6 +9,10 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
+import {
+  trackerTaskPutOffDate,
+  type TrackerTaskSkipReason,
+} from '@goodparty_org/contracts'
 
 const TRACKER_TASKS_ROUTE = 'GET /v1/campaigns/tracker-tasks' as const
 const TRACKER_TASKS_QUERY_KEY = ['campaign-tracker-tasks', 'mine'] as const
@@ -121,7 +125,8 @@ export function useTrackerTasks(): TrackerTasksResult {
   }
 }
 
-// Optimistic-free toggle: complete -> PUT, uncomplete -> DELETE, then refetch.
+// Complete -> PUT, uncomplete -> DELETE, applied to the cache at once, then
+// refetched.
 // Completing an outreach/events task can carry a voter-contact count (type +
 // quantity); the API records it to update history + reportedVoterGoals.
 export function useToggleTrackerTaskComplete() {
@@ -146,6 +151,26 @@ export function useToggleTrackerTaskComplete() {
         : clientRequest('DELETE /v1/campaigns/tracker-tasks/complete/:id', {
             id,
           }),
+    // Applied before the request lands, so the next-step card can bring the
+    // next task forward the moment the done one leaves, rather than showing
+    // the done task again until the refetch.
+    onMutate: async ({ id, completed }) => {
+      await queryClient.cancelQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+      const previous = queryClient.getQueryData<CampaignTrackerTask[]>(
+        TRACKER_TASKS_QUERY_KEY,
+      )
+      queryClient.setQueryData<CampaignTrackerTask[]>(
+        TRACKER_TASKS_QUERY_KEY,
+        (rows) =>
+          rows?.map((row) => (row.id === id ? { ...row, completed } : row)),
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(TRACKER_TASKS_QUERY_KEY, context.previous)
+      }
+    },
     onSuccess: (_data, { completed, type, quantity }) => {
       queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
       // A recorded voter count lands on campaign.data.reportedVoterGoals (which
@@ -157,6 +182,61 @@ export function useToggleTrackerTaskComplete() {
         queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
       }
     },
+  })
+}
+
+// Puts a task off ('later'), sets it aside ('notForMe'), or brings it back
+// (null). Applied to the cache at once, like completion, so the next-step card
+// can move on the moment the skipped card leaves.
+export function useSetTrackerTaskAside() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      reason,
+    }: {
+      id: string
+      reason: TrackerTaskSkipReason | null
+    }) =>
+      reason
+        ? clientRequest('PUT /v1/campaigns/tracker-tasks/skip/:id', {
+            id,
+            reason,
+          })
+        : clientRequest('DELETE /v1/campaigns/tracker-tasks/skip/:id', { id }),
+    onMutate: async ({ id, reason }) => {
+      await queryClient.cancelQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+      const previous = queryClient.getQueryData<CampaignTrackerTask[]>(
+        TRACKER_TASKS_QUERY_KEY,
+      )
+      const now = new Date()
+      queryClient.setQueryData<CampaignTrackerTask[]>(
+        TRACKER_TASKS_QUERY_KEY,
+        (rows) =>
+          rows?.map((row) =>
+            row.id === id
+              ? {
+                  ...row,
+                  skipReason: reason,
+                  snoozedUntil: null,
+                  // Put off is a new date; the plan sorts it behind what's
+                  // due sooner.
+                  ...(reason === 'later'
+                    ? { date: trackerTaskPutOffDate(now).toISOString() }
+                    : {}),
+                }
+              : row,
+          ),
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(TRACKER_TASKS_QUERY_KEY, context.previous)
+      }
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
   })
 }
 

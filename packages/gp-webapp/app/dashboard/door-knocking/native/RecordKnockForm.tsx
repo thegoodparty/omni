@@ -13,7 +13,13 @@ import {
   SupportAnswer,
   WillVoteAnswer,
 } from '@goodparty_org/contracts'
-import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
+import {
+  Button,
+  CircleCheckIcon,
+  Textarea,
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -728,7 +734,12 @@ export default function RecordKnockForm({
             />
           </div>
           {offline.audio !== null && (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CircleCheckIcon
+                size={14}
+                aria-hidden="true"
+                className="shrink-0 text-success-dark"
+              />
               {OFFLINE_MEMO_COPY.recorded}
             </p>
           )}

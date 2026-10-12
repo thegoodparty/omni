@@ -4,6 +4,7 @@ import { apiRoutes } from 'gpApi/routes'
 import {
   submitTcrCompliance,
   TcrComplianceSubmitError,
+  toRegistrationFormData,
   type RegistrationFormData,
 } from './registrationFormData.util'
 
@@ -96,5 +97,27 @@ describe('submitTcrCompliance', () => {
   it('falls back to the caller copy for a non-JSON error body', async () => {
     respondWith(false, '<html>Bad Gateway</html>')
     await expectSubmitError('Fallback copy')
+  })
+})
+
+describe('toRegistrationFormData', () => {
+  it('trims whitespace pasted around the text fields', () => {
+    const result = toRegistrationFormData({
+      electionFilingLink: ' https://example.com/filing ',
+      campaignCommitteeName: ' Friends of Jane ',
+      candidateName: ' Jane Smith ',
+      officeLevel: 'local',
+      ein: ' 12-3456780 ',
+      phone: ' 4155551234 ',
+      address: { formatted_address: '123 Main St', place_id: 'place-123' },
+      website: '',
+      email: ' jane@example.com ',
+    })
+    expect(result.electionFilingLink).toBe('https://example.com/filing')
+    expect(result.campaignCommitteeName).toBe('Friends of Jane')
+    expect(result.candidateName).toBe('Jane Smith')
+    expect(result.ein).toBe('12-3456780')
+    expect(result.phone).toBe('4155551234')
+    expect(result.email).toBe('jane@example.com')
   })
 })

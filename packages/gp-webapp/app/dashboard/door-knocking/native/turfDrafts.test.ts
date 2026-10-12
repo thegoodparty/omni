@@ -17,7 +17,7 @@ const draft = (over: Partial<TurfDraft> = {}): TurfDraft => ({
 
 describe('nextTurfName', () => {
   it('numbers across the whole campaign, not just this session', () => {
-    // A candidate arriving through "Add another turf" is joining a campaign
+    // A candidate arriving through "Add turf" is joining a campaign
     // that already holds turfs. Counting only the ones cut in this sitting
     // would hand them a second "Turf 1".
     expect(nextTurfName(0)).toBe('Turf 1')

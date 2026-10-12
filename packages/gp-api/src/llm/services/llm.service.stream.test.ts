@@ -689,18 +689,20 @@ describe('LlmService.streamChatCompletion', () => {
         toolName: 'web_search',
         input: { q: 'x' },
         output: { results: [] },
+        toolCallId: 'native-call-1',
       },
     })
 
     expect(onToolCallStart).toHaveBeenCalledWith({
       name: 'web_search',
       input: { q: 'x' },
-      toolCallId: expect.any(String),
+      toolCallId: 'native-call-1',
     })
     expect(onToolCallEnd).toHaveBeenCalledWith({
       name: 'web_search',
       input: { q: 'x' },
       output: { results: [] },
+      toolCallId: 'native-call-1',
     })
   })
 
@@ -812,6 +814,99 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
         output: { id: 7, name: 'Jane' },
       },
     ])
+  })
+
+  it('fires onToolCallError with the call id when execute throws, and still throws', async () => {
+    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
+    const service = new LlmService(
+      createMockLogger(),
+      streamTextFn as unknown as StreamTextFn,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
+    )
+    const onToolCallEnd = vi.fn()
+    const onToolCallError = vi.fn()
+    const boom = new Error('warehouse down')
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        lookup_voter: {
+          description: 'Look up voter',
+          inputSchema: z.object({ voterId: z.number() }),
+          execute: () => Promise.reject(boom),
+        },
+      },
+      onToolCallEnd,
+      onToolCallError,
+    })
+
+    const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
+      .tools as Record<
+      string,
+      {
+        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+      }
+    >
+    await expect(
+      passedTools.lookup_voter?.execute({ voterId: 7 }, toolCallOptions),
+    ).rejects.toBe(boom)
+
+    expect(onToolCallError).toHaveBeenCalledWith({
+      name: 'lookup_voter',
+      input: { voterId: 7 },
+      toolCallId: toolCallOptions.toolCallId,
+      error: boom,
+    })
+    expect(onToolCallEnd).not.toHaveBeenCalled()
+  })
+
+  it('does not report a throwing onToolCallEnd hook as a failed tool call', async () => {
+    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
+    const service = new LlmService(
+      createMockLogger(),
+      streamTextFn as unknown as StreamTextFn,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
+    )
+    const hookError = new Error('hook broke')
+    const onToolCallEnd = vi.fn(() => {
+      throw hookError
+    })
+    const onToolCallError = vi.fn()
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        lookup_voter: {
+          description: 'Look up voter',
+          inputSchema: z.object({ voterId: z.number() }),
+          execute: () => Promise.resolve({ id: 7 }),
+        },
+      },
+      onToolCallEnd,
+      onToolCallError,
+    })
+
+    const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
+      .tools as Record<
+      string,
+      {
+        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+      }
+    >
+    await expect(
+      passedTools.lookup_voter?.execute({ voterId: 7 }, toolCallOptions),
+    ).rejects.toBe(hookError)
+
+    expect(onToolCallEnd).toHaveBeenCalledTimes(1)
+    expect(onToolCallError).not.toHaveBeenCalled()
   })
 
   it('logs tool execution success with tool name and input preview', async () => {

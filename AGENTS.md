@@ -112,6 +112,12 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
 
 - **TypeScript style:** no semicolons, single quotes, trailing commas. Arrow
   functions over `function` declarations. No `any` (and avoid `unknown`) in new code.
+- **TypeScript 7:** `tsc` is TypeScript 7 (the native Go compiler, root
+  devDependency `@typescript/native`). It has no JS API, so the `typescript`
+  package is aliased to `@typescript/typescript6` for tools that import it
+  (typescript-eslint, Next.js, tsup). Type-check with `tsc`, never `tsc6`.
+  Don't "fix" the alias back to a plain `typescript` version, and don't add
+  `baseUrl` or `ignoreDeprecations` to a tsconfig: TS 7 rejects both.
 - **Comments:** default to none. Add one only for a non-obvious WHY (a hidden
   constraint, a subtle invariant, a workaround). Never explain WHAT the code does.
   Never remove existing comments unless asked.

@@ -10,7 +10,7 @@ Internal staff admin console (Next.js 16 App Router, port 3500). Talks to `gp-ap
 
 ```bash
 npm run dev              # next dev -p 3500 --turbopack
-npm run build            # next build
+npm run build            # next typegen + tsc --noEmit (TS 7) + next build
 npm run lint             # eslint .
 npm run format           # prettier --write "**/*.{ts,tsx,md}" (mutates files — stage first)
 npm run test             # vitest run

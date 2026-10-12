@@ -122,6 +122,7 @@ export class DoorKnockingController {
     input: CreateDoorKnockingTurf,
   ) {
     await this.contacts.assertProAccess(organization)
+    const { proposalKey, ...turf } = input
     return this.createService.create(
       organization,
       campaign
@@ -130,8 +131,9 @@ export class DoorKnockingController {
             organizationSlug: campaign.organizationSlug,
           }
         : { campaignId: null, organizationSlug: organization.slug },
-      input,
+      turf,
       user.id,
+      proposalKey !== undefined ? { proposalKey } : {},
     )
   }
 

@@ -10,9 +10,13 @@ import {
   type PendingFeedbackReference,
 } from '@goodparty_org/contracts'
 import {
+  Alert,
+  AlertDescription,
   ArrowLeftIcon,
   Button,
+  CircleAlertIcon,
   EmptyState,
+  LoaderCircleIcon,
   Spinner,
   Textarea,
 } from '@styleguide'
@@ -117,7 +121,14 @@ const PendingMemo = ({
 
   if (memo.extractionStatus === 'pending') {
     return (
-      <p className="text-sm text-muted-foreground">{copy.stillTranscribing}</p>
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <LoaderCircleIcon
+          size={16}
+          aria-hidden="true"
+          className="shrink-0 animate-spin"
+        />
+        {copy.stillTranscribing}
+      </p>
     )
   }
 
@@ -187,7 +198,12 @@ const PendingMemo = ({
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">
+      <p className="flex items-start gap-2 text-sm text-foreground">
+        <CircleAlertIcon
+          size={16}
+          aria-hidden="true"
+          className="mt-0.5 shrink-0 text-destructive"
+        />
         {memo.transcript === null ? copy.couldNotHear : copy.couldNotRead}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -246,11 +262,11 @@ const PendingMemoList = ({
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <Link
             href={back?.href ?? `/dashboard/issue-capture/${outreachId}`}
             aria-label={back?.label ?? copy.back}
-            className="text-foreground"
+            className="-ml-2 inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground hover:bg-muted"
           >
             <ArrowLeftIcon size={20} />
           </Link>
@@ -262,9 +278,9 @@ const PendingMemoList = ({
       </header>
       {memos === undefined ? (
         pendingQuery.isError ? (
-          <p role="alert" className="text-sm text-destructive">
-            {copy.loadFailed}
-          </p>
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{copy.loadFailed}</AlertDescription>
+          </Alert>
         ) : (
           <div className="flex items-center justify-center gap-3 py-20">
             <Spinner />
@@ -286,9 +302,7 @@ const PendingMemoList = ({
                   : copy.recordedBy(memo.actorName)}
               </p>
               {memo.transcript !== null && (
-                <p className="text-sm italic text-foreground">
-                  {memo.transcript}
-                </p>
+                <p className="text-sm text-foreground">{memo.transcript}</p>
               )}
               {/* Polite and always there, so a note that finishes
                   transcribing while the page is open is announced as ready

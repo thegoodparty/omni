@@ -2,9 +2,43 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import { TurfPanel } from './TurfPanel'
 import type { TeamOption } from '../useTeamOptions'
 import type { TurfDraft } from '../turfDrafts'
+
+// A saved turf's card carries the drawer's assignee menu, which reads the
+// organization and its roster.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1' }),
+}))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    displaySnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+  }),
+}))
+
+// A turf the campaign already holds, as `GET /campaigns/:anchorId` returns it.
+const savedTurf = (id: number, name: string) => ({
+  id,
+  outreachId: 900 + id,
+  voterFileFilterId: 4,
+  name,
+  color: '#16a34a',
+  geoPoly: { type: 'Polygon' as const, coordinates: [] },
+  stopCount: 3,
+  doorCount: 4,
+  knockedDoorCount: 0,
+  peopleCount: 9,
+  loggedCount: 0,
+  routeSeconds: null,
+  completed: false,
+  archivedAt: null,
+  createdAt: new Date('2026-08-10T00:00:00Z'),
+  updatedAt: new Date('2026-08-10T00:00:00Z'),
+})
 
 const draft = (over: Partial<TurfDraft> = {}): TurfDraft => ({
   clientId: 'draft-1',
@@ -39,7 +73,7 @@ const baseProps = {
   pendingAssigneeId: null,
   drawColor: '#2563eb',
   draftStats: new Map([['draft-1', stats(6, 4)]]),
-  savedTurfNames: [],
+  savedTurfs: [],
   team: TEAM,
   onSelectDraft: vi.fn(),
   onStartNewTurf: vi.fn(),
@@ -216,6 +250,51 @@ describe('TurfPanel', () => {
     // rather than putting the card straight back.
     expect(
       screen.getByRole('button', { name: /Draw the first turf/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('skips the empty state when the campaign already has turfs', () => {
+    // Opened from the campaign's drawer: nothing has been drawn this
+    // session, but the panel is not empty, so it opens on the turf being
+    // cut with the campaign's turfs under it.
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: { members: [], pendingInvites: [] },
+    })
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[]}
+        active={null}
+        savedTurfs={[savedTurf(1, 'Downtown')]}
+      />,
+    )
+
+    expect(screen.queryByText('No turfs yet')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add turf' })).toBeInTheDocument()
+    expect(screen.getByText('Downtown')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete Downtown' })).toBeNull()
+  })
+
+  it('lists the campaign’s saved turfs without a way to delete them', () => {
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: { members: [], pendingInvites: [] },
+    })
+    render(
+      <TurfPanel
+        {...baseProps}
+        savedTurfs={[savedTurf(1, 'Downtown'), savedTurf(2, 'Ward 4')]}
+      />,
+    )
+
+    expect(screen.getByText('Downtown')).toBeInTheDocument()
+    expect(screen.getByText('Ward 4')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete Downtown' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete Ward 4' })).toBeNull()
+    // The drafts beside them keep theirs.
+    expect(
+      screen.getByRole('button', { name: 'Delete Turf 1' }),
     ).toBeInTheDocument()
   })
 
@@ -464,14 +543,14 @@ describe('TurfPanel', () => {
   })
 
   it('counts the turfs this campaign already holds as names taken', async () => {
-    // Entered through "Draw more turfs", the campaign's saved turfs are not
+    // Entered through "Add turf", the campaign's saved turfs are not
     // on this panel and have no card to redden — so the collision is
     // reported on the draft, which is the half that can still be changed.
     const onSave = vi.fn()
     const { rerender } = render(
       <TurfPanel
         {...baseProps}
-        savedTurfNames={['Downtown', 'Ward 4']}
+        savedTurfs={[savedTurf(1, 'Downtown'), savedTurf(2, 'Ward 4')]}
         onSave={onSave}
       />,
     )
@@ -485,7 +564,7 @@ describe('TurfPanel', () => {
       <TurfPanel
         {...baseProps}
         drafts={[draft({ name: 'Downtown' })]}
-        savedTurfNames={['Downtown', 'Ward 4']}
+        savedTurfs={[savedTurf(1, 'Downtown'), savedTurf(2, 'Ward 4')]}
         onSave={onSave}
       />,
     )

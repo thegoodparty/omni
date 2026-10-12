@@ -72,7 +72,7 @@ const awaitingPinState: ComplianceStateOutput = {
   peerlyVerificationId: 'cv-1',
   peerlyCvStatus: 'APPROVED',
   pinDelivery: { method: 'email', displayString: 'j•••@example.com' },
-  internalTestingApprovedAt: null,
+  internalTestingAt: null,
   hasComplianceRecord: true,
   committeeName: 'Friends of John Doe',
   filingUrl: null,
@@ -811,7 +811,7 @@ describe('CvPinStatus', () => {
       const approvedState: ComplianceStateOutput = {
         ...noRecordState,
         stage: 'tcr_approved',
-        internalTestingApprovedAt: '2026-07-24T00:00:00Z',
+        internalTestingAt: '2026-07-24T00:00:00Z',
         hasComplianceRecord: true,
       }
       mockGetCampaignComplianceState
@@ -838,7 +838,7 @@ describe('CvPinStatus', () => {
       const approvedState: ComplianceStateOutput = {
         ...noRecordState,
         stage: 'tcr_approved',
-        internalTestingApprovedAt: '2026-07-24T00:00:00Z',
+        internalTestingAt: '2026-07-24T00:00:00Z',
         hasComplianceRecord: true,
       }
       mockGetCampaignComplianceState

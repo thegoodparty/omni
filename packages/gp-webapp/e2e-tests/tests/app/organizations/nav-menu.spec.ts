@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test'
 import {
+  NEXT_TASK_EXPERIENCE_FLAG,
+  setFlagOverrides,
+} from 'src/helpers/campaignStory.helper'
+import {
   setupElectedOfficeUser,
   switchOrganization,
   getSelectedOrgName,
@@ -13,6 +17,8 @@ import {
 test.describe('Navigation Menu by Org Type', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    // The menu these specs check is the one beside the Campaign Manager home.
+    await setFlagOverrides(page, { [NEXT_TASK_EXPERIENCE_FLAG]: 'off' })
   })
 
   test('campaign org shows campaign menu items', async ({ page }) => {

@@ -297,6 +297,57 @@ describe('captureArm', () => {
     ])
   })
 
+  // ON A SWEEP THE ARM WALKS THE COUNT THE BUDGET STEP NAMED, which both arms
+  // were handed, and never its own list's: on the base arm that list is the
+  // base ref's, and two arms walking different counts pay for runs that pair
+  // with nothing.
+  describe("a background list's own attempts", () => {
+    const walkBackground = async (
+      over: Partial<ArmEnv>,
+      listAttempts: number | undefined,
+    ) => {
+      const log: ArmCaseRequest[] = []
+      const d = await deps({
+        runCase: echoRunner(log),
+        loadCases: () => caseList(2, { attemptsPerCase: listAttempts }),
+        config: oneAttempt,
+      })
+      const manifest = await captureArm(
+        d,
+        env({ agentIds: ['meeting_briefing'], ...over }),
+        [BACKGROUND],
+      )
+      return { log, manifest }
+    }
+    const sweep = (named?: number): Partial<ArmEnv> => ({
+      backgroundBudget: { attemptsPerCase: 1 },
+      backgroundAgentAttempts: new Map(
+        named === undefined ? [] : [['meeting_briefing', named]],
+      ),
+    })
+
+    it('dispatches the named count on a sweep', async () => {
+      const { log, manifest } = await walkBackground(sweep(3), undefined)
+      expect(log).toHaveLength(6)
+      expect(manifest.agents[0]?.attempts).toBe(3)
+    })
+
+    it("ignores the list's own count when the sweep names another", async () => {
+      const { log } = await walkBackground(sweep(3), 2)
+      expect(log).toHaveLength(6)
+    })
+
+    it("ignores the list's own count when the sweep names none", async () => {
+      const { log } = await walkBackground(sweep(), 3)
+      expect(log).toHaveLength(2)
+    })
+
+    it("walks the list's own count on a local run", async () => {
+      const { log } = await walkBackground({}, 3)
+      expect(log).toHaveLength(6)
+    })
+  })
+
   it('stamps the capture window the arm gap is measured from', async () => {
     // `captureArm` reads the clock once at the start and once at the end, so
     // the first call is the window's open and every later one its close.

@@ -1,10 +1,10 @@
 import { z } from 'zod'
+import { CommitteeNameSchema } from './CommitteeName.schema'
 
-// The committee name feeds the SMS "Paid for by" footer and the
-// checkSmsStandards paid_for_by check, so a whitespace-only value is
-// invalid — same rule as the create path (tcrComplianceBase.schema.ts).
+// Same rule as the create path (tcrComplianceBase.schema.ts): the rename
+// lands in the SMS "Paid for by" footer and checkSmsStandards too.
 export const UpdateCommitteeNameSchema = z.object({
-  committeeName: z.string().trim().min(1, 'A committee name is required'),
+  committeeName: CommitteeNameSchema,
 })
 
 export type UpdateCommitteeNameInput = z.infer<typeof UpdateCommitteeNameSchema>

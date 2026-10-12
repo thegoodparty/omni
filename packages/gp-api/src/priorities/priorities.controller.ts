@@ -28,7 +28,7 @@ import {
 } from './schemas/priority.schema'
 import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
 import { PrioritiesService } from './services/priorities.service'
-import { priorityToApi } from './util/priority.util'
+import { currentStepOf, priorityToApi } from './util/priority.util'
 
 @Controller('priorities')
 @UsePipes(ZodValidationPipe)
@@ -59,7 +59,7 @@ export class PrioritiesController {
     }
     return {
       status: parsePriorityStatus(priority.status),
-      currentStep: priority.currentStep,
+      currentStep: currentStepOf(priority),
       nextAction: priority.nextAction,
     }
   }
@@ -89,6 +89,7 @@ export class PrioritiesController {
       electedOffice.id,
       { title: body.title, description: body.description },
       PrioritySource.user_stated,
+      'priorities_page',
     )
     return priorityToApi(created)
   }
@@ -116,7 +117,11 @@ export class PrioritiesController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Param() { id }: PriorityIdParamDto,
   ) {
-    const archived = await this.prioritiesService.archive(id, electedOffice.id)
+    const archived = await this.prioritiesService.archive(
+      id,
+      electedOffice.id,
+      'priorities_page',
+    )
     if (!archived) {
       throw new NotFoundException('Priority not found')
     }

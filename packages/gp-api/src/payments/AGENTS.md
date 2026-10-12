@@ -365,6 +365,25 @@ purchase since the `paid` gate landed (2026-06-11) sat deferred forever. Since
 2026-09-22 one-time sessions no longer offer `us_bank_account` at all, so this
 path is a safety net for sessions minted before then, not a product feature.
 
+A Win SMS hold-billing checkout (behind `WIN_SMS_HOLD_BILLING`) also completes
+`unpaid` — the manual-capture hold authorizes funds without capturing them —
+but unlike ACH it is ready to fulfill NOW. `completeCheckoutSession` re-reads
+the live PaymentIntent and, when it is `requires_capture` (a Win TEXT session
+under the flag), fulfills instead of deferring; capture is a later slice. The
+check is flag-gated and narrowed to `purchaseType === TEXT`, so every other
+`unpaid` session still defers and the path is inert when the flag is off.
+
+A promotion code that covers the whole order completes checkout with
+`payment_status: no_payment_required` and no PaymentIntent. Stripe's own
+fulfillment rule is "unless `unpaid`", so `completeCheckoutSession` runs the
+handler right away. The `postPurchaseCompletedAt` marker needs a
+PaymentIntent, so for these sessions the handlers' own claims (the
+TEXT/SERVE_TEXT `pending_payment → pending` CAS, the poll create's reconcile)
+are the only guard against the client-vs-webhook race. Before 2026-10-06 the
+gate required `paid`, so a fully discounted text was deferred forever: the
+candidate saw the success screen, the draft stayed `pending_payment`, and no
+async event ever came to finish it.
+
 ## Serve SMS fulfillment (SERVE_TEXT)
 
 `SERVE_TEXT` is the Serve twin of the TEXT flow above, for an elected official

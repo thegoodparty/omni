@@ -29,6 +29,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 // timer/cookie mechanics — those are already covered by
 // useContactsDownload.test.ts. Other describe blocks in this file never
 // click Download, so this has no effect on them.
+vi.mock('../map/ListMapSection', () => ({
+  default: () => <div data-testid="list-map-section" />,
+}))
 vi.mock('../shared/useContactsDownload', () => ({
   useContactsDownload: vi.fn(),
 }))
@@ -291,6 +294,34 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
     expect(screen.getByText('Polls')).toBeInTheDocument()
+  })
+
+  it('shows a Pro candidate the list map', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByTestId('list-map-section')).toBeInTheDocument()
+  })
+
+  // A deep link opens the sheet without the Details button's upsell, and the
+  // map's GET /v1/contacts is Pro-gated server-side.
+  it('shows a non-Pro candidate no list map', async () => {
+    setContext({ canUseProFeatures: false })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Voter list details' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('list-map-section')).not.toBeInTheDocument()
   })
 
   it('reads "Constituent list details" in Serve mode', async () => {

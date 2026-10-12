@@ -10,9 +10,9 @@ const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
  * alert rule.
  *
  * WHY THEY ARE ENUMERATED IN ONE PLACE, and why the enumeration is checked. A
- * Loki-backed rule re-reads its whole fetch window on every evaluation, and
- * only the stream selector and that window decide the bytes — so a rule's daily
- * read volume, as a multiple of what we ingest, is exactly `window ÷ interval`.
+ * Loki-backed rule re-reads its range vectors on every evaluation, and only the
+ * stream selector and those vectors decide the bytes, so a rule's daily read
+ * volume, as a multiple of the stream, is the sum of its vectors ÷ interval.
  * The plan includes log queries up to 100x ingest, and that allowance is
  * shared: by every rule, by both environments, and by whatever a human types
  * into Explore. A limit that is only ever applied one rule at a time therefore

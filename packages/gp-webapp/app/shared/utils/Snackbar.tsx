@@ -6,6 +6,8 @@ import { Toaster, toast } from '@styleguide'
 interface SnackbarState {
   autoHideDuration?: number
   description?: string
+  // One follow-up the message leads to, shown as a button on the toast.
+  action?: { label: string; onClick: () => void }
 }
 
 // These routes pin a FooterChatBar-style bar (fixed inset-x-0 bottom-0,
@@ -20,6 +22,9 @@ const FOOTER_CHAT_BAR_PATH_PREFIXES = [
   '/dashboard/community-issues',
   '/dashboard/ordinances',
 ]
+// The Campaign Manager's chat dock sits at the bottom of these, matched
+// exactly: a /dashboard prefix would take in every page.
+const FOOTER_CHAT_BAR_EXACT_PATHS = ['/dashboard', '/dashboard/campaign-plan']
 const CRM_ASSISTANT_BAR_CLEARANCE = '6rem'
 
 interface SnackbarContextValue {
@@ -36,15 +41,17 @@ const SnackbarContext = createContext<SnackbarContextValue | null>(null)
 
 export const SnackbarProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname()
-  const hasFooterChatBar = FOOTER_CHAT_BAR_PATH_PREFIXES.some(
-    (prefix) => pathname?.startsWith(prefix) ?? false,
-  )
+  const hasFooterChatBar =
+    FOOTER_CHAT_BAR_PATH_PREFIXES.some(
+      (prefix) => pathname?.startsWith(prefix) ?? false,
+    ) || FOOTER_CHAT_BAR_EXACT_PATHS.includes(pathname ?? '')
 
   const displaySnackbar = useCallback(
     (message: string, isError = false, optionalProps: SnackbarState = {}) => {
       const options = {
         duration: optionalProps.autoHideDuration ?? 4000,
         description: optionalProps.description,
+        action: optionalProps.action,
       }
       if (isError) {
         toast.error(message, options)

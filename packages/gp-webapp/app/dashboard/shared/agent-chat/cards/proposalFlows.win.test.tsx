@@ -31,6 +31,28 @@ vi.mock('app/dashboard/outreach/v2/sms/SmsFlow', () => ({
   },
 }))
 
+const phoneBankingFlow = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}))
+vi.mock('app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow', () => ({
+  SERVE_PHONE_BANKING_SURFACE: { isServe: true },
+  PhoneBankingFlow: (props: Record<string, unknown>) => {
+    phoneBankingFlow.props = props
+    return <div data-testid="phone-banking-flow" />
+  },
+}))
+
+const socialFlow = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}))
+vi.mock('app/dashboard/outreach/v2/social/SocialFlow', () => ({
+  SERVE_SOCIAL_SURFACE: { isServe: true },
+  SocialFlow: (props: Record<string, unknown>) => {
+    socialFlow.props = props
+    return <div data-testid="social-flow" />
+  },
+}))
+
 // Off, so a Win card that still opened its flow did not read it.
 vi.mock('@shared/experiments/serveSmsFlag', () => ({
   useServeSmsFlag: () => ({ ready: true, enabled: false }),
@@ -103,23 +125,23 @@ const card: Proposal = {
   deepLinkOnly: false,
 }
 
-const Opener = () => {
+const Opener = ({ proposal }: { proposal: Proposal }) => {
   const flows = useProposalFlows()
   return (
     <button
       type="button"
       disabled={!flows?.textResolved}
-      onClick={() => flows?.open(card)}
+      onClick={() => flows?.open(proposal)}
     >
       Start the text
     </button>
   )
 }
 
-const openCard = async () => {
+const openCard = async (proposal: Proposal = card) => {
   render(
     <ProposalFlowsProvider mode="win">
-      <Opener />
+      <Opener proposal={proposal} />
     </ProposalFlowsProvider>,
   )
   const button = await screen.findByRole('button', { name: 'Start the text' })
@@ -224,5 +246,86 @@ describe('a Campaign Manager text card', () => {
     await act(() => failed())
 
     await waitFor(() => expect(screen.queryByTestId('sms-flow')).toBeNull())
+  })
+})
+
+describe('a Campaign Manager card for another channel', () => {
+  beforeEach(() => {
+    phoneBankingFlow.props = null
+    socialFlow.props = null
+    campaign.current = { id: 9, isPro: false }
+    tcr.current = null
+    vi.mocked(trackEvent).mockClear()
+    vi.mocked(router.push!).mockClear()
+  })
+
+  const calls: Proposal = { ...card, channel: 'phoneBanking' }
+  const walk: Proposal = { ...card, channel: 'doorKnocking', savedFilterId: 77 }
+  const post: Proposal = { ...card, channel: 'social' }
+
+  it.each([
+    ['phone banking', calls, 'phone-bank', 'phoneBanking'],
+    ['door knocking', walk, 'door', 'doorKnocking'],
+  ])(
+    'takes a free campaign to the %s Pro pitch',
+    async (_, proposal, pitch, type) => {
+      await openCard(proposal)
+
+      expect(await screen.findByTestId('pro-pitch')).toHaveTextContent(
+        `campaign_manager:${pitch}`,
+      )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.LockedItemClicked,
+        { type },
+      )
+      expect(screen.queryByTestId('phone-banking-flow')).toBeNull()
+      expect(router.push).not.toHaveBeenCalled()
+    },
+  )
+
+  it("opens Win's phone banking flow with the card's key alone", async () => {
+    campaign.current = { id: 9, isPro: true }
+
+    await openCard(calls)
+
+    expect(await screen.findByTestId('phone-banking-flow')).toBeInTheDocument()
+    const props = phoneBankingFlow.props
+    expect(props?.surface).toBeUndefined()
+    expect(props?.initialScript).toBe(MESSAGE)
+    expect(props?.initialName).toBe('Ward 3 likely voters')
+    expect(props?.source).toBe('campaign_manager')
+    expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
+  })
+
+  it("opens Win's social flow for a free campaign, since a post is free", async () => {
+    await openCard(post)
+
+    expect(await screen.findByTestId('social-flow')).toBeInTheDocument()
+    const props = socialFlow.props
+    expect(props?.surface).toBeUndefined()
+    expect(props?.prefill).toEqual({
+      draftText: MESSAGE,
+      proposalLink: { proposalKey: PROPOSAL_KEY },
+    })
+    expect(props?.source).toBe('campaign_manager')
+    expect(screen.queryByTestId('pro-pitch')).toBeNull()
+  })
+
+  it("starts Win's door knocking on the card's list and key", async () => {
+    campaign.current = { id: 9, isPro: true }
+
+    await openCard(walk)
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1))
+    const url = new URL(
+      vi.mocked(router.push!).mock.calls[0]?.[0] as string,
+      'https://app.test',
+    )
+    expect(url.pathname).toBe('/dashboard/door-knocking')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      create: '1',
+      listId: '77',
+      proposalKey: PROPOSAL_KEY,
+    })
   })
 })

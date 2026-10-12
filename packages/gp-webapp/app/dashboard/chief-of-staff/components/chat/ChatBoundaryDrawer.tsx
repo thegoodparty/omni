@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { ShowListMap } from '@goodparty_org/contracts'
 import { shapesFromSaved } from 'app/dashboard/shared/listShapes'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
+import type { CardMode } from 'app/dashboard/shared/agent-chat/cards/proposalPresentation'
 import { useSavedList } from '../../../contacts/crm/map/useSavedList'
 import { useSaveListBoundary } from '../../../contacts/crm/map/useSaveListBoundary'
 import ListBoundaryOverlay from '../../../contacts/crm/map/ListBoundaryOverlay'
@@ -18,10 +19,12 @@ export default function ChatBoundaryDrawer({
   list,
   onClose,
   onSaved,
+  mode = 'serve',
 }: {
   list: ShowListMap
   onClose: () => void
   onSaved: (result: { cleared: boolean }) => void
+  mode?: CardMode
 }) {
   const { list: saved } = useSavedList(list.listId)
   // In practice the row is already cached — the button that opens this only
@@ -29,7 +32,7 @@ export default function ChatBoundaryDrawer({
   // useState at mount and never again, so mounting it before the row exists
   // is unrecoverable rather than merely early. Cheap to refuse outright
   // instead of depending on the caller's gate staying correct.
-  const labels = getContactsLabels(false)
+  const labels = getContactsLabels(mode === 'win')
   const savedShapes = useMemo(
     () => shapesFromSaved(saved?.geoPoly, saved?.geoPolyLabels),
     [saved?.geoPoly, saved?.geoPolyLabels],

@@ -7,6 +7,7 @@ import type {
   RobocallAuthorizeStatus,
   RobocallScriptDraftRequest,
 } from '@goodparty_org/contracts'
+import { ROBOCALL_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { http, HttpResponse } from 'msw'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { outreachAudienceListsKey } from '../audience/useOutreachAudience'
@@ -1017,7 +1018,9 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('drops the saved recording when the tone changes', async () => {
+  // The check listens to the recording, not the script, so a new draft
+  // keeps a recording that passed and only says the two no longer match.
+  it('keeps the saved recording when the tone changes, and offers a re-record', async () => {
     await gotoCompose()
     mockAudioUpload()
 
@@ -1029,16 +1032,108 @@ describe('RobocallFlow', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
+    expect(
+      screen.queryByText(/Your script changed after you recorded/),
+    ).not.toBeInTheDocument()
 
-    // Switching tone re-drafts the script the clip was read against, so the
-    // recording is dropped and Continue locks until the candidate re-records.
     mockDraft('A punchier take for the urgent tone.')
     await userEvent.click(screen.getByText('Urgent'))
 
     expect(
-      await screen.findByRole('button', { name: 'Start recording' }),
+      await screen.findByText(/Your script changed after you recorded/),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByText('Recording saved')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Start recording' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // Same guard as the tone-change case above, exercised through the AI
+  // button (Regenerate here, since the script is still an untouched draft)
+  // instead of a tone pill.
+  it('keeps the saved recording when the AI rewrites the script', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Recording saved')
+    expect(
+      screen.queryByText(/Your script changed after you recorded/),
+    ).not.toBeInTheDocument()
+
+    mockDraft('A fresh take after the recording.')
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+
+    expect(
+      await screen.findByText(/Your script changed after you recorded/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Recording saved')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Start recording' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The script is noted when recording starts, not when the clip is saved,
+  // so a redraft while the clip is still an unsaved preview is caught too.
+  it('notes a script change made before the recording is saved', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await screen.findByText('Preview your recording')
+    expect(
+      screen.queryByText(/Your script changed after you recorded/),
+    ).not.toBeInTheDocument()
+
+    mockDraft('A fresh take before the recording is saved.')
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+
+    // Still unsaved (preview) at this point, and the note already shows.
+    expect(
+      await screen.findByText(/Your script changed after you recorded/),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Recording saved')
+
+    expect(
+      screen.getByText(/Your script changed after you recorded/),
+    ).toBeInTheDocument()
+  })
+
+  // An uploaded file never passes through recording, so the script is
+  // noted when the file arrives instead.
+  it('notes a script change made after a recording is uploaded', async () => {
+    await gotoCompose()
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error('no file input')
+    await userEvent.upload(
+      input,
+      new File(['x'], 'sarah-chen.webm', { type: 'audio/webm' }),
+    )
+    await screen.findByText('Preview your recording')
+    expect(
+      screen.queryByText(/Your script changed after you recorded/),
+    ).not.toBeInTheDocument()
+
+    mockDraft('A fresh take after the upload.')
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+
+    expect(
+      await screen.findByText(/Your script changed after you recorded/),
+    ).toBeInTheDocument()
   })
 
   it('re-drafts when a different tone is chosen', async () => {
@@ -1086,6 +1181,57 @@ describe('RobocallFlow', () => {
     expect(
       screen.queryByText(/We couldn't draft your script just now/),
     ).not.toBeInTheDocument()
+  })
+
+  // Try again on a failed Improve must repeat the Improve, not fall back to
+  // a fresh (regenerate) draft that would throw away what the candidate typed.
+  it('Try again repeats an Improve that failed', async () => {
+    const bodies: RobocallScriptDraftRequest[] = []
+    let draftCalls = 0
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      bodies.push(body)
+      draftCalls += 1
+      if (body.currentDraft && draftCalls === 2) {
+        return {
+          status: 502,
+          data: { message: 'Robocall draft generation failed' },
+        }
+      }
+      return {
+        status: 200,
+        data: {
+          draft: body.currentDraft ? 'An improved take.' : 'A grounded script.',
+        },
+      }
+    })
+    await gotoComposeRaw()
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        'A grounded script.'.length + 1,
+        ' Vote early.',
+      )
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Improve with AI' }),
+    )
+
+    // The Improve call failed -> error card with its own Try again.
+    await screen.findByRole('button', { name: 'Try again' })
+    expect(bodies).toHaveLength(2)
+    const typedDraft = bodies[1]?.currentDraft
+    expect(typedDraft).toMatch(/Vote early\./)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    // The retry carries the SAME currentDraft (their words), not a fresh,
+    // purpose-only draft request.
+    await waitFor(() => expect(bodies).toHaveLength(3))
+    expect(bodies[2]?.currentDraft).toBe(typedDraft)
+    await waitFor(() => expect(scriptText()).toMatch(/An improved take/))
   })
 
   // Typing is the candidate taking over from the failed draft, as in the
@@ -1163,6 +1309,54 @@ describe('RobocallFlow', () => {
     expect(scriptText()).toMatch(
       /^Hi, this is my own script\.\n\nPaid for by .+, 202-555-0147\.$/,
     )
+  })
+
+  // The field refuses a keystroke past the limit, so the candidate has to be
+  // warned before it happens and told plainly once it has. Filler is typed
+  // into the free body text above the locked disclosure, never inside it.
+  it('warns as the field nears its length limit and says when it reaches it', async () => {
+    await gotoCompose('Write my own script')
+    await waitFor(() =>
+      expect(scriptText()).toMatch(/^\n\nPaid for by .+, 202-555-0147\.$/),
+    )
+
+    // Below 90%: neither message shows yet.
+    expect(screen.queryByText(/characters left/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/reached the .+-character limit/),
+    ).not.toBeInTheDocument()
+
+    const baseLength = scriptText().length
+    const warnAt = Math.ceil(ROBOCALL_SCRIPT_MAX_LENGTH * 0.9)
+
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        1,
+        'a'.repeat(warnAt - baseLength),
+      )
+    })
+    expect(scriptText()).toHaveLength(warnAt)
+    expect(
+      screen.getByText(
+        `${(ROBOCALL_SCRIPT_MAX_LENGTH - warnAt).toLocaleString()} characters left`,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/reached the .+-character limit/),
+    ).not.toBeInTheDocument()
+
+    act(() => {
+      scriptEditor().commands.insertContentAt(
+        1,
+        'a'.repeat(ROBOCALL_SCRIPT_MAX_LENGTH - warnAt),
+      )
+    })
+    expect(scriptText()).toHaveLength(ROBOCALL_SCRIPT_MAX_LENGTH)
+    expect(
+      screen.getByText(
+        `You've reached the ${ROBOCALL_SCRIPT_MAX_LENGTH.toLocaleString()}-character limit.`,
+      ),
+    ).toBeInTheDocument()
   })
 
   // The app writes the disclosure and closes the script on it, the number

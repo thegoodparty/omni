@@ -119,9 +119,7 @@ describe('formatPlan', () => {
   // tell a correct line from one reporting the global list by accident.
   it('reports coverage for the registry it was given', () => {
     const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS), AGENTS)
-    expect(plan).toContain(
-      'coverage: 1 of 2 agents wired (1 on placeholder inputs, 1 blocked)',
-    )
+    expect(plan).toContain('coverage: 1 of 2 agents wired (1 blocked)')
   })
 
   // race_opponent_summary.json is the one case list not marked placeholder.
@@ -168,7 +166,7 @@ describe('run', () => {
 
   it('threads a caller-supplied registry all the way to the coverage line', () => {
     expect(run(['--agents=all', '--dry-run'], AGENTS).plan).toContain(
-      'coverage: 1 of 2 agents wired (1 on placeholder inputs, 1 blocked)',
+      'coverage: 1 of 2 agents wired (1 blocked)',
     )
   })
 
@@ -369,7 +367,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run', '--reference=x'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 4800 (base-unread)')
+    expect(plan).toContain('cents: 6550 (base-unread)')
   })
 
   it('prices from this branch alone when not asked for a ref', () => {
@@ -377,7 +375,7 @@ describe('reference pricing', () => {
       ['--agents=race_opponent_summary', '--dry-run'],
       [agent],
     ).plan
-    expect(plan).toContain('cents: 600 (measured)')
+    expect(plan).toContain('cents: 900 (measured)')
   })
 
   it('prices chat at the largest attempts of every arm', () => {

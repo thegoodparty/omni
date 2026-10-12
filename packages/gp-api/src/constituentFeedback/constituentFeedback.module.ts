@@ -8,6 +8,7 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { ConstituentFeedbackController } from './constituentFeedback.controller'
 import { ConstituentFeedbackService } from './services/constituentFeedback.service'
 import { ConstituentFeedbackExtractionService } from './services/constituentFeedbackExtraction.service'
+import { FeedbackNotesExportService } from './services/feedbackNotesExport.service'
 import { FeedbackReportService } from './services/feedbackReport.service'
 import { FeedbackSeedService } from './services/feedbackSeed.service'
 import { FeedbackSynthesisService } from './services/feedbackSynthesis.service'
@@ -36,6 +37,7 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
   providers: [
     ConstituentFeedbackService,
     ConstituentFeedbackExtractionService,
+    FeedbackNotesExportService,
     FeedbackReportService,
     FeedbackSeedService,
     FeedbackSynthesisService,

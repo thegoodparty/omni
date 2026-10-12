@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { DoorKnockingPackRequest } from '@goodparty_org/contracts'
 import { DatabricksVoterPackService } from '../databricks/databricksVoterPack.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
+import type { PeopleDataset } from './peopleDataset.service'
 
 @Injectable()
 export class VoterPackService {
@@ -20,12 +21,14 @@ export class VoterPackService {
   // for a socket that is already closed.
   async build(
     request: DoorKnockingPackRequest,
+    dataset: PeopleDataset,
     signal?: AbortSignal,
   ): Promise<Buffer> {
     return this.readLog.measure({
       op: 'dk-pack',
       districtId: request.districtId,
-      read: () => this.databricksPack.build(request, signal),
+      dataset,
+      read: () => this.databricksPack.build(request, dataset, signal),
     })
   }
 }

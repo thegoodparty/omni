@@ -58,6 +58,7 @@ export default async function Page({
         description={priority.description}
         initialStatus={status}
         initialNextAction={statusResult?.data?.nextAction ?? null}
+        initialCurrentStep={statusResult?.data?.currentStep ?? null}
       />
     </DashboardLayout>
   )

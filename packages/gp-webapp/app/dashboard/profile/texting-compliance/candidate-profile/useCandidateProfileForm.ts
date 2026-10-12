@@ -51,6 +51,10 @@ interface UseCandidateProfileFormArgs {
   // surface, so firing the funnel event on every visit there would inflate the
   // funnel with non-funnel traffic. Defaults to off.
   trackViewEvent?: boolean
+  // Unsubmitted bio + priorities to seed in place of the saved website's, so
+  // a candidate returning to campaign verification keeps what they typed.
+  // Read once, at seeding.
+  draft?: { bio: string; issues: WebsiteIssue[] }
 }
 
 /**
@@ -63,6 +67,7 @@ interface UseCandidateProfileFormArgs {
 export const useCandidateProfileForm = ({
   onSaved,
   trackViewEvent = false,
+  draft,
 }: UseCandidateProfileFormArgs): CandidateProfileForm => {
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
@@ -105,15 +110,15 @@ export const useCandidateProfileForm = ({
     // empty seed can't blank a stored bio: the 200-char validator blocks
     // submit, and saveAboutFields refuses to write when its own read fails.
     if (seededRef.current || (!isSuccess && !isWebsiteError)) return
-    const initialBioValue = website?.content?.about?.bio ?? ''
+    const initialBioValue = draft?.bio ?? website?.content?.about?.bio ?? ''
     setBio(initialBioValue)
     // Seed length up-front so Submit doesn't show a false "add your bio" error
     // before the dynamically-imported editor emits its first onTextLengthChange.
     setBioPlainLength(getBioPlainLength(initialBioValue))
     setInitialBio(initialBioValue)
-    setIssues(normalizeIssues(website?.content?.about?.issues))
+    setIssues(normalizeIssues(draft?.issues ?? website?.content?.about?.issues))
     seededRef.current = true
-  }, [isSuccess, isWebsiteError, website])
+  }, [isSuccess, isWebsiteError, website, draft])
 
   // Funnel "viewed" event for the agentic compliance flow (ENG-10294). The
   // matching "submitted" signal is the existing SubmitSuccess event below.

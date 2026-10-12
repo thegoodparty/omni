@@ -56,6 +56,7 @@ const createPollAnalysisCompleteMessage = (data: {
   pollId: string
   totalResponses?: number
   responsesLocation?: string
+  promptSource?: 'hosted' | 'fallback'
   issues?: Array<{
     pollId: string
     rank: number
@@ -74,6 +75,7 @@ const createPollAnalysisCompleteMessage = (data: {
       totalResponses: data.totalResponses ?? 10,
       responsesLocation:
         data.responsesLocation ?? 'polls/poll-1/all_cluster_analysis.json',
+      ...(data.promptSource ? { promptSource: data.promptSource } : {}),
       issues: data.issues ?? [
         {
           pollId: data.pollId,
@@ -131,6 +133,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
     resolveProAccess: ReturnType<typeof vi.fn>
+    resolvePeopleDataset: ReturnType<typeof vi.fn>
   }
   let pollIssuesService: {
     model: { deleteMany: ReturnType<typeof vi.fn> }
@@ -147,6 +150,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
   }
   let usersService: { findUnique: ReturnType<typeof vi.fn> }
   let hubspotSingleSend: { sendSingleSend: ReturnType<typeof vi.fn> }
+  let logger: ReturnType<typeof createMockLogger>
 
   const pollId = 'poll-123'
   const electedOfficeId = 'office-1'
@@ -198,6 +202,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
       resolveProAccess: vi.fn().mockResolvedValue(true),
+      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -237,6 +242,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     hubspotSingleSend = {
       sendSingleSend: vi.fn().mockResolvedValue(undefined),
     }
+    logger = createMockLogger()
 
     service = new QueueConsumerService(
       {} as never,
@@ -273,7 +279,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
-      createMockLogger(),
+      logger,
       {} as never,
     )
   })
@@ -287,6 +293,42 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(result).toBe(true)
     expect(s3Service.getFile).not.toHaveBeenCalled()
     expect(pollIssuesService.model.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('warns when the cluster-analysis prompt fell back to the in-repo prompt', async () => {
+    pollsService.findUnique.mockResolvedValue(null)
+    const message = createPollAnalysisCompleteMessage({
+      pollId,
+      promptSource: 'fallback',
+    })
+
+    await service.processMessage(message)
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      { pollId },
+      'Synthesis run used the in-repo theme prompt',
+    )
+  })
+
+  it('does not warn when the prompt came from the hosted build', async () => {
+    pollsService.findUnique.mockResolvedValue(null)
+    const message = createPollAnalysisCompleteMessage({
+      pollId,
+      promptSource: 'hosted',
+    })
+
+    await service.processMessage(message)
+
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn when the pipeline sent no promptSource at all', async () => {
+    pollsService.findUnique.mockResolvedValue(null)
+    const message = createPollAnalysisCompleteMessage({ pollId })
+
+    await service.processMessage(message)
+
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 
   it('acks and does not create messages when poll is not SCHEDULED or IN_PROGRESS', async () => {
@@ -337,6 +379,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -376,6 +419,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,
@@ -434,6 +478,8 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(result).toBe(true)
     // Pro-access resolved once, not once per phone.
     expect(contactsService.resolveProAccess).toHaveBeenCalledTimes(1)
+    // The people table is resolved once for the whole fan-out, not per phone.
+    expect(contactsService.resolvePeopleDataset).toHaveBeenCalledTimes(1)
     expect(contactsService.findPersonByPhone).toHaveBeenCalledTimes(
       phones.length,
     )
@@ -2515,8 +2561,11 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 })
 
 describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
-  const buildService = (handle: ReturnType<typeof vi.fn>) =>
-    new QueueConsumerService(
+  let logger: ReturnType<typeof createMockLogger>
+
+  const buildService = (handle: ReturnType<typeof vi.fn>) => {
+    logger = createMockLogger()
+    return new QueueConsumerService(
       {} as never,
       {} as never,
       {} as never,
@@ -2551,9 +2600,10 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never,
       {} as never,
       {} as never, // p2pPhoneListUpload
-      createMockLogger(),
+      logger,
       { handle } as never,
     )
+  }
 
   const synthesisMessage = (data: object): Message => ({
     MessageId: 'msg-synthesis-1',
@@ -2587,6 +2637,59 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE,
       data,
     })
+  })
+
+  it('warns when the cluster-analysis prompt fell back to the in-repo prompt', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 0,
+      responsesLocation: null,
+      issues: [],
+      promptSource: 'fallback',
+    }
+
+    await service.processMessage(synthesisMessage(data))
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      { sourceType: 'constituent_feedback', sourceId: 'run-1' },
+      'Synthesis run used the in-repo theme prompt',
+    )
+  })
+
+  it('does not warn when the prompt came from the hosted build', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 0,
+      responsesLocation: null,
+      issues: [],
+      promptSource: 'hosted',
+    }
+
+    await service.processMessage(synthesisMessage(data))
+
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn when the pipeline sent no promptSource at all', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 0,
+      responsesLocation: null,
+      issues: [],
+    }
+
+    await service.processMessage(synthesisMessage(data))
+
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 
   it('acks and drops a malformed event instead of requeueing', async () => {

@@ -185,8 +185,8 @@ export class OutreachSmsRepliesService extends createPrismaBase(
       })
       if (!organization) return identities
 
-      const districtId =
-        await this.contactsService.resolveEligibleDistrictId(organization)
+      const { districtId, dataset } =
+        await this.contactsService.resolveEligibleDistrict(organization)
       const { people } = await this.voterQuery.findPeople(
         ListPeopleDTO.create({
           districtId,
@@ -197,6 +197,7 @@ export class OutreachSmsRepliesService extends createPrismaBase(
           // the district to re-derive it would be pure waste.
           skipCount: true,
         }),
+        dataset,
       )
       for (const person of people) {
         identities.set(person.id, {

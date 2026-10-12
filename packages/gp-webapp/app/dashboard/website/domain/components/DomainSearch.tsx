@@ -10,7 +10,6 @@ import { searchDomains, DomainSearchResults } from '../../util/domainFetch.util'
 import { useSnackbar } from '@shared/utils/Snackbar'
 import DomainResult from './DomainResult'
 import { useWebsite } from '../../components/WebsiteProvider'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { isValidUrl } from 'helpers/linkhelper'
 import Body2 from '@shared/typography/Body2'
 import { sendToPurchaseDomainFlow } from 'app/dashboard/website/util/domain.util'
@@ -69,23 +68,6 @@ export default function DomainSearch({
       setSelectedDomain(null)
     } else {
       setSelectedDomain(domainName)
-
-      const domainData =
-        searchResults?.domainName === domainName
-          ? searchResults
-          : searchResults?.suggestions?.find((s) => s.DomainName === domainName)
-
-      const price =
-        domainData?.price ||
-        (domainData && typeof domainData.price !== 'undefined'
-          ? domainData.price
-          : null)
-
-      trackEvent(EVENTS.CandidateWebsite.SelectedDomain, {
-        domainSearchedFor: searchTerm.trim(),
-        domainSelected: domainName,
-        priceOfSelectedDomain: price,
-      })
     }
   }
 

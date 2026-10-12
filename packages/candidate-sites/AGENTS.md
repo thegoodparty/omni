@@ -10,7 +10,7 @@ Next.js 15 (App Router) + React 19 + Radix UI + Tailwind 3 app that renders **pu
 
 ```bash
 npm run dev              # next dev --turbopack --port 4001
-npm run build            # next build (also runs TS type-checking)
+npm run build            # next typegen + tsc --noEmit (TS 7) + next build
 npm run start            # next start (serve the production build)
 npm test                 # vitest run
 npm run lint             # eslint . (ESLint CLI, flat config)
@@ -21,7 +21,7 @@ npm run format:fix       # prettier --write . (mutates files — stage first)
 
 Vitest runs the handful of tests this package has (`*.test.ts`, node environment, config in `vitest.config.ts`). It is not a broad suite — the rendering is covered by `next build` and by gp-webapp's tests — so only add a test here when the behaviour cannot be seen from either, as with the client-address forwarding in `app/api/`.
 
-There is **no `npm run typecheck` script.** Type errors surface during `next build` and through the editor's TS server. If you need a one-shot check, run `npx tsc --noEmit`.
+There is **no `npm run typecheck` script.** Type errors surface during `npm run build` (which runs `tsc --noEmit` before `next build`; `next.config.ts` sets `typescript.ignoreBuildErrors` so Next doesn't re-check on the slower TS 6 API) and through the editor's TS server. If you need a one-shot check, run `npx tsc --noEmit`.
 
 ## Verify
 
@@ -31,7 +31,7 @@ Reproduce the CI **Validate** job (`.github/workflows/candidate-sites.yml`) befo
 npm run lint -w packages/candidate-sites     # eslint . --max-warnings 0
 npm run format -w packages/candidate-sites   # prettier -c . (read-only check)
 npm test -w packages/candidate-sites         # vitest run
-npm run build -w packages/candidate-sites    # next build (build smoke + typecheck)
+npm run build -w packages/candidate-sites    # tsc --noEmit + next build (typecheck + build smoke)
 ```
 
 ## Pointer table — when in doubt

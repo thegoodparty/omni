@@ -285,6 +285,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     default: 'https://api-na1.callhub.io',
   },
   CALLHUB_HTTP_TIMEOUT: { tier: 'optional', default: '30000' },
+  CALLHUB_VB_CALLS_PER_MINUTE: { tier: 'optional', default: '10' },
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
@@ -333,7 +334,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
-  P2P_PHONE_LIST_ASYNC_BUILD: { tier: 'optional' },
+  WIN_SMS_HOLD_BILLING: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },
   CV_SCAN_RETRIEVE_SPACING_MS: { tier: 'optional' },
@@ -341,6 +342,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS: { tier: 'optional' },
   OWNER_CACHE_TTL_MS: { tier: 'optional' },
   QUEUE_JOBS_CACHE_TTL_MS: { tier: 'optional' },
+  ROBOCALL_SEND_LAUNCH_SPACING_MS: { tier: 'optional' },
+  ROBOCALL_SEND_MAX_PER_SWEEP: { tier: 'optional' },
   SESSIONS_FLUSH_INTERVAL_MS: { tier: 'optional' },
   TEST_SEND_COOLDOWN_MS: { tier: 'optional' },
   VENDOR_READ_TIMEOUT_MS: { tier: 'optional' },

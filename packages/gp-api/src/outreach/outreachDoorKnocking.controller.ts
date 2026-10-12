@@ -79,9 +79,9 @@ export class OutreachDoorKnockingController {
     // The one caller that reads the issue store current onboarding writes to.
     // Opt-in rather than the default because turning it on for everyone would
     // change what four shipped channels generate — see the `issues` block in
-    // outreachComposeContext.service.ts. The Context section is the one line
-    // on this card that is worth nothing without issue material, which is why
-    // door knocking is the channel that needs it most.
+    // outreachComposeContext.service.ts. Talking points are worth nothing
+    // without issue material, which is why door knocking is the channel that
+    // needs it most.
     const campaignContext = await this.composeContext.buildCampaignContext(
       campaign,
       { includeWebsiteIssues: true },

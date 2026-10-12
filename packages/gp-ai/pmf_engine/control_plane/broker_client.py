@@ -29,6 +29,7 @@ class BrokerClient:
         input_files: list[dict] | None = None,
         experiment_override: dict | None = None,
         is_eval: bool = False,
+        replay: dict | None = None,
     ) -> dict:
         body: dict = {
             "run_id": run_id,
@@ -52,6 +53,8 @@ class BrokerClient:
             body["experiment_override"] = experiment_override
         if is_eval:
             body["is_eval"] = True
+        if replay is not None:
+            body["replay"] = replay
         response = httpx.post(
             f"{self.broker_url}/internal/mint-run-token",
             json=body,

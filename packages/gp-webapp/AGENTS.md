@@ -11,7 +11,7 @@ Only do exactly what is asked. Do not fix adjacent issues, tackle the "next item
 ```bash
 npm run dev              # Dev server on :4000 with local API (localhost:3000)
 npm run dev-dev          # Dev server on :4000 with remote dev API
-npm run build            # Production build
+npm run build            # next typegen + tsc (TS 7) type gate, then production build (next build skips its own type check)
 npm run lint             # ESLint + Prettier check
 npm run lint:fix         # Auto-fix lint issues
 npm run test             # Vitest (single run)

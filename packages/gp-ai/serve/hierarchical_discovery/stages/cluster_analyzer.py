@@ -22,6 +22,52 @@ from .cluster_merger_analysis import analyze_cluster_merger
 
 logger = get_logger(__name__)
 
+# Hosted Braintrust prompt slug for poll runs: SMS poll replies from
+# constituents/voters to an elected official or candidate.
+CLUSTER_ANALYSIS_PROMPT_NAME = "cluster-analysis"
+
+# Hosted Braintrust prompt slug for issue-capture feedback runs: canvasser
+# notes recorded after door-knock and phone conversations, for both products.
+# The run doesn't know which product (Win or Serve) it came from, so this
+# wording stays product-neutral -- see serve/v1_pipeline/README.md "Feedback source".
+FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME = "feedback-cluster-analysis"
+
+POLL_SYSTEM_INSTRUCTION = (
+    "You are an expert civic message analyst. Analyze citizen messages and identify "
+    "themes, issues, and actionable items."
+)
+
+FEEDBACK_SYSTEM_INSTRUCTION = (
+    "You are helping a local candidate or elected official understand notes their "
+    "canvassers recorded after conversations with residents. Name themes and summarize "
+    "what residents want."
+)
+
+# In-repo fallback for FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME, rendered by
+# `_render_prompt` (single braces, no HTML-escaping). Mirrors the hosted
+# Braintrust prompt text; keep both in sync if either changes.
+FEEDBACK_ANALYSIS_FALLBACK_PROMPT = """These are notes a canvasser recorded right after conversations at the door or on the phone. Each note sums up what one person said about their community, in the canvasser's words. This group holds {cluster_size} notes from {unique_respondents} people, {coverage_pct}% of everyone who answered on this effort.
+
+NOTES:
+{examples_text}
+
+---
+
+Your task: name what these people have in common, so the person running the effort knows what to act on.
+
+Writing guidelines:
+- Write at a high school reading level, in active voice, without adverbs.
+- Say "residents" or "people". Never say "constituents", "voters", "citizens", "respondents", "survey", "messages" or "reached out". These are conversations someone recorded, not messages anyone sent.
+- Do not quote the notes.
+- Never use the words "prioritize" or "priorities".
+
+Handling outliers: focus the theme and summary on what most notes share. Do not try to account for every note.
+
+Output:
+1. Theme: one 2-4 word label for the shared concern. One topic only, no "and", "&" or commas. Be specific: "Storm Drain Maintenance", not "Infrastructure Concerns".
+2. Issues summary: one sentence, in active voice, saying what is wrong or what these residents want done.
+3. Detailed analysis: what residents are experiencing, why it matters to them, and what they want done, as briefly as the notes allow. One or two sentences when the notes agree, more only when they show distinct concerns."""
+
 class ClusterAnalysisResponse(BaseModel):
     category: str = Field(..., description="High-level civic category from: Infrastructure, Public Safety, Education, Healthcare, Housing, Transportation, Environment, Governance, Economic Development, Community Services, Other")
     theme: str = Field(..., description="2-4 word concise theme/label for this cluster")
@@ -46,6 +92,11 @@ class ClusterAnalyzer:
         self.config = config
         analysis_config = getattr(config, 'analysis', {})
         llm_config = analysis_config.get('llm_config', {})
+
+        # Set by the v1_pipeline orchestrator from the run's source type
+        # (serve/v1_pipeline/pipeline/orchestrator.py); defaults to the poll
+        # slug for any caller that doesn't set it (e.g. standalone runs).
+        self.theme_prompt_name = analysis_config.get('theme_prompt_name', CLUSTER_ANALYSIS_PROMPT_NAME)
 
         self.llm_client = Gemini3Client(
             default_model=GeminiModelType.FLASH_3,
@@ -322,7 +373,7 @@ class ClusterAnalyzer:
                 lambda: self.llm_client.generate_structured_content(
                     prompt=prompt,
                     response_schema=ClusterAnalysisResponse,
-                    system_instruction="You are an expert civic message analyst. Analyze citizen messages and identify themes, issues, and actionable items.",
+                    system_instruction=self._theme_system_instruction(),
                     trace_name="cluster_analysis"
                 )
             )
@@ -373,6 +424,13 @@ class ClusterAnalyzer:
             logger.error(f"Failed to analyze cluster {cluster_id}: {e}")
             return None
 
+    def _theme_system_instruction(self) -> str:
+        """System instruction for the main theme-analysis call, chosen by which
+        prompt (poll vs. feedback) this run loads."""
+        if self.theme_prompt_name == FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME:
+            return FEEDBACK_SYSTEM_INSTRUCTION
+        return POLL_SYSTEM_INSTRUCTION
+
     def _create_analysis_prompt(self, cluster_id: int, example_texts: List[str], cluster_size: int,
                               total_clusters: int, person_metrics: Dict[str, Any]) -> str:
         """Create analysis prompt for cluster theme generation with person-level context"""
@@ -392,6 +450,13 @@ class ClusterAnalyzer:
             "total_clusters": total_clusters,
             "examples_text": examples_text
         }
+
+        if self.theme_prompt_name == FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME:
+            return load_prompt_from_braintrust(
+                prompt_name=self.theme_prompt_name,
+                fallback_prompt=FEEDBACK_ANALYSIS_FALLBACK_PROMPT,
+                variables=variables
+            )
 
         fallback_prompt = """Analyze this cluster of civic engagement messages from political campaigns.
 
@@ -437,7 +502,7 @@ Focus on:
 - How this relates to local governance and community engagement"""
 
         return load_prompt_from_braintrust(
-            prompt_name="cluster-analysis",
+            prompt_name=self.theme_prompt_name,
             fallback_prompt=fallback_prompt,
             variables=variables
         )

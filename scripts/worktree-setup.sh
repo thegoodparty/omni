@@ -51,7 +51,7 @@ echo "==> Copying untracked .env files from $MAIN"
 # `found` counts every eligible untracked env file in main — copied fresh
 # OR already present here ("keep") — so a re-run against a provisioned
 # worktree does not trip the fallback. Two-level glob: real gitignored env
-# files live two deep (e.g. packages/gp-api/e2e-tests/.env).
+# files live two deep (e.g. packages/gp-webapp/e2e-tests/.env).
 copied=0
 found=0
 for dir in "$MAIN" "$MAIN"/packages/* "$MAIN"/packages/*/*; do

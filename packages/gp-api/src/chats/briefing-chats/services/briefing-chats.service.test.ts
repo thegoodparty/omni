@@ -13,8 +13,10 @@ import { z } from 'zod'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type {
   ChatStreamChunk,
+  FinalizeTurn,
   StreamArgs,
 } from '@/chats/services/chatStream.service'
+import { guardrailLine } from '@/chats/general/services/guardrailLines'
 import { ChatStreamService } from '@/chats/services/chatStream.service'
 import type {
   Artifact,
@@ -296,6 +298,69 @@ describe('BriefingChatsService', () => {
         { type: 'text', delta: 'hi' },
         { type: 'done', assistantMessageId: 'm-1' },
       ])
+    })
+
+    it("forwards the handler's own finalizeAssistantText by default", async () => {
+      await consume(
+        svc.sendMessage({
+          annotationId: ANNOTATION_ID,
+          userId: USER_ID,
+          userMessage: 'hi',
+        }),
+      )
+
+      const text = 'Under RCW 35.21.766 the council can act.'
+      const turn: FinalizeTurn = { toolEvents: [] }
+      const forwarded = chatStream.lastArgs?.finalizeText?.(text, turn)
+      expect(forwarded).toBe(svc.handler.finalizeAssistantText(text, turn))
+      expect(forwarded).toBe(
+        `\n\n${guardrailLine('legal_advice', 'briefing_chat')}`,
+      )
+    })
+
+    it('omits finalizeText when the handler has no finalizeAssistantText', async () => {
+      Object.assign(svc.handler, { finalizeAssistantText: undefined })
+
+      await consume(
+        svc.sendMessage({
+          annotationId: ANNOTATION_ID,
+          userId: USER_ID,
+          userMessage: 'hi',
+        }),
+      )
+
+      expect(chatStream.lastArgs?.finalizeText).toBeUndefined()
+    })
+
+    it('forwards finalizeAssistantText with the turn when the handler has one', async () => {
+      const hook = vi.fn((text: string, turn: FinalizeTurn): string | null =>
+        turn.toolEvents.length ? `\n\n${text} (+tools)` : null,
+      )
+      Object.assign(svc.handler, { finalizeAssistantText: hook })
+
+      await consume(
+        svc.sendMessage({
+          annotationId: ANNOTATION_ID,
+          userId: USER_ID,
+          userMessage: 'hi',
+        }),
+      )
+
+      const turn: FinalizeTurn = {
+        toolEvents: [
+          {
+            toolCallId: 't1',
+            name: 'district_insights',
+            args: {},
+            status: 'returned',
+            result: {},
+          },
+        ],
+      }
+      expect(chatStream.lastArgs?.finalizeText?.('reply', turn)).toBe(
+        '\n\nreply (+tools)',
+      )
+      expect(hook).toHaveBeenCalledWith('reply', turn)
     })
 
     it('passes the exact systemPrompt produced by buildSystemPrompt', async () => {

@@ -112,7 +112,7 @@ function CvPinStatusContent() {
     state.stage === ComplianceStage.awaiting_pin &&
     state.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED
 
-  const testingApproved = state.internalTestingApprovedAt !== null
+  const testingApproved = state.internalTestingAt !== null
   // A record created by the real compliance flow must never be overwritten
   // or deleted from here — the endpoints refuse it, so disable the toggle.
   const hasRealComplianceRecord = state.hasComplianceRecord && !testingApproved

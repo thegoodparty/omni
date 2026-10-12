@@ -88,3 +88,79 @@ describe('deriveMembershipState', () => {
     ).toBe('cleared')
   })
 })
+
+// Documents how each test-mode tenDlc preset maps through deriveMembershipState.
+// The API's testMode.service.ts writes these TCR/Peerly fields for each preset;
+// the webapp's deriveMembershipState produces the listed texting state.
+describe('tenDlc preset → texting state mapping', () => {
+  const pro = { ...base, isPro: true }
+
+  it('none: no TCR record → needs_verification', () => {
+    expect(deriveMembershipState({ ...pro, tcrStatus: null }).texting).toBe(
+      'needs_verification',
+    )
+  })
+
+  it('in_progress: submitted, no peerly identity → in_review', () => {
+    expect(
+      deriveMembershipState({
+        ...pro,
+        tcrStatus: 'submitted',
+        hasPeerlyIdentity: false,
+      }).texting,
+    ).toBe('in_review')
+  })
+
+  it('filing_hold: submitted, no peerly identity → in_review', () => {
+    // filing_hold sets cvValidationFailedAt on the API side but no Peerly
+    // identity, so the webapp sees the same shape as in_progress.
+    expect(
+      deriveMembershipState({
+        ...pro,
+        tcrStatus: 'submitted',
+        hasPeerlyIdentity: false,
+      }).texting,
+    ).toBe('in_review')
+  })
+
+  it('awaiting_pin: submitted + sentinel peerlyIdentityId + APPROVED → awaiting_pin', () => {
+    // The API writes peerlyIdentityId=sentinel and peerlyCvStatus=APPROVED.
+    // isPinIssued(APPROVED) is true, so the state resolves to awaiting_pin.
+    const { PeerlyCvVerificationStatus } = require('@goodparty_org/contracts')
+    expect(
+      deriveMembershipState({
+        ...pro,
+        tcrStatus: 'submitted',
+        hasPeerlyIdentity: true,
+        peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+      }).texting,
+    ).toBe('awaiting_pin')
+  })
+
+  it('in_review: pending + sentinel identity → in_review', () => {
+    expect(
+      deriveMembershipState({
+        ...pro,
+        tcrStatus: 'pending',
+      }).texting,
+    ).toBe('in_review')
+  })
+
+  it('approved: tcrStatus approved → cleared', () => {
+    expect(
+      deriveMembershipState({ ...pro, tcrStatus: 'approved' }).texting,
+    ).toBe('cleared')
+  })
+
+  it('rejected: tcrStatus rejected → needs_verification', () => {
+    expect(
+      deriveMembershipState({ ...pro, tcrStatus: 'rejected' }).texting,
+    ).toBe('needs_verification')
+  })
+
+  it('error: tcrStatus error → needs_verification', () => {
+    expect(deriveMembershipState({ ...pro, tcrStatus: 'error' }).texting).toBe(
+      'needs_verification',
+    )
+  })
+})

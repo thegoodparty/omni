@@ -490,8 +490,11 @@ def test_the_committed_watchlist_accepts_an_appended_intent_row():
     from pathlib import Path
     import yaml
     text = (Path(gg.REPO_ROOT) / gg.WATCHLIST).read_text()
+    # A PR may already carry the rows the guard asked it for, so the appended
+    # one must land after them, not be the only one.
+    committed = yaml.safe_load(text).get("intents") or []
     doc = yaml.safe_load(text + ROW)
-    assert len(doc["intents"]) == 1
+    assert len(doc["intents"]) == len(committed) + 1
 
 
 def test_a_watchlist_this_change_breaks_is_a_block_not_a_crash():

@@ -255,4 +255,42 @@ describe('MembershipBanner', () => {
 
     expect(trackEvent).not.toHaveBeenCalled()
   })
+
+  // Belt-and-braces: verify MembershipBanner renders the expected UI for each
+  // test-mode tenDlc preset, using the texting state that deriveMembershipState
+  // derives from the API's output for each preset.
+  describe('tenDlc preset banner rendering', () => {
+    it('renders awaiting_pin banner for awaiting_pin preset (sentinel peerlyIdentityId)', () => {
+      // awaiting_pin: submitted + peerlyIdentityId=sentinel + cvStatus=APPROVED
+      // deriveMembershipState returns texting='awaiting_pin'
+      setup({ state: membership({ texting: 'awaiting_pin' }) })
+
+      expect(
+        screen.getByText(MEMBERSHIP_COPY.banner.awaitingPin.body),
+      ).toBeInTheDocument()
+    })
+
+    it('renders in-review banner for in_progress, filing_hold, and in_review presets', () => {
+      // All three produce texting='in_review' via different API fields.
+      setup({ state: membership({ texting: 'in_review' }) })
+
+      expect(
+        screen.getByText(MEMBERSHIP_COPY.banner.inReview.body),
+      ).toBeInTheDocument()
+    })
+
+    it('renders nothing for the approved preset (texting=cleared, Pro campaign)', () => {
+      setup({ state: membership({ texting: 'cleared' }) })
+
+      expect(screen.queryByRole('button')).toBeNull()
+    })
+
+    it('renders the verification banner for rejected and error presets (needs_verification)', () => {
+      setup({ state: membership({ texting: 'needs_verification' }) })
+
+      expect(
+        screen.getByText(MEMBERSHIP_COPY.banner.needsVerification.body),
+      ).toBeInTheDocument()
+    })
+  })
 })

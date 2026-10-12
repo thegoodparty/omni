@@ -113,14 +113,14 @@ const SHARED_AREAS: ProductArea[] = [
   },
 ]
 
-// Win: the candidate product. Campaign Manager is the home tab.
+// Win: the candidate product. Home is the home tab.
 const WIN_AREAS: ProductArea[] = [
   {
     navId: 'campaign-tracker-dashboard',
-    name: 'Campaign Manager',
+    name: 'Home',
     path: '/dashboard',
     modes: ['win'],
-    does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
+    does: 'The home tab, and where this chat lives, leading with the plan’s next task. While it rolls out, some candidates still see this tab named Campaign Manager, with the week’s top tasks listed under their progress.',
     inside: [
       'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
@@ -130,7 +130,11 @@ const WIN_AREAS: ProductArea[] = [
       'Pasting a link attaches it as a source the assistant can read',
       'A citation in a reply opens the document it points to, to the cited page when there is one',
       'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
-      'Asking the chat to text voters gets a text outreach card, which can go to a random sample of them instead of everyone, sized the way polls are, with the cost of each. The card’s button opens Voter Outreach’s text flow with the audience and message filled in, to review and pay for before it sends',
+      'Asking the chat to reach voters gets an outreach card for one channel: a text, phone banking, door knocking or a social post. The card’s button opens that channel’s Voter Outreach flow with the audience and message filled in, to review before it goes out; a text is paid for there',
+      'A text card can go to a random sample of voters instead of everyone, sized the way polls are, with the cost of each',
+      'Asking the chat to build a list of voters gets a list card with a Create list button; once pressed, the card turns into the list on a map',
+      'A list shown on a map here has Draw shapes / Edit shapes beside Open list, which narrows that list to the shapes without leaving the conversation',
+      'Asking how an earlier send did gets its numbers in the reply, and can leave cards for those sends that open each one in Voter Outreach',
     ],
   },
   {
@@ -149,7 +153,7 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
-    does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    does: 'The campaign as a timeline of tasks in three phases (Launch, Active campaign, Get out the vote), with the full written plan under the Campaign strategy card at the top. Every candidate gets one; finishing the Campaign Story personalizes it. A task started from its own button (a text, a robocall, a call list, a social post, door knocking) is marked done on its own once that outreach is scheduled. Skip on the next task offers Show in 3 days (never past its due date) or, for anything but ballot access, Not for me; either can be brought back with Bring it back in the task menu. While it rolls out, some candidates still see the earlier page: the plan with their tasks grouped by phase below it.',
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {
@@ -161,6 +165,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'Each channel starts by asking who to reach, which reads from your saved lists',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
       'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
@@ -185,6 +190,10 @@ const WIN_AREAS: ProductArea[] = [
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
+      'Opening a list also shows a map of where its voters are',
+      'Draw shapes on that map to narrow the list to one or more parts of the district',
+      'The create-list flow asks for those shapes too, between the filters and the name, and it can be skipped',
+      'Shapes can be added, renamed, recoloured, redrawn or deleted until the list has been used for outreach',
       'A voter’s record can carry What they told us: what they said at the door or on the phone, the issues they raised, where they stand on each and what they want, and any accepted tags. It is being rolled out account by account',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
@@ -355,6 +364,7 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Four channels: Social media, SMS, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, filled in from your next public meeting when there is one',
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
@@ -419,6 +429,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
       'Each theme opens to its details, where people stand, what they want, and the notes behind it',
       'New tags to review lists the suggested tags of the themes shown: Accept puts one on people’s records, Dismiss drops it',
+      'Download notes, next to Every note, saves every note on the effort as a spreadsheet file, not just the ones listed on the page',
     ],
     gate: 'Being rolled out account by account, so not every account has it yet.',
   },
@@ -450,6 +461,32 @@ export const PRODUCT_AREAS: ProductArea[] = [
 
 export const areasForMode = (mode: ProductMode): ProductArea[] =>
   PRODUCT_AREAS.filter((a) => a.modes.includes(mode))
+
+// The area a dashboard URL is on, by the most specific path that holds it.
+// Only real routes take part, never an alias (its label never renders), a
+// bracketed segment matches any one segment, and the home tab matches only
+// exactly, since every page sits under it.
+export const areaForPath = (
+  mode: ProductMode,
+  pathname: string,
+): ProductArea | null => {
+  const matches = (path: string): boolean => {
+    const pattern = new RegExp(
+      `^${path.replace(/\[[^/\]]+\]/g, '[^/]+')}${
+        path === '/dashboard' ? '' : '(/.*)?'
+      }$`,
+    )
+    return pattern.test(pathname)
+  }
+  return (
+    areasForMode(mode)
+      .filter(
+        (area) =>
+          !area.aliasOf && area.path.startsWith('/') && matches(area.path),
+      )
+      .sort((a, b) => b.path.length - a.path.length)[0] ?? null
+  )
+}
 
 // What chat cannot reach. Every line here is something a user has assumed the
 // chat does. Stating them is what keeps the assistant from inventing a reason

@@ -111,6 +111,7 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
           message: input.script,
           imageUrl,
           voterFileFilterId: input.voterFileFilterId,
+          trackerTaskId: input.trackerTaskId,
           title: `P2P Outreach - Campaign ${campaign.id}`,
         },
       }),
@@ -143,6 +144,7 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
             name: input.name,
             script: input.script,
             voterFileFilterId: input.voterFileFilterId,
+            trackerTaskId: input.trackerTaskId,
           },
         })
         await tx.outreachRobocall.create({
