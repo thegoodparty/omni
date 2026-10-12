@@ -653,7 +653,11 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   // so the walk never waits and the whole run stays inside one day.
   type Seam = {
     isDoneDialing: (
-      run: { dialedAt: Date; billableCount: number },
+      run: {
+        dialedAt: Date
+        billableCount: number
+        stagedCallsPerMinute: number | null
+      },
       now: Date,
     ) => { done: boolean; source: 'estimate' | 'count' }
   }
@@ -664,7 +668,7 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
     // billable 100 @ safe rate floor(10/3)=3 → 34 raw min; + 180 buffer → ceiling
     // ~17:34Z. A now well past it is surely done.
     const result = seam().isDoneDialing(
-      { dialedAt, billableCount: 100 },
+      { dialedAt, billableCount: 100, stagedCallsPerMinute: null },
       new Date('2026-06-01T18:00:00Z'),
     )
     expect(result.done).toBe(true)
@@ -674,7 +678,7 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
 
   it('reports NOT done before the ceiling (the floor never frees early)', async () => {
     const result = seam().isDoneDialing(
-      { dialedAt, billableCount: 100 },
+      { dialedAt, billableCount: 100, stagedCallsPerMinute: null },
       new Date('2026-06-01T15:00:00Z'),
     )
     expect(result.done).toBe(false)
@@ -686,7 +690,7 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
     // (divisor 3 = ~3/min): 200 raw min + 180 buffer → ceiling 20:20Z → the floor
     // says NOT done. The haircut is what stops an early abort of a dial that runs
     // slower than configured — the exact finding-1 regression.
-    const run = { dialedAt, billableCount: 600 }
+    const run = { dialedAt, billableCount: 600, stagedCallsPerMinute: null }
     const now = new Date('2026-06-01T18:30:00Z')
 
     vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '1')
@@ -694,6 +698,36 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
 
     vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '3')
     expect(seam().isDoneDialing(run, now).done).toBe(false)
+  })
+
+  it('R1: uses the run STAGED rate, not a later-raised live rate (never frees a slow run early)', async () => {
+    // A run staged at 10/min (safe 3/min): billable 600 → 200 raw min + 180
+    // buffer → ceiling 20:20Z, so at 18:30Z it is NOT done. Ops then raises the
+    // LIVE rate to 90/min for new campaigns — if the estimate read the live rate
+    // (safe 30/min: 20 raw + 180 → ceiling ~17:20Z) it would wrongly free this
+    // still-dialing run and the 48h capture would charge full. Reading the frozen
+    // staged rate keeps it correctly NOT done.
+    const now = new Date('2026-06-01T18:30:00Z')
+    vi.spyOn(
+      service.app.get(CallhubCampaignService),
+      'getConfiguredCallsPerMinute',
+    ).mockReturnValue(90)
+
+    expect(
+      seam().isDoneDialing(
+        { dialedAt, billableCount: 600, stagedCallsPerMinute: 10 },
+        now,
+      ).done,
+    ).toBe(false)
+
+    // A pre-R1 run with no frozen rate falls back to the (now high) live rate and
+    // is reported done — proving the staged value above is what changed the call.
+    expect(
+      seam().isDoneDialing(
+        { dialedAt, billableCount: 600, stagedCallsPerMinute: null },
+        now,
+      ).done,
+    ).toBe(true)
   })
 })
 

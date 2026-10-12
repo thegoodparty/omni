@@ -62,11 +62,14 @@ HTTP routes of its own.
   re-stage) for them to dial.
   - **The serial send sweep reads this value via
     `getConfiguredCallsPerMinute()`** to estimate when a dialing run finishes and
-    the shared pool can be freed (`outreachRobocallSend.service.ts`). Two
-    consequences before RAISING it: (1) in-flight runs were STAGED at the old
-    rate, so the estimate (reading the new, higher rate) would predict an early
-    finish for them and free the pool while they are still dialing — cutting calls
-    — so DRAIN all dialing/dialed-unfreed runs first. (2) It is unconfirmed whether
+    the shared pool can be freed (`outreachRobocallSend.service.ts`). (1) The rate
+    each campaign was created with is now FROZEN per-run at stage time
+    (`OutreachRobocall.stagedCallsPerMinute`; `createVoiceBroadcast` returns the
+    `frequency` it stamped), and the dial-completion estimate (plus the backlog
+    projection) reads THAT, falling back to this live value only for a run staged
+    before the freeze. So raising this env for new campaigns no longer shortens
+    the estimate for an in-flight run staged at the old rate — no manual drain
+    needed. (2) It is unconfirmed whether
     CallHub reserves the pool for merely-SCHEDULED (PAUSED) campaigns as well as
     running ones (this gotcha says "scheduled/running"); if it does, raising
     frequency to the account cap means only one campaign can be STAGED at a time,

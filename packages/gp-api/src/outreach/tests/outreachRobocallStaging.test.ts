@@ -51,6 +51,7 @@ const vbResult = (pkStr: string) => ({
   name: 'Robocall jane-doe',
   startingDate: new Date('2026-09-16T13:18:21Z'),
   expirationDate: new Date('2026-09-23T13:18:21Z'),
+  callsPerMinute: 10,
 })
 
 beforeEach(async () => {
@@ -180,6 +181,9 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     // The computed window is persisted, never null on a successful stage.
     expect(satellite.callhubStartingDate).not.toBeNull()
     expect(satellite.callhubExpirationDate).not.toBeNull()
+    // R1: the rate the campaign was created with is frozen on the row, so the
+    // dial-completion estimate reads it rather than a later-raised live rate.
+    expect(satellite.stagedCallsPerMinute).toBe(10)
   })
 
   it('stages a grace-rescued (past-send) draft with a future scheduledStart', async () => {
