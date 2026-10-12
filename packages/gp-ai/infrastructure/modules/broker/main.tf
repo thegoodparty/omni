@@ -95,6 +95,12 @@ variable "agent_run_inputs_read_policy_arn" {
   default     = ""
 }
 
+variable "replay_enabled" {
+  description = "Let judge runs record and replay page fetches (Universal Judge page replay). Dev only: the task definition refuses it in any other environment."
+  type        = bool
+  default     = false
+}
+
 locals {
   broker_hostname = var.hostname != "" ? var.hostname : (
     var.environment == "prod" ? "broker.ai.goodparty.org" : "broker-${var.environment}.ai.goodparty.org"
@@ -636,7 +642,9 @@ resource "aws_ecs_task_definition" "broker" {
         }
       }
 
-      environment = [
+      # REPLAY_ENABLED is appended only when on, so the prod task definition
+      # stays byte-identical rather than gaining a "false" entry.
+      environment = concat([
         {
           name  = "ENVIRONMENT"
           value = var.environment
@@ -657,7 +665,12 @@ resource "aws_ecs_task_definition" "broker" {
           name  = "EXPERIMENT_METADATA_BUCKET"
           value = var.experiment_metadata_bucket_name
         }
-      ]
+        ], var.replay_enabled ? [
+        {
+          name  = "REPLAY_ENABLED"
+          value = "true"
+        }
+      ] : [])
 
       secrets = [
         {
@@ -714,6 +727,13 @@ resource "aws_ecs_task_definition" "broker" {
 
   tags = {
     Environment = var.environment
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !var.replay_enabled || var.environment == "dev"
+      error_message = "replay_enabled is for the dev broker only."
+    }
   }
 }
 
