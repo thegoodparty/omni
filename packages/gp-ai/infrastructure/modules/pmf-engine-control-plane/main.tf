@@ -164,8 +164,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
     }
   }
 
-  # The Universal Judge's records, rulings and page recordings hold agent
-  # answers and fetched pages, so they don't outlive their use. An object
+  # The Universal Judge's own store (records, rulings and page recordings)
+  # holds agent answers and fetched pages, so it doesn't outlive its use. An object
   # matching both rules expires on the shorter one. Only the dev bucket ever
   # gets `_judge/` keys, so in prod these rules match nothing.
   rule {

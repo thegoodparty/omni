@@ -1014,8 +1014,8 @@ at no agent cost. The judge role's `KeepJudgeRecords` grant covers `_judge/`
 on that bucket and nothing else, and no real run's key can start with it.
 The sweep id carries the run id and attempt, so no two sweeps share a key.
 A bucket lifecycle rule (gp-ai's `modules/pmf-engine-control-plane`) deletes
-everything under `_judge/` after 90 days, so re-grade or read a sweep within
-that window.
+page recordings under `_judge/replay/` after 14 days and everything else under
+`_judge/` after 90, so re-grade or read a sweep within that window.
 
 If the job could not assume the role, the step that picks the store falls
 back to a job-local directory and warns: a chat-only sweep still runs, and its
