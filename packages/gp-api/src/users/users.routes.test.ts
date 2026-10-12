@@ -1,6 +1,10 @@
 import { useTestService } from '@/test-service'
 import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
+import { ClerkClient } from '@clerk/backend'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
+import { TEST_CLERK_ID } from '@/test-service'
+import { UsersService } from './services/users.service'
 import { CrmUsersService } from './services/crmUsers.service'
 
 // Route-level coverage lives in its own file: users.service.test.ts calls
@@ -44,6 +48,104 @@ describe('PUT /v1/users/me', () => {
     expect(persisted).toMatchObject({
       firstName: 'Stewart',
       lastName: 'de La Cruz',
+    })
+  })
+})
+
+describe('name changes', () => {
+  const clerkUpdate = () => {
+    const clerkClient = service.app.get<ClerkClient>(
+      CLERK_CLIENT_PROVIDER_TOKEN,
+    )
+    return vi.spyOn(clerkClient.users, 'updateUser')
+  }
+
+  it('PUT /v1/users/me rebuilds name and copies it to Clerk', async () => {
+    const updateUser = clerkUpdate().mockResolvedValue(
+      {} as Awaited<ReturnType<ClerkClient['users']['updateUser']>>,
+    )
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { firstName: 'Sumit', lastName: 'Garg', name: 'Sumit Garg' },
+    })
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'Deepti',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted).toMatchObject({
+      firstName: 'Deepti',
+      lastName: 'Garg',
+      name: 'Deepti Garg',
+    })
+    expect(updateUser).toHaveBeenCalledWith(TEST_CLERK_ID, {
+      firstName: 'Deepti',
+      lastName: 'Garg',
+    })
+  })
+
+  it('keeps an explicitly sent name', async () => {
+    clerkUpdate().mockResolvedValue(
+      {} as Awaited<ReturnType<ClerkClient['users']['updateUser']>>,
+    )
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'Deepti',
+      name: 'Dr Deepti',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.name).toBe('Dr Deepti')
+  })
+
+  it('does not fail the request when Clerk fails', async () => {
+    clerkUpdate().mockRejectedValue(new Error('clerk down'))
+
+    const res = await service.client.put('/v1/users/me', {
+      firstName: 'Priya',
+      lastName: 'Rao',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted).toMatchObject({ firstName: 'Priya', name: 'Priya Rao' })
+  })
+
+  it('does not call Clerk when no name part changes', async () => {
+    const updateUser = clerkUpdate()
+
+    const res = await service.client.put('/v1/users/me', {
+      phone: '+15555550123',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(updateUser).not.toHaveBeenCalled()
+  })
+
+  it('admin updates (PUT /v1/users/:id is M2M-only) share the same path', async () => {
+    // The admin route sits behind M2MOnly, which the harness user token cannot
+    // pass, so drive the service method the controller delegates to.
+    const updateUser = clerkUpdate().mockResolvedValue(
+      {} as Awaited<ReturnType<ClerkClient['users']['updateUser']>>,
+    )
+
+    const updated = await service.app
+      .get(UsersService)
+      .updateUser({ id: service.user.id }, { lastName: 'Newname' })
+
+    expect(updated.name).toBe(`${updated.firstName} Newname`)
+    expect(updateUser).toHaveBeenCalledWith(TEST_CLERK_ID, {
+      firstName: updated.firstName,
+      lastName: 'Newname',
     })
   })
 })

@@ -498,10 +498,11 @@ const NewNavMenu = ({
   const { user: clerkUser, isLoaded: isClerkUserLoaded } = useClerkUser()
   const { setOpenMobile, isMobile } = useSidebar()
 
+  // gp-api owns the name; fall back to Clerk's copy only when it is missing.
   const menuFirstName =
-    (isClerkUserLoaded && clerkUser?.firstName?.trim()) || user?.firstName || ''
+    user?.firstName || (isClerkUserLoaded && clerkUser?.firstName?.trim()) || ''
   const menuLastName =
-    (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
+    user?.lastName || (isClerkUserLoaded && clerkUser?.lastName?.trim()) || ''
 
   const organization = useOrganization()
   const organizationRole = useOrganizationRole()
