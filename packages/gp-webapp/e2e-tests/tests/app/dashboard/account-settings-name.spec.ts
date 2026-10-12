@@ -31,7 +31,11 @@ test.describe('Account settings name', () => {
     await expect(page.getByTestId('user-menu-name')).toHaveText(
       /Renamed\s+Person/,
     )
-    const { data: me } = await client.get('/v1/users/me')
+    const { data: me } = await client.get<{
+      firstName: string
+      lastName: string
+      name: string
+    }>('/v1/users/me')
     expect(me).toMatchObject({
       firstName: 'Renamed',
       lastName: 'Person',
