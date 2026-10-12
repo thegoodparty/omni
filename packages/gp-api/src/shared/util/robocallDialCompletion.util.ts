@@ -142,6 +142,10 @@ interface QueuedDialRun {
   audienceSize: number
   // The run's scheduled send instant (`Outreach.date`).
   scheduledAt: Date
+  // The rate-haircut (safe) calls-per-minute THIS run dials at — derived from the
+  // rate it was STAGED at, so a run staged slow keeps its longer projection even
+  // after the live rate is raised for newer campaigns.
+  callsPerMinute: number
 }
 
 interface ProjectedDialRun {
@@ -162,9 +166,8 @@ interface ProjectDialQueueParams {
   poolAvailableAt: Date
   // The waiting runs in dial order — oldest-due first (scheduledAt asc, then
   // outreachId asc), the SAME total order the serial send sweep launches in.
+  // Each carries its own staged (haircut) rate.
   queue: QueuedDialRun[]
-  // The rate-haircut (safe) calls-per-minute the money-safe ceiling walks at.
-  callsPerMinute: number
   bufferMinutes: number
   timeZone?: string
 }
@@ -186,7 +189,6 @@ export const projectRobocallDialQueue = ({
   now,
   poolAvailableAt,
   queue,
-  callsPerMinute,
   bufferMinutes,
   timeZone = SCHEDULE_TZ,
 }: ProjectDialQueueParams): ProjectedDialRun[] => {
@@ -212,7 +214,7 @@ export const projectRobocallDialQueue = ({
       localDay(projectedStartAt, timeZone) > localDay(baselineStartAt, timeZone)
     poolFreeAt = robocallDialCeilingAt({
       audienceSize: run.audienceSize,
-      callsPerMinute,
+      callsPerMinute: run.callsPerMinute,
       startAt: projectedStartAt,
       bufferMinutes,
       timeZone,

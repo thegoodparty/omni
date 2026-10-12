@@ -359,6 +359,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
         callhubCampaignPkStr: true,
         billableCount: true,
         dialedAt: true,
+        stagedCallsPerMinute: true,
       },
     })
 
@@ -370,7 +371,11 @@ export class OutreachRobocallSendService extends createPrismaBase(
       if (row.billableCount === null || row.billableCount <= 0) continue
 
       const completion = this.isDoneDialing(
-        { dialedAt: row.dialedAt, billableCount: row.billableCount },
+        {
+          dialedAt: row.dialedAt,
+          billableCount: row.billableCount,
+          stagedCallsPerMinute: row.stagedCallsPerMinute,
+        },
         now,
       )
       // Not yet surely done — leave the pool to it. Bias LONG: never free early,
@@ -402,7 +407,11 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // is the money-SAFE baseline — it reports done ONLY when the campaign is SURELY
   // finished, so the free-and-advance abort can never cut a still-dialing run.
   private isDoneDialing(
-    run: { dialedAt: Date; billableCount: number },
+    run: {
+      dialedAt: Date
+      billableCount: number
+      stagedCallsPerMinute: number | null
+    },
     now: Date,
   ): DialCompletion {
     // EXTENSION POINT — serial-only count SPEEDUP (DEFERRED, see AGENTS.md). When a
@@ -430,8 +439,14 @@ export class OutreachRobocallSendService extends createPrismaBase(
   private dialCompletionCeilingAt(run: {
     dialedAt: Date
     billableCount: number
+    stagedCallsPerMinute: number | null
   }): Date {
-    const configuredRate = this.campaigns.getConfiguredCallsPerMinute()
+    // The rate THIS run was staged at — the rate CallHub actually dials it. Fall
+    // back to the live config only for a run staged before the rate was frozen
+    // (null), so raising CALLHUB_VB_CALLS_PER_MINUTE never shortens the ceiling
+    // for an in-flight run staged slow (which would abort it mid-dial).
+    const configuredRate =
+      run.stagedCallsPerMinute ?? this.campaigns.getConfiguredCallsPerMinute()
     const safeRate = Math.max(
       1,
       Math.floor(configuredRate / robocallDialSafetyRateDivisor()),

@@ -70,18 +70,22 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
     const now = new Date()
-    const safeRate = Math.max(
-      1,
-      Math.floor(
-        this.campaigns.getConfiguredCallsPerMinute() /
-          robocallDialSafetyRateDivisor(),
-      ),
-    )
     const bufferMinutes = robocallDialEstimateBufferMinutes()
+    const divisor = robocallDialSafetyRateDivisor()
+    // The rate-haircut (safe) rate for a run, from the rate it was STAGED at —
+    // never a later-raised live value for a run already staged slow. Falls back
+    // to the live config for a pre-R1 run with no frozen rate.
+    const safeRateFor = (staged: number | null): number =>
+      Math.max(
+        1,
+        Math.floor(
+          (staged ?? this.campaigns.getConfiguredCallsPerMinute()) / divisor,
+        ),
+      )
 
     const poolAvailableAt = await this.projectPoolAvailableAt(
       now,
-      safeRate,
+      safeRateFor,
       bufferMinutes,
     )
 
@@ -112,6 +116,7 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
         outreachId: true,
         billableCount: true,
         backlogAlertedAt: true,
+        stagedCallsPerMinute: true,
         outreach: {
           select: {
             date: true,
@@ -129,6 +134,7 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
               outreachId: row.outreachId,
               audienceSize: row.billableCount,
               scheduledAt: row.outreach.date,
+              callsPerMinute: safeRateFor(row.stagedCallsPerMinute),
             },
           ]
         : [],
@@ -139,7 +145,6 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
       now,
       poolAvailableAt,
       queue,
-      callsPerMinute: safeRate,
       bufferMinutes,
     })
     const rowByOutreachId = new Map(
@@ -176,7 +181,7 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
   // pool is not yet freed), floored at `now`. An idle queue frees immediately.
   private async projectPoolAvailableAt(
     now: Date,
-    safeRate: number,
+    safeRateFor: (staged: number | null) => number,
     bufferMinutes: number,
   ): Promise<Date> {
     const inFlight = await this.model.findMany({
@@ -193,6 +198,7 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
         billableCount: true,
         dialedAt: true,
         dialingStartedAt: true,
+        stagedCallsPerMinute: true,
       },
     })
 
@@ -204,7 +210,7 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
       const startAt = run.dialedAt ?? run.dialingStartedAt ?? now
       const freeAt = robocallDialCeilingAt({
         audienceSize: run.billableCount,
-        callsPerMinute: safeRate,
+        callsPerMinute: safeRateFor(run.stagedCallsPerMinute),
         startAt,
         bufferMinutes,
       })

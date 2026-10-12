@@ -94,6 +94,16 @@ model OutreachRobocall {
   // The CallHub voice-broadcast campaign this robocall dials from (its PK, as a
   // string — CallHub ids exceed a 32-bit int).
   callhubCampaignPkStr   String?             @map("callhub_campaign_pk_str")
+  // The calls/min (CallHub `frequency`) this campaign was CREATED with at stage
+  // time — the rate CallHub actually dials it at, frozen so the completion
+  // estimate can never diverge from it. The dial-completion ceiling (the serial
+  // send sweep's free-and-advance) and the backlog projection read THIS, not the
+  // live `CALLHUB_VB_CALLS_PER_MINUTE`, so raising that env for new campaigns
+  // never shortens the estimate for a run already staged at the old rate (which
+  // would free the pool / abort while it is still dialing — under-deliver + full
+  // charge). Null for a run staged before this column existed; readers fall back
+  // to the live configured rate for those.
+  stagedCallsPerMinute   Int?                @map("staged_calls_per_minute")
   // The CallHub campaign's scheduled dial window, mirrored back for settlement.
   callhubStartingDate    DateTime?           @map("callhub_starting_date")
   callhubExpirationDate  DateTime?           @map("callhub_expiration_date")

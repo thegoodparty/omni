@@ -216,9 +216,9 @@ describe('projectRobocallDialQueue', () => {
           outreachId: 1,
           audienceSize: 600,
           scheduledAt: at('2026-06-15 14:00:00'),
+          callsPerMinute: 10,
         },
       ],
-      callsPerMinute: 10,
       bufferMinutes: 60,
     })
     expect(run?.projectedStartAt).toEqual(at('2026-06-15 14:00:00'))
@@ -236,9 +236,9 @@ describe('projectRobocallDialQueue', () => {
           outreachId: 1,
           audienceSize: 600,
           scheduledAt: at('2026-06-15 14:00:00'),
+          callsPerMinute: 10,
         },
       ],
-      callsPerMinute: 10,
       bufferMinutes: 60,
     })
     expect(run?.projectedStartAt).toEqual(at('2026-06-16 09:30:00'))
@@ -257,14 +257,15 @@ describe('projectRobocallDialQueue', () => {
           outreachId: 1,
           audienceSize: 6000,
           scheduledAt: at('2026-06-15 10:00:00'),
+          callsPerMinute: 10,
         },
         {
           outreachId: 2,
           audienceSize: 6000,
           scheduledAt: at('2026-06-15 10:00:00'),
+          callsPerMinute: 10,
         },
       ],
-      callsPerMinute: 10,
       bufferMinutes: 60,
     })
     // Run 1: 6000/10 = 600 min from 10:00 = 20:00, + 60 buffer = 21:00.
@@ -288,9 +289,9 @@ describe('projectRobocallDialQueue', () => {
           outreachId: 1,
           audienceSize: 600,
           scheduledAt: at('2026-06-15 22:00:00'),
+          callsPerMinute: 10,
         },
       ],
-      callsPerMinute: 10,
       bufferMinutes: 60,
     })
     expect(run?.projectedStartAt).toEqual(at('2026-06-16 09:00:00'))
@@ -308,9 +309,9 @@ describe('projectRobocallDialQueue', () => {
           outreachId: 1,
           audienceSize: 600,
           scheduledAt: at('2026-06-14 14:00:00'),
+          callsPerMinute: 10,
         },
       ],
-      callsPerMinute: 10,
       bufferMinutes: 60,
     })
     expect(run?.projectedStartAt).toEqual(now)
