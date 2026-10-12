@@ -692,6 +692,13 @@ export const EVENTS = {
     CitationOpened: 'Chief Of Staff - Citation Opened',
     UploadGuardShown: 'Chief Of Staff - Upload Guard Shown',
     ComposeHandoffOpened: 'Chief Of Staff - Compose Handoff Opened',
+    // The front card of the home's task stack. `cardType` is the card's kind
+    // (onboarding, briefing, agenda_item, community_issue), `stackSize` how
+    // many cards were in the stack when the official acted.
+    TaskCompleted: 'Chief Of Staff - Task Completed',
+    // Every other choice on that card: `action` is start (its main button)
+    // or skip.
+    TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',

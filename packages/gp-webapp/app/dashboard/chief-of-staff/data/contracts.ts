@@ -31,7 +31,12 @@ export interface SupportEstimate {
 
 export type DashboardCardType = 'briefing' | 'agenda_item' | 'community_issue'
 
-export type DashboardCardBucket = 'active' | 'this_week' | 'skipped' | 'missed'
+export type DashboardCardBucket =
+  | 'active'
+  | 'this_week'
+  | 'skipped'
+  | 'missed'
+  | 'done'
 
 export interface DashboardCard {
   id: string
@@ -45,6 +50,7 @@ export interface DashboardCard {
   sourceExternalId: string
   sourceItemId: string | null
   dismissedAt: string | null
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }

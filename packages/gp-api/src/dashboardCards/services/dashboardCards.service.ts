@@ -230,10 +230,13 @@ export class DashboardCardsService extends createPrismaBase(
     switch (bucket) {
       case 'skipped':
         return { electedOfficeId, dismissedAt: { not: null } }
+      case 'done':
+        return { electedOfficeId, completedAt: { not: null } }
       case 'missed':
         return {
           electedOfficeId,
           dismissedAt: null,
+          completedAt: null,
           dueDate: { lt: now },
         }
       case 'this_week':
@@ -248,6 +251,7 @@ export class DashboardCardsService extends createPrismaBase(
         return {
           electedOfficeId,
           dismissedAt: null,
+          completedAt: null,
           dueDate: { gte: now },
         }
     }
@@ -255,8 +259,15 @@ export class DashboardCardsService extends createPrismaBase(
 
   async dismiss(electedOfficeId: string, id: string): Promise<void> {
     await this.client.dashboardCard.updateMany({
-      where: { id, electedOfficeId, dismissedAt: null },
+      where: { id, electedOfficeId, dismissedAt: null, completedAt: null },
       data: { dismissedAt: new Date() },
+    })
+  }
+
+  async complete(electedOfficeId: string, id: string): Promise<void> {
+    await this.client.dashboardCard.updateMany({
+      where: { id, electedOfficeId, dismissedAt: null, completedAt: null },
+      data: { completedAt: new Date() },
     })
   }
 }

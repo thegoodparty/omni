@@ -6,9 +6,8 @@ import { useUser } from '@shared/hooks/useUser'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffArchiveHref } from '../routes'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
-import OnboardingCards from './OnboardingCards'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
-import TaskList from './TaskList'
+import TaskStack from './TaskStack'
 import FooterChatBar from './chat/FooterChatBar'
 import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
@@ -58,23 +57,20 @@ export default function DashboardContent(): React.JSX.Element {
          * intentionally left in place — re-render this once data coverage is
          * broad enough.
          */}
-        <section className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-foreground">
-              Your prioritized tasks this week
-            </h2>
-            <Link
-              href={chiefOfStaffArchiveHref()}
-              className="inline-flex items-center gap-1.5 self-center text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
-            >
-              <ArchiveIcon className="size-4" aria-hidden />
-              <span className="hidden sm:inline">Archive</span>
-            </Link>
-          </div>
+        <div className="flex flex-col gap-4">
+          <Link
+            href={chiefOfStaffArchiveHref()}
+            className="inline-flex items-center gap-1.5 self-end text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
+          >
+            <ArchiveIcon className="size-4" aria-hidden />
+            Archive
+          </Link>
           <BriefingDispatchBanner inFlight={briefingInFlight} />
-          <OnboardingCards onOpenCard={openCard} />
-          <TaskList briefingInFlight={briefingInFlight} />
-        </section>
+          <TaskStack
+            onOpenCard={openCard}
+            briefingInFlight={briefingInFlight}
+          />
+        </div>
       </div>
 
       <FooterChatBar
