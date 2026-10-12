@@ -29,9 +29,10 @@ test.describe('Chief of Staff', () => {
     await expect(page).toHaveURL(/\/dashboard\/chief-of-staff/, {
       timeout: 15_000,
     })
-    await expect(
-      page.getByRole('heading', { name: 'Your prioritized tasks this week' }),
-    ).toBeVisible({ timeout: 15_000 })
+    // A fresh office leads its task stack with the get-started cards.
+    await expect(page.getByRole('heading', { name: 'Start here' })).toBeVisible(
+      { timeout: 15_000 },
+    )
   })
 
   test('skips a card and finds it in the archive Skipped list', async ({

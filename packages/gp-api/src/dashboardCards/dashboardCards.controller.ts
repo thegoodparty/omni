@@ -52,6 +52,17 @@ export class DashboardCardsController {
   ): Promise<void> {
     await this.cards.dismiss(electedOffice.id, id)
   }
+
+  @UseElectedOffice()
+  @Put(':id/complete')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async complete(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param(new ZodValidationPipe(DashboardCardIdParamSchema))
+    { id }: DashboardCardIdParam,
+  ): Promise<void> {
+    await this.cards.complete(electedOffice.id, id)
+  }
 }
 
 const toDto = (row: DashboardCardRow): DashboardCard => ({
@@ -65,6 +76,7 @@ const toDto = (row: DashboardCardRow): DashboardCard => ({
   sourceExternalId: row.sourceExternalId,
   sourceItemId: row.sourceItemId,
   dismissedAt: row.dismissedAt ? row.dismissedAt.toISOString() : null,
+  completedAt: row.completedAt ? row.completedAt.toISOString() : null,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
 })

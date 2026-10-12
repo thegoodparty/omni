@@ -36,20 +36,38 @@ export const useDashboardCards = (
     queryFn: () => dashboardApi.getCards(bucket),
   })
 
-export const useDismissCard = () => {
+// Done and Skip both take the card off the active list at once, so the stack's
+// next card comes forward without waiting on the round trip.
+const useLeaveActiveCard = (leave: (id: string) => Promise<void>) => {
   const queryClient = useQueryClient()
+  const activeKey = cardsKey('active')
   return useMutation({
-    mutationFn: (id: string) => dashboardApi.dismissCard(id),
-    onSuccess: () => {
-      // A dismissal moves a card between buckets (out of active, into
-      // skipped), so refetch every cards list rather than trying to mutate
-      // each bucket's cache by hand.
+    mutationFn: leave,
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: activeKey })
+      const previous = queryClient.getQueryData<DashboardCard[]>(activeKey)
+      queryClient.setQueryData<DashboardCard[]>(activeKey, (cards) =>
+        cards?.filter((card) => card.id !== id),
+      )
+      return { previous }
+    },
+    onError: (_err, _id, context) => {
+      queryClient.setQueryData(activeKey, context?.previous)
+    },
+    onSettled: () => {
+      // The card moves into another bucket (skipped or done), so refetch
+      // every cards list rather than trying to mutate each bucket's cache.
       void queryClient.invalidateQueries({
         queryKey: ['chief-of-staff', 'cards'],
       })
     },
   })
 }
+
+export const useDismissCard = () => useLeaveActiveCard(dashboardApi.dismissCard)
+
+export const useCompleteCard = () =>
+  useLeaveActiveCard(dashboardApi.completeCard)
 
 export const useOnboardingCards = (): UseQueryResult<OnboardingCard[]> =>
   useQuery({
@@ -62,7 +80,23 @@ export const useSkipOnboardingCard = () => {
   return useMutation({
     mutationFn: (key: OnboardingCardKey) =>
       dashboardApi.skipOnboardingCard(key),
-    onSuccess: () => {
+    onMutate: async (key: OnboardingCardKey) => {
+      await queryClient.cancelQueries({ queryKey: ONBOARDING_CARDS_KEY })
+      const previous =
+        queryClient.getQueryData<OnboardingCard[]>(ONBOARDING_CARDS_KEY)
+      queryClient.setQueryData<OnboardingCard[]>(
+        ONBOARDING_CARDS_KEY,
+        (cards) =>
+          cards?.map((card) =>
+            card.key === key ? { ...card, status: 'skipped' } : card,
+          ),
+      )
+      return { previous }
+    },
+    onError: (_err, _key, context) => {
+      queryClient.setQueryData(ONBOARDING_CARDS_KEY, context?.previous)
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ONBOARDING_CARDS_KEY })
     },
   })

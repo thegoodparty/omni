@@ -16,6 +16,7 @@ export const DASHBOARD_CARD_BUCKET_VALUES = [
   'this_week',
   'skipped',
   'missed',
+  'done',
 ] as const
 export const DashboardCardBucketSchema = z.enum(DASHBOARD_CARD_BUCKET_VALUES)
 export type DashboardCardBucket = z.infer<typeof DashboardCardBucketSchema>
@@ -36,6 +37,7 @@ export const DashboardCardSchema = z.object({
   sourceExternalId: z.string(),
   sourceItemId: z.string().nullable(),
   dismissedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

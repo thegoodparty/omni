@@ -46,6 +46,19 @@ export const dashboardApi = {
     }
   },
 
+  async completeCard(id: string): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/cards/:id/complete', { id })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'complete-card',
+        cardId: id,
+      })
+      throw err
+    }
+  },
+
   async getOnboardingCards(): Promise<OnboardingCard[]> {
     const { data } = await clientRequest(
       'GET /v1/dashboard/onboarding-cards',

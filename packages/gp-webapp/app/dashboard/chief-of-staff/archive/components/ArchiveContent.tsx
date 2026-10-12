@@ -16,17 +16,19 @@ import type { DashboardCardBucket } from '../../data/contracts'
 
 type ArchiveBucket = Extract<
   DashboardCardBucket,
-  'this_week' | 'skipped' | 'missed'
+  'this_week' | 'done' | 'skipped' | 'missed'
 >
 
 const BUCKETS: { value: ArchiveBucket; label: string }[] = [
   { value: 'this_week', label: 'This week' },
+  { value: 'done', label: 'Done' },
   { value: 'skipped', label: 'Skipped' },
   { value: 'missed', label: 'Missed' },
 ]
 
 const EMPTY_COPY: Record<ArchiveBucket, string> = {
   this_week: 'Nothing scheduled for this week.',
+  done: "You haven't marked any tasks done.",
   skipped: "You haven't skipped any tasks.",
   missed: 'No missed tasks. Nice work staying on top of things.',
 }
@@ -80,7 +82,7 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   )
 }
 
-/** The Archive view — This week (default) / Skipped / Missed buckets. */
+/** The Archive view — This week (default) / Done / Skipped / Missed buckets. */
 export default function ArchiveContent(): React.JSX.Element {
   const [bucket, setBucket] = useState<ArchiveBucket>('this_week')
 

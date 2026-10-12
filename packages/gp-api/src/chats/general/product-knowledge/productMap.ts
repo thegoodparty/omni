@@ -283,8 +283,11 @@ const SERVE_AREAS: ProductArea[] = [
     name: 'Chief of Staff',
     path: '/dashboard/chief-of-staff',
     modes: ['serve'],
-    does: 'The home tab, and where this chat lives.',
+    does: 'The home tab, and where this chat lives, leading with one task at a time: the get-started cards first, then the week’s meeting, agenda and community issue tasks by due date.',
     inside: [
+      'The task in front has its main button, Mark done and Skip; finishing or skipping it brings the next task forward',
+      'Get-started cards have no Mark done; they leave on their own once you have met your Chief of Staff or shared your priorities',
+      'Archive, at the top of the page, lists this week’s tasks, the ones marked done, the ones skipped and the ones missed',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
       'When the chat offers a list, it appears as a card with the list name, its size and a Create list button; pressing it saves the list and the card turns into the list on a map',
