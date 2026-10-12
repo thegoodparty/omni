@@ -97,22 +97,19 @@ test.describe('staff test mode', () => {
     expect(created?.type).toBe('elected_office')
     const slug = created?.slug ?? ''
 
-    await page.waitForURL(
-      (url) => !url.pathname.startsWith('/post-auth-redirect'),
-      { timeout: 60_000 },
-    )
+    // post-auth-redirect hops through /dashboard before the elected-office
+    // home; opening the sheet mid-hop loses it to the remount.
+    await page.waitForURL(/\/dashboard\/chief-of-staff/, { timeout: 60_000 })
     await expect(page.getByTestId('user-menu-name')).toBeVisible({
       timeout: 60_000,
     })
 
     const reopened = await openTestMode(page)
     const row = reopened.getByTestId(`test-mode-org-${slug}`)
-    await expect(row.getByText('active', { exact: true })).toBeVisible({
-      timeout: 30_000,
-    })
-
     const term = row.getByTestId('test-mode-family-term')
-    await expect(term.getByRole('button', { name: 'active' })).toBeDisabled()
+    await expect(
+      term.getByRole('button', { name: 'active', exact: true }),
+    ).toBeDisabled({ timeout: 30_000 })
     await term.getByRole('button', { name: 'ending_soon' }).click()
     await expect(
       term.getByRole('button', { name: 'ending_soon' }),
