@@ -175,6 +175,14 @@ model OutreachRobocall {
   // replicas and repeat passes rather than every pass while it stays stuck. Read
   // only by that dedupe — it never gates a dial, hold, or capture.
   overdueAlertedAt       DateTime?           @map("overdue_alerted_at")
+  // When the backlog-alert sweep first posted the proactive "the serial send
+  // queue won't reach this run until after its scheduled day" CAS Slack. The
+  // sweep claims the alert with a single-owner CAS guarded on this being NULL,
+  // so a run is paged ONCE across replicas and repeat passes rather than every
+  // pass while the backlog persists. Distinct from overdueAlertedAt, which is a
+  // run already PAST its date; this one fires BEFORE. Read only by that dedupe —
+  // it never gates a dial, hold, or capture.
+  backlogAlertedAt       DateTime?           @map("backlog_alerted_at")
   // A reward promotion code applied on the pay step. CAS mints these in Stripe
   // as single-use, amount-off codes; Stripe only applies a code to a Checkout
   // Session or invoice, never to the manual-capture hold this run pays with, so
