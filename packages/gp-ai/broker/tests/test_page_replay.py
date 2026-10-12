@@ -532,6 +532,16 @@ class TestRunCaps:
         h.fetch(BASE, f"{URL}/ok", _page(b"page"))
         assert len(h.s3.keys_under(f"{SWEEP_KEY}/fetch/")) == 2
 
+    def test_a_lost_metadata_write_gives_back_its_share_of_the_cap(self, ddb, monkeypatch):
+        # Body (1) stays after its metadata fails twice; the next page's two
+        # objects fit only if the metadata's slot came back.
+        monkeypatch.setattr(page_replay_module, "MAX_OBJECTS_PER_RUN", 3)
+        h = Harness(ddb)
+        h.s3.fail_next = {".json": 2}
+        h.fetch(BASE, f"{URL}/1", _page(b"page"))
+        h.fetch(BASE, f"{URL}/2", _page(b"page"))
+        assert len(h.s3.keys_under(f"{SWEEP_KEY}/fetch/")) == 3
+
     def test_caps_are_shared_by_every_broker_task(self, ddb, monkeypatch):
         monkeypatch.setattr(page_replay_module, "MAX_OBJECTS_PER_RUN", 2)
         first, second = Harness(ddb), Harness(ddb)

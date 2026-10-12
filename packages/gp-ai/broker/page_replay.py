@@ -203,8 +203,10 @@ class PageReplay:
             # recording never pairs one response's body with another's
             # headers. That makes a lost metadata write permanent for the URL,
             # so it gets one retry.
-            if not self._put_once(ticket, f"{base}.json", meta):
-                self._put_once(ticket, f"{base}.json", meta)
+            if not self._put_once(ticket, f"{base}.json", meta) and not self._put_once(ticket, f"{base}.json", meta):
+                # The body stays, and the lifecycle rule removes it, so only
+                # the metadata's share comes back.
+                self._release(ticket, len(meta), objects=1)
         except Exception as e:
             logger.warning("page_replay record failed run_id=%s error=%s", ticket.run_id, type(e).__name__)
 
