@@ -58,6 +58,17 @@ export interface SeededTranscripts {
   caseIds: readonly string[]
 }
 
+// How each replaying agent's candidate runs were served. Only counts, never a
+// URL: this page is public.
+export type PageReplaySummary =
+  | { agentId: string; state: 'counted'; hits: number; misses: number }
+  | {
+      agentId: string
+      state: 'inactive'
+      why: 'baseDidNotRecord' | 'noMarkers'
+    }
+  | { agentId: string; state: 'unreadable'; why: string }
+
 export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
   // averaged against a briefing score would have no referent.
@@ -106,6 +117,8 @@ export interface SweepReport {
   // Where each agent's per-case rulings were stored. Only the location, never
   // a ruling: a ruling quotes the agent's output and this page is public.
   rulings?: readonly StoredRulings[]
+  // Absent for an agent whose candidate runs did not ask for page replay.
+  pageReplay?: readonly PageReplaySummary[]
 }
 
 // `location` is null when the write failed. The verdict above it still
@@ -480,10 +493,33 @@ const toolErrorCauseLines = (score: AgentScore): string[] => {
   return [...excluded, '', 'Tool errors (scored, not excluded):', ...scored]
 }
 
+// Never "0%" for a replay that did not run. Zero markers means the
+// candidate's dispatch was not served by replay at all, which says nothing
+// about whether the two arms fetched the same pages.
+const replayLine = (replay: PageReplaySummary): string => {
+  if (replay.state === 'unreadable') {
+    return `Page replay: hit rate unavailable, ${replay.why}`
+  }
+  if (replay.state === 'inactive') {
+    return replay.why === 'baseDidNotRecord'
+      ? 'Page replay: not active. The base arm recorded nothing, usually ' +
+          'because its code predates replay.'
+      : 'Page replay: not active. The candidate runs left no outcome ' +
+          'markers, so no page fetch went through replay.'
+  }
+  const total = replay.hits + replay.misses
+  return (
+    `Page replay: ${replay.hits} of ${total} page fetches ` +
+    `(${percentOf(replay.hits / total)}) used the base run's copy; ` +
+    `${replay.misses} fetched live.`
+  )
+}
+
 const agentSection = (
   score: AgentScore,
   config: JudgeConfig,
   spend: AgentSpend | undefined,
+  replay: PageReplaySummary | undefined,
 ): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
@@ -546,6 +582,7 @@ const agentSection = (
   lines.push(...controlLines(score))
   lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))
+  if (replay !== undefined) lines.push(`- ${replayLine(replay)}`)
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push(...toolErrorCauseLines(score))
@@ -917,6 +954,7 @@ export const renderReport = (
         score,
         config,
         report.actualCost?.agents.find((a) => a.agentId === score.agentId),
+        report.pageReplay?.find((r) => r.agentId === score.agentId),
       ),
     )
     lines.push('')

@@ -7,6 +7,7 @@ import { CHAT_PAIR } from './fixtures/records'
 import type { RunRecord } from './record'
 import {
   ArmManifestSchema,
+  countReplayMarkers,
   RecordNotFoundError,
   RecordStoreError,
   createLocalRecordStore,
@@ -392,6 +393,66 @@ describe('the S3 store', () => {
       'bucket',
     )
     await expect(store.getManifest(BASE.sweepId, 'base')).rejects.toBe(failure)
+  })
+})
+
+describe('page replay outcome markers', () => {
+  const KEY = '_judge/replay/sweep/swp/race_opponent_collection/c1-1'
+  const RUN = '_judge-swp-c1-candidate-1'
+  const marker = (name: string) =>
+    `${KEY}/outcomes/${RUN}/${name}-${'a'.repeat(32)}`
+
+  it('counts hits and misses across fetch and head', () => {
+    expect(
+      countReplayMarkers([
+        marker('fetch-hit'),
+        marker('head-hit'),
+        marker('fetch-miss'),
+      ]),
+    ).toEqual({ hits: 2, misses: 1 })
+  })
+
+  it('ignores anything that is not a broker marker', () => {
+    expect(
+      countReplayMarkers([
+        `${KEY}/fetch/${'b'.repeat(64)}.json`,
+        `${KEY}/outcomes/${RUN}/fetch-hit`,
+        `${KEY}/outcomes/${RUN}/page-hit-${'a'.repeat(32)}`,
+      ]),
+    ).toEqual({ hits: 0, misses: 0 })
+  })
+
+  it('lists only the one run under the store it replayed from', async () => {
+    const prefixes: string[] = []
+    const store = createS3RecordStore(
+      {
+        putObject: async () => undefined,
+        getObject: async () => '',
+        listKeys: async (prefix) => {
+          prefixes.push(prefix)
+          return [marker('fetch-hit')]
+        },
+      },
+      'gp-agent-artifacts-dev',
+    )
+
+    const outcomes = await store.replayOutcomes(
+      { mode: 'replay', key: KEY },
+      RUN,
+    )
+
+    expect(prefixes).toEqual([`${KEY}/outcomes/${RUN}/`])
+    expect(outcomes).toEqual({ hits: 1, misses: 0 })
+  })
+
+  it('reports the local store as unable to see markers', async () => {
+    const store = createLocalRecordStore(
+      await mkdtemp(path.join(tmpdir(), 'judge-replay-')),
+    )
+
+    expect(
+      await store.replayOutcomes({ mode: 'replay', key: KEY }, RUN),
+    ).toBeUndefined()
   })
 })
 

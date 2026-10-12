@@ -1,3 +1,4 @@
+import { JudgeReplaySchema } from '@goodparty_org/contracts'
 import { isBefore, parseISO } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
@@ -212,6 +213,11 @@ export const RunRecordSchema = z
     // Stamped when the turn used native web search, which is the one input
     // we cannot hold still. The report says which cases saw the live world.
     liveWeb: z.boolean(),
+    // The page replay store this run recorded into or replayed from. Absent
+    // on a run that used none, including any run captured by code that
+    // predates replay, which is how grading tells "replay was not active"
+    // from "replay found nothing".
+    pageReplay: JudgeReplaySchema.optional(),
     status: RunStatusSchema,
     ci: CiContextSchema.optional(),
   })
