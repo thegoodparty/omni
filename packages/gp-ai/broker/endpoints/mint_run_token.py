@@ -33,6 +33,7 @@ from broker.endpoints.experiment_manifest import (
     get_experiment_metadata_bucket,
     get_s3_client,
 )
+from broker.page_replay import replay_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -295,15 +296,6 @@ def _validate_judge_fields(
         )
 
 
-def _replay_enabled() -> bool:
-    """Whether this broker deployment may record or replay page fetches.
-
-    Off unless set: Terraform sets it in the dev broker only, so prod carries
-    the code but can never mint a ticket that runs it.
-    """
-    return os.environ.get("REPLAY_ENABLED", "").strip().lower() == "true"
-
-
 def _validate_judge_replay(replay: JudgeReplayRef | None, experiment_id: str, is_eval: bool, run_id: str) -> None:
     """Hold `replay` to the same rules as the override: a judge run only, bound
     to its own agent. `is_eval` already implies a `_judge-` run id in dev, so
@@ -316,7 +308,7 @@ def _validate_judge_replay(replay: JudgeReplayRef | None, experiment_id: str, is
         raise HTTPException(
             status_code=400, detail="replay requires is_eval=true; only a judge run may record or replay"
         )
-    if not _replay_enabled():
+    if not replay_enabled():
         logger.warning("mint_run_token replay_disabled run_id=%s experiment_id=%s", run_id, experiment_id)
         raise HTTPException(status_code=400, detail="replay is not enabled on this broker")
     if replay.agent_id != experiment_id:
