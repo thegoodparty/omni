@@ -255,6 +255,7 @@ export class OutreachMaterializationService {
     }
 
     const segment = String(voterFileFilterId)
+    const dataset = await this.contacts.resolvePeopleDataset(organization)
 
     let page = 1
     let materialized = 0
@@ -264,10 +265,14 @@ export class OutreachMaterializationService {
             robocallFilter,
             { resultsPerPage: SEGMENT_PAGE_SIZE, page },
             organization,
+            undefined,
+            dataset,
           )
         : await this.contacts.findContacts(
             { segment, resultsPerPage: SEGMENT_PAGE_SIZE, page },
             organization,
+            undefined,
+            dataset,
           )
       if (people.length === 0) break
 

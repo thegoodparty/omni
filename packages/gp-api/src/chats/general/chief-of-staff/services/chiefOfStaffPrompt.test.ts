@@ -43,6 +43,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  peopleDataset: 'voters',
   ...overrides,
 })
 
@@ -552,6 +553,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain(
       'exclude unknowns rather than counting them as zero',
+    )
+  })
+
+  it('sizes the unknown group against the voter file on the voters dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain('a fifth to a third of the file')
+    expect(prompt).not.toContain('not registered to vote')
+  })
+
+  it('blames missing scores on non-registration on the constituents dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ peopleDataset: 'constituents' }),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).not.toContain('of the file')
+    expect(prompt).toContain(
+      'residents who are not registered to vote are never scored',
     )
   })
 

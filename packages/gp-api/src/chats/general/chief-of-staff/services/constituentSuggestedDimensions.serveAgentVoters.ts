@@ -95,7 +95,8 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'Voters_Active',
-    label: "Registration status (values 'A' = active, 'I' = inactive)",
+    label:
+      "Voter registration (values 'A' = registered, active; 'I' = registered, inactive; null = not registered to vote. Null here is a known answer, not an unknown registration status: call those people residents who are not registered to vote)",
   },
   {
     name: 'Voters_VotingPerformanceEvenYearGeneral',

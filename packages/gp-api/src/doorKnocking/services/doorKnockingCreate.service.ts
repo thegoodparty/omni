@@ -333,8 +333,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
 
     // Runs the same eligibility gate as every other voter-data read — a
     // Win campaign without downloadable voter data can't knock either.
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
+    const { districtId, dataset } =
+      await this.contacts.resolveEligibleDistrict(organization)
 
     // ADR 0007 and ADR 0008. Read outside the transaction because they touch a
     // different table and would otherwise add two round trips to a critical
@@ -404,6 +404,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // connection across this call was the only thing that made it possible.
     const { people } = await this.peopleApi.evaluate({
       districtId,
+      dataset,
       bbox: polygonBbox(input.geoPoly),
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,

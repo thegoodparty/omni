@@ -36,8 +36,8 @@ const PROPRIETARY_NAME = 'GoodParty.org constituent sentiment'
 const PROPRIETARY_LABEL = 'GoodParty.org'
 const PROPRIETARY_PUBLISHER = 'GoodParty.org'
 const PROPRIETARY_BLURB =
-  'Modeled estimate from GoodParty.org’s proprietary constituent ' +
-  'sentiment data. Methodology details available on request.'
+  'Modeled from GoodParty.org’s proprietary sentiment data on residents ' +
+  'registered to vote. Methodology details available on request.'
 
 const ARTICLE_TYPE_LABEL: Record<string, string> = {
   reporting: 'Reporting',

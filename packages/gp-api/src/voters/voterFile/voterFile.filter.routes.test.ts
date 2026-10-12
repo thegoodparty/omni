@@ -727,7 +727,7 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
       } as never)
     const streamPeopleCsv = vi
       .spyOn(service.app.get(VoterDownloadService), 'streamPeopleCsv')
-      .mockImplementation(async (_dto, res) => {
+      .mockImplementation(async (_dto, _dataset, res) => {
         res.raw.setHeader('Content-Type', 'text/csv')
         res.raw.end('lalVoterId\n')
       })
@@ -749,7 +749,7 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
       | ReturnType<typeof stubPeopleApi>['streamPeopleCsv'],
   ) => {
     const calls = spy.mock.calls
-    const call = calls[calls.length - 1] as [{ filters: FilterData }]
+    const call = calls[calls.length - 1] as unknown as [{ filters: FilterData }]
     return reconstructFilters(call[0].filters)
   }
 
@@ -1148,7 +1148,7 @@ describe('count + download for a saved segment', () => {
 
     const streamPeopleCsv = vi
       .spyOn(service.app.get(VoterDownloadService), 'streamPeopleCsv')
-      .mockImplementation(async (_dto, res) => {
+      .mockImplementation(async (_dto, _dataset, res) => {
         res.raw.setHeader('Content-Type', 'text/csv')
         res.raw.end('lalVoterId\n')
       })

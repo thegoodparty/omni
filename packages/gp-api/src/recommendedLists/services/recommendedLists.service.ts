@@ -208,8 +208,8 @@ export class RecommendedListsService {
       (variant) => RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket,
     )
 
-    const [districtId, ideologyBucket, savedFilters, race] = await Promise.all([
-      this.contacts.resolveEligibleDistrictId(organization),
+    const [eligible, ideologyBucket, savedFilters, race] = await Promise.all([
+      this.contacts.resolveEligibleDistrict(organization),
       // Never throws: a classification failure returns null, which hides
       // the ideology variants. That is the common case, not the edge one.
       needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
@@ -228,7 +228,10 @@ export class RecommendedListsService {
 
     const { votesNeededToWin, electionCode } = race
 
-    const district = await this.reads.resolveDistrict(districtId)
+    const district = await this.reads.resolveDistrict(
+      eligible.districtId,
+      eligible.dataset,
+    )
 
     // A null filter is an ideology variant with no bucket to match
     // against; that null is how those variants hide.

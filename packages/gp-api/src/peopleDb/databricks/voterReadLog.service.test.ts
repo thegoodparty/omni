@@ -20,13 +20,18 @@ describe('VoterReadLogService', () => {
   })
 
   const measure = <T>(read: () => Promise<T>) =>
-    service.measure({ op: 'list', districtId: DISTRICT_ID, read })
+    service.measure({
+      op: 'list',
+      districtId: DISTRICT_ID,
+      dataset: 'constituents',
+      read,
+    })
 
   it('returns the value the read produced', async () => {
     await expect(measure(async () => 'rows')).resolves.toBe('rows')
   })
 
-  it('logs op, districtId, elapsed ms and statement ids', async () => {
+  it('logs op, districtId, dataset, elapsed ms and statement ids', async () => {
     const entry = await measure(async () => 'rows').then(
       () => info.mock.calls[0]?.[0] as Record<string, unknown>,
     )
@@ -35,6 +40,7 @@ describe('VoterReadLogService', () => {
     expect(entry).toEqual({
       op: 'list',
       districtId: DISTRICT_ID,
+      dataset: 'constituents',
       dbxMs: expect.any(Number),
       statementIds: [],
     })
@@ -70,6 +76,7 @@ describe('VoterReadLogService', () => {
       expect.objectContaining({
         op: 'list',
         districtId: DISTRICT_ID,
+        dataset: 'constituents',
         statementIds: ['stmt-doomed'],
         err: expect.any(Error),
       }),
@@ -84,6 +91,7 @@ describe('VoterReadLogService', () => {
       service.measure({
         op: 'list',
         districtId: DISTRICT_ID,
+        dataset: 'voters',
         read: async () => {
           await Promise.resolve()
           statementIdCollector.getStore()?.push(id)

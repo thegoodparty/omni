@@ -1715,7 +1715,7 @@ Three consequences worth knowing before changing this:
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
 - **So anything decidable about the request runs in front of the envelope.**
-  `DoorKnockingPackService.stream` awaits `resolveEligibleDistrictId` — the
+  `DoorKnockingPackService.stream` awaits `resolveEligibleDistrict` — the
   district resolve and the voter-data eligibility gate — and only then opens the
   stream, handing the resolved `districtId` to the build. An org with no
   district is not a failed build, it is a request that was never answerable, and
@@ -1838,7 +1838,7 @@ to resolve first. That is what lets it fire on a list pick rather than on an
 explicit press: [ADR 0010](adr/0010-draw-time-address-preview.md) made the
 preview explicit because each firing costs a scan, and moving the emptiness check
 earlier would have moved that cost earlier with it if it were answered the same
-way. It deliberately skips `resolveEligibleDistrictId` for the same reason — an
+way. It deliberately skips `resolveEligibleDistrict` for the same reason — an
 election-api round trip to find a district nothing here scans. An org with no
 resolvable district meets that problem at the draw step, where
 `districtUnavailable` already says so.
@@ -1868,7 +1868,7 @@ address at all, so it cannot; this runs the knock's own evaluation instead.
 `DoorKnockingPreviewService` repeats what
 [`doorKnockingKnock.service.ts`](../src/doorKnocking/services/doorKnockingKnock.service.ts)
 does right up to the vendor call and then stops:
-`resolveEligibleDistrictId`, `resolveSavedFilterForQuery` on the **unsaved**
+`resolveEligibleDistrict`, `resolveSavedFilterForQuery` on the **unsaved**
 filter draft (so activity conditions, support status, contacts-made and the
 voter-likelihood overrides are applied, exactly as they will be at knock time),
 ADR 0007 + ADR 0008 exclusions deduped into one `excludePersonIds`, then
@@ -1977,7 +1977,7 @@ which is a separate instruction from an observed refusal and gets its own ADR.
 
 **Still out.** There is no **top-issue or district filter**:
 `voterFilterBaseSchema` carries neither, and a district is _resolved_ from the
-organization (`resolveEligibleDistrictId`) rather than chosen, so the one
+organization (`resolveEligibleDistrict`) rather than chosen, so the one
 sub-district cut that exists — precinct — narrows the district an official
 already serves instead of picking a different one. No **voter record
 mutation**: nothing under `doorKnocking/`, `contacts/` or `peopleDb/` issues

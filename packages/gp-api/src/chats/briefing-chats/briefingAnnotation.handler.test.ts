@@ -10,6 +10,8 @@ import {
   vi,
 } from 'vitest'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import type { LlmTool } from '@/llm/services/llm.service'
+import type { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import {
   BriefingAnnotationHandler,
   BriefingChatContext,
@@ -46,6 +48,7 @@ const loadedContext = (): BriefingContextResult =>
     user: HENDERSONVILLE_FIXTURE.user,
     office: HENDERSONVILLE_FIXTURE.office,
     organizationSlug: ORG_SLUG,
+    organizationOwnerId: 9,
   }) as BriefingContextResult
 
 // The same context the fixture describes, so the handler's prompt mapping can
@@ -63,6 +66,7 @@ const fixtureContext = (): BriefingChatContext => ({
   highlight: HENDERSONVILLE_FIXTURE.highlight,
   notesCount: HENDERSONVILLE_FIXTURE.notesCount,
   districtFilters: HENDERSONVILLE_FILTERS,
+  peopleDataset: 'voters',
 })
 
 class FakeBriefingContext {
@@ -120,12 +124,14 @@ describe('BriefingAnnotationHandler', () => {
   const buildHandler = (
     databricks?: DatabricksProvider,
     districtResolver?: DistrictResolverService,
+    peopleDatasets?: PeopleDatasetService,
   ): BriefingAnnotationHandler =>
     new BriefingAnnotationHandler(
       briefingContext.asService(),
       notes.asService(),
       databricks,
       districtResolver,
+      peopleDatasets,
     )
 
   it('declares the sensitive briefing scope on an Anthropic-only chain', () => {
@@ -296,6 +302,73 @@ describe('BriefingAnnotationHandler', () => {
     ).loadContext(CONVERSATION_ID, USER_ID)
     expect(resolverOnly.resolveByOrgSlug).not.toHaveBeenCalled()
     expect(withoutProvider.districtFilters).toBeNull()
+  })
+
+  describe('people dataset', () => {
+    const descriptionOf = (tool: LlmTool | undefined): string => {
+      if (!tool || !('description' in tool)) {
+        throw new Error('expected a tool with a description')
+      }
+      return tool.description
+    }
+
+    const datasets = (dataset: 'voters' | 'constituents') => {
+      const resolve = vi.fn(() => Promise.resolve(dataset))
+      return {
+        resolve,
+        service: { resolve } as unknown as PeopleDatasetService,
+      }
+    }
+
+    it("reads serve_agent_constituents when the briefing's org resolves to constituents", async () => {
+      const { resolve, service } = datasets('constituents')
+      const handler = buildHandler(fakeDatabricks(), fakeResolver(), service)
+      const ctx = await handler.loadContext(CONVERSATION_ID, USER_ID)
+
+      expect(resolve).toHaveBeenCalledWith({ slug: ORG_SLUG, ownerId: 9 })
+      expect(ctx.peopleDataset).toBe('constituents')
+      const tools = handler.buildTools(ctx)
+      expect(descriptionOf(tools.district_insights)).toContain(
+        'Table: serve_agent_constituents',
+      )
+      if (!tools.district_insights || !('execute' in tools.district_insights)) {
+        throw new Error('expected district_insights')
+      }
+      await expect(
+        tools.district_insights.execute({
+          sql:
+            'SELECT COUNT(*) AS n FROM serve_agent_voters ' +
+            "WHERE state_postal_code = 'NC' AND City = 'Hendersonville'",
+          rationale: 'r',
+        }),
+      ).rejects.toThrow(/table not in allowlist: serve_agent_voters/)
+    })
+
+    it('reads serve_agent_voters when the org resolves to voters', async () => {
+      const handler = buildHandler(
+        fakeDatabricks(),
+        fakeResolver(),
+        datasets('voters').service,
+      )
+      const ctx = await handler.loadContext(CONVERSATION_ID, USER_ID)
+
+      expect(ctx.peopleDataset).toBe('voters')
+      expect(
+        descriptionOf(handler.buildTools(ctx).district_insights),
+      ).toContain('Table: serve_agent_voters')
+    })
+
+    it('skips the flag lookup when district_insights cannot register', async () => {
+      const { resolve, service } = datasets('constituents')
+      const ctx = await buildHandler(
+        undefined,
+        fakeResolver(),
+        service,
+      ).loadContext(CONVERSATION_ID, USER_ID)
+
+      expect(resolve).not.toHaveBeenCalled()
+      expect(ctx.peopleDataset).toBe('voters')
+    })
   })
 
   describe('today', () => {

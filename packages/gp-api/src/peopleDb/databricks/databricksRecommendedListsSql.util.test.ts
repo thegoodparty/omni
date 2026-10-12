@@ -6,12 +6,16 @@ import {
 } from './databricksRecommendedListsSql.util'
 import type { DbxDistrict } from './databricksVoterSql.util'
 
+const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
+
 const CONGRESSIONAL: DbxDistrict = {
   districtId: '635757db-0000-0000-0000-000000000000',
   state: 'CA',
   districtType: 'US_Congressional_District',
   districtName: '29',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const noFilters = (): FilterData => filtersSchema.parse({})

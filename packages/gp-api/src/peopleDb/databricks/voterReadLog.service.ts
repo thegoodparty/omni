@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { statementIdCollector } from './peopleDbxStatement.client'
+import type { PeopleDataset } from '../services/peopleDataset.service'
 
 // One log line per voter read, at a stable message so a Loki query can
 // aggregate a week of them. Flat rather than nested because LogQL cannot
@@ -8,6 +9,7 @@ import { statementIdCollector } from './peopleDbxStatement.client'
 type VoterReadLog = {
   op: string
   districtId: string
+  dataset: PeopleDataset
   dbxMs: number
   statementIds: string[]
 }
@@ -31,6 +33,7 @@ export class VoterReadLogService {
   async measure<T>(args: {
     op: string
     districtId: string
+    dataset: PeopleDataset
     read: () => Promise<T>
   }): Promise<T> {
     const startedAt = performance.now()
@@ -50,7 +53,7 @@ export class VoterReadLogService {
   }
 
   private log(
-    args: { op: string; districtId: string },
+    args: { op: string; districtId: string; dataset: PeopleDataset },
     startedAt: number,
     statementIds: string[],
     err?: unknown,
@@ -58,6 +61,7 @@ export class VoterReadLogService {
     const entry: VoterReadLog = {
       op: args.op,
       districtId: args.districtId,
+      dataset: args.dataset,
       dbxMs: Math.round(performance.now() - startedAt),
       statementIds,
     }

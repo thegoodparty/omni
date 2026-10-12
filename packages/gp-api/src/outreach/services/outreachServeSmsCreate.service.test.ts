@@ -67,7 +67,10 @@ const page = (people: unknown[], totalResults?: number) => ({
 describe('OutreachServeSmsCreateService', () => {
   let service: OutreachServeSmsCreateService
   let prisma: { outreach: { create: ReturnType<typeof vi.fn> } }
-  let contacts: { findContactsForFilter: ReturnType<typeof vi.fn> }
+  let contacts: {
+    findContactsForFilter: ReturnType<typeof vi.fn>
+    resolvePeopleDataset: ReturnType<typeof vi.fn>
+  }
   let organizations: { findFirst: ReturnType<typeof vi.fn> }
   let filters: { findByIdAndOrganizationSlug: ReturnType<typeof vi.fn> }
   let texts: { findOptedOutPersonIds: ReturnType<typeof vi.fn> }
@@ -81,6 +84,7 @@ describe('OutreachServeSmsCreateService', () => {
     }
     contacts = {
       findContactsForFilter: vi.fn().mockResolvedValue(page(people(120))),
+      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
     }
     organizations = {
       findFirst: vi.fn().mockResolvedValue({ id: 1, slug: ORG }),
