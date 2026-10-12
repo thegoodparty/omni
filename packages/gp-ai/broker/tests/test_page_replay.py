@@ -1,6 +1,7 @@
 import io
 import os
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -579,6 +580,38 @@ class TestSwitchOff:
         assert h.fetch(CANDIDATE, URL, _page(b"live")).content == b"live"
         assert h.head(CANDIDATE).json()["status"] == 200
         assert h.s3.objects == {}
+
+
+class TestRecordingStaysOffTheEventLoop:
+    """The saves are sync boto3 calls, so they must run in Starlette's
+    threadpool rather than on the loop that serves every other request."""
+
+    def test_saves_run_on_a_worker_thread(self, ddb, monkeypatch):
+        threads: dict[str, int] = {}
+        h = Harness(ddb)
+        fetch = h.fetcher.fetch
+
+        async def fetch_on_loop(url: str) -> BrowserFetchResult:
+            threads["loop"] = threading.get_ident()
+            return await fetch(url)
+
+        for name in ("record_fetch", "record_head"):
+            original = getattr(PageReplay, name)
+
+            def spy(self, *args, _original=original, _name=name, **kwargs):
+                threads[_name] = threading.get_ident()
+                return _original(self, *args, **kwargs)
+
+            monkeypatch.setattr(PageReplay, name, spy)
+        monkeypatch.setattr(h.fetcher, "fetch", fetch_on_loop)
+
+        h.fetch(BASE, URL, _page(b"page"))
+        h.fetch(BASE, URL + ".pdf", _download(b"%PDF-1.7"))
+        h.head(BASE)
+
+        assert {"loop", "record_fetch", "record_head"} <= threads.keys()
+        assert threads["record_fetch"] != threads["loop"]
+        assert threads["record_head"] != threads["loop"]
 
 
 class TestOutcomeMarkers:
