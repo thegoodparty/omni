@@ -264,6 +264,8 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
 - **An event now fires from a different place** (`surface_moved`, a warning, never a
   block). The change stopped the event firing from an area it used to, for example by
   turning its page into a redirect while another page still imports the component.
+  Areas are compared by name, so a page that only moves route under the same area name
+  (`/dashboard/profile` to `/profile`, both "Profile") does not warn.
   **Relabel, do not rename**: leave the event name in code alone and add the
   `relabels:` row the warning prints to `monitored_events.yaml`, with the human's reason.
   Triage writes it to Govern after merge.
