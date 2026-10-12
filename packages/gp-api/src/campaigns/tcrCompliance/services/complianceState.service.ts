@@ -102,8 +102,8 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
         : null,
       websiteId: website?.id ?? null,
       peerlyVerificationId: tcrCompliance?.peerlyCvVerificationId ?? null,
-      internalTestingApprovedAt: tcrCompliance?.internalTestingApprovedAt
-        ? formatISO(tcrCompliance.internalTestingApprovedAt)
+      internalTestingAt: tcrCompliance?.internalTestingAt
+        ? formatISO(tcrCompliance.internalTestingAt)
         : null,
       hasComplianceRecord: Boolean(tcrCompliance),
       committeeName: tcrCompliance?.committeeName ?? null,
@@ -126,10 +126,22 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
   private async resolvePeerlyCvState(
     stage: ComplianceStage,
     campaign: Campaign,
-    tcrCompliance: Pick<TcrCompliance, 'peerlyIdentityId'> | null,
+    tcrCompliance: Pick<
+      TcrCompliance,
+      'peerlyIdentityId' | 'internalTestingAt'
+    > | null,
   ): Promise<Pick<ComplianceStateOutput, 'peerlyCvStatus' | 'pinDelivery'>> {
     if (stage !== ComplianceStage.awaiting_pin) {
       return { peerlyCvStatus: null, pinDelivery: null }
+    }
+
+    // Test-org rows have no real Peerly identity; report APPROVED so the PIN
+    // screen is reachable but no real Peerly call is made.
+    if (tcrCompliance?.internalTestingAt) {
+      return {
+        peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: null,
+      }
     }
 
     // Non-prod short-circuits Peerly submission (see websites.service.ts
@@ -193,10 +205,7 @@ export const deriveComplianceStage = (
   domain: Pick<Domain, 'status' | 'registrantVerifiedAt' | 'createdAt'> | null,
   tcrCompliance: Pick<
     TcrCompliance,
-    | 'status'
-    | 'internalTestingApprovedAt'
-    | 'peerlyIdentityId'
-    | 'cvValidationFailedAt'
+    'status' | 'internalTestingAt' | 'peerlyIdentityId' | 'cvValidationFailedAt'
   > | null,
 ): ComplianceStage => {
   if (!tcrCompliance) {
@@ -205,10 +214,30 @@ export const deriveComplianceStage = (
       : ComplianceStage.needs_profile
   }
 
-  // Internal-testing approvals have no domain/website/Peerly footprint, so
-  // the live-website precondition below would misreport them as pending.
-  if (tcrCompliance.internalTestingApprovedAt) {
-    return ComplianceStage.tcr_approved
+  // Synthetic rows (test orgs and internal-testing approvals) have no
+  // domain/website/Peerly footprint, so the live-website precondition below
+  // would misreport them. Derive the stage from status, cvValidationFailedAt
+  // and peerlyIdentityId only.
+  if (tcrCompliance.internalTestingAt) {
+    if (tcrCompliance.status === TcrComplianceStatus.approved) {
+      return ComplianceStage.tcr_approved
+    }
+    if (
+      tcrCompliance.status === TcrComplianceStatus.rejected ||
+      tcrCompliance.status === TcrComplianceStatus.error
+    ) {
+      return ComplianceStage.tcr_rejected
+    }
+    if (tcrCompliance.status === TcrComplianceStatus.pending) {
+      return ComplianceStage.tcr_in_review
+    }
+    if (tcrCompliance.cvValidationFailedAt) {
+      return ComplianceStage.filing_review_hold
+    }
+    if (!tcrCompliance.peerlyIdentityId) {
+      return ComplianceStage.ready_to_submit
+    }
+    return ComplianceStage.awaiting_pin
   }
 
   if (

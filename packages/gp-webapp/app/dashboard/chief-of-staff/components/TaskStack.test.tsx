@@ -1,0 +1,191 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { render } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import TaskStack from './TaskStack'
+import { ONBOARDING_CARDS } from './onboardingCardsConfig'
+import type { DashboardCard, OnboardingCard } from '../data/contracts'
+
+const cardsRef: {
+  current: { data?: DashboardCard[]; isPending: boolean; isError: boolean }
+} = { current: { data: [], isPending: false, isError: false } }
+const onboardingRef: { current: OnboardingCard[] | undefined } = {
+  current: [],
+}
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+const dismissMock = vi.fn()
+const completeMock = vi.fn()
+const skipOnboardingMock = vi.fn()
+
+vi.mock('../data/use-dashboard', () => ({
+  useDashboardCards: () => cardsRef.current,
+  useOnboardingCards: () => ({ data: onboardingRef.current }),
+  useDismissCard: () => ({ mutate: dismissMock }),
+  useCompleteCard: () => ({ mutate: completeMock }),
+  useSkipOnboardingCard: () => ({ mutate: skipOnboardingMock }),
+}))
+
+const card = (overrides: Partial<DashboardCard>): DashboardCard => ({
+  id: 'c1',
+  type: 'briefing',
+  title: 'Prep for the zoning vote',
+  summary: 'Three items worth reading first.',
+  ctaLabel: 'Prepare for the meeting',
+  ctaHref: '/dashboard/briefings/2026-09-21',
+  dueDate: '2026-09-21T18:00:00.000Z',
+  sourceExternalId: 'ext-1',
+  sourceItemId: null,
+  dismissedAt: null,
+  completedAt: null,
+  createdAt: '2026-09-14T00:00:00.000Z',
+  updatedAt: '2026-09-14T00:00:00.000Z',
+  ...overrides,
+})
+
+const withCards = (data: DashboardCard[]) => {
+  cardsRef.current = { data, isPending: false, isError: false }
+}
+
+beforeEach(() => {
+  cardsRef.current = { data: [], isPending: false, isError: false }
+  onboardingRef.current = []
+  dismissMock.mockReset()
+  completeMock.mockReset()
+  skipOnboardingMock.mockReset()
+  vi.mocked(trackEvent).mockReset()
+})
+
+describe('<TaskStack>', () => {
+  it('names a next step when there is genuinely nothing to do', () => {
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    const empty = screen.getByTestId('task-list-empty')
+    expect(empty).toHaveTextContent('No tasks this week')
+    // docs/product-copy.md rule 8: what happened, then what to do.
+    expect(empty).toHaveTextContent(/ask your chief of staff/i)
+  })
+
+  // The dashboard's own copy must not say the thing the agent is forbidden
+  // from saying (see the PROACTIVITY block in chiefOfStaffPrompt.ts).
+  it('never claims the user is all caught up', () => {
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
+  })
+
+  it('stays silent while a briefing is generating', () => {
+    const { container } = render(
+      <TaskStack onOpenCard={vi.fn()} briefingInFlight />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('waits for the get-started cards before showing anything', () => {
+    onboardingRef.current = undefined
+    withCards([card({})])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(screen.getByTestId('task-list-loading')).toBeInTheDocument()
+  })
+
+  it('shows only the front card, get-started cards first', () => {
+    onboardingRef.current = [
+      { key: 'meet', status: 'active' },
+      { key: 'priorities', status: 'completed' },
+    ]
+    withCards([card({})])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(screen.getByText(ONBOARDING_CARDS.meet.title)).toBeInTheDocument()
+    expect(
+      screen.queryByText(ONBOARDING_CARDS.priorities.title),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Prep for the zoning vote'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Start here' }),
+    ).toBeInTheDocument()
+  })
+
+  it('opens the chat from a get-started card and offers no Mark done', async () => {
+    const user = userEvent.setup()
+    const onOpenCard = vi.fn()
+    onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+    render(<TaskStack onOpenCard={onOpenCard} />)
+    await user.click(
+      screen.getByRole('button', {
+        name: ONBOARDING_CARDS.priorities.ctaLabel,
+      }),
+    )
+    expect(onOpenCard).toHaveBeenCalledWith('priorities')
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      {
+        cardId: 'onboarding:priorities',
+        cardType: 'onboarding',
+        stackSize: 1,
+        action: 'start',
+        cta: ONBOARDING_CARDS.priorities.ctaLabel,
+      },
+    )
+    expect(
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('skips a get-started card through its own mutation', async () => {
+    const user = userEvent.setup()
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(skipOnboardingMock).toHaveBeenCalledWith('meet')
+    expect(dismissMock).not.toHaveBeenCalled()
+  })
+
+  it('links the primary action to the card destination', () => {
+    withCards([card({})])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(
+      screen.getByRole('link', { name: 'Prepare for the meeting' }),
+    ).toHaveAttribute('href', '/dashboard/briefings/2026-09-21')
+    expect(
+      screen.getByRole('heading', { name: 'Get ready for your next meeting' }),
+    ).toBeInTheDocument()
+  })
+
+  it('marks the front card done on the first press', async () => {
+    const user = userEvent.setup()
+    withCards([card({}), card({ id: 'c2', title: 'Second' })])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /mark done/i }))
+    expect(completeMock).toHaveBeenCalledWith('c1')
+    expect(dismissMock).not.toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.ChiefOfStaff.TaskCompleted, {
+      cardId: 'c1',
+      cardType: 'briefing',
+      stackSize: 2,
+    })
+  })
+
+  it('skips the front card through dismiss', async () => {
+    const user = userEvent.setup()
+    withCards([card({})])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(dismissMock).toHaveBeenCalledWith('c1')
+    expect(completeMock).not.toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      { cardId: 'c1', cardType: 'briefing', stackSize: 1, action: 'skip' },
+    )
+  })
+
+  it('does not explain the system or use an em-dash', () => {
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    withCards([card({})])
+    const { container } = render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(container.textContent).not.toContain('—')
+  })
+})

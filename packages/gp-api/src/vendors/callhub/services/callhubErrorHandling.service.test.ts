@@ -5,6 +5,7 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   CallhubErrorHandlingService,
   CallhubPermanentError,
+  CallhubRecoverableError,
 } from './callhubErrorHandling.service'
 
 const axiosError = (
@@ -140,6 +141,14 @@ describe('CallhubErrorHandlingService', () => {
 
       expect(thrown).toBeInstanceOf(BadGatewayException)
       expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
+    })
+
+    it('carries the over_cps_limit detail on a CallhubRecoverableError so the send sweep can back off', () => {
+      const thrown = classifyBody(400, { detail: 'over_cps_limit' })
+      expect(thrown).toBeInstanceOf(CallhubRecoverableError)
+      expect((thrown as CallhubRecoverableError).callhubDetail).toBe(
+        'over_cps_limit',
+      )
     })
 
     it('still classifies other 400 detail codes as permanent', () => {

@@ -240,54 +240,14 @@ const ActivitiesContent: React.FC = () => {
     currentlySelectedPerson: {
       activities,
       isLoadingActivities: isLoading,
-      isErrorActivities: isError,
       activitiesHasNextPage: hasNextPage,
       activitiesFetchNextPage: onViewMore,
       isFetchingNextActivities: isFetchingNextPage,
     },
-    currentlySelectedPersonId,
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
   const hasActivities = activities.length > 0
-
-  // "Did a Win user see attributed outreach" is a narrower question than
-  // "does the feed have any rows" — scoped to legacy OUTREACH rows
-  // specifically so the CRM-widened entry types (manual door knocks, texts,
-  // ...) can't inflate this pre-existing adoption metric.
-  const hasOutreachRows = activities.some(isOutreachActivity)
-
-  // Fire once per opened person when the Win outreach timeline actually
-  // renders rows (not while loading and not for an empty/error feed), so the
-  // event answers "did a Win user see attributed outreach" rather than "did
-  // the overlay open". Gate on isWinContextReady and latch on the person id
-  // (same pattern as CrmContactsPage's Viewed event) so a post-settle
-  // isWinContext toggle (focus revalidation, query re-fetch) can't duplicate
-  // the event for the same person; switching to a different person re-arms
-  // the latch.
-  const firedForPersonRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (
-      isWinContextReady &&
-      isWinContext &&
-      currentlySelectedPersonId &&
-      hasOutreachRows &&
-      !isError &&
-      firedForPersonRef.current !== currentlySelectedPersonId
-    ) {
-      firedForPersonRef.current = currentlySelectedPersonId
-      trackEvent(EVENTS.Contacts.OutreachTimelineViewed, {
-        context: 'win',
-        personId: currentlySelectedPersonId,
-      })
-    }
-  }, [
-    isWinContextReady,
-    isWinContext,
-    currentlySelectedPersonId,
-    hasOutreachRows,
-    isError,
-  ])
 
   // Not gated on isError: a failed background refetch (activities already
   // loaded from a prior successful fetch) must keep showing those rows, not

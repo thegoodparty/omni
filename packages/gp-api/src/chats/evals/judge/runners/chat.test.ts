@@ -41,19 +41,19 @@ describe('pricing a run', () => {
     expect(priced.unpriceable).toBeUndefined()
   })
 
-  // Every chat scope declares a claude-opus-4-7 fallback that pricing.ts has
-  // no rates for, so this is a live path and not a hypothetical.
+  // A model pricing.ts has no rates for, which is what a newly added chat
+  // model is until someone records its rates.
   it('omits cost for a model it cannot price, rather than storing zero', () => {
-    const priced = priceRun(tokens, 'claude-opus-4-7')
+    const priced = priceRun(tokens, 'claude-unpriced-model')
     expect(priced.cost).toBeUndefined()
-    expect(priced.unpriceable).toMatch(/claude-opus-4-7/)
+    expect(priced.unpriceable).toMatch(/claude-unpriced-model/)
   })
 
   // A stored 0 under a real pricing version reads as "this run was free",
   // and sharesPricing would call two arms comparably priced when one was
   // never priced at all.
   it('never reports an unpriceable run as costing nothing', () => {
-    const priced = priceRun(tokens, 'claude-opus-4-7')
+    const priced = priceRun(tokens, 'claude-unpriced-model')
     expect(priced.cost?.usdAtCapture).not.toBe(0)
   })
 })

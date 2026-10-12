@@ -735,4 +735,54 @@ describe('StripeService.createCustomCheckoutSession', () => {
     const args = firstOrThrow(sessionsCreate.mock.calls)[0]
     expect(args.payment_method_types).toEqual(['card', 'amazon_pay'])
   })
+
+  // Win SMS hold billing: the hold is created by authorizing the Checkout
+  // Session's PaymentIntent with manual capture.
+  it('authorizes a manual-capture hold when manualCapture is set, keeping receipt_email', async () => {
+    sessionsCreate.mockResolvedValue({
+      id: 'cs_test_hold',
+      client_secret: 'cs_test_hold_secret',
+      amount_total: 10500,
+    })
+
+    await service.createCustomCheckoutSession(
+      { id: userId, email, customerId: undefined },
+      {
+        type: PaymentType.OUTREACH_PURCHASE,
+        purchaseType: PurchaseType.TEXT,
+        amount: 10500,
+        productName: 'SMS Outreach',
+        returnUrl: 'https://app.test/dashboard/purchase/complete',
+        manualCapture: true,
+      },
+    )
+
+    const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+    expect(args.payment_intent_data).toEqual({
+      receipt_email: email,
+      capture_method: 'manual',
+    })
+  })
+
+  it('leaves capture automatic (no capture_method) when manualCapture is unset', async () => {
+    sessionsCreate.mockResolvedValue({
+      id: 'cs_test_auto',
+      client_secret: 'cs_test_auto_secret',
+      amount_total: 1092,
+    })
+
+    await service.createCustomCheckoutSession(
+      { id: userId, email, customerId: undefined },
+      {
+        type: PaymentType.OUTREACH_PURCHASE,
+        purchaseType: PurchaseType.TEXT,
+        amount: 1092,
+        productName: 'SMS Outreach',
+        returnUrl: 'https://app.test/dashboard/purchase/complete',
+      },
+    )
+
+    const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+    expect(args.payment_intent_data).toEqual({ receipt_email: email })
+  })
 })

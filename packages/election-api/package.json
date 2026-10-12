@@ -6,7 +6,7 @@
   "private": true,
   "license": "CC0-1.0",
   "scripts": {
-    "build": "npm run build:contracts && nest build",
+    "build": "npm run build:contracts && tsc --noEmit -p tsconfig.build.json && nest build",
     "build:contracts": "npx tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:env-contract": "npx tsx scripts/check-env-contract.ts",
     "format": "prettier --write \"src/**/*.ts\"",

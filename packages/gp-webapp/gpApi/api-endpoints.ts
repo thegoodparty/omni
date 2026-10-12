@@ -108,6 +108,10 @@ import type {
   RecommendedListsResponse,
   RecommendedListVariant,
   MyAssignmentsResponse,
+  TrackerTaskSkipReason,
+  TestModeState,
+  CreateTestOrganizationRequest,
+  ApplyTestModeRequest,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -232,6 +236,11 @@ export type CampaignTrackerTask = {
   // false for the dynamic tasks + events the CAP run produces. Lets the client
   // tell "still generating" (only static present) from "done".
   isDefaultTask: boolean
+  // Set when the candidate put the task off ('later', until snoozedUntil) or
+  // set it aside ('notForMe'). Optional only so older fixtures still build;
+  // gp-api always sends them.
+  skipReason?: TrackerTaskSkipReason | null
+  snoozedUntil?: string | null
 }
 
 /** Request/response shapes for the user-agenda-upload flow. */
@@ -569,8 +578,8 @@ export type APIEndpoints = {
   // `communityInputQuestion` rides both this and the Serve sibling below, for
   // the one purpose that asks a question (Win's "Hear from voters", Serve's
   // community input). The question is what the effort exists to ask, so the
-  // card's "ask" is written to put it to the resident rather than a generic
-  // what-matters-to-you question. Sent rather than read server-side because
+  // talking points are written to put it to the resident rather than a
+  // generic what-matters-to-you question. Sent rather than read server-side because
   // the turf does not exist at draft time; refused on any other purpose.
   'POST /v1/outreach/door-knocking/draft': {
     Request: {
@@ -977,6 +986,16 @@ export type APIEndpoints = {
     Response: CampaignTrackerTask
   }
 
+  'PUT /v1/campaigns/tracker-tasks/skip/:id': {
+    Request: { id: string; reason: TrackerTaskSkipReason }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/skip/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
+  }
+
   // Manual generation override, non-prod only (gp-api 404s it in prod). Fire to
   // dispatch a tracker run for the current campaign on demand.
   'POST /v1/campaigns/tracker-tasks/generate': {
@@ -1024,6 +1043,11 @@ export type APIEndpoints = {
   }
 
   'PUT /v1/dashboard/cards/:id/dismiss': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/cards/:id/complete': {
     Request: {}
     Response: void
   }
@@ -2170,6 +2194,37 @@ export type APIEndpoints = {
   'DELETE /v1/phone-banking/lists/:id': {
     Request: {}
     Response: void
+  }
+
+  // Races by zip — election-api via gp-api proxy. Filters to general-election
+  // races; callers that want only future races pass timeframe: 'future'.
+  'GET /v1/elections/races-by-year': {
+    Request: {
+      zipcode: string
+      timeframe: 'future' | 'past' | 'all'
+    }
+    Response: Race[]
+  }
+
+  // Test mode — staff-only endpoints gated by TestModeGuard on gp-api.
+  'GET /v1/test-mode': {
+    Request: {}
+    Response: TestModeState
+  }
+
+  'POST /v1/test-mode/organizations': {
+    Request: CreateTestOrganizationRequest
+    Response: TestModeState
+  }
+
+  'POST /v1/test-mode/apply': {
+    Request: ApplyTestModeRequest
+    Response: TestModeState
+  }
+
+  'DELETE /v1/test-mode/organizations/:slug': {
+    Request: {}
+    Response: TestModeState
   }
 }
 

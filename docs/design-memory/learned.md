@@ -4,9 +4,10 @@ Every rule here exists because someone had to give the correction at least once.
 Apply all of them on the first pass.
 
 **Session log:** seeded 2026-09-08 from existing GoodParty briefs and process docs.
-No live sessions captured yet. Entries marked `(seeded)` were inferred from written
-conventions rather than earned from a real correction. Delete any that turn out to
-be wrong. That is expected.
+Entries marked `(seeded)` were inferred from written conventions rather than earned
+from a real correction. Delete any that turn out to be wrong. That is expected.
+Entries marked `(earned)` came from corrections in product design sessions, first
+captured 2026-10-07 from the candidate Home and Game Plan work.
 
 ---
 
@@ -20,6 +21,25 @@ be wrong. That is expected.
 5. Call them agents, never chatbots. (seeded)
 6. Write in the user's voice, not the product's. A generated summary should read
    like the official wrote it, not like software describing itself. (seeded)
+17. Do not repeat the same helper line under every field or question. If each one
+    carries the same sentence, it says nothing; cut it and let the question and
+    its example do the work. (earned)
+18. A tag or label earns its place by saying something true and specific to this
+    item, like a real deadline. Labels that would show on every visit ("Start
+    here", "High priority") are noise. (earned)
+28. One line of text above a primary card, not two, and it speaks to that
+    card: a door-knocking task gets "One door at a time", the story task gets
+    "Tell it your way". The line stays while its card is in front and changes
+    when the card does. It can cheer or instruct. A second line that only
+    points at the card ("Here's what to do next") is redundant, since the card
+    is what's next. (earned)
+29. Never tell users something we cannot know is true. Encouragement about
+    their own effort is fine; claims about their race ("Your neighbors are with
+    you", "Momentum is building") are not, unless the data says so. (earned)
+30. A date on a card is plain, muted text with a calendar icon, after the
+    description, not a badge. It turns warning (never red, which means an
+    error) and says so in words only when it is close or past: "Due today",
+    "3 days overdue". At most one badge per card. (earned)
 
 ## Content
 
@@ -41,6 +61,11 @@ be wrong. That is expected.
 13. Anything generated gets a correction affordance: thumbs up and down plus an
     open text field. (seeded)
 14. Output that someone would take into a meeting must be printable. (seeded)
+19. No overlines. Do not put a small uppercase label above a heading or card
+    title. We were using them everywhere and they stopped meaning anything; the
+    title leads. (earned)
+20. Card and section titles sit below the page title in size and weight. A
+    question on a form page is a label, not a second page title. (earned)
 
 ## Form
 
@@ -48,6 +73,21 @@ be wrong. That is expected.
     and the right-side source drawer should be identical across features so it
     reads as one product. (seeded)
 16. Light theme, generous whitespace, clean and trustworthy over clever. (seeded)
+21. Borders, not shadows, on cards, trays and inputs. Related surfaces share the
+    same corner radius. (earned)
+22. Body and input text is 16px. Do not let a component shrink it to 14px. (earned)
+23. Text areas look the same everywhere. The outreach compose card is the
+    reference: the field sits seamless inside the card, with a full-width footer
+    under a rule holding quiet ghost actions (Improve with AI, the mic). (earned)
+24. Every icon-only button gets a tooltip that says what it does, except a
+    close ×, which everyone already reads. (earned)
+25. A dashed "add" control is a button, so it gets a white fill and a link-blue
+    dashed border, not a gray one that reads as an empty slot. (earned)
+26. Leave about 128px of space after the last element on a long page, so the end
+    reads as the end. (earned)
+27. A page you step into and back out of (a story, a profile) drops the sidebar
+    and opens on a back arrow and its title. The back arrow sits in the margin,
+    so the title lines up with the content under it. (earned)
 
 ---
 

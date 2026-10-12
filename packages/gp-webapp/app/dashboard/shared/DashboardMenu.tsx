@@ -65,9 +65,11 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
+import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import { openSupportChat } from '@shared/utils/supportWidget'
 import { MembershipBanner } from './membership/MembershipBanner'
+import { TestModeMenuItem } from './testMode/TestModeMenuItem'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -104,9 +106,9 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: NAV_LABELS.campaignManager,
+    label: NAV_LABELS.home,
     icon: <MdFactCheck />,
-    v2Icon: NAV_HEADER_ICONS.dashboard,
+    v2Icon: NAV_HEADER_ICONS.house,
     link: '/dashboard',
     v2Category: 'campaign',
     id: 'campaign-tracker-dashboard',
@@ -147,7 +149,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     link: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
     target: '_blank',
     id: 'community-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
   },
 ]
 
@@ -259,7 +260,7 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   label: NAV_LABELS.campaignPlan,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
-  v2Icon: NAV_HEADER_ICONS.scroll,
+  v2Icon: NAV_HEADER_ICONS.checklist,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
@@ -286,8 +287,19 @@ export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
   prioritiesEnabled = false,
+  nextTaskExperience = false,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
+  // Behind `next-task-experience`: Home and the checklist plan icon, with
+  // Your Story after Voter Data. Off keeps Campaign Manager, the scroll icon
+  // and Your Story above the plan.
+  if (!nextTaskExperience) {
+    menuItems[0] = {
+      ...menuItems[0]!,
+      label: NAV_LABELS.campaignManager,
+      v2Icon: NAV_HEADER_ICONS.dashboard,
+    }
+  }
 
   // Community Issues nav mirrors page-level access (serveAccess.ts): both are
   // elected-office existence alone.
@@ -351,10 +363,31 @@ export const getDashboardMenuItems = (
     (chiefOfStaffShown ? 1 : 0) +
     (prioritiesShown ? 1 : 0)
 
-  // The campaign tracker tab, and the "Your Story" tab just above it (the
-  // story is what the tracker + plan are generated from).
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  // The campaign tracker tab, right after Campaign Manager.
+  menuItems.splice(
+    afterCampaignManager,
+    0,
+    nextTaskExperience
+      ? CAMPAIGN_PLAN_MENU_ITEM
+      : { ...CAMPAIGN_PLAN_MENU_ITEM, v2Icon: NAV_HEADER_ICONS.scroll },
+  )
+
+  if (nextTaskExperience) {
+    // "Your Story" follows the daily-use tabs, right after Voter Data
+    // (whichever form of it this org gets: Win's contacts, the Pro upsell,
+    // or Serve's).
+    const voterDataItemIndex = menuItems.findIndex(
+      (item) =>
+        item === WIN_CONTACTS_MENU_ITEM ||
+        item === VOTER_DATA_UPGRADE_ITEM ||
+        item === CONTACTS_MENU_ITEM,
+    )
+    menuItems.splice(voterDataItemIndex + 1, 0, CAMPAIGN_STORY_MENU_ITEM)
+  } else {
+    // "Your Story" just above the plan (the story is what the tracker and
+    // plan are generated from).
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
@@ -379,6 +412,7 @@ export default function DashboardMenu({
     useElectedOffice()
   const organization = useOrganization()
   const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
+  const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
 
   const menuItems = useMemo(
     () =>
@@ -386,8 +420,14 @@ export default function DashboardMenu({
         !!electedOffice,
         isElectedOfficeLoading,
         prioritiesEnabled,
+        nextTaskExperience,
       ),
-    [electedOffice, isElectedOfficeLoading, prioritiesEnabled],
+    [
+      electedOffice,
+      isElectedOfficeLoading,
+      prioritiesEnabled,
+      nextTaskExperience,
+    ],
   )
 
   // Team accounts (ENG-10816/10827), moved from the primary nav into the
@@ -459,9 +499,13 @@ const NewNavMenu = ({
   const { setOpenMobile, isMobile } = useSidebar()
 
   const menuFirstName =
-    (isClerkUserLoaded && clerkUser?.firstName?.trim()) || user?.firstName || ''
+    user?.firstName?.trim() ||
+    (isClerkUserLoaded && clerkUser?.firstName?.trim()) ||
+    ''
   const menuLastName =
-    (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
+    user?.lastName?.trim() ||
+    (isClerkUserLoaded && clerkUser?.lastName?.trim()) ||
+    ''
 
   const organization = useOrganization()
   const organizationRole = useOrganizationRole()
@@ -643,6 +687,7 @@ const NewNavMenu = ({
       {!isMobile && (
         <SidebarFooter>
           <MembershipBanner />
+          <TestModeMenuItem />
           <SidebarMenu>
             <SidebarMenuItemComponent>
               <DropdownMenu>

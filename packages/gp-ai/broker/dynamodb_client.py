@@ -1,7 +1,7 @@
 import json
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 import boto3
 from botocore.exceptions import ClientError
@@ -50,6 +50,22 @@ JUDGE_RUN_ID_MAX_LENGTH = 36
 JUDGE_RUN_ID_RE = re.compile(
     rf"^{JUDGE_RUN_ID_PREFIX}[A-Za-z0-9_-]{{1,{JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX)}}}$"
 )
+
+# The replay store a judge run records into or replays from, one of three
+# layouts under `_judge/replay/`, mirrored from `packages/contracts`
+# (`JudgeReplay.schema.ts`). Each segment's alphabet has no separator and no
+# dot, so a key cannot escape its store. This prevents mistakes and path
+# escapes; it is not access control, since the judge's own role can already
+# read and write `_judge/*`. Read with `fullmatch`: Python's `$` also matches
+# before a trailing newline.
+_REPLAY_SEGMENT = r"[A-Za-z0-9_-]{1,64}"
+_REPLAY_AGENT_ID = r"(?P<agent_id>[a-z][a-z0-9_]{0,63})"
+_REPLAY_CASE_ATTEMPT = r"[A-Za-z0-9_-]{1,80}-[1-9][0-9]?"
+JUDGE_REPLAY_KEY_RES = {
+    "sweep": re.compile(rf"_judge/replay/sweep/{_REPLAY_SEGMENT}/{_REPLAY_AGENT_ID}/{_REPLAY_CASE_ATTEMPT}"),
+    "base": re.compile(rf"_judge/replay/base/{_REPLAY_AGENT_ID}/{_REPLAY_SEGMENT}/{_REPLAY_CASE_ATTEMPT}"),
+    "seed": re.compile(rf"_judge/replay/seed/{_REPLAY_AGENT_ID}/[A-Za-z0-9_-]{{1,80}}"),
+}
 
 # Same alphabet the broker's own request models accept for an S3 VersionId
 # (`experiment_manifest.S3_VERSION_ID_PATTERN`).
@@ -137,6 +153,38 @@ class ExperimentOverrideRef(BaseModel):
         return self.manifest_key.split("/")[1]
 
 
+class JudgeReplayRef(BaseModel):
+    """Which replay store a judge run records page fetches into, or replays
+    them from. Carried on the ticket like `experiment_override`, so the fetch
+    handlers read it from here and never from the agent's request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["record", "replay"]
+    key: str = Field(..., min_length=1, max_length=1024)
+
+    @model_validator(mode="after")
+    def _validate_key(self) -> "JudgeReplayRef":
+        kind = next((k for k, r in JUDGE_REPLAY_KEY_RES.items() if r.fullmatch(self.key)), None)
+        if kind is None:
+            raise ValueError("key must be a _judge/replay/sweep/, base/ or seed/ key")
+        # The bench writes a seed store and both arms only read it. A run
+        # recording into one would mix live pages into planted ones.
+        if kind == "seed" and self.mode == "record":
+            raise ValueError("a seed store is replay-only")
+        return self
+
+    @property
+    def agent_id(self) -> str:
+        """The agent the store belongs to. Callers bind it to the ticket's
+        experiment_id so a run can only replay its own agent's pages."""
+        for pattern in JUDGE_REPLAY_KEY_RES.values():
+            match = pattern.fullmatch(self.key)
+            if match is not None:
+                return match.group("agent_id")
+        raise AssertionError("unreachable: _validate_key admitted the key")
+
+
 class ScopeTicket(BaseModel):
     pk: str
     run_id: str
@@ -157,6 +205,9 @@ class ScopeTicket(BaseModel):
     # bytes with no override at all, and its callback has to be suppressed too.
     is_eval: bool = False
     experiment_override: ExperimentOverrideRef | None = None
+    # Universal Judge page replay. Defaults to None so a ticket minted before
+    # this field existed still loads.
+    replay: JudgeReplayRef | None = None
 
     @model_validator(mode="after")
     def _override_implies_eval(self) -> "ScopeTicket":
@@ -176,6 +227,15 @@ class ScopeTicket(BaseModel):
             raise ValueError(
                 f"experiment_override agentId {self.experiment_override.agent_id!r} "
                 f"does not match experiment_id {self.experiment_id!r}"
+            )
+        # Checked on load as well as at mint, like the override, so a tampered
+        # or drifted item cannot point a product run, or another agent's run,
+        # at a replay store.
+        if self.replay is not None and not self.is_eval:
+            raise ValueError("replay requires is_eval=True")
+        if self.replay is not None and self.replay.agent_id != self.experiment_id:
+            raise ValueError(
+                f"replay agentId {self.replay.agent_id!r} does not match experiment_id {self.experiment_id!r}"
             )
         return self
 
@@ -209,6 +269,8 @@ class ScopeTicketStore:
             item["is_eval"] = {"BOOL": True}
         if ticket.experiment_override is not None:
             item["experiment_override"] = {"S": json.dumps(ticket.experiment_override.model_dump())}
+        if ticket.replay is not None:
+            item["replay"] = {"S": json.dumps(ticket.replay.model_dump())}
 
         run_lock_item = {
             "pk": {"S": _run_lock_pk(ticket.run_id)},
@@ -280,6 +342,10 @@ class ScopeTicketStore:
         if "experiment_override" in item:
             experiment_override = ExperimentOverrideRef(**json.loads(item["experiment_override"]["S"]))
 
+        replay = None
+        if "replay" in item:
+            replay = JudgeReplayRef(**json.loads(item["replay"]["S"]))
+
         return ScopeTicket(
             pk=item["pk"]["S"],
             run_id=item["run_id"]["S"],
@@ -295,6 +361,7 @@ class ScopeTicketStore:
             input_files=input_files,
             is_eval=is_eval,
             experiment_override=experiment_override,
+            replay=replay,
         )
 
     def delete_ticket(self, broker_token: str) -> None:

@@ -3,7 +3,9 @@ import {
   CircleUserRoundIcon,
   ClipboardListIcon,
   FlagIcon,
+  HouseIcon,
   LayoutDashboardIcon,
+  ListChecksIcon,
   MegaphoneIcon,
   ScrollTextIcon,
   SendIcon,
@@ -22,11 +24,14 @@ import {
 export const NAV_HEADER_ICONS = {
   sparkles: SparklesIcon,
   clipboard: ClipboardListIcon,
+  checklist: ListChecksIcon,
   flag: FlagIcon,
   scroll: ScrollTextIcon,
   send: SendIcon,
   users: UsersRoundIcon,
   swords: SwordsIcon,
+  house: HouseIcon,
+  // The Campaign Manager tab's, while the next-task-experience flag is off.
   dashboard: LayoutDashboardIcon,
   book: BookOpenIcon,
   profile: CircleUserRoundIcon,
@@ -40,6 +45,8 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 // bar, so what a candidate reads at the top of a page always matches the item
 // they clicked in the left rail. Same single-source rule as contactsLabels.ts.
 export const NAV_LABELS = {
+  home: 'Home',
+  // Home's name while the next-task-experience flag is off.
   campaignManager: 'Campaign Manager',
   campaignStory: 'Your Story',
   campaignPlan: 'Campaign Plan',

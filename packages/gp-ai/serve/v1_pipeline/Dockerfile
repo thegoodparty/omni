@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS builder
+FROM public.ecr.aws/docker/library/python:3.12-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -22,7 +22,7 @@ WORKDIR /app/serve/v1_pipeline
 RUN uv sync --frozen --no-dev --package gp-v1-pipeline
 WORKDIR /app
 
-FROM python:3.12-slim
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 WORKDIR /app
 

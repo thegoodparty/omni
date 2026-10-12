@@ -59,6 +59,7 @@ import {
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { priorityFlowChatApi } from '../data/chat-api'
 import { fetchPriorityStatus } from '../data/priority-api'
 import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
@@ -140,6 +141,7 @@ type PriorityWorkspaceProps = {
   description: string
   initialStatus: PriorityStatus
   initialNextAction: string | null
+  initialCurrentStep: string | null
 }
 
 const PriorityWorkspaceBody = ({
@@ -148,6 +150,7 @@ const PriorityWorkspaceBody = ({
   description,
   initialStatus,
   initialNextAction,
+  initialCurrentStep,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('loading')
@@ -300,8 +303,11 @@ const PriorityWorkspaceBody = ({
   // ordinary user turn, and the agent decides for itself whether it settles a
   // step and calls update_priority_status.
   const answerClarify = useCallback(
-    (answer: string): void => send(answer),
-    [send],
+    (answer: string): void => {
+      trackEvent(EVENTS.Priorities.MessageSent, { priorityId, via: 'clarify' })
+      send(answer)
+    },
+    [send, priorityId],
   )
   const sendRef = useRef(send)
   useEffect(() => {
@@ -362,6 +368,11 @@ const PriorityWorkspaceBody = ({
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
+        trackEvent(EVENTS.Priorities.PriorityViewed, {
+          priorityId,
+          currentStep: initialCurrentStep,
+          isNewConversation: history.length === 0,
+        })
         if (history.length === 0) {
           sendRef.current(KICKOFF, { hidden: true, idOverride: id })
           return
@@ -395,7 +406,14 @@ const PriorityWorkspaceBody = ({
     return () => {
       cancelled = true
     }
-  }, [priorityId, title, description, setMessages, retryNonce])
+  }, [
+    priorityId,
+    title,
+    description,
+    initialCurrentStep,
+    setMessages,
+    retryNonce,
+  ])
 
   const markers = useMemo(() => replayStatusMarkers(messages), [messages])
   // The question still waiting on an answer: the last assistant turn that
@@ -631,6 +649,10 @@ const PriorityWorkspaceBody = ({
               onSubmit={() => {
                 const text = composer
                 setComposer('')
+                trackEvent(EVENTS.Priorities.MessageSent, {
+                  priorityId,
+                  via: 'composer',
+                })
                 send(text)
               }}
               disabled={sending || awaitingReply || phase !== 'ready'}

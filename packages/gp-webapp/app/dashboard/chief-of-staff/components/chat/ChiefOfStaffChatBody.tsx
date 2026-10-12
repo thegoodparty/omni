@@ -337,6 +337,7 @@ function ChiefOfStaffChatThread({
   const router = useRouter()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
+  const cardMode = scope === 'campaign_assistant' ? 'win' : 'serve'
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const dictation = useDictationAppend({
@@ -1527,11 +1528,13 @@ function ChiefOfStaffChatThread({
                 <ChatListMap
                   {...m.listMap}
                   onRefineArea={refiningList ? undefined : setRefiningList}
+                  mode={cardMode}
                 />
               ) : null}
               {m.listProposal ? (
                 <ChatListProposal
                   proposal={m.listProposal}
+                  mode={cardMode}
                   onRefineArea={refiningList ? undefined : setRefiningList}
                   onCreated={handleListCreated}
                 />
@@ -1582,11 +1585,13 @@ function ChiefOfStaffChatThread({
               <ChatListMap
                 {...liveListMap}
                 onRefineArea={refiningList ? undefined : setRefiningList}
+                mode={cardMode}
               />
             ) : null}
             {liveListProposal ? (
               <ChatListProposal
                 proposal={liveListProposal}
+                mode={cardMode}
                 onRefineArea={refiningList ? undefined : setRefiningList}
                 onCreated={handleListCreated}
               />
@@ -1740,6 +1745,7 @@ function ChiefOfStaffChatThread({
           list={refiningList}
           onClose={() => setRefiningList(null)}
           onSaved={handleBoundarySaved}
+          mode={cardMode}
         />
       )}
     </div>

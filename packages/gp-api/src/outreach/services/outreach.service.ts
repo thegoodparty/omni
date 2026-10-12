@@ -33,6 +33,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { EmailService } from 'src/email/email.service'
 import { ASSET_DOMAIN, WEBAPP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
+import { isWinSmsHoldBillingEnabled } from 'src/shared/util/winSmsHold.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
@@ -52,6 +53,7 @@ import {
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
+import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { collapseDoorKnockingCampaigns } from '../util/collapseDoorKnockingCampaigns.util'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
@@ -114,15 +116,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly emailService: EmailService,
     private readonly analytics: AnalyticsService,
     private readonly robocallCancel: OutreachRobocallCancelService,
+    private readonly p2pSmsCancel: OutreachP2pSmsCancelService,
   ) {
     super()
   }
 
   private async requirePeerlyIdentityId(campaign: Campaign): Promise<string> {
     let peerlyIdentityId: string | null
-    let internalTestingApprovedAt: Date | null
+    let internalTestingAt: Date | null
     try {
-      ;({ peerlyIdentityId, internalTestingApprovedAt } =
+      ;({ peerlyIdentityId, internalTestingAt } =
         await this.tcrComplianceService.findFirstOrThrow({
           where: { campaignId: campaign.id },
         }))
@@ -130,12 +133,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       throw new OutreachStepError('tcrLookup', err)
     }
 
+    if (internalTestingAt) {
+      throw new BadRequestException(
+        'Campaign is 10DLC-approved for internal testing only; ' +
+          'real P2P sends are disabled',
+      )
+    }
+
     if (!peerlyIdentityId) {
       throw new BadRequestException(
-        internalTestingApprovedAt
-          ? 'Campaign is 10DLC-approved for internal testing only; ' +
-              'real P2P sends are disabled'
-          : 'TCR Compliance Peerly identity ID is required for P2P outreach',
+        'TCR Compliance Peerly identity ID is required for P2P outreach',
       )
     }
 
@@ -317,6 +324,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         textCount: createOutreachDto.textCount,
         billableTextCount: createOutreachDto.billableTextCount,
         campaignPlanDueDate: createOutreachDto.campaignPlanDueDate,
+        trackerTaskId: createOutreachDto.trackerTaskId,
         script: resolvedScriptText,
         message: resolvedScriptText,
         name,
@@ -399,7 +407,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       if (!createOutreachDto.script) {
         throw new BadRequestException('Script is required for P2P outreach')
       }
-      if (!createOutreachDto.phoneListId) {
+      // Win SMS hold pay-before-build (D2a): under the flag a p2p draft can be
+      // created and paid while its phone-list build is still in progress — R1's
+      // build-ready finalize edge stamps the numeric phoneListId and submits the
+      // send once the list exists. Flag off, the list must already be built
+      // (unchanged).
+      if (!createOutreachDto.phoneListId && !isWinSmsHoldBillingEnabled()) {
         throw new BadRequestException(
           'Phone list ID is required for P2P outreach',
         )
@@ -443,13 +456,52 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // to decide whether to refund, and the draft row does not record a charge
     // that never produced a send.
     chargeRef?: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    // Win SMS hold pre-build rendezvous (flag-gated, inert off): a p2p draft
+    // paid before its phone-list build finished carries no numeric phoneListId
+    // yet, and submitDraftToPeerly needs it. Defer finalize to the build-ready
+    // edge (OutreachP2pSmsCaptureService.finalizeDraftsForReadyList), which
+    // stamps phoneListId once the list exists and re-enters here. The
+    // build-before-pay flow always has phoneListId on the draft and never
+    // defers, so the current flow is unchanged. Peeking before the claim keeps a
+    // deferred draft at pending_payment (never transitioned), and phoneListId
+    // only ever goes null -> set, so a build that finishes between this peek and
+    // the claim simply finalizes from the build-ready edge instead.
+    //
+    // Deferral is SCOPED to a draft whose satellite is already linked to its
+    // building list (`peerlyPhoneListId`, stamped by recordHold on the paid
+    // path): only such a draft is recoverable by the build-ready edge (which
+    // finds work through that link). A draft with no link — notably the free
+    // ($0) path, which places no hold and seeds no link — is NOT deferred, so it
+    // is never silently stranded waiting for an edge that cannot find it.
+    if (isWinSmsHoldBillingEnabled()) {
+      const draft = await this.model.findFirst({
+        where: { id: outreachId, campaignId },
+        select: {
+          phoneListId: true,
+          outreachType: true,
+          p2pSms: { select: { peerlyPhoneListId: true } },
+        },
+      })
+      if (
+        draft?.outreachType === OutreachType.p2p &&
+        draft.phoneListId === null &&
+        draft.p2pSms?.peerlyPhoneListId != null
+      ) {
+        this.logger.info(
+          { outreachId, campaignId },
+          'p2p finalize deferred: phone-list build not ready; the build-ready edge will finalize',
+        )
+        return false
+      }
+    }
+
     const claimed = await this.claimDraftForFinalize(
       outreachId,
       campaignId,
       chargeRef,
     )
-    if (!claimed) return
+    if (!claimed) return false
 
     const outreach = await this.model.findUniqueOrThrow({
       where: { id: outreachId },
@@ -532,7 +584,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         { outreachId, campaignId: campaign.id },
         'Campaign has no user — skipping finalize notifications',
       )
-      return
+      return true
     }
 
     await this.tryNotifySuccess(user, campaign, finalized, {
@@ -541,6 +593,8 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       textCount: outreach.textCount ?? undefined,
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
+
+    return true
   }
 
   /**
@@ -1044,6 +1098,25 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // and refuses a run that has already dialed.
     if (outreach.outreachType === OutreachType.robocall) {
       return this.robocallCancel.cancel(outreachId, campaignId, attribution)
+    }
+    // Win SMS hold model: a p2p row that carries an OutreachP2pSms satellite runs
+    // its money off the satellite settleState (hold → capture → refund), so
+    // canceling means voiding the hold or refunding the captured charge off the
+    // satellite intent — not the shared checkout-session refund below. Delegated
+    // like the robocall branch, never a fork of the shared body (which would
+    // regress Serve + the immediate-charge path). Gated on the satellite's
+    // EXISTENCE, not the flag: once a row IS a hold its money guards apply even on
+    // a WIN_SMS_HOLD_BILLING rollback, so the kill switch can never strand held
+    // money. A non-satellite p2p row has no satellite here and falls through to
+    // the unchanged shared body.
+    if (outreach.outreachType === OutreachType.p2p) {
+      const satellite = await this.client.outreachP2pSms.findUnique({
+        where: { outreachId },
+        select: { outreachId: true },
+      })
+      if (satellite) {
+        return this.p2pSmsCancel.cancel(outreachId, campaignId, attribution)
+      }
     }
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }

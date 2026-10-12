@@ -8,24 +8,25 @@ flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; sh
 
 ## Files
 
-| File                                                     | Role                                                           |
-| -------------------------------------------------------- | -------------------------------------------------------------- |
-| `issueCaptureAccess.ts`                                  | The server gates (dashboard, and flag only); return `isServe`  |
-| `[outreachId]/page.tsx`                                  | The report route                                               |
-| `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                      |
-| `[outreachId]/queries.ts`                                | Report and review list (each polls while waiting), theme, tags |
-| `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states               |
-| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize notes" and its refusals                             |
-| `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                   |
-| `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members              |
-| `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                             |
-| `[outreachId]/review/page.tsx`                           | "Notes to review": the effort's unconfirmed memos              |
-| `[outreachId]/review/components/PendingMemoList.tsx`     | The review list, its retry and its typed re-record             |
-| `copy.ts`                                                | Every string, mode-keyed                                       |
-| `analytics.ts`                                           | The `channel` value each effort reports under                  |
-| `WhatWeHeardLink.tsx`                                    | The entry row on the turf and the phone list                   |
-| `NotesToReviewLink.tsx`                                  | "Notes to review: N" on the turf sheet and volunteer walk      |
-| `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                      |
+| File                                                     | Role                                                                     |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `issueCaptureAccess.ts`                                  | The server gates (dashboard, and flag only); return `isServe`            |
+| `[outreachId]/page.tsx`                                  | The report route                                                         |
+| `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                                |
+| `[outreachId]/queries.ts`                                | Report and review list (each polls while waiting), theme, tags           |
+| `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states                         |
+| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize notes" and its refusals                                       |
+| `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                             |
+| `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members                        |
+| `[outreachId]/components/DownloadNotesLink.tsx`          | Plain link to the CSV export, next to Every note / the pre-summary notes |
+| `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                                       |
+| `[outreachId]/review/page.tsx`                           | "Notes to review": the effort's unconfirmed memos                        |
+| `[outreachId]/review/components/PendingMemoList.tsx`     | The review list, its retry and its typed re-record                       |
+| `copy.ts`                                                | Every string, mode-keyed                                                 |
+| `analytics.ts`                                           | The `channel` value each effort reports under                            |
+| `WhatWeHeardLink.tsx`                                    | The entry row on the turf and the phone list                             |
+| `NotesToReviewLink.tsx`                                  | "Notes to review: N" on the turf sheet and volunteer walk                |
+| `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                                |
 
 ## Access
 
@@ -89,6 +90,15 @@ fires on the press, refused or not.
   representative or statistically significant.
   `WhatWeHeardPage.test.tsx` and `ThemeDetailPage.test.tsx` assert all three
   across every state.
+- **Download notes is a plain link, not a fetch.** `DownloadNotesLink`
+  points straight at gp-api's `GET efforts/:outreachId/export` through the
+  `/api/v1/...` proxy, with the `download` attribute, so the browser saves
+  the CSV the same way `polls/[id]/components/DownloadResults.tsx` does for
+  poll responses. It names no product noun ("Download notes"), so it needs
+  no Serve variant. Hidden when the effort has no notes yet; shown next to
+  "Every note" once there is a summary, and next to the pre-summary note
+  list (`UnderFloorList`) before there is one. The CSV holds every note on
+  the effort, not the report's 200-note display cap.
 - **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same. **The report is laid out like Voter Data**: a title bar (`navHeader`) naming the outreach the report is about sits over everything, read through the hub's own `useOutreachDetail` (Serve's fetcher on Serve) and worded the way the hub's row and drawer word it, `name || title || 'Untitled campaign'`, empty until it loads; the way back is the CRM sheet's own Back (a ghost small `Button` with `ArrowLeftIcon` reading "Back", the hub named in its aria-label) in a full-bleed white top bar (Voter Data's own, negative margins and all), with Summarize at its right where Voter Data's Create new list sits, the report sits in its 560px column on the gray canvas, and only the bordered lists (`MemoList`, `NewTagsStrip`) and the theme cards are white. The themes stack one per row, since a second card in a 560px column is a sliver. **The theme page is laid out the same way**: the theme's title is the title bar, the same top bar holds Back to the report, and every section in the 560px column is a white `Card` (`ThemeSummary`, the details, the stance split, the asks) or the white `MemoList`. **Notes to review is laid out the same way too**: "Notes to review" is the title bar, the top bar holds Back to the report, and each note is a styleguide `Card` in the same column, the product's radius and padding, with the confirm form unframed inside it. `PendingMemoList` takes `titled={false}` there and opens on its caption, since the page draws the title and the way back; the volunteer's review page has neither and keeps the list's own. **The top bar is the title bar's own size**, `h-14` like `DashboardNavHeader` and `px-6` from `md`, and what sits in it is `size="small"`, so the two bars read as one height; a medium Summarize made the second bar 64px. On a phone the column adds `px-2` to the layout's `p-2`, 16px from the edge, and the top bar is `px-4` there (Voter Data's own bar), so the two line up; 8px read cramped and 24px wider than the rest of the app.
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and

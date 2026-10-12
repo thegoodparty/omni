@@ -26,6 +26,7 @@ for confirmation (see Offline memos).
 | `services/mockSynthesisEngine.ts`                   | In-process stand-in for laptops and dev              |
 | `services/feedbackSynthesisIngest.service.ts`       | The one write path for a run's results               |
 | `services/feedbackReport.service.ts`                | The effort report and theme page, counted at read    |
+| `services/feedbackNotesExport.service.ts`           | Every note on an effort as a CSV download             |
 | `services/issueTag.service.ts`                      | Tag list and curation: accept, rename, merge, retire |
 | `services/issueTagSeed.service.ts`                  | Win: accepted tags from declared positions           |
 | `services/feedbackSeed.service.ts`                  | Dev-only fake memos on an effort                     |
@@ -106,6 +107,10 @@ uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
   tags. Default posture: owner or campaign manager (a volunteer gets 403),
   since it is the CRM's record of a person.
 - `GET efforts/:outreachId/report`: denominators, the latest run, themes.
+- `GET efforts/:outreachId/export`: every note on the effort as a CSV
+  download, confirmed and pending, not the report's 200-note display cap.
+  Same access posture as the report. Generated from the database rows, never
+  from the pipeline's S3 input file; `services/feedbackNotesExport.service.ts`.
 - `POST efforts/:outreachId/synthesize`: start a run. 422
   `{ confirmed, required }` under the floor, 429 in the cooldown, 409 while
   one is in flight.

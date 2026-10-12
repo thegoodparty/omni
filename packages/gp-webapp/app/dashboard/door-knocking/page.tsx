@@ -6,11 +6,17 @@ import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveLi
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
 import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ProposalLinkSchema } from '@goodparty_org/contracts'
+import { parseTrackerOrigin } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 
 // The surfaces that link here with `?create=1` and say where they are.
 // Allowlisted so the query string cannot put an arbitrary value into
 // analytics.
-const CREATE_SOURCES: OutreachFlowSource[] = ['outreach_page', 'voter_data']
+const CREATE_SOURCES: OutreachFlowSource[] = [
+  'outreach_page',
+  'voter_data',
+  'campaign_plan',
+  'campaign_manager',
+]
 
 const meta = pageMetaData({
   title: 'Door Knocking | GoodParty.org',
@@ -34,6 +40,8 @@ interface PageParams {
     priorityId?: string
     stepId?: string
     side?: string
+    trackerTaskId?: string
+    phase?: string
   }>
 }
 
@@ -55,6 +63,8 @@ export default async function Page({
       priorityId,
       stepId,
       side,
+      trackerTaskId,
+      phase,
     },
     campaign,
   ] = await Promise.all([searchParams, fetchUserCampaign()])
@@ -108,6 +118,9 @@ export default async function Page({
     campaignOutreachId: parsePositiveListId(campaignOutreachId),
     ...(proposalLink.success &&
       proposalLink.data.proposalKey && { proposalLink: proposalLink.data }),
+    // The campaign-plan task whose button opened the flow, so the task is
+    // marked done once the walk is created. Dropped unless both halves parse.
+    trackerTaskId: parseTrackerOrigin(trackerTaskId, phase)?.trackerTaskId,
   }
 
   return <DoorKnockingPageGate {...childProps} />

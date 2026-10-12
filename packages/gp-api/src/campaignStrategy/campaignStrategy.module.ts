@@ -7,7 +7,6 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { CampaignStrategyController } from './campaignStrategy.controller'
-import { CampaignPlanBackfillService } from './services/campaignPlanBackfill.service'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
 import { ElectionApiService } from './services/electionApi.service'
 import { StrategicLandscapeParamsService } from './services/strategicLandscapeParams.service'
@@ -26,7 +25,6 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
   controllers: [CampaignStrategyController],
   providers: [
     CampaignStrategyService,
-    CampaignPlanBackfillService,
     StrategicLandscapePersister,
     ElectionApiService,
     StrategicLandscapeParamsService,

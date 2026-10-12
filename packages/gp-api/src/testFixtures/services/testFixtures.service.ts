@@ -1,6 +1,4 @@
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
-import { RacesService } from '@/elections/services/races.service'
-import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { isTestUser, newFixtureUserEmail } from '@/users/util/users.util'
@@ -8,7 +6,6 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { ClerkClient } from '@clerk/backend'
 import {
-  BallotReadyPositionLevelSchema,
   DeleteTestFixtureUsersResponse,
   TestFixtureSessionResponse,
   TestFixtureUserResponse,
@@ -23,26 +20,20 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import {
-  addSeconds,
-  addYears,
-  format,
-  formatISO,
-  startOfDay,
-  subMonths,
-} from 'date-fns'
-import { Campaign, User } from '../../generated/prisma'
+import { addSeconds, formatISO } from 'date-fns'
+import { User } from '../../generated/prisma'
 import {
   CreateTestFixtureUserInput,
   DeleteTestFixtureUsersInput,
   MintTestFixtureSessionInput,
 } from '../schemas/testFixtures.schema'
 
+import {
+  DEFAULT_RACE,
+  StateTransitionsService,
+} from './stateTransitions.service'
+
 const FIXTURE_TOKEN_TTL_SECONDS = 60 * 60
-// Same default race the e2e suite provisions against — a live BallotReady
-// office on the dev election-api with voter rows in the dev people-db.
-const DEFAULT_RACE = { zip: '82001', office: 'Cheyenne City Council - Ward 1' }
-const DEFAULT_CUSTOM_POSITION_NAME = 'Test City Council'
 
 type ProvisionedUser = { user: User; clerkUserId: string; password: string }
 type MintedSession = { jwt: string; signInToken: string; expiresAt: string }
@@ -52,8 +43,7 @@ export class TestFixturesService {
   constructor(
     private readonly users: UsersService,
     private readonly campaigns: CampaignsService,
-    private readonly electedOffice: ElectedOfficeService,
-    private readonly races: RacesService,
+    private readonly transitions: StateTransitionsService,
     private readonly organizations: OrganizationsService,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
@@ -70,18 +60,24 @@ export class TestFixturesService {
     let orgSlug: string
 
     if (input.state === 'serve') {
-      const office = await this.createElectedOffice(user, input.serve)
+      const office = await this.transitions.createElectedOffice(
+        user,
+        input.serve,
+      )
       electedOfficeId = office.id
       orgSlug = OrganizationsService.electedOfficeOrgSlug(office.id)
     } else {
-      const campaign = await this.createLaunchedCampaign(user, input.race)
+      const campaign = await this.transitions.createLaunchedCampaign(
+        user,
+        input.race,
+      )
       campaignId = campaign.id
       orgSlug = OrganizationsService.campaignOrgSlug(campaign.id)
 
       if (input.state === 'pro-win') {
         await this.campaigns.setIsPro(campaign.id, true, false)
       } else if (input.state === 'serve-won-race') {
-        const office = await this.promoteWonRace(user, campaign)
+        const office = await this.transitions.promoteWonRace(user, campaign)
         electedOfficeId = office.id
         campaignOrgSlug = orgSlug
         orgSlug = OrganizationsService.electedOfficeOrgSlug(office.id)
@@ -213,125 +209,6 @@ export class TestFixturesService {
     const zip = input.race?.zip ?? DEFAULT_RACE.zip
     const updated = await this.users.updateUser({ id: user.id }, { zip })
     return { user: updated, clerkUserId: clerkUser.id, password }
-  }
-
-  private async createLaunchedCampaign(
-    user: User,
-    race?: { zip: string; office: string },
-  ): Promise<Campaign> {
-    const zipcode = race?.zip ?? DEFAULT_RACE.zip
-    const officeName = race?.office ?? DEFAULT_RACE.office
-
-    const races = await this.races.getRacesByZip({ zipcode })
-    const match = races.find((item) => item.position.name === officeName)
-    if (!match) {
-      throw new BadRequestException(
-        `No race named "${officeName}" found for zip ${zipcode}`,
-      )
-    }
-
-    const ballotLevel = BallotReadyPositionLevelSchema.safeParse(
-      match.position.level.toUpperCase(),
-    ).data
-    const details: PrismaJson.CampaignDetails = {
-      raceId: match.id,
-      state: match.position.state,
-      electionDate: match.election.electionDay,
-      ...(ballotLevel ? { ballotLevel } : {}),
-    }
-
-    // outerTx makes CRM tracking the caller's responsibility (see
-    // createForUser) — fixture users must never reach HubSpot.
-    const campaign = await this.campaigns.client.$transaction((tx) =>
-      this.campaigns.createForUser(
-        user,
-        { details },
-        { ballotReadyPositionId: match.brPositionId },
-        undefined,
-        tx,
-      ),
-    )
-
-    await this.campaigns.updateJsonFields(
-      campaign.id,
-      { details: { otherParty: 'Independent', pledged: true } },
-      false,
-    )
-
-    const current = await this.campaigns.findUnique({
-      where: { id: campaign.id },
-    })
-    if (!current) {
-      throw new ConflictException('Fixture campaign vanished mid-create')
-    }
-    await this.campaigns.launch(current, { trackCampaign: false })
-    return current
-  }
-
-  private async createElectedOffice(
-    user: User,
-    serve?: { positionId?: string; termStartDate?: Date; termEndDate?: Date },
-  ) {
-    const termStartDate =
-      serve?.termStartDate ?? subMonths(startOfDay(new Date()), 6)
-    const termEndDate = serve?.termEndDate ?? addYears(termStartDate, 4)
-
-    // A bound position triggers the EO-created agent dispatch hooks, but
-    // createAndEnqueueRun skips test-user orgs unconditionally, so binding a
-    // fixture never causes agent spend.
-    return this.electedOffice.create({
-      userId: user.id,
-      termStartDate,
-      termEndDate,
-      onboardingCompletedAt: new Date(),
-      selfReported: true,
-      orgData: {
-        positionId: serve?.positionId ?? null,
-        customPositionName: serve?.positionId
-          ? null
-          : DEFAULT_CUSTOM_POSITION_NAME,
-        overrideDistrictId: null,
-      },
-    })
-  }
-
-  private async promoteWonRace(user: User, campaign: Campaign) {
-    const org = campaign.organizationSlug
-      ? await this.organizations.findUnique({
-          where: { slug: campaign.organizationSlug },
-        })
-      : null
-
-    const termStartDate = startOfDay(new Date())
-    const office = await this.electedOffice.create({
-      userId: user.id,
-      campaignId: campaign.id,
-      termStartDate,
-      termEndDate: addYears(termStartDate, 4),
-      onboardingCompletedAt: new Date(),
-      selfReported: true,
-      orgData: {
-        positionId: org?.positionId ?? null,
-        customPositionName: org?.customPositionName ?? null,
-        overrideDistrictId: org?.overrideDistrictId ?? null,
-      },
-    })
-
-    // Win markers last, with a past election date — mirrors the user-facing
-    // election-result flow, and a past date can never trip the
-    // stale-election-result reset in updateJsonFields.
-    await this.campaigns.updateJsonFields(
-      campaign.id,
-      {
-        details: {
-          wonGeneral: true,
-          electionDate: format(subMonths(new Date(), 1), 'yyyy-MM-dd'),
-        },
-      },
-      false,
-    )
-
-    return office
   }
 
   private async mintSession(clerkUserId: string): Promise<MintedSession> {

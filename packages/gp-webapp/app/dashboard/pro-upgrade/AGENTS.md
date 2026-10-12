@@ -144,6 +144,16 @@ optional props on both `ElectionFilingForm` and `TextingComplianceRegistrationFo
 — the legacy standalone election-filing page omits them and keeps its current
 heading-less look.
 
+The form keeps unsubmitted input. `CampaignVerificationSteps` passes `persistDraft` to
+`ElectionFilingForm`, which saves the filing fields and, while the profile section shows,
+the bio and priorities to `localStorage` per campaign
+(`app/dashboard/campaign-verification/verificationDraft.ts`) on every change, restores
+them on mount and clears them on a successful submit. With no `initialStep`, the steps
+open on the form when a draft exists and on the intro otherwise, in both the page and
+the outreach gate. A valid EIN already on the campaign wins over a drafted one, since
+the verification variant hides that field. Nothing reaches the server before submit,
+so the draft lives in this browser only.
+
 `InterstitialStep` and this component share their channel/copy vocabulary via
 `app/dashboard/outreach/v2/gate/gateCopy.ts` (`GateChannel` = the same union as
 `ProUpgradeLaunchChannel`, `GATE_NOUN` / `PRO_COPY` /

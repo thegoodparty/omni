@@ -35,6 +35,15 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 55, details: {}, electionDate: null }],
 }))
 const mockTrackEvent = vi.fn()
+const mockSuccessSnackbar = vi.fn()
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: mockSuccessSnackbar,
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: (...args: unknown[]) => mockTrackEvent(...args),
@@ -65,7 +74,7 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   link: null,
   flowType: null,
   week: 2,
-  // Far future so its phase is the current ("active") one and opens by default.
+  // Far future so its phase is the current ("active") one.
   date: '2099-11-03T00:00:00.000Z',
   completed: false,
   phase: 'launch',
@@ -73,6 +82,16 @@ const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   isDefaultTask: false,
   ...over,
 })
+
+// Every row's actions, the next task's included, live in its "More options"
+// menu.
+const chooseFromMenu = async (
+  user: ReturnType<typeof userEvent.setup>,
+  item: string,
+) => {
+  await user.click(screen.getByRole('button', { name: 'More options' }))
+  await user.click(await screen.findByRole('menuitem', { name: item }))
+}
 
 const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
   tasks,
@@ -96,8 +115,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
-
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await chooseFromMenu(user, 'Mark done')
     expect(mockToggle).not.toHaveBeenCalled()
     expect(screen.getByText('count-modal:events')).toBeInTheDocument()
 
@@ -118,15 +136,14 @@ describe('CampaignStrategySection — completing tasks', () => {
       settled([
         task({
           id: 't1',
-          title: 'Knock doors',
-          flowType: 'doorKnocking',
+          title: 'Host a meet-and-greet',
+          flowType: 'events',
         }),
       ]),
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
-
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await chooseFromMenu(user, 'Mark done')
     // Still pending the count, so nothing is reported yet — the candidate can
     // still cancel out of the modal.
     expect(
@@ -138,13 +155,18 @@ describe('CampaignStrategySection — completing tasks', () => {
     await user.click(screen.getByRole('button', { name: 'submit-count' }))
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.Dashboard.CampaignPlan.TaskCompleted,
-      { trackerTaskId: 't1', medium: 'doorKnocking', phase: 'launch' },
+      {
+        trackerTaskId: 't1',
+        medium: 'event',
+        phase: 'launch',
+        source: 'campaign_plan',
+      },
     )
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.Dashboard.VoterContact.CampaignCompleted,
       expect.objectContaining({
-        medium: 'doorKnocking',
-        fanout: 'one-to-one',
+        medium: 'event',
+        fanout: 'one-to-many',
         product: 'win',
         recipientCount: 7,
         trackerTaskId: 't1',
@@ -159,6 +181,9 @@ describe('CampaignStrategySection — completing tasks', () => {
     expect(completed?.[1]).not.toHaveProperty('price')
   })
 
+  // Offline work the product can't see (here a community event), so it is
+  // still completed by hand. Door knocking used to stand in here; it now
+  // closes itself through its own screen and offers no manual toggle.
   // Un-completing is a correction, not an activation signal, so an event
   // named Completed must stay silent on it.
   it('stays silent when a task is un-completed', async () => {
@@ -166,8 +191,8 @@ describe('CampaignStrategySection — completing tasks', () => {
       settled([
         task({
           id: 't3',
-          title: 'Knock doors',
-          flowType: 'doorKnocking',
+          title: 'Host a meet-and-greet',
+          flowType: 'events',
           completed: true,
         }),
       ]),
@@ -175,10 +200,17 @@ describe('CampaignStrategySection — completing tasks', () => {
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
 
-    await user.click(
-      screen.getByRole('button', { name: 'Mark task incomplete' }),
-    )
+    await chooseFromMenu(user, 'Mark not done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't3', completed: false })
+    // An undo isn't a completion, but it is a choice the plan reports.
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskActionTaken,
+      expect.objectContaining({
+        trackerTaskId: 't3',
+        action: 'mark_not_done',
+        source: 'campaign_plan',
+      }),
+    )
     expect(
       mockTrackEvent.mock.calls.filter(
         ([name]) => name === EVENTS.Dashboard.CampaignPlan.TaskCompleted,
@@ -195,36 +227,49 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     const user = userEvent.setup()
     render(<CampaignStrategySection />)
-
-    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    await chooseFromMenu(user, 'Mark done')
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
   })
 })
 
-describe('CampaignStrategySection — manual generation override', () => {
-  it('hides the Generate tasks button in prod', () => {
-    mockIsProd = true
-    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
-    render(<CampaignStrategySection />)
-    expect(
-      screen.queryByRole('button', { name: 'Generate tasks' }),
-    ).not.toBeInTheDocument()
+describe('CampaignStrategySection — tasks arriving in the background', () => {
+  beforeEach(() => {
+    mockSuccessSnackbar.mockClear()
   })
 
-  it('dispatches a generation when clicked in non-prod', async () => {
-    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
-    const user = userEvent.setup()
+  it('shows what it has, with nothing to wait on, while more are on the way', () => {
+    mockTasks.mockReturnValue(
+      settled([task({ id: 't1', isDefaultTask: true })]),
+    )
     render(<CampaignStrategySection />)
-    await user.click(screen.getByRole('button', { name: 'Generate tasks' }))
-    expect(mockGenerate).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Finding local events/)).not.toBeInTheDocument()
   })
 
-  it('shows the generating banner while a run is in flight', () => {
-    mockIsGenerating = true
+  it('says what was added since the plan was last shown, and marks it New', () => {
+    window.localStorage.setItem(
+      'tracker-known-tasks:55',
+      JSON.stringify(['t1']),
+    )
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 't1', title: 'Get your EIN' }),
+        task({ id: 't2', title: 'Attend the town hall' }),
+      ]),
+    )
+    render(<CampaignStrategySection />)
+
+    expect(mockSuccessSnackbar).toHaveBeenCalledWith(
+      'Added to your plan: Attend the town hall',
+      expect.objectContaining({ action: undefined }),
+    )
+    expect(screen.getByText('New')).toBeInTheDocument()
+  })
+
+  it('stays quiet the first time it sees a campaign', () => {
     mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
     render(<CampaignStrategySection />)
-    expect(screen.getByText(/Finding local events/)).toBeInTheDocument()
+    expect(mockSuccessSnackbar).not.toHaveBeenCalled()
   })
 })
 
@@ -302,8 +347,106 @@ describe('CampaignStrategySection — tracker viewed event', () => {
     render(<CampaignStrategySection />)
 
     expect(
-      screen.getByText(/Setting up your campaign plan/),
+      screen.getByText('Your campaign plan is being created'),
     ).toBeInTheDocument()
     expect(mockTrackEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('CampaignStrategySection — head start', () => {
+  // A Thursday: this week runs Oct 5-11, next week Oct 12-18.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => {
+      vi.useRealTimers()
+    }
+  })
+
+  const weeks = [
+    task({
+      id: 'done',
+      phase: 'active',
+      date: '2026-10-06T00:00:00.000Z',
+      completed: true,
+    }),
+    task({
+      id: 'ahead',
+      title: 'Next week task',
+      phase: 'active',
+      date: '2026-10-13T00:00:00.000Z',
+    }),
+  ]
+
+  it('lists this week and next week together, like every other phase', () => {
+    mockTasks.mockReturnValue(settled(weeks))
+    render(<CampaignStrategySection />)
+
+    expect(screen.queryByRole('button', { name: 'Next week' })).toBeNull()
+    expect(screen.getByText('Next week task')).toBeInTheDocument()
+  })
+
+  it('marks next week’s first task next after a head start', () => {
+    window.localStorage.setItem('next-task-head-start', '2026-10-12')
+    mockTasks.mockReturnValue(settled(weeks))
+    const { container } = render(<CampaignStrategySection />)
+
+    expect(container.querySelector('[data-next-task]')?.textContent).toContain(
+      'Next week task',
+    )
+  })
+})
+
+describe('CampaignStrategySection — task action analytics', () => {
+  it('reports setting a task aside from the plan, and where', async () => {
+    const user = userEvent.setup()
+    mockTasks.mockReturnValue(
+      settled([task({ id: 't9', title: 'Host a meet-and-greet' })]),
+    )
+    render(<CampaignStrategySection />)
+
+    await chooseFromMenu(user, 'Not for me')
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskActionTaken,
+      expect.objectContaining({
+        trackerTaskId: 't9',
+        action: 'not_for_me',
+        source: 'campaign_plan',
+      }),
+    )
+  })
+})
+
+describe('CampaignStrategySection — phase headings', () => {
+  it('fills each phase’s bar by its done tasks, leaving out not-for-me ones', () => {
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 'a', phase: 'launch', completed: true }),
+        task({ id: 'b', phase: 'launch' }),
+        task({ id: 'c', phase: 'launch', skipReason: 'notForMe' }),
+      ]),
+    )
+    render(<CampaignStrategySection />)
+
+    expect(
+      screen.getByRole('button', { name: 'Launch, 1 of 2 done' }),
+    ).toBeInTheDocument()
+  })
+
+  it('lists every phase at once, each under its own heading', () => {
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 'a', phase: 'launch', title: 'Launch task' }),
+        task({ id: 'b', phase: 'active', title: 'Active task' }),
+      ]),
+    )
+    render(<CampaignStrategySection />)
+
+    expect(screen.getByText('Launch task')).toBeInTheDocument()
+    expect(screen.getByText('Active task')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: /^Active campaign/ }),
+    ).toBeInTheDocument()
   })
 })

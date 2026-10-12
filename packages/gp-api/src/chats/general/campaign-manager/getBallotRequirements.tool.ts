@@ -13,13 +13,19 @@ export interface GetBallotRequirementsOutput {
   filingOfficeAddress: string | null
   filingPhoneNumber: string | null
   paperworkInstructions: string | null
+  // The race's filing window as the campaign record stores it, so a deadline
+  // answer comes from the record and not from memory. Null when the record
+  // has no window. Not part of noDataFound: it is the record's answer, not
+  // BallotReady's.
+  filingPeriodStart: string | null
+  filingPeriodEnd: string | null
   // True when BallotReady returned nothing usable for this race, so the model
   // reports the gap and falls back to web search instead of implying it looked
   // the requirements up and found none.
   noDataFound: boolean
 }
 
-const EMPTY: GetBallotRequirementsOutput = {
+const EMPTY = {
   filingFee: null,
   filingRequirementsText: null,
   filingOfficeAddress: null,
@@ -38,22 +44,33 @@ const EMPTY: GetBallotRequirementsOutput = {
 export const buildGetBallotRequirementsTool = (deps: {
   elections: Pick<ElectionsService, 'fetchFilingFeeByRaceHash'>
   raceId: string
+  // The filing window from the resolved context, bound the way the race is.
+  filingPeriodStart: string | null
+  filingPeriodEnd: string | null
 }): LlmStreamTool<typeof getBallotRequirementsInputSchema> => ({
   description:
     "Look up BallotReady's filing requirements for this candidate's race: " +
     'the filing fee, the raw filing-requirements text, and the filing ' +
-    "office's address, phone number, and paperwork instructions. Takes no " +
-    'input; the race is bound server-side. Call this FIRST on any question ' +
-    'about getting on the ballot, filing, petitions, or deadlines, before ' +
-    'any web search. Fields are null where BallotReady has no data, and ' +
-    'noDataFound is true when it has none at all — say so and fall back to ' +
-    'web search rather than implying the requirements do not exist. The fee ' +
-    'is an estimate parsed from the requirements text, so quote the text as ' +
-    'the source of truth when both are present.',
+    "office's address, phone number, and paperwork instructions, plus the " +
+    'filing window as the campaign record stores it (filingPeriodStart and ' +
+    'filingPeriodEnd). Takes no input; the race is bound server-side. Call ' +
+    'this FIRST on any question about getting on the ballot, filing, or ' +
+    'petitions, before any web search. Fields are null where BallotReady ' +
+    'has no data, and noDataFound is true when it has none at all — say so ' +
+    'and fall back to web search rather than implying the requirements do ' +
+    'not exist. The filing window is a snapshot from when the candidate set ' +
+    'up the race, so name the filing office as the place to confirm a ' +
+    'deadline before the candidate relies on it. The fee is an estimate ' +
+    'parsed from the requirements text, so quote the text as the source of ' +
+    'truth when both are present.',
   inputSchema: getBallotRequirementsInputSchema,
   execute: async (): Promise<GetBallotRequirementsOutput> => {
+    const window = {
+      filingPeriodStart: deps.filingPeriodStart,
+      filingPeriodEnd: deps.filingPeriodEnd,
+    }
     const result = await deps.elections.fetchFilingFeeByRaceHash(deps.raceId)
-    if (!result) return EMPTY
+    if (!result) return { ...EMPTY, ...window }
     const {
       filingFee,
       filingRequirementsText,
@@ -67,6 +84,7 @@ export const buildGetBallotRequirementsTool = (deps: {
       filingOfficeAddress,
       filingPhoneNumber,
       paperworkInstructions,
+      ...window,
       noDataFound:
         filingFee === null &&
         !filingRequirementsText &&

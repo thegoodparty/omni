@@ -13,6 +13,7 @@ import type {
   ChatStreamEvent,
 } from '../../../shared/agent-chat/chatClient'
 import { PriorityWorkspace } from './PriorityWorkspace'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 const CONVERSATION_ID = 'conv-1'
 
@@ -24,6 +25,11 @@ const mocks = vi.hoisted(() => ({
   sentListener: null as
     | null
     | ((proposal: Record<string, string | number | boolean>) => void),
+}))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 
 vi.mock('../data/chat-api', () => ({
@@ -130,6 +136,7 @@ const renderWorkspace = (
       description="Storm drains back up after every heavy rain."
       initialStatus={initialStatus}
       initialNextAction={null}
+      initialCurrentStep="define"
     />,
   )
 
@@ -157,6 +164,15 @@ describe('PriorityWorkspace', () => {
       }),
     )
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.PriorityViewed, {
+      priorityId: 'pri-1',
+      currentStep: 'define',
+      isNewConversation: true,
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Priorities.MessageSent,
+      expect.anything(),
+    )
   })
 
   it('waits for the reply to a turn left mid-stream, without starting another', async () => {
@@ -465,6 +481,10 @@ describe('PriorityWorkspace', () => {
     await waitFor(() =>
       expect(screen.getAllByText('The two by the school')).toHaveLength(2),
     )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
+      priorityId: 'pri-1',
+      via: 'clarify',
+    })
     gate.resolve()
   })
 

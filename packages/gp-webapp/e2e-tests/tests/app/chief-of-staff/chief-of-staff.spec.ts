@@ -29,9 +29,10 @@ test.describe('Chief of Staff', () => {
     await expect(page).toHaveURL(/\/dashboard\/chief-of-staff/, {
       timeout: 15_000,
     })
-    await expect(
-      page.getByRole('heading', { name: 'Your prioritized tasks this week' }),
-    ).toBeVisible({ timeout: 15_000 })
+    // A fresh office leads its task stack with the get-started cards.
+    await expect(page.getByRole('heading', { name: 'Start here' })).toBeVisible(
+      { timeout: 15_000 },
+    )
   })
 
   test('skips a card and finds it in the archive Skipped list', async ({
@@ -68,7 +69,16 @@ test.describe('Chief of Staff', () => {
     await NavigationHelper.dismissOverlays(page)
     // FilterPill is a Radix single-toggle (role="radio", not button); target the
     // stable data-value it exposes for the bucket.
-    await page.locator('[data-value="skipped"]').click()
+    // The page is loaded on domcontentloaded, so a click can land before React
+    // hydrates and be dropped, leaving This week selected. Retry until the pill
+    // reports itself on.
+    const skippedPill = page.locator('[data-value="skipped"]')
+    await expect(async () => {
+      await skippedPill.click()
+      await expect(skippedPill).toHaveAttribute('data-state', 'on', {
+        timeout: 2_000,
+      })
+    }).toPass({ timeout: 15_000 })
 
     await expect(
       page.locator('[data-slot="card"]').filter({ hasText: cardTitle }),

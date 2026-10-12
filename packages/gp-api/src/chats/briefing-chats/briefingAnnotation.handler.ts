@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Annotation, ChatScope, MeetingBriefing } from '../../generated/prisma'
 import { z } from 'zod'
 import type { LlmTool } from '@/llm/services/llm.service'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 import {
   buildDistrictInsightsTool,
   type MandatoryFilter,
@@ -14,7 +15,20 @@ import {
 } from '@/llm/tools/getMyNotes.tool'
 import { buildGetArtifactsTool } from '@/llm/tools/getArtifacts.tool'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import type {
+  PeopleDataset,
+  PeopleDatasetService,
+} from '@/peopleDb/services/peopleDataset.service'
 import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
+import {
+  composeAppendix,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '@/chats/general/services/guardrailBackstops'
+import {
+  ADVICE_SIGNALS,
+  SECTION_MARK_SIGNAL,
+} from '@/chats/general/services/professionalAdviceCheck'
 import type {
   ChatScopeHandler,
   ResolveConversationResult,
@@ -36,8 +50,12 @@ import {
 
 type ParsedBriefing = z.infer<typeof BriefingSchema>
 
-const SERVE_AGENT_VOTERS_TABLE = 'serve_agent_voters'
-const SERVE_AGENT_VOTERS_ALLOWED_TABLES = new Set([SERVE_AGENT_VOTERS_TABLE])
+// Same schema and columns either way; serve_agent_constituents adds the
+// adult residents who are not registered to vote.
+const SERVE_AGENT_TABLE_BY_DATASET: Record<PeopleDataset, string> = {
+  voters: 'serve_agent_voters',
+  constituents: 'serve_agent_constituents',
+}
 
 // Sensitive scope: district_insights reads the constituent (voter) mart and its
 // rows flow back into the model context, so this scope runs Anthropic-only. The
@@ -46,6 +64,15 @@ export const BRIEFING_CHAT_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
 ] as const
+
+// Briefing replies describe agenda items whose material cites code sections
+// ("item 2 amends § 5.04"), which is a summary, not a legal reading, so the
+// bare section mark is not a signal on this chat. A named statute in a
+// summary ("per RCW 35A.33") still draws the line: it points the reader at
+// law, and the audit found no summary shape where that misled.
+const BRIEFING_LEGAL_SIGNALS = ADVICE_SIGNALS.filter(
+  (re) => re !== SECTION_MARK_SIGNAL,
+)
 
 // Braintrust filters key on this name, and it predates the registry's
 // `${scope}-chat-stream` default, so the handler carries it explicitly.
@@ -114,6 +141,8 @@ export interface BriefingChatContext {
   // Resolved in loadContext because the interface's buildTools is sync; null
   // when the warehouse provider or the caller's district is unavailable.
   districtFilters: MandatoryFilter[] | null
+  // Which people table district_insights reads, resolved once per turn.
+  peopleDataset: PeopleDataset
 }
 
 // Not @Injectable: BriefingChatsService constructs the single instance from the
@@ -133,6 +162,7 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     private readonly notesService: BriefingNotesService,
     private readonly databricks?: DatabricksProvider,
     private readonly districtResolver?: DistrictResolverService,
+    private readonly peopleDatasets?: PeopleDatasetService,
   ) {}
 
   // A briefing conversation is created annotation-first, in one transaction
@@ -190,18 +220,29 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     return this.assembleTools(ctx)
   }
 
+  // A statute reading the model left uncautioned gets the legal line, and a
+  // district_insights result that dropped small cells gets the count note
+  // when the reply did not say so itself.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'briefing_chat', BRIEFING_LEGAL_SIGNALS),
+      smallCountBackstop(text, 'briefing_chat', turn.toolEvents),
+    ])
+  }
+
   private async toContext(
     loaded: BriefingContextResult,
     userId: number,
   ): Promise<BriefingChatContext> {
     const { annotation, briefing, artifactContent, user, office } = loaded
     const conversationId = requireConversationId(annotation.chatConversationId)
-    const [districtFilters, notesCount] = await Promise.all([
+    const [districtFilters, notesCount, peopleDataset] = await Promise.all([
       this.resolveDistrictFilters(loaded.organizationSlug),
       this.notesService.countNotesForUser({
         userId,
         briefingId: briefing.id,
       }),
+      this.resolvePeopleDataset(loaded),
     ])
     return {
       conversationId,
@@ -216,7 +257,22 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
       highlight: extractHighlight(artifactContent, annotation),
       notesCount,
       districtFilters,
+      peopleDataset,
     }
+  }
+
+  // Only when district_insights can register: the flag lookup is wasted
+  // otherwise.
+  private async resolvePeopleDataset(
+    loaded: BriefingContextResult,
+  ): Promise<PeopleDataset> {
+    if (!this.databricks || !this.districtResolver || !this.peopleDatasets) {
+      return 'voters'
+    }
+    return this.peopleDatasets.resolve({
+      slug: loaded.organizationSlug,
+      ownerId: loaded.organizationOwnerId,
+    })
   }
 
   // Resolve by the briefing's org, not the user: an official with offices in
@@ -249,8 +305,11 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     if (this.databricks && ctx.districtFilters) {
       tools.district_insights = buildDistrictInsightsTool({
         provider: this.databricks,
-        allowedTables: SERVE_AGENT_VOTERS_ALLOWED_TABLES,
+        allowedTables: new Set([
+          SERVE_AGENT_TABLE_BY_DATASET[ctx.peopleDataset],
+        ]),
         mandatoryFilters: ctx.districtFilters,
+        peopleDataset: ctx.peopleDataset,
       })
       tools.list_district_topics = buildDistrictTopicsTool()
     }

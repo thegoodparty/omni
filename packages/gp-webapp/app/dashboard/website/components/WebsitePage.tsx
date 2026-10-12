@@ -10,7 +10,6 @@ import { WEBSITE_STATUS } from '../util/website.util'
 import EmptyState from './EmptyState'
 import DraftState from './DraftState'
 import PublishedState from './PublishedState'
-import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 
 interface WebsitePageProps {
   pathname: string
@@ -29,7 +28,6 @@ export default function WebsitePage({
     setCreateLoading(true)
     const resp = await createWebsite()
     if (resp.ok) {
-      trackEvent(EVENTS.CandidateWebsite.Started)
       router.push(`/dashboard/website/create`)
     } else {
       setWebsite(null)

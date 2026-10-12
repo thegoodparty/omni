@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { ChatScope, type Organization } from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
@@ -40,6 +41,10 @@ export interface ChiefOfStaffContext {
   // table configured). The context service defaults it false; the handler
   // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
+  // Which people table the constituent-data tool reads. The context service
+  // defaults it to 'voters'; the handler resolves it per turn from
+  // PeopleDatasetService for the conversation's org.
+  peopleDataset: PeopleDataset
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -128,6 +133,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
+      peopleDataset: 'voters',
     }
   }
 }

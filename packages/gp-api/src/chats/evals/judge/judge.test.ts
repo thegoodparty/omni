@@ -246,6 +246,21 @@ describe('what reaches the model', () => {
     expect(calls[0]?.messages[0]?.content).not.toContain('Condition:')
   })
 
+  // A required section was scored as an "unrequested addition" before the
+  // judge was shown the contract and told what the contract means.
+  it('tells an artifact judge a required field is never an addition', async () => {
+    const [bgBase, bgCandidate] = BACKGROUND_PAIR
+    const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const background = blindCase(bgBase, bgCandidate, X_IS_BASE)
+    const { llm, calls } = fake([reply()])
+    await judgeCase(llm, plan(chat), DEFAULT_JUDGE_CONFIG)
+    await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
+    expect(calls[1]?.messages[0]?.content).toMatch(
+      /output contract.*never an unrequested addition.*missing a required/s,
+    )
+    expect(calls[0]?.messages[0]?.content).not.toContain('output contract')
+  })
+
   // The dimension set is config, so a trace dimension switched on later
   // must reach the prompt without a code change.
   it('asks for exactly the configured dimensions', async () => {
@@ -605,6 +620,22 @@ describe('the order-swap subsample', () => {
     expect(selectSwapped(cases(10)).map((c) => c.caseId)).toEqual(picked)
   })
 
+  // A BACKGROUND CASE IS A PLANTED CONDITION, not a sample, so every one is
+  // read both ways: an order flip on a bench shows as disagreement rather
+  // than as one confident read. Chat keeps its fifth.
+  it('judges every background case in both orders', () => {
+    const [bgBase, bgCandidate] = BACKGROUND_PAIR
+    const background = Array.from({ length: 4 }, (_, i) =>
+      blindCase(
+        { ...bgBase, caseId: `case-${i}`, runId: `b${i}` },
+        { ...bgCandidate, caseId: `case-${i}`, runId: `c${i}` },
+        X_IS_BASE,
+      ),
+    )
+    expect(selectSwapped(background)).toHaveLength(4)
+    expect(selectSwapped(cases(10))).toHaveLength(2)
+  })
+
   it('judges everything twice at a fraction of one', () => {
     const config: JudgeConfig = {
       ...DEFAULT_JUDGE_CONFIG,
@@ -623,6 +654,65 @@ describe('the order-swap subsample', () => {
     for (const entry of swapped) {
       expect(entry.slotMap).toEqual({ X: 'candidate', Y: 'base' })
     }
+  })
+
+  // A CONTROL IS ALWAYS JUDGED BOTH WAYS, on top of the subsample and even
+  // with it switched off: a position preference is the one thing a control
+  // shows that a single order cannot.
+  it('swaps every control as well as the subsample', () => {
+    const planned = planJudgments(
+      cases(10),
+      DEFAULT_JUDGE_CONFIG,
+      new Set(['case-7']),
+    )
+    const swapped = planned.filter((p) => p.key.order === 'swapped')
+    expect(swapped.map((p) => p.key.caseId)).toEqual([
+      'case-0',
+      'case-5',
+      'case-7',
+    ])
+  })
+
+  it('swaps a control with the subsample switched off', () => {
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      orderSwap: { enabled: false, fraction: 0.2 },
+    }
+    const swapped = planJudgments(cases(10), config, new Set(['case-7']))
+      .filter((p) => p.key.order === 'swapped')
+      .map((p) => p.key.caseId)
+    expect(swapped).toEqual(['case-7'])
+  })
+
+  it('does not judge a control twice in one order', () => {
+    const swapped = planJudgments(
+      cases(10),
+      DEFAULT_JUDGE_CONFIG,
+      new Set(['case-5']),
+    ).filter((p) => p.key.order === 'swapped')
+    const ids = swapped.map((p) => p.key.caseId)
+    expect(ids.filter((id) => id === 'case-5')).toHaveLength(1)
+  })
+
+  // A LIST GAINING A CONTROL leaves the scored subsample where it was: the
+  // control is swapped on its own, never in a scored pair's place.
+  it('picks the same scored pairs when a control is added', () => {
+    const scoredSwaps = (planned: PlannedJudgment[]) =>
+      planned
+        .filter((p) => p.key.order === 'swapped' && p.key.caseId !== 'case-00')
+        .map((p) => p.key.caseId)
+    const withoutControl = scoredSwaps(planJudgments(cases(10)))
+    const [first] = cases(1)
+    if (first === undefined) throw new Error('one case')
+    const control = { ...first, caseId: 'case-00' }
+    const withControl = scoredSwaps(
+      planJudgments(
+        [control, ...cases(10)],
+        DEFAULT_JUDGE_CONFIG,
+        new Set(['case-00']),
+      ),
+    )
+    expect(withControl).toEqual(withoutControl)
   })
 
   it('judges every planned pair', async () => {
@@ -799,11 +889,118 @@ describe('a seat does not inherit the service retry budget', () => {
   })
 })
 
+// Melecia's per-run field: did each run reach the outcome the case's
+// handledWhen sentence describes. Asked only on a case that carries one.
+describe('the handled field', () => {
+  const asked = (normalized: NormalizedCase): NormalizedCase => ({
+    ...normalized,
+    payload: {
+      ...normalized.payload,
+      handledWhen: 'the run says the two sources disagree',
+    },
+  })
+  const withHandled = (x: string, y: string): JsonValue => ({
+    ...(reply() as Record<string, JsonValue>),
+    handled: { X: x, Y: y },
+  })
+
+  it('is required exactly when the case carries the sentence', () => {
+    const dims = DEFAULT_JUDGE_CONFIG.dimensions
+    expect(caseVerdictSchemaFor(dims, true).safeParse(reply()).success).toBe(
+      false,
+    )
+    expect(
+      caseVerdictSchemaFor(dims, true).safeParse(withHandled('yes', 'no'))
+        .success,
+    ).toBe(true)
+    expect(
+      JSON.stringify(sentSchema(DEFAULT_JUDGE_CONFIG.dimensions)),
+    ).not.toContain('handled')
+  })
+
+  // The quote per run rides in the one evidence list, so the grammar stays
+  // inside the API's limit, and lands on `handled`, not on the overall.
+  it('keeps the handled evidence on handled', () => {
+    const parsed = caseVerdictSchemaFor(
+      DEFAULT_JUDGE_CONFIG.dimensions,
+      true,
+    ).parse({
+      ...(withHandled('yes', 'no') as Record<string, JsonValue>),
+      evidence: [
+        { dimension: 'handled', loc: 'X.final', quote: 'q', note: '' },
+        { dimension: 'overall', loc: 'Y.final', quote: 'o', note: '' },
+      ],
+    })
+    expect(parsed.handled).toEqual({
+      X: 'yes',
+      Y: 'no',
+      evidence: [{ loc: 'X.final', quote: 'q' }],
+    })
+    expect(parsed.overall.evidence).toEqual([{ loc: 'Y.final', quote: 'o' }])
+  })
+
+  it('reserves its name from the case dimensions', async () => {
+    const normalized = asked(blindCase(BASE, CANDIDATE, X_IS_BASE))
+    await expect(
+      judgeCase(
+        fake([reply()]).llm,
+        plan({
+          ...normalized,
+          payload: {
+            ...normalized.payload,
+            caseDimensions: [{ name: 'handled', question: 'q?' }],
+          },
+        }),
+        DEFAULT_JUDGE_CONFIG,
+      ),
+    ).rejects.toThrow(CaseDimensionCollisionError)
+  })
+
+  it('refuses a value outside yes, partly and no', () => {
+    expect(
+      caseVerdictSchemaFor(DEFAULT_JUDGE_CONFIG.dimensions, true).safeParse(
+        withHandled('not_applicable', 'yes'),
+      ).success,
+    ).toBe(false)
+  })
+
+  it('asks the question only on a case that carries the sentence', async () => {
+    const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const { llm, calls } = fake([reply(), withHandled('yes', 'yes')])
+    await judgeCase(llm, plan(normalized), DEFAULT_JUDGE_CONFIG)
+    await judgeCase(llm, plan(asked(normalized)), DEFAULT_JUDGE_CONFIG)
+    const text = (i: number) =>
+      (calls[i]?.messages ?? []).map((m) => String(m.content)).join('\n')
+    expect(text(0)).not.toContain('`handled`')
+    expect(text(1)).toContain('In\n`handled`, answer yes, partly or no')
+    expect(text(1)).toContain('short quote per run under the name handled.')
+  })
+
+  // One seat that saw a run miss the outcome is a finding about that run.
+  it('takes the least handled answer any seat gave', async () => {
+    const normalized = asked(blindCase(BASE, CANDIDATE, X_IS_BASE))
+    const { llm } = fake([
+      withHandled('yes', 'yes'),
+      withHandled('partly', 'yes'),
+    ])
+    const judgment = graded(
+      await judgeCase(llm, plan(normalized), {
+        ...DEFAULT_JUDGE_CONFIG,
+        panel: { seats: ['a', 'b'], temperature: 0 },
+      }),
+    )
+    expect(judgment.handled).toEqual({ X: 'partly', Y: 'yes' })
+  })
+})
+
 // The JSON Schema the panel's request carries: the AI SDK converts a zod 4
 // schema with exactly this call (provider-utils `zod4Schema`), input io
 // because the model writes the input side of every transform.
-const sentSchema = (dimensions: readonly string[]): unknown =>
-  z.toJSONSchema(caseVerdictSchemaFor(dimensions), {
+const sentSchema = (
+  dimensions: readonly string[],
+  asksHandled = false,
+): unknown =>
+  z.toJSONSchema(caseVerdictSchemaFor(dimensions, asksHandled), {
     target: 'draft-7',
     io: 'input',
   })
@@ -849,8 +1046,8 @@ describe('the panel schema fits the API limits', () => {
     return counts
   }
 
-  const sentFor = (dimensions: readonly string[]) =>
-    countParameters(sentSchema(dimensions))
+  const sentFor = (dimensions: readonly string[], asksHandled = false) =>
+    countParameters(sentSchema(dimensions, asksHandled))
 
   const caseDimensions = Array.from(
     { length: MAX_CASE_DIMENSIONS },
@@ -858,10 +1055,10 @@ describe('the panel schema fits the API limits', () => {
   )
 
   it('stays under both limits with the most dimensions a case may add', () => {
-    const counts = sentFor([
-      ...DEFAULT_JUDGE_CONFIG.dimensions,
-      ...caseDimensions,
-    ])
+    const counts = sentFor(
+      [...DEFAULT_JUDGE_CONFIG.dimensions, ...caseDimensions],
+      true,
+    )
     expect(counts.optional).toBeLessThanOrEqual(API_OPTIONAL_LIMIT)
     expect(counts.unions).toBeLessThanOrEqual(API_UNION_LIMIT)
   })
@@ -880,6 +1077,14 @@ describe('the panel schema fits the API limits', () => {
     )) {
       expect(['string', 'boolean', 'number']).toContain(property.type)
     }
+  })
+
+  // Handled is asked on top of everything else on a probe case, so it may
+  // add nothing to either count either.
+  it('costs nothing to ask handled', () => {
+    expect(
+      sentFor([...DEFAULT_JUDGE_CONFIG.dimensions, ...caseDimensions], true),
+    ).toEqual(sentFor([...DEFAULT_JUDGE_CONFIG.dimensions, ...caseDimensions]))
   })
 
   // The stronger property, and the one that keeps the limit from coming

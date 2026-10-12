@@ -22,6 +22,7 @@ import {
   PanelDrawerFooter,
   PanelDrawerHeader,
 } from './PanelDrawer'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 
 // Rendered for a candidate's canvasser and an elected official's, so the copy
 // is mode-keyed (docs/product-vocabulary.md) and the Serve branch is where the
@@ -233,10 +234,16 @@ const IssueBlocks = ({
         >
           <div>
             <div className="flex items-center justify-between gap-2">
-              <span className={QUESTION_LABEL_CLASSNAME}>{copy.issue}</span>
+              <span className={QUESTION_LABEL_CLASSNAME}>
+                {drafts.length > 1 ? name : copy.issue}
+              </span>
               <Button
                 variant="ghost"
                 size="small"
+                // Pulled into the label row's height and onto the input's
+                // right edge, so the ghost padding does not push the row
+                // taller than the other labels or inset the word.
+                className="-my-2 -mr-4 text-muted-foreground"
                 disabled={saving}
                 aria-label={copy.removeFor(draft.issueLabel.trim() || name)}
                 onClick={() => remove(index)}
@@ -250,6 +257,11 @@ const IssueBlocks = ({
               maxLength={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
               placeholder={copy.issuePlaceholder}
               onChange={(e) => update(index, { issueLabel: e.target.value })}
+            />
+            <LengthCounter
+              className="mt-1"
+              length={draft.issueLabel.length}
+              max={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
             />
           </div>
 
@@ -378,7 +390,9 @@ export default function IssueCaptureConfirmCard({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="text-sm font-semibold text-foreground">{copy.heading}</p>
+        <h3 className="text-base font-semibold text-foreground">
+          {copy.heading}
+        </h3>
         <p className="mt-1 text-sm text-muted-foreground">
           {captionFor(copy, proposed, drafts)}
         </p>

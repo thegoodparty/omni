@@ -124,6 +124,8 @@ describe('PurchaseService', () => {
   }
 
   beforeEach(async () => {
+    // Clear any WIN_SMS_HOLD_BILLING stub a prior test left set.
+    vi.unstubAllEnvs()
     mockStripeService = {
       createCustomCheckoutSession: vi.fn(),
       retrieveCheckoutSession: vi.fn(),
@@ -200,6 +202,109 @@ describe('PurchaseService', () => {
       )
       expect(result.id).toBe('cs_test_abc123')
       expect(result.clientSecret).toBe('cs_secret_xyz')
+    })
+
+    // Win SMS hold billing: a p2p TEXT checkout under the flag asks the Stripe
+    // layer to authorize a manual-capture hold instead of charging.
+    it('requests a manual-capture hold for a Win p2p checkout when the flag is on', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const mockHandler: PurchaseHandler<unknown> = {
+        validatePurchase: vi.fn().mockResolvedValue(undefined),
+        calculateAmount: vi.fn().mockResolvedValue(10500),
+        getProductName: vi.fn().mockReturnValue('SMS Outreach'),
+      }
+      service.registerPurchaseHandler(PurchaseType.TEXT, mockHandler)
+      mockStripeService.createCustomCheckoutSession.mockResolvedValue({
+        id: 'cs_hold',
+        clientSecret: 'cs_hold_secret',
+        amount: 105,
+      })
+
+      await service.createCheckoutSession({
+        user: mockUser,
+        dto: {
+          type: PurchaseType.TEXT,
+          metadata: { contactCount: 3000, outreachType: 'p2p' },
+        },
+        metadata: { campaignId: mockCampaign.id },
+      })
+
+      // Promo codes are disabled on a hold: a Stripe promo would shrink the
+      // PaymentIntent amount and corrupt the recorded hold ceiling.
+      expect(
+        mockStripeService.createCustomCheckoutSession,
+      ).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          manualCapture: true,
+          allowPromoCodes: false,
+        }),
+      )
+    })
+
+    it('leaves a Win p2p checkout on immediate capture when the flag is off', async () => {
+      const mockHandler: PurchaseHandler<unknown> = {
+        validatePurchase: vi.fn().mockResolvedValue(undefined),
+        calculateAmount: vi.fn().mockResolvedValue(10500),
+        getProductName: vi.fn().mockReturnValue('SMS Outreach'),
+      }
+      service.registerPurchaseHandler(PurchaseType.TEXT, mockHandler)
+      mockStripeService.createCustomCheckoutSession.mockResolvedValue({
+        id: 'cs_auto',
+        clientSecret: 'cs_auto_secret',
+        amount: 105,
+      })
+
+      await service.createCheckoutSession({
+        user: mockUser,
+        dto: {
+          type: PurchaseType.TEXT,
+          metadata: { contactCount: 3000, outreachType: 'p2p' },
+        },
+        metadata: { campaignId: mockCampaign.id },
+      })
+
+      // An immediate-capture checkout keeps promo-code support.
+      expect(
+        mockStripeService.createCustomCheckoutSession,
+      ).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          manualCapture: false,
+          allowPromoCodes: true,
+        }),
+      )
+    })
+
+    it('does not request a hold for a non-p2p TEXT checkout even when the flag is on', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const mockHandler: PurchaseHandler<unknown> = {
+        validatePurchase: vi.fn().mockResolvedValue(undefined),
+        calculateAmount: vi.fn().mockResolvedValue(3500),
+        getProductName: vi.fn().mockReturnValue('SMS Outreach'),
+      }
+      service.registerPurchaseHandler(PurchaseType.TEXT, mockHandler)
+      mockStripeService.createCustomCheckoutSession.mockResolvedValue({
+        id: 'cs_text',
+        clientSecret: 'cs_text_secret',
+        amount: 35,
+      })
+
+      await service.createCheckoutSession({
+        user: mockUser,
+        dto: {
+          type: PurchaseType.TEXT,
+          metadata: { contactCount: 1000, outreachType: 'text' },
+        },
+        metadata: { campaignId: mockCampaign.id },
+      })
+
+      expect(
+        mockStripeService.createCustomCheckoutSession,
+      ).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ manualCapture: false }),
+      )
     })
 
     // getPaymentType's default branch THROWS, so an unmapped PurchaseType
@@ -569,6 +674,101 @@ describe('PurchaseService', () => {
       expect(
         mockStripeService.updatePaymentIntentMetadata,
       ).not.toHaveBeenCalled()
+    })
+
+    // A Win SMS hold completes the session 'unpaid' (funds authorized, not
+    // captured). Unlike ACH, it is ready to fulfill now, so it must NOT defer.
+    it('fulfills an unpaid session whose PI is an authorized manual-capture hold (flag on)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const sessionId = 'cs_test_hold_unpaid'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.TEXT,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'unpaid',
+          payment_intent: 'pi_hold',
+          metadata: { purchaseType: PurchaseType.TEXT, userId: '1' },
+        }),
+      )
+      mockStripeService.retrievePaymentIntent.mockResolvedValue(
+        mockPaymentIntent({ id: 'pi_hold', status: 'requires_capture' }),
+      )
+
+      const result = await service.completeCheckoutSession({
+        checkoutSessionId: sessionId,
+      })
+
+      expect(result.deferred).toBeUndefined()
+      expect(mockCheckoutSessionPostPurchaseHandler).toHaveBeenCalledWith(
+        sessionId,
+        expect.objectContaining({ purchaseType: PurchaseType.TEXT }),
+      )
+    })
+
+    // A manual-capture hold has no async follow-up event, so deferring would
+    // strand the send forever. While the PI is not yet requires_capture, THROW
+    // (not defer) so checkout.session.completed redelivers and fulfills once the
+    // synchronous authorization lands.
+    it('throws (forcing retry) for a Win-SMS hold whose PI is not yet requires_capture (flag on)', async () => {
+      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      const sessionId = 'cs_test_hold_pending'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.TEXT,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'unpaid',
+          payment_intent: 'pi_pending',
+          metadata: { purchaseType: PurchaseType.TEXT, userId: '1' },
+        }),
+      )
+      mockStripeService.retrievePaymentIntent.mockResolvedValue(
+        mockPaymentIntent({ id: 'pi_pending', status: 'processing' }),
+      )
+
+      await expect(
+        service.completeCheckoutSession({ checkoutSessionId: sessionId }),
+      ).rejects.toThrow(/not yet authorized/)
+      expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
+    })
+
+    // A genuine delayed-notification (ACH) session is a non-hold unpaid session:
+    // it must keep deferring (an async_payment_succeeded re-enters later), never
+    // throw. Flag off keeps it out of the hold branch entirely.
+    it('still defers a non-hold unpaid session (ACH / flag off), never throws', async () => {
+      const sessionId = 'cs_test_ach_unpaid'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.TEXT,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'unpaid',
+          payment_intent: 'pi_ach',
+          metadata: { purchaseType: PurchaseType.TEXT, userId: '1' },
+        }),
+      )
+
+      const result = await service.completeCheckoutSession({
+        checkoutSessionId: sessionId,
+      })
+
+      expect(result.deferred).toBe(true)
+      expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
+      // Non-hold path never re-reads the PI to probe for a hold.
+      expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
     })
 
     it('fulfills a session a promotion code covered in full', async () => {

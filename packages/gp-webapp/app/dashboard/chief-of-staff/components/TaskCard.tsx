@@ -13,7 +13,7 @@ export interface TaskCardProps {
   ctaLabel?: string
   /** When set, the CTA navigates here. */
   ctaHref?: string
-  /** When set (and no href), the CTA fires this instead. */
+  /** Fires on a CTA click; with no href it is the CTA's whole action. */
   onCta?: () => void
   /** When set, renders a secondary "Mark done" action. */
   onComplete?: () => void
@@ -80,13 +80,20 @@ export default function TaskCard({
           (ctaHref ? (
             isExternalHref(ctaHref) ? (
               <Button asChild className="w-full">
-                <a href={ctaHref} target="_blank" rel="noreferrer">
+                <a
+                  href={ctaHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={onCta}
+                >
                   {ctaLabel}
                 </a>
               </Button>
             ) : (
               <Button asChild className="w-full">
-                <Link href={ctaHref}>{ctaLabel}</Link>
+                <Link href={ctaHref} onClick={onCta}>
+                  {ctaLabel}
+                </Link>
               </Button>
             )
           ) : (

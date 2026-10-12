@@ -25,6 +25,8 @@ vi.mocked(useSnackbar).mockReturnValue({
 // and a candidate cannot silently arrive as the Win default with no one to
 // name. The opener those props produce is covered in useDoorScript.test.tsx.
 vi.mock('app/dashboard/door-knocking/native/doorKnockingSurface', () => ({
+  // Read by `StartKnockingDialog`, which this page opens on an unrouted turf.
+  useDoorKnockingServeMode: () => false,
   DoorKnockingSurface: ({
     serveMode,
     officeName,
@@ -342,5 +344,65 @@ describe('VolunteerWalkPage', () => {
     expect(
       await screen.findByText('You’re no longer assigned to this route'),
     ).toBeInTheDocument()
+  })
+
+  // ENG-11229: the route is bought at first knock, so a turf nobody has
+  // knocked yet 404s its route read with the volunteer still assigned. That
+  // is the travel question, not a revocation.
+  it('asks how they are getting there on a turf with no route yet, then opens the walk', async () => {
+    const unrouted = { ...turf, routeSeconds: null }
+    let routed = false
+    let builtFor: unknown = null
+    api.mock('GET /v1/door-knocking/turfs/:id', {
+      status: 200,
+      data: unrouted,
+    })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () =>
+      routed
+        ? { status: 200, data: routePayload }
+        : {
+            status: 404,
+            data: { message: 'This turf has not been knocked yet' },
+          },
+    )
+    api.mock('POST /v1/door-knocking/turfs/:id/route', (req) => {
+      builtFor = req.params.id
+      routed = true
+      return { status: 200, data: turf }
+    })
+
+    render(<VolunteerWalkPage turfId={7} />)
+
+    expect(
+      await screen.findByText('How are you getting there?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('You’re no longer assigned to this route'),
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    expect(await screen.findByText('105 Elm St')).toBeInTheDocument()
+    expect(builtFor).toBe('7')
+    expect(screen.queryByText('How are you getting there?')).toBeNull()
+    expect(packRequested).toBe(false)
+  })
+
+  it('returns to /volunteer when the travel question is cancelled', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id', {
+      status: 200,
+      data: { ...turf, routeSeconds: null },
+    })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 404,
+      data: { message: 'This turf has not been knocked yet' },
+    })
+
+    render(<VolunteerWalkPage turfId={7} />)
+
+    await screen.findByText('How are you getting there?')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(router.push).toHaveBeenCalledWith('/volunteer')
   })
 })

@@ -2,7 +2,13 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { ArrowLeftIcon, Button, Spinner } from '@styleguide'
+import {
+  Alert,
+  AlertDescription,
+  ArrowLeftIcon,
+  Button,
+  Spinner,
+} from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { whatWeHeardCopy } from '../../../../copy'
 import { themeQueryOptions } from '../../../queries'
@@ -60,7 +66,9 @@ const ThemeDetailPage = ({
             <ThemeMemos theme={theme} isServe={isServe} />
           </>
         ) : themeQuery.isError ? (
-          <p className="text-sm text-destructive">{copy.loadFailed}</p>
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{copy.loadFailed}</AlertDescription>
+          </Alert>
         ) : (
           <div className="flex items-center justify-center gap-3 py-20">
             <Spinner />

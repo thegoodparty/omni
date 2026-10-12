@@ -106,6 +106,8 @@ const buildTools = (
         fetchFilingFeeByRaceHash: () => Promise.resolve(BALLOT_DATA_FULL),
       } as unknown as Pick<ElectionsService, 'fetchFilingFeeByRaceHash'>,
       raceId: NOT_YET_FILED_FIXTURE.raceId ?? '',
+      filingPeriodStart: NOT_YET_FILED_FIXTURE.filingPeriodStart,
+      filingPeriodEnd: NOT_YET_FILED_FIXTURE.filingPeriodEnd,
     }),
   }),
   ...(helpCenter && {

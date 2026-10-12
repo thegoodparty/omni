@@ -176,6 +176,9 @@ const toAPIOrganization = (
     const electionYear = org.campaign?.details?.electionDate?.split('-').at(0)
     result.name = [electionYear, 'Campaign'].filter(Boolean).join(' ')
   }
+  if (org.testModeCreatedAt) {
+    result.name = `Test: ${result.name ?? ''}`
+  }
   return result
 }
 

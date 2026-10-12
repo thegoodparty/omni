@@ -37,9 +37,8 @@ export interface ContactsLabels {
   listDetailsTitle: string
   // crm/wizard/CreateListWizard.tsx's step-2 voter-file-branch title.
   wizardVoterFileStepTitle: string
-  // The boundary step and the list map's draw surface. Only Serve renders
-  // them today, but this helper is mode-keyed and not mode-gated: a Win
-  // literal saying "constituents" is exactly the drift it exists to prevent.
+  // The boundary step and the list map's draw surface, which both products
+  // render.
   boundaryStepTitle: string
   // Above the wizard step's card that opens the drawing surface.
   boundaryGatewayHint: string

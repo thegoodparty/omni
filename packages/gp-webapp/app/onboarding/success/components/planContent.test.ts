@@ -345,7 +345,8 @@ describe('buildPlanData voter insights source precedence', () => {
 
 describe('buildPlanData contact schedule', () => {
   it('derives the 7 sends from the canonical schedule off the election date', () => {
-    const plan = buildPlanData(makeInput())
+    // A plan started long before the first send keeps every send on schedule.
+    const plan = buildPlanData(makeInput({ planStartIso: '2026-01-05' }))
 
     expect(plan.contactSchedule.map((s) => s.tactic)).toEqual(
       VOTER_CONTACT_SCHEDULE.map((s) => s.tactic),
@@ -359,6 +360,21 @@ describe('buildPlanData contact schedule', () => {
       'Sep 15, 2026',
       'Sep 29, 2026',
       'Oct 6, 2026',
+      'Oct 20, 2026',
+      'Nov 2, 2026',
+      'Nov 3, 2026',
+    ])
+  })
+
+  it('compresses a late joiner’s past sends into the time before the next one', () => {
+    // Started Oct 7: the four sends dated Sep 8 to Oct 6 move up, three days
+    // apart, into the 13 days before the Oct 20 send.
+    const plan = buildPlanData(makeInput({ planStartIso: '2026-10-07' }))
+    expect(plan.contactSchedule.map((s) => s.date)).toEqual([
+      'Oct 7, 2026',
+      'Oct 10, 2026',
+      'Oct 13, 2026',
+      'Oct 16, 2026',
       'Oct 20, 2026',
       'Nov 2, 2026',
       'Nov 3, 2026',

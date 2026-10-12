@@ -179,6 +179,7 @@ export class FeedbackReportService extends createPrismaBase(
       },
       select: {
         id: true,
+        name: true,
         phoneBankingListId: true,
         doorKnockingTurf: { select: { communityInputQuestion: true } },
         phoneBankingList: { select: { communityInputQuestion: true } },

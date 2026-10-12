@@ -26,6 +26,7 @@ import {
   CM_CONSTITUENT_DATA_PROVIDER,
   CM_CONSTITUENT_TABLES_CONFIG,
 } from './campaignManager.handler'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 
 export { CAMPAIGN_MANAGER_MODELS }
 
@@ -52,6 +53,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
 // reused constituent-data tool's district resolution, and
 // CampaignStory/Websites/CampaignStrategy for the Campaign Story intake (story +
 // website bio/issues + plan generation).
+
 @Module({
   imports: [
     ChatsModule,
@@ -70,6 +72,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     DistrictResolverService,
     CampaignStoryIntakeService,
     HelpCenterSearchService,
+    PriorityFlowOutreachService,
     {
       provide: CM_CONSTITUENT_DATA_PROVIDER,
       useFactory: constituentDataProviderFactory,

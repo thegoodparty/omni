@@ -335,3 +335,16 @@ path takes the id off a user session's request body:
 
 Adding a write path means resolving the id from something the caller is already
 entitled to, not accepting one.
+
+## `positionId` is never the caller's BallotReady id, verbatim
+
+`Organization.positionId` is election-api's own id — every later read (campaign
+launch, contacts' district resolution, the CRM) feeds it straight into
+`getPositionById`, which 400s on a BallotReady id. A write path that accepts a
+`ballotReadyPositionId` must resolve it server-side before it lands on
+`positionId`, never store the body's id directly.
+
+`POST /v1/elected-office`'s net-new branch (no `X-Organization-Slug`) does this
+via `OrganizationsService.resolveOrgData`, the same resolver `PATCH
+/v1/organizations/:slug` uses — a `ballotReadyPositionId` that doesn't resolve
+to a position is a 400, matching `applyPatch`.

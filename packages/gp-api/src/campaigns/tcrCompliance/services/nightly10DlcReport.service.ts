@@ -129,6 +129,7 @@ export const reportableCampaign = {
       })),
     },
   },
+  organization: { testModeCreatedAt: null },
 }
 
 // Excludes only *actively* billing-blocked records — they render in their own

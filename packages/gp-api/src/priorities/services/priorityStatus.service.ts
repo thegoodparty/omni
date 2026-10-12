@@ -23,6 +23,12 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { OutreachStatus } from 'src/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import {
+  EVENTS,
+  type SegmentTrackEventProperties,
+} from 'src/vendors/segment/segment.types'
+import { trackForOffice } from '../util/priorityAnalytics.util'
 import type { LlmStreamTool, LlmTool } from '@/llm/services/llm.service'
 import {
   RecordCheckReminderInputSchema,
@@ -269,6 +275,71 @@ export interface PriorityStatusResult {
 // it; anything else writing them reintroduces that drift.
 @Injectable()
 export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
+  constructor(private readonly analytics: AnalyticsService) {
+    super()
+  }
+
+  // One event per step or check side whose state moved, so a funnel can count
+  // how far priorities get and where checks stall. Summary-only edits and a
+  // deferral raised again leave the state alone and fire nothing.
+  private async trackStatusChanges(
+    priorityId: string,
+    before: PriorityStatus,
+    after: PriorityStatus,
+    trigger: 'agent' | 'send' | 'reminder',
+    extra: SegmentTrackEventProperties = {},
+  ): Promise<void> {
+    const base = { priorityId, trigger, ...extra }
+    const events: [string, SegmentTrackEventProperties][] = []
+    after.steps.forEach((step, index) => {
+      const prior = before.steps.find((candidate) => candidate.id === step.id)
+      if (prior?.state !== step.state) {
+        events.push([
+          EVENTS.Priorities.StepStateChanged,
+          {
+            ...base,
+            stepId: step.id,
+            stepNumber: index + 1,
+            fromState: prior?.state ?? null,
+            toState: step.state,
+          },
+        ])
+      }
+      const sides = [
+        ['main', prior?.check?.state, step.check?.state],
+        [
+          'contrast',
+          prior?.check?.contrast?.state,
+          step.check?.contrast?.state,
+        ],
+      ] as const
+      for (const [side, fromState, toState] of sides) {
+        if (toState === undefined || fromState === toState) continue
+        events.push([
+          EVENTS.Priorities.CheckStateChanged,
+          {
+            ...base,
+            stepId: step.id,
+            side,
+            fromState: fromState ?? null,
+            toState,
+          },
+        ])
+      }
+    })
+    const allSettled = (status: PriorityStatus) =>
+      status.steps.every((step) => step.state === STEP_STATE.settled)
+    if (!allSettled(before) && allSettled(after)) {
+      events.push([EVENTS.Priorities.PlanCompleted, base])
+    }
+    await trackForOffice(
+      this.client,
+      this.analytics,
+      { priorities: { some: { id: priorityId } } },
+      events,
+    )
+  }
+
   async read(priorityId: string): Promise<PriorityStatus> {
     const row = await this.model.findUnique({
       where: { id: priorityId },
@@ -349,6 +420,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       where: { id: priorityId },
       data: { status, currentStep, nextAction },
     })
+    await this.trackStatusChanges(priorityId, current, status, 'agent')
 
     return { status, currentStep, nextAction }
   }
@@ -423,6 +495,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       where: { id: args.priorityId },
       data: { status },
     })
+    await this.trackStatusChanges(args.priorityId, current, status, 'reminder')
     return check === undefined ? { error: 'Nothing recorded.' } : { check }
   }
 
@@ -446,6 +519,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
         priorityId: true,
         priorityStepId: true,
         priorityCheckSide: true,
+        outreachType: true,
       },
     })
     const stepId = PriorityStepIdSchema.safeParse(outreach?.priorityStepId)
@@ -478,6 +552,16 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       where: { id: outreach.priorityId },
       data: { status },
     })
+    await this.trackStatusChanges(
+      outreach.priorityId,
+      current,
+      status,
+      'send',
+      {
+        outreachId,
+        outreachType: outreach.outreachType,
+      },
+    )
   }
 
   // For callers whose send has already committed: the send stands whatever

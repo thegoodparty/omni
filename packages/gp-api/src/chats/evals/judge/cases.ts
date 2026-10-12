@@ -9,7 +9,7 @@ import {
   type JsonValue,
 } from './record'
 import type { AgentEntry } from './agents'
-import { DEFAULT_JUDGE_CONFIG } from './config'
+import { DEFAULT_JUDGE_CONFIG, MAX_LIST_ATTEMPTS_PER_CASE } from './config'
 
 // Loads an agent's inputs. One file per agent, authored per agent rather than
 // coded, which is the property that makes wiring the twenty-first agent a case
@@ -398,6 +398,78 @@ export type CaseDimension = z.infer<typeof CaseDimensionSchema>
 // attention.
 export const MAX_CONDITION_CHARS = 2_000
 
+// One sentence, so a bound well short of a condition's.
+export const MAX_HANDLED_WHEN_CHARS = 600
+
+// A page the broker serves both arms in place of the live one. The URL has to
+// be in the broker's normalized form already (gp-ai
+// `broker/page_replay.normalize_url`), because the store is keyed by its hash
+// and the broker hashes the normalized form of what the agent asks for. So:
+// https, a lowercase host, no fragment, and a query of plain pairs in sorted
+// order with no tracking parameters. A broker test reads every committed
+// seeded URL and checks it normalizes to itself.
+// No port and a path that starts with `/`: the broker keeps both as written,
+// so `https://a.gov` and `https://a.gov/` would be two different pages.
+const SEED_QUERY_PAIR = '[A-Za-z0-9._-]+=[A-Za-z0-9._-]*'
+const SEED_URL = new RegExp(
+  "^https://[a-z0-9.-]+/[A-Za-z0-9._~!$'()*+,;=:@%/-]*" +
+    `(?:\\?${SEED_QUERY_PAIR}(?:&${SEED_QUERY_PAIR})*)?$`,
+)
+const TRACKING_PARAM = /^(?:utm_.*|fbclid|gclid)$/i
+
+export const MAX_SEED_PAGES = 20
+export const MAX_SEED_PAGE_BYTES = 1024 * 1024
+
+const queryInBrokerOrder = (url: string): boolean => {
+  const query = url.split('?')[1]
+  if (query === undefined) return true
+  const pairs = query.split('&').map((pair) => {
+    const [name = '', value = ''] = pair.split('=')
+    return [name, value] as const
+  })
+  const sorted = [...pairs].sort(([a, x], [b, y]) => {
+    if (a !== b) return a < b ? -1 : 1
+    if (x === y) return 0
+    return x < y ? -1 : 1
+  })
+  return (
+    pairs.every(([name]) => !TRACKING_PARAM.test(name)) &&
+    pairs.every(([name, value], i) => {
+      const [sortedName, sortedValue] = sorted[i] ?? ['', '']
+      return name === sortedName && value === sortedValue
+    })
+  )
+}
+
+export const SeedPageSchema = z
+  .object({
+    url: z
+      .string()
+      .max(2_000)
+      .regex(SEED_URL, {
+        message:
+          'must be an https URL in the broker normalized form: lowercase ' +
+          'host, no fragment, a plain query',
+      })
+      .refine(queryInBrokerOrder, {
+        message:
+          'query parameters must be sorted by name, then value, with no ' +
+          'utm_*, fbclid or gclid',
+      }),
+    // A file under `cases/seeds/<agentId>/`, committed beside the list. omni
+    // is public, so it holds only content fine to publish.
+    file: z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/, {
+      message: 'is a file name in cases/seeds/<agentId>/, not a path',
+    }),
+    // Text only: the page is read and planted as UTF-8, and `http.get`
+    // refuses a binary response anyway.
+    contentType: z
+      .enum(['text/html', 'text/plain', 'application/json', 'application/xml'])
+      .optional(),
+  })
+  .strict()
+export type SeedPage = z.infer<typeof SeedPageSchema>
+
 export const BackgroundCaseSchema = z
   .object({
     caseId: CaseIdSchema,
@@ -405,6 +477,27 @@ export const BackgroundCaseSchema = z
     // for the same reason a record's input is opaque: only the runner knows
     // what an experiment's params mean.
     params: z.record(z.string(), JsonValueSchema),
+    // Files the runner stages into the agent's workspace before it boots,
+    // the hold-still route for an agent that reads a user-supplied document:
+    // both arms read the same object. The runner already carries and checks
+    // the field at dispatch (dest a plain filename, the key's length, the
+    // count, no placeholder token); until now no authored list carried it,
+    // and a strict schema without it refused the first one. The three names
+    // are the dispatch handler's own. Strict, like the case: a misspelled
+    // `dest` would otherwise stage the file under a name the agent never
+    // reads and the case would run as if nothing had been supplied.
+    inputFiles: z
+      .array(
+        z
+          .object({
+            bucket: z.string().min(1),
+            key: z.string().min(1),
+            dest: z.string().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .optional(),
     // What this case planted in or took out of `params`, for the JUDGE. A
     // probe tests a relationship between the artifact and the input, and a
     // judge not told what was planted has to find it unaided inside tens of
@@ -417,6 +510,32 @@ export const BackgroundCaseSchema = z
     // part of either arm's record, so a base ref that predates the field
     // cannot strip it from one side and turn every pair into a mismatch.
     condition: z.string().trim().min(1).max(MAX_CONDITION_CHARS).optional(),
+    // What handling the condition looks like, as one sentence: "a run
+    // handles this when …". Judge-only, like `condition`. Asked bare, the
+    // judge grades whether a run MENTIONED the problem, so a run that quietly
+    // resisted an injection read as not handling it; with the outcome stated,
+    // it reads as handled. When present, the judge answers yes, partly or no
+    // per run, and the report sorts the case into handled by both, a shared
+    // failure, a regression or an improvement.
+    handledWhen: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_HANDLED_WHEN_CHARS)
+      .optional(),
+    // Pages both arms are served instead of the live web, so a bench can
+    // plant content: a hidden instruction, a namesake, a stale page, two
+    // sources that disagree. Dispatched as a page replay store, never as
+    // params, so the agent fetches them like any other page.
+    seedPages: z
+      .array(SeedPageSchema)
+      .min(1)
+      .max(MAX_SEED_PAGES)
+      .refine(
+        (pages) => new Set(pages.map((p) => p.url)).size === pages.length,
+        { message: 'a case seeds each URL once' },
+      )
+      .optional(),
     // `false` keeps the pair out of every aggregate. It still runs and is
     // still judged, and the report states that judgment on its own line: a
     // control's job is to be the zero reading, and averaged into the verdict
@@ -438,12 +557,28 @@ export const BackgroundCaseSchema = z
   // otherwise be stripped and the control silently scored, and a misspelled
   // `condition` would send the judge in blind on the one case that needed it.
   .strict()
+  // A handling sentence describes how a run deals with a planted condition,
+  // so a case without one has nothing for it to describe. And a control is
+  // the zero reading: asking it "did the run handle this" would hand the
+  // judge a question whose only honest answer is "nothing to handle".
+  .refine(
+    (one) => one.handledWhen === undefined || one.condition !== undefined,
+    {
+      message: 'handledWhen describes handling a condition; add the condition',
+      path: ['handledWhen'],
+    },
+  )
+  .refine((one) => one.handledWhen === undefined || one.scored !== false, {
+    message: 'a control (scored: false) carries no handledWhen',
+    path: ['handledWhen'],
+  })
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
 
 // What the judging step needs from a case list beyond the records, keyed by
 // caseId. Chat cases carry neither field, so a chat list yields an empty map.
 export interface CaseJudging {
   condition?: string
+  handledWhen?: string
   scored: boolean
 }
 
@@ -457,6 +592,9 @@ export const caseJudgingOf = (list: CaseList): Map<string, CaseJudging> =>
               {
                 ...(one.condition !== undefined && {
                   condition: one.condition,
+                }),
+                ...(one.handledWhen !== undefined && {
+                  handledWhen: one.handledWhen,
                 }),
                 scored: one.scored ?? true,
               },
@@ -485,6 +623,9 @@ const CaseListEnvelopeSchema = z.object({
   shape: AgentShapeSchema,
   placeholder: z.boolean().optional(),
   note: z.string().min(1).optional(),
+  // Background only: how many attempts every case in this list is walked
+  // with, in place of the config's default. See MAX_LIST_ATTEMPTS_PER_CASE.
+  attemptsPerCase: z.number().int().positive().optional(),
   cases: z.array(z.record(z.string(), JsonValueSchema)).min(1),
 })
 
@@ -493,6 +634,7 @@ export interface CaseList {
   shape: AgentShape
   placeholder: boolean
   note?: string
+  attemptsPerCase?: number
   cases: JudgeCase[]
   // Where it came from, so an error downstream of here can still name the
   // file rather than only the case.
@@ -550,6 +692,25 @@ export const parseCaseList = (
     )
   }
 
+  // Refused by name rather than clamped: a list asking for five attempts and
+  // walked with three would bill for less than it asked and report as though
+  // it got what it asked for.
+  const listAttempts = envelope.data.attemptsPerCase
+  if (listAttempts !== undefined) {
+    if (envelope.data.shape !== 'background') {
+      throw new CaseListError(
+        `${source}: sets attemptsPerCase, which only a background list may ` +
+          "set; a chat list's attempts are the config's",
+      )
+    }
+    if (listAttempts > MAX_LIST_ATTEMPTS_PER_CASE) {
+      throw new CaseListError(
+        `${source}: asks for ${listAttempts} attempts per case, over the ` +
+          `ceiling of ${MAX_LIST_ATTEMPTS_PER_CASE} in config.ts`,
+      )
+    }
+  }
+
   const schema = CASE_SCHEMAS[envelope.data.shape]
   const cases: JudgeCase[] = []
   const seen = new Set<string>()
@@ -601,6 +762,7 @@ export const parseCaseList = (
     shape: envelope.data.shape,
     placeholder: envelope.data.placeholder ?? false,
     ...(envelope.data.note !== undefined && { note: envelope.data.note }),
+    ...(listAttempts !== undefined && { attemptsPerCase: listAttempts }),
     cases,
     source,
   }
@@ -660,6 +822,43 @@ export const loadCaseList = (
 // structural discriminator left.
 export const isChatCase = (one: JudgeCase): one is ChatCase =>
   !('params' in one)
+
+export const SEEDS_DIR = 'seeds'
+
+export interface SeededPage {
+  url: string
+  contentType: string
+  body: string
+}
+
+export const loadSeedPages = (
+  agentId: string,
+  one: BackgroundCase,
+  dir: string = CASES_DIR,
+): SeededPage[] =>
+  (one.seedPages ?? []).map((page) => {
+    const file = caseListPath(path.join(SEEDS_DIR, agentId, page.file), dir)
+    let body: string
+    try {
+      body = readFileSync(file, 'utf8')
+    } catch (err) {
+      throw new CaseListError(
+        `${agentId}/${one.caseId} seeds ${page.url} from ${file}, which ` +
+          `cannot be read — ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    if (Buffer.byteLength(body, 'utf8') > MAX_SEED_PAGE_BYTES) {
+      throw new CaseListError(
+        `${file} is over ${MAX_SEED_PAGE_BYTES} bytes; a seeded page is ` +
+          'one page, not a download',
+      )
+    }
+    return {
+      url: page.url,
+      contentType: page.contentType ?? 'text/html',
+      body,
+    }
+  })
 
 // A background agent's cases, narrowed. `parseCaseList` already discriminated
 // on `shape` when it built these, so re-deriving the narrowing structurally in

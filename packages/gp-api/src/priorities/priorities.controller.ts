@@ -89,6 +89,7 @@ export class PrioritiesController {
       electedOffice.id,
       { title: body.title, description: body.description },
       PrioritySource.user_stated,
+      'priorities_page',
     )
     return priorityToApi(created)
   }
@@ -116,7 +117,11 @@ export class PrioritiesController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Param() { id }: PriorityIdParamDto,
   ) {
-    const archived = await this.prioritiesService.archive(id, electedOffice.id)
+    const archived = await this.prioritiesService.archive(
+      id,
+      electedOffice.id,
+      'priorities_page',
+    )
     if (!archived) {
       throw new NotFoundException('Priority not found')
     }

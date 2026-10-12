@@ -1,5 +1,5 @@
 # Stage 1: Install dependencies and build application
-FROM node:22.23.0-alpine AS builder
+FROM public.ecr.aws/docker/library/node:22.23.0-alpine AS builder
 
 RUN apk add --no-cache \
     libc6-compat \
@@ -37,13 +37,12 @@ ARG CACHEBUST
 # Install dependencies
 COPY package.json package-lock.json ./
 # election-api/tsconfig.json extends ../../tsconfig.base.json; the in-image
-# `npm run build` needs it present or tsc reverts to defaults (no skipLibCheck
-# / esModuleInterop) and fails typechecking node_modules type declarations.
+# `nest build` reads compiler options (sourceMap, outDir, paths) through it, so
+# it must be present or the SWC output changes.
 COPY tsconfig.base.json ./
 COPY packages/election-api/package.json ./packages/election-api/package.json
 # election-api imports @goodparty_org/contracts and @goodparty_org/nest-common;
-# nest build typechecks against both, so their prebuilt workspace packages must
-# be present for module resolution.
+# their prebuilt workspace packages must be present for npm ci to link them.
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/dist ./packages/contracts/dist
 COPY packages/nest-common/package.json ./packages/nest-common/package.json
@@ -85,7 +84,7 @@ RUN npm run generate
 RUN npx nest build
 
 # Stage 2: Create a minimal runtime image
-FROM node:22.23.0-alpine
+FROM public.ecr.aws/docker/library/node:22.23.0-alpine
 
 RUN apk add --no-cache \
     libc6-compat \

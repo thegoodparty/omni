@@ -2,7 +2,12 @@ import {
   JUDGE_RUN_ID_MAX_LENGTH,
   JUDGE_RUN_ID_PREFIX,
   judgeOverrideKeys,
+  judgeReplayBaseKey,
+  JudgeReplaySchema,
+  judgeReplaySeedKey,
+  judgeReplaySweepKey,
   type JudgeOverride,
+  type JudgeReplay,
 } from '@goodparty_org/contracts'
 import { createHash } from 'crypto'
 import { differenceInMilliseconds } from 'date-fns'
@@ -10,6 +15,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 import { findAgent } from '../agents'
 import { assertNoPlaceholders } from '../caseParams'
+import type { SeededPage } from '../cases'
 import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import {
@@ -98,6 +104,7 @@ export interface BackgroundCase {
   // boots. Preferred over a URL param for anything that would otherwise be
   // fetched live, since it removes the fetch from the comparison entirely.
   inputFiles?: InputFileRef[]
+  seedPages?: SeededPage[]
 }
 
 // The bytes the agent actually reads. Both arms are staged this way, including
@@ -136,6 +143,10 @@ export interface BackgroundRunInput {
   poll: PollOptions
   dataVersion?: string
   env?: NodeJS.ProcessEnv
+  // The page replay store, in place of the sweep's own. Set for a base arm
+  // captured for the cache, which records under its config digest so a later
+  // candidate compared against that cached base can replay what it saw.
+  replayKey?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +494,9 @@ export interface DispatchMessage {
   params: Record<string, JsonValue>
   priority: 'HIGH' | 'DEFAULT'
   _judge_override: JudgeOverride
+  // Omitted rather than null when unused: the dispatch Lambda checks it only
+  // when present, and an older broker refuses a mint that names it.
+  _judge_replay?: JudgeReplay
 }
 
 // Also reserved. The broker publishes a MUTABLE pointer at
@@ -505,6 +519,7 @@ export const buildDispatchMessage = (args: {
   clerkUserId?: string
   agentCase: BackgroundCase
   override: JudgeOverride
+  replay?: JudgeReplay
 }): DispatchMessage => {
   if (!EXPERIMENT_ID.test(args.agentId)) {
     throw new Error(
@@ -654,7 +669,106 @@ export const buildDispatchMessage = (args: {
     params,
     priority: 'DEFAULT',
     _judge_override: args.override,
+    ...(args.replay !== undefined && {
+      _judge_replay: JudgeReplaySchema.parse(args.replay),
+    }),
   }
+}
+
+// The base arm records the pages it fetches and the candidate is served the
+// same responses, so a difference between them is the code rather than the
+// web moving in the hour between arms. Arm-free, so both arms of a case and
+// attempt name one store. Only for the agents the registry marks, until the
+// first ones' hit rates have been read.
+export const pageReplayFor = (
+  input: Pick<
+    BackgroundRunInput,
+    'sweepId' | 'agentId' | 'arm' | 'attempt' | 'agentCase' | 'replayKey'
+  >,
+): JudgeReplay | undefined => {
+  // A seeded case replays the bench's pages on both arms, for any agent: the
+  // pages are the condition under test, not drift to be held still.
+  if ((input.agentCase.seedPages ?? []).length > 0) {
+    return {
+      mode: 'replay',
+      key: judgeReplaySeedKey(input.agentId, input.agentCase.caseId),
+    }
+  }
+  if (findAgent(input.agentId)?.replaysPages !== true) return undefined
+  return {
+    mode: input.arm === 'base' ? 'record' : 'replay',
+    key:
+      input.replayKey ??
+      judgeReplaySweepKey(
+        input.sweepId,
+        input.agentId,
+        input.agentCase.caseId,
+        input.attempt,
+      ),
+  }
+}
+
+// The broker's store layout (gp-ai `broker/page_replay.py`): a fetched body,
+// its metadata, and a HEAD check's answer, each under the SHA-256 of the URL.
+// Seeded URLs are already in the broker's normalized form (SeedPageSchema),
+// so hashing them as written matches what the broker hashes for the agent's
+// request. The HEAD answer matters because agents check a URL with HEAD
+// before they cite it, and a live answer for a planted URL would decide it.
+export const seedPageKeys = (
+  storeKey: string,
+  url: string,
+): { body: string; meta: string; head: string } => {
+  const digest = createHash('sha256').update(url, 'utf8').digest('hex')
+  return {
+    body: `${storeKey}/fetch/${digest}.body`,
+    meta: `${storeKey}/fetch/${digest}.json`,
+    head: `${storeKey}/head/${digest}.json`,
+  }
+}
+
+// Exactly the keys of the broker's strict `_FetchMeta` and `_HeadMeta`. The
+// final URL is the seeded one, so a citation reads like a live fetch's.
+export const seedPageMeta = (page: SeededPage): string =>
+  JSON.stringify({
+    status: 200,
+    content_type: page.contentType,
+    final_url: page.url,
+    byte_size: Buffer.byteLength(page.body, 'utf8'),
+  })
+
+export const seedPageHead = (page: SeededPage): string =>
+  JSON.stringify({ status: 200, final_url: page.url })
+
+// The broker serves a recording only if S3 wrote it before the run's ticket
+// was issued, and both are whole seconds, so the wait keeps a mint in the
+// same second as the last write from reading the page as a miss.
+const SEED_SETTLE_MS = 1_100
+
+// Rewritten only when the content differs. Every attempt of both arms plants
+// the same case, often while earlier runs are still fetching, and a rewrite
+// moves the objects' LastModified past those runs' tickets, so they would
+// read every seeded page as a miss.
+const plantSeedPages = async (
+  deps: BackgroundRunnerDeps,
+  bucket: string,
+  storeKey: string,
+  pages: readonly SeededPage[],
+): Promise<void> => {
+  let wrote = false
+  for (const page of pages) {
+    const keys = seedPageKeys(storeKey, page.url)
+    const objects: [string, string][] = [
+      [keys.body, page.body],
+      [keys.meta, seedPageMeta(page)],
+      [keys.head, seedPageHead(page)],
+    ]
+    for (const [key, body] of objects) {
+      if ((await deps.store.getText(bucket, key)) === body) continue
+      await deps.store.putText(bucket, key, body)
+      wrote = true
+    }
+  }
+  if (wrote) await deps.clock.sleep(SEED_SETTLE_MS)
 }
 
 // A send rejection aborts the case, because nothing has been produced yet and
@@ -1234,6 +1348,7 @@ export const runBackgroundCase = async (
     arm: input.arm,
     attempt: input.attempt,
   })
+  const replay = pageReplayFor(input)
   // Built before anything is written or sent, because every precondition the
   // dispatch handler enforces is checked in here: an agentId or a slug the
   // Lambda would reject must not first leave staged bytes in the bucket.
@@ -1244,6 +1359,7 @@ export const runBackgroundCase = async (
     clerkUserId: input.clerkUserId,
     agentCase: input.agentCase,
     override,
+    replay,
   })
 
   await stageAgentConfig(
@@ -1252,6 +1368,10 @@ export const runBackgroundCase = async (
     input.agentId,
     input.config,
   )
+  const seeded = input.agentCase.seedPages ?? []
+  if (replay !== undefined && seeded.length > 0) {
+    await plantSeedPages(deps, input.artifactBucket, replay.key, seeded)
+  }
 
   const startedAt = deps.clock.now()
   await dispatch(deps.queue, message)
@@ -1392,6 +1512,7 @@ export const runBackgroundCase = async (
       ? {}
       : { dataVersion: input.dataVersion }),
     liveWeb: summary.liveWeb,
+    ...(replay !== undefined && { pageReplay: replay }),
     status: failure === undefined ? 'produced' : 'infraError',
     ...(ci === undefined ? {} : { ci }),
   })
@@ -1593,7 +1714,23 @@ export const runBackgroundBaseArm = async (
     )
   }
 
-  const record = await runBackgroundCase(deps, input)
+  // Recordings expire after 14 days and cache entries after 90, so a reuse
+  // past 14 days replays from an empty store. Whoever wires the cache must
+  // treat such an entry as a miss for an agent that replays pages.
+  const record = await runBackgroundCase(
+    deps,
+    findAgent(input.agentId)?.replaysPages === true
+      ? {
+          ...input,
+          replayKey: judgeReplayBaseKey(
+            input.agentId,
+            digest,
+            caseId,
+            input.attempt,
+          ),
+        }
+      : input,
+  )
   // Never cache a run that cannot be compared, or one that hit a tool error.
   // A cached timeout, or a cached run with no readable artifact or trace,
   // would be reused by every later sweep, so one bad run would become a

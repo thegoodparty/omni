@@ -20,4 +20,10 @@ export interface OutreachPurchaseMetadata extends BasePurchaseMetadata {
   // re-derive the billed contactCount from this server-side rather than
   // trusting the client-supplied value.
   phoneListToken?: string
+  // The PeerlyPhoneList row id, used INSTEAD of phoneListToken when an async
+  // build (gated by WIN_SMS_HOLD_BILLING) has no token yet — so the biggest
+  // lists can pay while they build. Client-supplied, so every resolution scopes
+  // it to the server-validated campaign before it bills, caps, or links (the
+  // token is globally @unique; this id is not). Ignored when a token is present.
+  phoneListBuildId?: string
 }

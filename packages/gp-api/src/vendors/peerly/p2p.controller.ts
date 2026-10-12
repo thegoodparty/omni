@@ -2,9 +2,11 @@ import {
   BadGatewayException,
   Body,
   Controller,
+  forwardRef,
   Get,
   HttpException,
   HttpStatus,
+  Inject,
   NotFoundException,
   Param,
   Post,
@@ -20,6 +22,7 @@ import {
 } from '../../generated/prisma'
 import { ReqCampaign } from '../../campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../../campaigns/decorators/UseCampaign.decorator'
+import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 import { PhoneListState } from './peerly.types'
@@ -52,6 +55,10 @@ export class P2pController {
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly p2pPhoneListUploadService: P2pPhoneListUploadService,
+    // forwardRef: OutreachModule and PeerlyModule import each other, so the
+    // capture provider is resolved through that cycle.
+    @Inject(forwardRef(() => OutreachP2pSmsCaptureService))
+    private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pController.name)
@@ -234,13 +241,45 @@ export class P2pController {
     // successful poll — an unstamped capture row degrades to the
     // materialization fallback, which is the designed behavior.
     await this.peerlyPhoneListCapture
-      .stampPeerlyListId(token, listId)
+      .stampPeerlyListId(token, listId, detailsResponse.leads_loaded)
       .catch((err: Error) =>
         this.logger.warn(
           { err, token, listId },
           'Failed to stamp peerlyListId; capture row stays unstamped',
         ),
       )
+
+    // CAPTURE edge (b), browser-poll path: a browser poll is the common way a
+    // list first reaches `ready`, and the server finisher only picks up rows no
+    // poll stamped — so without firing the capture here, a hold authorized for a
+    // browser-stamped list would wait on the 15-min backstop. Only on the
+    // genuine first transition (not a repeat poll of an already-ready row), and
+    // best-effort + flag-gated inside the service, so it never affects the
+    // status response.
+    if (!alreadyReady) {
+      // FINALIZE edge first, then CAPTURE: a p2p draft paid before this list
+      // finished was not submitted to Peerly at the webhook (finalize deferred);
+      // now the list is ready, stamp its id onto the draft and submit it. Runs
+      // before capture so the draft's phoneListId is stamped before the capture
+      // half reads it. Flag-gated + best-effort inside; the backstop sweep
+      // retries either on failure.
+      await this.p2pSmsCapture
+        .finalizeDraftsForReadyList(listId)
+        .catch((err: Error) =>
+          this.logger.error(
+            { err, listId },
+            'win sms pre-build finalize (browser-ready edge) failed; backstop will retry',
+          ),
+        )
+      await this.p2pSmsCapture
+        .captureHoldsForReadyList(listId)
+        .catch((err: Error) =>
+          this.logger.error(
+            { err, listId },
+            'win sms capture (browser-ready edge) failed; backstop will retry',
+          ),
+        )
+    }
 
     return {
       phoneListId: listId,

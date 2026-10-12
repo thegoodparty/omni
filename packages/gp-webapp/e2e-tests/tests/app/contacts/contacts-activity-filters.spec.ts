@@ -142,7 +142,7 @@ test.describe('Contacts activity filters', () => {
       )
       await expect(wizard.getByRole('progressbar')).toHaveAttribute(
         'aria-valuemax',
-        '3',
+        '4',
       )
 
       const continueButton = wizard.getByRole('button', { name: 'Continue' })
@@ -345,9 +345,11 @@ test.describe('Contacts activity filters', () => {
       await expect(build).toBeEnabled()
 
       await build.click()
-      await expect(wizard.getByText('Name your list')).toBeVisible({
-        timeout: 10_000,
-      })
+      // The boundary step sits between the conditions and the name, and
+      // saveWizardList skips it; this case is about the create body.
+      await expect(
+        wizard.getByText('What area should this list cover?'),
+      ).toBeVisible({ timeout: 10_000 })
 
       const createRequestPromise = page.waitForRequest(
         (request: Request) =>

@@ -81,10 +81,7 @@ export default function RunningAgainstSection({
       <div className="my-6 border rounded-xl p-4 border-gray-300 flex justify-between">
         {showNew ? (
           <RunningAgainstForm
-            onCancel={() => {
-              trackEvent(EVENTS.Profile.RunningAgainst.CancelAddNew)
-              setShowNew(false)
-            }}
+            onCancel={() => setShowNew(false)}
             onSave={(newValues) => {
               trackEvent(EVENTS.Profile.RunningAgainst.SubmitAddNew)
               handleUpdate(null, newValues)

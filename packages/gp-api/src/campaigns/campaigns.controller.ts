@@ -43,6 +43,7 @@ import {
   userHasRole,
 } from 'src/users/util/users.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
+import { isWinSmsHoldBillingEnabled } from 'src/shared/util/winSmsHold.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
 import { Roles } from '../authentication/decorators/Roles.decorator'
@@ -68,12 +69,15 @@ class ListCampaignsPaginationDto extends createZodDto(
 
 // Mine-only: ownerName is the campaign OWNER's display name, for surfaces
 // that render the candidate (the campaign plan) to team members whose own
-// session-user name is NOT the candidate's. It stays off the shared
-// CampaignWithLiveContextSchema that the M2M GET :id also validates against.
-// getUserFullName always returns a string (possibly empty, coerced to null)
-// — never absent — so nullable, not nullish.
+// session-user name is NOT the candidate's. winSmsHoldBillingEnabled is the
+// gp-api WIN_SMS_HOLD_BILLING env flag, surfaced so the browser (which can't
+// read process.env) can gate its UI on the same switch the server enforces.
+// Both stay off the shared CampaignWithLiveContextSchema that the M2M GET :id
+// also validates against. getUserFullName always returns a string (possibly
+// empty, coerced to null) — never absent — so nullable, not nullish.
 const CampaignMineSchema = CampaignWithLiveContextSchema.extend({
   ownerName: z.string().nullable(),
+  winSmsHoldBillingEnabled: z.boolean(),
 })
 
 class UpdateCampaignM2MDto extends createZodDto(UpdateCampaignM2MSchema) {}
@@ -127,6 +131,11 @@ export class CampaignsController {
       positionName,
       raceTargetMetrics: liveMetrics,
       ownerName: (owner && getUserFullName(owner)) || null,
+      // The browser can't read a gp-api env var; expose the one kill switch
+      // so the SMS flow's pay-before-ready UI gates on the SAME flag the
+      // server enforces. The server never trusts this value back — every
+      // money path re-checks isWinSmsHoldBillingEnabled() itself.
+      winSmsHoldBillingEnabled: isWinSmsHoldBillingEnabled(),
     }
   }
 

@@ -58,6 +58,38 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     await this.model.update({ where: { id: buildId }, data: { token } })
   }
 
+  // HARD send cap (Win SMS hold, slice D2b — never oversend). Persists the paid
+  // text count the hold covers (`maxTextsForAmountInCents(holdAmount)`) onto the
+  // build at checkout-session time — when the hold amount is first computed,
+  // BEFORE the payment webhook links the hold. The build-upload reads this field
+  // (not the satellite link, which only exists post-webhook), so the cap binds
+  // whether the resolve runs before or after the hold link.
+  //
+  // RATCHETS DOWN ONLY (money-safety): writes the new value only when it is
+  // LOWER than what is stored (or nothing is stored). calculateAmount runs on
+  // EVERY checkout-session creation, and two sessions for the same build need
+  // not price identically — the pre-build estimate re-reads a live people-db
+  // count that can grow, and the ready path (leads_loaded) differs from the
+  // estimate. A later, higher-priced session that is NEVER paid must not raise
+  // the cap above the hold that WAS authorized, or resolveSendCapForBuild would
+  // hand the upload a cap larger than the paid count. Taking the minimum keeps
+  // the persisted cap <= `maxTextsForAmountInCents` of the smallest priced
+  // session, which is <= that of whichever session is actually paid — so the
+  // upload can never exceed the paid count, whichever session paid. A cap that
+  // ends up below the paid hold only UNDER-sends (capture bills the actual
+  // uploaded count, clamped to the hold, so never an overcharge). `updateMany`
+  // (no throw on a missing/deleted build) guarded on id + the lower-or-null
+  // predicate, so the write is a single idempotent statement.
+  async persistSendCap(buildId: string, sendCapTexts: number): Promise<void> {
+    await this.model.updateMany({
+      where: {
+        id: buildId,
+        OR: [{ sendCapTexts: null }, { sendCapTexts: { gt: sendCapTexts } }],
+      },
+      data: { sendCapTexts },
+    })
+  }
+
   // Advances the pre-created `queued` row to `processing` with the Peerly
   // token and the two exclusion counts, and writes the recipient rows —
   // together, so a list Peerly never received can never gain recipient rows
@@ -121,11 +153,51 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
   // Stamps the numeric Peerly list id and advances the row to `ready` the
   // first time the status endpoint (either route — token or buildId) sees
   // the list ACTIVE. Guarded on peerlyListId IS NULL so a repeat poll after
-  // the first success is a no-op rather than a re-write.
-  async stampPeerlyListId(token: string, peerlyListId: number): Promise<void> {
+  // the first success is a no-op rather than a re-write. `leadsLoaded` is the
+  // stable count observed at this ready transition — the durable billable
+  // count the Win SMS hold-capture reads so it never re-fetches a vendor
+  // count that could read a still-loading list.
+  async stampPeerlyListId(
+    token: string,
+    peerlyListId: number,
+    leadsLoaded: number,
+  ): Promise<void> {
     await this.model.updateMany({
       where: { token, peerlyListId: null },
-      data: { peerlyListId, buildStatus: PhoneListBuildStatus.ready },
+      data: {
+        peerlyListId,
+        leadsLoaded,
+        buildStatus: PhoneListBuildStatus.ready,
+      },
+    })
+  }
+
+  // Candidates for the server-side build finisher: a row Peerly has already
+  // accepted (`processing`, token minted) that no browser poll has advanced
+  // to `ready`, and that has sat untouched past `staleCutoff`. peerlyListId is
+  // always null for a `processing` row (stampPeerlyListId sets the id and
+  // `ready` together), but it is filtered explicitly so the finisher never
+  // re-reads an already-stamped list. token is always set on a `processing`
+  // row (recordUpload writes token + status together); the `not: null` filter
+  // lets the caller treat it as present. The `updatedAt` floor targets
+  // genuinely-stranded rows and keeps the finisher off rows a live browser is
+  // still polling — a still-loading list under active poll keeps a fresh
+  // updatedAt (isLeadsLoadedStable writes each unstable read). Oldest first
+  // and capped at `take` so one sweep issues a bounded number of Peerly reads.
+  findUnfinishedProcessing(params: {
+    staleCutoff: Date
+    take: number
+  }): Promise<{ id: string; token: string | null }[]> {
+    return this.model.findMany({
+      where: {
+        buildStatus: PhoneListBuildStatus.processing,
+        peerlyListId: null,
+        token: { not: null },
+        updatedAt: { lt: params.staleCutoff },
+      },
+      select: { id: true, token: true },
+      orderBy: { updatedAt: 'asc' },
+      take: params.take,
     })
   }
 

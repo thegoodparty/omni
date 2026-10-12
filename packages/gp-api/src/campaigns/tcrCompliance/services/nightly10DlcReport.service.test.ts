@@ -469,6 +469,7 @@ describe('Nightly10DlcReportService', () => {
             ],
           },
         },
+        organization: { testModeCreatedAt: null },
       }
       for (const call of mockModel.findMany.mock.calls) {
         const [{ where }] = call as [{ where: WhereClause }]

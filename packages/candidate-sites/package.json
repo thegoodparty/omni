@@ -8,7 +8,7 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
     "dev": "next dev --turbopack --port 4001",
-    "build": "next build",
+    "build": "next typegen && tsc --noEmit && next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
@@ -44,7 +44,7 @@
     "postcss": "^8.5.11",
     "prettier": "^3.8.3",
     "tailwindcss": "^3.2.1",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^4.0.18"
   }
 }

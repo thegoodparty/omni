@@ -351,14 +351,10 @@ export default function ListDetailSheet({
             />
           )}
 
-          {/* Serve only, and not because of the Pro gate — an elected office
-              always clears that. Everywhere else in the CRM a list is a filter
-              summary and a set of counts, never the people themselves, and
-              putting names on a map is a different thing to reveal. An
-              officeholder is being asked to go and talk to these constituents,
-              so where they are IS the answer; a candidate's list is an
-              audience to send to and has no such use for it. */}
-          {!isUniverse && segment && isElectedOfficial && (
+          {/* Same gate as the sheet's own query: a deep link opens the sheet
+              for a non-Pro candidate, and the map's GET /v1/contacts is
+              Pro-gated server-side. */}
+          {!isUniverse && segment && canUseProFeatures && (
             <ListMapSection segment={segment} />
           )}
 

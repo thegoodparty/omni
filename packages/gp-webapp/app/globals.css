@@ -261,13 +261,24 @@
  * to avoid conflicts between webapp and styleguide color systems.
  */
 
-* {
-  outline: none;
-}
+/* Keyboard focus must always be visible (WCAG 2.4.7). :focus-visible only
+   matches keyboard navigation, so a mouse click never shows it. Every focused
+   element gets this outline, in the focus blue the styleguide rings use, so
+   nothing is left without one. A component that draws its own ring opts out
+   with outline-none, as the styleguide's do; that only works because this
+   sits in @layer base, since unlayered CSS would beat the utility. Menus,
+   popovers and dialogs (their -content parts) take focus when they open and
+   are not a control, so they are left alone. */
+@layer base {
+  * {
+    outline: none;
+  }
 
-*:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
+  *:focus-visible:not([data-slot$='-content']) {
+    outline: 3px solid
+      color-mix(in srgb, var(--semantic-border-focus) 50%, transparent);
+    outline-offset: 1px;
+  }
 }
 
 body {

@@ -518,6 +518,80 @@ describe('provenance', () => {
   })
 })
 
+// Values, classes and case ids only: the quotes behind them are private.
+describe('condition handling', () => {
+  it('prints each case with both orders and its class', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          handling: {
+            cases: [
+              {
+                caseId: 't2-conflict',
+                attempt: 1,
+                base: { primary: 'yes', swapped: 'partly' },
+                candidate: { primary: 'no' },
+                class: 'sharedFailure',
+                ordersJudged: 2,
+              },
+            ],
+            notGraded: 1,
+          },
+        },
+      ],
+    })
+    expect(report).toContain(
+      'Condition handling: 0 both handled, 1 shared failure(s), 0 ' +
+        'regression(s), 0 improvement(s), over 1 case pair(s).',
+    )
+    expect(report).toContain(
+      '- t2-conflict attempt 1: base yes / partly (orders disagree), ' +
+        'candidate no (one order only; the other was not graded): ' +
+        'shared failure',
+    )
+    expect(report).toContain('1 case pair(s) asked but not graded')
+  })
+
+  it('prints nothing for an agent no case asked', async () => {
+    const score = await pipeline(sweepRecords(3))
+    expect(renderReport({ agents: [score] })).not.toContain(
+      'Condition handling',
+    )
+  })
+})
+
+// A control prints both orders and what they say together, because the one
+// thing a control shows beyond noise is a position preference.
+describe('controls', () => {
+  it('prints both orders and names a position preference', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          controls: [
+            {
+              caseId: 'control',
+              attempt: 1,
+              outcome: 'base',
+              magnitude: 'clear',
+              swapped: { outcome: 'candidate', magnitude: 'clear' },
+            },
+          ],
+        },
+      ],
+    })
+    expect(report).toContain('picked the same slot in both orders on 1.')
+    expect(report).toContain(
+      '- control attempt 1: preferred the base (clear); swapped: ' +
+        'preferred the candidate (clear); picked the same slot in both ' +
+        'orders, a position preference',
+    )
+  })
+})
+
 describe('qualifiers', () => {
   it('states a candidate-only flag at the top of the section', async () => {
     const score = await pipeline(sweepRecords(3))

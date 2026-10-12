@@ -228,10 +228,26 @@ const captureAgent = async (
 // with — a manifest saying 3 for an agent walked once is the kind of
 // discrepancy that is only noticed while reading a verdict that disagrees
 // with the bill.
-export const attemptsFor = (agent: AgentEntry, config: JudgeConfig): number =>
-  agent.shape === 'background'
-    ? config.background.attemptsPerCase
-    : config.attemptsPerCase
+//
+// A background list may set its own count. On a sweep the arm walks the count
+// armBudget.ts named for both arms, and never its own list's, which is the
+// base ref's on the base arm; on a local run, where nothing was decided for
+// it, the list's own count stands.
+export const attemptsFor = (
+  agent: AgentEntry,
+  config: JudgeConfig,
+  env?: ArmEnv,
+  list?: CaseList,
+): number => {
+  if (agent.shape !== 'background') return config.attemptsPerCase
+  if (env?.backgroundBudget !== undefined) {
+    return (
+      env.backgroundAgentAttempts?.get(agent.agentId) ??
+      config.background.attemptsPerCase
+    )
+  }
+  return list?.attemptsPerCase ?? config.background.attemptsPerCase
+}
 
 // ONE RUN: drive it, validate what came back, write it.
 //
@@ -377,15 +393,16 @@ export const captureArm = async (
   // its slots down in that order.
   const background: Promise<void>[] = []
   const walk = (agent: AgentEntry) =>
-    settle(agent, () =>
-      captureAgent(
+    settle(agent, () => {
+      const list = loadCases(agent)
+      return captureAgent(
         deps,
         env,
         agent,
-        loadCases(agent),
-        attemptsFor(agent, config),
-      ),
-    )
+        list,
+        attemptsFor(agent, config, env, list),
+      )
+    })
   for (const agent of selection.selected) {
     if (agent.shape !== 'background') continue
     background.push(walk(agent))

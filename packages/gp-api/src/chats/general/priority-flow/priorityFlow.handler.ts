@@ -22,6 +22,7 @@ import {
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   ChatScopeHandler,
@@ -32,7 +33,7 @@ import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
-  ConstituentTableConfig,
+  ConstituentTablesByDataset,
 } from '../chief-of-staff/services/constituentDataScope'
 import {
   CONSTITUENT_DATA_PROVIDER,
@@ -124,7 +125,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly outreach: PriorityFlowOutreachService,
     private readonly priorityStatus: PriorityStatusService,
     @Inject(CONSTITUENT_TABLES_CONFIG)
-    private readonly constituentTables: ConstituentTableConfig[],
+    private readonly constituentTables: ConstituentTablesByDataset,
     @Optional()
     @Inject(CONSTITUENT_DATA_PROVIDER)
     private readonly constituentProvider?: DatabricksProvider,
@@ -137,6 +138,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly contacts?: ContactsService,
     @Optional()
     private readonly voterFileFilters?: VoterFileFilterService,
+    @Optional()
+    private readonly peopleDatasets?: PeopleDatasetService,
   ) {}
 
   // ONE conversation per priority, for the life of the priority. The ordinance
@@ -193,7 +196,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const resolved = await this.districtResolver?.resolveByOrgSlug(
       ctx.organizationSlug,
     )
-    if (!resolved) return ctx
+    // Once per turn, so every constituent-data call in it reads one table.
+    // Resolved before the district check because the CRM tools register
+    // without a district and describe the same dataset.
+    const peopleDataset = this.peopleDatasets
+      ? await this.peopleDatasets.resolve(ctx.organization)
+      : 'voters'
+    if (!resolved) return { ...ctx, peopleDataset }
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
@@ -202,7 +211,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         ? this.districtResolver.toMandatoryFilters(resolved)
         : null,
       constituentToolEnabled:
-        !!this.constituentProvider && this.constituentTables.length > 0,
+        !!this.constituentProvider &&
+        this.constituentTables[peopleDataset].length > 0,
+      peopleDataset,
     }
   }
 
@@ -334,7 +345,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables,
+        this.constituentTables[ctx.peopleDataset],
+        ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
@@ -360,6 +372,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       crmTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
+        peopleDataset: ctx.peopleDataset,
       })
       // A stage-gate check is often a few blocks, and precinct is the one
       // geographic filter describe_filter_dimensions cannot list.
@@ -372,12 +385,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
+          peopleDataset: ctx.peopleDataset,
         })
       }
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(crmTools),
+        peopleDataset: ctx.peopleDataset,
       })
       Object.assign(tools, crmTools)
     }

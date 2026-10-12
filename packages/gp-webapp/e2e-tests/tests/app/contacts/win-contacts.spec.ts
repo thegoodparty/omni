@@ -100,7 +100,7 @@ test.describe('Win Contacts', () => {
     )
     await expect(wizard.getByRole('progressbar')).toHaveAttribute(
       'aria-valuemax',
-      '3',
+      '4',
     )
     await expect(
       wizard.getByText('Build a list from previous campaign activity'),

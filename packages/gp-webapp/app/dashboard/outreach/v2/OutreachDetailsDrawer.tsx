@@ -1263,6 +1263,7 @@ export const OutreachDetailsDrawer = ({
                 isServe={isServe}
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
+                canAddTurfs={!isCompleted && !isArchived}
                 onOverlayOpenChange={setTurfOverlay}
                 onTurfCompleted={handleTurfCompleted}
               />
