@@ -1,12 +1,10 @@
+import { guardrailLine } from './guardrailLines'
+
 export type AssistantMode = 'win' | 'serve'
 
 export const GUARDRAIL_DECLINE: Record<AssistantMode, string> = {
-  win:
-    "I'm your Campaign Manager. Please ask me something about your " +
-    'campaign, your race, your voters, or your plan.',
-  serve:
-    "I'm your Chief of Staff. Please ask me something about your office, " +
-    'your priorities, your meetings, or your work as an elected official.',
+  win: guardrailLine('scope_decline', 'campaign_assistant'),
+  serve: guardrailLine('scope_decline', 'chief_of_staff'),
 }
 
 const SCOPE: Record<
