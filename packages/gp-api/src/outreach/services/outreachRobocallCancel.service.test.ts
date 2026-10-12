@@ -6,6 +6,7 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallCancelService } from '@/outreach/services/outreachRobocallCancel.service'
 import { OutreachRobocallPromoService } from '@/outreach/services/outreachRobocallPromo.service'
 import { RobocallOrphanedHoldService } from '@/outreach/services/robocallOrphanedHold.service'
+import { RobocallOrphanedCampaignService } from '@/outreach/services/robocallOrphanedCampaign.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import {
   Campaign,
@@ -19,6 +20,7 @@ let cancel: OutreachRobocallCancelService
 let voidSpy: ReturnType<typeof vi.spyOn>
 let restoreSpy: ReturnType<typeof vi.spyOn>
 let recordSpy: ReturnType<typeof vi.spyOn>
+let campaignRecordSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -35,6 +37,9 @@ beforeEach(async () => {
     .mockResolvedValue(undefined)
   recordSpy = vi
     .spyOn(service.app.get(RobocallOrphanedHoldService), 'record')
+    .mockResolvedValue(undefined)
+  campaignRecordSpy = vi
+    .spyOn(service.app.get(RobocallOrphanedCampaignService), 'record')
     .mockResolvedValue(undefined)
 
   const campaignId = 997
@@ -149,6 +154,31 @@ describe('OutreachRobocallCancelService.cancel', () => {
       'cancel_before_send',
     )
     expect(restoreSpy).toHaveBeenCalledWith(outreachId)
+    // No CallHub campaign was staged, so none is recorded for cleanup.
+    expect(campaignRecordSpy).not.toHaveBeenCalled()
+  })
+
+  it('records the staged CallHub campaign for cleanup when a staged run is canceled', async () => {
+    // A staged draft (callhubCampaignPkStr set) leaves a PAUSED CallHub campaign
+    // on cancel; without recording it the cleanup sweep never aborts it and it
+    // lingers reserving pool capacity. Record it so the sweep retires it.
+    const outreachId = await createRobocall({
+      settleState: RobocallSettleState.authorized,
+      spineStatus: OutreachStatus.pending,
+      authorizationIntentId: 'pi_staged_cancel',
+      callhubCampaignPkStr: 'vb_staged_1',
+    })
+
+    await cancel.cancel(outreachId, campaign.id)
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.cancelled,
+    )
+    expect(campaignRecordSpy).toHaveBeenCalledWith(
+      'vb_staged_1',
+      outreachId,
+      'cancel',
+    )
   })
 
   it('refuses a run that has already dialed and leaves it untouched', async () => {

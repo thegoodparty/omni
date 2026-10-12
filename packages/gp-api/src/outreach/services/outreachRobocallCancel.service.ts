@@ -12,6 +12,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallPromoService } from './outreachRobocallPromo.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
+import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { NOT_YET_DIALED_STATES } from './outreachRobocallWebhook.service'
 
 // Candidate cancel is the not-yet-dialed set MINUS `hold_pending`. That state is
@@ -44,6 +45,7 @@ export class OutreachRobocallCancelService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly promos: OutreachRobocallPromoService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
+    private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
   ) {
     super()
   }
@@ -129,6 +131,28 @@ export class OutreachRobocallCancelService extends createPrismaBase(
         this.logger.error(
           { err, outreachId },
           'robocall: failed to record orphaned hold for reconcile after cancel',
+        )
+      }
+    }
+
+    // A cancel on an already-STAGED draft leaves a PAUSED CallHub campaign that
+    // nothing else retires: the cancel voids the hold but the cleanup sweep only
+    // aborts campaigns recorded here, so without this the orphan lingers in
+    // CallHub reserving pool capacity and STARTable into a cancelled send.
+    // Record it for the sweep, mirroring failSend / the re-auth restage.
+    // Best-effort — a PAUSED campaign charges nothing, so a lost record only
+    // leaves account clutter and must never fail the cancel.
+    if (cancelled.callhubCampaignPkStr) {
+      try {
+        await this.orphanedCampaigns.record(
+          cancelled.callhubCampaignPkStr,
+          outreachId,
+          'cancel',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId },
+          'robocall: failed to record orphaned CallHub campaign after cancel',
         )
       }
     }
