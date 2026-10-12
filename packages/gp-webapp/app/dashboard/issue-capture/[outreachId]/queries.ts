@@ -57,22 +57,3 @@ export const themeQueryOptions = (themeId: string) =>
         id: themeId,
       }).then((res) => res.data),
   })
-
-export const PROPOSED_TAGS_QUERY_KEY = [
-  'issue-capture',
-  'tags',
-  'proposed',
-] as const
-
-export const proposedTagsQueryOptions = queryOptions({
-  queryKey: PROPOSED_TAGS_QUERY_KEY,
-  queryFn: () =>
-    clientRequest('GET /v1/constituent-feedback/tags', {
-      status: 'proposed',
-    }).then((res) => res.data.tags),
-  // A 403 is a volunteer, which is an answer rather than a blip to retry.
-  retry: false,
-  // A run that lands while the page is open proposes new tags, and the strip
-  // mounts with the themes it belongs to, so it reads fresh every time.
-  staleTime: 0,
-})

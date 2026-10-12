@@ -191,8 +191,8 @@ describe('ThemeDetailPage', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'Delivery delays · Against it · Wants: Move the loading zone',
-      'Parking · Mixed',
+      'IssueDelivery delaysWhere they standAgainst itWhat they wantMove the loading zone',
+      'IssueParkingWhere they standMixed',
     ])
   })
 

@@ -38,6 +38,8 @@ export const WHAT_WE_HEARD_COPY = {
     floorLine: (floor: number): string =>
       `Themes appear after ${floor.toLocaleString()} confirmed notes.`,
     themesHeading: 'Top themes',
+    showMoreThemes: (hidden: number): string =>
+      `Show ${count(hidden, 'more theme', 'more themes')}`,
     everyNoteHeading: 'Every note',
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize notes',
@@ -63,13 +65,10 @@ export const WHAT_WE_HEARD_COPY = {
       `Summary by ${actorName ?? 'your team'}`,
     recordedBy: (actorName: string | null): string =>
       `Recorded by ${actorName ?? 'your team'}`,
-    wants: 'Wants',
+    issueHeading: 'Issue',
+    stanceHeading: 'Where they stand',
+    outcomeHeading: 'What they want',
     issues: 'Issues',
-    newTags: 'New tags to review',
-    newTagsCaption: 'Accepted tags show on each person’s record.',
-    accept: 'Accept',
-    dismiss: 'Dismiss',
-    tagFailed: "We couldn't update that tag. Try again.",
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
     backToOutreach: 'Back to Voter Outreach',
@@ -130,6 +129,8 @@ export const WHAT_WE_HEARD_COPY = {
     floorLine: (floor: number): string =>
       `Themes appear after ${floor.toLocaleString()} confirmed notes.`,
     themesHeading: 'Top themes',
+    showMoreThemes: (hidden: number): string =>
+      `Show ${count(hidden, 'more theme', 'more themes')}`,
     everyNoteHeading: 'Every note',
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize notes',
@@ -152,13 +153,10 @@ export const WHAT_WE_HEARD_COPY = {
       `Summary by ${actorName ?? 'your team'}`,
     recordedBy: (actorName: string | null): string =>
       `Recorded by ${actorName ?? 'your team'}`,
-    wants: 'Wants',
+    issueHeading: 'Issue',
+    stanceHeading: 'Where they stand',
+    outcomeHeading: 'What they want',
     issues: 'Issues',
-    newTags: 'New tags to review',
-    newTagsCaption: 'Accepted tags show on each person’s record.',
-    accept: 'Accept',
-    dismiss: 'Dismiss',
-    tagFailed: "We couldn't update that tag. Try again.",
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
     backToOutreach: 'Back to Constituent Outreach',

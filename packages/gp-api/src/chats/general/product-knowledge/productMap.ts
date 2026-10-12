@@ -435,7 +435,6 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
       'The Summarize notes button groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
       'Each theme opens to its details, where people stand, what they want, and the notes behind it',
-      'New tags to review lists the suggested tags of the themes shown: Accept puts one on people’s records, Dismiss drops it',
       'Download notes, next to Every note, saves every note on the effort as a spreadsheet file, not just the ones listed on the page',
     ],
     gate: 'Being rolled out account by account, so not every account has it yet.',

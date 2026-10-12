@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type {
   FeedbackReportMemo,
   FeedbackReportResponse,
@@ -167,36 +167,6 @@ const FLOODING_TAG = {
   status: 'proposed',
 } as const
 
-const proposal = (id: string, name: string, proposedByRunId: string) => ({
-  id,
-  name,
-  status: 'proposed' as const,
-  source: 'synthesis' as const,
-  declaredTopIssueId: null,
-  mergedIntoId: null,
-  proposedByRunId,
-  feedbackCount: 3,
-})
-
-// The org's proposals: the page's own completed run's flooding tag, and
-// one from an unrelated effort's run.
-const mockProposals = () =>
-  api.mock('GET /v1/constituent-feedback/tags', {
-    status: 200,
-    data: {
-      tags: [
-        proposal('tag-1', 'Street flooding', 'run-1'),
-        proposal('tag-2', 'Snow removal', 'run-other'),
-      ],
-    },
-  })
-
-const mockNoProposals = () =>
-  api.mock('GET /v1/constituent-feedback/tags', {
-    status: 200,
-    data: { tags: [] },
-  })
-
 const renderPage = (isServe = false) =>
   render(<WhatWeHeardPage outreachId={OUTREACH_ID} isServe={isServe} />)
 
@@ -205,7 +175,6 @@ const FORBIDDEN = /poll|survey|representative|statistically significant/i
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  mockNoProposals()
 })
 
 afterEach(() => {
@@ -497,31 +466,53 @@ describe('WhatWeHeardPage', () => {
       ).toBeInTheDocument()
     })
 
-    // The strip is the page's themes' own proposals, not every proposal in
-    // the org: another effort's never appear.
-    it('reviews the proposed tags of the themes on the page', async () => {
+    // The themes most people raised lead; the long tail waits behind Show
+    // more rather than pushing them down.
+    it('shows the top three themes and the rest behind Show more', async () => {
       mockReport(
         report({
           run: run('completed'),
-          themes: [
-            theme({ tag: FLOODING_TAG }),
+          themes: [5, 4, 3, 2, 1].map((conversations) =>
             theme({
-              id: 'theme-b',
-              title: 'Bike lanes',
-              tag: { id: 'tag-4', name: 'Bike lanes', status: 'accepted' },
+              id: `theme-${conversations}`,
+              rank: 6 - conversations,
+              title: `Theme ${conversations}`,
+              conversationCount: conversations,
             }),
-          ],
+          ),
         }),
       )
-      mockProposals()
       renderPage()
 
-      const strip = await screen.findByRole('region', {
-        name: 'New tags to review',
-      })
-      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
-      expect(within(strip).queryByText('Snow removal')).toBeNull()
-      expect(within(strip).queryByText('Bike lanes')).toBeNull()
+      await screen.findByText('Theme 5')
+      expect(screen.getByText('Theme 3')).toBeInTheDocument()
+      expect(screen.queryByText('Theme 2')).toBeNull()
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Show 2 more themes' }),
+      )
+
+      expect(screen.getByText('Theme 2')).toBeInTheDocument()
+      expect(screen.getByText('Theme 1')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /more theme/ })).toBeNull()
+    })
+
+    // Tags are kept and reused behind the scenes; the page only ever shows
+    // themes, so a theme's proposed tag is never put to the reader.
+    it('shows themes and never their tags', async () => {
+      mockReport(
+        report({
+          run: run('completed'),
+          themes: [theme({ tag: FLOODING_TAG })],
+        }),
+      )
+      renderPage()
+
+      await screen.findByText('Street flooding')
+      expect(
+        screen.queryByRole('region', { name: 'New tags to review' }),
+      ).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
     })
 
     it('splits each card by where people stand', async () => {
@@ -560,25 +551,6 @@ describe('WhatWeHeardPage', () => {
         screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeEnabled()
       expect(screen.getByText('Street flooding')).toBeInTheDocument()
-    })
-
-    // The themes on the page are the last completed run's, while the
-    // report's run is the failed one, which proposed nothing.
-    it('still reviews the proposed tags of the themes it keeps up', async () => {
-      mockReport(
-        report({
-          run: { ...run('failed'), id: 'run-2' },
-          themes: [theme({ tag: FLOODING_TAG })],
-        }),
-      )
-      mockProposals()
-      renderPage()
-
-      const strip = await screen.findByRole('region', {
-        name: 'New tags to review',
-      })
-      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
-      expect(within(strip).queryByText('Snow removal')).toBeNull()
     })
   })
 

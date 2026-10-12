@@ -13,13 +13,12 @@ flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; sh
 | `issueCaptureAccess.ts`                                  | The server gates (dashboard, and flag only); return `isServe`            |
 | `[outreachId]/page.tsx`                                  | The report route                                                         |
 | `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                                |
-| `[outreachId]/queries.ts`                                | Report and review list (each polls while waiting), theme, tags           |
+| `[outreachId]/queries.ts`                                | Report and review list (each polls while waiting), theme                 |
 | `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states                         |
 | `[outreachId]/components/SummarizeButton.tsx`            | "Summarize notes" and its refusals                                       |
 | `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                             |
 | `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members                        |
 | `[outreachId]/components/DownloadNotesLink.tsx`          | Plain link to the CSV export, next to Every note / the pre-summary notes |
-| `[outreachId]/components/NewTagsStrip.tsx`               | Proposed tags to accept or dismiss                                       |
 | `[outreachId]/review/page.tsx`                           | "Notes to review": the effort's unconfirmed memos                        |
 | `[outreachId]/review/components/PendingMemoList.tsx`     | The review list, its retry and its typed re-record                       |
 | `copy.ts`                                                | Every string, mode-keyed                                                 |
@@ -50,7 +49,7 @@ entry: the page is reached from the effort.
    appear after {floor} confirmed notes." as its tooltip. `floor` comes from
    the report; never write the number. It beats a completed run
    because counts are read live and a memo can lose its confirmation.
-3. **Completed**: `NewTagsStrip`, then `ThemeGrid`, then "Every note".
+3. **Completed**: `ThemeGrid`, then "Every note".
 4. **Failed**: "We couldn't summarize this time." over the previous run's
    themes, if there are any.
 
@@ -99,21 +98,17 @@ fires on the press, refused or not.
   "Every note" once there is a summary, and next to the pre-summary note
   list (`UnderFloorList`) before there is one. The CSV holds every note on
   the effort, not the report's 200-note display cap.
-- **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same. **The report is laid out like Voter Data**: a title bar (`navHeader`) naming the outreach the report is about sits over everything, read through the hub's own `useOutreachDetail` (Serve's fetcher on Serve) and worded the way the hub's row and drawer word it, `name || title || 'Untitled campaign'`, empty until it loads; the way back is the CRM sheet's own Back (a ghost small `Button` with `ArrowLeftIcon` reading "Back", the hub named in its aria-label) in a full-bleed white top bar (Voter Data's own, negative margins and all), with Summarize at its right where Voter Data's Create new list sits, the report sits in its 560px column on the gray canvas, and only the bordered lists (`MemoList`, `NewTagsStrip`) and the theme cards are white. The themes stack one per row, since a second card in a 560px column is a sliver. **The theme page is laid out the same way**: the theme's title is the title bar, the same top bar holds Back to the report, and every section in the 560px column is a white `Card` (`ThemeSummary`, the details, the stance split, the asks) or the white `MemoList`. **Notes to review is laid out the same way too**: "Notes to review" is the title bar, the top bar holds Back to the report, and each note is a styleguide `Card` in the same column, the product's radius and padding, with the confirm form unframed inside it. `PendingMemoList` takes `titled={false}` there and opens on its caption, since the page draws the title and the way back; the volunteer's review page has neither and keeps the list's own. **The top bar is the title bar's own size**, `h-14` like `DashboardNavHeader` and `px-6` from `md`, and what sits in it is `size="small"`, so the two bars read as one height; a medium Summarize made the second bar 64px. On a phone the column adds `px-2` to the layout's `p-2`, 16px from the edge, and the top bar is `px-4` there (Voter Data's own bar), so the two line up; 8px read cramped and 24px wider than the rest of the app.
+- **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report and the review page does the same. **The report is laid out like Voter Data**: a title bar (`navHeader`) naming the outreach the report is about sits over everything, read through the hub's own `useOutreachDetail` (Serve's fetcher on Serve) and worded the way the hub's row and drawer word it, `name || title || 'Untitled campaign'`, empty until it loads; the way back is the CRM sheet's own Back (a ghost small `Button` with `ArrowLeftIcon` reading "Back", the hub named in its aria-label) in a full-bleed white top bar (Voter Data's own, negative margins and all), with Summarize at its right where Voter Data's Create new list sits, the report sits in its 560px column on the gray canvas, and only the bordered list (`MemoList`) and the theme cards are white. The themes stack one per row, since a second card in a 560px column is a sliver. Only the top three show; any more wait behind "Show N more themes" (`ThemeGrid`), so the themes most people raised are not pushed down by the long tail. **The theme page is laid out the same way**: the theme's title is the title bar, the same top bar holds Back to the report, and every section in the 560px column is a white `Card` (`ThemeSummary`, the details, the stance split, the asks) or the white `MemoList`. **Notes to review is laid out the same way too**: "Notes to review" is the title bar, the top bar holds Back to the report, and each note is a styleguide `Card` in the same column, the product's radius and padding, with the confirm form unframed inside it. `PendingMemoList` takes `titled={false}` there and opens on its caption, since the page draws the title and the way back; the volunteer's review page has neither and keeps the list's own. **The top bar is the title bar's own size**, `h-14` like `DashboardNavHeader` and `px-6` from `md`, and what sits in it is `size="small"`, so the two bars read as one height; a medium Summarize made the second bar 64px. On a phone the column adds `px-2` to the layout's `p-2`, 16px from the edge, and the top bar is `px-4` there (Voter Data's own bar), so the two line up; 8px read cramped and 24px wider than the rest of the app.
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and
   `polls/[id]/issue/[issueIndex]/components/*`. Polls' providers are
   poll-typed and server-fed; here the data is React Query, so components take
   props.
-- **The tags strip is the manager's.** `GET tags?status=proposed` is
-  owner-or-manager, so a 403 renders nothing (`retry: false`). It reads fresh
-  on every mount (`staleTime: 0`), because a run landing while the page is
-  open proposes new tags. The list is the org's, so the strip keeps only the
-  proposed tags of the themes on the page (`report.themes[].tag`), never
-  another effort's. It goes by the themes, not `report.run`, because that
-  run can be failed or in flight while the themes come from the last
-  completed one. Accept is `PATCH { action: 'accept' }`, Dismiss is
-  `{ action: 'retire' }`, and both invalidate the report.
+- **Users see themes, never tags.** A run still proposes a tag per theme
+  and links it to the theme's notes, and later runs reuse it by name
+  (`packages/gp-api/src/constituentFeedback/AGENTS.md`), but nothing on the
+  report names a tag or asks anyone to accept or dismiss one. The person
+  record shows accepted tags only, so a proposed one stays off it.
 
 ## Notes to review
 
@@ -198,8 +193,6 @@ events. Counts only, never a memo's words or a tag's name.
 | ---------------------- | ------------------------------------ | ------------------------------------------------------------ |
 | `ReportViewed`         | Once per visit, on the first report  | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
 | `SynthesisRequested`   | On the button's press                | `scope: 'effort'`, `channel`, `confirmedCount`               |
-| `TagAccepted`          | After an accept lands                | `source: 'report'` (the surface it was accepted on)          |
-| `TagDismissed`         | After a dismiss lands                | none beyond `product`: the accept rate's denominator         |
 | `PendingMemoConfirmed` | A confirm from the review list lands | `channel`, `ageHours` (since the memo was saved, to 0.1)     |
 
 The offline path's other two, `MemoQueuedOffline` (`channel`) and

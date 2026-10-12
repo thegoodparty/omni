@@ -27,7 +27,6 @@ import { whatWeHeardCopy } from '../../copy'
 import { reportQueryOptions } from '../queries'
 import DownloadNotesLink from './DownloadNotesLink'
 import MemoList, { type MemoListItem } from './MemoList'
-import NewTagsStrip from './NewTagsStrip'
 import ReportCaption from './ReportCaption'
 import SummarizeButton from './SummarizeButton'
 import SummarizingBanner from './SummarizingBanner'
@@ -113,21 +112,11 @@ const ReportBody = ({
       {/* A failed run leaves the previous run's themes up, so these render
           for a failed run as well as a completed one. */}
       {report.themes.length > 0 && (
-        <>
-          {/* By the themes, not report.run, which can be failed or in
-              flight while these come from the last completed run. */}
-          <NewTagsStrip
-            isServe={isServe}
-            themeTagIds={report.themes.flatMap((theme) =>
-              theme.tag?.status === 'proposed' ? [theme.tag.id] : [],
-            )}
-          />
-          <ThemeGrid
-            themes={report.themes}
-            outreachId={outreachId}
-            isServe={isServe}
-          />
-        </>
+        <ThemeGrid
+          themes={report.themes}
+          outreachId={outreachId}
+          isServe={isServe}
+        />
       )}
       <EveryNote memos={memos} outreachId={outreachId} isServe={isServe} />
     </>
