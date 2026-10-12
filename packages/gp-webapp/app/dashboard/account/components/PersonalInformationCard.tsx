@@ -3,10 +3,17 @@
 import { useUser as useClerkUser, useClerk } from '@clerk/nextjs'
 import { Badge, Button, Card } from '@styleguide'
 import { User } from 'helpers/types'
+import { useState } from 'react'
+import { EditNameDialog } from './EditNameDialog'
 
 interface PersonalInformationCardProps {
   user: User
   title?: string
+}
+
+// Names are edited in our own dialog so gp-api stays the source of truth.
+export const HIDE_CLERK_NAME_APPEARANCE = {
+  elements: { profileSection__profile: { display: 'none' } },
 }
 
 const FieldRow = ({
@@ -75,8 +82,10 @@ export const PersonalInformationCard = ({
   const { user: clerkUser } = useClerkUser()
   const { openUserProfile } = useClerk()
 
-  const firstName = clerkUser?.firstName || user.firstName || ''
-  const lastName = clerkUser?.lastName || user.lastName || ''
+  // gp-api owns the name; Clerk only holds a copy.
+  const firstName = user.firstName || clerkUser?.firstName || ''
+  const lastName = user.lastName || clerkUser?.lastName || ''
+  const [editOpen, setEditOpen] = useState(false)
   const email = clerkUser?.primaryEmailAddress?.emailAddress || user.email || ''
   const phone = clerkUser?.primaryPhoneNumber?.phoneNumber || user.phone || ''
   const externalAccounts = clerkUser?.externalAccounts ?? []
@@ -85,14 +94,31 @@ export const PersonalInformationCard = ({
     <Card className="w-full max-w-[640px] gap-4 p-6">
       <div className="flex items-center justify-between">
         <h2 className="m-0 text-xl font-semibold text-foreground">{title}</h2>
-        <Button
-          variant="outline"
-          size="small"
-          onClick={() => openUserProfile()}
-        >
-          Edit details
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="small"
+            onClick={() => setEditOpen(true)}
+          >
+            Edit details
+          </Button>
+          <Button
+            variant="outline"
+            size="small"
+            onClick={() =>
+              openUserProfile({ appearance: HIDE_CLERK_NAME_APPEARANCE })
+            }
+          >
+            Sign-in settings
+          </Button>
+        </div>
       </div>
+      <EditNameDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        firstName={firstName}
+        lastName={lastName}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <FieldRow label="First name" value={firstName} />

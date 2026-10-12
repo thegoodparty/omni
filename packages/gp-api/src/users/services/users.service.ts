@@ -50,6 +50,7 @@ import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
+import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 
@@ -486,31 +487,68 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   async updateUser(where: Prisma.UserWhereUniqueInput, data: Partial<User>) {
-    return this.optimisticLockingUpdate({ where }, (existing) => {
-      const { metaData: incomingMetaData, ...rawFields } = data
-      const fields = {
-        ...rawFields,
-        ...(rawFields.firstName
-          ? { firstName: normalizePersonName(rawFields.firstName) }
-          : {}),
-        ...(rawFields.lastName
-          ? { lastName: normalizePersonName(rawFields.lastName) }
-          : {}),
-        ...(rawFields.name
-          ? { name: normalizePersonName(rawFields.name) }
-          : {}),
-      }
-      if (incomingMetaData === undefined) {
-        return fields
-      }
-      return {
-        ...fields,
-        metaData: {
-          ...(existing.metaData ?? {}),
-          ...(incomingMetaData ?? {}),
-        },
-      }
-    })
+    const nameChanged = Boolean(data.firstName || data.lastName)
+    const updated = await this.optimisticLockingUpdate(
+      { where },
+      (existing) => {
+        const { metaData: incomingMetaData, ...rawFields } = data
+        const fields = {
+          ...rawFields,
+          ...(rawFields.firstName
+            ? { firstName: normalizePersonName(rawFields.firstName) }
+            : {}),
+          ...(rawFields.lastName
+            ? { lastName: normalizePersonName(rawFields.lastName) }
+            : {}),
+          ...(rawFields.name
+            ? { name: normalizePersonName(rawFields.name) }
+            : {}),
+        }
+        // gp-api owns the display name: rebuild it from the merged name parts
+        // unless the caller set it explicitly.
+        if (nameChanged && !rawFields.name) {
+          const firstName = fields.firstName ?? existing.firstName
+          const lastName = fields.lastName ?? existing.lastName
+          fields.name = `${firstName ?? ''} ${lastName ?? ''}`.trim()
+        }
+        if (incomingMetaData === undefined) {
+          return fields
+        }
+        return {
+          ...fields,
+          metaData: {
+            ...(existing.metaData ?? {}),
+            ...(incomingMetaData ?? {}),
+          },
+        }
+      },
+    )
+    if (nameChanged) {
+      await this.copyNameToClerk(updated)
+    }
+    return updated
+  }
+
+  // Clerk only holds a copy of the name, so a failure here is logged and
+  // never fails the request.
+  private async copyNameToClerk(user: User) {
+    if (!user.clerkId) return
+    const clerkId = user.clerkId
+    try {
+      await clerkThrottle(() =>
+        clerkCall('users.updateUser', { 'clerk.user_id': clerkId }, () =>
+          this.clerkClient.users.updateUser(clerkId, {
+            firstName: user.firstName ?? '',
+            lastName: user.lastName ?? '',
+          }),
+        ),
+      )
+    } catch (error) {
+      this.logger.error(
+        { error, userId: user.id },
+        'Failed to copy name change to Clerk',
+      )
+    }
   }
 
   // Atomic compare-and-swap on the single tracked checkout session id: the
