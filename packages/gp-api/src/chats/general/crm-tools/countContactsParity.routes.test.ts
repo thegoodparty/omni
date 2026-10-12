@@ -90,7 +90,6 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
     const tool = buildCountContactsTool({
       contacts: service.app.get(ContactsService),
       organization,
-      peopleDataset: 'voters',
     })
     const toolResult = await tool.execute(tool.inputSchema.parse(filter))
 

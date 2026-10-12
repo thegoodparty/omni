@@ -67,10 +67,7 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ search: 'elm' }),
-      expect.anything(),
-    )
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ search: 'elm' }))
   })
 
   // The unsaved sibling: POST /list-detail takes the filter in the body
@@ -88,10 +85,7 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ search: 'elm' }),
-      expect.anything(),
-    )
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ search: 'elm' }))
   })
 
   // The universe row has no saved row behind it, so there is no stored
@@ -108,7 +102,6 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     expect(response.status).toBe(200)
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({ search: undefined }),
-      expect.anything(),
     )
   })
 

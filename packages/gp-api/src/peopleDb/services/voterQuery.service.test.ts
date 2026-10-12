@@ -27,42 +27,23 @@ describe('VoterQueryService', () => {
   })
 
   it('reads a person by id under the voter-by-id op', async () => {
-    const person = await service.findPerson(
-      'lal-1',
-      {
-        districtId: DISTRICT_ID,
-      } as never,
-      'constituents',
-    )
+    const person = await service.findPerson('lal-1', {
+      districtId: DISTRICT_ID,
+    } as never)
 
-    expect(databricks.findPerson).toHaveBeenCalledWith(
-      'lal-1',
-      DISTRICT_ID,
-      'constituents',
-    )
+    expect(databricks.findPerson).toHaveBeenCalledWith('lal-1', DISTRICT_ID)
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'voter-by-id',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'voter-by-id', districtId: DISTRICT_ID }),
     )
     expect(person).toEqual({ id: 'person-1' })
   })
 
   it('reads the precinct options under the precincts op', async () => {
-    const precincts = await service.findPrecincts(DISTRICT_ID, 'constituents')
+    const precincts = await service.findPrecincts(DISTRICT_ID)
 
-    expect(databricks.findPrecincts).toHaveBeenCalledWith(
-      DISTRICT_ID,
-      'constituents',
-    )
+    expect(databricks.findPrecincts).toHaveBeenCalledWith(DISTRICT_ID)
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'precincts',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'precincts', districtId: DISTRICT_ID }),
     )
     expect(precincts).toEqual({ options: [], truncated: false })
   })
@@ -70,15 +51,11 @@ describe('VoterQueryService', () => {
   it('passes the list dto straight through under the list op', async () => {
     const dto = { districtId: DISTRICT_ID, page: 2, filters: {} }
 
-    const people = await service.findPeople(dto as never, 'constituents')
+    const people = await service.findPeople(dto as never)
 
-    expect(databricks.findPeople).toHaveBeenCalledWith(dto, 'constituents')
+    expect(databricks.findPeople).toHaveBeenCalledWith(dto)
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'list',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'list', districtId: DISTRICT_ID }),
     )
     expect(people).toEqual({ people: [], totalCount: 0 })
   })
@@ -86,15 +63,11 @@ describe('VoterQueryService', () => {
   it('passes the aggregates dto through under the aggregates op', async () => {
     const dto = { districtId: DISTRICT_ID, filters: {} }
 
-    const aggregates = await service.getAggregates(dto as never, 'constituents')
+    const aggregates = await service.getAggregates(dto as never)
 
-    expect(databricks.getAggregates).toHaveBeenCalledWith(dto, 'constituents')
+    expect(databricks.getAggregates).toHaveBeenCalledWith(dto)
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'aggregates',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'aggregates', districtId: DISTRICT_ID }),
     )
     expect(aggregates).toEqual({ count: 3 })
   })
@@ -102,20 +75,13 @@ describe('VoterQueryService', () => {
   it('reads the list-detail aggregates under their own op', async () => {
     const dto = { districtId: DISTRICT_ID, filters: {} }
 
-    const aggregates = await service.getListDetailAggregates(
-      dto as never,
-      'constituents',
-    )
+    const aggregates = await service.getListDetailAggregates(dto as never)
 
-    expect(databricks.getListDetailAggregates).toHaveBeenCalledWith(
-      dto,
-      'constituents',
-    )
+    expect(databricks.getListDetailAggregates).toHaveBeenCalledWith(dto)
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
         op: 'list-detail-aggregates',
         districtId: DISTRICT_ID,
-        dataset: 'constituents',
       }),
     )
     expect(aggregates).toEqual({ count: 3 })
@@ -124,15 +90,11 @@ describe('VoterQueryService', () => {
   it('passes the overlap dto through under the overlap op', async () => {
     const dto = { districtId: DISTRICT_ID, savedListIds: ['list-1'] }
 
-    const overlap = await service.getOverlapCount(dto as never, 'constituents')
+    const overlap = await service.getOverlapCount(dto as never)
 
-    expect(databricks.getOverlapCount).toHaveBeenCalledWith(dto, 'constituents')
+    expect(databricks.getOverlapCount).toHaveBeenCalledWith(dto)
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'overlap',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'overlap', districtId: DISTRICT_ID }),
     )
     expect(overlap).toEqual({ count: 1 })
   })
@@ -140,15 +102,11 @@ describe('VoterQueryService', () => {
   it('passes the sample dto through under the sample op', async () => {
     const dto = { districtId: DISTRICT_ID, size: 25 }
 
-    const sample = await service.samplePeople(dto as never, 'constituents')
+    const sample = await service.samplePeople(dto as never)
 
-    expect(databricks.samplePeople).toHaveBeenCalledWith(dto, 'constituents')
+    expect(databricks.samplePeople).toHaveBeenCalledWith(dto)
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'sample',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'sample', districtId: DISTRICT_ID }),
     )
     expect(sample).toEqual([])
   })
@@ -160,53 +118,29 @@ describe('VoterQueryService', () => {
     const reads: [string, (svc: VoterQueryService) => Promise<unknown>][] = [
       [
         'findPerson',
-        (svc) =>
-          svc.findPerson(
-            'lal-1',
-            { districtId: DISTRICT_ID } as never,
-            'constituents',
-          ),
+        (svc) => svc.findPerson('lal-1', { districtId: DISTRICT_ID } as never),
       ],
-      [
-        'findPrecincts',
-        (svc) => svc.findPrecincts(DISTRICT_ID, 'constituents'),
-      ],
+      ['findPrecincts', (svc) => svc.findPrecincts(DISTRICT_ID)],
       [
         'findPeople',
-        (svc) =>
-          svc.findPeople({ districtId: DISTRICT_ID } as never, 'constituents'),
+        (svc) => svc.findPeople({ districtId: DISTRICT_ID } as never),
       ],
       [
         'getAggregates',
-        (svc) =>
-          svc.getAggregates(
-            { districtId: DISTRICT_ID } as never,
-            'constituents',
-          ),
+        (svc) => svc.getAggregates({ districtId: DISTRICT_ID } as never),
       ],
       [
         'getListDetailAggregates',
         (svc) =>
-          svc.getListDetailAggregates(
-            { districtId: DISTRICT_ID } as never,
-            'constituents',
-          ),
+          svc.getListDetailAggregates({ districtId: DISTRICT_ID } as never),
       ],
       [
         'getOverlapCount',
-        (svc) =>
-          svc.getOverlapCount(
-            { districtId: DISTRICT_ID } as never,
-            'constituents',
-          ),
+        (svc) => svc.getOverlapCount({ districtId: DISTRICT_ID } as never),
       ],
       [
         'samplePeople',
-        (svc) =>
-          svc.samplePeople(
-            { districtId: DISTRICT_ID } as never,
-            'constituents',
-          ),
+        (svc) => svc.samplePeople({ districtId: DISTRICT_ID } as never),
       ],
     ]
 

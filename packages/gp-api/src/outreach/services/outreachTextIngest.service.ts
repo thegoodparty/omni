@@ -13,7 +13,6 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { phoneDigitsKey } from '@/shared/util/strings.util'
 import { isOptOutMessage } from '../util/textOptOut.util'
-import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
 /**
  * The shared delivery layer's inbound half. One writer, two producers: SMS
@@ -478,12 +477,9 @@ export class OutreachTextIngestService extends createPrismaBase(
   ): Promise<{ digits: string; personId: string | null }[]> {
     // Pro-access depends only on the organization, so resolve it once
     // instead of letting every findPersonByPhone re-query the campaign.
-    let resolved: [boolean, PeopleDataset]
+    let proAccess: boolean
     try {
-      resolved = await Promise.all([
-        this.contactsService.resolveProAccess(organization),
-        this.contactsService.resolvePeopleDataset(organization),
-      ])
+      proAccess = await this.contactsService.resolveProAccess(organization)
     } catch (err) {
       this.logger.warn(
         { err: serializeError(err), outreachId },
@@ -491,7 +487,6 @@ export class OutreachTextIngestService extends createPrismaBase(
       )
       return []
     }
-    const [proAccess, dataset] = resolved
 
     return pmap(
       unmapped,
@@ -501,7 +496,6 @@ export class OutreachTextIngestService extends createPrismaBase(
             digits,
             organization,
             proAccess,
-            dataset,
           )
           return { digits, personId: person?.id ?? null }
         } catch (err) {

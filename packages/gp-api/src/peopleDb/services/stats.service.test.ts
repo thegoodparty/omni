@@ -20,18 +20,11 @@ describe('StatsService', () => {
   })
 
   it('aggregates the district stats under the stats op', async () => {
-    const stats = await service.findStats(
-      { districtId: DISTRICT_ID } as never,
-      'constituents',
-    )
+    const stats = await service.findStats({ districtId: DISTRICT_ID } as never)
 
-    expect(findStats).toHaveBeenCalledWith(DISTRICT_ID, 'constituents')
+    expect(findStats).toHaveBeenCalledWith(DISTRICT_ID)
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'stats',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'stats', districtId: DISTRICT_ID }),
     )
     expect(stats?.totalConstituents).toBe(42)
   })
@@ -42,7 +35,7 @@ describe('StatsService', () => {
     findStats.mockResolvedValue(null)
 
     await expect(
-      service.findStats({ districtId: DISTRICT_ID } as never, 'constituents'),
+      service.findStats({ districtId: DISTRICT_ID } as never),
     ).resolves.toBeNull()
   })
 
@@ -50,7 +43,7 @@ describe('StatsService', () => {
     findStats.mockRejectedValue(new Error('warehouse down'))
 
     await expect(
-      service.findStats({ districtId: DISTRICT_ID } as never, 'constituents'),
+      service.findStats({ districtId: DISTRICT_ID } as never),
     ).rejects.toThrow('warehouse down')
   })
 })

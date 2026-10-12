@@ -30,7 +30,6 @@ import {
 import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
-import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { ListPeopleDTO } from '@/peopleDb/schemas/people.schema'
 import {
   ContactStatusField,
@@ -239,8 +238,8 @@ export class PhoneBankingListService extends createPrismaBase(
     scope: PhoneBankingScope | null,
     input: PhoneBankingCreate | ServePhoneBankingCreate,
   ): Promise<PhoneBankingCreateResponse> {
-    const { districtId, dataset } =
-      await this.contacts.resolveEligibleDistrict(organization)
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
 
     const filterInput = await this.loadPersistedFilter(
       input.voterFileFilterId,
@@ -301,7 +300,6 @@ export class PhoneBankingListService extends createPrismaBase(
     const maxEntries = input.sheetCount * PHONE_BANKING_SHEET_SIZE
     const { grouped, hasMore, skippedPriorBatch } = await this.pageAudience({
       districtId,
-      dataset,
       search: filterInput.search || undefined,
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,
@@ -375,7 +373,6 @@ export class PhoneBankingListService extends createPrismaBase(
 
   private async pageAudience(args: {
     districtId: string
-    dataset: PeopleDataset
     search?: string
     filters: FilterObject
     idOverrides?: IdOverrides
@@ -391,7 +388,6 @@ export class PhoneBankingListService extends createPrismaBase(
   }> {
     const {
       districtId,
-      dataset,
       search,
       filters,
       idOverrides,
@@ -428,7 +424,6 @@ export class PhoneBankingListService extends createPrismaBase(
           groupByHousehold: false,
           skipCount: true,
         }),
-        dataset,
       )
 
       for (const person of people) {
@@ -692,8 +687,8 @@ export class PhoneBankingListService extends createPrismaBase(
   ): Promise<Map<string, Person>> {
     if (personIds.length === 0) return new Map()
 
-    const { districtId, dataset } =
-      await this.contacts.resolveEligibleDistrict(organization)
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
     const { people } = await this.voterQuery.findPeople(
       ListPeopleDTO.create({
         districtId,
@@ -703,7 +698,6 @@ export class PhoneBankingListService extends createPrismaBase(
         groupByHousehold: false,
         skipCount: true,
       }),
-      dataset,
     )
     return new Map(people.map((person) => [person.id, person]))
   }

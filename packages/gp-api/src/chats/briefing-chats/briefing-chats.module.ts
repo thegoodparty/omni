@@ -9,7 +9,6 @@ import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { AwsModule } from '@/vendors/aws/aws.module'
-import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { Module } from '@nestjs/common'
 import { BriefingAnnotationHandler } from './briefingAnnotation.handler'
 import { BriefingChatsController } from './controllers/briefing-chats.controller'
@@ -34,13 +33,7 @@ const databricksProviderFactory = (): DatabricksProvider | null => {
 }
 
 @Module({
-  imports: [
-    ChatsModule,
-    AwsModule,
-    OrganizationsModule,
-    ElectionsModule,
-    PeopleQueryModule,
-  ],
+  imports: [ChatsModule, AwsModule, OrganizationsModule, ElectionsModule],
   controllers: [BriefingChatsController],
   providers: [
     BriefingChatsService,

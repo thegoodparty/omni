@@ -4,7 +4,6 @@ import {
 } from '@nestjs/common'
 import type { Person } from '@goodparty_org/contracts'
 import { Organization } from '../../generated/prisma'
-import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import {
   ContactsFilterResolutionInput,
   ContactsService,
@@ -125,9 +124,6 @@ export type AudienceResolutionSummary = {
 export type FilterAudienceOptions = {
   filterInput: ContactsFilterResolutionInput
   organization: Organization
-  // Resolved once by the caller (ContactsService.resolvePeopleDataset) so a
-  // resolution of a hundred pages evaluates the flag once, not per page.
-  dataset: PeopleDataset
   excludePersonIds: Set<string>
   pageSize?: number
   maxRecipients?: number
@@ -222,7 +218,6 @@ export async function* resolveFilterAudience(
   const {
     filterInput,
     organization,
-    dataset,
     excludePersonIds,
     pageSize = AUDIENCE_PAGE_SIZE,
     maxRecipients = MAX_AUDIENCE_RECIPIENTS,
@@ -303,7 +298,6 @@ export async function* resolveFilterAudience(
       },
       organization,
       excludePersonIds,
-      dataset,
     )
     if (page === 1) {
       // Only page 1 is asked for the count, and only when the pre-flight is on.

@@ -177,7 +177,8 @@ export class DoorKnockingServeService extends createPrismaBase(
     const residents =
       targets.length > 0
         ? await this.peopleApi.residents({
-            ...(await this.contacts.resolveEligibleDistrict(organization)),
+            districtId:
+              await this.contacts.resolveEligibleDistrictId(organization),
             addressKeys,
             targetPersonIds,
           })

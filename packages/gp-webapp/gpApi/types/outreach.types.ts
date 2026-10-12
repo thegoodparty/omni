@@ -111,6 +111,9 @@ export interface VoterFileFilterInOutreach {
   ethnicityUnknown: boolean | null
   businessOwnerYes: boolean | null
   businessOwnerUnknown: boolean | null
+  registeredVoterTrue: boolean | null
+  registeredVoterFalse: boolean | null
+  registeredVoterUnknown: boolean | null
   hasChildrenYes: boolean | null
   hasChildrenNo: boolean | null
   hasChildrenUnknown: boolean | null

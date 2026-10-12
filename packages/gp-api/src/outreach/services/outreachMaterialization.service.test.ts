@@ -257,8 +257,6 @@ describe('OutreachMaterializationService', () => {
       expect.objectContaining({ id: filterId, hasLandline: true }),
       { resultsPerPage: 1000, page: 1 },
       expect.objectContaining({ slug: campaign.organizationSlug }),
-      undefined,
-      expect.any(String),
     )
   })
 
@@ -546,8 +544,6 @@ describe('OutreachMaterializationService', () => {
         expect.objectContaining({ hasLandline: true }),
         { resultsPerPage: 1000, page: 1 },
         expect.objectContaining({ slug: campaign.organizationSlug }),
-        undefined,
-        expect.any(String),
       )
     })
 

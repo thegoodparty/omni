@@ -113,16 +113,6 @@ const mockOrganization = vi.hoisted(() => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockOrganization.current,
 }))
-const mockServeConsumerData = vi.hoisted(() => ({ on: false }))
-vi.mock('@shared/experiments/FeatureFlagsProvider', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@shared/experiments/FeatureFlagsProvider')
-  >()),
-  useFlagOn: (key: string) => ({
-    ready: true,
-    on: key === 'serve-consumer-data' && mockServeConsumerData.on,
-  }),
-}))
 vi.mock('./lists/ListDetailSheet', () => ({
   default: ({
     listId,
@@ -166,7 +156,6 @@ beforeEach(() => {
     slug: 'campaign-1',
     positionName: 'Mayor of Nowhere',
   }
-  mockServeConsumerData.on = false
   vi.mocked(trackEvent).mockClear()
 })
 
@@ -333,18 +322,6 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
-  })
-
-  it('Serve with serve-consumer-data on shows only the records row, no census row', () => {
-    setContext({ isWinContext: false })
-    mockServeConsumerData.on = true
-
-    render(<CrmContactsPage />)
-
-    expect(screen.getByText('Records available')).toBeInTheDocument()
-    expect(
-      screen.queryByText('Total constituents in your district'),
-    ).not.toBeInTheDocument()
   })
 
   it('Win passes no populationLabel to the district stat card', () => {

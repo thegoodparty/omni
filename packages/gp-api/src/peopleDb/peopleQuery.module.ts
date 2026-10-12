@@ -13,7 +13,6 @@ import { DatabricksVoterPackService } from './databricks/databricksVoterPack.ser
 import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client'
 import { VoterReadLogService } from './databricks/voterReadLog.service'
 import { VoterRecommendedListsService } from './services/voterRecommendedLists.service'
-import { PeopleDatasetService } from './services/peopleDataset.service'
 
 @Module({
   imports: [HttpModule, ClerkModule],
@@ -30,7 +29,6 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     VoterDoorKnockingService,
     VoterPackService,
     VoterRecommendedListsService,
-    PeopleDatasetService,
   ],
   exports: [
     StatsService,
@@ -39,7 +37,6 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     VoterDoorKnockingService,
     VoterPackService,
     VoterRecommendedListsService,
-    PeopleDatasetService,
   ],
 })
 export class PeopleQueryModule {}

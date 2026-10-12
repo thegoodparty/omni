@@ -166,7 +166,6 @@ const assertToolConfig = async (
         provider: deps.databricks!,
         allowedTables: new Set([VOTERS_TABLE]),
         mandatoryFilters: FILTERS,
-        peopleDataset: 'voters',
       }).description,
     )
     const query = vi.mocked(deps.databricks!.query)

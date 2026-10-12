@@ -142,7 +142,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: { hasCellPhone: false, search: 'jane' },
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(['excluded']),
           pageSize: 2,
         },
@@ -158,7 +157,6 @@ describe('resolveFilterAudience', () => {
       { resultsPerPage: 2, page: 1, skipCount: false },
       ORGANIZATION,
       new Set(['excluded']),
-      'constituents',
     )
     expect(findContactsForFilter).toHaveBeenNthCalledWith(
       2,
@@ -166,7 +164,6 @@ describe('resolveFilterAudience', () => {
       { resultsPerPage: 2, page: 2, skipCount: true },
       ORGANIZATION,
       new Set(['excluded']),
-      'constituents',
     )
   })
 
@@ -185,7 +182,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           pageSize: 2,
         },
@@ -210,7 +206,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           pageSize: 10,
         },
@@ -235,7 +230,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           pageSize: 10,
           isEligible: (p) => Boolean(p.firstName),
@@ -268,7 +262,6 @@ describe('resolveFilterAudience', () => {
       {
         filterInput: {},
         organization: ORGANIZATION,
-        dataset: 'constituents',
         excludePersonIds: new Set(),
         limitExceededMessage: 'narrow it',
       },
@@ -291,7 +284,6 @@ describe('resolveFilterAudience', () => {
       expect.objectContaining({ page: 1, skipCount: false }),
       ORGANIZATION,
       new Set(),
-      'constituents',
     )
   })
 
@@ -319,7 +311,6 @@ describe('resolveFilterAudience', () => {
       {
         filterInput: {},
         organization: ORGANIZATION,
-        dataset: 'constituents',
         excludePersonIds: new Set(),
         pageSize: 2,
         maxRecipients: 2,
@@ -395,7 +386,6 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
             excludePersonIds: new Set(),
           },
         ),
@@ -445,7 +435,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
         },
       ),
@@ -483,7 +472,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           skipPreflightCap: true,
         },
@@ -498,7 +486,6 @@ describe('resolveFilterAudience', () => {
       expect.objectContaining({ page: 1, skipCount: true }),
       ORGANIZATION,
       new Set(),
-      'constituents',
     )
   })
 
@@ -527,7 +514,6 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
             excludePersonIds: new Set(),
             pageSize: 2,
             maxRecipients: 2,
@@ -563,7 +549,6 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
             excludePersonIds: new Set(),
             timeBudgetMs: 90_000,
             budgetExceededMessage: ({ matchedCount, affordableCount }) =>
@@ -595,7 +580,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           timeBudgetMs: 90_000,
         },
@@ -624,7 +608,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           timeBudgetMs: 90_000,
         },
@@ -659,7 +642,6 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
             excludePersonIds: new Set(),
             skipPreflightCap: true,
             timeBudgetMs: 90_000,
@@ -689,7 +671,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           skipPreflightCap: true,
         },
@@ -726,7 +707,6 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
           excludePersonIds: new Set(),
           isEligible: (p) => Boolean(p.firstName),
         },
@@ -758,7 +738,6 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
             excludePersonIds: new Set(),
           },
         ),
@@ -800,7 +779,6 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
             excludePersonIds: new Set(),
             maxRecipients: 10_000,
             isEligible: () => false,

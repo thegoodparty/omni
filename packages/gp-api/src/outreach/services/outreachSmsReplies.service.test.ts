@@ -25,7 +25,7 @@ const WIN_ORG_SLUG = 'campaign-replies-test'
 const PERSON_1 = '11111111-1111-4111-8111-111111111111'
 const PERSON_2 = '22222222-2222-4222-8222-222222222222'
 
-const resolveEligibleDistrict = vi.fn()
+const resolveEligibleDistrictId = vi.fn()
 const findPeople = vi.fn()
 
 let replies: OutreachSmsRepliesService
@@ -51,10 +51,9 @@ const seedReply = (
   })
 
 beforeEach(async () => {
-  resolveEligibleDistrict.mockReset().mockResolvedValue({
-    districtId: '33333333-3333-4333-8333-333333333333',
-    dataset: 'voters',
-  })
+  resolveEligibleDistrictId
+    .mockReset()
+    .mockResolvedValue('33333333-3333-4333-8333-333333333333')
   findPeople.mockReset().mockResolvedValue({
     people: [
       {
@@ -97,7 +96,7 @@ beforeEach(async () => {
       { provide: PrismaService, useValue: service.prisma },
       {
         provide: ContactsService,
-        useValue: { resolveEligibleDistrict },
+        useValue: { resolveEligibleDistrictId },
       },
       { provide: VoterQueryService, useValue: { findPeople } },
       { provide: PinoLogger, useValue: createMockLogger() },

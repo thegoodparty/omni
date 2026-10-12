@@ -18,10 +18,7 @@ const peoplePage = (landlines: (string | null)[], hasNextPage = false) => ({
 })
 
 describe('RobocallPhonebookService', () => {
-  let contacts: {
-    findContactsForFilter: ReturnType<typeof vi.fn>
-    resolvePeopleDataset: ReturnType<typeof vi.fn>
-  }
+  let contacts: { findContactsForFilter: ReturnType<typeof vi.fn> }
   let organizations: { findFirst: ReturnType<typeof vi.fn> }
   let voterFileFilterService: {
     findByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
@@ -40,10 +37,7 @@ describe('RobocallPhonebookService', () => {
   beforeEach(() => {
     process.env.ROBOCALL_AUDIO_BUCKET = 'robocall-audio-test'
     delete process.env.ROBOCALL_TEST_OVERRIDE_NUMBER
-    contacts = {
-      findContactsForFilter: vi.fn(),
-      resolvePeopleDataset: vi.fn().mockResolvedValue('voters'),
-    }
+    contacts = { findContactsForFilter: vi.fn() }
     organizations = { findFirst: vi.fn().mockResolvedValue({ id: 1 }) }
     voterFileFilterService = {
       findByIdAndOrganizationSlug: vi
@@ -104,8 +98,6 @@ describe('RobocallPhonebookService', () => {
       expect.objectContaining({ id: 99, hasLandline: true }),
       { resultsPerPage: 1000, page: 1 },
       { id: 1 },
-      undefined,
-      'voters',
     )
 
     // CSV holds the extracted numbers behind a header row, deduped,

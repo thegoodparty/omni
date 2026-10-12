@@ -6,12 +6,17 @@ import {
   type ContactsService,
 } from '@/contacts/services/contacts.service'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
-import { dataSourceRoutingRules } from '@/llm/tools/dataSourceRouting'
-import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 
 export type CountContactsOutput = { count: number } | { error: string }
 
-const countContactsInputSchema = voterFilterBaseSchema.strict()
+// The filter engine silently ignores these two legacy registration keys, so a
+// filter using them would return an unfiltered whole-district count as if it
+// were the answer. Omitting them (with unknown keys rejected) fails the call
+// loudly instead; registration status lives in the voter-file mart tools.
+const countContactsInputSchema = voterFilterBaseSchema
+  .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
+  .strict()
 
 // Business-rule rejections (pro gate, Serve party rejection, unresolvable
 // district) come back as structured tool errors the model can relay; anything
@@ -38,7 +43,6 @@ const toToolError = (
 export const buildCountContactsTool = (deps: {
   contacts: Pick<ContactsService, 'countContacts'>
   organization: Organization
-  peopleDataset: PeopleDataset
 }): LlmStreamTool<typeof countContactsInputSchema> => ({
   description:
     'Count the contacts matching a filter, using the same filter shape and ' +
@@ -48,7 +52,7 @@ export const buildCountContactsTool = (deps: {
     'the organization cannot run the filter (e.g. a Win campaign without ' +
     'Pro, or a political-party filter on an elected-office organization).' +
     '\n\n' +
-    dataSourceRoutingRules(deps.peopleDataset),
+    DATA_SOURCE_ROUTING_RULES,
   inputSchema: countContactsInputSchema,
   execute: async (input): Promise<CountContactsOutput> => {
     try {

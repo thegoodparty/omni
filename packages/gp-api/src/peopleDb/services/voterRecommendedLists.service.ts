@@ -7,7 +7,6 @@ import {
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
 import type { DbxDistrict } from '../databricks/databricksVoterSql.util'
 import type { FilterData } from '../schemas/filters.schema'
-import type { PeopleDataset } from './peopleDataset.service'
 
 // The recommended-lists reads, routed through the read log like every other
 // voter read. One recommendation request issues several of these at once —
@@ -24,11 +23,8 @@ export class VoterRecommendedListsService {
   // Resolved once and handed back into every read below. Answered by
   // election-api rather than the warehouse, so it is not a voter read and
   // emits no line.
-  resolveDistrict(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<DbxDistrict> {
-    return this.databricks.resolveDistrict(districtId, dataset)
+  resolveDistrict(districtId: string): Promise<DbxDistrict> {
+    return this.databricks.resolveDistrict(districtId)
   }
 
   countForFilter(
@@ -39,7 +35,6 @@ export class VoterRecommendedListsService {
     return this.readLog.measure({
       op: 'rec-count',
       districtId: district.districtId,
-      dataset: district.dataset,
       read: () =>
         this.databricks.countForFilter(district, filters, idOverrides),
     })
@@ -53,7 +48,6 @@ export class VoterRecommendedListsService {
     return this.readLog.measure({
       op: 'rec-rank-precincts',
       districtId: district.districtId,
-      dataset: district.dataset,
       read: () => this.databricks.rankPrecincts(district, filters, idOverrides),
     })
   }

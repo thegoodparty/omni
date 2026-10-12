@@ -598,11 +598,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
       const isPro = ctx.isPro !== false
       const filterTools: Record<string, LlmTool> = {}
-      // A Win org always reads the voters dataset (PeopleDatasetService).
       filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
-        peopleDataset: 'voters',
       })
       // Beside describe_filter_dimensions rather than with the saved-list
       // tools: it IS the vocabulary read for the one dimension the catalog
@@ -622,7 +620,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
-          peopleDataset: 'voters',
         })
         // With the saved-list tool, as on the Chief of Staff: the only id
         // it can be given is one crud_saved_filters returned.
@@ -642,7 +639,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(filterTools),
-        peopleDataset: 'voters',
       })
       Object.assign(tools, filterTools)
       // The card's flows save the list through the voter-file route,

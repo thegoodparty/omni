@@ -32,7 +32,6 @@ const RECEIVED_AT = new Date('2026-08-11T15:04:05.000Z')
 
 const findPersonByPhone = vi.fn()
 const resolveProAccess = vi.fn()
-const resolvePeopleDataset = vi.fn()
 
 let ingest: OutreachTextIngestService
 let outreach: Outreach
@@ -58,7 +57,6 @@ const interactionFor = (personId: string) =>
 beforeEach(async () => {
   findPersonByPhone.mockReset().mockResolvedValue(null)
   resolveProAccess.mockReset().mockResolvedValue(true)
-  resolvePeopleDataset.mockReset().mockResolvedValue('constituents')
 
   await service.prisma.organization.create({
     data: { slug: ORG_SLUG, ownerId: service.user.id, positionId: 'pos-1' },
@@ -105,11 +103,7 @@ beforeEach(async () => {
       { provide: ContactInteractionTextService, useValue: textInteractions },
       {
         provide: ContactsService,
-        useValue: {
-          findPersonByPhone,
-          resolveProAccess,
-          resolvePeopleDataset,
-        },
+        useValue: { findPersonByPhone, resolveProAccess },
       },
       { provide: PinoLogger, useValue: createMockLogger() },
     ],
@@ -234,7 +228,6 @@ describe('OutreachTextIngestService.ingestReplies', () => {
       '3035559999',
       expect.objectContaining({ slug: ORG_SLUG }),
       true,
-      'constituents',
     )
     const messages = await messagesForOutreach()
     expect(messages).toHaveLength(1)

@@ -17,7 +17,6 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
-import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import {
   deriveKnockStatus,
   firmestAnswerPerPerson,
@@ -54,11 +53,11 @@ export class DoorKnockingPackService extends createPrismaBase(
   // gateway's 120s idle timeout. The gap the envelope exists to remove is the
   // district scan, which is 12.7-43.5s.
   async stream(organization: Organization): Promise<Readable> {
-    const { districtId, dataset } =
-      await this.contacts.resolveEligibleDistrict(organization)
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
 
     return streamPack({
-      build: (signal) => this.build(organization, districtId, dataset, signal),
+      build: (signal) => this.build(organization, districtId, signal),
       // `districtId` is always present here now, and that is the point: the
       // scan's cost is a property of the district and of nothing else, so the
       // same org fails every time on a district too large for the current query
@@ -97,7 +96,6 @@ export class DoorKnockingPackService extends createPrismaBase(
   async build(
     organization: Organization,
     districtId: string,
-    dataset: PeopleDataset,
     signal?: AbortSignal,
   ): Promise<Buffer> {
     // Concurrent: these two are independent of each other, and both are small
@@ -174,7 +172,6 @@ export class DoorKnockingPackService extends createPrismaBase(
 
     return this.peopleApi.pack(
       { districtId, knockStatuses, contactsMade, excludedPersonIds },
-      dataset,
       signal,
     )
   }

@@ -13,15 +13,13 @@ const setup = () => {
     {} as VoterPackService,
   )
   const lastDto = () => evaluate.mock.calls.at(-1)?.[0] as Record<string, never>
-  const lastDataset = () => evaluate.mock.calls.at(-1)?.[1] as unknown
-  return { service, lastDto, lastDataset }
+  return { service, lastDto }
 }
 
 const PERSON_ID = '11111111-2222-3333-4444-555555555555'
 
 const args = {
   districtId: '99999999-8888-7777-6666-555555555555',
-  dataset: 'voters' as const,
   bbox: BBOX,
   filters: {},
 }
@@ -56,15 +54,5 @@ describe('DoorKnockingPeopleApiService.evaluate', () => {
     await service.evaluate({ ...args, excludePersonIds: [PERSON_ID] })
 
     expect(lastDto()).toMatchObject({ excludePersonIds: [PERSON_ID] })
-  })
-})
-
-describe('DoorKnockingPeopleApiService dataset', () => {
-  it('reads the people table the caller resolved for the org', async () => {
-    const { service, lastDataset } = setup()
-
-    await service.evaluate({ ...args, dataset: 'constituents' })
-
-    expect(lastDataset()).toBe('constituents')
   })
 })

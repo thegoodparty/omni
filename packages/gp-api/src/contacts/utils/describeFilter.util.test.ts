@@ -125,6 +125,15 @@ describe('describeFilter', () => {
     ).toBe('matching search "Oakwood".')
   })
 
+  // In the column set but absent from the catalog, like precincts.
+  it('labels registration', () => {
+    expect(
+      describeFilter(filter({ registeredVoterTrue: true }), {
+        isServe: false,
+      }),
+    ).toBe('Registered voter Yes.')
+  })
+
   // The catalog already encodes which dimensions a Serve org may express, so
   // reading it rather than a second copy of the labels is what keeps this
   // from describing an elected official's file in Win-only terms.
@@ -176,6 +185,7 @@ describe('describeFilterForTalkingPoints', () => {
     ['prior contacts made', { contactsMade0: true }],
     ['support status', { supportStatus: ['supporter' as const] }],
     ['phone presence', { hasCellPhone: true }],
+    ['registration', { registeredVoterTrue: true }],
     ['ideology', { ideologyModerate: true }],
     ['independent affinity', { independentAffinity: true }],
   ])('drops %s', (_label, columns) => {

@@ -162,7 +162,6 @@ export class RobocallPhonebookService {
       hasLandline: true,
     }
 
-    const dataset = await this.contacts.resolvePeopleDataset(organization)
     const seen = new Set<string>()
     let page = 1
     while (seen.size < MAX_PHONEBOOK_NUMBERS) {
@@ -170,8 +169,6 @@ export class RobocallPhonebookService {
         landlineFilter,
         { resultsPerPage: SEGMENT_PAGE_SIZE, page },
         organization,
-        undefined,
-        dataset,
       )
       if (people.length === 0) break
 

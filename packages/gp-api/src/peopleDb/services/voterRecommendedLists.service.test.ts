@@ -11,8 +11,6 @@ const district: DbxDistrict = {
   districtType: 'Congressional_District',
   districtName: '12',
   useVoterOnlyPath: false,
-  dataset: 'constituents',
-  table: 'goodparty_data_catalog.mart_gp_api.gp_api_constituents',
 }
 
 const filters: FilterData = {
@@ -54,11 +52,7 @@ describe('VoterRecommendedListsService', () => {
     ).resolves.toBe(400)
 
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'rec-count',
-        districtId: DISTRICT_ID,
-        dataset: 'constituents',
-      }),
+      expect.objectContaining({ op: 'rec-count', districtId: DISTRICT_ID }),
     )
     expect(countForFilter).toHaveBeenCalledWith(district, filters, idOverrides)
   })
@@ -70,7 +64,6 @@ describe('VoterRecommendedListsService', () => {
       expect.objectContaining({
         op: 'rec-rank-precincts',
         districtId: DISTRICT_ID,
-        dataset: 'constituents',
       }),
     )
     expect(rankPrecincts).toHaveBeenCalledWith(district, filters, idOverrides)
@@ -81,11 +74,9 @@ describe('VoterRecommendedListsService', () => {
   // everything" edit from inventing a voter read that never touched the
   // warehouse and skewing the latency attribution.
   it('does not log a read for district resolution', async () => {
-    await expect(
-      service.resolveDistrict(DISTRICT_ID, 'constituents'),
-    ).resolves.toBe(district)
+    await expect(service.resolveDistrict(DISTRICT_ID)).resolves.toBe(district)
 
-    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, 'constituents')
+    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID)
     expect(measure).not.toHaveBeenCalled()
   })
 })

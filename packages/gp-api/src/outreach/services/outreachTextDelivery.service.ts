@@ -630,7 +630,6 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     const resolution = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
-      dataset: await this.contactsService.resolvePeopleDataset(organization),
       // Empty on purpose, with the scrub applied through `isEligible`
       // instead. Handing the ids to people-api as an exclusion filter means
       // those rows never come back, so the layer can only ever report how

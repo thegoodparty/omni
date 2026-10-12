@@ -53,9 +53,7 @@ import {
   type DbxEvaluateRow,
   type DbxResidentRow,
   type DbxScopeArgs,
-  peopleTable,
 } from './databricksVoterSql.util'
-import type { PeopleDataset } from '../services/peopleDataset.service'
 import type { FilterData } from '../schemas/filters.schema'
 import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
 import {
@@ -151,14 +149,7 @@ export class DatabricksVoterService {
   // District rows are immutable reference data and one list-detail request
   // resolves the same district four times over, so caching saves three round
   // trips per request rather than shaving a query.
-  //
-  // Holds only the district's identity, never the table: the dataset is a
-  // per-organization decision, and caching a resolved table here would hand
-  // one org's people to another org scoped to the same district.
-  private readonly districts = new Map<
-    string,
-    Omit<DbxDistrict, 'dataset' | 'table'>
-  >()
+  private readonly districts = new Map<string, DbxDistrict>()
 
   constructor(
     private readonly logger: PinoLogger,
@@ -173,18 +164,12 @@ export class DatabricksVoterService {
   // voter read) and no longer from people-db either. Reading the upstream
   // directly is what leaves a Databricks-served read touching people-db not at
   // all. Memoized per process, so a district costs one hop per task.
-  async resolveDistrict(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<DbxDistrict> {
-    const withTable = (
-      identity: Omit<DbxDistrict, 'dataset' | 'table'>,
-    ): DbxDistrict => ({ ...identity, dataset, table: peopleTable(dataset) })
+  async resolveDistrict(districtId: string): Promise<DbxDistrict> {
     const cached = this.districts.get(districtId)
-    if (cached) return withTable(cached)
+    if (cached) return cached
     const { type, name, state } =
       await this.districtService.findDistrictById(districtId)
-    const district = {
+    const district: DbxDistrict = {
       districtId,
       state,
       districtType: type,
@@ -208,14 +193,11 @@ export class DatabricksVoterService {
       )
     }
     this.districts.set(districtId, district)
-    return withTable(district)
+    return district
   }
 
-  async getAggregates(
-    dto: AggregatesDTO,
-    dataset: PeopleDataset,
-  ): Promise<PeopleAggregatesResponse> {
-    const district = await this.resolveDistrict(dto.districtId, dataset)
+  async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
+    const district = await this.resolveDistrict(dto.districtId)
     const { rows } = await this.run(
       buildAggregatesSql({
         district,
@@ -234,9 +216,8 @@ export class DatabricksVoterService {
 
   async getListDetailAggregates(
     dto: AggregatesDTO,
-    dataset: PeopleDataset,
   ): Promise<PeopleListDetailAggregatesResponse> {
-    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const district = await this.resolveDistrict(dto.districtId)
     const { rows } = await this.run(
       buildListDetailAggregatesSql({
         district,
@@ -260,9 +241,8 @@ export class DatabricksVoterService {
 
   async getOverlapCount(
     dto: OverlapCountDTO,
-    dataset: PeopleDataset,
   ): Promise<PeopleOverlapCountResponse> {
-    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const district = await this.resolveDistrict(dto.districtId)
     const { rows } = await this.run(
       buildOverlapCountSql({
         district,
@@ -282,8 +262,8 @@ export class DatabricksVoterService {
   // from another office must not resolve through this drawer. The two
   // not-found messages mirror Postgres exactly, because the webapp
   // distinguishes "not in this district" from "no such person".
-  async findPerson(id: string, districtId: string, dataset: PeopleDataset) {
-    const district = await this.resolveDistrict(districtId, dataset)
+  async findPerson(id: string, districtId: string) {
+    const district = await this.resolveDistrict(districtId)
     const { columnNames } = buildVoterSelectSql()
     const { rows } = await this.run(
       buildPersonSql({
@@ -303,11 +283,8 @@ export class DatabricksVoterService {
     return transformToPersonOutput(toDbPerson(columnNames, row))
   }
 
-  async findPrecincts(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<PeoplePrecinctsResponse> {
-    const district = await this.resolveDistrict(districtId, dataset)
+  async findPrecincts(districtId: string): Promise<PeoplePrecinctsResponse> {
+    const district = await this.resolveDistrict(districtId)
     const { rows } = await this.run(buildPrecinctsSql({ district }))
     // The statement asks for one row past the cap purely so this comparison
     // can tell a full list from a clipped one; that extra row is dropped.
@@ -367,8 +344,8 @@ export class DatabricksVoterService {
     }
   }
 
-  async findPeople(dto: ListPeopleDTO, dataset: PeopleDataset) {
-    const district = await this.resolveDistrict(dto.districtId, dataset)
+  async findPeople(dto: ListPeopleDTO) {
+    const district = await this.resolveDistrict(dto.districtId)
     const { columnNames } = buildVoterSelectSql()
     const scope = {
       district,
@@ -428,11 +405,8 @@ export class DatabricksVoterService {
   // await: it hits a 109k-row table, so it costs nothing next to the voter
   // scan, and a missing census row (~25% of districts) must never affect the
   // null/unavailable result that scan alone decides.
-  async findStats(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<ComputedDistrictStats | null> {
-    const district = await this.resolveDistrict(districtId, dataset)
+  async findStats(districtId: string): Promise<ComputedDistrictStats | null> {
+    const district = await this.resolveDistrict(districtId)
     const statsRead = this.run(buildDistrictStatsSql(district))
     // Failure-isolated: this figure is decorative next to the voter scan, so
     // a Databricks blip on it must not fail the primary stats read every
@@ -473,8 +447,8 @@ export class DatabricksVoterService {
   // count instead, and the cell-phone cut is left to the filters: an audience
   // already says how it is reached (has cell for a text, any phone for a
   // call), and the count has to read the same rows the draw does.
-  async samplePeople(dto: SamplePeopleDTO, dataset: PeopleDataset) {
-    const district = await this.resolveDistrict(dto.districtId, dataset)
+  async samplePeople(dto: SamplePeopleDTO) {
+    const district = await this.resolveDistrict(dto.districtId)
     const size = dto.size ?? DEFAULT_SAMPLE_SIZE
     const hasCellPhone = dto.filters ? undefined : (dto.hasCellPhone ?? true)
     const excludeIds = dto.excludeIds ?? []
@@ -488,11 +462,7 @@ export class DatabricksVoterService {
 
     const pool = dto.filters
       ? Number((await this.run(buildCountSql(scope))).rows[0]?.[0] ?? 0)
-      : await this.districtSamplePool(
-          dto.districtId,
-          dataset,
-          hasCellPhone !== false,
-        )
+      : await this.districtSamplePool(dto.districtId, hasCellPhone !== false)
     const remaining = pool - Math.min(excludeIds.length, pool)
     if (remaining < size) {
       throw new BadRequestException(
@@ -525,10 +495,9 @@ export class DatabricksVoterService {
 
   private async districtSamplePool(
     districtId: string,
-    dataset: PeopleDataset,
     cellOnly: boolean,
   ): Promise<number> {
-    const stats = await this.findStats(districtId, dataset)
+    const stats = await this.findStats(districtId)
     if (!stats) {
       throw new BadRequestException({
         message: `District stats not available for districtId=${districtId}`,
@@ -546,10 +515,9 @@ export class DatabricksVoterService {
   // implementation across both engines rather than two that can drift.
   async doorKnockingEvaluateRows(
     dto: DoorKnockingEvaluateDTO,
-    dataset: PeopleDataset,
     opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<DbxEvaluateRow[]> {
-    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const district = await this.resolveDistrict(dto.districtId)
     const { columns, rows } = await this.run(
       buildDoorKnockingEvaluateSql({
         district,
@@ -578,10 +546,9 @@ export class DatabricksVoterService {
 
   async doorKnockingResidentRows(
     dto: DoorKnockingResidentsDTO,
-    dataset: PeopleDataset,
     residentsCap: number,
   ): Promise<DbxResidentRow[]> {
-    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const district = await this.resolveDistrict(dto.districtId)
     const { columns, rows } = await this.run(
       buildDoorKnockingResidentsSql({
         district,
