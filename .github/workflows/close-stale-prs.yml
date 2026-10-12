@@ -1,0 +1,40 @@
+name: close stale PRs
+
+# Closes any PR with no activity for more than 30 days, once a day. "Activity"
+# is actions/stale's default: the last update (commit, comment, review, label),
+# not the creation date. Drafts are not exempt. Issues are left alone.
+# Anyone can reopen a closed PR. Separate from gpbot-stale-pr-alert.yml, which only
+# reads and Slack-pings about unreviewed bot PRs; it never closes anything, and
+# its 48h alert fires long before this 30 day close.
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: close-stale-prs
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v11
+        with:
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          days-before-pr-stale: 30
+          # 0 closes a PR in the same run that marks it stale.
+          days-before-pr-close: 0
+          exempt-draft-pr: false
+          operations-per-run: 200
+          close-pr-message: >
+            This PR is being closed automatically by a daily job because it
+            has had no activity for 30+ days. This is about staleness, not a
+            judgment on the work. If it is still relevant, anyone can reopen
+            it, or push a new commit and reopen.
