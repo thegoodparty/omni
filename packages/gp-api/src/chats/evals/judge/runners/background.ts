@@ -4,6 +4,7 @@ import {
   judgeOverrideKeys,
   judgeReplayBaseKey,
   JudgeReplaySchema,
+  judgeReplaySeedKey,
   judgeReplaySweepKey,
   type JudgeOverride,
   type JudgeReplay,
@@ -14,6 +15,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 import { findAgent } from '../agents'
 import { assertNoPlaceholders } from '../caseParams'
+import type { SeededPage } from '../cases'
 import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import { PRICING_VERSION, priceUsd, UnpriceableRunError } from '../pricing'
 import {
@@ -102,6 +104,7 @@ export interface BackgroundCase {
   // boots. Preferred over a URL param for anything that would otherwise be
   // fetched live, since it removes the fetch from the comparison entirely.
   inputFiles?: InputFileRef[]
+  seedPages?: SeededPage[]
 }
 
 // The bytes the agent actually reads. Both arms are staged this way, including
@@ -682,20 +685,91 @@ export const pageReplayFor = (
     BackgroundRunInput,
     'sweepId' | 'agentId' | 'arm' | 'attempt' | 'agentCase' | 'replayKey'
   >,
-): JudgeReplay | undefined =>
-  findAgent(input.agentId)?.replaysPages !== true
-    ? undefined
-    : {
-        mode: input.arm === 'base' ? 'record' : 'replay',
-        key:
-          input.replayKey ??
-          judgeReplaySweepKey(
-            input.sweepId,
-            input.agentId,
-            input.agentCase.caseId,
-            input.attempt,
-          ),
-      }
+): JudgeReplay | undefined => {
+  // A seeded case replays the bench's pages on both arms, for any agent: the
+  // pages are the condition under test, not drift to be held still.
+  if ((input.agentCase.seedPages ?? []).length > 0) {
+    return {
+      mode: 'replay',
+      key: judgeReplaySeedKey(input.agentId, input.agentCase.caseId),
+    }
+  }
+  if (findAgent(input.agentId)?.replaysPages !== true) return undefined
+  return {
+    mode: input.arm === 'base' ? 'record' : 'replay',
+    key:
+      input.replayKey ??
+      judgeReplaySweepKey(
+        input.sweepId,
+        input.agentId,
+        input.agentCase.caseId,
+        input.attempt,
+      ),
+  }
+}
+
+// The broker's store layout (gp-ai `broker/page_replay.py`): a fetched body,
+// its metadata, and a HEAD check's answer, each under the SHA-256 of the URL.
+// Seeded URLs are already in the broker's normalized form (SeedPageSchema),
+// so hashing them as written matches what the broker hashes for the agent's
+// request. The HEAD answer matters because agents check a URL with HEAD
+// before they cite it, and a live answer for a planted URL would decide it.
+export const seedPageKeys = (
+  storeKey: string,
+  url: string,
+): { body: string; meta: string; head: string } => {
+  const digest = createHash('sha256').update(url, 'utf8').digest('hex')
+  return {
+    body: `${storeKey}/fetch/${digest}.body`,
+    meta: `${storeKey}/fetch/${digest}.json`,
+    head: `${storeKey}/head/${digest}.json`,
+  }
+}
+
+// Exactly the keys of the broker's strict `_FetchMeta` and `_HeadMeta`. The
+// final URL is the seeded one, so a citation reads like a live fetch's.
+export const seedPageMeta = (page: SeededPage): string =>
+  JSON.stringify({
+    status: 200,
+    content_type: page.contentType,
+    final_url: page.url,
+    byte_size: Buffer.byteLength(page.body, 'utf8'),
+  })
+
+export const seedPageHead = (page: SeededPage): string =>
+  JSON.stringify({ status: 200, final_url: page.url })
+
+// The broker serves a recording only if S3 wrote it before the run's ticket
+// was issued, and both are whole seconds, so the wait keeps a mint in the
+// same second as the last write from reading the page as a miss.
+const SEED_SETTLE_MS = 1_100
+
+// Rewritten only when the content differs. Every attempt of both arms plants
+// the same case, often while earlier runs are still fetching, and a rewrite
+// moves the objects' LastModified past those runs' tickets, so they would
+// read every seeded page as a miss.
+const plantSeedPages = async (
+  deps: BackgroundRunnerDeps,
+  bucket: string,
+  storeKey: string,
+  pages: readonly SeededPage[],
+): Promise<void> => {
+  let wrote = false
+  for (const page of pages) {
+    const keys = seedPageKeys(storeKey, page.url)
+    const objects: [string, string][] = [
+      [keys.body, page.body],
+      [keys.meta, seedPageMeta(page)],
+      [keys.head, seedPageHead(page)],
+    ]
+    for (const [key, body] of objects) {
+      if ((await deps.store.getText(bucket, key)) === body) continue
+      await deps.store.putText(bucket, key, body)
+      wrote = true
+    }
+  }
+  if (wrote) await deps.clock.sleep(SEED_SETTLE_MS)
+}
 
 // A send rejection aborts the case, because nothing has been produced yet and
 // a synthesized record would report an outcome no run ever had. An accepted
@@ -1294,6 +1368,10 @@ export const runBackgroundCase = async (
     input.agentId,
     input.config,
   )
+  const seeded = input.agentCase.seedPages ?? []
+  if (replay !== undefined && seeded.length > 0) {
+    await plantSeedPages(deps, input.artifactBucket, replay.key, seeded)
+  }
 
   const startedAt = deps.clock.now()
   await dispatch(deps.queue, message)

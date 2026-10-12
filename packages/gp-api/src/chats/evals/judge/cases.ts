@@ -401,6 +401,75 @@ export const MAX_CONDITION_CHARS = 2_000
 // One sentence, so a bound well short of a condition's.
 export const MAX_HANDLED_WHEN_CHARS = 600
 
+// A page the broker serves both arms in place of the live one. The URL has to
+// be in the broker's normalized form already (gp-ai
+// `broker/page_replay.normalize_url`), because the store is keyed by its hash
+// and the broker hashes the normalized form of what the agent asks for. So:
+// https, a lowercase host, no fragment, and a query of plain pairs in sorted
+// order with no tracking parameters. A broker test reads every committed
+// seeded URL and checks it normalizes to itself.
+// No port and a path that starts with `/`: the broker keeps both as written,
+// so `https://a.gov` and `https://a.gov/` would be two different pages.
+const SEED_QUERY_PAIR = '[A-Za-z0-9._-]+=[A-Za-z0-9._-]*'
+const SEED_URL = new RegExp(
+  "^https://[a-z0-9.-]+/[A-Za-z0-9._~!$'()*+,;=:@%/-]*" +
+    `(?:\\?${SEED_QUERY_PAIR}(?:&${SEED_QUERY_PAIR})*)?$`,
+)
+const TRACKING_PARAM = /^(?:utm_.*|fbclid|gclid)$/i
+
+export const MAX_SEED_PAGES = 20
+export const MAX_SEED_PAGE_BYTES = 1024 * 1024
+
+const queryInBrokerOrder = (url: string): boolean => {
+  const query = url.split('?')[1]
+  if (query === undefined) return true
+  const pairs = query.split('&').map((pair) => {
+    const [name = '', value = ''] = pair.split('=')
+    return [name, value] as const
+  })
+  const sorted = [...pairs].sort(([a, x], [b, y]) => {
+    if (a !== b) return a < b ? -1 : 1
+    if (x === y) return 0
+    return x < y ? -1 : 1
+  })
+  return (
+    pairs.every(([name]) => !TRACKING_PARAM.test(name)) &&
+    pairs.every(([name, value], i) => {
+      const [sortedName, sortedValue] = sorted[i] ?? ['', '']
+      return name === sortedName && value === sortedValue
+    })
+  )
+}
+
+export const SeedPageSchema = z
+  .object({
+    url: z
+      .string()
+      .max(2_000)
+      .regex(SEED_URL, {
+        message:
+          'must be an https URL in the broker normalized form: lowercase ' +
+          'host, no fragment, a plain query',
+      })
+      .refine(queryInBrokerOrder, {
+        message:
+          'query parameters must be sorted by name, then value, with no ' +
+          'utm_*, fbclid or gclid',
+      }),
+    // A file under `cases/seeds/<agentId>/`, committed beside the list. omni
+    // is public, so it holds only content fine to publish.
+    file: z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/, {
+      message: 'is a file name in cases/seeds/<agentId>/, not a path',
+    }),
+    // Text only: the page is read and planted as UTF-8, and `http.get`
+    // refuses a binary response anyway.
+    contentType: z
+      .enum(['text/html', 'text/plain', 'application/json', 'application/xml'])
+      .optional(),
+  })
+  .strict()
+export type SeedPage = z.infer<typeof SeedPageSchema>
+
 export const BackgroundCaseSchema = z
   .object({
     caseId: CaseIdSchema,
@@ -453,6 +522,19 @@ export const BackgroundCaseSchema = z
       .trim()
       .min(1)
       .max(MAX_HANDLED_WHEN_CHARS)
+      .optional(),
+    // Pages both arms are served instead of the live web, so a bench can
+    // plant content: a hidden instruction, a namesake, a stale page, two
+    // sources that disagree. Dispatched as a page replay store, never as
+    // params, so the agent fetches them like any other page.
+    seedPages: z
+      .array(SeedPageSchema)
+      .min(1)
+      .max(MAX_SEED_PAGES)
+      .refine(
+        (pages) => new Set(pages.map((p) => p.url)).size === pages.length,
+        { message: 'a case seeds each URL once' },
+      )
       .optional(),
     // `false` keeps the pair out of every aggregate. It still runs and is
     // still judged, and the report states that judgment on its own line: a
@@ -740,6 +822,43 @@ export const loadCaseList = (
 // structural discriminator left.
 export const isChatCase = (one: JudgeCase): one is ChatCase =>
   !('params' in one)
+
+export const SEEDS_DIR = 'seeds'
+
+export interface SeededPage {
+  url: string
+  contentType: string
+  body: string
+}
+
+export const loadSeedPages = (
+  agentId: string,
+  one: BackgroundCase,
+  dir: string = CASES_DIR,
+): SeededPage[] =>
+  (one.seedPages ?? []).map((page) => {
+    const file = caseListPath(path.join(SEEDS_DIR, agentId, page.file), dir)
+    let body: string
+    try {
+      body = readFileSync(file, 'utf8')
+    } catch (err) {
+      throw new CaseListError(
+        `${agentId}/${one.caseId} seeds ${page.url} from ${file}, which ` +
+          `cannot be read — ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    if (Buffer.byteLength(body, 'utf8') > MAX_SEED_PAGE_BYTES) {
+      throw new CaseListError(
+        `${file} is over ${MAX_SEED_PAGE_BYTES} bytes; a seeded page is ` +
+          'one page, not a download',
+      )
+    }
+    return {
+      url: page.url,
+      contentType: page.contentType ?? 'text/html',
+      body,
+    }
+  })
 
 // A background agent's cases, narrowed. `parseCaseList` already discriminated
 // on `shape` when it built these, so re-deriving the narrowing structurally in

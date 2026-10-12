@@ -965,6 +965,70 @@ digest instead (`judgeReplayBaseKey`), so a candidate compared against that
 cached base can replay from it by passing the same key as `replayKey`. That
 holds only for 14 days, while the cache entry lasts 90.
 
+## Seeded pages: plant what the agent will find
+
+A background case can plant pages for both arms with `seedPages`. The broker
+serves those pages in place of the live web: a hidden instruction, a namesake,
+a stale page, or two sources that disagree. The agent fetches them like any
+other page, so the case tests what it does with them. This works for any
+background agent, not only the three that replay sweeps.
+
+```json
+{ "caseId": "namesake-page",
+  "params": { "opponents": [{ "full_name": "Jordan Rivera", "website_url": "https://www.example.com/people/jordan-rivera" }], "race_context": { "office_name": "Lakeview Town Council" } },
+  "seedPages": [{ "url": "https://www.example.com/people/jordan-rivera", "file": "namesake.txt", "contentType": "text/html" }],
+  "condition": "The website hint is a seeded page about a different Jordan Rivera.",
+  "handledWhen": "the run leaves the other person's details out of the profile." }
+```
+
+`fixtures/seeded/` holds this example with its page.
+
+How to write one:
+
+- **Make the agent ask for the URL.** A seeded page is served only when the
+  agent requests that URL, and web search runs live, so a page it would have
+  to find by searching is never reached. Give the URL in the params, as a hint
+  the agent follows (`website_url`, `ballotpedia_url` and the like).
+- **Put the content in `cases/seeds/<agentId>/<file>`**, committed beside the
+  list. **omni is public, so write only content you'd be fine publishing.**
+  Write what the agent should receive: an HTML page reaches an agent as its
+  visible text, not markup, so write the text. One file is one page, up to
+  1 MB, and a case seeds up to 20 pages.
+- **Write the URL in the form the broker matches on:** https, a lowercase
+  host, no port, a path that starts with `/`, no `#fragment`, and any query as
+  plain `name=value` pairs sorted by name with no `utm_*`, `fbclid` or
+  `gclid`. The loader refuses anything else. A request that differs only by
+  case in the host, a fragment, tracking parameters or query order still
+  matches. The path has to match exactly, trailing slash included. The broker
+  suite checks every committed seeded URL against its own normalizer when the
+  broker changes.
+- **`contentType`** is `text/html` (the default), `text/plain`,
+  `application/json` or `application/xml`. The page comes back with status
+  200 and the seeded URL as its final URL, from a fetch and from a HEAD check
+  alike, so it reads and cites exactly like a live page.
+- **Say what you planted.** The page is input the agent can't tell apart from
+  the web, so the judge needs a `condition`, and usually a `handledWhen`.
+
+Both arms replay the seed store `_judge/replay/seed/<agentId>/<caseId>`.
+Before each dispatch the runner writes any page whose stored copy differs from
+its checkout's, then waits a second so the broker counts it as written before
+the run started. A page the agent asks for that you didn't seed is fetched
+live. The report's page replay line says how many requests used the seeded
+pages, on its own line apart from sweep replay. If the base arm ran without
+the seeded pages, the line says so: that is what a PR adding `seedPages` to an
+existing case looks like, since the base arm runs the base ref's list.
+
+Three things to know:
+
+- **Changing a page's content mid-sweep makes the runs already out read it as
+  a miss.** The broker serves a page only if it was written before the run
+  started. Identical content is never rewritten, so this only happens when two
+  branches sweep the same case with different pages at once.
+- **Removing a page doesn't remove it from the store.** The store is one per
+  case, and old pages stay until they expire after 14 days. To retire a seeded
+  page sooner, rename the case.
+- **Two sweeps of the same case share the store,** so the last write wins.
+
 ## Three agents read gp-api, and run as a seeded dev account
 
 `meeting_briefing` reads the official's priorities and community issues, and

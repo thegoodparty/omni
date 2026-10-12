@@ -61,7 +61,16 @@ export interface SeededTranscripts {
 // How each replaying agent's candidate runs were served. Only counts, never a
 // URL: this page is public.
 export type PageReplaySummary =
-  | { agentId: string; state: 'counted'; hits: number; misses: number }
+  | {
+      agentId: string
+      state: 'counted'
+      hits: number
+      misses: number
+      seeded: boolean
+      // A seeded case whose base arm ran without the seeded pages, which is
+      // what a PR adding seedPages to an existing case looks like.
+      baseUnseeded?: boolean
+    }
   | {
       agentId: string
       state: 'inactive'
@@ -520,9 +529,14 @@ const replayLine = (replay: PageReplaySummary): string => {
   const total = replay.hits + replay.misses
   // Rounded down, so one live request never reads as 100%.
   const percent = Math.floor((replay.hits / total) * 100)
+  const source = replay.seeded ? 'the seeded pages' : "the base run's copy"
+  const unseeded =
+    replay.baseUnseeded === true
+      ? ' The base arm ran without the seeded pages, so it saw the live web.'
+      : ''
   return (
     `Page replay: ${replay.hits} of ${total} page requests (${percent}%) ` +
-    `used the base run's copy; ${replay.misses} went live.`
+    `used ${source}; ${replay.misses} went live.${unseeded}`
   )
 }
 
@@ -530,7 +544,7 @@ const agentSection = (
   score: AgentScore,
   config: JudgeConfig,
   spend: AgentSpend | undefined,
-  replay: PageReplaySummary | undefined,
+  replays: readonly PageReplaySummary[],
 ): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
@@ -593,7 +607,7 @@ const agentSection = (
   lines.push(...controlLines(score))
   lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))
-  if (replay !== undefined) lines.push(`- ${replayLine(replay)}`)
+  for (const replay of replays) lines.push(`- ${replayLine(replay)}`)
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push(...toolErrorCauseLines(score))
@@ -965,7 +979,7 @@ export const renderReport = (
         score,
         config,
         report.actualCost?.agents.find((a) => a.agentId === score.agentId),
-        report.pageReplay?.find((r) => r.agentId === score.agentId),
+        (report.pageReplay ?? []).filter((r) => r.agentId === score.agentId),
       ),
     )
     lines.push('')

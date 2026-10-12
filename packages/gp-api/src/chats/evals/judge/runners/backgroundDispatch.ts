@@ -9,6 +9,7 @@ import {
   isChatCase,
   loadBackgroundCases,
   loadCaseList,
+  loadSeedPages,
 } from '../cases'
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
@@ -284,7 +285,13 @@ export const backgroundRunInputFor = (
     agentId: request.agent.agentId,
     arm: request.arm,
     attempt: request.attempt,
-    agentCase: request.case,
+    agentCase: {
+      ...request.case,
+      seedPages:
+        request.case.seedPages === undefined
+          ? undefined
+          : loadSeedPages(request.agent.agentId, request.case),
+    },
     // Built from the published manifest rather than passed through: a judge
     // run may change what the agent is told to do, never what it is allowed
     // to touch.

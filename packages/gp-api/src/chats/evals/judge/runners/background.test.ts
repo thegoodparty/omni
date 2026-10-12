@@ -2,8 +2,10 @@ import {
   JUDGE_RUN_ID_MAX_LENGTH,
   JudgeOverrideSchema,
   judgeReplayBaseKey,
+  judgeReplaySeedKey,
   judgeReplaySweepKey,
 } from '@goodparty_org/contracts'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -33,6 +35,9 @@ import {
   judgeRunId,
   pageReplayFor,
   parseTrace,
+  seedPageHead,
+  seedPageKeys,
+  seedPageMeta,
   pollForObject,
   readCachedBaseArm,
   runBackgroundBaseArm,
@@ -2588,5 +2593,125 @@ describe('page replay', () => {
         input.attempt,
       ),
     })
+  })
+})
+
+describe('seeded pages', () => {
+  const PAGE = {
+    url: 'https://www.example.com/people/jordan-rivera',
+    contentType: 'text/html',
+    body: 'Jordan Rivera, DDS (retired)\n',
+  }
+  const seededInput = (overrides: Partial<BackgroundRunInput> = {}) =>
+    runInput({
+      agentCase: { caseId: 'namesake-page', params: {}, seedPages: [PAGE] },
+      ...overrides,
+    })
+
+  it('replays the seed store on both arms, for any agent', () => {
+    const key = judgeReplaySeedKey(AGENT, 'namesake-page')
+
+    expect(pageReplayFor(seededInput({ arm: 'base' }))).toEqual({
+      mode: 'replay',
+      key,
+    })
+    expect(pageReplayFor(seededInput({ arm: 'candidate' }))).toEqual({
+      mode: 'replay',
+      key,
+    })
+  })
+
+  it('keys a page by the SHA-256 of its URL, where the broker looks', () => {
+    const digest = createHash('sha256').update(PAGE.url).digest('hex')
+
+    expect(seedPageKeys('_judge/replay/seed/a/c', PAGE.url)).toEqual({
+      body: `_judge/replay/seed/a/c/fetch/${digest}.body`,
+      meta: `_judge/replay/seed/a/c/fetch/${digest}.json`,
+      head: `_judge/replay/seed/a/c/head/${digest}.json`,
+    })
+  })
+
+  // The broker reads this with a strict model (gp-ai page_replay._FetchMeta),
+  // and its suite parses this same literal.
+  it('writes exactly the metadata the broker reads', () => {
+    expect(seedPageMeta(PAGE)).toBe(
+      '{"status":200,"content_type":"text/html",' +
+        '"final_url":"https://www.example.com/people/jordan-rivera",' +
+        '"byte_size":29}',
+    )
+    expect(seedPageHead(PAGE)).toBe(
+      '{"status":200,' +
+        '"final_url":"https://www.example.com/people/jordan-rivera"}',
+    )
+  })
+
+  const sendAfterPlanting = (store: FakeStore, clock: Clock) => {
+    const startMs = clock.now().getTime()
+    const seen = { planted: [] as string[], waitedMs: 0 }
+    const queue: FakeQueue = {
+      sent: [],
+      async send(message) {
+        seen.planted = store.puts.map((p) => p.key)
+        seen.waitedMs = clock.now().getTime() - startMs
+        this.sent.push(message)
+      },
+    }
+    return { queue, seen }
+  }
+  const SEED_KEYS = seedPageKeys(
+    judgeReplaySeedKey(AGENT, 'namesake-page'),
+    PAGE.url,
+  )
+
+  it('plants the page for fetch and HEAD before it dispatches', async () => {
+    const input = seededInput()
+    const store = completedRun(input, idFor(input))
+    const clock = fakeClock()
+    const { queue, seen } = sendAfterPlanting(store, clock)
+
+    await runBackgroundCase(deps(store, queue, clock), input)
+
+    expect(seen.planted).toEqual(
+      expect.arrayContaining([SEED_KEYS.body, SEED_KEYS.meta, SEED_KEYS.head]),
+    )
+    expect(store.objects.get(path(ARTIFACT_BUCKET, SEED_KEYS.body))).toBe(
+      PAGE.body,
+    )
+  })
+
+  it('waits a second after planting before it dispatches', async () => {
+    const input = seededInput()
+    const store = completedRun(input, idFor(input))
+    const clock = fakeClock()
+    const { queue, seen } = sendAfterPlanting(store, clock)
+
+    await runBackgroundCase(deps(store, queue, clock), input)
+
+    expect(seen.waitedMs).toBeGreaterThanOrEqual(1_000)
+  })
+
+  // Every attempt of both arms plants the same case, and a rewrite would make
+  // the runs already out read the page as a miss.
+  it('rewrites nothing when the stored pages already match', async () => {
+    const input = seededInput()
+    const store = completedRun(input, idFor(input))
+    await runBackgroundCase(deps(store, fakeQueue(), fakeClock()), input)
+    store.puts.length = 0
+    const clock = fakeClock()
+    const { queue, seen } = sendAfterPlanting(store, clock)
+
+    await runBackgroundCase(deps(store, queue, clock), input)
+
+    expect(seen.planted.filter((key) => key.includes('/seed/'))).toEqual([])
+    expect(seen.waitedMs).toBe(0)
+  })
+
+  it('plants nothing for a case without seeded pages', async () => {
+    const input = runInput()
+    const store = completedRun(input, idFor(input))
+
+    await runBackgroundCase(deps(store, fakeQueue(), fakeClock()), input)
+
+    expect(store.puts.some((p) => p.key.includes('/fetch/'))).toBe(false)
   })
 })

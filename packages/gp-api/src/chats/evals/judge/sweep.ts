@@ -1,3 +1,7 @@
+import {
+  JUDGE_REPLAY_KEY_PREFIX,
+  type JudgeReplay,
+} from '@goodparty_org/contracts'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -220,40 +224,19 @@ const skipReasonFor = (
     .flatMap((m) => m.skipped.filter((s) => s.agentId === agentId))
     .map((s) => s.reason)[0]
 
-// A candidate run is counted only when the base run of the same case and
-// attempt used the same store. A base arm with no replay setting (its code
-// predates replay), or one whose key differs, gave the candidate nothing to
-// replay, and its misses would read as a real but low hit rate.
-const pageReplaySummary = async (
+type ReplayingRun = { runId: string; replay: JudgeReplay }
+
+const countReplay = async (
   store: RecordStore,
   agentId: string,
-  records: readonly RunRecord[],
-): Promise<PageReplaySummary | undefined> => {
-  const candidates = records.filter(
-    (r) => r.arm === 'candidate' && r.pageReplay?.mode === 'replay',
-  )
-  if (candidates.length === 0) return undefined
-  const bases = records.filter((r) => r.arm === 'base')
-  const paired = candidates.flatMap((r) =>
-    r.pageReplay !== undefined &&
-    bases.some(
-      (b) =>
-        b.caseId === r.caseId &&
-        b.attempt === r.attempt &&
-        b.pageReplay?.key === r.pageReplay?.key,
-    )
-      ? [{ runId: r.runId, replay: r.pageReplay }]
-      : [],
-  )
-  if (paired.length === 0) {
-    return bases.some((b) => b.pageReplay !== undefined)
-      ? { agentId, state: 'inactive', why: 'keyMismatch' }
-      : { agentId, state: 'inactive', why: 'baseDidNotRecord' }
-  }
+  runs: readonly ReplayingRun[],
+  seeded: boolean,
+  baseUnseeded: boolean,
+): Promise<PageReplaySummary> => {
   let counts: Awaited<ReturnType<RecordStore['replayOutcomes']>>[]
   try {
     counts = await Promise.all(
-      paired.map(({ runId, replay }) => store.replayOutcomes(replay, runId)),
+      runs.map(({ runId, replay }) => store.replayOutcomes(replay, runId)),
     )
   } catch (err) {
     console.error(`judge: listing ${agentId}'s page replay markers failed`, err)
@@ -267,7 +250,71 @@ const pageReplaySummary = async (
   const misses = seen.reduce((sum, c) => sum + c.misses, 0)
   return hits + misses === 0
     ? { agentId, state: 'inactive', why: 'noMarkers' }
-    : { agentId, state: 'counted', hits, misses }
+    : {
+        agentId,
+        state: 'counted',
+        hits,
+        misses,
+        seeded,
+        ...(baseUnseeded && { baseUnseeded }),
+      }
+}
+
+// Two summaries at most, one per source, so a seeded hit is never added to a
+// replayed one. A sweep-replayed candidate run counts only when the base run
+// of the same case and attempt recorded into the same store: a base arm with
+// no replay setting (its code predates replay), or one whose key differs,
+// gave it nothing to replay, and its misses would read as a real but low hit
+// rate. A seeded run needs no base: the bench wrote its store.
+const pageReplaySummaries = async (
+  store: RecordStore,
+  agentId: string,
+  records: readonly RunRecord[],
+): Promise<PageReplaySummary[]> => {
+  const bases = records.filter((r) => r.arm === 'base')
+  const sameStoreAsBase = (r: RunRecord): boolean =>
+    bases.some(
+      (b) =>
+        b.caseId === r.caseId &&
+        b.attempt === r.attempt &&
+        b.pageReplay?.key === r.pageReplay?.key,
+    )
+  const replaying = records.flatMap((r) =>
+    r.arm === 'candidate' && r.pageReplay?.mode === 'replay'
+      ? [{ record: r, runId: r.runId, replay: r.pageReplay }]
+      : [],
+  )
+  const isSeed = (run: ReplayingRun): boolean =>
+    run.replay.key.startsWith(`${JUDGE_REPLAY_KEY_PREFIX}seed/`)
+  const seeded = replaying.filter(isSeed)
+  const swept = replaying.filter((run) => !isSeed(run))
+  const summaries: PageReplaySummary[] = []
+  if (swept.length > 0) {
+    const paired = swept.filter((run) => sameStoreAsBase(run.record))
+    if (paired.length > 0) {
+      summaries.push(await countReplay(store, agentId, paired, false, false))
+    } else {
+      summaries.push({
+        agentId,
+        state: 'inactive',
+        why: bases.some((b) => b.pageReplay !== undefined)
+          ? 'keyMismatch'
+          : 'baseDidNotRecord',
+      })
+    }
+  }
+  if (seeded.length > 0) {
+    summaries.push(
+      await countReplay(
+        store,
+        agentId,
+        seeded,
+        true,
+        seeded.some((run) => !sameStoreAsBase(run.record)),
+      ),
+    )
+  }
+  return summaries
 }
 
 const refusalFor = (
@@ -616,14 +663,14 @@ export const judgeSweep = async (
   const pageReplay = (
     await Promise.all(
       env.agentIds.map((agentId) =>
-        pageReplaySummary(
+        pageReplaySummaries(
           deps.store,
           agentId,
           records.filter((r) => r.agentId === agentId),
         ),
       ),
     )
-  ).filter((summary) => summary !== undefined)
+  ).flat()
   // Over every record for the same reason the mart check is: a run excluded
   // from the comparison still produced an answer, and an answer that broke a
   // rule is a fact about the branch whether or not it was judgeable.

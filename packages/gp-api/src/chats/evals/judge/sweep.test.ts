@@ -1934,6 +1934,69 @@ describe('the page replay line', () => {
     )
   })
 
+  it('says the counts came from the seeded pages on a seeded case', async () => {
+    const SEED = '_judge/replay/seed/chief_of_staff/case-0'
+    const records = pair('case-0', ['base answer', 'candidate answer']).map(
+      (record) => ({
+        ...record,
+        pageReplay: { mode: 'replay' as const, key: SEED },
+      }),
+    )
+    const store = counting(await seeded(records), async () => ({
+      hits: 2,
+      misses: 0,
+    }))
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      'Page replay: 2 of 2 page requests (100%) used the seeded pages',
+    )
+  })
+
+  it('says when the base arm ran without the seeded pages', async () => {
+    const SEED = '_judge/replay/seed/chief_of_staff/case-0'
+    const records = pair('case-0', ['base answer', 'candidate answer']).map(
+      (record) =>
+        record.arm === 'candidate'
+          ? { ...record, pageReplay: { mode: 'replay' as const, key: SEED } }
+          : record,
+    )
+    const store = counting(await seeded(records), async () => ({
+      hits: 1,
+      misses: 0,
+    }))
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      'The base arm ran without the seeded pages',
+    )
+  })
+
+  it('keeps seeded and replayed counts on separate lines', async () => {
+    const SEED = '_judge/replay/seed/chief_of_staff/case-1'
+    const records = [
+      ...replaying(true),
+      ...pair('case-1', ['base one', 'candidate one']).map((record) => ({
+        ...record,
+        pageReplay: { mode: 'replay' as const, key: SEED },
+      })),
+    ]
+    const store = counting(await seeded(records), async (replay) =>
+      replay.key === SEED ? { hits: 1, misses: 0 } : { hits: 0, misses: 2 },
+    )
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      "0 of 2 page requests (0%) used the base run's copy",
+    )
+    expect(result.markdown).toContain(
+      '1 of 1 page requests (100%) used the seeded pages',
+    )
+  })
+
   it('says replay was not active when the base arm recorded nothing', async () => {
     const replayOutcomes = vi.fn(async () => ({ hits: 0, misses: 4 }))
     const store = counting(await seeded(replaying(false)), replayOutcomes)
