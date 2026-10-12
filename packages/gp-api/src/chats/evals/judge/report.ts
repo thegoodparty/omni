@@ -65,9 +65,9 @@ export type PageReplaySummary =
   | {
       agentId: string
       state: 'inactive'
-      why: 'baseDidNotRecord' | 'noMarkers'
+      why: 'baseDidNotRecord' | 'keyMismatch' | 'noMarkers'
     }
-  | { agentId: string; state: 'unreadable'; why: string }
+  | { agentId: string; state: 'unreadable'; why: 'listFailed' | 'localStore' }
 
 export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
@@ -498,20 +498,31 @@ const toolErrorCauseLines = (score: AgentScore): string[] => {
 // about whether the two arms fetched the same pages.
 const replayLine = (replay: PageReplaySummary): string => {
   if (replay.state === 'unreadable') {
-    return `Page replay: hit rate unavailable, ${replay.why}`
+    return replay.why === 'listFailed'
+      ? 'Page replay: hit rate unavailable. Its outcome markers could not ' +
+          'be listed.'
+      : "Page replay: hit rate unavailable. This sweep's records are not " +
+          'in the artifacts bucket, where the broker leaves its markers.'
   }
   if (replay.state === 'inactive') {
-    return replay.why === 'baseDidNotRecord'
-      ? 'Page replay: not active. The base arm recorded nothing, usually ' +
-          'because its code predates replay.'
-      : 'Page replay: not active. The candidate runs left no outcome ' +
-          'markers, so no page fetch went through replay.'
+    return {
+      baseDidNotRecord:
+        'Page replay: not active. The base arm recorded nothing, usually ' +
+        'because its code predates replay.',
+      keyMismatch:
+        'Page replay: not active. No candidate run replayed the store its ' +
+        'base run recorded into.',
+      noMarkers:
+        'Page replay: not active. The candidate runs left no outcome ' +
+        'markers, so no page request went through replay.',
+    }[replay.why]
   }
   const total = replay.hits + replay.misses
+  // Rounded down, so one live request never reads as 100%.
+  const percent = Math.floor((replay.hits / total) * 100)
   return (
-    `Page replay: ${replay.hits} of ${total} page fetches ` +
-    `(${percentOf(replay.hits / total)}) used the base run's copy; ` +
-    `${replay.misses} fetched live.`
+    `Page replay: ${replay.hits} of ${total} page requests (${percent}%) ` +
+    `used the base run's copy; ${replay.misses} went live.`
   )
 }
 

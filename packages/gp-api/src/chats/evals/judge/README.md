@@ -941,9 +941,10 @@ How it works:
   canonical pages about a named person.
 
 The report prints one line per replaying agent under "Measured":
-`Page replay: 26 of 30 page fetches (87%) used the base run's copy; 4 fetched
+`Page replay: 26 of 30 page requests (86%) used the base run's copy; 4 went
 live.` It counts the hit and miss markers the broker leaves for each candidate
-run, and never prints a URL. Read a low rate as the candidate going somewhere
+run (page fetches and HEAD checks), only where the base run of the same case
+and attempt recorded into the same store, and never prints a URL. Read a low rate as the candidate going somewhere
 the base didn't, usually because a search came back different. "Not active"
 means nothing was replayed, which is different from 0%. It shows up in two
 cases:
@@ -953,12 +954,16 @@ cases:
 - **No marker came back.** Either the dispatch Lambda or the broker didn't
   apply replay, or no page was fetched at all.
 
+It says the rate is unavailable when the markers can't be listed, including a
+sweep whose records went to a local directory.
+
 The broker applies replay only to dev judge runs, and only while its
 `REPLAY_ENABLED` switch is on (gp-ai `broker/page_replay.py`). Recordings live
 under `_judge/replay/` in the artifacts bucket and expire after 14 days. A base
 arm captured for the cache (`runBackgroundBaseArm`) records under its config
 digest instead (`judgeReplayBaseKey`), so a candidate compared against that
-cached base can replay from it by passing the same key as `replayKey`.
+cached base can replay from it by passing the same key as `replayKey`. That
+holds only for 14 days, while the cache entry lasts 90.
 
 ## Three agents read gp-api, and run as a seeded dev account
 

@@ -1636,10 +1636,23 @@ export const runBackgroundBaseArm = async (
     )
   }
 
-  const record = await runBackgroundCase(deps, {
-    ...input,
-    replayKey: judgeReplayBaseKey(input.agentId, digest, caseId, input.attempt),
-  })
+  // Recordings expire after 14 days and cache entries after 90, so a reuse
+  // past 14 days replays from an empty store. Whoever wires the cache must
+  // treat such an entry as a miss for an agent that replays pages.
+  const record = await runBackgroundCase(
+    deps,
+    findAgent(input.agentId)?.replaysPages === true
+      ? {
+          ...input,
+          replayKey: judgeReplayBaseKey(
+            input.agentId,
+            digest,
+            caseId,
+            input.attempt,
+          ),
+        }
+      : input,
+  )
   // Never cache a run that cannot be compared, or one that hit a tool error.
   // A cached timeout, or a cached run with no readable artifact or trace,
   // would be reused by every later sweep, so one bad run would become a

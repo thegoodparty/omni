@@ -2496,7 +2496,7 @@ describe('page replay', () => {
   const sentMessage = (queue: FakeQueue) =>
     JSON.parse(queue.sent[0]?.body ?? '{}')
 
-  it('records on the base arm and replays the same store on the candidate', () => {
+  it('has the two arms of an attempt share one store', () => {
     const base = pageReplayFor(replayInput({ arm: 'base' }))
     const candidate = pageReplayFor(replayInput({ arm: 'candidate' }))
 
@@ -2514,7 +2514,7 @@ describe('page replay', () => {
     expect(pageReplayFor(replayInput({ replayKey: key }))?.key).toBe(key)
   })
 
-  it('sends the setting on the dispatch and stamps it on the record', async () => {
+  it('stamps the dispatched setting on the record', async () => {
     const input = replayInput({ arm: 'base' })
     const queue = fakeQueue()
 

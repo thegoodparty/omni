@@ -63,6 +63,7 @@ import {
   type AgentRulings,
   type ArmManifest,
   type RecordStore,
+  type ReplayOutcomes,
 } from './records'
 import {
   renderReport,
@@ -219,47 +220,51 @@ const skipReasonFor = (
     .flatMap((m) => m.skipped.filter((s) => s.agentId === agentId))
     .map((s) => s.reason)[0]
 
-// The candidate runs replay what the base arm recorded, so a base arm with no
-// replay setting at all (its code predates replay) means there was nothing to
-// replay, however the markers came out. Checked before listing anything.
+// A candidate run is counted only when the base run of the same case and
+// attempt used the same store. A base arm with no replay setting (its code
+// predates replay), or one whose key differs, gave the candidate nothing to
+// replay, and its misses would read as a real but low hit rate.
 const pageReplaySummary = async (
   store: RecordStore,
   agentId: string,
   records: readonly RunRecord[],
 ): Promise<PageReplaySummary | undefined> => {
-  const replaying = records.flatMap((r) =>
-    r.arm === 'candidate' && r.pageReplay?.mode === 'replay'
+  const candidates = records.filter(
+    (r) => r.arm === 'candidate' && r.pageReplay?.mode === 'replay',
+  )
+  if (candidates.length === 0) return undefined
+  const bases = records.filter((r) => r.arm === 'base')
+  const paired = candidates.flatMap((r) =>
+    r.pageReplay !== undefined &&
+    bases.some(
+      (b) =>
+        b.caseId === r.caseId &&
+        b.attempt === r.attempt &&
+        b.pageReplay?.key === r.pageReplay?.key,
+    )
       ? [{ runId: r.runId, replay: r.pageReplay }]
       : [],
   )
-  if (replaying.length === 0) return undefined
-  if (!records.some((r) => r.arm === 'base' && r.pageReplay !== undefined)) {
-    return { agentId, state: 'inactive', why: 'baseDidNotRecord' }
+  if (paired.length === 0) {
+    return bases.some((b) => b.pageReplay !== undefined)
+      ? { agentId, state: 'inactive', why: 'keyMismatch' }
+      : { agentId, state: 'inactive', why: 'baseDidNotRecord' }
   }
   let counts: Awaited<ReturnType<RecordStore['replayOutcomes']>>[]
   try {
     counts = await Promise.all(
-      replaying.map(({ runId, replay }) => store.replayOutcomes(replay, runId)),
+      paired.map(({ runId, replay }) => store.replayOutcomes(replay, runId)),
     )
   } catch (err) {
     console.error(`judge: listing ${agentId}'s page replay markers failed`, err)
-    return {
-      agentId,
-      state: 'unreadable',
-      why: 'because its outcome markers could not be listed.',
-    }
+    return { agentId, state: 'unreadable', why: 'listFailed' }
   }
-  if (counts.some((c) => c === undefined)) {
-    return {
-      agentId,
-      state: 'unreadable',
-      why:
-        "because this sweep's records are not in the artifacts bucket, " +
-        'where the broker leaves its markers.',
-    }
+  const seen = counts.filter((c): c is ReplayOutcomes => c !== undefined)
+  if (seen.length < counts.length) {
+    return { agentId, state: 'unreadable', why: 'localStore' }
   }
-  const hits = counts.reduce((sum, c) => sum + (c?.hits ?? 0), 0)
-  const misses = counts.reduce((sum, c) => sum + (c?.misses ?? 0), 0)
+  const hits = seen.reduce((sum, c) => sum + c.hits, 0)
+  const misses = seen.reduce((sum, c) => sum + c.misses, 0)
   return hits + misses === 0
     ? { agentId, state: 'inactive', why: 'noMarkers' }
     : { agentId, state: 'counted', hits, misses }

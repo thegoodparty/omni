@@ -48,8 +48,7 @@ export const AgentEntrySchema = z
     // these run as the seeded account in judgeFixtureIdentity.ts; every other
     // dispatch names no user, so the broker cannot reach gp-api for it.
     readsGpApi: z.literal(true).optional(),
-    // A background agent whose sweeps record the base arm's page fetches and
-    // replay them to the candidate. See PAGE_REPLAY_AGENTS.
+    // See PAGE_REPLAY_AGENTS.
     replaysPages: z.literal(true).optional(),
     // Required on a wired entry, so "wired" can never be a claim with no run
     // behind it.
