@@ -965,6 +965,22 @@ digest instead (`judgeReplayBaseKey`), so a candidate compared against that
 cached base can replay from it by passing the same key as `replayKey`. That
 holds only for 14 days, while the cache entry lasts 90.
 
+**Measured hit rates.** From live dev sweeps of unchanged code, one attempt of
+three scored cases each. Read these before turning replay on for another
+agent.
+
+| agent | page requests replayed | sweep |
+| --- | --- | --- |
+| `race_opponent_collection` | 43 of 59 (72%) | [run 38204186725](https://github.com/thegoodparty/omni/actions/runs/38204186725) |
+| `self_research` | 5 of 36 (13%) | [run 38206351480](https://github.com/thegoodparty/omni/actions/runs/38206351480) |
+| `opponent_research` | 6 of 38 (15%) | [run 38206351480](https://github.com/thegoodparty/omni/actions/runs/38206351480) |
+
+The misses are pages the candidate found through web search that the base
+never fetched. `race_opponent_collection` starts from the URL hints in its
+params, so both arms open the same pages. The two research agents start from
+a search, so their arms mostly read different pages and replay holds little
+still. For them, seeded pages are the better tool.
+
 ## Seeded pages: plant what the agent will find
 
 A background case can plant pages for both arms with `seedPages`. The broker
