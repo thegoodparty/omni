@@ -313,7 +313,11 @@ describe('DomainsController.purchaseDomain MCP discoverability', () => {
     expect(purchase!.description).toMatch(
       /Purchase a specific available domain/,
     )
-    expect(purchase!.description).toMatch(/Poll GET \/v1\/domains\/status/)
+    // The description must not send agents off to poll for `registered`:
+    // configureDomain is the only writer of that status, so an agent waiting
+    // on it before calling configure waits forever.
+    expect(purchase!.description).toMatch(/DomainStatus\.submitted/)
+    expect(purchase!.description).toMatch(/Do not poll for registered/)
     expect(purchase!.outputSchema).toBe(PurchaseDomainResponseSchema)
     expect(purchase!.inputDeclarations.body.declared).toBe(true)
     expect(purchase!.inputDeclarations.body.schema).toBe(
