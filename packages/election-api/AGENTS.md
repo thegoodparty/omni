@@ -41,6 +41,7 @@ npm run test -w packages/election-api               # vitest run
 | ------------------------------------- | ------------------------------------- |
 | Adding an endpoint / module           | `docs/architecture.md` § Module shape |
 | Querying data / adding a Prisma model | `docs/data-model.md`                  |
+| Fixing officeholder / incumbent data     | `docs/officeholder-corrections.md`    |
 | First-time setup                      | `docs/getting-started.md`             |
 | AI rule-by-rule code review           | `ai-rules/` (git submodule)           |
 
