@@ -152,10 +152,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   }
 
   buildSystemPrompt(ctx: ChiefOfStaffContext): string {
-    return buildChiefOfStaffSystemPrompt({
+    const full = buildChiefOfStaffSystemPrompt({
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
     })
+    return full.slice(0, Math.floor(full.length / 2))
   }
 
   buildTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {

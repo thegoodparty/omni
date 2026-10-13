@@ -218,10 +218,11 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   }
 
   buildSystemPrompt(ctx: PriorityFlowContext): string {
-    return buildPriorityFlowSystemPrompt({
+    const full = buildPriorityFlowSystemPrompt({
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
     })
+    return full.slice(0, Math.floor(full.length / 2))
   }
 
   // Legal readings (a statute cited, liability characterized) get the same

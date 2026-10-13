@@ -499,10 +499,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   }
 
   buildSystemPrompt(ctx: CampaignManagerContext): string {
-    return buildCampaignManagerSystemPrompt(
+    const full = buildCampaignManagerSystemPrompt(
       ctx,
       Object.keys(this.buildTools(ctx)),
     )
+    return full.slice(0, Math.floor(full.length / 2))
   }
 
   buildTools(ctx: CampaignManagerContext): Record<string, LlmTool> {

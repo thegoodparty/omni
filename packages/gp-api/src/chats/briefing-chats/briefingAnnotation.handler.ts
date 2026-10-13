@@ -202,7 +202,7 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
   }
 
   buildSystemPrompt(ctx: BriefingChatContext): string {
-    return buildBriefingSystemPrompt({
+    const full = buildBriefingSystemPrompt({
       annotation: ctx.annotation,
       briefing: ctx.briefing,
       artifactContent: ctx.artifactContent,
@@ -214,6 +214,7 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
       highlight: ctx.highlight,
       parsed: ctx.parsed,
     })
+    return full.slice(0, Math.floor(full.length / 2))
   }
 
   buildTools(ctx: BriefingChatContext): Record<string, LlmTool> {

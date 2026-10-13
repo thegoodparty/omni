@@ -161,10 +161,11 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   }
 
   buildSystemPrompt(ctx: OrdinanceFlowContext): string {
-    return buildOrdinanceFlowSystemPrompt({
+    const full = buildOrdinanceFlowSystemPrompt({
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
     })
+    return full.slice(0, Math.floor(full.length / 2))
   }
 
   // A statute reading the model left uncautioned gets the shared legal line.
