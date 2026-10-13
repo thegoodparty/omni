@@ -12,6 +12,7 @@ import {
   PrioritySource,
 } from '../../generated/prisma'
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
+import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 
 const service = useTestService()
 
@@ -161,6 +162,46 @@ describe('a Serve text that reports back', () => {
         organizationSlug: slug,
       }),
     ).rejects.toThrow(/already went out/)
+  })
+
+  // Both drafts passed checkout and were paid at once: the first claim
+  // sends, the second is canceled before anything goes out.
+  it('sends only the first of two report backs paid at once', async () => {
+    vi.spyOn(
+      service.app.get(QueueProducerService),
+      'sendMessage',
+    ).mockResolvedValue(undefined)
+    const first = await create()
+    const second = await create()
+    const purchase = service.app.get(OutreachServeSmsPurchaseHandlerService)
+    const metadata = (id: number) => ({
+      outreachId: id,
+      organizationSlug: slug,
+    })
+
+    await purchase.executePostPurchase(
+      'cs_first',
+      metadata(first.data.outreachId),
+    )
+    await expect(
+      purchase.executePostPurchase(
+        'cs_second',
+        metadata(second.data.outreachId),
+      ),
+    ).rejects.toThrow(/already went out/)
+
+    const rows = await service.prisma.outreach.findMany({
+      where: { reportBackForOutreachId: askedId },
+      orderBy: { id: 'asc' },
+      select: { status: true, stripeCheckoutSessionId: true },
+    })
+    expect(rows).toEqual([
+      { status: OutreachStatus.pending, stripeCheckoutSessionId: 'cs_first' },
+      {
+        status: OutreachStatus.canceled,
+        stripeCheckoutSessionId: 'cs_second',
+      },
+    ])
   })
 
   it('refuses a report back on a report back', async () => {

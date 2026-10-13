@@ -420,6 +420,12 @@ priority or a check of its own, and one carrying the join line. The column is
 the marker: a report back is linked through the send it answers, never to the
 priority, so it gets no report back card of its own and stays out of the
 priority's pooled themes and results.
+One report back per send goes out. Unpaid drafts are allowed (re-entering
+the flow makes a fresh one), but the create and the checkout refuse once one
+is past checkout, and the post-purchase claim is serialized per answered send
+under an advisory lock: a second draft paid at the same moment is canceled
+unsent (`canceledBy: report_back_already_sent`), keeping its checkout session
+for a refund from the console's Canceled tab.
 `OutreachReportBackService` (its own `OutreachReportBackModule`, importing
 nothing) is the one read of all this: which sends have their replies in
 (completed, with no effort summary still running), who a report back reaches,

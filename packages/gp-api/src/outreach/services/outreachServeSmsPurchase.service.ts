@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { z } from 'zod'
-import { OutreachStatus, OutreachType } from 'src/generated/prisma'
+import { OutreachStatus, OutreachType, Prisma } from 'src/generated/prisma'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
@@ -139,7 +139,7 @@ export class OutreachServeSmsPurchaseHandlerService
         campaignId: null,
         outreachType: OutreachType.text,
       },
-      select: { textCount: true },
+      select: { textCount: true, reportBackForOutreachId: true },
     })
 
     if (!row) {
@@ -150,32 +150,39 @@ export class OutreachServeSmsPurchaseHandlerService
       )
     }
 
-    const claimed = await this.model.updateMany({
-      where: {
-        id: outreachId,
-        organizationSlug,
-        campaignId: null,
-        outreachType: OutreachType.text,
-        status: OutreachStatus.pending_payment,
-      },
-      data: {
-        status: OutreachStatus.pending,
-        // What was billed, recorded in the same atomic write as the claim.
-        // Equal to textCount — Serve has no free-texts offer, that is a
-        // campaign-scoped Win promotion — so the "was discounted" predicate
-        // (billableTextCount < textCount) stays false.
-        ...(row.textCount === null ? {} : { billableTextCount: row.textCount }),
-        // Durable payment link for a later refund. The first argument is a
-        // real checkout session id on the paid path and a synthetic
-        // `free_confirmed_*` marker on the zero-amount path, so only real
-        // sessions are persisted. Written WITH the claim rather than after it:
-        // if anything below fails and the status is reverted, the row still
-        // shows which payment it holds.
-        ...(sessionId.startsWith('cs_')
-          ? { stripeCheckoutSessionId: sessionId }
-          : {}),
-      },
-    })
+    const claimData = {
+      status: OutreachStatus.pending,
+      // What was billed, recorded in the same atomic write as the claim.
+      // Equal to textCount — Serve has no free-texts offer, that is a
+      // campaign-scoped Win promotion — so the "was discounted" predicate
+      // (billableTextCount < textCount) stays false.
+      ...(row.textCount === null ? {} : { billableTextCount: row.textCount }),
+      // Durable payment link for a later refund. The first argument is a
+      // real checkout session id on the paid path and a synthetic
+      // `free_confirmed_*` marker on the zero-amount path, so only real
+      // sessions are persisted. Written WITH the claim rather than after it:
+      // if anything below fails and the status is reverted, the row still
+      // shows which payment it holds.
+      ...(sessionId.startsWith('cs_')
+        ? { stripeCheckoutSessionId: sessionId }
+        : {}),
+    }
+    const claimWhere = {
+      id: outreachId,
+      organizationSlug,
+      campaignId: null,
+      outreachType: OutreachType.text,
+      status: OutreachStatus.pending_payment,
+    }
+    const claimed = row.reportBackForOutreachId
+      ? await this.claimReportBack(
+          outreachId,
+          row.reportBackForOutreachId,
+          claimWhere,
+          claimData,
+          sessionId,
+        )
+      : await this.model.updateMany({ where: claimWhere, data: claimData })
 
     if (claimed.count === 0) {
       await this.confirmClaimed(outreachId, organizationSlug)
@@ -221,6 +228,55 @@ export class OutreachServeSmsPurchaseHandlerService
     // above: the send stands even if this write fails, and the throw makes
     // Stripe redeliver, which lands in the lost-claim branch and records it.
     await this.priorityStatus.recordOutreachSent(outreachId)
+  }
+
+  // Two drafts of one report back can both pass checkout when they are paid
+  // at once. The claim is serialized per send it answers, and only the first
+  // goes out: the other is canceled before anything is sent, holding its
+  // checkout session so staff can refund it from the console's Canceled tab.
+  private async claimReportBack(
+    outreachId: number,
+    reportBackForOutreachId: number,
+    where: Prisma.OutreachWhereInput,
+    data: Prisma.OutreachUpdateManyMutationInput,
+    sessionId: string,
+  ): Promise<{ count: number }> {
+    const outcome = await this.client.$transaction(async (tx) => {
+      const lockKey = `report_back:${reportBackForOutreachId}`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
+      const sibling = await tx.outreach.findFirst({
+        where: {
+          reportBackForOutreachId,
+          id: { not: outreachId },
+          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
+        },
+        select: { id: true },
+      })
+      if (!sibling) {
+        return {
+          claimed: await tx.outreach.updateMany({ where, data }),
+          duplicateOf: null,
+        }
+      }
+      await tx.outreach.updateMany({
+        where,
+        data: {
+          ...data,
+          status: OutreachStatus.canceled,
+          canceledAt: new Date(),
+          canceledBy: 'report_back_already_sent',
+        },
+      })
+      return { claimed: null, duplicateOf: sibling.id }
+    })
+    if (outcome.claimed) return outcome.claimed
+    this.logger.error(
+      { outreachId, duplicateOf: outcome.duplicateOf, sessionId },
+      'Serve report back paid after another went out; canceled unsent',
+    )
+    throw new BadRequestException(
+      `A report back on outreach ${reportBackForOutreachId} already went out`,
+    )
   }
 
   private parseMetadata(rawMetadata: unknown): ServeSmsPurchaseMetadata {
