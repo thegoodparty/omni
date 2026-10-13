@@ -99,7 +99,11 @@ export class CrmOfficeHolderService extends createPrismaBase(
     try {
       const office = await this.model.findUnique({
         where: { id: electedOfficeId },
-        include: { user: true, campaign: true },
+        include: {
+          user: true,
+          campaign: true,
+          organization: { select: { testModeCreatedAt: true } },
+        },
       })
       if (!office?.user) {
         this.logger.warn(
@@ -113,6 +117,13 @@ export class CrmOfficeHolderService extends createPrismaBase(
         this.logger.debug(
           { electedOfficeId, email: user.email },
           'skipping HubSpot Office Holder sync for a test user',
+        )
+        return
+      }
+      if (office.organization.testModeCreatedAt) {
+        this.logger.debug(
+          { electedOfficeId },
+          'skipping HubSpot Office Holder sync for a test-mode organization',
         )
         return
       }

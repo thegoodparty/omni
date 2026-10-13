@@ -53,6 +53,7 @@ const makeOffice = (overrides: Record<string, unknown> = {}) => ({
     metaData: { hubspotId: 'contact-1' },
   },
   campaign: { id: 42, data: { hubspotId: 'company-1' } },
+  organization: { testModeCreatedAt: null },
   ...overrides,
 })
 
@@ -165,6 +166,19 @@ describe('CrmOfficeHolderService.syncElectedOffice', () => {
     findUnique.mockResolvedValue(
       makeOffice({
         user: { ...makeOffice().user, email: 'e2e@test.goodparty.org' },
+      }),
+    )
+
+    await service.syncElectedOffice('eo-1', { sendSeatFields: true })
+
+    expect(upsert).not.toHaveBeenCalled()
+    expect(associationsCreate).not.toHaveBeenCalled()
+  })
+
+  it('never sends a staff test-mode office to HubSpot', async () => {
+    findUnique.mockResolvedValue(
+      makeOffice({
+        organization: { testModeCreatedAt: new Date('2026-10-09T00:00:00Z') },
       }),
     )
 

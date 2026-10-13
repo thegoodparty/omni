@@ -39,7 +39,8 @@ district change) upserts one Office Holder record by
 `gp_api_elected_office_id` and links it to the user's Contact
 (`metaData.hubspotId`) and, when the office came from a won campaign, the
 campaign's Company (`data.hubspotId`). Magic-link users get their Contact id
-from the HubSpot card's `hs_object_id`.
+from the HubSpot card's `hs_object_id`. Like the campaign sync, it also skips
+staff test-mode organizations (`Organization.testModeCreatedAt`).
 
 - **Field ownership is static.** The app owns `elected_date`,
   `sworn_in_date`, `pledged_at`, `onboarding_completed_at`, `self_reported`.
