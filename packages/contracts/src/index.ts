@@ -153,6 +153,13 @@ export {
   type UpdateFollowUpInput,
   FollowUpStatusResponseSchema,
   type FollowUpStatusResponse,
+  CivicPanelStatusSchema,
+  type CivicPanelStatus,
+  UpdateCivicPanelInputSchema,
+  type UpdateCivicPanelInput,
+  CivicPanelStatusResponseSchema,
+  type CivicPanelStatusResponse,
+  CIVIC_PANEL_STATUS_LABELS,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
   DO_NOT_KNOCK_LABELS,
@@ -1619,3 +1626,10 @@ export {
   TestModeStateSchema,
   type TestModeState,
 } from './testMode/testMode.schema'
+
+export {
+  CIVIC_PANEL_JOIN_KEYWORD,
+  CIVIC_PANEL_JOIN_LINE,
+  PANEL_ASSUMED_REPLY_RATE,
+  CONTACT_REST_DAYS,
+} from './outreach/CivicPanelJoin'

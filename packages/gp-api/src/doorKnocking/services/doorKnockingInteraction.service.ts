@@ -68,6 +68,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       supportAnswer: input.supportAnswer ?? null,
       willVote: input.willVote ?? null,
       followUp: input.followUp ?? null,
+      joinCivicPanel: input.joinCivicPanel ?? null,
       note: input.note ?? null,
       sourceId: input.clientKey,
       manual: false,

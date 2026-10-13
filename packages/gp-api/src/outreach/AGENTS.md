@@ -379,6 +379,14 @@ org has exactly one owner, so the lookup is identical for a Serve org and a
 Win campaign org and the layer does not have to know which product it is
 carrying.
 
+**The civic panel ask rides the same ingest.** A Serve text that carries
+contracts' `CIVIC_PANEL_JOIN_LINE` is created with `asksToJoinCivicPanel`
+(read off the message, never a request flag). On ingest, a JOIN reply
+(`util/civicPanelJoin.util.ts`) to such a send sets the person's
+`civic_panel` status to `member`, and a STOP to any Serve send sets it to
+`left`, both through `ContactStatusService` keyed on the reply's message id so
+a re-upload is a no-op. Win sends never write it.
+
 **Opt-out has one definition**, `util/textOptOut.util.ts`, and both products
 use it. An unambiguous keyword as a standalone SENTENCE, an ordinary-verb
 keyword only as the WHOLE message, or an explicit revocation phrase. It is

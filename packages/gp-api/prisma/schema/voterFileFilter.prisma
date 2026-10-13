@@ -87,6 +87,14 @@ model VoterFileFilter {
   /// on a call or at a door. That difference is the point; it is what lets an
   /// official work the list down.
   followUpRequested          Boolean?                           @default(false) @map("follow_up_requested")
+  /// Serve only, like followUpRequested: people whose standing `civic_panel`
+  /// status in contact_current_status is `member`, so someone who left the
+  /// panel drops out of a saved list on its next read.
+  civicPanelMember           Boolean?                           @default(false) @map("civic_panel_member")
+  /// Leaves out anyone the office contacted on any channel in the last 30
+  /// days (CONTACT_REST_DAYS), read from the interaction tables when the
+  /// list is read, so the window moves with the calendar.
+  notContactedRecently       Boolean?                           @default(false) @map("not_contacted_recently")
   outreaches                 Outreach[]
   doorKnockingTurfs          DoorKnockingTurf[]
   phoneBankingLists          PhoneBankingList[]

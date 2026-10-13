@@ -98,9 +98,11 @@ import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import {
   composeScript,
   composeServeScript,
+  withCivicPanelJoin,
   ensureSmsIdentification,
   identificationIntro,
   provisionalCommitteeName,
@@ -544,6 +546,19 @@ export const SmsFlow = ({
   // Locks are found in this, not in what is being typed, so a name the
   // candidate is halfway through typing never locks under their cursor.
   const [lockSource, setLockSource] = useState('')
+  // Serve only, behind serve-citizen-panels: whether this text asks people to
+  // reply JOIN for the official's citizens' panel. Every message the flow
+  // composes carries the line while it is on, and the toggle adds or removes
+  // it from the current one.
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(
+    surface.isServe,
+  )
+  const [asksToJoinCivicPanel, setAsksToJoinCivicPanel] = useState(false)
+  const composeMessage = (body: string, committee: string | null) =>
+    withCivicPanelJoin(
+      surface.composeMessage(body, committee),
+      surface.isServe && asksToJoinCivicPanel,
+    )
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
@@ -765,6 +780,7 @@ export const SmsFlow = ({
     setLockSource(seeded)
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
+    setAsksToJoinCivicPanel(false)
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -912,7 +928,7 @@ export const SmsFlow = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, footerCommittee])
   // The message with nothing written between its locked parts.
-  const emptyMessage = surface.composeMessage('', footerCommittee)
+  const emptyMessage = composeMessage('', footerCommittee)
   const hasWrittenBody =
     message.replace(/\s+/g, '') !== '' &&
     message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
@@ -1043,9 +1059,10 @@ export const SmsFlow = ({
   // before masking, mid-deploy) has them composed back around its body, so a
   // polish can never send without the disclaimer or opt-out.
   const keepSystemRegions = (reply: string): string => {
-    const [greeting = '', footer = ''] = surface
-      .composeMessage('', footerCommittee)
-      .split('\n\n')
+    const [greeting = '', footer = ''] = composeMessage(
+      '',
+      footerCommittee,
+    ).split('\n\n')
     return restoreSmsSystemRegions(reply, {
       greeting,
       footer,
@@ -1093,7 +1110,7 @@ export const SmsFlow = ({
           // an intro in front of the greeting.
           const full =
             currentDraft === undefined
-              ? surface.composeMessage(
+              ? composeMessage(
                   openWithSmsIdentification(
                     generated,
                     identificationFor(nextTone),
@@ -1115,7 +1132,7 @@ export const SmsFlow = ({
         onError: () => {
           if (requestId !== draftRequestRef.current) return
           if (priorMessage.trim().length > 0) return
-          loadMessage(surface.composeMessage('', footerCommittee))
+          loadMessage(composeMessage('', footerCommittee))
         },
       },
     )
@@ -1127,7 +1144,7 @@ export const SmsFlow = ({
     setUndoText(null)
     // A custom message starts as its locked parts, written between.
     const start =
-      selected === 'custom' ? surface.composeMessage('', footerCommittee) : ''
+      selected === 'custom' ? composeMessage('', footerCommittee) : ''
     loadMessage(start)
     setOwnWords(selected === 'custom')
     setToneDrafts({})
@@ -2118,6 +2135,17 @@ export const SmsFlow = ({
           onImageChange={setImage}
           imageError={imageError}
           onImageError={setImageError}
+          civicPanelAsk={
+            surface.isServe && citizenPanelsEnabled
+              ? {
+                  checked: asksToJoinCivicPanel,
+                  onChange: (checked) => {
+                    setAsksToJoinCivicPanel(checked)
+                    loadMessage(withCivicPanelJoin(message, checked))
+                  },
+                }
+              : undefined
+          }
         />
       ) : (
         <CheckoutSessionProvider

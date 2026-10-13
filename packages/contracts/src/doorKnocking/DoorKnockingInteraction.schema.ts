@@ -21,6 +21,8 @@ export const RecordDoorKnockInteractionSchema = z
     willVote: WillVoteAnswerSchema.optional(),
     // The Serve surface's terminal answer, in place of the two above.
     followUp: FollowUpAnswerSchema.optional(),
+    // Serve's closing question, asked after follow-up. Same yes/no vocabulary.
+    joinCivicPanel: FollowUpAnswerSchema.optional(),
     note: z.string().max(2_000).optional(),
   })
   .strict()
@@ -53,6 +55,24 @@ export const RecordDoorKnockInteractionSchema = z
     {
       message: 'followUp is only valid when outcome is answered',
       path: ['followUp'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.joinCivicPanel === undefined ||
+      v.outcome === DoorKnockOutcomeSchema.enum.answered,
+    {
+      message: 'joinCivicPanel is only valid when outcome is answered',
+      path: ['joinCivicPanel'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.joinCivicPanel === undefined ||
+      (v.supportAnswer === undefined && v.willVote === undefined),
+    {
+      message: 'joinCivicPanel belongs to the Serve surface',
+      path: ['joinCivicPanel'],
     },
   )
   // One surface's vocabulary per row. The two answer sets are alternatives, not

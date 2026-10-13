@@ -5,6 +5,7 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { ServeSmsDraftRequest } from '@goodparty_org/contracts'
 import { checkSmsStandards } from '@goodparty_org/contracts'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
   OPT_OUT_FOOTER,
@@ -14,6 +15,10 @@ import {
   SMS_GREETING,
   withSampleFirstName,
 } from './smsCompose.util'
+
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: vi.fn(),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -91,6 +96,10 @@ const openServeFlow = () => {
 describe('SmsFlow (Serve surface)', () => {
   beforeEach(() => {
     recommendedListsRequested = false
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: false,
+    })
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
     api.mock('GET /v1/voters/voter-file/filters', {
@@ -260,6 +269,58 @@ describe('SmsFlow (Serve surface)', () => {
 
     expect(await screen.findByText(OPT_OUT_FOOTER)).toBeInTheDocument()
     expect(screen.queryByText(/Paid for by/)).toBeNull()
+  })
+
+  const composeWithDraft = async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(OPT_OUT_FOOTER)
+  }
+
+  it('offers no citizens panel ask with serve-citizen-panels off', async () => {
+    await composeWithDraft()
+
+    expect(
+      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+    ).toBeNull()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+  })
+
+  it('adds the JOIN line when the citizens panel ask is checked', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    await composeWithDraft()
+
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).not.toBeChecked()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+
+    await userEvent.click(ask)
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    expect(ask).toBeChecked()
   })
 
   // "Campaign" is Win vocabulary: an elected official has an office and a

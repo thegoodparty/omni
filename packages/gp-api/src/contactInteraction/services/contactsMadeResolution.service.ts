@@ -80,6 +80,34 @@ export class ContactsMadeResolutionService extends createPrismaBase(
     return new Set(rows.map((row) => row.personId))
   }
 
+  // Everyone the org reached on any channel since `since`: the rest window
+  // a "not contacted recently" filter leaves out. Same four tables as the
+  // count above, each on its (organization_slug, person_id, occurred_at)
+  // index.
+  async personIdsContactedSince(
+    organizationSlug: string,
+    since: Date,
+  ): Promise<string[]> {
+    const rows = await this.client.$queryRaw<{ personId: string }[]>(Prisma.sql`
+      SELECT DISTINCT person_id AS "personId"
+      FROM (
+        SELECT person_id FROM contact_interaction_text
+        WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}
+        UNION ALL
+        SELECT person_id FROM contact_interaction_robocall
+        WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}
+        UNION ALL
+        SELECT person_id FROM contact_interaction_door_knock
+        WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}
+        UNION ALL
+        SELECT person_id FROM contact_interaction_phone_banking
+        WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}
+      ) recent
+    `)
+    this.assertUnderCap(organizationSlug, rows.length, 'exclude')
+    return rows.map((row) => row.personId)
+  }
+
   // Every contacted person's bucket, for the door-knocking pack's
   // contacts-made plane. Same UNION ALL and same GROUP BY as the resolution
   // path above — one grouped scan, bucketed in SQL — so a person's bucket on

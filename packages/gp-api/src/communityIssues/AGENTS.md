@@ -105,6 +105,23 @@ lives in `src/shared/util/userActivity.util.ts`, shared with
 `meetingBriefings.service.ts` — the two domains use the same threshold and
 comparison, just wired through different dispatch flows.
 
+## Where a real run works
+
+A real run needs `AGENT_DISPATCH_QUEUE_NAME`, and its result returns on the
+env's shared agent-results queue (`src/agentExperiments/AGENTS.md`).
+
+- **Local:** no. Don't vend AWS credentials or point a laptop at
+  `agent-dispatch-dev.fifo`: dev gp-api consumes the result, finds no
+  matching run in its DB, and the local row stays `QUEUED`. Use
+  `POST /seed` for UI work.
+- **PR preview:** no. The queue is unset by design, so dispatch flips the row
+  to `FAILED`.
+- **Dev:** yes, but only when triggered by hand. `MEETINGS_AUTOMATION_ENABLED`
+  is `true` only in prod, and it gates only `onElectedOfficeCreated` and the
+  crons. So a new dev office dispatches nothing. Use the staff buttons on the
+  Serve Community Issues page (`POST /self-dispatch`, `@goodparty.org`
+  login), `POST /dispatch-if-needed`, or `POST /dispatch`.
+
 ## Test command
 
 ```bash
