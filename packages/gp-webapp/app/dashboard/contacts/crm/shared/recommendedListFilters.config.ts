@@ -61,9 +61,39 @@ export const ANY_PHONE_FIELD = {
   options: [{ key: ANY_PHONE_FILTER_KEY, label: 'Has Any Phone' }],
 }
 
+// Serve-only, the inverse of the Win-only fields above: the people on the
+// official's civic panel. gp-api resolves it from their standing civic panel
+// status and 400s it for a Win org. Kept here with the other non-config
+// groups so the transform carries its key and an edit can clear it.
+export const CIVIC_PANEL_FILTER_KEY = 'civicPanelMember'
+
+export const CIVIC_PANEL_FIELD = {
+  key: 'civic_panel',
+  label: "Citizens' Panel",
+  options: [{ key: CIVIC_PANEL_FILTER_KEY, label: "On Your Citizens' Panel" }],
+}
+
+// Both products: a rest window that leaves out anyone the office reached on
+// any channel in the last 30 days (gp-api CONTACT_REST_DAYS), so the same
+// people are not asked twice in a month.
+export const NOT_CONTACTED_RECENTLY_FILTER_KEY = 'notContactedRecently'
+
+export const CONTACT_HISTORY_FIELD = {
+  key: 'contact_history',
+  label: 'Contact History',
+  options: [
+    {
+      key: NOT_CONTACTED_RECENTLY_FILTER_KEY,
+      label: 'Not Contacted In The Last 30 Days',
+    },
+  ],
+}
+
 export const RECOMMENDED_LIST_FILTER_OPTION_KEYS = [
   ...RECOMMENDED_LIST_FILTER_FIELDS.flatMap((field) =>
     field.options.map((option) => option.key),
   ),
   ANY_PHONE_FILTER_KEY,
+  CIVIC_PANEL_FILTER_KEY,
+  NOT_CONTACTED_RECENTLY_FILTER_KEY,
 ]

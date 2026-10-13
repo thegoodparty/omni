@@ -147,6 +147,51 @@ describe('callSheetRows', () => {
     })
   })
 
+  it('reads back the civic panel answer on a serve sheet with the flag on', () => {
+    const entries = [
+      entry({
+        persons: [
+          person({
+            interaction: interaction({
+              outcome: 'answered',
+              followUp: 'no',
+              joinCivicPanel: 'yes',
+            }),
+          }),
+          person({ personId: 'person-2', name: 'Ada Lane' }),
+        ],
+      }),
+    ]
+
+    const [joined, notAsked] =
+      callSheetRows(entries, true, true)[0]?.persons ?? []
+    expect(joined?.civicPanel).toEqual({ kind: 'logged', label: 'Yes' })
+    expect(notAsked?.civicPanel).toEqual({ kind: 'form' })
+    expect(
+      callSheetRows(entries, false, true)[0]?.persons[0]?.civicPanel,
+    ).toBeNull()
+    expect(callSheetRows(entries, true)[0]?.persons[0]?.civicPanel).toBeNull()
+  })
+
+  it('carries a dead-end call into the civic panel column', () => {
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [
+            person({ interaction: interaction({ outcome: 'wrong_number' }) }),
+          ],
+        }),
+      ],
+      true,
+      true,
+    )
+
+    expect(rows[0]?.persons[0]?.civicPanel).toEqual({
+      kind: 'skip',
+      instruction: 'Wrong number — do not call again',
+    })
+  })
+
   it('leaves a serve sheet blank when only a support answer was logged', () => {
     const rows = callSheetRows(
       [

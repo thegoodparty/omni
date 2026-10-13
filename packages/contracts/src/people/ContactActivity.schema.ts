@@ -116,6 +116,10 @@ export const TextConstituentActivitySchema = z.object({
     note: z.string().nullable(),
     manual: z.boolean(),
     outreachId: z.number().nullable(),
+    // What they wrote back, oldest first. Only a Serve text keeps reply
+    // bodies (Win's Peerly sweep records timestamps), and only the person
+    // feed reads them; absent means none to show.
+    replies: z.array(z.string()).optional(),
   }),
 })
 export type TextConstituentActivity = z.infer<
@@ -161,10 +165,10 @@ export type PhoneBankingConstituentActivity = z.infer<
   typeof PhoneBankingConstituentActivitySchema
 >
 
-// A contact-status-field override change (ENG-10835), Win-only — Serve orgs
-// can never write a ContactStatusEvent row (contacts.service.ts rejects the
-// PATCH for elected-office organizations), so this variant never appears in a
-// Serve feed. fromLabel/toLabel are the resolved display text (never the raw
+// A contact-status-field override change (ENG-10835), on both products, each
+// reading back only its own fields: Win sees support status, voter
+// likelihood and the rest, Serve sees follow_up and civic_panel
+// (contactEngagement.service.ts filters by field). fromLabel/toLabel are the resolved display text (never the raw
 // enum value — see resolveContactStatusLabel in ContactStatus.schema),
 // fromLabel null for the never-seen-before edge (no prior override row).
 // actorName is the writer's display name, null for a non-manual source

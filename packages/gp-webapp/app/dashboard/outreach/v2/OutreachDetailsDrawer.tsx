@@ -1038,13 +1038,12 @@ export const OutreachDetailsDrawer = ({
                     />
                   )}
                   {isSms && (
-                    // No per-campaign opt-out feed exists yet (the results
-                    // sweep is a later slice), so this reads 0 — the same
-                    // value the design shows for a not-yet-sent row.
+                    // The same count as Statistics' Opted out, so the two
+                    // cannot disagree. 0 until the send has results.
                     <Metric
                       icon={<UserMinusIcon />}
                       label="Unsubscribes"
-                      value="0"
+                      value={(results?.optedOut ?? 0).toLocaleString()}
                     />
                   )}
                 </MetricGrid>

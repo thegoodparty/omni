@@ -72,6 +72,12 @@ vi.mock('./StatusRow', () => ({
   ),
 }))
 
+// CivicPanelRow.test.tsx covers its toggle; here it only has to mount.
+vi.mock('./CivicPanelRow', () => ({
+  __esModule: true,
+  default: () => null,
+}))
+
 // Same reasoning as StatusRow above — FollowUpRow.test.tsx covers its
 // self-gating, the toggle, its mutation and analytics.
 vi.mock('./FollowUpRow', () => ({

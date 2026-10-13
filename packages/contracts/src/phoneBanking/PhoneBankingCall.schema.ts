@@ -26,6 +26,8 @@ export const RecordPhoneBankingCallSchema = z
     supportAnswer: SupportAnswerSchema.optional(),
     willVote: WillVoteAnswerSchema.optional(),
     followUp: FollowUpAnswerSchema.optional(),
+    // Serve's closing question, asked after follow-up. Same yes/no vocabulary.
+    joinCivicPanel: FollowUpAnswerSchema.optional(),
     note: z.string().max(PHONE_BANKING_CALL_NOTE_MAX_LENGTH).optional(),
     // After an answered upsert, log the entry's remaining un-logged
     // household members as answered too, in the same request.
@@ -93,6 +95,24 @@ export const RecordPhoneBankingCallSchema = z
     {
       message: 'followUp is mutually exclusive with supportAnswer and willVote',
       path: ['followUp'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.joinCivicPanel === undefined ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'joinCivicPanel is only valid when outcome is answered',
+      path: ['joinCivicPanel'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.joinCivicPanel === undefined ||
+      (v.supportAnswer === undefined && v.willVote === undefined),
+    {
+      message: 'joinCivicPanel belongs to the Serve surface',
+      path: ['joinCivicPanel'],
     },
   )
   .refine(
