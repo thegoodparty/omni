@@ -1023,6 +1023,7 @@ export {
   SERVE_OUTREACH_PURPOSE_VALUES,
   ServeOutreachPurposeSchema,
   BUILD_CITIZENS_PANEL_PURPOSE,
+  REPORT_BACK_PURPOSE,
   SERVE_SMS_PURPOSE_VALUES,
   ServeSmsPurposeSchema,
   type ServeSmsPurpose,
