@@ -289,6 +289,35 @@ describe('feedback synthesis across a priority', () => {
     ])
   })
 
+  it('counts the same people per theme on the results page and in the agent read', async () => {
+    const texted = await replies(3)
+    const knocked = await notes(2)
+    const started = await run()
+    await ingest().handle(
+      completionEvent(started.id, [
+        {
+          theme: 'Drains back up',
+          memberIds: [
+            ...texted.map((r) => r.id),
+            ...knocked.map((n) => n.memo.id),
+          ],
+        },
+      ]),
+    )
+    await service.prisma.constituentFeedback.update({
+      where: { id: knocked[0]!.memo.id },
+      data: { confirmedAt: null },
+    })
+
+    const page = (await results()).data.themes
+    const agent = await service.app
+      .get(PriorityFlowOutreachService)
+      .pooledThemes(slug, priorityId)
+
+    expect(page.map((theme) => theme.people)).toEqual([4])
+    expect(agent.map((theme) => theme.people)).toEqual([4])
+  })
+
   it('says a run is in flight while the last themes stay up', async () => {
     await replies(5)
     await run()

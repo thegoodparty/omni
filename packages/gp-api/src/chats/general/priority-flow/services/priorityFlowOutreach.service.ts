@@ -242,7 +242,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   }
 
   // The themes across every send for the priority, from its latest finished
-  // pooled run. Empty until one has run.
+  // pooled run. Empty until one has run. Counts people the way the results
+  // page does, confirmed notes and replies only, so the two never disagree.
   async pooledThemes(
     organizationSlug: string,
     priorityId: string,
@@ -264,7 +265,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
             members: {
               where: {
                 OR: [
-                  { feedbackId: { not: null } },
+                  { feedback: { confirmedAt: { not: null } } },
                   { textReplyId: { not: null } },
                 ],
               },
