@@ -306,6 +306,26 @@ describe('CampaignsController', () => {
       })
     })
 
+    it('lists a campaign with null positionName when election-api returns 404', async () => {
+      vi.spyOn(
+        organizationsService,
+        'resolvePositionContext',
+      ).mockRejectedValue(new NotFoundException('position not found'))
+      vi.spyOn(campaignsService, 'listCampaigns').mockResolvedValue({
+        data: [
+          {
+            ...mockCampaign,
+            organization: { customPositionName: null, positionId: 'pos-1' },
+          },
+        ],
+        meta: { total: 1, offset: 0, limit: 100 },
+      })
+
+      const result = await controller.list({ userId: 1 })
+
+      expect(result.data[0]).toMatchObject({ positionName: null })
+    })
+
     it('rethrows non-upstream errors from position resolution', async () => {
       vi.spyOn(
         organizationsService,

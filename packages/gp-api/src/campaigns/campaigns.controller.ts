@@ -154,7 +154,14 @@ export class CampaignsController {
             positionId: organization?.positionId,
           })
           .catch((error: unknown) => {
-            if (!(error instanceof BadGatewayException)) throw error
+            if (
+              !(
+                error instanceof BadGatewayException ||
+                error instanceof NotFoundException
+              )
+            ) {
+              throw error
+            }
             this.logger.warn(
               { error, campaignId: campaign.id },
               'election-api unavailable, listing campaign without positionName',
