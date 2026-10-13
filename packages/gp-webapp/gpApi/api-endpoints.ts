@@ -112,6 +112,7 @@ import type {
   TestModeState,
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
+  PriorityResults,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1239,6 +1240,11 @@ export type APIEndpoints = {
       currentStep: string | null
       nextAction: string | null
     }
+  }
+
+  'GET /v1/priorities/:id/results': {
+    Request: {}
+    Response: PriorityResults
   }
 
   // A proposal key names the outreach a chat card WOULD create. A 404 is the

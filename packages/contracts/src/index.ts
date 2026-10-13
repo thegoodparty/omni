@@ -809,6 +809,27 @@ export {
 } from './priorities/Priority.schema'
 
 export {
+  MIN_RESPONDENTS_FOR_REPRESENTATION,
+  PRIORITY_RESULTS_CHANNELS,
+  PriorityResultsChannelSchema,
+  type PriorityResultsChannel,
+  PriorityResultsSendSchema,
+  type PriorityResultsSend,
+  PriorityResultsPointSchema,
+  REPRESENTATION_DIMENSIONS,
+  RepresentationDimensionSchema,
+  type RepresentationDimension,
+  RepresentationGroupSchema,
+  type RepresentationGroup,
+  PriorityRepresentationSchema,
+  type PriorityRepresentation,
+  PriorityResultsSchema,
+  type PriorityResults,
+  PriorityThemeSchema,
+  type PriorityTheme,
+} from './priorities/PriorityResults.schema'
+
+export {
   DASHBOARD_CARD_TYPE_VALUES,
   DashboardCardTypeSchema,
   type DashboardCardType,

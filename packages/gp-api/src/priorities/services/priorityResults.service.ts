@@ -1,0 +1,305 @@
+import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
+import {
+  MIN_RESPONDENTS_FOR_REPRESENTATION,
+  type PriorityResults,
+  type PriorityResultsChannel,
+  type PriorityResultsSend,
+  type PriorityTheme,
+} from '@goodparty_org/contracts'
+import {
+  ContactStatusField,
+  ElectedOffice,
+  Outreach,
+  OutreachType,
+  PollIndividualMessageSender,
+  Prisma,
+  SynthesisRunStatus,
+  SynthesisScope,
+} from '../../generated/prisma'
+import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { computeRepresentation } from '../util/representation.util'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from './censusComposition'
+
+const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
+  [OutreachType.text]: 'text',
+  [OutreachType.nativePhoneBanking]: 'phoneBanking',
+  [OutreachType.nativeDoorKnocking]: 'doorKnocking',
+  [OutreachType.socialMedia]: 'social',
+}
+
+// ~100m. Enough to see which blocks answered, not enough to find a house.
+const roundCoordinate = (value: number): number =>
+  Math.round(value * 1000) / 1000
+
+interface SendRespondents {
+  send: PriorityResultsSend
+  respondentIds: string[]
+}
+
+@Injectable()
+export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
+  constructor(
+    private readonly moduleRef: ModuleRef,
+    @Inject(CENSUS_COMPOSITION_SOURCE)
+    private readonly census: CensusCompositionSource,
+  ) {
+    super()
+  }
+
+  async resultsFor(
+    electedOffice: ElectedOffice,
+    priorityId: string,
+  ): Promise<PriorityResults> {
+    const priority = await this.model.findFirst({
+      where: { id: priorityId, electedOfficeId: electedOffice.id },
+      select: { id: true },
+    })
+    if (!priority) throw new NotFoundException('Priority not found')
+
+    const organizationSlug = electedOffice.organizationSlug
+    const outreaches = await this.client.outreach.findMany({
+      where: {
+        priorityId,
+        organizationSlug,
+        campaignId: null,
+        status: { notIn: ['pending_payment', 'draft', 'canceled'] },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    const perSend = await Promise.all(
+      outreaches.flatMap((outreach) => {
+        const channel = CHANNEL_BY_TYPE[outreach.outreachType]
+        return channel ? [this.respondentsFor(outreach, channel)] : []
+      }),
+    )
+
+    const byChannel = { text: 0, phoneBanking: 0, doorKnocking: 0 }
+    const respondentIds = new Set<string>()
+    for (const { send, respondentIds: ids } of perSend) {
+      if (send.channel !== 'social') byChannel[send.channel] += ids.length
+      for (const id of ids) respondentIds.add(id)
+    }
+    const ids = [...respondentIds]
+
+    const joinedCivicPanel =
+      ids.length === 0
+        ? 0
+        : await this.client.contactCurrentStatus.count({
+            where: {
+              organizationSlug,
+              field: ContactStatusField.civic_panel,
+              value: 'member',
+              personId: { in: ids },
+            },
+          })
+
+    const organization = await this.client.organization.findUniqueOrThrow({
+      where: { slug: organizationSlug },
+    })
+    const { points } = await this.resolveContacts().pointsForPeople(
+      ids,
+      organization,
+    )
+
+    const composition =
+      points.length >= MIN_RESPONDENTS_FOR_REPRESENTATION
+        ? await this.census.compose({
+            districtKey: organizationSlug,
+            respondents: points.map(({ id, lat, lng }) => ({
+              personId: id,
+              lat,
+              lng,
+            })),
+          })
+        : null
+
+    const { themes, summarizing } = await this.pooledThemes(
+      organizationSlug,
+      priorityId,
+    )
+
+    return {
+      priorityId,
+      sends: perSend.map(({ send }) => send),
+      respondents: { total: ids.length, byChannel, joinedCivicPanel },
+      themes,
+      summarizing,
+      points: points.map(({ lat, lng }) => ({
+        lat: roundCoordinate(lat),
+        lng: roundCoordinate(lng),
+      })),
+      representation: composition && {
+        source: composition.source,
+        respondentCount: composition.respondentBlockGroups.length,
+        groups: computeRepresentation(
+          composition.district,
+          composition.respondentBlockGroups,
+        ),
+      },
+    }
+  }
+
+  // The latest completed pooled run's themes. A run in flight leaves the
+  // previous themes up, the way an effort's report does.
+  private async pooledThemes(
+    organizationSlug: string,
+    priorityId: string,
+  ): Promise<{ themes: PriorityTheme[]; summarizing: boolean }> {
+    const scope = {
+      organizationSlug,
+      priorityId,
+      scope: SynthesisScope.priority,
+    }
+    const [latest, running] = await Promise.all([
+      this.client.feedbackSynthesisRun.findFirst({
+        where: { ...scope, status: SynthesisRunStatus.completed },
+        orderBy: { completedAt: Prisma.SortOrder.desc },
+        select: {
+          themes: {
+            orderBy: { rank: Prisma.SortOrder.asc },
+            select: {
+              id: true,
+              title: true,
+              summary: true,
+              members: {
+                where: {
+                  OR: [
+                    { feedback: { confirmedAt: { not: null } } },
+                    { textReplyId: { not: null } },
+                  ],
+                },
+                select: {
+                  feedback: { select: { personId: true } },
+                  textReply: { select: { personId: true } },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.client.feedbackSynthesisRun.count({
+        where: { ...scope, status: SynthesisRunStatus.running },
+      }),
+    ])
+    return {
+      summarizing: running > 0,
+      themes: (latest?.themes ?? []).flatMap((theme) => {
+        const people = new Set(
+          theme.members.flatMap((member) => {
+            const personId =
+              member.feedback?.personId ?? member.textReply?.personId
+            return personId === undefined ? [] : [personId]
+          }),
+        ).size
+        return people === 0
+          ? []
+          : [
+              {
+                id: theme.id,
+                title: theme.title,
+                summary: theme.summary,
+                people,
+              },
+            ]
+      }),
+    }
+  }
+
+  // Resolved lazily: importing ContactsModule here closes the module cycle
+  // through Campaigns that organizationTeam.service.ts describes.
+  private resolveContacts(): ContactsService {
+    return this.moduleRef.get(ContactsService, { strict: false })
+  }
+
+  private async respondentsFor(
+    outreach: Outreach,
+    channel: PriorityResultsChannel,
+  ): Promise<SendRespondents> {
+    const base = {
+      outreachId: outreach.id,
+      name: outreach.name,
+      channel,
+      date: (outreach.date ?? outreach.createdAt).toISOString(),
+    }
+    if (channel === 'text') {
+      const reached = await this.client.contactInteractionText.count({
+        where: { outreachId: outreach.id },
+      })
+      // Heard means they said something: a reply that was only STOP is an
+      // opt-out, not an answer on the priority.
+      const replies = await this.client.pollIndividualMessage.findMany({
+        where: {
+          outreachId: outreach.id,
+          sender: PollIndividualMessageSender.CONSTITUENT,
+          NOT: { isOptOut: true },
+        },
+        select: { personId: true },
+        distinct: ['personId'],
+      })
+      const responded = replies.map((reply) => reply.personId)
+      return {
+        send: { ...base, reached, responded: responded.length },
+        respondentIds: responded,
+      }
+    }
+    if (channel === 'phoneBanking' && outreach.phoneBankingListId !== null) {
+      const rows = await this.client.contactInteractionPhoneBanking.findMany({
+        where: { phoneBankingListId: outreach.phoneBankingListId },
+        select: { personId: true, outcome: true },
+      })
+      const reached = new Set(rows.map((row) => row.personId))
+      const responded = [
+        ...new Set(
+          rows
+            .filter((row) => row.outcome === 'answered')
+            .map((row) => row.personId),
+        ),
+      ]
+      return {
+        send: { ...base, reached: reached.size, responded: responded.length },
+        respondentIds: responded,
+      }
+    }
+    if (channel === 'doorKnocking' && outreach.doorKnockingTurfId !== null) {
+      // A knock carries no turf id, so the turf is reached through its
+      // stops' targets, and only knocks since the walk was cut count.
+      const targets = await this.client.doorKnockingStopTarget.findMany({
+        where: { stop: { doorKnockingTurfId: outreach.doorKnockingTurfId } },
+        select: { personId: true },
+      })
+      const rows =
+        targets.length === 0
+          ? []
+          : await this.client.contactInteractionDoorKnock.findMany({
+              where: {
+                organizationSlug: outreach.organizationSlug ?? undefined,
+                personId: { in: targets.map((target) => target.personId) },
+                occurredAt: { gte: outreach.createdAt },
+              },
+              select: { personId: true, outcome: true },
+            })
+      const reached = new Set(rows.map((row) => row.personId))
+      const responded = [
+        ...new Set(
+          rows
+            .filter((row) => row.outcome === 'answered')
+            .map((row) => row.personId),
+        ),
+      ]
+      return {
+        send: { ...base, reached: reached.size, responded: responded.length },
+        respondentIds: responded,
+      }
+    }
+    return {
+      send: { ...base, reached: null, responded: null },
+      respondentIds: [],
+    }
+  }
+}
