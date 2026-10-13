@@ -72,6 +72,22 @@ const panelRows = (electedOfficeId: string) =>
     orderBy: { title: 'asc' },
   })
 
+const act = async (
+  orgSlug: string,
+  id: string,
+  action: 'complete' | 'dismiss' | 'snooze' | 'restore',
+) => {
+  const res = await service.client.put(
+    `/v1/dashboard/cards/${id}/${action}`,
+    null,
+    { headers: { 'x-organization-slug': orgSlug } },
+  )
+  expect(res.status).toBe(204)
+}
+
+const titles = (cards: { title: string }[]) =>
+  cards.map((card) => card.title).sort()
+
 const buildCard = {
   type: 'civic_panel',
   title: "Build your citizens' panel",
@@ -81,22 +97,33 @@ const buildCard = {
 }
 
 describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
-  it('starts an office on one build card, ahead of its priorities', async () => {
+  it('starts an office on one build card, with a card per priority beside it', async () => {
     const eo = await seedElectedOffice('eo-civic-build-first')
-    await seedPriority(eo.id, 'Affordable housing')
+    const housing = await seedPriority(eo.id, 'Affordable housing')
 
     const cards = await listCards('eo-civic-build-first')
 
-    expect(cards).toHaveLength(1)
-    expect(cards[0]).toMatchObject({
+    expect(titles(cards)).toEqual(
+      [buildCard.title, 'Affordable housing'].sort(),
+    )
+    const build = cards.find((card) => card.title === buildCard.title)
+    expect(build).toMatchObject({
       ...buildCard,
       sourceExternalId: `build:${eo.id}`,
       completedAt: null,
     })
-    expect(cards[0]?.summary).toBe(
+    expect(build?.summary).toBe(
       'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
     )
-    expect(cards[0]?.summary.split(' ').length).toBeLessThanOrEqual(20)
+    expect(build?.summary.split(' ').length).toBeLessThanOrEqual(20)
+    expect(
+      cards.find((card) => card.title === 'Affordable housing'),
+    ).toMatchObject({
+      type: 'civic_panel',
+      summary: 'Start by naming the problem in one sentence.',
+      ctaLabel: 'Open priority',
+      ctaHref: `/dashboard/priorities/${housing.id}`,
+    })
   })
 
   it('makes no second build card on a repeat read', async () => {
@@ -112,8 +139,7 @@ describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
   })
 
   it('stays open while the panel text is unpaid, or never asked to join', async () => {
-    const eo = await seedElectedOffice('eo-civic-build-unpaid')
-    await seedPriority(eo.id, 'Affordable housing')
+    await seedElectedOffice('eo-civic-build-unpaid')
     await seedText('eo-civic-build-unpaid', OutreachStatus.pending_payment)
     await seedText('eo-civic-build-unpaid', OutreachStatus.pending, false)
 
@@ -123,7 +149,7 @@ describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
     expect(cards[0]).toMatchObject({ ...buildCard, completedAt: null })
   })
 
-  it('is done once a text asking to join is paid, and the priority cards follow', async () => {
+  it('is done once a text asking to join is paid, and the priority cards stay', async () => {
     const eo = await seedElectedOffice('eo-civic-build-sent')
     const housing = await seedPriority(eo.id, 'Affordable housing')
     await listCards('eo-civic-build-sent')
@@ -136,13 +162,29 @@ describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
     expect(active[0]).toMatchObject({
       type: 'civic_panel',
       title: 'Affordable housing',
-      summary: 'Start by naming the problem in one sentence.',
-      ctaLabel: 'Open priority',
-      ctaHref: `/dashboard/priorities/${housing.id}`,
       sourceExternalId: housing.id,
     })
     expect(done).toHaveLength(1)
     expect(done[0]).toMatchObject(buildCard)
+  })
+
+  it('cannot be marked done; only a sent panel text finishes it', async () => {
+    const orgSlug = 'eo-civic-build-no-complete'
+    const eo = await seedElectedOffice(orgSlug)
+    const [build] = await listCards(orgSlug)
+    if (!build) throw new Error('no card')
+
+    await act(orgSlug, build.id, 'complete')
+
+    const [row] = await panelRows(eo.id)
+    expect(row?.completedAt).toBeNull()
+    expect(await listCards(orgSlug)).toHaveLength(1)
+
+    await seedText(orgSlug, OutreachStatus.pending)
+    await listCards(orgSlug)
+
+    const [sent] = await panelRows(eo.id)
+    expect(sent?.completedAt).not.toBeNull()
   })
 
   it('counts a skipped build card as done once the text goes out', async () => {
@@ -180,7 +222,7 @@ describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
   })
 })
 
-describe('GET /v1/dashboard/cards: a card per priority, once the panel is built', () => {
+describe('GET /v1/dashboard/cards: a card per priority', () => {
   const builtOffice = async (orgSlug: string) => {
     const eo = await seedElectedOffice(orgSlug)
     await seedText(orgSlug, OutreachStatus.pending)
@@ -287,19 +329,6 @@ describe('GET /v1/dashboard/cards: a card per priority, once the panel is built'
   })
 })
 
-const act = async (
-  orgSlug: string,
-  id: string,
-  action: 'complete' | 'dismiss' | 'snooze' | 'restore',
-) => {
-  const res = await service.client.put(
-    `/v1/dashboard/cards/${id}/${action}`,
-    null,
-    { headers: { 'x-organization-slug': orgSlug } },
-  )
-  expect(res.status).toBe(204)
-}
-
 const seedOtherCards = (electedOfficeId: string) =>
   service.prisma.dashboardCard.createMany({
     data: [
@@ -343,10 +372,10 @@ const OTHER_TITLES = [
   'Rezoning on Main Street',
 ]
 
-const titles = (cards: { title: string }[]) =>
-  cards.map((card) => card.title).sort()
+describe("The citizens' panel build card, with the priorities and the usual cards under it", () => {
+  const ALL = [buildCard.title, 'Affordable housing', ...OTHER_TITLES].sort()
+  const WITHOUT_BUILD = ['Affordable housing', ...OTHER_TITLES].sort()
 
-describe("The citizens' panel build card, then the usual cards", () => {
   const officeWithBuildCard = async (orgSlug: string) => {
     const eo = await seedElectedOffice(orgSlug)
     await seedPriority(eo.id, 'Affordable housing')
@@ -373,53 +402,39 @@ describe("The citizens' panel build card, then the usual cards", () => {
     await seedOtherCards(eo.id)
     expect(await panelRows(eo.id)).toHaveLength(0)
 
-    const before = await listCards(orgSlug)
-    expect(titles(before)).toEqual([buildCard.title, ...OTHER_TITLES].sort())
+    expect(titles(await listCards(orgSlug))).toEqual(ALL)
 
-    const build = before.find((card) => card.title === buildCard.title)
-    if (!build) throw new Error('no build card')
-    await act(orgSlug, build.id, 'complete')
-
-    const after = await listCards(orgSlug)
-    expect(titles(after)).toEqual(
-      ['Affordable housing', ...OTHER_TITLES].sort(),
-    )
-    expect(
-      after.find((card) => card.title === 'Affordable housing'),
-    ).toMatchObject({
-      type: 'civic_panel',
-      summary: 'Start by naming the problem in one sentence.',
-    })
+    await seedText(orgSlug, OutreachStatus.pending)
+    expect(titles(await listCards(orgSlug))).toEqual(WITHOUT_BUILD)
     expect(titles(await listCards(orgSlug, 'done'))).toEqual([buildCard.title])
   })
 
-  it('shows the priority cards while the build card is set aside, and hides them again once it is brought back', async () => {
+  it('keeps every other card, priorities included, on the home page while the build card is open', async () => {
+    const { cards } = await officeWithBuildCard('eo-civic-seq-others')
+    expect(titles(cards)).toEqual(ALL)
+  })
+
+  it('keeps the priority cards while the build card is set aside and once it is brought back', async () => {
     const orgSlug = 'eo-civic-seq-not-for-me'
     const { build } = await officeWithBuildCard(orgSlug)
 
     await act(orgSlug, build.id, 'dismiss')
-    expect(titles(await listCards(orgSlug))).toEqual(
-      ['Affordable housing', ...OTHER_TITLES].sort(),
-    )
+    expect(titles(await listCards(orgSlug))).toEqual(WITHOUT_BUILD)
     expect(titles(await listCards(orgSlug, 'skipped'))).toEqual([
       buildCard.title,
     ])
 
     await act(orgSlug, build.id, 'restore')
-    expect(titles(await listCards(orgSlug))).toEqual(
-      [buildCard.title, ...OTHER_TITLES].sort(),
-    )
+    expect(titles(await listCards(orgSlug))).toEqual(ALL)
     expect(await listCards(orgSlug, 'skipped')).toHaveLength(0)
   })
 
-  it('puts the build card off for 3 days, then brings it back to the front', async () => {
+  it('puts the build card off for 3 days, then brings it back above the priorities', async () => {
     const orgSlug = 'eo-civic-seq-snooze'
     const { eo, build } = await officeWithBuildCard(orgSlug)
 
     await act(orgSlug, build.id, 'snooze')
-    expect(titles(await listCards(orgSlug))).toEqual(
-      ['Affordable housing', ...OTHER_TITLES].sort(),
-    )
+    expect(titles(await listCards(orgSlug))).toEqual(WITHOUT_BUILD)
     const [snoozed] = (await panelRows(eo.id)).filter(
       (card) => card.id === build.id,
     )
@@ -432,32 +447,7 @@ describe("The citizens' panel build card, then the usual cards", () => {
       where: { id: build.id },
       data: { snoozedUntil: subDays(new Date(), 1) },
     })
-    expect(titles(await listCards(orgSlug))).toEqual(
-      [buildCard.title, ...OTHER_TITLES].sort(),
-    )
-  })
-
-  it('keeps a priority card waiting behind the build card from lapsing into missed', async () => {
-    const orgSlug = 'eo-civic-seq-hidden-lapse'
-    const { eo, build } = await officeWithBuildCard(orgSlug)
-    await act(orgSlug, build.id, 'dismiss')
-    await listCards(orgSlug)
-    await act(orgSlug, build.id, 'restore')
-    const housing = (await panelRows(eo.id)).find(
-      (card) => card.title === 'Affordable housing',
-    )
-    if (!housing) throw new Error('no priority card')
-    await service.prisma.dashboardCard.update({
-      where: { id: housing.id },
-      data: { dueDate: subDays(new Date(), 1) },
-    })
-
-    expect(await listCards(orgSlug, 'missed')).toHaveLength(0)
-
-    await act(orgSlug, build.id, 'complete')
-    expect(titles(await listCards(orgSlug))).toEqual(
-      ['Affordable housing', ...OTHER_TITLES].sort(),
-    )
+    expect(titles(await listCards(orgSlug))).toEqual(ALL)
   })
 
   it('is still done by the panel text after it was put off', async () => {
@@ -466,16 +456,27 @@ describe("The citizens' panel build card, then the usual cards", () => {
     await act(orgSlug, build.id, 'snooze')
     await seedText(orgSlug, OutreachStatus.pending)
 
-    await listCards(orgSlug)
+    expect(titles(await listCards(orgSlug))).toEqual(WITHOUT_BUILD)
 
     const row = (await panelRows(eo.id)).find((card) => card.id === build.id)
     expect(row?.completedAt).not.toBeNull()
     expect(row?.snoozedUntil).toBeNull()
   })
 
-  it('keeps every other card on the home page while the build card leads', async () => {
-    const { cards } = await officeWithBuildCard('eo-civic-seq-others')
-    expect(titles(cards)).toEqual([buildCard.title, ...OTHER_TITLES].sort())
+  it('still lets a priority card be marked done', async () => {
+    const orgSlug = 'eo-civic-seq-priority-done'
+    const { cards } = await officeWithBuildCard(orgSlug)
+    const housing = cards.find((card) => card.title === 'Affordable housing')
+    if (!housing) throw new Error('no priority card')
+
+    await act(orgSlug, housing.id, 'complete')
+
+    expect(titles(await listCards(orgSlug))).toEqual(
+      [buildCard.title, ...OTHER_TITLES].sort(),
+    )
+    expect(titles(await listCards(orgSlug, 'done'))).toEqual([
+      'Affordable housing',
+    ])
   })
 })
 
@@ -496,7 +497,7 @@ describe('GET /v1/dashboard/cards with serve-citizen-panels off', () => {
     const eo = await seedElectedOffice('eo-civic-flag-off')
     await seedPriority(eo.id, 'Affordable housing')
     await listCards('eo-civic-flag-off')
-    expect(await panelRows(eo.id)).toHaveLength(1)
+    expect(await panelRows(eo.id)).toHaveLength(2)
 
     isFeatureEnabled.mockResolvedValue(false)
     const other = await seedElectedOffice('eo-civic-flag-off-fresh')

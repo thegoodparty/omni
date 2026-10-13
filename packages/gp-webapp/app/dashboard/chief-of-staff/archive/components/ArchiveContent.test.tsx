@@ -59,4 +59,33 @@ describe('<ArchiveContent>', () => {
     await user.click(buttons[0]!)
     expect(restoreMock).toHaveBeenCalledWith('build')
   })
+
+  it('lists the build card beside the priority cards this week, with no Mark done', () => {
+    cardsByBucket.this_week = [
+      card({
+        id: 'build',
+        type: 'civic_panel',
+        title: "Build your citizens' panel",
+        sourceExternalId: 'build:eo-1',
+        dismissedAt: null,
+      }),
+      card({
+        id: 'p1-card',
+        type: 'civic_panel',
+        title: 'Affordable housing',
+        sourceExternalId: 'p1',
+        dismissedAt: null,
+      }),
+    ]
+    render(<ArchiveContent />)
+
+    expect(screen.getByText("Build your citizens' panel")).toBeInTheDocument()
+    expect(screen.getByText('Affordable housing')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Bring it back' }),
+    ).not.toBeInTheDocument()
+  })
 })

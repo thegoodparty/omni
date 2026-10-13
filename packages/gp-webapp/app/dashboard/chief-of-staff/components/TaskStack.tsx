@@ -327,9 +327,9 @@ const TaskStack = ({
                 )
               )}
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                {/* A get-started card closes itself once its goal is met,
-                    so it offers no manual Mark done. */}
-                {!front.onboardingKey && (
+                {/* A get-started card and the build card close themselves
+                    once their goal is met, so they offer no manual Mark done. */}
+                {!front.onboardingKey && !front.buildsPanel && (
                   <Button
                     type="button"
                     variant="outline"
