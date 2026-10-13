@@ -261,6 +261,7 @@ describe('deriveProUpgradeStep purchase-only mode', () => {
       PRO_UPGRADE_STEP.GUIDANCE,
       PRO_UPGRADE_STEP.STATUS,
       PRO_UPGRADE_STEP.EIN,
+      PRO_UPGRADE_STEP.FILING_DETAILS,
       PRO_UPGRADE_STEP.PAYMENT,
       PRO_UPGRADE_STEP.SUCCESS,
     ])

@@ -39,10 +39,11 @@ const STEPPER_STEPS: { step: ProUpgradeStep; label: string }[] = [
   { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
 ]
 
-// Purchase-only (outreach-pro-gating-v2): campaign details and the candidate
-// profile move behind payment, so only two steps remain to announce.
+// Purchase-only (outreach-pro-gating-v2): the candidate profile is asked
+// inside the campaign details form, so it is not a step of its own.
 const STEPPER_STEPS_PURCHASE_ONLY: { step: ProUpgradeStep; label: string }[] = [
   { step: PRO_UPGRADE_STEP.EIN, label: 'Campaign EIN' },
+  { step: PRO_UPGRADE_STEP.FILING_DETAILS, label: 'Campaign details' },
   { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
 ]
 
@@ -128,7 +129,7 @@ const WizardChrome = ({
 
 // Purchase-only (outreach-pro-gating-v2), design: renderSgModal — the same
 // chrome the outreach sheet draws around the embedded flow
-// (FullScreenStepChrome), with the bar stepper over the five ordered steps.
+// (FullScreenStepChrome), with the bar stepper over the six ordered steps.
 // The filing-instructions dead end reads as the status step it branches
 // from, and the success screen draws no header at all.
 const PURCHASE_ONLY_ORDER = proUpgradeStepOrder(true)
@@ -206,8 +207,10 @@ const ProUpgradeWizard = ({
     router.push('/dashboard')
   }, [pathname, router])
 
-  // Purchase-only collects filing details after payment, so the success step
-  // hands off to campaign verification instead of the dashboard.
+  // Purchase-only hands off to campaign verification instead of the
+  // dashboard: an already-Pro candidate who never submitted their filing is
+  // routed to the success step, and finishes it there. The success step
+  // exits instead once a filing is in.
   const complete = useCallback(
     () => router.push(purchaseOnly ? CAMPAIGN_VERIFICATION_PATH : '/dashboard'),
     [purchaseOnly, router],

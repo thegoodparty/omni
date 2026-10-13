@@ -160,7 +160,7 @@ describe('GuidanceStep', () => {
   describe('purchase-only', () => {
     beforeEach(enablePurchaseOnly)
 
-    it('renders the two things collected before checkout', () => {
+    it('lists the verification details collected before checkout, in order', () => {
       render(<GuidanceStep />)
 
       expect(
@@ -169,18 +169,45 @@ describe('GuidanceStep', () => {
         }),
       ).toBeInTheDocument()
       expect(
-        screen.getByText('Have this information available to activate Pro.'),
+        screen.getByText(
+          'Have this information available to verify your campaign.',
+        ),
       ).toBeInTheDocument()
-      expect(screen.getByText('Your campaign EIN')).toBeInTheDocument()
-      expect(screen.getByText('Payment')).toBeInTheDocument()
-      // Filing details and the candidate profile move behind payment.
-      expect(
-        screen.queryByText('Your campaign filing details'),
-      ).not.toBeInTheDocument()
+
+      // The filing, contact and PIN rows are campaign verification's intro
+      // rows, word for word; the wait for the PIN reads last, after payment.
+      const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
+      expect(rows).toEqual([
+        'Your campaign EINYour campaign EIN helps verify your candidacy and comply with texting regulations.',
+        'Your filing detailsThe committee name and filing link or document from your election authority',
+        'Contact detailsThe email, phone or address exactly as it appears on your filing',
+        'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
+        'About 1 to 2 weeksA PIN arrives once the carriers clear your campaign',
+      ])
       expect(
         screen.queryByText('Your candidate profile'),
       ).not.toBeInTheDocument()
       expect(screen.getByText('Ready when you are.')).toBeInTheDocument()
+    })
+
+    it('gathers the same things whichever channel launched it', () => {
+      for (const channel of ['sms', 'robocall', null] as const) {
+        mockUseProUpgradeWizard.mockReturnValue({
+          currentStep: 'guidance',
+          purchaseOnly: true,
+          channel,
+          goToStep,
+          goToNextStep,
+          goToPreviousStep,
+          exit,
+          complete: vi.fn(),
+        })
+        const { unmount } = render(<GuidanceStep />)
+
+        expect(screen.getAllByRole('listitem')).toHaveLength(5)
+        expect(screen.getByText('Your filing details')).toBeInTheDocument()
+        unmount()
+      }
     })
 
     it('advances to the filing-status step when Continue is clicked', () => {

@@ -241,9 +241,8 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Upgrade to Pro, which is what unlocks filtering the voter file and Know Your Opponent.',
     inside: [
-      'One flow, and which screens it asks for depends on the campaign: some candidates answer whether they have filed, give their campaign EIN, and pay, and nothing else',
-      'Other candidates are asked for their filing details and candidate profile before paying, in the same flow',
-      'When those are not asked for up front they are collected afterwards, under Campaign verification',
+      'One flow: the candidate answers whether they have filed, gives their campaign EIN and their campaign filing details (plus a candidate profile if they have not written one), then pays',
+      'Candidates who were already Pro without filing details on record add them under Campaign verification',
       'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
       'The Welcome to Pro screen shows the receipt for the $10 monthly charge, with the card used and a download',
     ],
