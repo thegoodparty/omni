@@ -49,9 +49,12 @@ export class DashboardCardsController {
       user,
       feature: SERVE_CITIZEN_PANELS_FLAG,
     })
-    if (includeCivicPanel) await this.cards.syncCivicPanelCards(electedOffice)
+    const { buildCardActive } = includeCivicPanel
+      ? await this.cards.syncCivicPanelCards(electedOffice)
+      : { buildCardActive: false }
     const rows = await this.cards.listByBucket(electedOffice.id, bucket, {
       includeCivicPanel,
+      buildCardActive,
     })
     return { bucket, cards: rows.map(toDto) }
   }
@@ -76,6 +79,28 @@ export class DashboardCardsController {
     { id }: DashboardCardIdParam,
   ): Promise<void> {
     await this.cards.complete(electedOffice.id, id)
+  }
+
+  @UseElectedOffice()
+  @Put(':id/snooze')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async snooze(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param(new ZodValidationPipe(DashboardCardIdParamSchema))
+    { id }: DashboardCardIdParam,
+  ): Promise<void> {
+    await this.cards.snooze(electedOffice.id, id)
+  }
+
+  @UseElectedOffice()
+  @Put(':id/restore')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async restore(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param(new ZodValidationPipe(DashboardCardIdParamSchema))
+    { id }: DashboardCardIdParam,
+  ): Promise<void> {
+    await this.cards.restore(electedOffice.id, id)
   }
 }
 

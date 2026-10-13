@@ -69,6 +69,20 @@ export const useDismissCard = () => useLeaveActiveCard(dashboardApi.dismissCard)
 export const useCompleteCard = () =>
   useLeaveActiveCard(dashboardApi.completeCard)
 
+export const useSnoozeCard = () => useLeaveActiveCard(dashboardApi.snoozeCard)
+
+export const useRestoreCard = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: dashboardApi.restoreCard,
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['chief-of-staff', 'cards'],
+      })
+    },
+  })
+}
+
 export const useOnboardingCards = (): UseQueryResult<OnboardingCard[]> =>
   useQuery({
     queryKey: ONBOARDING_CARDS_KEY,

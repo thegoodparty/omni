@@ -1059,6 +1059,16 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'PUT /v1/dashboard/cards/:id/snooze': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/cards/:id/restore': {
+    Request: {}
+    Response: void
+  }
+
   'GET /v1/dashboard/onboarding-cards': {
     Request: {}
     Response: OnboardingCardsResponse

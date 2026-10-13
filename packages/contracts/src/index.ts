@@ -864,6 +864,7 @@ export {
   type DashboardCard,
   DashboardCardsResponseSchema,
   type DashboardCardsResponse,
+  DASHBOARD_CARD_SNOOZE_DAYS,
   civicPanelBuildCardSourceId,
   isCivicPanelBuildCard,
 } from './dashboard/DashboardCard.schema'
