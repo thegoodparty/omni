@@ -208,6 +208,29 @@ records it with `record_check_reminder`, a narrow write in
 check and spends the same raise counter, so the two surfaces never nag
 separately.
 
+## Reporting back
+
+Behind `serve-citizen-panels`, once a priority text's replies are in (gp-api
+`OutreachReportBackService`: the results upload has landed and no summary of
+them is still running), the Chief of Staff home shows "Report back on" the
+priority, linking here with `?reportBack=<outreachId>`. `page.tsx` reads the
+param and the workspace sends `reportBackMessage(id)` (contracts,
+`REPORT_BACK_MARKER`) as one hidden turn: the opener on a fresh thread instead
+of the kickoff, otherwise queued behind any turn in flight, never twice for a
+send already in the transcript, and the param is dropped from the address.
+
+The agent (`REPORT_BACK_BLOCK` in `priorityFlow.prompt.ts`) reads the send
+with `read_report_back`, walks the official through who it went to, how many
+answered and the top themes, asks what they will do next (it never writes a
+next step they did not give), drafts the text with themes and counts and no
+quote or identifying detail, gets their review, and presents it with
+`reportBackForOutreachId`. The handler refuses that card unless its audience
+line and count are the ones the read gave, and with anything else about who
+gets it. The card's list is everyone the send reached minus opt-outs since
+(see `outreach/AGENTS.md`). `<report_backs>` tells the agent, every turn,
+which sends are reported back on already, and the Chief of Staff reads the
+same list so neither asks what the record answers.
+
 ## What we heard (`results/`)
 
 `/dashboard/priorities/[priorityId]/results`, titled "What we heard on" the

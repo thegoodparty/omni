@@ -408,6 +408,23 @@ the `serve-sms-outreach` gate, and the create route 400s any message carrying
 a join line (`findCivicPanelJoinLine`) while it is off, since that line is
 what marks a send as asking.
 
+**A report back is a text, not an ask.** `report_back` (contracts'
+`REPORT_BACK_PURPOSE`) tells the people an earlier priority text asked what
+the official heard and will do next; its voice structure writes themes and
+the official's next step from the materials only, and never a JOIN ask. The
+draft route 404s it with `serve-citizen-panels` off. The create takes
+`reportBackForOutreachId` (404 with the flag off) and stores it on
+`Outreach.reportBackForOutreachId`; `assertReportBackTarget` 400s one whose
+target is not this office's priority text with its replies in, one carrying a
+priority or a check of its own, and one carrying the join line. The column is
+the marker: a report back is linked through the send it answers, never to the
+priority, so it gets no report back card of its own and stays out of the
+priority's pooled themes and results.
+`OutreachReportBackService` (its own `OutreachReportBackModule`, importing
+nothing) is the one read of all this: which sends have their replies in
+(completed, with no effort summary still running), who a report back reaches,
+and whether one has gone out.
+
 **Opt-out has one definition**, `util/textOptOut.util.ts`, and both products
 use it. An unambiguous keyword as a standalone SENTENCE, an ordinary-verb
 keyword only as the WHOLE message, or an explicit revocation phrase. It is
