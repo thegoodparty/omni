@@ -259,6 +259,20 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
     const now = new Date()
+    // `date` is schema-optional (every draft starts with none — see
+    // outreach/drafts' own "no date, no phone list, no payment" contract),
+    // and Prisma's `lt` never matches a NULL column (SQL `NULL < now` is
+    // NULL, not true) — a resume that omits `date` leaves it null straight
+    // through to `pending_payment`, and a hold authorized on that row is
+    // never past-due by this filter, so it would sit until Stripe's own
+    // ~7-day auth expiry instead of being actively released. REACHABLE: no
+    // schema or service guard requires `date` on a p2p resume
+    // (convertP2pDraft writes `date: createOutreachDto.date` verbatim).
+    // Staleness-gated (not unconditional) so this never races a hold that
+    // was JUST authorized and is still seconds from getting its date/build —
+    // the same bound sweep 1/2 use for "has this sat untouched long enough
+    // to call it stuck."
+    const staleCutoff = subMinutes(now, P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
       where: {
         settleState: P2pSmsSettleState.authorized,
@@ -270,8 +284,15 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
           // a finalize already in flight (or its backstop's to retry) — never
           // this sweep's to void.
           status: OutreachStatus.pending_payment,
-          date: { lt: now },
         },
+        // The staleness check reads the SATELLITE's own updatedAt (not the
+        // spine's) — the same signal sweeps 1/2 use for "has this sat
+        // untouched long enough to call it stuck," stamped when the hold
+        // itself was last touched (e.g. recorded authorized).
+        OR: [
+          { outreach: { date: { lt: now } } },
+          { outreach: { date: null }, updatedAt: { lt: staleCutoff } },
+        ],
       },
       select: { outreachId: true, authorizationIntentId: true },
     })
