@@ -25,6 +25,8 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     'Compares the neighborhoods members live in with your whole district.',
   representationEmpty: (minimum: number) =>
     `Once your panel has ${minimum} members, you can compare it with your district.`,
+  representationUnmapped:
+    'Not enough members have an address we can map yet. This fills in as more people join.',
   representationError:
     "We couldn't load this comparison. Refresh the page to try again.",
   shares: (member: number, district: number) =>

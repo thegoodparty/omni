@@ -622,10 +622,12 @@ when the list is read, so people come back in as their window passes.
 
 **The panel as a whole.** `CivicPanelSummaryService` backs the Serve
 Contacts page's "Your citizens' panel" section and its page. Members are
-the standing `member` set; `reachedRecently` is those members in
-`personIdsContactedSince(CONTACT_REST_DAYS)`, the rest window's own read, so
-`askableNow` is exactly who a panel list with "Not contacted in the last 30
-days" holds. The representation reuses the priority results' math
+the standing `member` set; `reachedRecently` is
+`countContactedSinceAmong(CONTACT_REST_DAYS, members)`, the rest window's
+rule counted in SQL over the member ids (so a busy office never hits the
+contacted-set cap), and `askableNow` is exactly who a panel list with "Not
+contacted in the last 30 days" holds. Past the map read's cap the comparison
+is drawn from the members returned, and `respondentCount` says how many. The representation reuses the priority results' math
 (`computeRepresentation`, `MIN_RESPONDENTS_FOR_REPRESENTATION`,
 `pointsForPeople`) and the one `CENSUS_COMPOSITION_SOURCE` binding in
 `CensusCompositionModule`, with members in place of respondents.

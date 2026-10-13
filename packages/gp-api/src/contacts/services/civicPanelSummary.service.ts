@@ -37,15 +37,14 @@ export class CivicPanelSummaryService {
     if (members.length === 0) {
       return { members: 0, reachedRecently: 0, askableNow: 0 }
     }
-    // The notContactedRecently list filter's own read, so askableNow is
-    // exactly who a "Not contacted in the last 30 days" panel list holds.
-    const contacted = new Set(
-      await this.contactsMadeResolutionService.personIdsContactedSince(
+    // The notContactedRecently list filter's rule, so askableNow is exactly
+    // who a "Not contacted in the last 30 days" panel list holds.
+    const reachedRecently =
+      await this.contactsMadeResolutionService.countContactedSinceAmong(
         organization.slug,
         subDays(new Date(), CONTACT_REST_DAYS),
-      ),
-    )
-    const reachedRecently = members.filter((id) => contacted.has(id)).length
+        members,
+      )
     return {
       members: members.length,
       reachedRecently,
@@ -62,6 +61,8 @@ export class CivicPanelSummaryService {
     if (members.length < MIN_RESPONDENTS_FOR_REPRESENTATION) {
       return { representation: null }
     }
+    // Past the map's cap the comparison is drawn from the members returned,
+    // and respondentCount says how many that was.
     const { points } = await this.contactsService.pointsForPeople(
       members,
       organization,
@@ -81,7 +82,7 @@ export class CivicPanelSummaryService {
     return {
       representation: {
         source: composition.source,
-        respondentCount: composition.respondentBlockGroups.length,
+        respondentCount: points.length,
         groups: computeRepresentation(
           composition.district,
           composition.respondentBlockGroups,

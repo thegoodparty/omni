@@ -13,6 +13,7 @@ import {
   ContactStatusSource,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
 
@@ -120,6 +121,29 @@ describe('GET /v1/contacts/civic-panel', () => {
     expect(res.data).toEqual({ members: 1, reachedRecently: 0, askableNow: 1 })
   })
 
+  it("still counts when the office's contacted set is past the list filter's cap", async () => {
+    const slug = await seedOrg('eo')
+    const recent = randomUUID()
+    const rested = randomUUID()
+    await setPanel(slug, recent, CivicPanelStatus.member)
+    await setPanel(slug, rested, CivicPanelStatus.member)
+    await textedDaysAgo(slug, recent, 2)
+    await textedDaysAgo(slug, rested, 45)
+    // What the whole-set read does past MAX_RESOLVED_ID_SET_SIZE.
+    const wholeSet = vi
+      .spyOn(
+        service.app.get(ContactsMadeResolutionService),
+        'personIdsContactedSince',
+      )
+      .mockRejectedValue(new Error('resolves too many people'))
+    onTestFinished(() => wholeSet.mockRestore())
+
+    const res = await summary(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({ members: 2, reachedRecently: 1, askableNow: 1 })
+  })
+
   it('400s for a Win org', async () => {
     const slug = await seedOrg('campaign')
     await service.prisma.campaign.create({
@@ -178,6 +202,29 @@ describe('GET /v1/contacts/civic-panel/representation', () => {
       source: 'sample',
       respondentCount: 12,
     })
+    expect(res.data.representation?.groups.length).toBeGreaterThan(0)
+  })
+
+  it('draws a truncated map read from the members it returned', async () => {
+    const slug = await seedOrg('eo')
+    const members = Array.from({ length: 15 }, () => randomUUID())
+    for (const id of members) await setPanel(slug, id, CivicPanelStatus.member)
+    const points = vi
+      .spyOn(service.app.get(ContactsService), 'pointsForPeople')
+      .mockImplementation(async (ids) => ({
+        points: ids.slice(0, 11).map((id, index) => ({
+          id,
+          lat: 35.59 + index * 0.0101234,
+          lng: -82.55 - index * 0.0101234,
+        })),
+        truncated: true,
+      }))
+    onTestFinished(() => points.mockRestore())
+
+    const res = await representation(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.representation?.respondentCount).toBe(11)
     expect(res.data.representation?.groups.length).toBeGreaterThan(0)
   })
 

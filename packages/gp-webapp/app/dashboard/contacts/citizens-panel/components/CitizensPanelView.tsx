@@ -13,20 +13,54 @@ import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { RepresentationBars } from 'app/dashboard/priorities/[priorityId]/results/components/RepresentationBars'
 import { CIVIC_PANEL_FILTER_KEY } from '../../crm/shared/recommendedListFilters.config'
+import type { SegmentResponse } from '../../crm/shared/contacts-types'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
 
-// Reuses the panel list this button saved before, so pressing it twice never
-// leaves two copies in the lists index.
+// A saved list's bookkeeping, not part of who it holds.
+const LIST_METADATA_KEYS = new Set([
+  'id',
+  'name',
+  'createdAt',
+  'updatedAt',
+  'organizationSlug',
+  'voterCount',
+  'firstUsedForOutreachAt',
+  'geoMembersResolvedAt',
+  'sampledAt',
+  'proposalKey',
+  'recommendedVariant',
+  'recommendedChannel',
+  'recommendedIntent',
+  'recommendedModified',
+  'geoPolyLabels',
+])
+
+const isUnset = (value: unknown): boolean =>
+  value === null ||
+  value === undefined ||
+  value === false ||
+  value === '' ||
+  (Array.isArray(value) && value.length === 0)
+
+// Exactly the panel and nothing narrower, whatever the official named it.
+const isPanelList = (list: SegmentResponse): boolean =>
+  list[CIVIC_PANEL_FILTER_KEY] === true &&
+  Object.entries(list).every(
+    ([key, value]) =>
+      key === CIVIC_PANEL_FILTER_KEY ||
+      LIST_METADATA_KEYS.has(key) ||
+      isUnset(value),
+  )
+
+// Reuses a saved panel list before creating one, so pressing it again never
+// leaves another copy in the lists index.
 const findOrCreatePanelList = async (): Promise<number> => {
   const { data: lists } = await clientRequest(
     'GET /v1/voters/voter-file/filters',
     {},
   )
-  const existing = lists.find(
-    (list) =>
-      list.name === COPY.listName && list[CIVIC_PANEL_FILTER_KEY] === true,
-  )
+  const existing = lists.find(isPanelList)
   if (existing) return existing.id
   const { data: created } = await clientRequest(
     'POST /v1/voters/voter-file/filter',
@@ -104,7 +138,9 @@ export const CitizensPanelView = ({
               />
             ) : (
               <p className="text-sm text-muted-foreground">
-                {COPY.representationEmpty(MIN_RESPONDENTS_FOR_REPRESENTATION)}
+                {summary.members < MIN_RESPONDENTS_FOR_REPRESENTATION
+                  ? COPY.representationEmpty(MIN_RESPONDENTS_FOR_REPRESENTATION)
+                  : COPY.representationUnmapped}
               </p>
             )}
           </section>
