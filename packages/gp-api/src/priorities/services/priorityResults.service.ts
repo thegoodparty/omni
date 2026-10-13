@@ -200,6 +200,9 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     ])
     return {
       summarizing: running > 0,
+      // Same rule as the agent's read (themesWithPeople in
+      // priorityFlowOutreach.service.ts): confirmed notes and replies,
+      // distinct people, empty themes left out.
       themes: (latest?.themes ?? []).flatMap((theme) => {
         const people = new Set(
           theme.members.flatMap((member) => {

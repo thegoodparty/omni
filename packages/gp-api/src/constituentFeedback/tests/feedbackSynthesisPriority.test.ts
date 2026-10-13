@@ -318,33 +318,70 @@ describe('feedback synthesis across a priority', () => {
     ).toBe(true)
   })
 
-  it('counts the same people per theme on the results page and in the agent read', async () => {
+  it('counts the people a theme covers by one rule on every path', async () => {
     const texted = await replies(3)
+    const again = await service.prisma.pollIndividualMessage.create({
+      data: {
+        id: crypto.randomUUID(),
+        outreachId: textId,
+        personId: texted[0]!.personId,
+        sentAt: new Date(),
+        isOptOut: false,
+        sender: texted[0]!.sender,
+        content: 'And again last night.',
+      },
+    })
     const knocked = await notes(2)
-    const started = await run()
+    const textMembers = [...texted.map((r) => r.id), again.id]
+    const noteMembers = knocked.map((n) => n.memo.id)
+
+    const pooled = await run()
     await ingest().handle(
-      completionEvent(started.id, [
+      completionEvent(pooled.id, [
         {
           theme: 'Drains back up',
-          memberIds: [
-            ...texted.map((r) => r.id),
-            ...knocked.map((n) => n.memo.id),
-          ],
+          memberIds: [...textMembers, ...noteMembers],
         },
       ]),
     )
+    const effortRun = async (outreachId: number, memberIds: string[]) => {
+      const row = await service.prisma.feedbackSynthesisRun.create({
+        data: {
+          organizationSlug: slug,
+          scope: SynthesisScope.effort,
+          outreachId,
+          status: SynthesisRunStatus.running,
+          conversations: 0,
+          memos: 0,
+          confirmed: memberIds.length,
+          engine: 'mock',
+        },
+      })
+      await ingest().handle(
+        completionEvent(row.id, [{ theme: 'Drains back up', memberIds }]),
+      )
+    }
+    await effortRun(textId, textMembers)
+    await effortRun(turf.outreachId, noteMembers)
     await service.prisma.constituentFeedback.update({
       where: { id: knocked[0]!.memo.id },
       data: { confirmedAt: null },
     })
 
+    const agent = service.app.get(PriorityFlowOutreachService)
     const page = (await results()).data.themes
-    const agent = await service.app
-      .get(PriorityFlowOutreachService)
-      .pooledThemes(slug, priorityId)
+    const pooledRead = await agent.pooledThemes(slug, priorityId)
+    const perSend = await agent.feedbackFor(slug, { priorityId })
+    const peopleOn = (outreachId: number) =>
+      perSend
+        .find((send) => send.outreachId === outreachId)!
+        .themes.map((theme) => theme.people)
 
+    // Three people texted (one twice) and one confirmed note: four.
     expect(page.map((theme) => theme.people)).toEqual([4])
-    expect(agent.map((theme) => theme.people)).toEqual([4])
+    expect(pooledRead.map((theme) => theme.people)).toEqual([4])
+    expect(peopleOn(textId)).toEqual([3])
+    expect(peopleOn(turf.outreachId)).toEqual([1])
   })
 
   it('says a run is in flight while the last themes stay up', async () => {

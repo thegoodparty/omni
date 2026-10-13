@@ -220,7 +220,18 @@ export class PriorityFlowOutreachService extends createPrismaBase(
           select: {
             title: true,
             summary: true,
-            _count: { select: { members: true } },
+            members: {
+              where: {
+                OR: [
+                  { feedback: { confirmedAt: { not: null } } },
+                  { textReplyId: { not: null } },
+                ],
+              },
+              select: {
+                feedback: { select: { personId: true } },
+                textReply: { select: { personId: true } },
+              },
+            },
           },
         },
       },
@@ -233,17 +244,12 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       heardFrom: verbatims.length,
       verbatims: verbatims.slice(0, MAX_VERBATIMS_PER_SEND),
       verbatimsLeftOut: Math.max(0, verbatims.length - MAX_VERBATIMS_PER_SEND),
-      themes: (run?.themes ?? []).map((theme) => ({
-        title: theme.title,
-        summary: theme.summary,
-        people: theme._count.members,
-      })),
+      themes: themesWithPeople(run?.themes ?? []),
     }
   }
 
   // The themes across every send for the priority, from its latest finished
-  // pooled run. Empty until one has run. Counts people the way the results
-  // page does, confirmed notes and replies only, so the two never disagree.
+  // pooled run. Empty until one has run.
   async pooledThemes(
     organizationSlug: string,
     priorityId: string,
@@ -278,17 +284,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         },
       },
     })
-    return (run?.themes ?? []).map((theme) => ({
-      title: theme.title,
-      summary: theme.summary,
-      people: new Set(
-        theme.members.flatMap((member) => {
-          const personId =
-            member.feedback?.personId ?? member.textReply?.personId
-          return personId === undefined ? [] : [personId]
-        }),
-      ).size,
-    }))
+    return themesWithPeople(run?.themes ?? [])
   }
 
   // One entry per person, their messages joined in order. A reply that was
@@ -403,6 +399,32 @@ const sentOn = (row: Outreach): string | null => {
   }
   return format(parseISO(row.scheduledLocalDate), 'd MMM')
 }
+
+// The one rule for how many people a theme covers, shared by a send's
+// themes, the priority's pooled themes and the results page
+// (PriorityResultsService): confirmed notes and text replies, someone heard
+// twice counted once. A theme nobody counts toward is left out.
+type ThemeRow = {
+  title: string
+  summary: string
+  members: {
+    feedback: { personId: string } | null
+    textReply: { personId: string } | null
+  }[]
+}
+
+const themesWithPeople = (themes: ThemeRow[]): PooledTheme[] =>
+  themes.flatMap((theme) => {
+    const people = new Set(
+      theme.members.flatMap((member) => {
+        const personId = member.feedback?.personId ?? member.textReply?.personId
+        return personId === undefined ? [] : [personId]
+      }),
+    ).size
+    return people === 0
+      ? []
+      : [{ title: theme.title, summary: theme.summary, people }]
+  })
 
 const clip = (text: string): string =>
   text.length <= MAX_VERBATIM_CHARS

@@ -80,37 +80,41 @@ export class SynthesisStaleRunSweepService extends createPrismaBase(
       },
       select: { id: true, organizationSlug: true, priorityId: true },
     })
+    // The flag clears only once the re-pool is settled, so a failure that
+    // throws anywhere leaves it owed for the next sweep. The cron lock keeps
+    // two sweeps from starting it twice.
     for (const run of owed) {
-      const claim = await this.model.updateMany({
-        where: { id: run.id, repoolOwed: true },
-        data: { repoolOwed: false },
-      })
-      if (claim.count === 0 || run.priorityId === null) continue
-      await this.synthesis
+      if (run.priorityId === null) continue
+      const settled = await this.synthesis
         .requestPriorityRun({
           organizationSlug: run.organizationSlug,
           priorityId: run.priorityId,
           requestedByUserId: null,
         })
-        .catch(async (err: Error) => {
-          // A conflict re-marks the run now in flight; under the floor there
-          // is nothing to pool. Anything else leaves the re-pool owed for the
-          // next sweep.
-          if (
-            err instanceof HttpException &&
-            EXPECTED_REPOOL_REFUSALS.has(err.getStatus())
-          ) {
-            return
-          }
-          this.logger.error(
-            { err, runId: run.id, priorityId: run.priorityId },
-            'Owed priority re-pool failed',
-          )
-          await this.model.update({
-            where: { id: run.id },
-            data: { repoolOwed: true },
-          })
+        .then(
+          () => true,
+          (err: Error) => {
+            // A conflict re-marks the run now in flight; under the floor
+            // there is nothing to pool.
+            if (
+              err instanceof HttpException &&
+              EXPECTED_REPOOL_REFUSALS.has(err.getStatus())
+            ) {
+              return true
+            }
+            this.logger.error(
+              { err, runId: run.id, priorityId: run.priorityId },
+              'Owed priority re-pool failed',
+            )
+            return false
+          },
+        )
+      if (settled) {
+        await this.model.update({
+          where: { id: run.id },
+          data: { repoolOwed: false },
         })
+      }
     }
   }
 }
