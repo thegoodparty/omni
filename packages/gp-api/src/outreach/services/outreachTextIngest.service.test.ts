@@ -660,6 +660,17 @@ describe('OutreachTextIngestService civic panel', () => {
     expect(await panelStatus(PERSON_1.personId)).toBe('left')
   })
 
+  it('never joins someone who opted out, even with a JOIN sent after the STOP', async () => {
+    await seedServeSend(true)
+
+    await upload([
+      row(PERSON_1.phone, 'STOP', new Date('2026-08-11T15:00:00.000Z')),
+      row(PERSON_1.phone, 'JOIN', new Date('2026-08-11T16:00:00.000Z')),
+    ])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+  })
+
   it('skips a JOIN sent before a STOP that an earlier upload recorded', async () => {
     await seedServeSend(true)
 

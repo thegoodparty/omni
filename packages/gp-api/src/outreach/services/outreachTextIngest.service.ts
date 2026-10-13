@@ -360,9 +360,9 @@ export class OutreachTextIngestService extends createPrismaBase(
    * JOIN to any other text means nothing. Both are idempotent on the message
    * id, the same key as the reply events, so a re-upload writes nothing new.
    * Replies are applied in the order they were sent, not the order the
-   * upload lists them, and a JOIN at or before the person's latest STOP on
-   * any send is skipped, so a STOP stays the last word even when it arrived
-   * in an earlier upload. Returns how many joins this ingest recorded.
+   * upload lists them, and a JOIN from anyone who has opted out on any send
+   * is skipped, so a STOP stays the last word even when it arrived in an
+   * earlier upload or before the JOIN. Returns how many joins this ingest recorded.
    */
   private async applyCivicPanelEvents(
     organizationSlug: string | null,
@@ -388,7 +388,7 @@ export class OutreachTextIngestService extends createPrismaBase(
           organizationSlug,
           message.personId,
         )
-        if (optedOutAt && optedOutAt >= sentAtOf(message)) continue
+        if (optedOutAt) continue
       }
       const event = await this.contactStatus.changeStatus({
         organizationSlug,

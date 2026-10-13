@@ -595,8 +595,8 @@ the reply's message id) writes `member` for a JOIN reply
 (`util/civicPanelJoin.util.ts`: the whole reply or a sentence of its own) on
 a send that asked, and `left` for any STOP on any Serve send, because panel
 membership is not consent to text. Replies apply in sent order, and a JOIN
-at or before the person's latest STOP is skipped, so a STOP stays the last
-word across uploads.
+from anyone who has opted out on any send is skipped, so a STOP stays the
+last word across uploads.
 
 **The audience side.** `voter_file_filter.civic_panel_member` is the saved-
 filter dimension for the panel, built exactly like `follow_up_requested`:
