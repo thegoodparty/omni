@@ -288,7 +288,9 @@ export default function PhoneBankingCallerPage({
           surface ? 'h-[calc(100dvh-3.5rem)]' : 'h-[calc(100dvh-4rem)]',
         )}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+        {/* White like every other page's title bar (DashboardNavHeader);
+            unset, the dashboard's gray canvas showed through. */}
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-background px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <IconButton
               asChild
@@ -404,12 +406,6 @@ export default function PhoneBankingCallerPage({
           </div>
         </div>
 
-        <WhatWeHeardLink
-          outreachId={effortOutreachId}
-          isServe={isServe}
-          className="border-b border-border px-4 py-2.5"
-        />
-
         {showDeleteAction && (
           <AlertDialog
             open={deleteConfirmOpen}
@@ -466,6 +462,15 @@ export default function PhoneBankingCallerPage({
           )}
           {list && counts && (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+              {/* What the answered calls said, first in the column as a
+                  section of its own, framed like the cards below it. The
+                  frame is the link's own, so it goes when the link renders
+                  nothing. */}
+              <WhatWeHeardLink
+                outreachId={effortOutreachId}
+                isServe={isServe}
+                className="rounded-xl border border-border bg-card p-4"
+              />
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium text-foreground">
                   {sheetIndexes.length > 1

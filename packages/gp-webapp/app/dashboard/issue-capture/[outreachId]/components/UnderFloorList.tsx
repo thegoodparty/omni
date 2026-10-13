@@ -31,7 +31,7 @@ const UnderFloorList = ({
           isServe={isServe}
         />
       </div>
-      <MemoList memos={memos} outreachId={outreachId} isServe={isServe} />
+      <MemoList memos={memos} isServe={isServe} />
     </section>
   )
 }

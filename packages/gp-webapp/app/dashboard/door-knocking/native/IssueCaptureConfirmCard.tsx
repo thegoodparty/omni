@@ -181,8 +181,7 @@ const captionFor = (
       ? copy.none
       : copy.caption
 
-// The card's state and both of its halves, so the inline card and the drawer
-// render the same issues and the same two buttons from one place.
+// The card's state, one place for the issues the step renders.
 const useCaptureDrafts = (proposed: ProposedIssues, isServe: boolean) => {
   const copy = isServe ? CAPTURE_COPY.serve : CAPTURE_COPY.win
   const stanceLabels = isServe ? STANCE_LABELS.serve : STANCE_LABELS.win
@@ -313,8 +312,7 @@ interface ConfirmActionsProps {
   drafts: IssueDraft[]
   saving: boolean
   onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
-  onSkip?: () => void
-  confirmLabel?: string
+  onSkip: () => void
 }
 
 const ConfirmActions = ({
@@ -323,109 +321,36 @@ const ConfirmActions = ({
   saving,
   onConfirm,
   onSkip,
-  confirmLabel,
 }: ConfirmActionsProps) => (
   <div className="flex flex-col gap-2">
     <Button
       className="w-full"
       disabled={saving}
-      aria-label={confirmLabel}
       onClick={() => onConfirm(toConfirmed(drafts))}
     >
       {saving ? 'Saving…' : copy.confirm}
     </Button>
-    {/* Skipping leaves the memo and its unconfirmed issues on the record
-        and moves the walk on. Nothing is lost, and reporting can tell an
-        unconfirmed row from a confirmed one, so the canvasser is never
-        held at a door by a question about a conversation they have
-        already finished. */}
-    {onSkip !== undefined && (
-      <Button
-        className="w-full"
-        variant="outline"
-        disabled={saving}
-        onClick={onSkip}
-      >
-        {copy.skip}
-      </Button>
-    )}
+    {/* Skipping saves the note with no issues and moves the walk on: its
+        words still go into the summary, so the canvasser is never held at a
+        door by a question about a conversation they have already
+        finished. */}
+    <Button
+      className="w-full"
+      variant="outline"
+      disabled={saving}
+      onClick={onSkip}
+    >
+      {copy.skip}
+    </Button>
   </div>
 )
-
-interface IssueCaptureConfirmCardProps {
-  proposed: ProposedIssues
-  saving: boolean
-  isServe: boolean
-  onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
-  // Absent where there is nothing to skip to: the review list leaves an
-  // unconfirmed note where it is.
-  onSkip?: () => void
-  // The confirm button's accessible name where several cards share a page,
-  // so each says which note it confirms.
-  confirmLabel?: string
-}
-
-// The issues, handed back for the one person who can judge them: whoever just
-// had the conversation. Confirming here is what separates a first-hand record
-// from a guess, which is why it happens at the door and not in a queue later.
-// Each issue can be corrected or removed. None can be added here: the
-// canvasser records or types the note again instead.
-export default function IssueCaptureConfirmCard({
-  proposed,
-  saving,
-  isServe,
-  onConfirm,
-  onSkip,
-  confirmLabel,
-}: IssueCaptureConfirmCardProps) {
-  const { copy, stanceLabels, drafts, update, remove } = useCaptureDrafts(
-    proposed,
-    isServe,
-  )
-
-  // No frame of its own: it sits inside the note's Card on the review pages,
-  // its only callers, and a bordered box inside a bordered box read as a card
-  // in a card, with neither radius nor padding matching the product's.
-  return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-base font-semibold text-foreground">
-          {copy.heading}
-        </h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {captionFor(copy, proposed, drafts)}
-        </p>
-      </div>
-      <IssueBlocks
-        copy={copy}
-        stanceLabels={stanceLabels}
-        drafts={drafts}
-        saving={saving}
-        update={update}
-        remove={remove}
-      />
-      <ConfirmActions
-        copy={copy}
-        drafts={drafts}
-        saving={saving}
-        onConfirm={onConfirm}
-        onSkip={onSkip}
-        confirmLabel={confirmLabel}
-      />
-    </div>
-  )
-}
 
 interface IssueCaptureConfirmStepProps {
   proposed: ProposedIssues
   saving: boolean
   isServe: boolean
   onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
-  // Absent where closing the frame is the only way out: editing a note from
-  // the report has nothing to skip to.
-  onSkip?: () => void
-  // A failed save, said above the buttons so the canvasser can try again.
-  error?: string
+  onSkip: () => void
 }
 
 // The same card as a step of the knock's or the call's `PanelDrawer`, the
@@ -439,7 +364,6 @@ export const IssueCaptureConfirmStep = ({
   isServe,
   onConfirm,
   onSkip,
-  error,
 }: IssueCaptureConfirmStepProps) => {
   const { copy, stanceLabels, drafts, update, remove } = useCaptureDrafts(
     proposed,
@@ -462,11 +386,6 @@ export const IssueCaptureConfirmStep = ({
         />
       </PanelDrawerBody>
       <PanelDrawerFooter>
-        {error !== undefined && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
         <ConfirmActions
           copy={copy}
           drafts={drafts}

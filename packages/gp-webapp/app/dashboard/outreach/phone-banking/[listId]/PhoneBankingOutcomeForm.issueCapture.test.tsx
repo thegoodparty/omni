@@ -309,10 +309,12 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'phoneBanking',
-      product: 'serve',
-    })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+        channel: 'phoneBanking',
+        product: 'serve',
+      }),
+    )
     await waitFor(() => expect(screen.queryByText('Is this right?')).toBeNull())
   })
 
@@ -586,10 +588,12 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'phoneBanking',
-      product: 'win',
-    })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+        channel: 'phoneBanking',
+        product: 'win',
+      }),
+    )
   })
 })
 

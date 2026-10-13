@@ -11,7 +11,8 @@ import {
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { whatWeHeardCopy } from '../../../../copy'
-import { themeQueryOptions } from '../../../queries'
+import { reportQueryOptions, themeQueryOptions } from '../../../queries'
+import { rankThemes } from '../../../components/ThemeGrid'
 import ThemeDetails from './ThemeDetails'
 import ThemeMemos from './ThemeMemos'
 import ThemeSummary from './ThemeSummary'
@@ -30,6 +31,13 @@ const ThemeDetailPage = ({
   const copy = whatWeHeardCopy(isServe)
   const themeQuery = useQuery(themeQueryOptions(themeId))
   const theme = themeQuery.data
+  // The report is cached from the page this was opened from; read off it,
+  // the circle shows the card's number. Opened cold, the run's own rank
+  // stands in until the report arrives.
+  const reportQuery = useQuery(reportQueryOptions(outreachId))
+  const reportIndex = rankThemes(reportQuery.data?.themes ?? []).findIndex(
+    (summary) => summary.id === themeId,
+  )
 
   return (
     <DashboardLayout
@@ -61,13 +69,13 @@ const ThemeDetailPage = ({
       <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-6 px-2 pb-8 md:px-0">
         {theme ? (
           <>
-            <ThemeSummary theme={theme} isServe={isServe} />
-            <ThemeDetails theme={theme} isServe={isServe} />
-            <ThemeMemos
+            <ThemeSummary
               theme={theme}
-              outreachId={outreachId}
+              position={reportIndex >= 0 ? reportIndex + 1 : theme.rank}
               isServe={isServe}
             />
+            <ThemeDetails theme={theme} isServe={isServe} />
+            <ThemeMemos theme={theme} isServe={isServe} />
           </>
         ) : themeQuery.isError ? (
           <Alert variant="destructive" role="alert">

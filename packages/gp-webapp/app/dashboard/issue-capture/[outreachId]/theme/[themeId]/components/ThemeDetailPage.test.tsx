@@ -109,11 +109,11 @@ describe('ThemeDetailPage', () => {
     expect(screen.getByText('4 conversations')).toBeInTheDocument()
 
     const split = screen.getByLabelText('Where people stand')
-    // Title and summary, then details, then where people stand, then what
-    // they want, then the notes.
+    // Title, summary and where people stand, as on the report's card, then
+    // details, then what they want, then the notes.
     const order = [
-      screen.getByRole('heading', { name: 'Details' }),
       split,
+      screen.getByRole('heading', { name: 'Details' }),
       screen.getByRole('heading', { name: 'What people want' }),
       screen.getByRole('heading', { name: 'The notes' }),
     ]
@@ -139,6 +139,34 @@ describe('ThemeDetailPage', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual(['Move the loading zone', 'Keep the lanes'])
+  })
+
+  // The page opens with the top of the card it was opened from, so its
+  // circle shows the card's number, which is the report's order rather
+  // than the run's own rank.
+  it('heads the page with the theme’s number on the report and its title', async () => {
+    mockTheme()
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'door_knock',
+        floor: 5,
+        denominators: { conversations: 9, memos: 9, confirmed: 9, pending: 0 },
+        run: null,
+        themes: [
+          { ...THEME, rank: 2, conversationCount: 9 },
+          { ...THEME, id: 'theme-a', rank: 1, conversationCount: 3 },
+        ],
+        memos: [],
+      },
+    })
+    renderPage()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Rank 1: Bike lanes' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('#1')).toBeInTheDocument()
   })
 
   it('labels every note as the canvasser’s summary', async () => {
@@ -191,8 +219,8 @@ describe('ThemeDetailPage', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'IssueDelivery delaysAgainst itWantsMove the loading zone',
-      'IssueParkingMixed',
+      'Issue 1Against itDelivery delaysWantsMove the loading zone',
+      'Issue 2MixedParking',
     ])
   })
 

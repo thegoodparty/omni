@@ -431,29 +431,14 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     does: 'Read what people said on one door knocking turf or phone banking list, grouped into themes ranked by how many conversations raised them.',
     inside: [
       'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top',
-      'The line under the title counts who answered, who left a note, and how many notes are confirmed. Only confirmed notes count toward a theme',
+      'Two counts under the title: how many people answered and how many left a note',
+      'A note is confirmed at the door or on the call: Looks right saves the issues it found, and Skip saves the note with no issues. Either way its words go into the summary',
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
       'The Summarize notes button groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
       'Each theme opens to its details, where people stand, what they want, and the notes behind it',
-      'Each note has a menu with Edit, which corrects the issues taken from it: the issue, where the person stands and what they want. A note cannot be deleted, and its own words cannot be changed there',
-      'Download notes, next to Every note, saves every note on the effort as a spreadsheet file, not just the ones listed on the page',
-    ],
-    gate: 'Being rolled out account by account, so not every account has it yet.',
-  },
-  {
-    // One area seen by two roles: the owner's page under the dashboard and a
-    // volunteer's own under their walk, with the same title, so one entry
-    // with the volunteer's way in rather than the same name twice.
-    navId: null,
-    name: 'Notes to review',
-    path: '/dashboard/issue-capture/[outreachId]/review',
-    modes: ['win', 'serve'],
-    does: 'Confirm what a conversation’s note says when nobody confirmed it at the door, including notes recorded with no signal.',
-    inside: [
-      'Reached from the waiting for review count under the title of What we heard, and from Notes to review on a door knocking turf’s details',
-      'A note recorded with no signal reads Still transcribing until it has been turned into text, usually within a couple of minutes',
-      'Looks right confirms a note. A note that could not be read offers Try again, or Type it instead to type what the person said',
-      'A volunteer has a Notes to review of their own, from the line at the top of the map while they walk a turf, listing only the notes they took',
+      'A note is checked and saved where it is taken, at the door or on the call. The page only lists notes: they cannot be edited or deleted there',
+      'All notes shows the newest five, with Show more for the rest',
+      'Download notes, next to All notes, saves every note on the effort as a spreadsheet file, not just the ones listed on the page',
     ],
     gate: 'Being rolled out account by account, so not every account has it yet.',
   },

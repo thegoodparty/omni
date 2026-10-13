@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type {
@@ -27,7 +27,7 @@ import { whatWeHeardCopy } from '../../copy'
 import { reportQueryOptions } from '../queries'
 import DownloadNotesLink from './DownloadNotesLink'
 import MemoList, { type MemoListItem } from './MemoList'
-import ReportCaption from './ReportCaption'
+import ReportCounts from './ReportCounts'
 import SummarizeButton from './SummarizeButton'
 import SummarizingBanner from './SummarizingBanner'
 import ThemeGrid from './ThemeGrid'
@@ -43,6 +43,11 @@ const toListItem = (memo: FeedbackReportMemo): MemoListItem => ({
   pending: memo.confirmedAt === null,
 })
 
+// The newest five, the rest behind Show more, so the notes do not push the
+// page into a scroll of every conversation the effort had. The download is
+// the whole list either way.
+const VISIBLE_NOTES = 5
+
 const EveryNote = ({
   memos,
   outreachId,
@@ -52,12 +57,16 @@ const EveryNote = ({
   outreachId: number
   isServe: boolean
 }) => {
+  const copy = whatWeHeardCopy(isServe)
   const headingId = useId()
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? memos : memos.slice(0, VISIBLE_NOTES)
+  const hidden = memos.length - shown.length
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <h2 id={headingId} className="text-lg font-semibold text-foreground">
-          {whatWeHeardCopy(isServe).everyNoteHeading}
+          {copy.everyNoteHeading}
         </h2>
         <DownloadNotesLink
           outreachId={outreachId}
@@ -65,7 +74,14 @@ const EveryNote = ({
           isServe={isServe}
         />
       </div>
-      <MemoList memos={memos} outreachId={outreachId} isServe={isServe} />
+      <MemoList memos={shown} isServe={isServe} />
+      {hidden > 0 && (
+        <div className="mt-1 flex justify-center">
+          <Button variant="outline" onClick={() => setExpanded(true)}>
+            {copy.showMoreNotes(hidden)}
+          </Button>
+        </div>
+      )}
     </section>
   )
 }
@@ -209,13 +225,12 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
       <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-6 px-2 pb-8 md:px-0">
         {report ? (
           <div className="flex flex-col gap-6">
-            <header className="flex min-w-0 flex-col gap-1">
+            <header className="flex min-w-0 flex-col gap-4">
               <h1 className="text-2xl font-semibold text-foreground">
                 {report.question ?? copy.title}
               </h1>
-              <ReportCaption
+              <ReportCounts
                 denominators={report.denominators}
-                outreachId={outreachId}
                 isServe={isServe}
               />
             </header>

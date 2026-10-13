@@ -102,9 +102,9 @@ const SummarizeButton = ({
   const failed = start.isError && status !== 409 && refusal === null
   const button = (
     // Small, so the bar it sits in stays the title bar's 56px: the button
-    // scales to the bar, the bar never grows around it.
+    // scales to the bar, the bar never grows around it. The page's one
+    // primary action, so it takes the default (filled) variant.
     <Button
-      variant="outline"
       size="small"
       disabled={reason !== null || start.isPending}
       onClick={() => start.mutate()}

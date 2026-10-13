@@ -3,15 +3,12 @@ import type { FeedbackThemeDetail } from '@goodparty_org/contracts'
 import { whatWeHeardCopy } from '../../../../copy'
 import MemoList from '../../../components/MemoList'
 
-// The conversations behind the theme. Confirmed only, so none of them is
-// waiting for review.
+// The conversations behind the theme. Confirmed only.
 const ThemeMemos = ({
   theme,
-  outreachId,
   isServe,
 }: {
   theme: FeedbackThemeDetail
-  outreachId: number
   isServe: boolean
 }) => {
   const headingId = useId()
@@ -22,7 +19,6 @@ const ThemeMemos = ({
         {whatWeHeardCopy(isServe).theNotes}
       </h2>
       <MemoList
-        outreachId={outreachId}
         isServe={isServe}
         memos={theme.members.map((member) => ({
           id: member.feedbackId,

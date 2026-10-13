@@ -284,7 +284,29 @@ describe('RecordKnockForm issue capture', () => {
     expect(store.has('21')).toBe(false)
   })
 
-  it('advances on skip, leaving the memo unconfirmed', async () => {
+  // Skip still saves: the note is confirmed with no issues, so its words go
+  // into the summary and the issues can be added from the report's Edit.
+  it('saves the note with no issues on skip, and advances', async () => {
+    let confirmed: unknown = null
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', ({ body }) => {
+      confirmed = body
+      return {
+        status: 200,
+        data: {
+          id: 'feedback-1',
+          personId: 'person-1',
+          occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+          channel: 'door_knock',
+          transcript: MEMO,
+          issues: [],
+          extractionStatus: 'extracted',
+          confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+          outreachId: 7,
+          actorName: 'Kamal Al Sawafi',
+          tags: [],
+        },
+      }
+    })
     const onRecorded = renderForm()
     await walkAndSave()
 
@@ -293,6 +315,7 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
+    expect(confirmed).toEqual({ issues: [] })
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
       channel: 'doorKnocking',
       product: 'serve',
@@ -964,9 +987,11 @@ describe('RecordKnockForm issue capture on a Win door', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'doorKnocking',
-      product: 'win',
-    })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+        channel: 'doorKnocking',
+        product: 'win',
+      }),
+    )
   })
 })

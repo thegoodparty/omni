@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type {
   FeedbackReportMemo,
   FeedbackReportResponse,
   FeedbackThemeSummary,
 } from '@goodparty_org/contracts'
-import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -192,45 +191,12 @@ describe('WhatWeHeardPage', () => {
         name: 'What should the city fix first?',
       }),
     ).toBeInTheDocument()
+    const counts = screen.getByRole('list', { name: 'Notes so far' })
     expect(
-      screen.getByText(
-        (_content, element) =>
-          element?.tagName === 'P' &&
-          element.textContent ===
-            '84 people answered. 61 left a note. 54 confirmed, 7 waiting for review.',
-      ),
-    ).toBeInTheDocument()
-  })
-
-  // The waiting notes are confirmed from the review list, so the clause
-  // that counts them is the way there.
-  it('links the waiting notes to the review list', async () => {
-    mockReport(report())
-    renderPage()
-
-    expect(
-      await screen.findByRole('link', { name: '7 waiting for review' }),
-    ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}/review`)
-  })
-
-  it('drops the review clause when nothing is waiting', async () => {
-    mockReport(
-      report({
-        denominators: {
-          conversations: 84,
-          memos: 61,
-          confirmed: 61,
-          pending: 0,
-        },
-      }),
-    )
-    renderPage()
-
-    expect(
-      await screen.findByText(
-        '84 people answered. 61 left a note. 61 confirmed.',
-      ),
-    ).toBeInTheDocument()
+      within(counts)
+        .getAllByRole('listitem')
+        .map((tile) => tile.textContent),
+    ).toEqual(['84People answered', '61Left a note'])
   })
 
   it('names the outreach in the title bar, the way the hub names it', async () => {
@@ -420,29 +386,6 @@ describe('WhatWeHeardPage', () => {
 
       await expectReason('Themes appear after 8 confirmed notes.')
     })
-
-    it('marks a note nobody has reviewed', async () => {
-      mockReport(
-        report({
-          denominators: {
-            conversations: 6,
-            memos: 2,
-            confirmed: 1,
-            pending: 1,
-          },
-        }),
-      )
-      renderPage()
-
-      // The one waiting note offers the way to review it, landing on it.
-      const review = await screen.findByRole('link', { name: /^Review / })
-      expect(screen.getAllByRole('link', { name: /^Review / })).toHaveLength(1)
-      expect(review).toHaveTextContent('Review')
-      expect(review.getAttribute('href')).toMatch(
-        new RegExp(`^/dashboard/issue-capture/${OUTREACH_ID}/review#note-`),
-      )
-      expect(screen.getByText(/Summary by Kamal Al Sawafi/)).toBeInTheDocument()
-    })
   })
 
   describe('with a completed run', () => {
@@ -463,7 +406,7 @@ describe('WhatWeHeardPage', () => {
       expect(links[0]).toHaveAccessibleName('See details for Bike lanes')
       expect(screen.getByText('9 conversations')).toBeInTheDocument()
       expect(
-        screen.getByRole('heading', { name: 'Every note' }),
+        screen.getByRole('heading', { name: 'All notes' }),
       ).toBeInTheDocument()
       expect(
         screen.getByText(
@@ -501,6 +444,33 @@ describe('WhatWeHeardPage', () => {
       expect(screen.getByText('Theme 2')).toBeInTheDocument()
       expect(screen.getByText('Theme 1')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: /more theme/ })).toBeNull()
+    })
+
+    // The newest five notes show; the rest wait behind Show more.
+    it('shows the first five notes and the rest behind Show more', async () => {
+      mockReport(
+        report({
+          run: run('completed'),
+          themes: [theme()],
+          memos: [1, 2, 3, 4, 5, 6, 7].map((n) =>
+            memo({
+              id: `memo-${n}`,
+              personId: `person-${n}`,
+              transcript: `Note number ${n}.`,
+            }),
+          ),
+        }),
+      )
+      renderPage()
+
+      await screen.findByText('Note number 1.')
+      expect(screen.getByText('Note number 5.')).toBeInTheDocument()
+      expect(screen.queryByText('Note number 6.')).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show 2 more notes' }))
+
+      expect(screen.getByText('Note number 7.')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /more note/ })).toBeNull()
     })
 
     // Tags are kept and reused behind the scenes; the page only ever shows
@@ -557,62 +527,6 @@ describe('WhatWeHeardPage', () => {
         screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeEnabled()
       expect(screen.getByText('Street flooding')).toBeInTheDocument()
-    })
-  })
-
-  // A note can be corrected from the report, never removed: the menu holds
-  // Edit and nothing else, and Edit is the confirm the canvasser saw.
-  describe('editing a note', () => {
-    it('saves the corrected issues through the confirm', async () => {
-      const user = userEvent.setup()
-      let sent: unknown
-      mockReport(report({ memos: [memo()] }))
-      api.mock(
-        'PATCH /v1/constituent-feedback/:id/confirm',
-        ({ params, body }) => {
-          expect(params.id).toBe('memo-1')
-          sent = body
-          return {
-            status: 200,
-            data: {
-              ...memo(),
-              extractionStatus: 'extracted' as const,
-              outreachId: OUTREACH_ID,
-              tags: [],
-            },
-          }
-        },
-      )
-      renderPage()
-
-      await user.click(
-        await screen.findByRole('button', { name: 'More actions' }),
-      )
-      expect(screen.queryByRole('menuitem', { name: /delete/i })).toBeNull()
-      await user.click(screen.getByRole('menuitem', { name: 'Edit' }))
-
-      const issue = await screen.findByDisplayValue('Storm drains')
-      await user.clear(issue)
-      await user.type(issue, 'Drainage')
-      await user.click(screen.getByRole('button', { name: 'Looks right' }))
-
-      await waitFor(() =>
-        expect(sent).toMatchObject({
-          issues: [
-            {
-              issueLabel: 'Drainage',
-              stance: 'supports',
-              desiredOutcome: 'Clear the drains',
-              fromIssueId: 'issue-storm-drains',
-            },
-          ],
-        }),
-      )
-      await waitFor(() =>
-        expect(
-          screen.queryByRole('button', { name: 'Looks right' }),
-        ).toBeNull(),
-      )
     })
   })
 
@@ -854,7 +768,7 @@ describe('WhatWeHeardPage', () => {
           testQueryClient.clear()
           mockReport(data)
           const { container, unmount } = renderPage(isServe)
-          await screen.findByText(/people answered|person answered/)
+          await screen.findByText('People answered')
           expect(container.textContent).not.toMatch(FORBIDDEN)
           unmount()
         }
@@ -867,14 +781,14 @@ describe('WhatWeHeardPage', () => {
         testQueryClient.clear()
         mockReport(data)
         const win = renderPage(false)
-        await screen.findByText(/people answered|person answered/)
+        await screen.findByText('People answered')
         expect(win.container.textContent).not.toMatch(/constituent/i)
         win.unmount()
 
         testQueryClient.clear()
         mockReport(data)
         const serve = renderPage(true)
-        await screen.findByText(/people answered|person answered/)
+        await screen.findByText('People answered')
         expect(serve.container.textContent).not.toMatch(/voter/i)
         serve.unmount()
       },

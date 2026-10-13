@@ -2,10 +2,8 @@ import type {
   ConstituentFeedbackChannel,
   ConstituentFeedbackIssue,
 } from '@goodparty_org/contracts'
-import Link from 'next/link'
-import { Badge, Button, EmptyState } from '@styleguide'
+import { Badge, Card, EmptyState, Overline } from '@styleguide'
 import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
-import EditMemoMenu from './EditMemoMenu'
 
 export interface MemoListItem {
   id: string
@@ -27,31 +25,11 @@ const formatDate = (value: Date): string =>
 
 // The notes themselves, on the report while there are no themes to show and
 // under them once there are, and as a theme's members on its own page.
-// The confirm form's field label, so the fields read the same on the note
-// as where they were confirmed.
-const FIELD_LABEL_CLASSNAME =
-  'text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground'
-
-// A note's first words, or who took it and when, so a list of Review
-// buttons is not one name said several times.
-const NAME_WORDS = 6
-const noteName = (
-  memo: MemoListItem,
-  copy: ReturnType<typeof whatWeHeardCopy>,
-): string => {
-  const words = memo.transcript?.split(/\s+/).filter(Boolean) ?? []
-  if (words.length === 0) return copy.noteFrom(memo.actorName, memo.occurredAt)
-  const lead = words.slice(0, NAME_WORDS).join(' ')
-  return words.length > NAME_WORDS ? `${lead}…` : lead
-}
-
 const MemoList = ({
   memos,
-  outreachId,
   isServe,
 }: {
   memos: MemoListItem[]
-  outreachId: number
   isServe: boolean
 }) => {
   const copy = whatWeHeardCopy(isServe)
@@ -60,13 +38,16 @@ const MemoList = ({
   if (memos.length === 0) return <EmptyState message={copy.noNotes} />
 
   return (
-    <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card">
+    // A card per note, the theme cards' own frame and padding, so each
+    // conversation reads as its own record rather than a row of one long
+    // list. `block` because globals.css makes every `li` under a data-slot
+    // ancestor a row flex box.
+    <ul className="flex flex-col gap-3">
       {memos.map((memo) => (
-        <li key={memo.id} className="flex flex-col gap-2 px-4 py-3">
-          {/* Who, where and when on one line, so the note under it is the
-              first thing read; the review state is a badge, not a tail on
-              that line. */}
-          <div className="flex items-center justify-between gap-2">
+        <li key={memo.id} className="block">
+          <Card className="gap-3 p-4 md:p-6">
+            {/* Who, where and when on one line, so the note under it is the
+              first thing read. */}
             <p className="text-xs text-muted-foreground">
               {CHANNEL_LABELS[memo.channel]}
               {' · '}
@@ -74,73 +55,68 @@ const MemoList = ({
               {' · '}
               {copy.summaryBy(memo.actorName)}
             </p>
-            <div className="flex shrink-0 items-center gap-1">
-              {/* Waiting for review is something to act on, so it is the way
-                  to the review list, landing on this note, rather than a
-                  label. The review list also handles a note still
-                  transcribing or one that failed, which the report cannot
-                  tell apart from one with no issues. */}
-              {memo.pending && (
-                <Button asChild variant="link" size="small">
-                  <Link
-                    href={`/dashboard/issue-capture/${outreachId}/review#note-${memo.id}`}
-                    aria-label={copy.reviewNote(noteName(memo, copy))}
+            {/* The note as written, set apart the way a field shows its
+              value and in the muted colour, so it reads as the source and
+              the labelled issues under it as what was taken from it. */}
+            {memo.transcript !== null && (
+              <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                {memo.transcript}
+              </p>
+            )}
+            {memo.issues.length > 0 && (
+              // One grid for every issue on the note, each `li` a subgrid row
+              // of it, so the labels share one column and every value starts
+              // at the same x however long "Issue 2" or "Wants" is. A phone
+              // stacks each label over its value instead: a label column there
+              // would leave the value a sliver of a 340px card. More space
+              // between issues than inside one, so an issue and what the
+              // person wants about it read as one entry.
+              <ul
+                aria-label={copy.issues}
+                className="flex flex-col gap-5 sm:grid sm:grid-cols-[auto_1fr] sm:gap-x-4 sm:gap-y-5"
+              >
+                {memo.issues.map((issue, index) => (
+                  // `flex-col` because globals.css makes every `li` under a
+                  // data-slot ancestor a row flex box. Numbered once a note
+                  // names more than one, the confirm form's own names for them.
+                  <li
+                    key={issue.position}
+                    className="flex flex-col gap-2 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:items-baseline sm:gap-y-1"
                   >
-                    {copy.review}
-                  </Link>
-                </Button>
-              )}
-              <EditMemoMenu memo={memo} isServe={isServe} />
-            </div>
-          </div>
-          {/* The note as written, set apart the way a field shows its
-              value, so it reads as the source and the labelled issues
-              under it as what was taken from it. */}
-          {memo.transcript !== null && (
-            <p className="rounded-md bg-muted px-3 py-2 text-sm text-foreground">
-              {memo.transcript}
-            </p>
-          )}
-          {memo.issues.length > 0 && (
-            <ul aria-label={copy.issues} className="flex flex-col gap-3">
-              {memo.issues.map((issue) => (
-                // `grid` because globals.css makes every `li` under a
-                // data-slot ancestor a row flex box. Two quiet labels in one
-                // column and the values beside them, the stance as a badge on
-                // the issue it belongs to, so a note's issue and what the
-                // person wants read as two fields rather than one sentence
-                // said twice. The labels are the confirm form's own style.
-                <li
-                  key={issue.position}
-                  className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1"
-                >
-                  <span className={FIELD_LABEL_CLASSNAME}>
-                    {copy.issueHeading}
-                  </span>
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">
-                      {issue.issueLabel}
-                    </span>
-                    {/* No stance reads as Unclear, as the report counts it:
-                        the same state should not look like two. */}
-                    <Badge variant="soft">
-                      {stanceLabels[issue.stance ?? 'unclear']}
-                    </Badge>
-                  </span>
-                  {issue.desiredOutcome !== null && (
-                    <>
-                      <span className={FIELD_LABEL_CLASSNAME}>
-                        {copy.wantsHeading}
+                    <div className="flex flex-col gap-1 sm:contents">
+                      <Overline emphasis={false}>
+                        {memo.issues.length > 1
+                          ? copy.issueNumber(index + 1)
+                          : copy.issueHeading}
+                      </Overline>
+                      {/* The stance leads, so where the person stands is read
+                          first and lines up down the card. No stance reads
+                          as Unclear, as the report counts it: the same state
+                          should not look like two. */}
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Badge variant="soft" shape="pill">
+                          {stanceLabels[issue.stance ?? 'unclear']}
+                        </Badge>
+                        <span className="text-sm text-foreground">
+                          {issue.issueLabel}
+                        </span>
                       </span>
-                      <span className="text-sm text-foreground">
-                        {issue.desiredOutcome}
-                      </span>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+                    </div>
+                    {issue.desiredOutcome !== null && (
+                      <div className="flex flex-col gap-1 sm:contents">
+                        <Overline emphasis={false}>
+                          {copy.wantsHeading}
+                        </Overline>
+                        <span className="text-sm text-foreground">
+                          {issue.desiredOutcome}
+                        </span>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </li>
       ))}
     </ul>

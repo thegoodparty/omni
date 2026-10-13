@@ -523,19 +523,34 @@ export default function RecordKnockForm({
     onError: () => advance(),
   })
 
+  // Skip saves too: the note is confirmed with no issues, so its words still
+  // go into the summary, and the issues can be added later from the report's
+  // Edit. Only the event tells the two apart.
   const confirm = useMutation({
-    mutationFn: (issues: ConfirmedConstituentFeedbackIssue[]) =>
+    mutationFn: ({
+      issues,
+    }: {
+      issues: ConfirmedConstituentFeedbackIssue[]
+      skipped: boolean
+    }) =>
       clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
         id: captured?.id ?? '',
         issues,
       }).then((res) => res.data),
-    onSuccess: (_data, issues) => {
-      trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
-        channel: 'doorKnocking',
-        corrected: wasCorrected(captured?.proposed ?? null, issues),
-        issueCount: issues.length,
-        product,
-      })
+    onSuccess: (_data, { issues, skipped }) => {
+      if (skipped) {
+        trackEvent(EVENTS.IssueCapture.MemoSkipped, {
+          channel: 'doorKnocking',
+          product,
+        })
+      } else {
+        trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
+          channel: 'doorKnocking',
+          corrected: wasCorrected(captured?.proposed ?? null, issues),
+          issueCount: issues.length,
+          product,
+        })
+      }
       refreshReport()
       advance()
     },
@@ -622,13 +637,7 @@ export default function RecordKnockForm({
   // has been answered, and leaving them on screen would invite a correction
   // that no longer has anywhere to go. Both are steps of one frame.
   const frameOpen = stepOpen || captured !== null
-  const skipConfirm = () => {
-    trackEvent(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'doorKnocking',
-      product,
-    })
-    advance()
-  }
+  const skipConfirm = () => confirm.mutate({ issues: [], skipped: true })
 
   // Changing the outcome drops the answers underneath it but keeps the note.
   // Collapsing a row discards answers it would otherwise re-offer pre-filled
@@ -677,7 +686,7 @@ export default function RecordKnockForm({
               proposed={captured.proposed}
               saving={confirm.isPending}
               isServe={serveMode}
-              onConfirm={(issues) => confirm.mutate(issues)}
+              onConfirm={(issues) => confirm.mutate({ issues, skipped: false })}
               onSkip={skipConfirm}
             />
           ) : (

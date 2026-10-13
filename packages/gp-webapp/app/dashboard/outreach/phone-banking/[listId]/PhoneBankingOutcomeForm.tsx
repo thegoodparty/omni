@@ -272,19 +272,34 @@ export default function PhoneBankingOutcomeForm({
     onError: (_error, input) => setFailedMemo(input),
   })
 
+  // Skip saves too: the note is confirmed with no issues, so its words still
+  // go into the summary, and the issues can be added later from the report's
+  // Edit. Only the event tells the two apart.
   const confirmCapture = useMutation({
-    mutationFn: (issues: ConfirmedConstituentFeedbackIssue[]) =>
+    mutationFn: ({
+      issues,
+    }: {
+      issues: ConfirmedConstituentFeedbackIssue[]
+      skipped: boolean
+    }) =>
       clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
         id: captured?.id ?? '',
         issues,
       }).then((res) => res.data),
-    onSuccess: (_data, issues) => {
-      trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
-        channel: 'phoneBanking',
-        corrected: wasCorrected(captured?.proposed ?? null, issues),
-        issueCount: issues.length,
-        product,
-      })
+    onSuccess: (_data, { issues, skipped }) => {
+      if (skipped) {
+        trackEvent(EVENTS.IssueCapture.MemoSkipped, {
+          channel: 'phoneBanking',
+          product,
+        })
+      } else {
+        trackEvent(EVENTS.IssueCapture.MemoConfirmed, {
+          channel: 'phoneBanking',
+          corrected: wasCorrected(captured?.proposed ?? null, issues),
+          issueCount: issues.length,
+          product,
+        })
+      }
     },
     // Dismiss either way: a failed confirm leaves the memo saved and
     // unconfirmed, which reporting already tells apart.
@@ -590,13 +605,7 @@ export default function PhoneBankingOutcomeForm({
   // The confirm step follows the questions in the same frame, so Save hands
   // straight to it.
   const frameOpen = stepOpen || captured !== null
-  const skipConfirm = () => {
-    trackEvent(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'phoneBanking',
-      product,
-    })
-    setCaptured(null)
-  }
+  const skipConfirm = () => confirmCapture.mutate({ issues: [], skipped: true })
 
   const outcomeRow = (
     <div>
@@ -645,7 +654,9 @@ export default function PhoneBankingOutcomeForm({
               proposed={captured.proposed}
               saving={confirmCapture.isPending}
               isServe={isServe}
-              onConfirm={(issues) => confirmCapture.mutate(issues)}
+              onConfirm={(issues) =>
+                confirmCapture.mutate({ issues, skipped: false })
+              }
               onSkip={skipConfirm}
             />
           ) : (

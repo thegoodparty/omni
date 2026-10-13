@@ -24,14 +24,9 @@ export const WHAT_WE_HEARD_COPY = {
     // numbers on the cards cannot be read as more than they are. The
     // waiting clause follows as a link to the review list, and the
     // sentence ends after whichever comes last.
-    captionCounts: (d: Denominators): string =>
-      [
-        `${count(d.conversations, 'person', 'people')} answered.`,
-        `${d.memos.toLocaleString()} left a note.`,
-        `${d.confirmed.toLocaleString()} confirmed`,
-      ].join(' '),
-    waitingForReview: (pending: number): string =>
-      `${pending.toLocaleString()} waiting for review`,
+    countsLabel: 'Notes so far',
+    countAnswered: 'People answered',
+    countNoted: 'Left a note',
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
@@ -40,7 +35,9 @@ export const WHAT_WE_HEARD_COPY = {
     themesHeading: 'Top themes',
     showMoreThemes: (hidden: number): string =>
       `Show ${count(hidden, 'more theme', 'more themes')}`,
-    everyNoteHeading: 'Every note',
+    everyNoteHeading: 'All notes',
+    showMoreNotes: (hidden: number): string =>
+      `Show ${count(hidden, 'more note', 'more notes')}`,
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
@@ -58,20 +55,15 @@ export const WHAT_WE_HEARD_COPY = {
     seeDetailsFor: (title: string): string => `See details for ${title}`,
     stanceSplit: 'Where people stand',
     rank: (value: number): string => `Rank ${value}`,
-    notYetReviewed: 'Not yet reviewed',
-    review: 'Review',
-    reviewNote: (name: string): string => `Review ${name}`,
     // Every note is the canvasser's own summary of the conversation, never
     // the other person's words, and it says so.
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
-    recordedBy: (actorName: string | null): string =>
-      `Recorded by ${actorName ?? 'your team'}`,
     issueHeading: 'Issue',
+    issueNumber: (n: number): string => `Issue ${n}`,
     wantsHeading: 'Wants',
     issues: 'Issues',
     back: 'Back to what we heard',
-    backToWalk: 'Back to the walk',
     backToOutreach: 'Back to Voter Outreach',
     backLabel: 'Back',
     details: 'Details',
@@ -79,53 +71,15 @@ export const WHAT_WE_HEARD_COPY = {
     theNotes: 'The notes',
     entryCounts: (d: Pick<Denominators, 'conversations' | 'memos'>): string =>
       `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
-    // "Notes to review": memos nobody who was there has confirmed yet,
-    // including the ones recorded with no signal and transcribed since.
-    notesToReview: (pending: number): string =>
-      `Notes to review: ${pending.toLocaleString()}`,
-    reviewTitle: 'Notes to review',
-    reviewCaption: 'Check what each note says, then confirm it.',
-    reviewEmpty: 'Nothing to review. New notes show up here.',
-    stillTranscribing: 'Still transcribing',
-    readyToReview: 'Ready to review',
-    // Each row's buttons say which note they act on, for a screen reader
-    // moving through a page of them: its first words, or who took it and when.
-    noteFrom: (actorName: string | null, occurredAt: Date): string =>
-      `Note from ${actorName ?? 'your team'}, ${new Date(
-        occurredAt,
-      ).toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })}`,
-    confirmFor: (note: string): string => `Looks right: ${note}`,
-    tryAgainFor: (note: string): string => `Try again: ${note}`,
-    typeItInsteadFor: (note: string): string => `Type it instead: ${note}`,
-    couldNotHear: "We couldn't make out this note. Try again or type it.",
-    couldNotRead:
-      "We couldn't pull anything from this note. Try again or type it.",
-    tryAgain: 'Try again',
-    typeItInstead: 'Type it instead',
     typeLabel: 'Their note',
-    typePlaceholder: 'What did they tell you?',
     saveNote: 'Save note',
     cancel: 'Cancel',
-    retryFailed: "That didn't work. Try again in a moment.",
-    confirmFailed: "We couldn't save that. Try again.",
-    noteActions: 'More actions',
-    editNote: 'Edit',
   },
   serve: {
     title: 'What we heard',
-    captionCounts: (d: Denominators): string =>
-      [
-        `${count(d.conversations, 'person', 'people')} answered.`,
-        `${d.memos.toLocaleString()} left a note.`,
-        `${d.confirmed.toLocaleString()} confirmed`,
-      ].join(' '),
-    waitingForReview: (pending: number): string =>
-      `${pending.toLocaleString()} waiting for review`,
+    countsLabel: 'Notes so far',
+    countAnswered: 'People answered',
+    countNoted: 'Left a note',
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
@@ -134,7 +88,9 @@ export const WHAT_WE_HEARD_COPY = {
     themesHeading: 'Top themes',
     showMoreThemes: (hidden: number): string =>
       `Show ${count(hidden, 'more theme', 'more themes')}`,
-    everyNoteHeading: 'Every note',
+    everyNoteHeading: 'All notes',
+    showMoreNotes: (hidden: number): string =>
+      `Show ${count(hidden, 'more note', 'more notes')}`,
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
@@ -151,18 +107,13 @@ export const WHAT_WE_HEARD_COPY = {
     seeDetailsFor: (title: string): string => `See details for ${title}`,
     stanceSplit: 'Where people stand',
     rank: (value: number): string => `Rank ${value}`,
-    notYetReviewed: 'Not yet reviewed',
-    review: 'Review',
-    reviewNote: (name: string): string => `Review ${name}`,
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
-    recordedBy: (actorName: string | null): string =>
-      `Recorded by ${actorName ?? 'your team'}`,
     issueHeading: 'Issue',
+    issueNumber: (n: number): string => `Issue ${n}`,
     wantsHeading: 'Wants',
     issues: 'Issues',
     back: 'Back to what we heard',
-    backToWalk: 'Back to the walk',
     backToOutreach: 'Back to Constituent Outreach',
     backLabel: 'Back',
     details: 'Details',
@@ -170,42 +121,9 @@ export const WHAT_WE_HEARD_COPY = {
     theNotes: 'The notes',
     entryCounts: (d: Pick<Denominators, 'conversations' | 'memos'>): string =>
       `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
-    // "Notes to review": memos nobody who was there has confirmed yet,
-    // including the ones recorded with no signal and transcribed since.
-    notesToReview: (pending: number): string =>
-      `Notes to review: ${pending.toLocaleString()}`,
-    reviewTitle: 'Notes to review',
-    reviewCaption: 'Check what each note says, then confirm it.',
-    reviewEmpty: 'Nothing to review. New notes show up here.',
-    stillTranscribing: 'Still transcribing',
-    readyToReview: 'Ready to review',
-    // Each row's buttons say which note they act on, for a screen reader
-    // moving through a page of them: its first words, or who took it and when.
-    noteFrom: (actorName: string | null, occurredAt: Date): string =>
-      `Note from ${actorName ?? 'your team'}, ${new Date(
-        occurredAt,
-      ).toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })}`,
-    confirmFor: (note: string): string => `Looks right: ${note}`,
-    tryAgainFor: (note: string): string => `Try again: ${note}`,
-    typeItInsteadFor: (note: string): string => `Type it instead: ${note}`,
-    couldNotHear: "We couldn't make out this note. Try again or type it.",
-    couldNotRead:
-      "We couldn't pull anything from this note. Try again or type it.",
-    tryAgain: 'Try again',
-    typeItInstead: 'Type it instead',
     typeLabel: 'Their note',
-    typePlaceholder: 'What did they tell you?',
     saveNote: 'Save note',
     cancel: 'Cancel',
-    retryFailed: "That didn't work. Try again in a moment.",
-    confirmFailed: "We couldn't save that. Try again.",
-    noteActions: 'More actions',
-    editNote: 'Edit',
   },
 }
 

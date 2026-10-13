@@ -10,6 +10,13 @@ import ThemeCard from './ThemeCard'
 // people raised are not pushed down by the long tail.
 const VISIBLE_THEMES = 3
 
+// The report's order, which a theme's own page reads too, so the number in
+// its circle is the one the card it was opened from showed.
+export const rankThemes = <T extends FeedbackThemeSummary>(themes: T[]): T[] =>
+  [...themes].sort(
+    (a, b) => b.conversationCount - a.conversationCount || a.rank - b.rank,
+  )
+
 const ThemeGrid = ({
   themes,
   outreachId,
@@ -22,9 +29,7 @@ const ThemeGrid = ({
   const copy = whatWeHeardCopy(isServe)
   const headingId = useId()
   const [expanded, setExpanded] = useState(false)
-  const ranked = [...themes].sort(
-    (a, b) => b.conversationCount - a.conversationCount || a.rank - b.rank,
-  )
+  const ranked = rankThemes(themes)
   const shown = expanded ? ranked : ranked.slice(0, VISIBLE_THEMES)
   const hidden = ranked.length - shown.length
 
