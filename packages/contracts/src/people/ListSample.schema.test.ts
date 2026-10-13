@@ -7,15 +7,15 @@ describe('ListSampleSchema', () => {
       size: 240,
       panelSize: 120,
     })
-    expect(ListSampleSchema.parse({ size: 120, panelSize: 120 })).toEqual({
-      size: 120,
-      panelSize: 120,
-    })
   })
 
-  it('refuses a panel part bigger than the sample', () => {
+  // A panel part the whole size would invite nobody new to join.
+  it('refuses a panel part that leaves no room for new residents', () => {
     expect(
       ListSampleSchema.safeParse({ size: 100, panelSize: 101 }).success,
+    ).toBe(false)
+    expect(
+      ListSampleSchema.safeParse({ size: 120, panelSize: 120 }).success,
     ).toBe(false)
   })
 })

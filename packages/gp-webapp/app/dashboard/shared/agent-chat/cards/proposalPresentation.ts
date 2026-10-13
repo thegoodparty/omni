@@ -192,7 +192,7 @@ export const proposalListSample = (proposal: {
   if (
     proposal.panelSampleSize !== undefined &&
     proposal.sampleSize !== undefined &&
-    proposal.panelSampleSize <= proposal.sampleSize
+    proposal.panelSampleSize < proposal.sampleSize
   ) {
     return {
       size: proposal.sampleSize,

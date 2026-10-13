@@ -231,7 +231,7 @@ export const checkPanelPart = (input: {
   }
   if (
     input.sampleSize === undefined ||
-    input.panelSampleSize > input.sampleSize
+    input.panelSampleSize >= input.sampleSize
   ) {
     return (
       'sampleSize is the whole send: the panel members plus the residents ' +

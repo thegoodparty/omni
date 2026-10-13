@@ -1236,6 +1236,10 @@ describe('PriorityFlowHandler', () => {
       expect(
         await tool.execute({ ...combined, sampleSize: 40 }),
       ).toHaveProperty('error', expect.stringContaining('sampleSize'))
+      // All panel and no room for new residents invites nobody to join.
+      expect(
+        await tool.execute({ ...combined, sampleSize: 42 }),
+      ).toHaveProperty('error', expect.stringContaining('sampleSize'))
       expect(
         await tool.execute({ ...combined, channel: 'phoneBanking' as const }),
       ).toHaveProperty('error')

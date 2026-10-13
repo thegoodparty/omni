@@ -28,7 +28,10 @@ export const ListSampleSchema = z
   })
   .refine(
     (sample) =>
-      sample.panelSize === undefined || sample.panelSize <= sample.size,
-    { path: ['panelSize'], message: 'panelSize is part of size' },
+      sample.panelSize === undefined || sample.panelSize < sample.size,
+    {
+      path: ['panelSize'],
+      message: 'panelSize is part of size, with room for new residents',
+    },
   )
 export type ListSample = z.infer<typeof ListSampleSchema>
