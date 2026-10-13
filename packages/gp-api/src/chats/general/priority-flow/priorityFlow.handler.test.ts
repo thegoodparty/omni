@@ -259,6 +259,23 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('reads outreach feedback only with serve-citizen-panels on', () => {
+    const on = { ...baseCtx(), outreachFeedbackEnabled: true }
+    expect(Object.keys(build().buildTools(on))).toContain(
+      'read_outreach_feedback',
+    )
+    expect(build().buildSystemPrompt(on)).toContain(
+      'call read_outreach_feedback before you say anything about it',
+    )
+
+    expect(Object.keys(build().buildTools(baseCtx()))).not.toContain(
+      'read_outreach_feedback',
+    )
+    expect(build().buildSystemPrompt(baseCtx())).not.toContain(
+      'read_outreach_feedback',
+    )
+  })
+
   it('tells the status tool when a card or a question went out this turn', async () => {
     const tools = build().buildTools(baseCtx())
     const offered = vi.mocked(priorityStatus.buildStatusTool).mock.calls[0]?.[1]

@@ -49,6 +49,9 @@ import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideCont
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
@@ -109,6 +112,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly priorityStatus?: PriorityStatusService,
     @Optional()
     private readonly peopleDatasets?: PeopleDatasetService,
+    @Optional()
+    private readonly features?: FeaturesService,
   ) {}
 
   async loadContext(
@@ -134,7 +139,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
       : 'voters'
-    if (!resolved) return { ...ctx, peopleDataset }
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: SERVE_CITIZEN_PANELS_FLAG,
+        })
+      : false
+    if (!resolved) return { ...ctx, peopleDataset, outreachFeedbackEnabled }
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
@@ -143,6 +154,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       this.constituentTables[peopleDataset].length > 0
     return {
       ...ctx,
+      outreachFeedbackEnabled,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,
@@ -254,6 +266,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         priorityId: null,
         organizationSlug: ctx.organizationSlug,
       })
+      if (ctx.outreachFeedbackEnabled) {
+        tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
+          outreach: this.pastOutreach,
+          priorityId: null,
+          organizationSlug: ctx.organizationSlug,
+        })
+      }
       tools.present_past_outreach = buildPresentPastOutreachTool()
     }
 

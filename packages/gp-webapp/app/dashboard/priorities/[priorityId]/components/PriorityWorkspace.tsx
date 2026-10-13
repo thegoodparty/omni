@@ -12,7 +12,11 @@ import {
   SheetTrigger,
   Skeleton,
 } from '@styleguide'
-import { ListChecksIcon } from '@styleguide/components/ui/icons'
+import Link from 'next/link'
+import {
+  ChartColumnIcon,
+  ListChecksIcon,
+} from '@styleguide/components/ui/icons'
 import {
   parsePriorityStatus,
   type ChatAnchor,
@@ -60,6 +64,7 @@ import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { priorityFlowChatApi } from '../data/chat-api'
 import { fetchPriorityStatus } from '../data/priority-api'
 import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
@@ -134,6 +139,31 @@ const statusMarker = (
 })
 
 const RAIL_TITLE = 'Where this stands'
+const RESULTS_LINK = 'Constituent feedback'
+
+const ResultsLink = ({
+  priorityId,
+}: {
+  priorityId: string
+}): React.JSX.Element | null => {
+  const { enabled } = useServeCitizenPanelsFlag()
+  if (!enabled) return null
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="small"
+      className="mt-3 w-full gap-1.5"
+    >
+      <Link
+        href={`/dashboard/priorities/${encodeURIComponent(priorityId)}/results`}
+      >
+        <ChartColumnIcon className="size-4" aria-hidden />
+        {RESULTS_LINK}
+      </Link>
+    </Button>
+  )
+}
 
 type PriorityWorkspaceProps = {
   priorityId: string
@@ -565,6 +595,7 @@ const PriorityWorkspaceBody = ({
                       nextAction={nextAction}
                       className="border-0 shadow-none"
                     />
+                    <ResultsLink priorityId={priorityId} />
                   </SheetBody>
                 </SheetContent>
               </Sheet>
@@ -666,6 +697,7 @@ const PriorityWorkspaceBody = ({
 
       <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
         <PriorityStatusRail status={status} nextAction={nextAction} />
+        <ResultsLink priorityId={priorityId} />
       </aside>
       <CardDetailSheetHost />
     </div>

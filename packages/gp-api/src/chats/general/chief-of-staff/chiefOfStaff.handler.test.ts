@@ -678,6 +678,53 @@ describe('ChiefOfStaffHandler', () => {
       expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
     })
 
+    it('reads outreach feedback only with serve-citizen-panels on for the user', async () => {
+      const outreach = {
+        forOffice: vi.fn(() => Promise.resolve([])),
+      } as unknown as PriorityFlowOutreachService
+      const build = (enabled: boolean) => {
+        const features = {
+          isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
+        }
+        const handler = new ChiefOfStaffHandler(
+          context,
+          buildBriefings(),
+          port,
+          NO_TABLES,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          outreach,
+          undefined,
+          undefined,
+          features as never,
+        )
+        return { handler, features }
+      }
+
+      const on = build(true)
+      const onCtx = await on.handler.loadContext('c1', USER_ID)
+      expect(on.features.isFeatureEnabled).toHaveBeenCalledWith({
+        user: USER_ID,
+        feature: 'serve-citizen-panels',
+      })
+      expect(Object.keys(on.handler.buildTools(onCtx))).toContain(
+        'read_outreach_feedback',
+      )
+
+      const off = build(false)
+      const offCtx = await off.handler.loadContext('c1', USER_ID)
+      expect(Object.keys(off.handler.buildTools(offCtx))).not.toContain(
+        'read_outreach_feedback',
+      )
+      expect(off.handler.buildSystemPrompt(offCtx)).not.toContain(
+        'read_outreach_feedback',
+      )
+    })
+
     it('omits the past-outreach tools without the service', async () => {
       const handler = buildPastOutreachHandler(undefined)
       const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))

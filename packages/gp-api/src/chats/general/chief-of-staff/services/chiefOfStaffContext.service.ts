@@ -45,6 +45,9 @@ export interface ChiefOfStaffContext {
   // defaults it to 'voters'; the handler resolves it per turn from
   // PeopleDatasetService for the conversation's org.
   peopleDataset: PeopleDataset
+  // Whether read_outreach_feedback registers: the serve-citizen-panels flag
+  // for the chatting user, resolved per turn by the handler.
+  outreachFeedbackEnabled?: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
