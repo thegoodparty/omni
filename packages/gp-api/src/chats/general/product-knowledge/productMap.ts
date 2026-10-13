@@ -286,8 +286,8 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'The task in front has its main button, Mark done and Skip; finishing or skipping it brings the next task forward',
       'Get-started cards have no Mark done; they leave on their own once you have met your Chief of Staff or shared your priorities',
-      'Where the citizens’ panel is on, the first card is Build your citizens’ panel. Get started opens Constituent Outreach’s SMS flow on Build your citizens’ panel, with a random sample of the district picked to reach about 100 members, and the price shown before it sends. It has no Mark done; it is done once that text is paid for',
-      'Where the citizens’ panel is on, once that text has gone out each open priority gets its own card, which opens the priority to ask the panel about it',
+      'Where the citizens’ panel is on, the first card is Build your citizens’ panel, for every official, however long ago they joined. Get started opens Constituent Outreach’s SMS flow on Build your citizens’ panel, with a random sample of the district picked to reach about 100 members, and the price shown before it sends. It is done once that text is paid for, or with Mark done. Skip offers Show in 3 days, which brings it back to the front three days later, or Not for me, which sets it aside until Bring it back on it under Archive, Skipped',
+      'Where the citizens’ panel is on, once the build card is done, set aside or put off, the home shows Next steps on your priorities: a card for each open priority with its next step, the same line as Next under Where this stands, and an Open priority button. Meeting, agenda and community issue tasks show throughout, behind the build card while it leads',
       'Archive, at the top of the page, lists this week’s tasks, the ones marked done, the ones skipped and the ones missed',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',

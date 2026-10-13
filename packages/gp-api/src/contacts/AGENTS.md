@@ -626,9 +626,16 @@ office's one build card (`sourceExternalId` from contracts'
 and is done once any `text` row of the org with `asksToJoinCivicPanel` is past
 checkout (not `pending_payment`, `draft`, `canceled`, `denied` or `failed`):
 the purpose is not stored on the row, and the ask is what recruits. While it
-is open its due date rolls forward so it never lapses into missed. Only once
-it is done does the sync make a `civic_panel` card per open priority, which
-opens the priority. One advisory lock per office serializes the sync, because
+is open its due date rolls forward so it never lapses into missed. It takes
+the usual card actions: `complete` (Mark done), `dismiss` (Not for me, undone
+by `restore`, Bring it back in the archive) and `snooze` (Show in 3 days:
+`snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
+Once it is done, dismissed or snoozed, the sync makes a `civic_panel`
+next-step card per open priority (summary is the priority's `nextAction`,
+falling back to a first-step line), which opens the priority. While the build
+card is active again (brought back, or its snooze ran out) `listByBucket`
+keeps those priority cards off the active list. Briefing, agenda item and
+community issue cards are never filtered by it. One advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
 second insert. The seed draw is contracts' `PANEL_SEED_SAMPLE_SIZE`:
 `ceil(PANEL_SEED_TARGET_MEMBERS / PANEL_SEED_ASSUMED_JOIN_RATE)`, 3,334 at
