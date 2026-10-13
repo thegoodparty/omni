@@ -146,6 +146,18 @@ const electionHasPassed = (details: Campaign['details']): boolean => {
   return dates.length > 0 && dates.every((date) => !isDateTodayOrFuture(date))
 }
 
+// A persisted opposition result younger than this is trusted without checking
+// the live roster.
+const ROSTER_RECHECK_MS = 60 * 60 * 1000
+
+const normalizeName = (name: string): string => name.trim().toLowerCase()
+
+const RunRosterSchema = z.object({
+  campaign_strategy_context: z.object({
+    candidates: z.array(z.object({ full_name: z.string() })),
+  }),
+})
+
 @Injectable()
 export class CampaignStrategyService extends createPrismaBase(
   MODELS.CampaignStrategy,
@@ -228,10 +240,33 @@ export class CampaignStrategyService extends createPrismaBase(
     // as the rows). Gating on run status instead would race: a run can be
     // COMPLETED a beat before its rows land, yielding a hollow 'ready'.
     if (plan.oppositionPersistedAt && plan.opportunitiesPersistedAt) {
-      return {
-        status: 'ready',
-        data: await this.readStrategicLandscape(plan.id),
+      const stale = await this.hasRemovedCandidateOpponent(
+        plan,
+        brHashId,
+        opposition,
+      )
+      if (!stale) {
+        return {
+          status: 'ready',
+          data: await this.readStrategicLandscape(plan.id),
+        }
       }
+      // A candidate the cached opponents were built from has since left the
+      // race roster. Drop the opposition section so it regenerates from the
+      // current roster; the other section is untouched.
+      await this.resetOpposition(plan.id)
+      return this.dispatchPending(
+        campaign,
+        { ...plan, oppositionRunId: null, oppositionPersistedAt: null },
+        brHashId,
+        {
+          opposition: 'redispatch',
+          opportunities: this.sectionState(
+            opportunities,
+            plan.opportunitiesPersistedAt,
+          ),
+        },
+      )
     }
 
     // A failed or stuck section is re-dispatched (subject to the attempt cap),
@@ -511,6 +546,65 @@ export class CampaignStrategyService extends createPrismaBase(
           'campaign tracker bootstrap failed after plan completion',
         ),
       )
+  }
+
+  // Opponents are cached per race and only reset on a race or story change, so
+  // a candidate who later withdraws or is removed from the election-api roster
+  // keeps showing up. Stale = a persisted opponent was on the roster the run
+  // was dispatched with but is no longer on the current one. Opponents the
+  // agent found outside the roster never match, so they are left alone. The
+  // election-api read is skipped for a fresh result, and any failure keeps the
+  // cached opponents rather than failing a read.
+  private async hasRemovedCandidateOpponent(
+    plan: CampaignStrategy,
+    brHashId: string,
+    opposition: ExperimentRun | null,
+  ): Promise<boolean> {
+    const persistedAt = plan.oppositionPersistedAt
+    if (
+      !persistedAt ||
+      Date.now() - persistedAt.getTime() < ROSTER_RECHECK_MS
+    ) {
+      return false
+    }
+    const parsed = RunRosterSchema.safeParse(opposition?.params)
+    if (!parsed.success) return false
+    const dispatched = new Set(
+      parsed.data.campaign_strategy_context.candidates.map((c) =>
+        normalizeName(c.full_name),
+      ),
+    )
+    try {
+      const [opponents, current] = await Promise.all([
+        this.client.campaignStrategyOpponent.findMany({
+          where: { campaignStrategyId: plan.id },
+          select: { fullName: true },
+        }),
+        this.params.currentRosterNames(brHashId),
+      ])
+      return opponents.some((o) => {
+        const name = normalizeName(o.fullName)
+        return dispatched.has(name) && !current.has(name)
+      })
+    } catch (error) {
+      this.logger.warn(
+        { error, planId: plan.id },
+        'roster staleness check failed; serving cached opponents',
+      )
+      return false
+    }
+  }
+
+  private async resetOpposition(planId: number): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      await tx.campaignStrategy.update({
+        where: { id: planId },
+        data: { oppositionRunId: null, oppositionPersistedAt: null },
+      })
+      await tx.campaignStrategyOpponent.deleteMany({
+        where: { campaignStrategyId: planId },
+      })
+    })
   }
 
   private runFor(runId: string | null): Promise<ExperimentRun | null> {

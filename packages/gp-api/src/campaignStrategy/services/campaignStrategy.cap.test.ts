@@ -55,7 +55,10 @@ const run = (overrides: Record<string, unknown> = {}) =>
 
 describe('CampaignStrategyService', () => {
   let service: CampaignStrategyService
-  let params: { build: ReturnType<typeof vi.fn> }
+  let params: {
+    build: ReturnType<typeof vi.fn>
+    currentRosterNames: ReturnType<typeof vi.fn>
+  }
   let experimentRuns: {
     findUnique: ReturnType<typeof vi.fn>
     dispatchRun: ReturnType<typeof vi.fn>
@@ -85,7 +88,10 @@ describe('CampaignStrategyService', () => {
     }
     campaignStrategyOpportunity: { deleteMany: ReturnType<typeof vi.fn> }
     campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
-    campaignStrategyOpponent: { deleteMany: ReturnType<typeof vi.fn> }
+    campaignStrategyOpponent: {
+      deleteMany: ReturnType<typeof vi.fn>
+      findMany: ReturnType<typeof vi.fn>
+    }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
@@ -105,7 +111,10 @@ describe('CampaignStrategyService', () => {
   })
 
   beforeEach(() => {
-    params = { build: vi.fn().mockResolvedValue({ race_id: 'br-general' }) }
+    params = {
+      build: vi.fn().mockResolvedValue({ race_id: 'br-general' }),
+      currentRosterNames: vi.fn().mockResolvedValue(new Set<string>()),
+    }
     experimentRuns = {
       findUnique: vi.fn().mockResolvedValue(null),
       dispatchRun: vi.fn(),
@@ -143,6 +152,7 @@ describe('CampaignStrategyService', () => {
       },
       campaignStrategyOpponent: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
@@ -1520,6 +1530,93 @@ describe('CampaignStrategyService', () => {
         create: { campaignId: 99, raceId: 'br-general' },
         update: {},
       })
+    })
+  })
+  describe('stale opponents after a roster change', () => {
+    const DAY = 24 * 60 * 60 * 1000
+    const rosterRun = (names: string[]) =>
+      run({
+        params: {
+          race_id: 'br-general',
+          campaign_strategy_context: {
+            candidates: names.map((name) => ({ full_name: name })),
+          },
+        },
+      })
+
+    const readyPlan = (persistedAgo: number) => {
+      const persisted = new Date(Date.now() - persistedAgo)
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({
+          oppositionRunId: 'opp-run',
+          oppositionPersistedAt: persisted,
+          opportunitiesPersistedAt: persisted,
+        }),
+      )
+      prisma.campaignStrategy.findUnique.mockResolvedValue({
+        opportunities: [],
+        challenges: [],
+        opponents: [{ fullName: 'Charles Hall' }],
+      })
+    }
+
+    beforeEach(() => {
+      experimentRuns.findUnique.mockResolvedValue(
+        rosterRun(['Charles Hall', 'Jewel Jordan']),
+      )
+      prisma.campaignStrategyOpponent.findMany.mockResolvedValue([
+        { fullName: 'Charles Hall' },
+        { fullName: 'Jewel Jordan' },
+      ])
+      experimentRuns.dispatchRun.mockResolvedValue({ runId: 'new-opp-run' })
+    })
+
+    it('regenerates opposition when a persisted opponent left the roster', async () => {
+      readyPlan(2 * DAY)
+      params.currentRosterNames.mockResolvedValue(new Set(['jewel jordan']))
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(prisma.campaignStrategy.update).toHaveBeenCalledWith({
+        where: { id: 42 },
+        data: { oppositionRunId: null, oppositionPersistedAt: null },
+      })
+      expect(prisma.campaignStrategyOpponent.deleteMany).toHaveBeenCalledWith({
+        where: { campaignStrategyId: 42 },
+      })
+      expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
+    })
+
+    it('serves cached opponents when the roster still contains them', async () => {
+      readyPlan(2 * DAY)
+      params.currentRosterNames.mockResolvedValue(
+        new Set(['jewel jordan', 'charles hall']),
+      )
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
+    it('skips the roster check for a fresh result', async () => {
+      readyPlan(60 * 1000)
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(params.currentRosterNames).not.toHaveBeenCalled()
+    })
+
+    it('serves cached opponents when election-api is unavailable', async () => {
+      readyPlan(2 * DAY)
+      params.currentRosterNames.mockRejectedValue(new Error('down'))
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
   })
 })

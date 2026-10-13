@@ -209,6 +209,14 @@ export class StrategicLandscapeParamsService {
     this.logger.setContext(StrategicLandscapeParamsService.name)
   }
 
+  // Normalized full names on the race's current roster, for staleness checks.
+  async currentRosterNames(brHashId: string): Promise<Set<string>> {
+    const context = await this.electionApi.getStrategyContext(brHashId)
+    return new Set(
+      context.candidates.map((c) => c.full_name.trim().toLowerCase()),
+    )
+  }
+
   async build(
     campaign: CampaignWith<'user'>,
     brHashId: string,
