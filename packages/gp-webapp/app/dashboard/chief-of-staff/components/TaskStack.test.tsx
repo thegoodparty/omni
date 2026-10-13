@@ -273,6 +273,59 @@ describe('<TaskStack>', () => {
     ).toBeInTheDocument()
   })
 
+  describe('the report back card', () => {
+    const reportBack = card({
+      id: 'rb',
+      type: 'report_back',
+      title: 'Report back on Downtown parking',
+      summary:
+        "Tell the people you texted what you heard and what you'll do next.",
+      ctaLabel: 'Report back',
+      ctaHref: '/dashboard/priorities/p1?reportBack=77',
+      sourceExternalId: '77',
+    })
+
+    it('opens the priority to report back, with Mark done', async () => {
+      const user = userEvent.setup()
+      withCards([reportBack])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+      expect(
+        screen.getByRole('heading', {
+          name: 'Report back on Downtown parking',
+        }),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Report back' })).toHaveAttribute(
+        'href',
+        '/dashboard/priorities/p1?reportBack=77',
+      )
+      await user.click(screen.getByRole('button', { name: /mark done/i }))
+      expect(completeMock).toHaveBeenCalledWith('rb')
+    })
+
+    it('puts it off for 3 days from Skip', async () => {
+      const user = userEvent.setup()
+      withCards([reportBack, card({})])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+      await user.click(screen.getByRole('button', { name: 'Skip' }))
+      await user.click(
+        await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+      )
+      expect(snoozeMock).toHaveBeenCalledWith('rb')
+      expect(dismissMock).not.toHaveBeenCalled()
+    })
+
+    it('sets it aside with Not for me', async () => {
+      const user = userEvent.setup()
+      withCards([reportBack])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+      await user.click(screen.getByRole('button', { name: 'Skip' }))
+      await user.click(
+        await screen.findByRole('menuitem', { name: 'Not for me' }),
+      )
+      expect(dismissMock).toHaveBeenCalledWith('rb')
+    })
+  })
+
   it('does not explain the system or use an em-dash', () => {
     onboardingRef.current = [{ key: 'meet', status: 'active' }]
     withCards([card({})])

@@ -26,6 +26,7 @@ import {
   deriveSmsProtectedParts,
   mergeTagToken,
   PRICE_PER_TEXT,
+  REPORT_BACK_PURPOSE,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -343,6 +344,9 @@ interface SmsFlowProps {
   proposalLink?: ProposalLink
   // Serve: open with the citizens' panel ask on, as a chat card asked for.
   initialAsksToJoinCivicPanel?: boolean
+  // Serve: the earlier text a report back card answers. Rides on the create,
+  // which marks the send as a report back rather than a new ask.
+  reportBackForOutreachId?: number
   // Win's create was refused while carrying the card's key, which is how a
   // card sent from another tab or an earlier session answers (409). The
   // card's surface decides whether that means it already went out.
@@ -559,6 +563,7 @@ export const SmsFlow = ({
   proposedAudience,
   proposalLink,
   initialAsksToJoinCivicPanel = false,
+  reportBackForOutreachId,
   onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
@@ -614,11 +619,20 @@ export const SmsFlow = ({
   // A text that builds the panel is its ask, so the ask cannot be unticked.
   const civicPanelAskLocked =
     surface.isServe && purpose === BUILD_CITIZENS_PANEL_PURPOSE
+  // A report back goes to the people already asked, so it never asks them
+  // to join the panel.
+  const isReportBack = surface.isServe && purpose === REPORT_BACK_PURPOSE
   const asksToJoin =
-    surface.isServe && (asksToJoinCivicPanel || civicPanelAskLocked)
-  const purposes = citizenPanelsEnabled
-    ? surface.purposes
-    : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
+    surface.isServe &&
+    !isReportBack &&
+    (asksToJoinCivicPanel || civicPanelAskLocked)
+  // A report back's audience is one earlier send, which only its card can
+  // name, so the picker never offers it.
+  const purposes = (
+    citizenPanelsEnabled
+      ? surface.purposes
+      : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
+  ).filter(({ id }) => id !== REPORT_BACK_PURPOSE)
   const composeMessage = (body: string, committee: string | null) =>
     withCivicPanelJoin(surface.composeMessage(body, committee), asksToJoin)
   // Whether the words are the candidate's (typed, seeded or polished) rather
@@ -836,12 +850,21 @@ export const SmsFlow = ({
               : 'audience'
             : 'purpose',
     )
-    setPurpose(initialScript ? 'custom' : carriedPurpose)
+    // A report back card's message is seeded, but it keeps its purpose so
+    // the flow never adds the panel ask to it.
+    setPurpose(
+      initialScript
+        ? carriedPurpose === REPORT_BACK_PURPOSE
+          ? REPORT_BACK_PURPOSE
+          : 'custom'
+        : carriedPurpose,
+    )
     resetEventDetails()
     confirmedEventRef.current = null
     setTone('warm')
     const asks =
       surface.isServe &&
+      carriedPurpose !== REPORT_BACK_PURPOSE &&
       (initialAsksToJoinCivicPanel ||
         (!initialScript && carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE))
     const seeded = initialScript
@@ -1102,6 +1125,8 @@ export const SmsFlow = ({
     audience,
     tracker,
     ...(proposalLink && !resumeDraft && { proposalLink }),
+    ...(reportBackForOutreachId !== undefined &&
+      !resumeDraft && { reportBackForOutreachId }),
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
@@ -2225,7 +2250,7 @@ export const SmsFlow = ({
           imageError={imageError}
           onImageError={setImageError}
           civicPanelAsk={
-            surface.isServe && citizenPanelsEnabled
+            surface.isServe && citizenPanelsEnabled && !isReportBack
               ? {
                   checked: asksToJoin,
                   locked: civicPanelAskLocked,

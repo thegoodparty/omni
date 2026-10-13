@@ -51,6 +51,7 @@ import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
+import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
@@ -114,6 +115,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly peopleDatasets?: PeopleDatasetService,
     @Optional()
     private readonly features?: FeaturesService,
+    @Optional()
+    private readonly reportBack?: OutreachReportBackService,
   ) {}
 
   async loadContext(
@@ -145,7 +148,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
-    if (!resolved) return { ...ctx, peopleDataset, outreachFeedbackEnabled }
+    const reportBacks =
+      outreachFeedbackEnabled && this.reportBack
+        ? await this.reportBack.listForOffice(
+            ctx.organizationSlug,
+            ctx.electedOfficeId,
+          )
+        : undefined
+    if (!resolved) {
+      return { ...ctx, peopleDataset, outreachFeedbackEnabled, reportBacks }
+    }
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
@@ -155,6 +167,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       outreachFeedbackEnabled,
+      reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,

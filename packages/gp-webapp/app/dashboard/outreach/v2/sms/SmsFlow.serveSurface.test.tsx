@@ -366,6 +366,57 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).not.toBeDisabled()
   })
 
+  // A report back goes to the people already asked: with the panel on, it
+  // still never carries the join line or offers the box.
+  it('keeps the join ask off a report back, whatever the card asked', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="report_back"
+        initialScript="Thanks for answering. Most of you named the drains."
+        initialAsksToJoinCivicPanel
+        preselectedListId={41}
+        reportBackForOutreachId={77}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/Most of you named the drains/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+    ).toBeNull()
+  })
+
+  it('never offers reporting back in the purpose picker', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    openServeFlow()
+    await screen.findByText('Explain a recent decision')
+    expect(screen.queryByText('Report back to the people you asked')).toBeNull()
+  })
+
   it("hides building a citizens' panel with serve-citizen-panels off", async () => {
     openServeFlow()
     await screen.findByText('Explain a recent decision')

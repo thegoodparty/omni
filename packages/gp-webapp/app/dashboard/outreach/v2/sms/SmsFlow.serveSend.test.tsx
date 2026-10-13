@@ -328,6 +328,60 @@ describe('SmsFlow serve send path', () => {
     expect(await screen.findByText('15')).toBeInTheDocument()
   })
 
+  // A report back card opens on its own purpose with its message written.
+  // The create marks the send as a report back, and nothing asks the people
+  // already asked to join the panel.
+  it('creates a report back on the send it answers, never asking to join', async () => {
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 92,
+          recipientCount: 236,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+        },
+      }
+    })
+    openServeFlow({
+      initialPurpose: 'report_back',
+      initialScript:
+        'this is Jane, your City Council Member. Thanks for answering. Most of you named parking near the school.',
+      initialAsksToJoinCivicPanel: true,
+      preselectedListId: 41,
+      reportBackForOutreachId: 77,
+      proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/Most of you named parking/)
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+    ).toBeNull()
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      reportBackForOutreachId: 77,
+      voterFileFilterId: 41,
+      proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+    })
+    expect(bodies[0]?.message).not.toContain('Reply JOIN')
+    expect(bodies[0]?.name).toEqual(expect.stringContaining('Northside'))
+  })
+
   // The imageless Serve path, end to end. The compose gate opening is
   // asserted in serveSurface.test.tsx; this pins what the open gate
   // produces — a create with no imageUrl key at all, and no upload.

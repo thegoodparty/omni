@@ -493,4 +493,78 @@ describe('lists saved as a sample', () => {
 
     expect(response.status).toBe(HttpStatus.BAD_REQUEST)
   })
+
+  // A report back goes to exactly who a send reached, so its list is that
+  // send's recipient rows, frozen, minus anyone who has opted out since.
+  describe('a report back on a send', () => {
+    const seedSend = async (slug: string, personIds: string[]) => {
+      const send = await service.prisma.outreach.create({
+        data: {
+          organizationSlug: slug,
+          campaignId: null,
+          outreachType: 'text',
+          status: 'completed',
+        },
+      })
+      await service.prisma.outreachTextRecipient.createMany({
+        data: personIds.map((personId, index) => ({
+          outreachId: send.id,
+          organizationSlug: slug,
+          personId,
+          phone: `+1555000${String(index).padStart(4, '0')}`,
+        })),
+      })
+      return send
+    }
+
+    it('freezes the people the send reached, minus opt-outs', async () => {
+      const slug = await setupServeOrg('report-back')
+      const [kept, alsoKept, optedOut] = [
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+      ]
+      const send = await seedSend(slug, [kept, alsoKept, optedOut])
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: slug,
+          personId: optedOut,
+          occurredAt: new Date(),
+          outreachId: send.id,
+          respondedAt: new Date(),
+          optedOutAt: new Date(),
+        },
+      })
+      const draw = stubDraw([])
+
+      const response = await createFilter(slug, {
+        name: 'Everyone you texted about parking',
+        sample: { size: 3, recipientsOfOutreachId: send.id },
+      })
+
+      expect(response.status).toBe(HttpStatus.CREATED)
+      expect(draw).not.toHaveBeenCalled()
+      expect(await sampleMemberIds(response.data.id)).toEqual(
+        [kept, alsoKept].sort(),
+      )
+    })
+
+    it("reaches nobody from another office's send", async () => {
+      const other = await setupServeOrg('report-back-other')
+      const send = await seedSend(other, [randomUUID()])
+      const slug = await setupServeOrg('report-back-mine')
+
+      const response = await createFilter(slug, {
+        name: 'Not mine',
+        sample: { size: 1, recipientsOfOutreachId: send.id },
+      })
+
+      expect(response.status).toBe(HttpStatus.CREATED)
+      expect(await sampleMemberIds(response.data.id)).toEqual([])
+      const row = await service.prisma.voterFileFilter.findUniqueOrThrow({
+        where: { id: response.data.id },
+      })
+      expect(row.sampleSize).toBe(1)
+    })
+  })
 })

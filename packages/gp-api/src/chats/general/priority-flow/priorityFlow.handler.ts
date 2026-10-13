@@ -68,6 +68,11 @@ import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.to
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
+  buildReadReportBackTool,
+  checkReportBack,
+} from '../chat-tools/readReportBack.tool'
+import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
+import {
   PriorityFlowContext,
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
@@ -148,6 +153,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly peopleDatasets?: PeopleDatasetService,
     @Optional()
     private readonly features?: FeaturesService,
+    @Optional()
+    private readonly reportBack?: OutreachReportBackService,
   ) {}
 
   // ONE conversation per priority, for the life of the priority. The ordinance
@@ -219,18 +226,28 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
+    const reportBacks =
+      outreachFeedbackEnabled && this.reportBack
+        ? await this.reportBack.listForOffice(
+            ctx.organizationSlug,
+            ctx.electedOfficeId,
+            { priorityId: ctx.priorityId },
+          )
+        : undefined
     if (!resolved) {
       return {
         ...ctx,
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
+        reportBacks,
       }
     }
     return {
       ...ctx,
       outreachFeedbackEnabled,
       civicPanelMembers,
+      reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
@@ -302,6 +319,23 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     return checkProposalRefusal(input, status, verified)
   }
 
+  // Read fresh rather than from the turn's context: a report back sent from
+  // another tab since the turn began must not be offered again.
+  private async reportBackRefusal(
+    ctx: PriorityFlowContext,
+    input: Parameters<typeof checkReportBack>[0] & {
+      reportBackForOutreachId: number
+    },
+  ): Promise<string | null> {
+    if (!this.reportBack) return 'Reporting back is not available here.'
+    const [send] = await this.reportBack.listForOffice(
+      ctx.organizationSlug,
+      ctx.electedOfficeId,
+      { priorityId: ctx.priorityId, outreachId: input.reportBackForOutreachId },
+    )
+    return checkReportBack(input, send)
+  }
+
   private assembleTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
     // Tools are built once per turn, so this flag is "did a card or a question
     // reach the official in this turn". The status tool refuses to record a
@@ -340,6 +374,16 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         execute: async (input: Parameters<typeof propose.execute>[0]) => {
           const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
           if (unsigned !== null) return { error: unsigned }
+          if (input.reportBackForOutreachId !== undefined) {
+            const reportBack = await this.reportBackRefusal(ctx, {
+              ...input,
+              reportBackForOutreachId: input.reportBackForOutreachId,
+            })
+            if (reportBack !== null) return { error: reportBack }
+            const result = proposalResult(input)
+            if (!('error' in result)) offeredThisTurn = true
+            return result
+          }
           const panelPart = checkPanelPart(input)
           if (panelPart !== null) return { error: panelPart }
           const refusal =
@@ -396,6 +440,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
       })
+      if (this.reportBack) {
+        tools.read_report_back = buildReadReportBackTool({
+          reportBack: this.reportBack,
+          organizationSlug: ctx.organizationSlug,
+          electedOfficeId: ctx.electedOfficeId,
+          priorityId: ctx.priorityId,
+        })
+      }
     }
 
     // Web search runs through Anthropic's native tool (the scope is

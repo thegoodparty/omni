@@ -26,6 +26,10 @@ import {
   briefingOverviewHref,
 } from '../util/briefingHref.util'
 import { BriefingArtifactCardSourceSchema } from '../schemas/briefingArtifactCardSource.schema'
+import {
+  OutreachReportBackService,
+  REPORT_BACK_DUE_DAYS,
+} from '@/outreach/services/outreachReportBack.service'
 
 // Community issues have no natural deadline; give their cards a fixed window so
 // they ride the existing active/this_week/missed bucketing off dueDate.
@@ -56,6 +60,24 @@ const priorityNextStepCardContent = (priority: PriorityForCard) => ({
       : PRIORITY_NEXT_STEP_FALLBACK),
   ctaLabel: 'Open priority',
   ctaHref: civicPanelCardHref(priority.id),
+})
+
+// The priority's own conversation, told which send to report back on; the
+// workspace starts the report back with one hidden turn.
+export const reportBackCardHref = (
+  priorityId: string,
+  outreachId: number,
+): string => `${civicPanelCardHref(priorityId)}?reportBack=${outreachId}`
+
+const reportBackCardContent = (
+  outreachId: number,
+  priorityId: string,
+  priorityTitle: string,
+) => ({
+  title: `Report back on ${priorityTitle}`,
+  summary: "Tell the people you texted what you heard and what you'll do next.",
+  ctaLabel: 'Report back',
+  ctaHref: reportBackCardHref(priorityId, outreachId),
 })
 
 // The outreach page opens its text flow on the panel purpose with a random
@@ -94,6 +116,83 @@ type DesiredCard = {
 export class DashboardCardsService extends createPrismaBase(
   MODELS.DashboardCard,
 ) {
+  constructor(private readonly reportBack: OutreachReportBackService) {
+    super()
+  }
+
+  // One "Report back" card per priority text whose replies are in, created
+  // when the card list is read, due two weeks out. It is done once a report
+  // back on that send goes out (past checkout), or when the official marks
+  // it done.
+  async syncReportBackCards(
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+  ): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      // Same reason as the panel cards: a null sourceItemId leaves the
+      // unique key unable to stop the home page and the archive both
+      // inserting one.
+      const lockKey = `report_back_cards:${electedOffice.id}`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
+      const sends = await tx.outreach.findMany({
+        where: this.reportBack.repliesInWhere(
+          electedOffice.organizationSlug,
+          electedOffice.id,
+        ),
+        select: {
+          id: true,
+          priorityId: true,
+          priority: { select: { title: true } },
+        },
+      })
+      const existing = await tx.dashboardCard.findMany({
+        where: {
+          electedOfficeId: electedOffice.id,
+          type: DashboardCardType.report_back,
+        },
+        select: { id: true, sourceExternalId: true, completedAt: true },
+      })
+      const carded = new Set(existing.map((card) => card.sourceExternalId))
+      const now = new Date()
+      const missing = sends.filter((send) => !carded.has(String(send.id)))
+      if (missing.length > 0) {
+        await tx.dashboardCard.createMany({
+          data: missing.map((send) => ({
+            electedOfficeId: electedOffice.id,
+            type: DashboardCardType.report_back,
+            sourceExternalId: String(send.id),
+            sourceItemId: null,
+            ...reportBackCardContent(
+              send.id,
+              send.priorityId ?? '',
+              send.priority?.title ?? '',
+            ),
+            dueDate: addDays(now, REPORT_BACK_DUE_DAYS),
+          })),
+        })
+      }
+      // Every open card, the ones just made included: a report back can be
+      // past checkout before its card's first read.
+      const openIds = [
+        ...existing
+          .filter((card) => card.completedAt === null)
+          .map((card) => Number(card.sourceExternalId)),
+        ...missing.map((send) => send.id),
+      ]
+      const sent = await this.reportBack.sentReportBacks(openIds)
+      if (sent.size > 0) {
+        await tx.dashboardCard.updateMany({
+          where: {
+            electedOfficeId: electedOffice.id,
+            type: DashboardCardType.report_back,
+            completedAt: null,
+            sourceExternalId: { in: [...sent.keys()].map(String) },
+          },
+          data: { completedAt: now, dismissedAt: null, snoozedUntil: null },
+        })
+      }
+    })
+  }
+
   // Generates/reconciles cards for a single briefing from its artifact JSONB
   // (no S3 read). Upserts by stable identity so dismissals survive a re-run,
   // and removes cards for this briefing whose item is no longer featured.
@@ -465,7 +564,12 @@ export class DashboardCardsService extends createPrismaBase(
         ...this.bucketWhere(electedOfficeId, bucket),
         // Off, the panel cards an office already has stay out of every list.
         ...(!includeCivicPanel && {
-          type: { not: DashboardCardType.civic_panel },
+          type: {
+            notIn: [
+              DashboardCardType.civic_panel,
+              DashboardCardType.report_back,
+            ],
+          },
         }),
         // A put-off build card comes back to the front, and the priority
         // cards made while it was away wait behind it again.

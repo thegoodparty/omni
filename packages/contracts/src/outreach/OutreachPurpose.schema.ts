@@ -59,8 +59,15 @@ export type ServeOutreachPurpose = z.infer<typeof ServeOutreachPurposeSchema>
 // not in the list the other Serve channels share.
 export const BUILD_CITIZENS_PANEL_PURPOSE = 'build_citizens_panel'
 
+// A text back to the people an earlier text asked: what the official heard,
+// then what they will do next. SMS only, and only ever opened from a chat
+// card, because its audience is exactly who that send reached. It never
+// carries the citizens' panel join line.
+export const REPORT_BACK_PURPOSE = 'report_back'
+
 export const SERVE_SMS_PURPOSE_VALUES = [
   BUILD_CITIZENS_PANEL_PURPOSE,
+  REPORT_BACK_PURPOSE,
   ...SERVE_OUTREACH_PURPOSE_VALUES,
 ] as const
 export const ServeSmsPurposeSchema = z.enum(SERVE_SMS_PURPOSE_VALUES)

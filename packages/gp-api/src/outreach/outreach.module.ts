@@ -66,6 +66,7 @@ import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKn
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
+import { OutreachReportBackModule } from './outreachReportBack.module'
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
@@ -126,6 +127,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OrganizationsModule,
     ElectedOfficeModule,
     ContactInteractionModule,
+    OutreachReportBackModule,
     CallhubModule,
     // For DoorKnockingTurfCountsService, behind the detail read's doorKnocking
     // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly

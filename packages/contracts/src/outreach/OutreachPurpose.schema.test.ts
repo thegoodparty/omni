@@ -4,6 +4,7 @@ import {
   COMMUNITY_INPUT_PURPOSE,
   BUILD_CITIZENS_PANEL_PURPOSE,
   OUTREACH_PURPOSE_VALUES,
+  REPORT_BACK_PURPOSE,
   SERVE_OUTREACH_PURPOSE_VALUES,
   SERVE_SMS_PURPOSE_VALUES,
 } from './OutreachPurpose.schema'
@@ -46,6 +47,7 @@ describe('outreach purpose vocabulary', () => {
   it('offers building a citizens panel on Serve SMS alone', () => {
     expect(SERVE_SMS_PURPOSE_VALUES).toEqual([
       BUILD_CITIZENS_PANEL_PURPOSE,
+      REPORT_BACK_PURPOSE,
       ...SERVE_OUTREACH_PURPOSE_VALUES,
     ])
     expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).not.toContain(
@@ -53,6 +55,16 @@ describe('outreach purpose vocabulary', () => {
     )
     expect(OUTREACH_PURPOSE_VALUES).not.toContain(BUILD_CITIZENS_PANEL_PURPOSE)
     expect(SOCIAL_PURPOSE_VALUES).not.toContain(BUILD_CITIZENS_PANEL_PURPOSE)
+  })
+
+  // A report back goes to exactly who an earlier text reached, which only a
+  // text can do.
+  it('offers reporting back on Serve SMS alone', () => {
+    expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).not.toContain(
+      REPORT_BACK_PURPOSE,
+    )
+    expect(OUTREACH_PURPOSE_VALUES).not.toContain(REPORT_BACK_PURPOSE)
+    expect(SOCIAL_PURPOSE_VALUES).not.toContain(REPORT_BACK_PURPOSE)
   })
 
   it('lets social add issue_update without forking the list', () => {
