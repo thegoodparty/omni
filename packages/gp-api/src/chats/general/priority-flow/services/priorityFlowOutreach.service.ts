@@ -275,9 +275,11 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       title: theme.title,
       summary: theme.summary,
       people: new Set(
-        theme.members.map(
-          (member) => member.feedback?.personId ?? member.textReply?.personId,
-        ),
+        theme.members.flatMap((member) => {
+          const personId =
+            member.feedback?.personId ?? member.textReply?.personId
+          return personId === undefined ? [] : [personId]
+        }),
       ).size,
     }))
   }

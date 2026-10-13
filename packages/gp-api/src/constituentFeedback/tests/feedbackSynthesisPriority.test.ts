@@ -13,6 +13,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { FeedbackSynthesisService } from '../services/feedbackSynthesis.service'
 import { FeedbackSynthesisIngestService } from '../services/feedbackSynthesisIngest.service'
 import { MockSynthesisEngine } from '../services/mockSynthesisEngine'
+import { PriorityFlowOutreachService } from '@/chats/general/priority-flow/services/priorityFlowOutreach.service'
 import { SynthesisStaleRunSweepService } from '../services/synthesisStaleRunSweep.service'
 import {
   completionEvent,
@@ -250,6 +251,12 @@ describe('feedback synthesis across a priority', () => {
     expect(res.data.themes).toEqual([
       expect.objectContaining({ title: 'Drains back up', people: 2 }),
     ])
+    // The agent's read counts people the same way.
+    expect(
+      await service.app
+        .get(PriorityFlowOutreachService)
+        .pooledThemes(slug, priorityId),
+    ).toEqual([expect.objectContaining({ title: 'Drains back up', people: 2 })])
   })
 
   it('pools again once a run in flight is done when another send finished under it', async () => {
