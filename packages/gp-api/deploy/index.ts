@@ -576,12 +576,12 @@ export = async () => {
         dev: '',
         prod: 'true',
       }),
-      // Dev and previews write to prod's HubSpot portal, so only prod gets the
-      // Office Holder ids; the sync stays off everywhere until the flag flips.
+      // Dev and previews write to prod's HubSpot portal, so the Office Holder
+      // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
         preview: '',
         dev: '',
-        prod: '',
+        prod: 'true',
       }),
       HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: select({
         preview: '',
