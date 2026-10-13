@@ -635,13 +635,13 @@ export class DomainsService
     let nextIndex = 0
     const worker = async () => {
       while (!outOfBudget && found.length < SEARCH_TARGET_CANDIDATE_COUNT) {
-        const index = nextIndex
+        const candidate = candidates[nextIndex]
         nextIndex += 1
-        if (index >= candidates.length) {
+        if (candidate === undefined) {
           return
         }
         const r = await Promise.race([
-          this.checkPatternedCandidate(candidates[index], maxPrice).then(
+          this.checkPatternedCandidate(candidate, maxPrice).then(
             (value) => ({ status: 'fulfilled', value }) as const,
             (reason: unknown) => ({ status: 'rejected', reason }) as const,
           ),
