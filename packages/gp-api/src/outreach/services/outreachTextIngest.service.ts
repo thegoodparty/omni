@@ -260,21 +260,36 @@ export class OutreachTextIngestService extends createPrismaBase(
       }
     }
 
-    // Idempotency: delete the exact ids we are about to write, then write
-    // them. The ids are deterministic, so a redelivered queue message or a
-    // re-analysis replaces its own rows and touches nothing else. Scoped to
-    // CONSTITUENT so an outbound row could never be swept up.
+    // Idempotency: the ids are deterministic, so a redelivered queue message
+    // or a re-upload lands on its own rows and touches nothing else. Rows
+    // that already exist are updated in place rather than deleted and
+    // recreated: a reply row is what a synthesis theme's member points at
+    // (FeedbackThemeMember.textReplyId, cascade on delete), and a re-upload
+    // must not empty the themes the last run wrote. Scoped to CONSTITUENT
+    // so an outbound row could never be swept up.
     if (messages.length > 0) {
       await this.client.$transaction(
         async (tx) => {
-          await tx.pollIndividualMessage.deleteMany({
-            where: {
-              id: { in: messages.map((message) => message.id) },
-              outreachId,
-              sender: PollIndividualMessageSender.CONSTITUENT,
-            },
+          const existing = new Set(
+            (
+              await tx.pollIndividualMessage.findMany({
+                where: {
+                  id: { in: messages.map((message) => message.id) },
+                  outreachId,
+                  sender: PollIndividualMessageSender.CONSTITUENT,
+                },
+                select: { id: true },
+              })
+            ).map((row) => row.id),
+          )
+          await tx.pollIndividualMessage.createMany({
+            data: messages.filter((message) => !existing.has(message.id)),
           })
-          await tx.pollIndividualMessage.createMany({ data: messages })
+          for (const message of messages) {
+            if (!existing.has(message.id)) continue
+            const { id, ...data } = message
+            await tx.pollIndividualMessage.update({ where: { id }, data })
+          }
         },
         { timeout: INGEST_TRANSACTION_TIMEOUT_MS },
       )

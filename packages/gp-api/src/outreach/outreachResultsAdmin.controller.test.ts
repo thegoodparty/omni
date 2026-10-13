@@ -786,6 +786,71 @@ describe('synthesis after results land', () => {
     })
   })
 
+  // A reply row is what a theme's member points at, with cascade on delete.
+  // A re-upload (a corrected file, a double click) lands on the same ids
+  // and must update them in place, or the last run's themes empty out.
+  it('keeps a run’s theme members through a re-upload and updates a changed reply in place', async () => {
+    requested.mockImplementation(() => undefined)
+    await upload(REPLIES_CSV, false, send.id)
+    const before = await service.prisma.pollIndividualMessage.findMany({
+      where: { outreachId: send.id },
+      orderBy: { sentAt: 'asc' },
+    })
+    expect(before).toHaveLength(5)
+    const run = await service.prisma.feedbackSynthesisRun.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        scope: 'effort',
+        outreachId: send.id,
+        status: 'completed',
+        conversations: 5,
+        memos: 5,
+        confirmed: 5,
+        engine: 'mock',
+      },
+    })
+    const theme = await service.prisma.feedbackTheme.create({
+      data: {
+        runId: run.id,
+        rank: 1,
+        title: 'Elm Street',
+        summary: 'Elm first.',
+        details: 'Everyone named Elm.',
+        members: {
+          create: before.map((message) => ({ textReplyId: message.id })),
+        },
+      },
+    })
+
+    await upload(REPLIES_CSV, false, send.id)
+
+    expect(
+      await service.prisma.feedbackThemeMember.count({
+        where: { themeId: theme.id },
+      }),
+    ).toBe(5)
+
+    const corrected = REPLIES_CSV.replace(
+      'Fix Elm Street first 0',
+      'Fix Elm Street first by the school',
+    )
+    await upload(corrected, false, send.id)
+
+    const after = await service.prisma.pollIndividualMessage.findMany({
+      where: { outreachId: send.id },
+      orderBy: { sentAt: 'asc' },
+    })
+    expect(after.map((message) => message.id)).toEqual(
+      before.map((message) => message.id),
+    )
+    expect(after[0]!.content).toBe('Fix Elm Street first by the school')
+    expect(
+      await service.prisma.feedbackThemeMember.count({
+        where: { themeId: theme.id },
+      }),
+    ).toBe(5)
+  })
+
   it('starts nothing on a dry run', async () => {
     const result = await upload(REPLIES_CSV, true, send.id)
 
