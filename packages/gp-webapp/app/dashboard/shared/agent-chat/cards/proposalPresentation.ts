@@ -97,6 +97,7 @@ export const proposedAudienceOf = (
     | 'proposalKey'
     | 'count'
     | 'sampleSize'
+    | 'panelSampleSize'
     | 'widensOutreachIds'
   >,
 ): ProposedAudience | undefined => {
@@ -183,8 +184,25 @@ export const proposalListSample = (proposal: {
   proposalKey: string
   count: number
   sampleSize?: number
+  panelSampleSize?: number
   widensOutreachIds?: number[]
 }): ListSample | undefined => {
+  // The panel and the fresh residents are two draws, so the list always
+  // freezes them: saved whole it would hold neither part at its size.
+  if (
+    proposal.panelSampleSize !== undefined &&
+    proposal.sampleSize !== undefined &&
+    proposal.panelSampleSize <= proposal.sampleSize
+  ) {
+    return {
+      size: proposal.sampleSize,
+      panelSize: proposal.panelSampleSize,
+      seedKey: proposal.proposalKey,
+      ...(widens(proposal) && {
+        excludeOutreachIds: proposal.widensOutreachIds,
+      }),
+    }
+  }
   if (widens(proposal)) {
     return {
       size: Math.min(

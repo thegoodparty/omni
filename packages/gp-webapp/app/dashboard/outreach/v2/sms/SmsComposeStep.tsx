@@ -62,6 +62,10 @@ const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
     "This is how people join your citizens' panel. Uncheck the box below to remove it.",
 }
 
+// A text that builds the panel is its ask, so there is no box to uncheck.
+const LOCKED_JOIN_REASON =
+  "This is how people join your citizens' panel, but you can write around it."
+
 const LOCKED_FALLBACK =
   'This part is required, but you can reword anything around it.'
 const FIRST_NAME_TAG = MERGE_TAGS[0]
@@ -217,7 +221,10 @@ export const SmsComposeStep = ({
             text: part.text,
             // The copy the lock rules chose (the footer, not a quote of it).
             start: part.start,
-            reason: LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK,
+            reason:
+              part.rule === 'civic_panel_join' && civicPanelAsk?.locked
+                ? LOCKED_JOIN_REASON
+                : (LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK),
           },
         ]
       : [],

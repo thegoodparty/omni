@@ -77,6 +77,24 @@ describe('ClarifyQuestionWidget', () => {
     expect(onAnswer).not.toHaveBeenCalled()
   })
 
+  // Priorities and Chief of Staff show the answer as the user's own message
+  // right below, so echoing it here put it on screen twice.
+  it('leaves a written-in answer to the message when told not to echo it', () => {
+    render(
+      <ClarifyQuestionWidget
+        question={question}
+        disabled
+        answer="The whole corridor runs too fast"
+        onAnswer={vi.fn()}
+        showWrittenAnswer={false}
+      />,
+    )
+    expect(
+      screen.queryByText('The whole corridor runs too fast'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
+  })
+
   it('keeps single choice a radio group that answers on the first pick', () => {
     const onAnswer = vi.fn()
     render(

@@ -146,7 +146,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   async allPutOutCheck(
     priorityId: string,
     stepId: string,
-    side: string,
+    // Null takes a send that put out either side of the step's check.
+    side: string | null,
     outreachIds: number[],
   ): Promise<boolean> {
     const ids = [...new Set(outreachIds)]
@@ -156,7 +157,9 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         id: { in: ids },
         priorityId,
         priorityStepId: stepId,
-        priorityCheckSide: side,
+        ...(side === null
+          ? { priorityCheckSide: { not: null } }
+          : { priorityCheckSide: side }),
       },
     })
     return matching === ids.length

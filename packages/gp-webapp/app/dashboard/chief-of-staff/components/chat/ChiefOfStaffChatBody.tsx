@@ -64,6 +64,7 @@ import {
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
+  isToolRefusal,
   ListProposalSchema,
   mintProposalKey,
   ShowListMapSchema,
@@ -475,6 +476,14 @@ function ChiefOfStaffChatThread({
       },
       onError: (message, retryable) => setStreamError({ message, retryable }),
       onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+        if (
+          event.type === 'tool_result' &&
+          event.toolCallId &&
+          isToolRefusal(event.result)
+        ) {
+          const key = `${event.toolName}-${event.toolCallId}`
+          setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
+        }
         // The ARGS carry the payload, which is why this reads tool_call and
         // not tool_result: args are what the segment persists, so the same
         // payload replays on reload.

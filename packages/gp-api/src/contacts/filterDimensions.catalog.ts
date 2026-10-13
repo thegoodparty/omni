@@ -183,6 +183,13 @@ const activityChannelValue = (
   })),
 })
 
+// Behind serve-citizen-panels: getFilterDimensions leaves these out while the
+// flag is off for the user.
+export const CITIZEN_PANEL_DIMENSION_KEYS: ReadonlySet<string> = new Set([
+  'civicPanel',
+  'contactHistory',
+])
+
 export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   {
     key: 'audience',

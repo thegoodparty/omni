@@ -1,12 +1,14 @@
 import {
   OutreachProposalSchema,
   PRIORITY_GATE_STEPS,
+  PRIORITY_LISTEN_GATES,
   PRIORITY_STEP_LABELS,
   ProposalChannelSchema,
   SMS_COMPOSED_MAX_LENGTH,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import type { ProposalChannel } from '@goodparty_org/contracts'
+import type { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 
 // The model never writes proposalKey: the server mints it deterministically
@@ -22,9 +24,15 @@ const priorityProposalInput = OutreachProposalSchema.omit({
     'main for the most-affected group, contrast for the least-affected one.',
   ),
 })
+// The citizens' panel parts, offered only on a priority and only behind
+// serve-citizen-panels.
+const priorityProposalInputWithoutPanel = priorityProposalInput.omit({
+  civicPanelAsk: true,
+  panelSampleSize: true,
+})
 // Outside a priority there is no check for a send to put out, and so no
 // earlier sample of one to widen.
-const presentOutreachProposalInput = priorityProposalInput.omit({
+const presentOutreachProposalInput = priorityProposalInputWithoutPanel.omit({
   stepId: true,
   side: true,
   widensOutreachIds: true,
@@ -175,6 +183,14 @@ export const checkProposalRefusal = (
     input.side === undefined ||
     !PRIORITY_GATE_STEPS.includes(step.id)
   ) {
+    const gate = step ? PRIORITY_LISTEN_GATES[step.id] : undefined
+    if (step && gate !== undefined) {
+      return (
+        `${step.id} is where the answers land, not the check. ` +
+        `Present it again with stepId ${gate}, the same side and everything ` +
+        'else unchanged.'
+      )
+    }
     return (
       'stepId and side go together, and stepId is the gate whose check ' +
       'this puts out: define, options, method or plan.'
@@ -197,15 +213,53 @@ export const checkProposalRefusal = (
         'widensOutreachIds set to the sends that went out.'
 }
 
+// Why a proposal's panel part cannot be shown, or null. One send asks the
+// panel and a fresh sample together, so the panel part only makes sense as
+// part of a text sample, with the join ask on for the fresh residents.
+export const checkPanelPart = (input: {
+  channel: ProposalChannel
+  civicPanelAsk?: boolean
+  panelSampleSize?: number
+  sampleSize?: number
+}): string | null => {
+  if (input.channel !== 'text' && input.civicPanelAsk) {
+    return 'civicPanelAsk is for a text only. Leave it out and present again.'
+  }
+  if (input.panelSampleSize === undefined) return null
+  if (input.channel !== 'text') {
+    return 'panelSampleSize is for a text only. Leave it out and present again.'
+  }
+  if (
+    input.sampleSize === undefined ||
+    input.panelSampleSize > input.sampleSize
+  ) {
+    return (
+      'sampleSize is the whole send: the panel members plus the residents ' +
+      'not on the panel. Set it to both added together and present again.'
+    )
+  }
+  if (input.civicPanelAsk !== true) {
+    return (
+      'A send that asks the panel and new residents together also asks the ' +
+      'new ones to join. Set civicPanelAsk to true and present again.'
+    )
+  }
+  return null
+}
+
 // The caller checks a named check with checkProposalRefusal before this runs,
 // since it holds the priority.
-export const buildPriorityOutreachProposalTool = (): LlmStreamTool<
-  typeof priorityProposalInput
-> => ({
+export const buildPriorityOutreachProposalTool = (options: {
+  citizenPanels: boolean
+}): LlmStreamTool<z.ZodType<z.infer<typeof priorityProposalInput>>> => ({
   description:
     DESCRIPTION +
     '\n\nWhen this puts out a check, pass stepId and side, so the check ' +
     'moves to out on its own once the official sends it.',
-  inputSchema: priorityProposalInput,
+  // The schema without the panel parts parses into the same shape with them
+  // absent, so one execute serves both.
+  inputSchema: options.citizenPanels
+    ? priorityProposalInput
+    : priorityProposalInputWithoutPanel,
   execute: proposalResult,
 })

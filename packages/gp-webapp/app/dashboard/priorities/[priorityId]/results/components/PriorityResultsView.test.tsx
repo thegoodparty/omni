@@ -71,7 +71,7 @@ describe('PriorityResultsView', () => {
   it('shows who answered, the panel and the map', () => {
     renderView(results())
 
-    expect(screen.getByText('What you heard on Flooding')).toBeInTheDocument()
+    expect(screen.getByText('What we heard on Flooding')).toBeInTheDocument()
     expect(screen.getByText('People who answered')).toBeInTheDocument()
     expect(screen.getByText("Joined your citizens' panel")).toBeInTheDocument()
     expect(screen.getByText('25 by text')).toBeInTheDocument()
@@ -82,7 +82,7 @@ describe('PriorityResultsView', () => {
   it('shows the themes across every send, with how many people each covers', () => {
     renderView(results())
 
-    expect(screen.getByText('What people told you')).toBeInTheDocument()
+    expect(screen.getByText('Top themes')).toBeInTheDocument()
     expect(screen.getByText('Drains back up into homes')).toBeInTheDocument()
     expect(screen.getByText('14 people')).toBeInTheDocument()
     expect(

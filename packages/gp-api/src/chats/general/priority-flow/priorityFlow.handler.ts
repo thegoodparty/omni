@@ -10,6 +10,8 @@ import {
   OrdinanceAuthorityFindingSchema,
   OrdinanceCurrentLawSummarySchema,
   OrdinancePresentComparablesSchema,
+  type PriorityCheckSide,
+  type PriorityStepId,
   type ProposalChannel,
 } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
@@ -57,6 +59,7 @@ import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.to
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import {
   buildPriorityOutreachProposalTool,
+  checkPanelPart,
   checkProposalRefusal,
   proposalResult,
 } from '../chat-tools/presentOutreachProposal.tool'
@@ -213,10 +216,21 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
-    if (!resolved) return { ...ctx, peopleDataset, outreachFeedbackEnabled }
+    const civicPanelMembers = outreachFeedbackEnabled
+      ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
+      : undefined
+    if (!resolved) {
+      return {
+        ...ctx,
+        peopleDataset,
+        outreachFeedbackEnabled,
+        civicPanelMembers,
+      }
+    }
     return {
       ...ctx,
       outreachFeedbackEnabled,
+      civicPanelMembers,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
@@ -246,13 +260,57 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     return this.assembleTools(ctx)
   }
 
+  // A widen names sends of the same side. Behind serve-citizen-panels, a side
+  // not yet sent may also name the step's other side: the targeted group
+  // offered after the panel's read leaves out everyone that send asked.
+  private async proposalRefusal(
+    ctx: PriorityFlowContext,
+    input: {
+      stepId?: PriorityStepId
+      side?: PriorityCheckSide
+      widensOutreachIds?: number[]
+    },
+  ): Promise<string | null> {
+    const status = await this.priorityStatus.read(ctx.priorityId)
+    const widens = input.widensOutreachIds ?? []
+    if (
+      widens.length === 0 ||
+      input.stepId === undefined ||
+      input.side === undefined
+    ) {
+      return checkProposalRefusal(input, status, false)
+    }
+    const { stepId, side } = input
+    const check = status.steps.find((step) => step.id === stepId)?.check
+    const sideSent =
+      (side === 'main' ? check?.sentAt : check?.contrast?.sentAt) !== undefined
+    const verified =
+      (await this.outreach.allPutOutCheck(
+        ctx.priorityId,
+        stepId,
+        side,
+        widens,
+      )) ||
+      (ctx.outreachFeedbackEnabled === true &&
+        !sideSent &&
+        (await this.outreach.allPutOutCheck(
+          ctx.priorityId,
+          stepId,
+          null,
+          widens,
+        )))
+    return checkProposalRefusal(input, status, verified)
+  }
+
   private assembleTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
     // Tools are built once per turn, so this flag is "did a card or a question
     // reach the official in this turn". The status tool refuses to record a
     // check as asked until one has, which is what makes `asked` mean shown.
     let offeredThisTurn = false
     const ask = buildAskClarifyQuestionTool()
-    const propose = buildPriorityOutreachProposalTool()
+    const propose = buildPriorityOutreachProposalTool({
+      citizenPanels: ctx.outreachFeedbackEnabled === true,
+    })
     const tools: Record<string, LlmTool> = {
       ...this.priorityStatus.buildStatusTool(ctx.priorityId, {
         offered: () => offeredThisTurn,
@@ -282,23 +340,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         execute: async (input: Parameters<typeof propose.execute>[0]) => {
           const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
           if (unsigned !== null) return { error: unsigned }
-          const widens = input.widensOutreachIds ?? []
+          const panelPart = checkPanelPart(input)
+          if (panelPart !== null) return { error: panelPart }
           const refusal =
             input.stepId === undefined && input.side === undefined
               ? null
-              : checkProposalRefusal(
-                  input,
-                  await this.priorityStatus.read(ctx.priorityId),
-                  widens.length > 0 &&
-                    input.stepId !== undefined &&
-                    input.side !== undefined &&
-                    (await this.outreach.allPutOutCheck(
-                      ctx.priorityId,
-                      input.stepId,
-                      input.side,
-                      widens,
-                    )),
-                )
+              : await this.proposalRefusal(ctx, input)
           if (refusal !== null) return { error: refusal }
           const result = proposalResult(input)
           if (!('error' in result)) offeredThisTurn = true
@@ -413,6 +460,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(crmTools),
         peopleDataset: ctx.peopleDataset,
+        citizenPanels: ctx.outreachFeedbackEnabled === true,
       })
       Object.assign(tools, crmTools)
     }

@@ -1215,6 +1215,7 @@ describe('ChatStreamService', () => {
           type: 'tool_result',
           toolName: 'web_search',
           result: { results: ['r1'] },
+          toolCallId: 'test-web_search',
         },
         { type: 'text', delta: 'after' },
       ])
@@ -1250,6 +1251,7 @@ describe('ChatStreamService', () => {
           type: 'tool_result',
           toolName: 'web_search',
           result: { results: ['r1'] },
+          toolCallId: 'test-web_search',
         },
         { type: 'text', delta: 'done' },
       ])
@@ -1259,6 +1261,33 @@ describe('ChatStreamService', () => {
           kind: 'tool',
           toolName: 'web_search',
           payload: { q: 'goodparty' },
+          toolCallId: 'test-web_search',
+        },
+        { kind: 'text', text: 'done' },
+      ])
+    })
+
+    it('drops the arguments of a call the tool refused, so its card never replays', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'web_search',
+          input: { q: 'bad' },
+          output: { error: 'Fix the arguments and call again.' },
+        },
+        { kind: 'text', delta: 'done' },
+      ])
+
+      await collect(
+        service.stream(baseStreamArgs({ tools: { web_search: fakeTool } })),
+      )
+
+      expect(store.lastAppendedSegments).toEqual([
+        {
+          kind: 'tool',
+          toolName: 'web_search',
+          payload: null,
           toolCallId: 'test-web_search',
         },
         { kind: 'text', text: 'done' },

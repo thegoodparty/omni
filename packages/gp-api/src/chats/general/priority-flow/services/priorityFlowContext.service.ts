@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   ChatScope,
+  CivicPanelStatus,
+  ContactStatusField,
   PrioritySource,
   type Organization,
 } from '../../../../generated/prisma'
@@ -38,6 +40,10 @@ export interface PriorityFlowContext {
   // Whether read_outreach_feedback registers: the serve-citizen-panels flag
   // for the chatting user, resolved per turn by the handler.
   outreachFeedbackEnabled?: boolean
+  // People on the citizens' panel right now, read per turn behind the same
+  // flag. Undefined while it is off, so nothing about a panel reaches the
+  // prompt.
+  civicPanelMembers?: number
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the
@@ -120,6 +126,16 @@ export class PriorityFlowContextService extends createPrismaBase(
   // priority: the anchor's resourceId is client-supplied, so the caller's
   // office must own the priority before a conversation record is written for
   // it. load() enforces the same invariant on the message-send path.
+  countCivicPanelMembers(organizationSlug: string): Promise<number> {
+    return this.client.contactCurrentStatus.count({
+      where: {
+        organizationSlug,
+        field: ContactStatusField.civic_panel,
+        value: CivicPanelStatus.member,
+      },
+    })
+  }
+
   async assertPriorityOwnership(
     priorityId: string,
     userId: number,

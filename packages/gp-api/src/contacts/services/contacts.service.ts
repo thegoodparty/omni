@@ -108,6 +108,7 @@ import {
   WIN_ONLY_RECOMMENDED_FILTER_KEYS,
 } from '../utils/voterFileFilter.utils'
 import {
+  CITIZEN_PANEL_DIMENSION_KEYS,
   FILTER_DIMENSIONS,
   type FilterDimension,
 } from '../filterDimensions.catalog'
@@ -311,12 +312,21 @@ export class ContactsService {
   // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
   // (party, ethnicity), mirroring assertNoPartyFilterForElectedOffice and
   // assertNoEthnicityFilterForElectedOffice on the read side.
-  getFilterDimensions(organization: Organization): FilterDimension[] {
+  // The citizens' panel dimensions follow the user's serve-citizen-panels
+  // flag, the same flag that shows them in the list builder, so an agent never
+  // names a filter the official cannot see.
+  getFilterDimensions(
+    organization: Organization,
+    options: { citizenPanels: boolean },
+  ): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
       : 'serve'
     return FILTER_DIMENSIONS.filter(
-      (dimension) => dimension.modes !== excludedMode,
+      (dimension) =>
+        dimension.modes !== excludedMode &&
+        (options.citizenPanels ||
+          !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)),
     )
   }
 
@@ -1967,6 +1977,10 @@ export class ContactsService {
   // A widened sample is the exception. When everyone not already asked fits
   // in it, it holds all of them, frozen, and never null: a live filter has no
   // exclusions, so saving it whole would text the earlier sample again.
+  //
+  // A sample with a panel part is never null either: the list's criteria
+  // match members and non-members alike, so saved whole it would hold
+  // neither part at the size proposed.
   async drawListSample(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -1974,7 +1988,81 @@ export class ContactsService {
       size: number
       seedKey?: string
       excludeOutreachIds?: number[]
+      panelSize?: number
     },
+  ): Promise<string[] | null> {
+    const excludeIds =
+      await this.voterFileFilterSampleService.personIdsForOutreaches(
+        organization.slug,
+        sample.excludeOutreachIds ?? [],
+      )
+    const notAsked: IdFilterResolution =
+      excludeIds.length === 0
+        ? { kind: 'none' }
+        : { kind: 'filter', idFilter: { notIn: excludeIds } }
+    if (sample.panelSize === undefined) {
+      return this.drawWithin(organization, filterInput, notAsked, {
+        size: sample.size,
+        seedKey: sample.seedKey,
+        wholeWhenItFits: excludeIds.length === 0,
+      })
+    }
+    if (!this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        "Citizens' panel sampling is not available for this organization",
+      )
+    }
+    const members = await this.contactStatusService.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.civic_panel,
+      [CivicPanelStatus.member],
+    )
+    const panel =
+      members.length === 0
+        ? []
+        : await this.drawWithin(
+            organization,
+            filterInput,
+            intersectIdFilterResolutions(notAsked, {
+              kind: 'filter',
+              idFilter: { in: members },
+            }),
+            {
+              size: sample.panelSize,
+              seedKey: sample.seedKey && `${sample.seedKey}:panel`,
+              wholeWhenItFits: false,
+            },
+          )
+    const freshSize = sample.size - sample.panelSize
+    const fresh =
+      freshSize === 0
+        ? []
+        : await this.drawWithin(
+            organization,
+            filterInput,
+            members.length === 0
+              ? notAsked
+              : intersectIdFilterResolutions(notAsked, {
+                  kind: 'filter',
+                  idFilter: { notIn: members },
+                }),
+            {
+              size: freshSize,
+              seedKey: sample.seedKey && `${sample.seedKey}:fresh`,
+              wholeWhenItFits: false,
+            },
+          )
+    return [...(panel ?? []), ...(fresh ?? [])]
+  }
+
+  // One random draw of `size` from the criteria narrowed by `within`. Null
+  // when the criteria match nobody, or when `wholeWhenItFits` and the pool is
+  // no bigger than `size`, so the caller saves the live list.
+  private async drawWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    within: IdFilterResolution,
+    draw: { size: number; seedKey?: string; wholeWhenItFits: boolean },
   ): Promise<string[] | null> {
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
@@ -1983,21 +2071,10 @@ export class ContactsService {
     const { idResolution: criteria, contactsMadeIdOverrides } =
       await this.resolveIdFilterWithContactsMade(organization, filterInput)
     if (criteria.kind === 'empty') return null
-    const excludeIds =
-      await this.voterFileFilterSampleService.personIdsForOutreaches(
-        organization.slug,
-        sample.excludeOutreachIds ?? [],
-      )
     // The people already asked leave the scope itself, so the count below is
     // the real pool. Subtracting their number from the audience assumed they
     // were all still in it, and drew short when they were not.
-    const idResolution =
-      excludeIds.length === 0
-        ? criteria
-        : intersectIdFilterResolutions(criteria, {
-            kind: 'filter',
-            idFilter: { notIn: excludeIds },
-          })
+    const idResolution = intersectIdFilterResolutions(criteria, within)
     if (idResolution.kind === 'empty') return []
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     const search = filterInput.search || undefined
@@ -2024,13 +2101,13 @@ export class ContactsService {
         const pool = pagination.totalResults
         // Widening a sample that already reached nearly everyone takes the
         // rest of them, never the people it already asked.
-        if (pool <= sample.size && excludeIds.length === 0) return null
+        if (pool <= draw.size && draw.wholeWhenItFits) return null
         if (pool === 0) return []
         const people = await this.voterQueryService.samplePeople(
           SamplePeopleDTO.create({
             ...scope,
-            size: Math.min(sample.size, pool),
-            seedKey: sample.seedKey,
+            size: Math.min(draw.size, pool),
+            seedKey: draw.seedKey,
           }),
           dataset,
         )

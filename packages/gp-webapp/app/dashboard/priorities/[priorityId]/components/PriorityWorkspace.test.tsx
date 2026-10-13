@@ -164,7 +164,7 @@ describe('PriorityWorkspace', () => {
     mocks.citizenPanels = { ready: true, enabled: true }
     renderWorkspace()
     await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
-    const links = screen.getAllByRole('link', { name: 'Constituent feedback' })
+    const links = screen.getAllByRole('link', { name: 'What we heard' })
     expect(links[0]).toHaveAttribute(
       'href',
       '/dashboard/priorities/pri-1/results',
@@ -175,7 +175,7 @@ describe('PriorityWorkspace', () => {
     renderWorkspace()
     await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
     expect(
-      screen.queryByRole('link', { name: 'Constituent feedback' }),
+      screen.queryByRole('link', { name: 'What we heard' }),
     ).not.toBeInTheDocument()
   })
 
