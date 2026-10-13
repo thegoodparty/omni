@@ -13,7 +13,15 @@ const SCALE_POINTS = 25
 
 const pct = (share: number): number => Math.round(share * 100)
 
-const GroupRow = ({ group }: { group: RepresentationGroup }) => {
+type SharesLabel = (respondent: number, district: number) => string
+
+const GroupRow = ({
+  group,
+  shares,
+}: {
+  group: RepresentationGroup
+  shares: SharesLabel
+}) => {
   const gap = (group.respondentShare - group.districtShare) * 100
   const points = Math.round(Math.abs(gap))
   const even = points < EVEN_WITHIN_POINTS
@@ -33,14 +41,11 @@ const GroupRow = ({ group }: { group: RepresentationGroup }) => {
       <div
         className="relative h-4 rounded-sm bg-muted"
         role="img"
-        aria-label={`${group.label}: ${label}. ${RESULTS_COPY.shares(
+        aria-label={`${group.label}: ${label}. ${shares(
           pct(group.respondentShare),
           pct(group.districtShare),
         )}`}
-        title={RESULTS_COPY.shares(
-          pct(group.respondentShare),
-          pct(group.districtShare),
-        )}
+        title={shares(pct(group.respondentShare), pct(group.districtShare))}
       >
         <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
         {!even && (
@@ -63,8 +68,10 @@ const GroupRow = ({ group }: { group: RepresentationGroup }) => {
 
 export const RepresentationBars = ({
   representation,
+  shares = RESULTS_COPY.shares,
 }: {
   representation: PriorityRepresentation
+  shares?: SharesLabel
 }) => (
   <div className="flex flex-col gap-5">
     <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -89,7 +96,7 @@ export const RepresentationBars = ({
           </h3>
           <ul>
             {groups.map((group) => (
-              <GroupRow key={group.key} group={group} />
+              <GroupRow key={group.key} group={group} shares={shares} />
             ))}
           </ul>
         </section>

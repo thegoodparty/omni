@@ -115,6 +115,8 @@ import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
   PriorityResults,
+  CivicPanelSummary,
+  CivicPanelRepresentation,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1481,6 +1483,16 @@ export type APIEndpoints = {
   'PATCH /v1/contacts/:personId/civic-panel': {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
+  }
+  // Serve's citizens' panel as a whole. Both 404 with serve-citizen-panels
+  // off and 400 for a Win org.
+  'GET /v1/contacts/civic-panel': {
+    Request: {}
+    Response: CivicPanelSummary
+  }
+  'GET /v1/contacts/civic-panel/representation': {
+    Request: {}
+    Response: CivicPanelRepresentation
   }
   'GET /v1/contacts/:id': {
     Request: {}
