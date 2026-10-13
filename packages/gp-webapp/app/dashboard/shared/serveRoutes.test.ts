@@ -19,6 +19,9 @@ describe('isServeRoutePath', () => {
     expect(isServeRoutePath('/dashboard/constituent-outreach/history')).toBe(
       true,
     )
+    expect(isServeRoutePath('/dashboard/contacts/citizens-panel')).toBe(true)
+    // The constituent data page itself is shared with Win.
+    expect(isServeRoutePath('/dashboard/contacts')).toBe(false)
   })
 
   it('excludes the public /serve/welcome redemption page', () => {

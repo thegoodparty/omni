@@ -403,6 +403,8 @@ const SERVE_AREAS: ProductArea[] = [
       'The citizens’ panel, being rolled out so not on every account yet, is the group of residents who said yes to being asked for their views',
       'Where the citizens’ panel is on, a constituent’s record also carries an "On your citizens’ panel" toggle, with the same history',
       'Where the citizens’ panel is on, Create new list has a Citizens’ panel filter, "On your citizens’ panel", so the panel can be saved as a list and sent outreach like any other, and a Contact history filter, "Not contacted in the last 30 days"',
+      'Where the citizens’ panel is on, a "Your citizens’ panel" section on this page shows its members, how many were reached in the last 30 days, and how many can be asked now. With nobody on it yet, it points to the Chief of Staff home to build it',
+      'Where the citizens’ panel is on, "See your panel" in that section opens the panel’s own page, which compares the neighborhoods members live in with the whole district once it has 10 members, and whose "See members" button opens the panel as a saved list named "Citizens’ panel"',
       'Where the citizens’ panel is on, a text can ask people to join it with a checkbox, and door knocking and phone banking ask it as their last question, on screen and on the printed sheets',
       'A finished phone banking campaign’s results show how many constituents are still owed a follow-up, and can turn them into a call list or a saved list',
       'Party is not a filter in this product',

@@ -169,6 +169,13 @@ export {
 } from './people/ContactStatus.schema'
 
 export {
+  CivicPanelSummarySchema,
+  type CivicPanelSummary,
+  CivicPanelRepresentationSchema,
+  type CivicPanelRepresentation,
+} from './people/CivicPanelSummary.schema'
+
+export {
   ContactNoteSchema,
   type ContactNote,
   ContactNoteInputSchema,
