@@ -50,6 +50,7 @@ import {
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
+import { useWinSmsHoldFlag } from 'app/shared/experiments/winSmsHoldFlag'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_TYPES,
@@ -763,12 +764,12 @@ export const SmsFlow = ({
   const reachableCount = audience.reachableCount
 
   // Win p2p SMS hold billing: the pay step can render on the pre-pay estimate
-  // before the phone-list build is ready, gated by gp-api's single
-  // WIN_SMS_HOLD_BILLING switch, surfaced on the campaign bootstrap payload
-  // (the browser can't read a server env var). isWinSms narrows it to the Win
-  // surface — SmsFlow is shared with Serve, which is not in this rollout.
-  const holdBillingActive =
-    isWinSms && Boolean(campaign?.winSmsHoldBillingEnabled)
+  // before the phone-list build is ready (gp-api runs the matching rollout
+  // behind the managed Amplitude flag `win_sms_hold_billing`, evaluated
+  // per-user at entry). Read with exposure tracking only on the Win surface —
+  // SmsFlow is shared with Serve, which is not in this experiment.
+  const { enabled: winSmsHoldEnabled } = useWinSmsHoldFlag(isWinSms)
+  const holdBillingActive = isWinSms && winSmsHoldEnabled
   // Mirrors the review step's isFree: a send the free-texts offer fully covers
   // reads/takes the free path. Pay-before-ready is a paid flow only — a free
   // pre-build send places no hold and gp-api refuses it (it must wait for the
@@ -777,17 +778,20 @@ export const SmsFlow = ({
     Boolean(campaign?.hasFreeTextsOffer) &&
     (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
   // A list create succeeded enough to proceed. The sync path returns a token;
-  // an async build (gp-api behind WIN_SMS_HOLD_BILLING) returns a null token
-  // with only the buildId, which is NOT a failure under the hold flag —
-  // the checkout then bills/links the hold off the buildId instead. Without the
-  // flag a null token is still unusable (the sync path requires it), so the
-  // flow is byte-identical when the flag is off.
+  // an async build (gp-api behind the `win_sms_hold_billing` flag) returns a
+  // null token with only the buildId, which is NOT a failure — the checkout
+  // then bills/links the hold off the buildId instead. Trust the SERVER's own
+  // response here, never this client's `holdBillingActive` belief: gp-api and
+  // the browser evaluate the SAME managed flag independently (one via
+  // FeaturesService per-request, the other via the Amplitude JS SDK on its own
+  // async schedule), so a null token can legitimately arrive before this
+  // client's own flag read has resolved. A null token is self-describing proof
+  // the server ran the async path regardless of why; gating acceptance on a
+  // local flag belief that can lag or disagree would reject a perfectly good
+  // response as a false "could not prepare this audience" error.
   const phoneListResultUsable = (
     result: PhoneListResult,
-  ): result is { ok: true } & PhoneListResponse =>
-    result.ok &&
-    !!result.buildId &&
-    (result.token !== null || holdBillingActive)
+  ): result is { ok: true } & PhoneListResponse => result.ok && !!result.buildId
 
   // A build-ready list always has its numeric phoneListId; before that, only a
   // paid hold-billing send may pay (on the estimate), and only once the list
@@ -1036,7 +1040,7 @@ export const SmsFlow = ({
   // gate), so the send floor is the hard 48-hour scheduling window.
   const earliestSend = useMemo(
     () => Date.now() + 48 * 60 * 60 * 1000,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute on
+
     // each open, like the fresh-state reset
     [open],
   )

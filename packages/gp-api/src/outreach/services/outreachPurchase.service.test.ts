@@ -21,7 +21,7 @@ import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { OutreachPurchaseHandlerService } from './outreachPurchase.service'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 const mockCampaignsService = {
   checkFreeTextsEligibility: vi.fn(),
@@ -981,15 +981,24 @@ describe('OutreachPurchaseHandlerService', () => {
     })
   })
 
-  describe('Win SMS hold billing (WIN_SMS_HOLD_BILLING)', () => {
-    const purchaseMetadata = { ...baseMetadata, campaignId: 111 }
+  describe('Win SMS hold billing (win_sms_hold_billing)', () => {
+    // winSmsHoldBillingEnabled is resolved ONCE by PurchaseService at entry
+    // and passed in as a plain field — calculateAmount never reads a flag
+    // itself. Defaults true for this describe (most cases are "flag ON");
+    // the few "flag OFF" cases override it per-call below.
+    const purchaseMetadata = {
+      ...baseMetadata,
+      campaignId: 111,
+      winSmsHoldBillingEnabled: true,
+    }
+    // executePostPurchase never reads the flag either — recordHold is called
+    // unconditionally and its OWN return (durably read off the live PI's
+    // capture_method) says whether this was a hold-model checkout. Default
+    // true here mirrors the old "flag ON" test expectations; the one
+    // non-hold-model test below overrides it per-call.
+    vi.mocked(mockP2pSmsHold.recordHold).mockResolvedValue(true)
 
-    afterEach(() => {
-      vi.unstubAllEnvs()
-    })
-
-    it('flag ON: prices the UNDISCOUNTED amount, skipping the free-texts discount', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+    it('prices the UNDISCOUNTED amount, skipping the free-texts discount', async () => {
       mockServerLeadsLoaded(6000)
       // Eligible for the offer, which the flag-on hold deliberately ignores so
       // the hold covers the full count; the discount is applied at capture.
@@ -1018,7 +1027,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON: does NOT persist a send cap for a forgiven ($0) amount (no hold, nothing to cap)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // This file has no per-test mock reset, so clear the shared spy before
       // asserting it was never called on THIS path.
       vi.mocked(mockPeerlyPhoneListCapture.persistSendCap).mockClear()
@@ -1044,6 +1052,7 @@ describe('OutreachPurchaseHandlerService', () => {
 
       const amount = await service.calculateAmount({
         ...purchaseMetadata,
+        winSmsHoldBillingEnabled: false,
         contactCount: 6000,
       })
 
@@ -1051,7 +1060,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON: forgives a sub-50c undiscounted amount (no hold, amount 0)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // 10 texts = 35c undiscounted, below Stripe's 50c authorization floor.
       mockServerLeadsLoaded(10)
       vi.mocked(
@@ -1108,7 +1116,6 @@ describe('OutreachPurchaseHandlerService', () => {
     }
 
     it('flag ON + build NOT ready: holds the UNDISCOUNTED has-cell count of the merged filter, not a live leads_loaded fetch', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
       queueSavedFilter({ id: 55, search: null })
       queueCount(5000)
@@ -1144,7 +1151,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build NOT ready: estimate reflects a snapshot that WIDENS the saved filter (search null overrides a saved search) — the upper bound holds', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // Saved filter is narrowed by a search term; the round-tripped build request
       // sends search: null, so the build resolves a WIDER audience. The estimate
       // must count that merged (wider) filter, not the saved narrowing.
@@ -1168,7 +1174,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build NOT ready: requires build-ready when the estimate is a free ($0/sub-50c) send', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // 10 reachable = 35c, below Stripe's 50c floor: a pre-build free send would
       // place no hold and strand, so it is refused until the build is ready.
       queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
@@ -1181,7 +1186,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build NOT ready: rejects a pre-build pay with no saved voter list in the snapshot', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // Snapshot carries no voterFileFilterId: throws BEFORE any filter/count
       // read, so none is queued.
       queuePreBuildRow({ name: 'x' })
@@ -1196,7 +1200,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build NOT ready: fails closed on a missing/invalid request snapshot', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // A null snapshot is what the async build itself would reject (park failed),
       // so the estimate must not fall back to some other filter — it throws.
       queuePreBuildRow(null)
@@ -1210,7 +1213,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build NOT ready: fails closed when the snapshot references a filter this org cannot see', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
       queueSavedFilter(null)
 
@@ -1222,7 +1224,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build FAILED: refuses checkout (a hold would strand — no build-ready edge)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce({
         ...CAPTURED_LIST_FIXTURE,
         buildStatus: 'failed',
@@ -1242,7 +1243,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build NOT ready: refuses a filter over the phone-list limit (a hold would strand — the build cannot complete)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
       queueSavedFilter({ id: 55, search: null })
       queueCount(MAX_AUDIENCE_RECIPIENTS + 1)
@@ -1253,7 +1253,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + build ready: still bills the final leads_loaded basis, not the match-count estimate', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // CAPTURED_LIST_FIXTURE is `ready`, so the ready path runs the live fetch.
       mockServerLeadsLoaded(500)
 
@@ -1268,7 +1267,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON: records the hold before finalizing a paid (cs_) session', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(true)
@@ -1295,7 +1293,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON: fires the capture edge for a paid (cs_) hold session', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(true)
@@ -1312,7 +1309,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + paid session: passes the outreachId so redeemFreeTexts can stamp the winner atomically', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(true)
@@ -1338,7 +1334,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + free (non cs_) session: redeems without a winSmsHoldOutreachId', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(true)
@@ -1359,7 +1354,14 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
     })
 
-    it('flag OFF: never records a hold or fires capture (inert)', async () => {
+    // NO FLAG GATE on the webhook: recordHold is ALWAYS attempted for a paid
+    // (cs_) session with an outreachId — never skipped on a flag read, so a
+    // flag flip between session-creation and this webhook can never strand an
+    // already-placed hold. recordHold itself durably determines (off the live
+    // PI's capture_method) that an immediate-charge session is not a hold, and
+    // its `false` return is what skips the capture attempt here — not a flag.
+    it("an immediate-charge (non-hold-model) checkout fires no capture, per recordHold's own durable signal", async () => {
+      vi.mocked(mockP2pSmsHold.recordHold).mockResolvedValueOnce(false)
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(true)
@@ -1372,12 +1374,12 @@ describe('OutreachPurchaseHandlerService', () => {
         outreachId: '123',
       })
 
-      expect(mockP2pSmsHold.recordHold).not.toHaveBeenCalled()
+      // recordHold IS called (no flag short-circuit) — it just reports false.
+      expect(mockP2pSmsHold.recordHold).toHaveBeenCalled()
       expect(mockP2pSmsCapture.captureHold).not.toHaveBeenCalled()
     })
 
     it('flag ON: places no hold and fires no capture on the zero-amount free path', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(true)
@@ -1401,7 +1403,6 @@ describe('OutreachPurchaseHandlerService', () => {
     // server-validated campaign (campaignId 111 here).
 
     it('flag ON + buildId (no token), build ready: bills leads_loaded and persists the cap, scoped to the campaign', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // CAPTURED_LIST_FIXTURE is `ready` and carries token 'token-abc'; the
       // buildId path resolves the row by id, then bills off the row's OWN token.
       mockServerLeadsLoaded(500)
@@ -1425,7 +1426,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + buildId (no token), build NOT ready: bills the merged-filter estimate and persists the cap', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       queuePreBuildRow({ name: 'x', voterFileFilterId: 55 })
       queueSavedFilter({ id: 55, search: null })
       queueCount(5000)
@@ -1448,7 +1448,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + buildId belonging to ANOTHER campaign: refuses, never bills, caps, or checks eligibility', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(mockPeerlyPhoneListCapture.persistSendCap).mockClear()
       vi.mocked(mockCampaignsService.checkFreeTextsEligibility).mockClear()
       // The {id, campaignId} lookup finds nothing because the row's campaignId is
@@ -1477,7 +1476,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON + token AND buildId present: the token path wins (buildId ignored), unchanged', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       // Earlier async tests already queried findFirst by id; clear the history so
       // the "id was never consulted" assertion reflects only this call.
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockClear()
@@ -1504,13 +1502,14 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.mocked(mockPeerlyPhoneListCapture.persistSendCap).mockClear()
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockClear()
 
-      // The buildId handle only exists for the async-build path gated behind
-      // WIN_SMS_HOLD_BILLING. Flag off must behave exactly as it did before
-      // that slice — token-only — so a crafted buildId with no token is the
-      // same as supplying neither handle: refused before any lookup.
+      // The buildId handle only exists for the async-build path, gated on
+      // winSmsHoldBillingEnabled. Flag off must behave exactly as it did
+      // before that slice — token-only — so a crafted buildId with no token
+      // is the same as supplying neither handle: refused before any lookup.
       await expect(
         service.calculateAmount({
           ...purchaseMetadata,
+          winSmsHoldBillingEnabled: false,
           phoneListToken: undefined,
           phoneListBuildId: 'build-xyz',
           contactCount: 6000,
@@ -1529,6 +1528,7 @@ describe('OutreachPurchaseHandlerService', () => {
 
       const amount = await service.calculateAmount({
         ...purchaseMetadata,
+        winSmsHoldBillingEnabled: false,
         phoneListToken: 'token-abc',
         phoneListBuildId: 'build-xyz',
         contactCount: 6000,
@@ -1545,7 +1545,6 @@ describe('OutreachPurchaseHandlerService', () => {
     })
 
     it('flag ON: passes the buildId (and campaign) to recordHold on a paid (cs_) session with no token', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(true)

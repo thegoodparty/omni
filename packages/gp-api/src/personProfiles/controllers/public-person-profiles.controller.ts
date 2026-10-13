@@ -1,4 +1,6 @@
 import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
+import { ServiceReadOrOwnerGuard } from '@/authentication/guards/ServiceReadOrOwner.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
@@ -94,6 +96,11 @@ function buildMarkerResponse(
 //
 // Deletion still outranks unpublished: an owner who deleted a draft asked for
 // the page to be gone, which is a stronger request than "not live right now".
+//
+// The three reads are gated (ServiceReadGuard, or ServiceReadOrOwnerGuard on
+// the render gate) because /unlisted and the removed marker reveal who asked
+// for a privacy takedown. The class stays
+// @PublicAccess so voter-density and claim-request remain open to browsers.
 @Controller('public-person-profiles')
 @PublicAccess()
 @UsePipes(ZodValidationPipe)
@@ -144,6 +151,7 @@ export class PublicPersonProfilesController {
   // the marketing site joins names from election-api to build canonical slugs.
   @Get('published')
   @ResponseSchema(PublishedPersonProfileListSchema)
+  @UseGuards(ServiceReadGuard)
   async listPublished(): Promise<PublishedPersonProfileList> {
     return this.personProfilesService.listPublished()
   }
@@ -155,12 +163,14 @@ export class PublicPersonProfilesController {
   // other way to tell either case apart from a live page.
   @Get('unlisted')
   @ResponseSchema(UnlistedPersonProfileListSchema)
+  @UseGuards(ServiceReadGuard)
   async listUnlisted(): Promise<UnlistedPersonProfileList> {
     return this.personProfilesService.listUnlisted()
   }
 
   @Get()
   @ResponseSchema(PublicPersonProfileResponseSchema)
+  @UseGuards(ServiceReadOrOwnerGuard)
   async getByPersonId(
     @Query() dto: GetPublicPersonProfileDto,
   ): Promise<PublicPersonProfileResponse> {

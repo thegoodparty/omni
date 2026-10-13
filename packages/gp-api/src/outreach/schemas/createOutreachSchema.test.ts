@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { OutreachType } from '../../generated/prisma'
 import { CreateOutreachSchema } from './createOutreachSchema'
@@ -37,7 +37,10 @@ describe('CreateOutreachSchema script newline normalization', () => {
 })
 
 describe('CreateOutreachSchema p2p phoneListId requirement (Win SMS hold)', () => {
-  // A valid p2p draft body minus phoneListId.
+  // A valid p2p draft body minus phoneListId. The schema itself never
+  // requires phoneListId (it has no user to evaluate the per-user
+  // win_sms_hold_billing flag against) — OutreachService.create is the
+  // single enforcement point; see outreach.service.test.ts.
   const draftBody = {
     campaignId: 1,
     outreachType: OutreachType.p2p,
@@ -46,18 +49,7 @@ describe('CreateOutreachSchema p2p phoneListId requirement (Win SMS hold)', () =
     draft: true,
   }
 
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
-  it('flag OFF: requires phoneListId for a p2p draft', () => {
-    expect(() => CreateOutreachSchema.schema.parse(draftBody)).toThrow(
-      /Phone list ID is required/,
-    )
-  })
-
-  it('flag ON: accepts a p2p draft with no phoneListId (pay before build)', () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+  it('accepts a p2p draft with no phoneListId (pay before build)', () => {
     const parsed = CreateOutreachSchema.schema.parse(draftBody)
     expect(parsed.phoneListId).toBeUndefined()
   })
