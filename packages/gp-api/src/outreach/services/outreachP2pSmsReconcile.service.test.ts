@@ -47,7 +47,6 @@ const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
 beforeEach(async () => {
   process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-  vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
   reconcile = service.app.get(OutreachP2pSmsReconcileService)
 
   const stripe = service.app.get(StripeService)
@@ -280,22 +279,6 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     )
   })
 
-  it('no-ops with the flag off', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-    const outreachId = await createHold({
-      settleState: P2pSmsSettleState.refunding,
-      chargeIntentId: CHARGE_ID,
-    })
-    await backdateUpdatedAt(outreachId, 20)
-
-    await reconcile.sweepStrandedRefunding()
-
-    expect(refundChargeSpy).not.toHaveBeenCalled()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      P2pSmsSettleState.refunding,
-    )
-  })
-
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     const outreachId = await createHold({
@@ -484,20 +467,6 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     )
   })
 
-  it('no-ops with the flag off', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-    const outreachId = await createHold({
-      settleState: P2pSmsSettleState.captured,
-      chargeIntentId: CHARGE_ID,
-      deniedAt: new Date(),
-    })
-    await backdateUpdatedAt(outreachId, 20)
-
-    await reconcile.sweepDeniedUnreleased()
-
-    expect(refundChargeSpy).not.toHaveBeenCalled()
-  })
-
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     const outreachId = await createHold({
@@ -642,22 +611,6 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     expect(voidSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.captured,
-    )
-  })
-
-  it('no-ops with the flag off', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-    const outreachId = await createHold({
-      settleState: P2pSmsSettleState.authorized,
-      spineStatus: OutreachStatus.pending_payment,
-      projectId: null,
-    })
-
-    await reconcile.sweepStrandedAuthorized()
-
-    expect(voidSpy).not.toHaveBeenCalled()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      P2pSmsSettleState.authorized,
     )
   })
 

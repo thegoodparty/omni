@@ -19,8 +19,10 @@ import {
   Campaign,
   PeerlyPhoneList,
   PhoneListBuildStatus,
+  User,
 } from '../../generated/prisma'
 import { ReqCampaign } from '../../campaigns/decorators/ReqCampaign.decorator'
+import { ReqUser } from '../../authentication/decorators/ReqUser.decorator'
 import { UseCampaign } from '../../campaigns/decorators/UseCampaign.decorator'
 import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
@@ -97,12 +99,17 @@ export class P2pController {
   @Post('phone-list')
   @UseCampaign()
   async uploadPhoneList(
+    @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
     @Body() request: P2pPhoneListRequestSchema,
   ): Promise<P2pPhoneListResponseSchema> {
     try {
       const { token, buildId } =
-        await this.p2pPhoneListUploadService.uploadPhoneList(campaign, request)
+        await this.p2pPhoneListUploadService.uploadPhoneList(
+          user,
+          campaign,
+          request,
+        )
 
       return { token, buildId }
     } catch (error) {

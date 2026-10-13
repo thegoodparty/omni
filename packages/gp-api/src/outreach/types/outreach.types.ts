@@ -21,9 +21,15 @@ export interface OutreachPurchaseMetadata extends BasePurchaseMetadata {
   // trusting the client-supplied value.
   phoneListToken?: string
   // The PeerlyPhoneList row id, used INSTEAD of phoneListToken when an async
-  // build (gated by WIN_SMS_HOLD_BILLING) has no token yet — so the biggest
-  // lists can pay while they build. Client-supplied, so every resolution scopes
-  // it to the server-validated campaign before it bills, caps, or links (the
-  // token is globally @unique; this id is not). Ignored when a token is present.
+  // build (gated by the win_sms_hold_billing flag) has no token yet — so the
+  // biggest lists can pay while they build. Client-supplied, so every
+  // resolution scopes it to the server-validated campaign before it bills,
+  // caps, or links (the token is globally @unique; this id is not). Ignored
+  // when a token is present.
   phoneListBuildId?: string
+  // Resolved ONCE by PurchaseService at entry (checkout-session creation, or
+  // free-purchase confirmation) for the paying user, and reused here rather
+  // than re-read — see PurchaseService.resolveWinSmsHoldBillingEnabled.
+  // Absent/false is the pre-feature, immediate-charge path.
+  winSmsHoldBillingEnabled?: boolean
 }

@@ -5,10 +5,7 @@ import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import {
-  isWinSmsHoldBillingEnabled,
-  P2P_SMS_REFUNDING_STALE_MINUTES,
-} from '@/shared/util/winSmsHold.util'
+import { P2P_SMS_REFUNDING_STALE_MINUTES } from '@/shared/util/winSmsHold.util'
 import { OutreachStatus, P2pSmsSettleState } from '../../generated/prisma'
 import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
@@ -50,11 +47,14 @@ const isRefundCommitted = (status: Stripe.Refund['status'] | null): boolean =>
 //      (projectId null) and so can never send or capture, yet still reserves the
 //      candidate's card on a live hold.
 //
-// Every sweep is prod-gated (real Stripe calls, stubbed off prod) AND flag-gated
-// (ships inert until WIN_SMS_HOLD_BILLING is on), runs per-record under its own
-// try/catch, and uses NO CronLockService — a per-record CAS elects one owner
-// across replicas, so two replicas racing a sweep each SELECT the same rows but
-// only one acts on each. @Cron (not @Interval) so the schedule survives deploys.
+// Every sweep is prod-gated (real Stripe calls, stubbed off prod) AND
+// SATELLITE-gated (each query below only ever selects rows that already carry
+// an OutreachP2pSms satellite in a specific settleState — never the flag,
+// which cron context has no per-user caller to evaluate anyway), runs
+// per-record under its own try/catch, and uses NO CronLockService — a
+// per-record CAS elects one owner across replicas, so two replicas racing a
+// sweep each SELECT the same rows but only one acts on each. @Cron (not
+// @Interval) so the schedule survives deploys.
 //
 // MONEY SAFETY. No sweep ever stamps `refunded` without a committed refund
 // (verified against Stripe first), issues a second refund for a charge already
@@ -77,15 +77,14 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
   }
 
   // Sweep 1: resolve rows stranded in `refunding`. Money is owed back but the
-  // owner never recorded a refund. Prod-only + flag-gated; per-record CAS elects
-  // one owner, so no CronLockService.
+  // owner never recorded a refund. Prod-only; the settleState filter below is
+  // the satellite gate; per-record CAS elects one owner, so no CronLockService.
   @Cron(P2P_SMS_REFUNDING_RECONCILE_CRON, {
     name: 'p2pSmsRefundingReconcileSweep',
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStrandedRefunding(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
-    if (!isWinSmsHoldBillingEnabled()) return
 
     const cutoff = subMinutes(new Date(), P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
@@ -213,7 +212,6 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
   })
   async sweepDeniedUnreleased(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
-    if (!isWinSmsHoldBillingEnabled()) return
 
     const cutoff = subMinutes(new Date(), P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
@@ -259,7 +257,6 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
   })
   async sweepStrandedAuthorized(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
-    if (!isWinSmsHoldBillingEnabled()) return
 
     const now = new Date()
     const candidates = await this.model.findMany({
