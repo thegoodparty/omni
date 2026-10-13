@@ -261,9 +261,106 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
 
     await screen.findByText('Take our pledge to get started')
     expect(savedBody).toEqual({
+      shownKeys: ['issue-1'],
       selectedKeys: ['issue-1'],
       other: [{ title: 'Library hours', description: 'Open on Sundays' }],
     })
+  })
+
+  it('starts community issues on landing for an official resumed past the office step', async () => {
+    resumedAt('constituents')
+    let communityStarts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return { status: 200, data: { starterIssueCount: 1 } }
+    })
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await waitFor(() => expect(communityStarts).toBe(1))
+  })
+
+  it('offers a retry and never saves when the issues fail to load', async () => {
+    resumedAt('priorities')
+    let failing = true
+    let saves = 0
+    api.mock('GET /v1/priorities/onboarding', () => {
+      return failing
+        ? { status: 500, data: {} }
+        : {
+            status: 200,
+            data: {
+              options: [
+                {
+                  key: 'issue-1',
+                  kind: 'community',
+                  title: 'Housing costs',
+                  description: 'Rents are rising fast.',
+                  selected: false,
+                },
+              ],
+            },
+          }
+    })
+    api.mock('PUT /v1/priorities/onboarding', () => {
+      saves += 1
+      return { status: 200, data: undefined }
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('We couldn’t load issues for your community.')
+    expect(screen.queryByLabelText(/Other/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(saves).toBe(0)
+
+    failing = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+  })
+
+  it('keeps the list on screen while saving and shows the saved picks on Back', async () => {
+    resumedAt('priorities')
+    let loads = 0
+    api.mock('GET /v1/priorities/onboarding', () => {
+      loads += 1
+      return {
+        status: 200,
+        data: {
+          options: [
+            {
+              key: 'issue-1',
+              kind: 'community',
+              title: 'Housing costs',
+              description: 'Rents are rising fast.',
+              selected: loads > 1,
+            },
+          ],
+        },
+      }
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await user.click(await screen.findByLabelText(/Housing costs/))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      screen.queryByText('Finding issues in your community'),
+    ).not.toBeInTheDocument()
+
+    await screen.findByText('Take our pledge to get started')
+    expect(loads).toBe(1)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByLabelText(/Housing costs/)).toBeChecked()
+    expect(loads).toBe(2)
   })
 })
 

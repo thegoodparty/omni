@@ -124,12 +124,14 @@ export class PriorityOnboardingService extends createPrismaBase(
   }
 
   // Campaign issues are never touched here: they carry over regardless of
-  // what is picked. Only community issues and typed ones are reconciled.
+  // what is picked. Only community issues and typed ones are reconciled, and
+  // an unchecked one is archived only if it was on the list the official saw.
   async set(
     office: OfficeRef,
-    { selectedKeys, other }: SetOnboardingPrioritiesInput,
+    { shownKeys, selectedKeys, other }: SetOnboardingPrioritiesInput,
   ): Promise<void> {
     const selected = new Set(selectedKeys)
+    const shown = new Set(shownKeys)
     const issues = await this.topCommunityIssues(office.organizationSlug)
     const now = new Date()
     const events: [string, SegmentTrackEventProperties][] = []
@@ -146,6 +148,7 @@ export class PriorityOnboardingService extends createPrismaBase(
       for (const row of owned) {
         if (row.source === PrioritySource.win_import) continue
         const keep = selected.has(row.id)
+        if (!keep && !shown.has(row.id)) continue
         if (keep && row.archivedAt !== null) {
           await tx.priority.update({
             where: { id: row.id },
@@ -169,6 +172,7 @@ export class PriorityOnboardingService extends createPrismaBase(
         })
         if (existing && existing.electedOfficeId !== office.id) continue
         const keep = selected.has(issue.id)
+        if (!keep && !shown.has(issue.id)) continue
         if (keep && !existing) {
           const created = await tx.priority.create({
             data: {
@@ -210,7 +214,8 @@ export class PriorityOnboardingService extends createPrismaBase(
           .filter((row) =>
             row.source === PrioritySource.win_import
               ? row.archivedAt === null
-              : selected.has(row.id),
+              : selected.has(row.id) ||
+                (row.archivedAt === null && !shown.has(row.id)),
           )
           .map((row) => row.title.trim().toLowerCase()),
       )

@@ -47,7 +47,11 @@ export type OnboardingOtherPriority = z.infer<
   typeof OnboardingOtherPrioritySchema
 >
 
+// `shownKeys` is every option key the official saw. Only those can be
+// archived by leaving them unchecked, so a save made from a list that never
+// loaded cannot remove priorities the official was never asked about.
 export const SetOnboardingPrioritiesInputSchema = z.object({
+  shownKeys: z.array(z.string()),
   selectedKeys: z.array(z.string()),
   other: z.array(OnboardingOtherPrioritySchema).max(10),
 })

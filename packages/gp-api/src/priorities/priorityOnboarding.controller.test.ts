@@ -109,6 +109,7 @@ describe('serve onboarding priorities', () => {
     const res = await service.client.put(
       PATH,
       {
+        shownKeys: [housing.id],
         selectedKeys: [housing.id],
         other: [{ title: 'Library hours', description: 'Open on Sundays' }],
       },
@@ -142,6 +143,7 @@ describe('serve onboarding priorities', () => {
     await service.client.put(
       PATH,
       {
+        shownKeys: [housing.id],
         selectedKeys: [housing.id],
         other: [{ title: 'Library hours', description: 'Open on Sundays' }],
       },
@@ -159,7 +161,11 @@ describe('serve onboarding priorities', () => {
 
     await service.client.put(
       PATH,
-      { selectedKeys: [library?.key ?? ''], other: [] },
+      {
+        shownKeys: after.data.options.map((o) => o.key),
+        selectedKeys: [library?.key ?? ''],
+        other: [],
+      },
       eoHeaders(),
     )
 
@@ -189,6 +195,7 @@ describe('serve onboarding priorities', () => {
     const res = await service.client.put(
       PATH,
       {
+        shownKeys: [],
         selectedKeys: [],
         other: [{ title: 'Library hours', description: ' ' }],
       },
@@ -203,6 +210,7 @@ describe('serve onboarding priorities', () => {
     await service.client.put(
       PATH,
       {
+        shownKeys: [],
         selectedKeys: [],
         other: [
           { title: 'Library hours', description: 'Open on Sundays' },
@@ -213,5 +221,35 @@ describe('serve onboarding priorities', () => {
     )
 
     expect(await activeTitles()).toEqual(['Library hours'])
+  })
+
+  it('archives nothing the official was not shown', async () => {
+    const housing = await createIssue('Housing costs', 1)
+    await service.client.put(
+      PATH,
+      {
+        shownKeys: [housing.id],
+        selectedKeys: [housing.id],
+        other: [{ title: 'Library hours', description: 'Open on Sundays' }],
+      },
+      eoHeaders(),
+    )
+
+    const res = await service.client.put(
+      PATH,
+      {
+        shownKeys: [],
+        selectedKeys: [],
+        other: [{ title: 'Park lighting', description: 'Safer at night' }],
+      },
+      eoHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(await activeTitles()).toEqual([
+      'Housing costs',
+      'Library hours',
+      'Park lighting',
+    ])
   })
 })

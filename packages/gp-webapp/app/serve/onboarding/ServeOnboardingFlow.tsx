@@ -128,11 +128,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   )
   const [termEndDate, setTermEndDate] = useState<Date | undefined>(undefined)
 
-  // Null until the priorities step loads them; reset after a save so a return
-  // visit shows what was saved, including a typed issue as its own option.
+  // Null until the priorities step loads them; reset on Back from the pledge
+  // so a return visit shows what was saved, including a typed issue as its
+  // own option.
   const [priorityOptions, setPriorityOptions] = useState<
     OnboardingPriorityOption[] | null
   >(null)
+  const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
@@ -359,7 +361,15 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   }, [loading, step, branch, currentEO?.id])
 
   useEffect(() => {
-    if (loading || step !== 'priorities' || priorityOptions !== null) return
+    if (
+      loading ||
+      step !== 'priorities' ||
+      priorityOptions !== null ||
+      priorityLoadFailed
+    ) {
+      return
+    }
+    let cancelled = false
     void (async () => {
       try {
         await ensureElectedOffice()
@@ -370,16 +380,20 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           new Promise((resolve) => setTimeout(resolve, STARTER_ISSUES_WAIT_MS)),
         ])
         const res = await clientRequest('GET /v1/priorities/onboarding', {})
+        if (cancelled) return
         setPriorityOptions(res.data.options)
         setSelectedPriorityKeys(
           new Set(res.data.options.filter((o) => o.selected).map((o) => o.key)),
         )
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.loadPriorities' })
-        setPriorityOptions([])
+        if (!cancelled) setPriorityLoadFailed(true)
       }
     })()
-  }, [loading, step, priorityOptions])
+    return () => {
+      cancelled = true
+    }
+  }, [loading, step, priorityOptions, priorityLoadFailed])
 
   // One-shot guards for the two selection screens whose "Viewed" event fires on
   // Continue (with the chosen card title) rather than on view, so re-advancing
@@ -394,6 +408,21 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     // never re-picked in this session.
     (branch === 'prefill' && officeLabel !== DEFAULT_OFFICE_LABEL),
   )
+
+  // A resumed official's office is already on the org, so the search starts
+  // as soon as they land past the office step, not only after a fresh pick.
+  const officeKnown = officeIsChosen || !!orgPositionId
+  useEffect(() => {
+    if (
+      loading ||
+      !citizenPanels ||
+      !officeKnown ||
+      !STEPS_AFTER_OFFICE.includes(step)
+    ) {
+      return
+    }
+    void startCommunityIssues()
+  }, [loading, citizenPanels, officeKnown, step])
 
   const datesValid =
     !!termStartDate &&
@@ -526,13 +555,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       ...eoFields,
       onboardingStep: targetStep,
     })
-    if (
-      citizenPanels &&
-      officeIsChosen &&
-      STEPS_AFTER_OFFICE.includes(targetStep)
-    ) {
-      void startCommunityIssues()
-    }
   }
 
   // Run a best-effort incremental save, then advance. A failed save logs to
@@ -558,11 +580,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // Priorities are the point of this step, so unlike the other checkpoints a
   // failed save keeps the user here to retry instead of advancing silently.
   const savePrioritiesAndAdvance = async (): Promise<void> => {
+    if (priorityOptions === null) return
     setSaving(true)
     try {
       const eo = await ensureElectedOffice()
       if (!eo) throw new Error('No elected office to save priorities to')
       await clientRequest('PUT /v1/priorities/onboarding', {
+        shownKeys: priorityOptions.map((option) => option.key),
         selectedKeys: [...selectedPriorityKeys],
         other: otherPriorityComplete
           ? [
@@ -573,10 +597,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             ]
           : [],
       })
-      setPriorityOptions(null)
-      setOtherPrioritySelected(false)
-      setOtherPriorityTitle('')
-      setOtherPriorityDescription('')
     } catch (err) {
       reportErrorToSentry(err, { context: 'serveOnboarding.savePriorities' })
       errorSnackbar('We couldn’t save your priorities. Please try again.')
@@ -928,7 +948,15 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         setStep('constituents')
         return
       case 'pledge':
-        setStep(citizenPanels ? 'priorities' : 'constituents')
+        if (citizenPanels) {
+          setPriorityOptions(null)
+          setOtherPrioritySelected(false)
+          setOtherPriorityTitle('')
+          setOtherPriorityDescription('')
+          setStep('priorities')
+        } else {
+          setStep('constituents')
+        }
         return
       default:
         return
@@ -1072,6 +1100,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             {citizenPanels && step === 'priorities' && (
               <PrioritiesStep
                 options={priorityOptions}
+                loadFailed={priorityLoadFailed}
+                onRetry={() => setPriorityLoadFailed(false)}
                 selectedKeys={selectedPriorityKeys}
                 onToggle={togglePriority}
                 otherSelected={otherPrioritySelected}
@@ -1583,6 +1613,8 @@ const PRIORITY_KIND_ORDER: OnboardingPriorityOption['kind'][] = [
 
 const PrioritiesStep = ({
   options,
+  loadFailed,
+  onRetry,
   selectedKeys,
   onToggle,
   otherSelected,
@@ -1593,6 +1625,8 @@ const PrioritiesStep = ({
   onOtherDescriptionChange,
 }: {
   options: OnboardingPriorityOption[] | null
+  loadFailed: boolean
+  onRetry: () => void
   selectedKeys: Set<string>
   onToggle: (key: string) => void
   otherSelected: boolean
@@ -1607,7 +1641,14 @@ const PrioritiesStep = ({
     <div>
       <StepHeading title={copy.title} description={copy.description} />
 
-      {options === null ? (
+      {loadFailed ? (
+        <div className="mt-8 flex flex-col items-center gap-3 text-sm text-muted-foreground">
+          <p>We couldn’t load issues for your community.</p>
+          <Button type="button" variant="outline" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
+      ) : options === null ? (
         <div className="mt-8 flex flex-col items-center gap-3 text-sm text-muted-foreground">
           <LoaderCircle className="animate-spin" />
           Finding issues in your community
