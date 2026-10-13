@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isReportBackMessage,
+  reportBackMessage,
   ChatCardSchema,
   isToolRefusal,
   OutreachProposalSchema,
@@ -75,6 +77,18 @@ describe('OutreachProposalSchema', () => {
       panelSampleSize: 120,
       civicPanelAsk: true,
     })
+  })
+})
+
+describe('isReportBackMessage', () => {
+  it("knows the app's report back turn, and only that", () => {
+    expect(isReportBackMessage(reportBackMessage(77))).toBe(true)
+    expect(isReportBackMessage('[Report back] what did people say?')).toBe(
+      false,
+    )
+    expect(isReportBackMessage('[Report back] tell me about outreach:77')).toBe(
+      false,
+    )
   })
 })
 

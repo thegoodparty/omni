@@ -224,8 +224,11 @@ export const reportBackMessage = (outreachId: number): string =>
   `${REPORT_BACK_MARKER} Help me report back to the people I texted. ` +
   `outreach:${outreachId}`
 
+// The whole message, not the marker alone: a turn the official typed that
+// merely starts with the marker is theirs, and stays on screen.
 export const isReportBackMessage = (content: string): boolean =>
-  content.startsWith(REPORT_BACK_MARKER)
+  /^outreach:\d+$/.test(content.split(' ').at(-1) ?? '') &&
+  content === reportBackMessage(Number(content.split(':').at(-1)))
 
 /**
  * A tool that refuses its arguments returns `{ error }` so the model can fix

@@ -7,6 +7,7 @@ import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
+import { REPORT_BACK_UNSENT_STATUSES } from './outreachReportBack.service'
 
 /**
  * The Serve SMS purchase handler: paying for a text send from an elected
@@ -251,7 +252,12 @@ export class OutreachServeSmsPurchaseHandlerService
         campaignId: null,
         outreachType: OutreachType.text,
       },
-      select: { status: true, textCount: true },
+      select: {
+        id: true,
+        status: true,
+        textCount: true,
+        reportBackForOutreachId: true,
+      },
     })
 
     if (!draft) {
@@ -267,6 +273,24 @@ export class OutreachServeSmsPurchaseHandlerService
       throw new BadRequestException(
         `Serve SMS draft ${outreachId} is not awaiting payment (status ${draft.status})`,
       )
+    }
+
+    // Two drafts of one report back can both reach checkout (two tabs, or
+    // Back and forward again); only the first paid may go out.
+    if (draft.reportBackForOutreachId) {
+      const paid = await this.model.findFirst({
+        where: {
+          reportBackForOutreachId: draft.reportBackForOutreachId,
+          id: { not: draft.id },
+          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
+        },
+        select: { id: true },
+      })
+      if (paid) {
+        throw new BadRequestException(
+          `A report back on outreach ${draft.reportBackForOutreachId} already went out`,
+        )
+      }
     }
 
     if (draft.textCount === null || draft.textCount < 1) {

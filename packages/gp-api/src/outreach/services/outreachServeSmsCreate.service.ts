@@ -203,6 +203,13 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
         "A report back doesn't ask people to join your citizens' panel. Remove that line and try again.",
       )
     }
+    // One report back per send: a paid one closes it. Unpaid drafts are left
+    // alone, since re-entering the flow makes a fresh draft by design; the
+    // checkout refuses a second once one is paid.
+    const sent = await this.reportBack.sentReportBacks([outreachId])
+    if (sent.has(outreachId)) {
+      throw new BadRequestException('You already reported back on that text.')
+    }
     const target = await this.model.findFirst({
       where: {
         id: outreachId,

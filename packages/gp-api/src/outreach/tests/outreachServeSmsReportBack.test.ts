@@ -11,6 +11,7 @@ import {
   OutreachType,
   PrioritySource,
 } from '../../generated/prisma'
+import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
 
 const service = useTestService()
 
@@ -140,6 +141,26 @@ describe('a Serve text that reports back', () => {
     })
 
     expect((await create()).status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  // Re-entering the flow makes a fresh draft, so drafts are allowed; once
+  // one is paid, no other draft may be created or bought.
+  it('lets one report back on a send go out', async () => {
+    const first = await create()
+    const second = await create()
+    expect(second.status).toBe(HttpStatus.CREATED)
+    await service.prisma.outreach.update({
+      where: { id: first.data.outreachId },
+      data: { status: OutreachStatus.pending },
+    })
+
+    expect((await create()).status).toBe(HttpStatus.BAD_REQUEST)
+    await expect(
+      service.app.get(OutreachServeSmsPurchaseHandlerService).validatePurchase({
+        outreachId: second.data.outreachId,
+        organizationSlug: slug,
+      }),
+    ).rejects.toThrow(/already went out/)
   })
 
   it('refuses a report back on a report back', async () => {

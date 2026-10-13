@@ -18,7 +18,7 @@ const MAX_SENDS = 10
 
 // Past checkout, the same statuses the citizens' panel build card reads as
 // sent.
-const UNSENT_STATUSES: OutreachStatus[] = [
+export const REPORT_BACK_UNSENT_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending_payment,
   OutreachStatus.draft,
   OutreachStatus.canceled,
@@ -107,7 +107,7 @@ export class OutreachReportBackService extends createPrismaBase(
     const rows = await this.findMany({
       where: {
         reportBackForOutreachId: { in: outreachIds },
-        status: { notIn: UNSENT_STATUSES },
+        status: { notIn: REPORT_BACK_UNSENT_STATUSES },
       },
       orderBy: { createdAt: Prisma.SortOrder.asc },
       select: {
