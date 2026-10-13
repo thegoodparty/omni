@@ -1469,6 +1469,8 @@ export {
   type FeedbackSynthesisResponseRows,
   SynthesisRunSchema,
   type SynthesisRun,
+  FeedbackReportChannelSchema,
+  type FeedbackReportChannel,
   StanceCountsSchema,
   type StanceCounts,
   FeedbackThemeSummarySchema,

@@ -10,6 +10,7 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
+import { fetchServeOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -206,6 +207,92 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     )
 
     await screen.findByRole('heading', { name: 'Election day reminder' })
+    expect(link()).toBeNull()
+  })
+
+  // A Serve text send's replies are grouped into themes the way a turf's
+  // notes are, so once constituents have replied the drawer leads to the
+  // same report. A Win text has no reply bodies to group and stays bare.
+  it('links a Serve text send to its report once constituents replied', async () => {
+    api.mock('GET /v1/outreach/serve/:id', {
+      status: 200,
+      data: detail({ outreachType: 'text', campaignId: null }),
+    })
+    api.mock('GET /v1/outreach/serve/:id/results', {
+      status: 200,
+      data: { contacts: 40, responded: 7, optedOut: 1 },
+    })
+    api.mock('GET /v1/outreach/serve/:id/replies', {
+      status: 200,
+      data: { total: 0, replies: [] },
+    })
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'text',
+        floor: 5,
+        denominators: { conversations: 6, memos: 7, confirmed: 7, pending: 0 },
+        run: null,
+        themes: [],
+        memos: [],
+      },
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={row({ outreachType: 'text', name: 'Pothole check-in' })}
+        onOpenChange={vi.fn()}
+        detailFetcher={fetchServeOutreachDetail}
+        isServe
+      />,
+    )
+
+    const action = await screen.findByRole('link', { name: /What we heard/ })
+    expect(action).toHaveAttribute(
+      'href',
+      `/dashboard/issue-capture/${OUTREACH_ID}`,
+    )
+    expect(action).toHaveTextContent('7 replies')
+    expect(action.textContent).not.toMatch(/voter/i)
+  })
+
+  it('offers nothing on a Serve text nobody has replied to yet', async () => {
+    api.mock('GET /v1/outreach/serve/:id', {
+      status: 200,
+      data: detail({ outreachType: 'text', campaignId: null }),
+    })
+    api.mock('GET /v1/outreach/serve/:id/results', {
+      status: 200,
+      data: { contacts: 40, responded: 0, optedOut: 0 },
+    })
+    api.mock('GET /v1/outreach/serve/:id/replies', {
+      status: 200,
+      data: { total: 0, replies: [] },
+    })
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'text',
+        floor: 5,
+        denominators: { conversations: 0, memos: 0, confirmed: 0, pending: 0 },
+        run: null,
+        themes: [],
+        memos: [],
+      },
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={row({ outreachType: 'text', name: 'Pothole check-in' })}
+        onOpenChange={vi.fn()}
+        detailFetcher={fetchServeOutreachDetail}
+        isServe
+      />,
+    )
+
+    await screen.findByText(
+      'No responses yet. They appear here as constituents reply.',
+    )
     expect(link()).toBeNull()
   })
 

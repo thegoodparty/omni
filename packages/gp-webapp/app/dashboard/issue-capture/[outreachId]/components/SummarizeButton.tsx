@@ -87,7 +87,7 @@ const SummarizeButton = ({
   // number the 422 carries.
   const refusal =
     status === 422
-      ? copy.floorLine(report.floor)
+      ? copy.floorLine(report.floor, report.channel)
       : status === 429
         ? copy.coolingDown
         : null

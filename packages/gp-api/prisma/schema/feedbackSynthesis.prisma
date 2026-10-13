@@ -67,12 +67,23 @@ model FeedbackTheme {
 
 // A memo can sit in more than one theme: the pipeline splits a compound
 // memo into fragments, and two fragments can land in two groups.
+//
+// A member is a confirmed memo or, on a text send, a constituent's reply.
+// Exactly one of feedbackId / textReplyId is set (DB CHECK
+// feedback_theme_member_source_check, migration
+// feedback_theme_member_text_reply). A surrogate id, because a composite key
+// cannot hold a nullable column; the two unique pairs are what skipDuplicates
+// keys on.
 model FeedbackThemeMember {
-  themeId    String              @map("theme_id")
-  theme      FeedbackTheme       @relation(fields: [themeId], references: [id], onDelete: Cascade)
-  feedbackId String              @map("feedback_id")
-  feedback   ConstituentFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  id          String                 @id @default(uuid(7))
+  themeId     String                 @map("theme_id")
+  theme       FeedbackTheme          @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  feedbackId  String?                @map("feedback_id")
+  feedback    ConstituentFeedback?   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  textReplyId String?                @map("text_reply_id")
+  textReply   PollIndividualMessage? @relation(fields: [textReplyId], references: [id], onDelete: Cascade)
 
-  @@id([themeId, feedbackId])
+  @@unique([themeId, feedbackId])
+  @@unique([themeId, textReplyId])
   @@map("feedback_theme_member")
 }
