@@ -362,6 +362,30 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(await screen.findByLabelText(/Housing costs/)).toBeChecked()
     expect(loads).toBe(2)
   })
+
+  it('opens Other when there are no issues to pick', async () => {
+    resumedAt('priorities')
+    api.mock('GET /v1/priorities/onboarding', {
+      status: 200,
+      data: { options: [] },
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText(
+      'We didn’t find local issues yet. Add the one you’re working on.',
+    )
+    expect(screen.getByLabelText(/Other/)).toBeChecked()
+    await user.type(
+      screen.getByLabelText('What do you want to get done?'),
+      'Library hours',
+    )
+    await user.type(
+      screen.getByLabelText('Why does it matter?'),
+      'Open on Sundays',
+    )
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
 })
 
 describe('ServeOnboardingFlow with serve-citizen-panels off', () => {

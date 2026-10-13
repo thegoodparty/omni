@@ -385,6 +385,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         setSelectedPriorityKeys(
           new Set(res.data.options.filter((o) => o.selected).map((o) => o.key)),
         )
+        // With nothing to pick, Other is the only way forward, so open it.
+        if (res.data.options.length === 0) setOtherPrioritySelected(true)
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.loadPriorities' })
         if (!cancelled) setPriorityLoadFailed(true)
@@ -1655,6 +1657,11 @@ const PrioritiesStep = ({
         </div>
       ) : (
         <div className="mt-8 space-y-3">
+          {options.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              We didn’t find local issues yet. Add the one you’re working on.
+            </p>
+          )}
           {PRIORITY_KIND_ORDER.flatMap((kind) =>
             options
               .filter((option) => option.kind === kind)
