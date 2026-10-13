@@ -3,7 +3,9 @@ import { newFixtureUserEmail } from '@/users/util/users.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignStatus } from '@goodparty_org/contracts'
 import {
+  BadGatewayException,
   ConflictException,
+  InternalServerErrorException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common'
@@ -279,6 +281,49 @@ describe('CampaignsController', () => {
         positionId: null,
       })
       expect(result.data[0]).toMatchObject({ positionName: null })
+    })
+
+    it('lists a campaign with null positionName when election-api is unavailable', async () => {
+      vi.spyOn(
+        organizationsService,
+        'resolvePositionContext',
+      ).mockRejectedValue(new BadGatewayException('election-api down'))
+      vi.spyOn(campaignsService, 'listCampaigns').mockResolvedValue({
+        data: [
+          {
+            ...mockCampaign,
+            organization: { customPositionName: null, positionId: 'pos-1' },
+          },
+        ],
+        meta: { total: 1, offset: 0, limit: 100 },
+      })
+
+      const result = await controller.list({ userId: 1 })
+
+      expect(result.data[0]).toMatchObject({
+        id: mockCampaign.id,
+        positionName: null,
+      })
+    })
+
+    it('rethrows non-upstream errors from position resolution', async () => {
+      vi.spyOn(
+        organizationsService,
+        'resolvePositionContext',
+      ).mockRejectedValue(new InternalServerErrorException('missing'))
+      vi.spyOn(campaignsService, 'listCampaigns').mockResolvedValue({
+        data: [
+          {
+            ...mockCampaign,
+            organization: { customPositionName: null, positionId: 'pos-1' },
+          },
+        ],
+        meta: { total: 1, offset: 0, limit: 100 },
+      })
+
+      await expect(controller.list({ userId: 1 })).rejects.toBeInstanceOf(
+        InternalServerErrorException,
+      )
     })
 
     it('returns empty data when no campaigns exist', async () => {

@@ -16,6 +16,7 @@ import {
   UpdateCampaignM2MSchema,
 } from '@goodparty_org/contracts'
 import {
+  BadGatewayException,
   Body,
   ConflictException,
   Controller,
@@ -147,10 +148,18 @@ export class CampaignsController {
 
     const enriched = await Promise.all(
       data.map(async ({ organization, ...campaign }) => {
-        const { positionName } =
-          await this.organizations.resolvePositionContext({
+        const { positionName } = await this.organizations
+          .resolvePositionContext({
             customPositionName: organization?.customPositionName,
             positionId: organization?.positionId,
+          })
+          .catch((error: unknown) => {
+            if (!(error instanceof BadGatewayException)) throw error
+            this.logger.warn(
+              { error, campaignId: campaign.id },
+              'election-api unavailable, listing campaign without positionName',
+            )
+            return { positionName: null }
           })
         return { ...campaign, positionName }
       }),
