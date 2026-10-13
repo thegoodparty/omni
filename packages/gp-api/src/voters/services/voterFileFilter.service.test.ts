@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import {
   Organization,
@@ -315,5 +315,33 @@ describe('findUsableByOrganizationSlug', () => {
     } as Organization)
 
     expect(usable.map((f) => f.id)).toContain(partyList.id)
+  })
+})
+
+describe('saving a list with a drawn boundary', () => {
+  const service = useTestService()
+
+  it('gives the write transaction more than the 5s Prisma default', async () => {
+    const slug = `org-geo-tx-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+    const row = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'drawn list' },
+    })
+    const svc = service.app.get(VoterFileFilterService)
+    const spy = vi.spyOn(svc.client, '$transaction')
+
+    await svc.updateByIdAndOrganizationSlug(
+      row.id,
+      slug,
+      { name: 'renamed' } as never,
+      ['person-1', 'person-2'],
+    )
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ timeout: 30_000 }),
+    )
   })
 })
