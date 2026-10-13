@@ -1000,6 +1000,8 @@ describe('phone banking routes', () => {
         orgHeaders(),
       )
       const findPeople = mockPeoplePage([])
+      // The spy is shared with the build above; count only the read.
+      findPeople.mockClear()
 
       const res = await service.client.get(
         `/v1/phone-banking/lists/${build.data.id}?skipLiveEnrichment=true`,
