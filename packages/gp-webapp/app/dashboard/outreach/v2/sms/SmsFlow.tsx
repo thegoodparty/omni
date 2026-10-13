@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { chiefOfStaffHref } from 'app/dashboard/chief-of-staff/routes'
+import { CITIZENS_PANEL_PATH } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -384,13 +384,13 @@ const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
 // The first citizens' panel text ends on what it set in motion, and goes back
-// to the job it came from rather than to the outreach page.
+// to the panel it is building rather than to the outreach page.
 const SERVE_PANEL_SEED_SUCCESS_COPY = {
   title: 'Your panel invite is scheduled',
   reach: (count: string, when: string) =>
     `It goes to ${count} residents${when}.`,
   next: 'Replies come in over the next few days. Anyone who replies JOIN is added to your panel.',
-  action: 'Back to your Chief of Staff',
+  action: "See your citizens' panel",
 }
 
 // Exported for its component test — the paid branch is unreachable through
@@ -524,9 +524,8 @@ export const SuccessScreen = ({
         </Button>
       )}
       {seedsPanel ? (
-        // TODO: point at the citizens' panel's own page once it exists.
         <Button asChild size="large" className="w-full">
-          <Link href={chiefOfStaffHref()} onClick={onDone}>
+          <Link href={CITIZENS_PANEL_PATH} onClick={onDone}>
             {SERVE_PANEL_SEED_SUCCESS_COPY.action}
           </Link>
         </Button>
