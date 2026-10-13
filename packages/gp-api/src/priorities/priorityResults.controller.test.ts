@@ -5,6 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 import type { PriorityResults } from '@goodparty_org/contracts'
 import {
   ContactStatusField,
+  DoorKnockOutcome,
   OutreachStatus,
   OutreachType,
   PollIndividualMessageSender,
@@ -12,6 +13,7 @@ import {
 } from '@/generated/prisma'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { seedTurfEffort } from '@/constituentFeedback/tests/issueCaptureFixtures'
 
 const service = useTestService()
 
@@ -195,6 +197,45 @@ describe('GET /v1/priorities/:id/results', () => {
 
     expect(res.data.sends).toEqual([])
     expect(res.data.respondents.total).toBe(0)
+  })
+
+  it('counts a walk by the knocks logged under it, not other knocks on the same people', async () => {
+    const walk = await service.prisma.outreach.update({
+      where: { id: (await seedTurfEffort(service, eoOrgSlug)).outreachId },
+      data: { priorityId },
+    })
+    const other = await seedTurfEffort(service, eoOrgSlug)
+    const [a, b, c] = [uuidv7(), uuidv7(), uuidv7()]
+    const knock = (
+      personId: string,
+      outreachId: number | null,
+      outcome: DoorKnockOutcome,
+    ) => ({
+      organizationSlug: eoOrgSlug,
+      personId,
+      occurredAt: new Date(),
+      outcome,
+      outreachId,
+    })
+    await service.prisma.contactInteractionDoorKnock.createMany({
+      data: [
+        knock(a, walk.id, DoorKnockOutcome.answered),
+        knock(b, walk.id, DoorKnockOutcome.not_home),
+        knock(b, other.outreachId, DoorKnockOutcome.answered),
+        knock(c, null, DoorKnockOutcome.answered),
+      ],
+    })
+
+    const res = await results()
+
+    expect(res.data.sends).toEqual([
+      expect.objectContaining({
+        channel: 'doorKnocking',
+        reached: 2,
+        responded: 1,
+      }),
+    ])
+    expect(res.data.respondents.byChannel.doorKnocking).toBe(1)
   })
 
   it("404s on a priority this office doesn't hold", async () => {

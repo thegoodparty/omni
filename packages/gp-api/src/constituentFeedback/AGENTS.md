@@ -208,7 +208,10 @@ whenever a send on a priority finishes, and the report's Summarize button
 starts it after the send's own run, so the priority's themes never trail a
 send's. Either way it runs whatever that send's own floor is, so a
 door walk after a text re-pools the same priority and the new run supersedes
-the last. The activeKey is `<org>:priority:<priorityId>`. The ingest scopes a
+the last. The activeKey is `<org>:priority:<priorityId>`. A send that finishes
+while a pooled run is in flight marks that run `repoolOwed`, and the
+stale-run sweep starts a fresh pooled run once it is done, so that send's
+answers are never left out. The ingest scopes a
 priority run's members to that priority's sends, and writes its themes with
 no tag: the tag list and a memo's tags come from the send's own run, and a
 second vocabulary for the same conversation would only compete with it. The

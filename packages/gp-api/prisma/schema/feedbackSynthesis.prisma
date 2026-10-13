@@ -34,6 +34,10 @@ model FeedbackSynthesisRun {
   // index is what makes "one run in flight per scope" true under a race
   // between the report's button and the completion trigger.
   activeKey         String?            @unique @map("active_key")
+  // A priority run that another send finished under while it ran. That
+  // send's answers are not in it, so the stale-run sweep starts a fresh
+  // pooled run once this one is done.
+  repoolOwed        Boolean            @default(false) @map("repool_owed")
   // Denominators as of the run, so the caption cannot drift from the themes.
   conversations     Int
   memos             Int

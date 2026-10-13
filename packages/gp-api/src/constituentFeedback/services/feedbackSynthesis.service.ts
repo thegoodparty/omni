@@ -199,7 +199,8 @@ export class FeedbackSynthesisService extends createPrismaBase(
   // doors read as one answer. Each new run replaces the last, so a door
   // walk after a text feeds the same themes. No cooldown: it only ever
   // starts when a send finishes, and the activeKey keeps it to one at a
-  // time.
+  // time. A request that finds one running marks it owed a re-pool, which
+  // the stale-run sweep starts once it is done.
   async requestPriorityRun(input: {
     organizationSlug: string
     priorityId: string
@@ -243,12 +244,19 @@ export class FeedbackSynthesisService extends createPrismaBase(
         },
       })
       .catch((err: Error) => {
-        if (isActiveKeyConflict(err)) {
-          throw new ConflictException(
-            'This priority is already being summarized',
-          )
-        }
-        throw err
+        if (!isActiveKeyConflict(err)) throw err
+        return this.model
+          .updateMany({
+            where: {
+              activeKey: priorityActiveKey(organizationSlug, priorityId),
+            },
+            data: { repoolOwed: true },
+          })
+          .then(() => {
+            throw new ConflictException(
+              'This priority is already being summarized',
+            )
+          })
       })
 
     this.logger.info(

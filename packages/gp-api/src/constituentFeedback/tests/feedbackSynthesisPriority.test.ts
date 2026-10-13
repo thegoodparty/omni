@@ -13,6 +13,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { FeedbackSynthesisService } from '../services/feedbackSynthesis.service'
 import { FeedbackSynthesisIngestService } from '../services/feedbackSynthesisIngest.service'
 import { MockSynthesisEngine } from '../services/mockSynthesisEngine'
+import { SynthesisStaleRunSweepService } from '../services/synthesisStaleRunSweep.service'
 import {
   completionEvent,
   createServeOrg,
@@ -248,6 +249,36 @@ describe('feedback synthesis across a priority', () => {
     // Three members, two people: one texted twice.
     expect(res.data.themes).toEqual([
       expect.objectContaining({ title: 'Drains back up', people: 2 }),
+    ])
+  })
+
+  it('pools again once a run in flight is done when another send finished under it', async () => {
+    const texted = await replies(5)
+    const first = await run()
+
+    await expect(run()).rejects.toMatchObject({ status: HttpStatus.CONFLICT })
+    expect(
+      (
+        await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+          where: { id: first.id },
+        })
+      ).repoolOwed,
+    ).toBe(true)
+
+    await ingest().handle(
+      completionEvent(first.id, [
+        { theme: 'Drains back up', memberIds: texted.map((r) => r.id) },
+      ]),
+    )
+    await service.app.get(SynthesisStaleRunSweepService).sweep(new Date())
+
+    const runs = await service.prisma.feedbackSynthesisRun.findMany({
+      where: { priorityId, scope: SynthesisScope.priority },
+      orderBy: { createdAt: 'asc' },
+    })
+    expect(runs.map((row) => [row.status, row.repoolOwed])).toEqual([
+      [SynthesisRunStatus.completed, false],
+      [SynthesisRunStatus.running, false],
     ])
   })
 

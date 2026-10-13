@@ -266,24 +266,16 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         respondentIds: responded,
       }
     }
-    if (channel === 'doorKnocking' && outreach.doorKnockingTurfId !== null) {
-      // A knock carries no turf id, so the turf is reached through its
-      // stops' targets, and only knocks since the walk was cut count.
-      const targets = await this.client.doorKnockingStopTarget.findMany({
-        where: { stop: { doorKnockingTurfId: outreach.doorKnockingTurfId } },
-        select: { personId: true },
+    if (channel === 'doorKnocking') {
+      // The knock's own envelope, never the turf's stops: a person can sit
+      // in two turfs, and a later CRM knock belongs to no walk.
+      const rows = await this.client.contactInteractionDoorKnock.findMany({
+        where: {
+          organizationSlug: outreach.organizationSlug ?? undefined,
+          outreachId: outreach.id,
+        },
+        select: { personId: true, outcome: true },
       })
-      const rows =
-        targets.length === 0
-          ? []
-          : await this.client.contactInteractionDoorKnock.findMany({
-              where: {
-                organizationSlug: outreach.organizationSlug ?? undefined,
-                personId: { in: targets.map((target) => target.personId) },
-                occurredAt: { gte: outreach.createdAt },
-              },
-              select: { personId: true, outcome: true },
-            })
       const reached = new Set(rows.map((row) => row.personId))
       const responded = [
         ...new Set(

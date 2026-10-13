@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
-import { SynthesisRunStatus } from '@/generated/prisma'
+import { HttpException } from '@nestjs/common'
+import { SynthesisRunStatus, SynthesisScope } from '@/generated/prisma'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { FeedbackSynthesisService } from './feedbackSynthesis.service'
 
 const SWEEP_JOB = 'feedbackSynthesisStaleRuns'
 
@@ -19,7 +21,10 @@ const STALE_AFTER_MINUTES = 30
 export class SynthesisStaleRunSweepService extends createPrismaBase(
   MODELS.FeedbackSynthesisRun,
 ) {
-  constructor(private readonly cronLock: CronLockService) {
+  constructor(
+    private readonly cronLock: CronLockService,
+    private readonly synthesis: FeedbackSynthesisService,
+  ) {
     super()
   }
 
@@ -51,8 +56,44 @@ export class SynthesisStaleRunSweepService extends createPrismaBase(
       if (count > 0) {
         this.logger.warn({ count }, 'Failed stale feedback synthesis runs')
       }
+      await this.repoolOwedPriorities()
     } finally {
       await this.cronLock.markTenMinuteCompleted(SWEEP_JOB, now)
+    }
+  }
+
+  // A send that finished while its priority's pooled run was in flight
+  // marked that run owed. Once the run is done, pool again so the send's
+  // answers reach the priority's themes.
+  private async repoolOwedPriorities(): Promise<void> {
+    const owed = await this.model.findMany({
+      where: {
+        scope: SynthesisScope.priority,
+        repoolOwed: true,
+        status: { not: SynthesisRunStatus.running },
+        priorityId: { not: null },
+      },
+      select: { id: true, organizationSlug: true, priorityId: true },
+    })
+    for (const run of owed) {
+      const claim = await this.model.updateMany({
+        where: { id: run.id, repoolOwed: true },
+        data: { repoolOwed: false },
+      })
+      if (claim.count === 0 || run.priorityId === null) continue
+      await this.synthesis
+        .requestPriorityRun({
+          organizationSlug: run.organizationSlug,
+          priorityId: run.priorityId,
+          requestedByUserId: null,
+        })
+        .catch((err: Error) => {
+          if (err instanceof HttpException) return
+          this.logger.error(
+            { err, runId: run.id, priorityId: run.priorityId },
+            'Owed priority re-pool failed',
+          )
+        })
     }
   }
 }
