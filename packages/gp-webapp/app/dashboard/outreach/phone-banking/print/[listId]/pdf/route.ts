@@ -27,9 +27,13 @@ const notFound = () => new Response('Not found', { status: 404 })
 
 const fetchList = async (listId: string): Promise<PhoneBankingList | null> => {
   try {
-    const response = await serverRequest('GET /v1/phone-banking/lists/:id', {
-      id: listId,
-    })
+    const response = await serverRequest(
+      'GET /v1/phone-banking/lists/:id',
+      { id: listId },
+      // The PDF reads only name, phone, and interaction (all frozen/Prisma
+      // data); skip the slow people-db enrichment it never uses.
+      { query: { skipLiveEnrichment: 'true' } },
+    )
     return response.data
   } catch (error) {
     // gp-api 404s a list that isn't yours, doesn't exist, or was deleted —
@@ -112,8 +116,13 @@ export const GET = async (
   }
 
   const zip = new JSZip()
-  for (const sheetIndex of sheets) {
-    const pdf = await renderSheet(sheetIndex)
+  const pdfs = await Promise.all(
+    sheets.map(async (sheetIndex) => ({
+      sheetIndex,
+      pdf: await renderSheet(sheetIndex),
+    })),
+  )
+  for (const { sheetIndex, pdf } of pdfs) {
     zip.file(callSheetFilename(list.name, sheetIndex, sheetTotal), pdf)
   }
   const archive = await zip.generateAsync({ type: 'nodebuffer' })

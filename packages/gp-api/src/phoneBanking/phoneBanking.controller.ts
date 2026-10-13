@@ -8,6 +8,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UseInterceptors,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -125,9 +126,16 @@ export class PhoneBankingController {
     @ReqOrganization() organization: Organization,
     @ReqOrganizationRole() role: OrganizationRole,
     @ReqUser() user: User,
+    @Query('skipLiveEnrichment') skipLiveEnrichment?: string,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.listService.getForOrganization(id, organization, role, user.id)
+    return this.listService.getForOrganization(
+      id,
+      organization,
+      role,
+      user.id,
+      skipLiveEnrichment === 'true',
+    )
   }
 
   @Post('lists/:id/calls')
