@@ -9,6 +9,7 @@ import {
   type FeedbackSynthesisRun,
   IssueTagSource,
   IssueTagStatus,
+  PollIndividualMessageSender,
   Prisma,
   SynthesisRunStatus,
   SynthesisScope,
@@ -20,6 +21,10 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { cleanTagName, normalizeTagName } from '../util/issueTagName.util'
 
 type Issue = FeedbackSynthesisCompleteEvent['data']['issues'][number]
+
+// Which table a member id was found in: a confirmed memo, or a
+// constituent's reply on a text send.
+type MemberSource = 'feedback' | 'text'
 
 // The single write path for synthesis results. The SQS consumer calls it
 // with the pipeline's event and the mock engine calls it in-process with the
@@ -67,7 +72,10 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
     const inScope = await this.idsInScope(run, [...candidateIds])
     const themes = candidates.map(({ issue, memberIds }) => ({
       issue,
-      members: memberIds.filter((id) => inScope.has(id)),
+      members: memberIds.flatMap((id) => {
+        const source = inScope.get(id)
+        return source === undefined ? [] : [{ id, source }]
+      }),
     }))
     const droppedCount = candidateIds.size - inScope.size
     if (droppedCount > 0) {
@@ -124,13 +132,19 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
           },
         })
         await tx.feedbackThemeMember.createMany({
-          data: members.map((feedbackId) => ({
-            themeId: theme.id,
-            feedbackId,
-          })),
+          data: members.map(({ id, source }) =>
+            source === 'feedback'
+              ? { themeId: theme.id, feedbackId: id }
+              : { themeId: theme.id, textReplyId: id },
+          ),
           skipDuplicates: true,
         })
-        applied.push(...members.map((feedbackId) => ({ feedbackId, tagId })))
+        // A tag lands on a memo's record; a reply has no row to carry one.
+        applied.push(
+          ...members.flatMap(({ id, source }) =>
+            source === 'feedback' ? [{ feedbackId: id, tagId }] : [],
+          ),
+        )
       }
 
       // Before this run's tag rows go in: a pair the old run applied and
@@ -210,24 +224,39 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
     return groupBy(rows, (row) => row.theme)
   }
 
-  // Respondent ids come from outside. Only memos in the run's own scope
-  // become members, so a stray or forged id cannot pull another effort's,
-  // or another org's, memo into this report.
+  // Respondent ids come from outside. Only memos and replies in the run's
+  // own scope become members, so a stray or forged id cannot pull another
+  // effort's, or another org's, memo into this report. Each id maps to the
+  // table it was found in: a memo's id is a uuid v7 and a reply's a uuid v5
+  // from its own namespace, so one id never names both.
   private async idsInScope(
     run: FeedbackSynthesisRun,
     ids: string[],
-  ): Promise<Set<string>> {
-    const rows = await this.client.constituentFeedback.findMany({
-      where: {
-        id: { in: ids },
-        organizationSlug: run.organizationSlug,
-        ...(run.scope === SynthesisScope.effort
-          ? { outreachId: run.outreachId }
-          : {}),
-      },
-      select: { id: true },
-    })
-    return new Set(rows.map((row) => row.id))
+  ): Promise<Map<string, MemberSource>> {
+    const effortScoped = run.scope === SynthesisScope.effort
+    const [memos, replies] = await Promise.all([
+      this.client.constituentFeedback.findMany({
+        where: {
+          id: { in: ids },
+          organizationSlug: run.organizationSlug,
+          ...(effortScoped ? { outreachId: run.outreachId } : {}),
+        },
+        select: { id: true },
+      }),
+      this.client.pollIndividualMessage.findMany({
+        where: {
+          id: { in: ids },
+          sender: PollIndividualMessageSender.CONSTITUENT,
+          outreach: { organizationSlug: run.organizationSlug },
+          ...(effortScoped ? { outreachId: run.outreachId } : {}),
+        },
+        select: { id: true },
+      }),
+    ])
+    return new Map<string, MemberSource>([
+      ...replies.map((row) => [row.id, 'text'] as const),
+      ...memos.map((row) => [row.id, 'feedback'] as const),
+    ])
   }
 
   // One tag per theme, matched on the normalized title.

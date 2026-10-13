@@ -1,8 +1,9 @@
 import { addBusinessDays, addDays, parseISO } from 'date-fns'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FastifyAdapter } from '@nestjs/platform-fastify'
 import { vi } from 'vitest'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { useTestService } from '@/test-service'
 import { RESULTS_UPLOAD_BODY_LIMIT_BYTES } from './util/outreachResultsBodyLimit.util'
 import {
@@ -713,5 +714,106 @@ describe('poll results through the same surface', () => {
     )
 
     expect(result.status).toBe(400)
+  })
+})
+
+// Results landing is what completes a text send, so it starts a synthesis
+// run the way a turf's Done does. Fire-and-forget: the upload's own answer
+// never waits on it, and a dry run, which writes nothing, starts nothing.
+describe('synthesis after results land', () => {
+  const PEOPLE = Array.from({ length: 5 }, (_, i) => ({
+    personId: `person-syn-${i}`,
+    phone: `+1303555020${i}`,
+  }))
+  const REPLIES_CSV = [
+    'Contact Phone Number,Message Text,Sent At,Send Direction',
+    ...PEOPLE.map(
+      (person, i) =>
+        `${person.phone},Fix Elm Street first ${i},2026-08-11T15:0${i}:00.000Z,INBOUND`,
+    ),
+  ].join('\n')
+
+  let send: Outreach
+  let requested: ReturnType<typeof vi.spyOn>
+
+  beforeEach(async () => {
+    send = await createSend(OutreachStatus.in_progress)
+    await service.prisma.outreachTextRecipient.createMany({
+      data: PEOPLE.map((person) => ({
+        outreachId: send.id,
+        organizationSlug: ORG_SLUG,
+        personId: person.personId,
+        phone: person.phone,
+      })),
+    })
+    await service.prisma.contactInteractionText.createMany({
+      data: PEOPLE.map((person) => ({
+        outreachId: send.id,
+        organizationSlug: ORG_SLUG,
+        personId: person.personId,
+        occurredAt: new Date(),
+      })),
+    })
+    requested = vi.spyOn(
+      service.app.get(FeedbackSynthesisService),
+      'requestRunOnEffortCompleted',
+    )
+  })
+
+  afterEach(() => {
+    requested.mockRestore()
+  })
+
+  it('starts a run over the replies once the upload commits', async () => {
+    const result = await upload(REPLIES_CSV, false, send.id)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    expect(requested).toHaveBeenCalledWith({
+      organizationSlug: ORG_SLUG,
+      outreachId: send.id,
+    })
+    await vi.waitFor(async () => {
+      const runs = await service.prisma.feedbackSynthesisRun.findMany({
+        where: { outreachId: send.id },
+      })
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        organizationSlug: ORG_SLUG,
+        confirmed: 5,
+        requestedByUserId: null,
+      })
+    })
+  })
+
+  it('starts nothing on a dry run', async () => {
+    const result = await upload(REPLIES_CSV, true, send.id)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(false)
+    expect(requested).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.feedbackSynthesisRun.count({
+        where: { outreachId: send.id },
+      }),
+    ).toBe(0)
+  })
+
+  // Under the floor the trigger is refused quietly and the upload is
+  // unaffected: two replies are two replies, not a theme.
+  it('keeps the upload whole when the send has too few replies for a run', async () => {
+    const result = await upload(RESULTS_CSV, false)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    expect(requested).toHaveBeenCalledWith({
+      organizationSlug: ORG_SLUG,
+      outreachId: outreach.id,
+    })
+    expect(
+      await service.prisma.feedbackSynthesisRun.count({
+        where: { outreachId: outreach.id },
+      }),
+    ).toBe(0)
   })
 })

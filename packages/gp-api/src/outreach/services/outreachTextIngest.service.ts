@@ -22,7 +22,8 @@ import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
  * Neither producer is visible to whoever uploaded the file.
  *
  * Nothing in here is product-specific. Polls adds a step on top that writes
- * themes; SMS never clusters at all.
+ * themes; a Serve SMS send's themes come from issue capture's synthesis,
+ * which the results upload requests once this ingest has committed.
  *
  * See docs/features/serve-sms.md, "Layer 1: Delivery", Inbound.
  */

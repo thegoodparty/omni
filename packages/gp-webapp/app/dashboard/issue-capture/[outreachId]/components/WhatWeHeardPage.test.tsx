@@ -726,6 +726,96 @@ describe('WhatWeHeardPage', () => {
     ).toHaveLength(1)
   })
 
+  // A Serve text send's entries are the constituents' own replies: nothing
+  // waits for review, nothing is a summary, and a theme made of replies has
+  // no stance to split.
+  describe('on a text send', () => {
+    const REPLY = memo({
+      id: 'reply-1',
+      channel: 'text',
+      transcript: 'Please fix the potholes on Elm before winter.',
+      issues: [],
+      actorName: null,
+      confirmedAt: new Date('2026-10-10T18:00:00.000Z'),
+    })
+    const TEXT_REPORT = report({
+      question: null,
+      channel: 'text',
+      denominators: { conversations: 6, memos: 7, confirmed: 7, pending: 0 },
+      memos: [REPLY],
+    })
+
+    it('counts replies and the people they came from, and lists them as their own words', async () => {
+      mockReport(TEXT_REPORT)
+      const { container } = renderPage(true)
+
+      expect(
+        await screen.findByText('7 replies from 6 people.'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Every reply' }),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Their reply')).toBeInTheDocument()
+      expect(
+        screen.getByText('Please fix the potholes on Elm before winter.'),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/By text/)).toBeInTheDocument()
+      expect(screen.queryByText(/Summary by/)).toBeNull()
+      expect(screen.queryByText(/waiting for review/)).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Download notes' })).toBeNull()
+      expect(container.textContent).not.toMatch(/voter/i)
+      expect(container.textContent).not.toMatch(FORBIDDEN)
+    })
+
+    it('says themes appear after enough replies while under the floor', async () => {
+      mockReport({
+        ...TEXT_REPORT,
+        denominators: { conversations: 2, memos: 2, confirmed: 2, pending: 0 },
+      })
+      renderPage(true)
+
+      expect(
+        await screen.findByText('Themes appear after 5 replies.'),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Download notes' })).toBeNull()
+    })
+
+    it('shows a theme of replies without a stance split', async () => {
+      mockReport({
+        ...TEXT_REPORT,
+        run: run('completed'),
+        themes: [
+          theme({
+            title: 'Potholes',
+            conversationCount: 4,
+            stanceCounts: null,
+            desiredOutcomes: [],
+          }),
+        ],
+      })
+      renderPage(true)
+
+      expect(
+        await screen.findByRole('heading', { name: /Potholes/ }),
+      ).toBeInTheDocument()
+      expect(screen.getByText('4 conversations')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Where people stand')).toBeNull()
+    })
+
+    it('records the view under the sms channel', async () => {
+      mockReport(TEXT_REPORT)
+      renderPage(true)
+
+      await screen.findByText('7 replies from 6 people.')
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.IssueCapture.ReportViewed,
+          expect.objectContaining({ channel: 'sms', product: 'serve' }),
+        ),
+      )
+    })
+  })
+
   describe('copy', () => {
     const STATES: [string, FeedbackReportResponse][] = [
       ['running', report({ run: run('running') })],

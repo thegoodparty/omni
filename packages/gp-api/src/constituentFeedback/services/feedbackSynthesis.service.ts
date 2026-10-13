@@ -13,11 +13,20 @@ import { FeaturesService } from '@/features/services/features.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isPrismaError } from '@/prisma/util/prismaErrors.util'
 import {
+  type Effort,
+  effortChannel,
   FeedbackReportService,
+  hasWords,
   MIN_CONFIRMED_FOR_SYNTHESIS,
+  TEXT_CHANNEL,
+  textRepliesWhere,
 } from './feedbackReport.service'
 import { IssueTagSeedService } from './issueTagSeed.service'
-import { SYNTHESIS_ENGINE, type SynthesisEngine } from './synthesisEngine'
+import {
+  SYNTHESIS_ENGINE,
+  type SynthesisEngine,
+  type SynthesisMemo,
+} from './synthesisEngine'
 import { ISSUE_CAPTURE_FLAG } from '../util/issueCaptureFlag.util'
 
 // Per scope, on the button only: the completion trigger fires once, as the
@@ -68,23 +77,7 @@ export class FeedbackSynthesisService extends createPrismaBase(
   }): Promise<SynthesisRun> {
     const { organizationSlug, outreachId } = input
     const effort = await this.report.findEffort(organizationSlug, outreachId)
-
-    // Confirmed only: a memo nobody with first-hand knowledge has checked
-    // never enters a theme. One confirmed by hand after its recording
-    // failed has no words, and would be an empty row in the CSV.
-    const rows = await this.client.constituentFeedback.findMany({
-      where: {
-        organizationSlug,
-        outreachId,
-        confirmedAt: { not: null },
-        transcript: { not: null },
-      },
-      orderBy: { occurredAt: Prisma.SortOrder.asc },
-      select: { id: true, transcript: true, occurredAt: true },
-    })
-    const memos = rows.flatMap(({ id, transcript, occurredAt }) =>
-      transcript === null ? [] : [{ id, text: transcript, occurredAt }],
-    )
+    const memos = await this.loadMemos(organizationSlug, effort)
     if (memos.length < MIN_CONFIRMED_FOR_SYNTHESIS) {
       throw new UnprocessableEntityException({
         message: 'Not enough confirmed notes to summarize',
@@ -180,9 +173,51 @@ export class FeedbackSynthesisService extends createPrismaBase(
     }
   }
 
+  // What the engine groups, oldest first, keyed so the ingest can find each
+  // one again: a memo's own id, or a reply's. On a turf or a list, confirmed
+  // memos only: one nobody with first-hand knowledge has checked never
+  // enters a theme, and one confirmed by hand after its recording failed
+  // has no words and would be an empty row in the CSV. On a text send, the
+  // replies constituents wrote, minus opt-outs and empty bodies; a reply is
+  // the constituent's own words and needs no confirming.
+  private async loadMemos(
+    organizationSlug: string,
+    effort: Effort,
+  ): Promise<SynthesisMemo[]> {
+    if (effortChannel(effort) === TEXT_CHANNEL) {
+      const replies = await this.client.pollIndividualMessage.findMany({
+        where: textRepliesWhere(effort.id),
+        orderBy: [
+          { sentAt: Prisma.SortOrder.asc },
+          { id: Prisma.SortOrder.asc },
+        ],
+        select: { id: true, content: true, sentAt: true },
+      })
+      return replies.filter(hasWords).map(({ id, content, sentAt }) => ({
+        id,
+        text: content,
+        occurredAt: sentAt,
+      }))
+    }
+    const rows = await this.client.constituentFeedback.findMany({
+      where: {
+        organizationSlug,
+        outreachId: effort.id,
+        confirmedAt: { not: null },
+        transcript: { not: null },
+      },
+      orderBy: { occurredAt: Prisma.SortOrder.asc },
+      select: { id: true, transcript: true, occurredAt: true },
+    })
+    return rows.flatMap(({ id, transcript, occurredAt }) =>
+      transcript === null ? [] : [{ id, text: transcript, occurredAt }],
+    )
+  }
+
   // Fire-and-forget from the paths that complete an effort: the turf's
-  // Done and the phone list's last call. The press or the call has already
-  // succeeded, so nothing here can fail it.
+  // Done, the phone list's last call, and a text send's results landing.
+  // The press, the call or the upload has already succeeded, so nothing
+  // here can fail it.
   requestRunOnEffortCompleted(input: {
     organizationSlug: string
     outreachId: number
@@ -210,14 +245,12 @@ export class FeedbackSynthesisService extends createPrismaBase(
     organizationSlug: string
     outreachId: number
   }): Promise<void> {
-    const confirmed = await this.client.constituentFeedback.count({
-      where: {
-        ...input,
-        confirmedAt: { not: null },
-        transcript: { not: null },
-      },
-    })
-    if (confirmed < MIN_CONFIRMED_FOR_SYNTHESIS) return
+    const effort = await this.report.findEffort(
+      input.organizationSlug,
+      input.outreachId,
+    )
+    const memos = await this.loadMemos(input.organizationSlug, effort)
+    if (memos.length < MIN_CONFIRMED_FOR_SYNTHESIS) return
 
     const { ownerId } = await this.client.organization.findUniqueOrThrow({
       where: { slug: input.organizationSlug },
