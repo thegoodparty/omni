@@ -322,14 +322,24 @@ export function createService({
   )
 
   // Register and Put are upserts, so these adopt the SST-era target and
-  // policies by name instead of creating duplicates.
-  const scalableTarget = new aws.appautoscaling.Target('scalableTarget', {
-    serviceNamespace: 'ecs',
-    scalableDimension: 'ecs:service:DesiredCount',
-    resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
-    minCapacity: minTasks,
-    maxCapacity: select({ dev: 4, prod: 16 }),
+  // policies by name instead of creating duplicates. Register is only an
+  // upsert when it carries no tags: AWS rejects tags on a target that already
+  // exists, so the target goes through a provider without the stack's
+  // defaultTags. Swapping this provider later would replace the target.
+  const untaggedProvider = new aws.Provider('untagged', {
+    region: aws.config.requireRegion(),
   })
+  const scalableTarget = new aws.appautoscaling.Target(
+    'scalableTarget',
+    {
+      serviceNamespace: 'ecs',
+      scalableDimension: 'ecs:service:DesiredCount',
+      resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
+      minCapacity: minTasks,
+      maxCapacity: select({ dev: 4, prod: 16 }),
+    },
+    { provider: untaggedProvider },
+  )
 
   // A scale-in cooldown of 0 removed a task every minute down to the floor,
   // where the remaining tasks saturated and every route returned 500s
