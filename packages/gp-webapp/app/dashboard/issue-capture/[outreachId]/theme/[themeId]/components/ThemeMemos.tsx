@@ -7,9 +7,11 @@ import MemoList from '../../../components/MemoList'
 // waiting for review.
 const ThemeMemos = ({
   theme,
+  outreachId,
   isServe,
 }: {
   theme: FeedbackThemeDetail
+  outreachId: number
   isServe: boolean
 }) => {
   const headingId = useId()
@@ -20,6 +22,7 @@ const ThemeMemos = ({
         {whatWeHeardCopy(isServe).theNotes}
       </h2>
       <MemoList
+        outreachId={outreachId}
         isServe={isServe}
         memos={theme.members.map((member) => ({
           id: member.feedbackId,

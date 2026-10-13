@@ -65,7 +65,7 @@ const EveryNote = ({
           isServe={isServe}
         />
       </div>
-      <MemoList memos={memos} isServe={isServe} />
+      <MemoList memos={memos} outreachId={outreachId} isServe={isServe} />
     </section>
   )
 }

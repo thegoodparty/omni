@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -265,6 +265,15 @@ const PendingMemoList = ({
   const copy = whatWeHeardCopy(isServe)
   const pendingQuery = useQuery(pendingQueryOptions(outreachId))
   const memos = pendingQuery.data
+  // The report's Review lands here with `#note-<id>`. The list loads after
+  // the page, so the browser's own jump to the anchor finds nothing; this
+  // makes it once the notes are in.
+  const loaded = memos !== undefined
+  useEffect(() => {
+    if (!loaded) return
+    const target = window.location.hash.slice(1)
+    if (target) document.getElementById(target)?.scrollIntoView()
+  }, [loaded])
 
   return (
     <div className="flex flex-col gap-6">
@@ -304,7 +313,7 @@ const PendingMemoList = ({
             // `flex flex-col` because globals.css makes every `li` under a
             // data-slot ancestor a row flex box, which would shrink the card
             // to its content.
-            <li key={memo.id} className="flex flex-col">
+            <li key={memo.id} id={`note-${memo.id}`} className="flex flex-col">
               {/* The styleguide's Card, so a note has the radius and the
                   padding every other card in the product has. */}
               <Card>

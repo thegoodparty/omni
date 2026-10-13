@@ -82,7 +82,7 @@ fires on the press, refused or not.
   until membership is per issue; `packages/gp-api/src/constituentFeedback/AGENTS.md`).
 - **Every note is labeled as the canvasser's summary** ("Summary by ..."),
   never quoted as the other person's words, with its issues listed under it
-  (`MemoList`). A pending note says "Not yet reviewed". A theme's members are
+  (`MemoList`). A pending note carries a Review button to "Notes to review", landing on that note (`#note-<id>`, scrolled to once the list loads, since the list arrives after the page). It goes to the list rather than reviewing in place because the report's memos carry no extraction status, so a note still transcribing or one that failed would read as one with no issues. A theme's members are
   confirmed only.
 - **Copy is mode-keyed in `copy.ts`.** Win says voters and never constituent,
   Serve says constituents and never voter, and nothing says poll, survey,
@@ -104,6 +104,16 @@ fires on the press, refused or not.
   `polls/[id]/issue/[issueIndex]/components/*`. Polls' providers are
   poll-typed and server-fed; here the data is React Query, so components take
   props.
+- **A note can be edited, never deleted.** Each note in `MemoList` (Every
+  note, the pre-summary list, a theme's notes) has a kebab (`EditMemoMenu`)
+  holding Edit and nothing else. Edit opens the confirm form in a
+  `PanelDrawer` and saves through `PATCH :id/confirm`, so what can change is
+  what was taken from the note: its issues, stance and what they want. A
+  pending note it saves becomes confirmed. The note's own words cannot change
+  here: that is the re-record path (`POST /` with the note's `reference`),
+  which the report's memos do not carry. The drawer is a sibling of the
+  menu, since the menu unmounts its content on select, and the menu does not
+  return focus on close, since the drawer dismisses on focus outside it.
 - **Users see themes, never tags.** A run still proposes a tag per theme
   and links it to the theme's notes, and later runs reuse it by name
   (`packages/gp-api/src/constituentFeedback/AGENTS.md`), but nothing on the

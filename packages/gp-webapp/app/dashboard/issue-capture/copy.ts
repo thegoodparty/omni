@@ -59,6 +59,8 @@ export const WHAT_WE_HEARD_COPY = {
     stanceSplit: 'Where people stand',
     rank: (value: number): string => `Rank ${value}`,
     notYetReviewed: 'Not yet reviewed',
+    review: 'Review',
+    reviewNote: (name: string): string => `Review ${name}`,
     // Every note is the canvasser's own summary of the conversation, never
     // the other person's words, and it says so.
     summaryBy: (actorName: string | null): string =>
@@ -66,8 +68,7 @@ export const WHAT_WE_HEARD_COPY = {
     recordedBy: (actorName: string | null): string =>
       `Recorded by ${actorName ?? 'your team'}`,
     issueHeading: 'Issue',
-    stanceHeading: 'Where they stand',
-    outcomeHeading: 'What they want',
+    wantsHeading: 'Wants',
     issues: 'Issues',
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
@@ -112,6 +113,8 @@ export const WHAT_WE_HEARD_COPY = {
     cancel: 'Cancel',
     retryFailed: "That didn't work. Try again in a moment.",
     confirmFailed: "We couldn't save that. Try again.",
+    noteActions: 'More actions',
+    editNote: 'Edit',
   },
   serve: {
     title: 'What we heard',
@@ -149,13 +152,14 @@ export const WHAT_WE_HEARD_COPY = {
     stanceSplit: 'Where people stand',
     rank: (value: number): string => `Rank ${value}`,
     notYetReviewed: 'Not yet reviewed',
+    review: 'Review',
+    reviewNote: (name: string): string => `Review ${name}`,
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
     recordedBy: (actorName: string | null): string =>
       `Recorded by ${actorName ?? 'your team'}`,
     issueHeading: 'Issue',
-    stanceHeading: 'Where they stand',
-    outcomeHeading: 'What they want',
+    wantsHeading: 'Wants',
     issues: 'Issues',
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
@@ -200,6 +204,8 @@ export const WHAT_WE_HEARD_COPY = {
     cancel: 'Cancel',
     retryFailed: "That didn't work. Try again in a moment.",
     confirmFailed: "We couldn't save that. Try again.",
+    noteActions: 'More actions',
+    editNote: 'Edit',
   },
 }
 

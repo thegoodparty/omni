@@ -196,7 +196,6 @@ const useCaptureDrafts = (proposed: ProposedIssues, isServe: boolean) => {
     )
   const remove = (index: number) =>
     setDrafts((current) => current.filter((_, i) => i !== index))
-
   return { copy, stanceLabels, drafts, update, remove }
 }
 
@@ -422,7 +421,11 @@ interface IssueCaptureConfirmStepProps {
   saving: boolean
   isServe: boolean
   onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
-  onSkip: () => void
+  // Absent where closing the frame is the only way out: editing a note from
+  // the report has nothing to skip to.
+  onSkip?: () => void
+  // A failed save, said above the buttons so the canvasser can try again.
+  error?: string
 }
 
 // The same card as a step of the knock's or the call's `PanelDrawer`, the
@@ -436,6 +439,7 @@ export const IssueCaptureConfirmStep = ({
   isServe,
   onConfirm,
   onSkip,
+  error,
 }: IssueCaptureConfirmStepProps) => {
   const { copy, stanceLabels, drafts, update, remove } = useCaptureDrafts(
     proposed,
@@ -458,6 +462,11 @@ export const IssueCaptureConfirmStep = ({
         />
       </PanelDrawerBody>
       <PanelDrawerFooter>
+        {error !== undefined && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
         <ConfirmActions
           copy={copy}
           drafts={drafts}

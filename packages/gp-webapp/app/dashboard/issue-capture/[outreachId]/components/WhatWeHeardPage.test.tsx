@@ -5,6 +5,7 @@ import type {
   FeedbackReportResponse,
   FeedbackThemeSummary,
 } from '@goodparty_org/contracts'
+import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -433,8 +434,13 @@ describe('WhatWeHeardPage', () => {
       )
       renderPage()
 
-      expect(await screen.findByText(/Not yet reviewed/)).toBeInTheDocument()
-      expect(screen.getAllByText(/Not yet reviewed/)).toHaveLength(1)
+      // The one waiting note offers the way to review it, landing on it.
+      const review = await screen.findByRole('link', { name: /^Review / })
+      expect(screen.getAllByRole('link', { name: /^Review / })).toHaveLength(1)
+      expect(review).toHaveTextContent('Review')
+      expect(review.getAttribute('href')).toMatch(
+        new RegExp(`^/dashboard/issue-capture/${OUTREACH_ID}/review#note-`),
+      )
       expect(screen.getByText(/Summary by Kamal Al Sawafi/)).toBeInTheDocument()
     })
   })
@@ -551,6 +557,62 @@ describe('WhatWeHeardPage', () => {
         screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeEnabled()
       expect(screen.getByText('Street flooding')).toBeInTheDocument()
+    })
+  })
+
+  // A note can be corrected from the report, never removed: the menu holds
+  // Edit and nothing else, and Edit is the confirm the canvasser saw.
+  describe('editing a note', () => {
+    it('saves the corrected issues through the confirm', async () => {
+      const user = userEvent.setup()
+      let sent: unknown
+      mockReport(report({ memos: [memo()] }))
+      api.mock(
+        'PATCH /v1/constituent-feedback/:id/confirm',
+        ({ params, body }) => {
+          expect(params.id).toBe('memo-1')
+          sent = body
+          return {
+            status: 200,
+            data: {
+              ...memo(),
+              extractionStatus: 'extracted' as const,
+              outreachId: OUTREACH_ID,
+              tags: [],
+            },
+          }
+        },
+      )
+      renderPage()
+
+      await user.click(
+        await screen.findByRole('button', { name: 'More actions' }),
+      )
+      expect(screen.queryByRole('menuitem', { name: /delete/i })).toBeNull()
+      await user.click(screen.getByRole('menuitem', { name: 'Edit' }))
+
+      const issue = await screen.findByDisplayValue('Storm drains')
+      await user.clear(issue)
+      await user.type(issue, 'Drainage')
+      await user.click(screen.getByRole('button', { name: 'Looks right' }))
+
+      await waitFor(() =>
+        expect(sent).toMatchObject({
+          issues: [
+            {
+              issueLabel: 'Drainage',
+              stance: 'supports',
+              desiredOutcome: 'Clear the drains',
+              fromIssueId: 'issue-storm-drains',
+            },
+          ],
+        }),
+      )
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('button', { name: 'Looks right' }),
+        ).toBeNull(),
+      )
     })
   })
 

@@ -2,8 +2,10 @@ import type {
   ConstituentFeedbackChannel,
   ConstituentFeedbackIssue,
 } from '@goodparty_org/contracts'
-import { Badge, EmptyState, Overline } from '@styleguide'
+import Link from 'next/link'
+import { Badge, Button, EmptyState } from '@styleguide'
 import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
+import EditMemoMenu from './EditMemoMenu'
 
 export interface MemoListItem {
   id: string
@@ -25,11 +27,31 @@ const formatDate = (value: Date): string =>
 
 // The notes themselves, on the report while there are no themes to show and
 // under them once there are, and as a theme's members on its own page.
+// The confirm form's field label, so the fields read the same on the note
+// as where they were confirmed.
+const FIELD_LABEL_CLASSNAME =
+  'text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground'
+
+// A note's first words, or who took it and when, so a list of Review
+// buttons is not one name said several times.
+const NAME_WORDS = 6
+const noteName = (
+  memo: MemoListItem,
+  copy: ReturnType<typeof whatWeHeardCopy>,
+): string => {
+  const words = memo.transcript?.split(/\s+/).filter(Boolean) ?? []
+  if (words.length === 0) return copy.noteFrom(memo.actorName, memo.occurredAt)
+  const lead = words.slice(0, NAME_WORDS).join(' ')
+  return words.length > NAME_WORDS ? `${lead}…` : lead
+}
+
 const MemoList = ({
   memos,
+  outreachId,
   isServe,
 }: {
   memos: MemoListItem[]
+  outreachId: number
   isServe: boolean
 }) => {
   const copy = whatWeHeardCopy(isServe)
@@ -44,7 +66,7 @@ const MemoList = ({
           {/* Who, where and when on one line, so the note under it is the
               first thing read; the review state is a badge, not a tail on
               that line. */}
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
               {CHANNEL_LABELS[memo.channel]}
               {' · '}
@@ -52,9 +74,24 @@ const MemoList = ({
               {' · '}
               {copy.summaryBy(memo.actorName)}
             </p>
-            {memo.pending && (
-              <Badge variant="outline">{copy.notYetReviewed}</Badge>
-            )}
+            <div className="flex shrink-0 items-center gap-1">
+              {/* Waiting for review is something to act on, so it is the way
+                  to the review list, landing on this note, rather than a
+                  label. The review list also handles a note still
+                  transcribing or one that failed, which the report cannot
+                  tell apart from one with no issues. */}
+              {memo.pending && (
+                <Button asChild variant="link" size="small">
+                  <Link
+                    href={`/dashboard/issue-capture/${outreachId}/review#note-${memo.id}`}
+                    aria-label={copy.reviewNote(noteName(memo, copy))}
+                  >
+                    {copy.review}
+                  </Link>
+                </Button>
+              )}
+              <EditMemoMenu memo={memo} isServe={isServe} />
+            </div>
           </div>
           {/* The note as written, set apart the way a field shows its
               value, so it reads as the source and the labelled issues
@@ -67,38 +104,38 @@ const MemoList = ({
           {memo.issues.length > 0 && (
             <ul aria-label={copy.issues} className="flex flex-col gap-3">
               {memo.issues.map((issue) => (
-                // `flex flex-col` because globals.css makes every `li` under
-                // a data-slot ancestor a row flex box. Labelled with the
-                // confirm form's own words, so the person who confirmed it
-                // recognises the fields.
-                <li key={issue.position} className="flex flex-col gap-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex flex-col gap-1">
-                      <Overline emphasis={false}>{copy.issueHeading}</Overline>
-                      <span className="text-sm font-medium text-foreground">
-                        {issue.issueLabel}
-                      </span>
-                    </div>
-                    {issue.stance !== null && (
-                      <div className="flex flex-col items-end gap-1">
-                        <Overline emphasis={false}>
-                          {copy.stanceHeading}
-                        </Overline>
-                        <Badge variant="soft">
-                          {stanceLabels[issue.stance]}
-                        </Badge>
-                      </div>
-                    )}
-                  </div>
+                // `grid` because globals.css makes every `li` under a
+                // data-slot ancestor a row flex box. Two quiet labels in one
+                // column and the values beside them, the stance as a badge on
+                // the issue it belongs to, so a note's issue and what the
+                // person wants read as two fields rather than one sentence
+                // said twice. The labels are the confirm form's own style.
+                <li
+                  key={issue.position}
+                  className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1"
+                >
+                  <span className={FIELD_LABEL_CLASSNAME}>
+                    {copy.issueHeading}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">
+                      {issue.issueLabel}
+                    </span>
+                    {/* No stance reads as Unclear, as the report counts it:
+                        the same state should not look like two. */}
+                    <Badge variant="soft">
+                      {stanceLabels[issue.stance ?? 'unclear']}
+                    </Badge>
+                  </span>
                   {issue.desiredOutcome !== null && (
-                    <div className="flex flex-col gap-1">
-                      <Overline emphasis={false}>
-                        {copy.outcomeHeading}
-                      </Overline>
-                      <p className="text-sm text-foreground">
+                    <>
+                      <span className={FIELD_LABEL_CLASSNAME}>
+                        {copy.wantsHeading}
+                      </span>
+                      <span className="text-sm text-foreground">
                         {issue.desiredOutcome}
-                      </p>
-                    </div>
+                      </span>
+                    </>
                   )}
                 </li>
               ))}

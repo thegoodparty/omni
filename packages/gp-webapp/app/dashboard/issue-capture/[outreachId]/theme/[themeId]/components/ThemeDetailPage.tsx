@@ -63,7 +63,11 @@ const ThemeDetailPage = ({
           <>
             <ThemeSummary theme={theme} isServe={isServe} />
             <ThemeDetails theme={theme} isServe={isServe} />
-            <ThemeMemos theme={theme} isServe={isServe} />
+            <ThemeMemos
+              theme={theme}
+              outreachId={outreachId}
+              isServe={isServe}
+            />
           </>
         ) : themeQuery.isError ? (
           <Alert variant="destructive" role="alert">
