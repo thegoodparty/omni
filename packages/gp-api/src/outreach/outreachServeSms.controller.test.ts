@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
+import { CIVIC_PANEL_JOIN_LINES } from '@goodparty_org/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -283,6 +284,83 @@ describe('Serve SMS feature gate', () => {
 
     expect(generateDraftWithVoice).toHaveBeenCalledOnce()
     expect(createDraft).toHaveBeenCalledOnce()
+  })
+
+  it("404s a citizens' panel draft while serve-citizen-panels is off", async () => {
+    isFeatureEnabled.mockImplementation(
+      async ({ feature }: { feature: string }) =>
+        feature !== 'serve-citizen-panels',
+    )
+
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(generateDraftWithVoice).not.toHaveBeenCalled()
+  })
+
+  it.each(CIVIC_PANEL_JOIN_LINES)(
+    'refuses a create carrying a join line while serve-citizen-panels is off: %s',
+    async (line) => {
+      isFeatureEnabled.mockImplementation(
+        async ({ feature }: { feature: string }) =>
+          feature !== 'serve-citizen-panels',
+      )
+
+      const res = await postCreate({
+        ...createInput,
+        message: `${createInput.message}\n\n${line}\n\nReply STOP to opt out.`,
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(createDraft).not.toHaveBeenCalled()
+    },
+  )
+
+  it('creates a send carrying a join line with serve-citizen-panels on', async () => {
+    const res = await postCreate({
+      ...createInput,
+      message: `${createInput.message}\n\n${CIVIC_PANEL_JOIN_LINES[0]}\n\nReply STOP to opt out.`,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(createDraft).toHaveBeenCalledOnce()
+  })
+
+  it('leaves a create without a join line alone while serve-citizen-panels is off', async () => {
+    isFeatureEnabled.mockImplementation(
+      async ({ feature }: { feature: string }) =>
+        feature !== 'serve-citizen-panels',
+    )
+
+    const res = await postCreate(createInput)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(createDraft).toHaveBeenCalledOnce()
+  })
+
+  it("drafts a citizens' panel text with serve-citizen-panels on", async () => {
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(isFeatureEnabled).toHaveBeenCalledWith({
+      user: expect.objectContaining({ id: service.user.id }),
+      feature: 'serve-citizen-panels',
+    })
+    expect(generateDraftWithVoice).toHaveBeenCalledWith(
+      { purpose: 'build_citizens_panel', tone: 'warm' },
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      SERVE_SMS_VOICE,
+      undefined,
+    )
   })
 })
 

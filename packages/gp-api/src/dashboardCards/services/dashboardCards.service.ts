@@ -5,11 +5,20 @@ import {
   CommunityIssue,
   DashboardCard,
   DashboardCardType,
+  ElectedOffice,
   MeetingBriefing,
+  OutreachStatus,
+  OutreachType,
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { DashboardCardBucket } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  civicPanelBuildCardSourceId,
+  DashboardCardBucket,
+  PANEL_SEED_SAMPLE_SIZE,
+  PRICE_PER_TEXT,
+} from '@goodparty_org/contracts'
 import {
   briefingItemHref,
   briefingOverviewHref,
@@ -19,6 +28,44 @@ import { BriefingArtifactCardSourceSchema } from '../schemas/briefingArtifactCar
 // Community issues have no natural deadline; give their cards a fixed window so
 // they ride the existing active/this_week/missed bucketing off dueDate.
 const COMMUNITY_ISSUE_CARD_DUE_DAYS = 7
+
+// Same reason as above: recruiting has no deadline, and the window is what
+// keeps an untouched card from sitting on the home page forever.
+const CIVIC_PANEL_CARD_DUE_DAYS = 30
+
+// The priority's own page, so the card and the Priorities page open the one
+// conversation the priority keeps, and its steps and sends are recorded there.
+export const civicPanelCardHref = (priorityId: string): string =>
+  `/dashboard/priorities/${encodeURIComponent(priorityId)}`
+
+const civicPanelCardContent = (priority: { id: string; title: string }) => ({
+  title: priority.title,
+  summary: `Hear what your citizens' panel thinks about ${priority.title} before you decide.`,
+  ctaLabel: 'Get started',
+  ctaHref: civicPanelCardHref(priority.id),
+})
+
+// The outreach page opens its text flow on the panel purpose with a random
+// draw of the district already chosen (ConstituentOutreachPage).
+export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/constituent-outreach?compose=text&purpose=${BUILD_CITIZENS_PANEL_PURPOSE}`
+
+const CIVIC_PANEL_BUILD_CARD_CONTENT = {
+  title: "Build your citizens' panel",
+  // A paid send, so the card says so and roughly what it costs before the
+  // official starts; the pay step quotes the exact total.
+  summary: `A paid text to up to ${PANEL_SEED_SAMPLE_SIZE.toLocaleString('en-US')} residents, about $${Math.round(PANEL_SEED_SAMPLE_SIZE * PRICE_PER_TEXT)}, so you hear from more than the loudest voices.`,
+  ctaLabel: 'Get started',
+  ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
+}
+
+// A text past checkout. The same statuses the priority flow counts as sent.
+const UNSENT_OUTREACH_STATUSES = [
+  OutreachStatus.pending_payment,
+  OutreachStatus.draft,
+  OutreachStatus.canceled,
+  OutreachStatus.denied,
+  OutreachStatus.failed,
+]
 
 type DesiredCard = {
   type: DashboardCardType
@@ -91,6 +138,159 @@ export class DashboardCardsService extends createPrismaBase(
         ctaHref: `/dashboard/community-issues/${issue.id}`,
         dueDate: addDays(issue.createdAt, COMMUNITY_ISSUE_CARD_DUE_DAYS),
       },
+    })
+  }
+
+  // The citizens' panel cards, created when the card list is read. First the
+  // office's one build card, done once a text asking residents to join has
+  // gone out; only then a card per open priority, since a priority is asked
+  // of the panel and there is none until that text.
+  async syncCivicPanelCards(
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+  ): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      // The home page and the archive read the list at once, and the build
+      // card's null sourceItemId leaves the unique key unable to stop a
+      // second insert.
+      const lockKey = `civic_panel_cards:${electedOffice.id}`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
+      const built = await this.syncCivicPanelBuildCard(tx, electedOffice)
+      if (built) await this.syncPriorityPanelCards(tx, electedOffice.id)
+    })
+  }
+
+  // Returns whether the build card is done. Any sent text that asked people
+  // to JOIN counts, whichever purpose it went out under: the purpose is not
+  // stored on the row, and the ask is what puts people on the panel.
+  private async syncCivicPanelBuildCard(
+    tx: Prisma.TransactionClient,
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+  ): Promise<boolean> {
+    const where = {
+      electedOfficeId: electedOffice.id,
+      type: DashboardCardType.civic_panel,
+      sourceExternalId: civicPanelBuildCardSourceId(electedOffice.id),
+      sourceItemId: null,
+    }
+    const now = new Date()
+    const card =
+      (await tx.dashboardCard.findFirst({ where })) ??
+      (await tx.dashboardCard.create({
+        data: {
+          ...where,
+          ...CIVIC_PANEL_BUILD_CARD_CONTENT,
+          dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
+        },
+      }))
+    if (card.completedAt) return true
+
+    const seedSent = await tx.outreach.findFirst({
+      where: {
+        organizationSlug: electedOffice.organizationSlug,
+        campaignId: null,
+        outreachType: OutreachType.text,
+        asksToJoinCivicPanel: true,
+        status: { notIn: UNSENT_OUTREACH_STATUSES },
+      },
+      select: { id: true },
+    })
+    if (seedSent) {
+      await tx.dashboardCard.update({
+        where: { id: card.id },
+        data: { completedAt: now, dismissedAt: null },
+      })
+      return true
+    }
+
+    // Every panel card waits on this one, so it does not lapse into missed
+    // while it is still open.
+    const stale =
+      card.title !== CIVIC_PANEL_BUILD_CARD_CONTENT.title ||
+      card.summary !== CIVIC_PANEL_BUILD_CARD_CONTENT.summary ||
+      card.ctaLabel !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaLabel ||
+      card.ctaHref !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaHref
+    const lapsed = !card.dismissedAt && card.dueDate < now
+    if (stale || lapsed) {
+      await tx.dashboardCard.update({
+        where: { id: card.id },
+        data: {
+          ...CIVIC_PANEL_BUILD_CARD_CONTENT,
+          ...(lapsed && { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) }),
+        },
+      })
+    }
+    return false
+  }
+
+  // One card per open priority. A skipped or done card stays that way; only
+  // its words follow a renamed priority. A card whose priority was archived
+  // or deleted goes, unless the official already acted on it.
+  private async syncPriorityPanelCards(
+    tx: Prisma.TransactionClient,
+    electedOfficeId: string,
+  ): Promise<void> {
+    const priorities = await tx.priority.findMany({
+      where: { electedOfficeId, archivedAt: null },
+      select: { id: true, title: true },
+    })
+    const openIds = priorities.map((priority) => priority.id)
+
+    await tx.dashboardCard.deleteMany({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        dismissedAt: null,
+        completedAt: null,
+        sourceExternalId: {
+          notIn: [...openIds, civicPanelBuildCardSourceId(electedOfficeId)],
+        },
+      },
+    })
+    const existing = await tx.dashboardCard.findMany({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId: { in: openIds },
+      },
+      select: {
+        id: true,
+        sourceExternalId: true,
+        title: true,
+        summary: true,
+        ctaLabel: true,
+        ctaHref: true,
+      },
+    })
+    const byPriority = new Map(priorities.map((p) => [p.id, p]))
+    for (const card of existing) {
+      const priority = byPriority.get(card.sourceExternalId)
+      if (!priority) continue
+      const content = civicPanelCardContent(priority)
+      const stale =
+        card.title !== content.title ||
+        card.summary !== content.summary ||
+        card.ctaLabel !== content.ctaLabel ||
+        card.ctaHref !== content.ctaHref
+      if (stale) {
+        await tx.dashboardCard.update({
+          where: { id: card.id },
+          data: content,
+        })
+      }
+    }
+    const carded = new Set(existing.map((card) => card.sourceExternalId))
+    const dueDate = addDays(new Date(), CIVIC_PANEL_CARD_DUE_DAYS)
+    const missing = priorities.filter((priority) => !carded.has(priority.id))
+    if (missing.length === 0) return
+    await tx.dashboardCard.createMany({
+      data: missing.map((priority) => ({
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId: priority.id,
+        sourceItemId: null,
+        ...civicPanelCardContent(priority),
+        dueDate,
+      })),
     })
   }
 
@@ -215,9 +415,16 @@ export class DashboardCardsService extends createPrismaBase(
   async listByBucket(
     electedOfficeId: string,
     bucket: DashboardCardBucket,
+    { includeCivicPanel = false }: { includeCivicPanel?: boolean } = {},
   ): Promise<DashboardCard[]> {
     return this.findMany({
-      where: this.bucketWhere(electedOfficeId, bucket),
+      where: {
+        ...this.bucketWhere(electedOfficeId, bucket),
+        // Off, the panel cards an office already has stay out of every list.
+        ...(!includeCivicPanel && {
+          type: { not: DashboardCardType.civic_panel },
+        }),
+      },
       orderBy: { dueDate: Prisma.SortOrder.asc },
     })
   }

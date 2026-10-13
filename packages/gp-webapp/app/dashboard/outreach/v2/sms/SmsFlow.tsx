@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { CITIZENS_PANEL_PATH } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -19,6 +21,7 @@ import type {
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   checkSmsStandards,
   deriveSmsProtectedParts,
   mergeTagToken,
@@ -321,6 +324,9 @@ interface SmsFlowProps {
   // AI-drafts, so the seeded words are what they edit rather than something
   // a draft immediately overwrites.
   initialScript?: string
+  // Opens past the purpose picker on this purpose, as a card that already
+  // answered it (the Chief of Staff's citizens' panel card).
+  initialPurpose?: SmsFlowPurpose
   // What an agent's proposal knows about the event it invites people to; the
   // details step opens on it.
   initialEvent?: ProposalEvent
@@ -377,6 +383,16 @@ const sendTimeLabel = (d: Date, timeZone?: string) =>
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
+// The first citizens' panel text ends on what it set in motion, and goes back
+// to the panel it is building rather than to the outreach page.
+const SERVE_PANEL_SEED_SUCCESS_COPY = {
+  title: 'Your panel invite is scheduled',
+  reach: (count: string, when: string) =>
+    `It goes to ${count} residents${when}.`,
+  next: 'Replies come in over the next few days. Anyone who replies JOIN is added to your panel.',
+  action: "See your citizens' panel",
+}
+
 // Exported for its component test — the paid branch is unreachable through
 // the flow in jsdom (CheckoutPayment mounts real Stripe elements).
 export const SuccessScreen = ({
@@ -385,6 +401,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  seedsPanel = false,
   onDone,
 }: {
   contactCount: number
@@ -394,6 +411,8 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  // A build_citizens_panel send, which gets its own copy and next step.
+  seedsPanel?: boolean
   onDone: () => void
 }) => {
   const receiptQuery = useQuery({
@@ -416,18 +435,35 @@ export const SuccessScreen = ({
           <CircleCheckIcon className="size-8 text-primary" />
         </span>
       </div>
-      <div className="space-y-2">
-        <h2 className="text-2xl font-semibold text-foreground">
-          {paid ? 'Payment successful!' : 'Scheduled!'}
-        </h2>
-        <p className="text-muted-foreground">
-          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
-          recipients
-          {sendAt
-            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
-            : ' soon.'}
-        </p>
-      </div>
+      {seedsPanel ? (
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold text-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.title}
+          </h2>
+          <p className="text-muted-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.reach(
+              contactCount.toLocaleString(),
+              sendAt ? ` on ${sendDateLabel(sendAt, timeZone)}` : '',
+            )}
+          </p>
+          <p className="text-muted-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.next}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold text-foreground">
+            {paid ? 'Payment successful!' : 'Scheduled!'}
+          </h2>
+          <p className="text-muted-foreground">
+            Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+            recipients
+            {sendAt
+              ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
+              : ' soon.'}
+          </p>
+        </div>
+      )}
       {receipt && (
         <Card className="gap-0 p-0 text-left">
           <div className="flex items-center justify-between px-4 py-4">
@@ -487,9 +523,17 @@ export const SuccessScreen = ({
           Download receipt
         </Button>
       )}
-      <Button size="large" className="w-full" onClick={onDone}>
-        Done
-      </Button>
+      {seedsPanel ? (
+        <Button asChild size="large" className="w-full">
+          <Link href={CITIZENS_PANEL_PATH} onClick={onDone}>
+            {SERVE_PANEL_SEED_SUCCESS_COPY.action}
+          </Link>
+        </Button>
+      ) : (
+        <Button size="large" className="w-full" onClick={onDone}>
+          Done
+        </Button>
+      )}
     </div>
   )
 }
@@ -508,6 +552,7 @@ export const SmsFlow = ({
   initialEvent,
   source,
   initialScript,
+  initialPurpose,
   proposedAudience,
   proposalLink,
   onProposalCreateFailed,
@@ -554,11 +599,16 @@ export const SmsFlow = ({
     surface.isServe,
   )
   const [asksToJoinCivicPanel, setAsksToJoinCivicPanel] = useState(false)
+  // A text that builds the panel is its ask, so the ask cannot be unticked.
+  const civicPanelAskLocked =
+    surface.isServe && purpose === BUILD_CITIZENS_PANEL_PURPOSE
+  const asksToJoin =
+    surface.isServe && (asksToJoinCivicPanel || civicPanelAskLocked)
+  const purposes = citizenPanelsEnabled
+    ? surface.purposes
+    : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
   const composeMessage = (body: string, committee: string | null) =>
-    withCivicPanelJoin(
-      surface.composeMessage(body, committee),
-      surface.isServe && asksToJoinCivicPanel,
-    )
+    withCivicPanelJoin(surface.composeMessage(body, committee), asksToJoin)
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
@@ -753,9 +803,11 @@ export const SmsFlow = ({
     // drafting over them would throw the seed away. A carried-in
     // recommendation opens past it too, on the purpose its intent maps onto:
     // the candidate answered that question by picking the card.
-    const carriedPurpose = preselectedRecommendedVariant
-      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-      : null
+    const carriedPurpose =
+      initialPurpose ??
+      (preselectedRecommendedVariant
+        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+        : null)
     // A resumed draft answered purpose, audience and compose when it was
     // built, so it opens on the one thing still missing.
     setStepId(
@@ -780,7 +832,9 @@ export const SmsFlow = ({
     setLockSource(seeded)
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
-    setAsksToJoinCivicPanel(false)
+    setAsksToJoinCivicPanel(
+      !initialScript && carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE,
+    )
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -809,6 +863,7 @@ export const SmsFlow = ({
     resetAudience,
     resetEventDetails,
     initialScript,
+    initialPurpose,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
@@ -1140,6 +1195,11 @@ export const SmsFlow = ({
 
   const handleSelectPurpose = (selected: SmsFlowPurpose) => {
     setPurpose(selected)
+    // Kept ticked on the way to another purpose, so the box still matches
+    // the message.
+    if (surface.isServe && selected === BUILD_CITIZENS_PANEL_PURPOSE) {
+      setAsksToJoinCivicPanel(true)
+    }
     setTone('warm')
     setUndoText(null)
     // A custom message starts as its locked parts, written between.
@@ -1660,6 +1720,14 @@ export const SmsFlow = ({
     if (previous) setStepId(previous)
   }
 
+  // A card that answered the purpose opens on its audience with nothing behind
+  // it: Back would clear the card's seeded draw and reopen the question the
+  // card answered, so there it leaves the flow instead.
+  const atCardStart =
+    initialPurpose !== undefined &&
+    stepId === 'audience' &&
+    audience.mode !== 'name'
+
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = !scheduled && purpose !== null && savedDraft === null
 
@@ -1859,6 +1927,7 @@ export const SmsFlow = ({
           ? handleBack
           : undefined
       }
+      backExits={atCardStart}
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
@@ -1943,6 +2012,7 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          seedsPanel={civicPanelAskLocked}
           onDone={onClose}
         />
       ) : gateOpen ? (
@@ -1965,7 +2035,7 @@ export const SmsFlow = ({
         <SmsPurposeStep
           selected={purpose}
           onSelect={handleSelectPurpose}
-          purposes={surface.purposes}
+          purposes={purposes}
           introBody={surface.purposeIntroBody}
         />
       ) : stepId === 'details' ? (
@@ -2138,7 +2208,8 @@ export const SmsFlow = ({
           civicPanelAsk={
             surface.isServe && citizenPanelsEnabled
               ? {
-                  checked: asksToJoinCivicPanel,
+                  checked: asksToJoin,
+                  locked: civicPanelAskLocked,
                   onChange: (checked) => {
                     setAsksToJoinCivicPanel(checked)
                     loadMessage(withCivicPanelJoin(message, checked))

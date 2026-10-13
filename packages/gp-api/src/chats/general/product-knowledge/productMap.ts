@@ -286,6 +286,8 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'The task in front has its main button, Mark done and Skip; finishing or skipping it brings the next task forward',
       'Get-started cards have no Mark done; they leave on their own once you have met your Chief of Staff or shared your priorities',
+      'Where the citizens’ panel is on, the first card is Build your citizens’ panel. Get started opens Constituent Outreach’s SMS flow on Build your citizens’ panel, with a random sample of the district picked to reach about 100 members, and the price shown before it sends. It has no Mark done; it is done once that text is paid for',
+      'Where the citizens’ panel is on, once that text has gone out each open priority gets its own card, which opens the priority to ask the panel about it',
       'Archive, at the top of the page, lists this week’s tasks, the ones marked done, the ones skipped and the ones missed',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
@@ -374,6 +376,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Door knocking opens its own page rather than a flow here',
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
+      'Where the citizens’ panel is on, SMS has a Build your citizens’ panel purpose: the draft introduces you and the panel, and the ask to reply JOIN is always on',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, filled in from your next public meeting when there is one',
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
       'Once a text send’s replies are in, its row in outreach history lists them under Responses and links to What we heard, where the replies are grouped into themes',

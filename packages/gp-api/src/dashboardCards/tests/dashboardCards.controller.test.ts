@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DashboardCardType } from '../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { FeaturesService } from '@/features/services/features.service'
 import { addDays, endOfDay, startOfWeek, subDays } from 'date-fns'
 
 const service = useTestService()
+
+// With serve-citizen-panels off the list is exactly the cards seeded here;
+// the panel cards it adds are dashboardCardsCivicPanel.test.ts.
+beforeEach(() => {
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'isFeatureEnabled',
+  ).mockResolvedValue(false)
+})
 
 const orgHeader = (slug: string) => ({
   headers: { 'x-organization-slug': slug },

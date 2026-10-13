@@ -1,11 +1,12 @@
 import type {
-  ServeOutreachPurpose,
+  ServeSmsPurpose,
   SmsPurpose,
   SocialTone,
 } from '@goodparty_org/contracts'
 import {
   checkSmsStandards,
   CIVIC_PANEL_JOIN_LINE,
+  findCivicPanelJoinLine,
   SMS_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import { SOCIAL_PURPOSE_LABELS } from '../socialPurposes'
@@ -18,7 +19,7 @@ export const SMS_PURPOSES: { id: SmsPurpose; label: string }[] =
 // convention as SocialFlowPurpose and PhoneBankingFlowPurpose. Lives here
 // rather than in SmsFlow so the step components can name it without
 // importing the flow back.
-export type SmsFlowPurpose = SmsPurpose | ServeOutreachPurpose
+export type SmsFlowPurpose = SmsPurpose | ServeSmsPurpose
 
 export const smsPurposeLabel = (purpose: string): string =>
   SOCIAL_PURPOSE_LABELS[purpose as SmsPurpose] ?? 'Text message'
@@ -388,11 +389,15 @@ export const composeServeScript = (body: string): string =>
 // Adds or removes the civic panel ask. It is its own paragraph just above the
 // opt-out, so the explanation reads apart from both the body and STOP.
 export const withCivicPanelJoin = (script: string, on: boolean): string => {
-  const at = script.lastIndexOf(CIVIC_PANEL_JOIN_LINE)
-  if (on === (at !== -1)) return script
-  if (!on) {
-    const end = at + CIVIC_PANEL_JOIN_LINE.length
-    return script.slice(0, at) + script.slice(end).replace(/^(\n\n| )/, '')
+  // Any recognized wording counts as asked, so a message carrying the earlier
+  // line keeps it rather than gaining a second ask.
+  const join = findCivicPanelJoinLine(script)
+  if (on === (join !== null)) return script
+  if (join) {
+    const end = join.start + join.text.length
+    return (
+      script.slice(0, join.start) + script.slice(end).replace(/^(\n\n| )/, '')
+    )
   }
   const optOutAt = script.lastIndexOf(OPT_OUT_FOOTER)
   if (optOutAt === -1) return `${script.trimEnd()}\n\n${CIVIC_PANEL_JOIN_LINE}`

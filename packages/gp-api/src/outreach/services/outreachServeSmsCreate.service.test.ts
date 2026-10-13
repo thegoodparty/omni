@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing'
 import {
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
   ServeSmsCreateRequestSchema,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
@@ -138,6 +139,22 @@ describe('OutreachServeSmsCreateService', () => {
         ),
       )
 
+      expect(createdData().asksToJoinCivicPanel).toBe(true)
+    })
+
+    // Sends composed before the line was rewritten still carry the old one.
+    it('still marks a send carrying the earlier wording of the line', async () => {
+      const legacy = CIVIC_PANEL_JOIN_LINES[1]
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(
+          request({
+            message: `The budget hearing is Thursday.\n\n${legacy}\n\nReply STOP to opt out.`,
+          }),
+        ),
+      )
+
+      expect(legacy).toContain('(not my campaign)')
       expect(createdData().asksToJoinCivicPanel).toBe(true)
     })
 

@@ -589,8 +589,13 @@ one door is not leaving the panel, so it never demotes a member. Leaving is the
 contact card or a texted STOP.
 
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
-contracts: "Reply JOIN to join my citizens' panel," plus one clause on what that means and that it comes from the office, not a campaign, in its own paragraph above the opt-out), and the create stamps
-`Outreach.asksToJoinCivicPanel` from the stored message. The reply ingest
+contracts: "Reply JOIN to join my citizens' panel. My office will text you
+about once a month to ask what you think before I decide. Empowered by
+GoodParty.org.", in its own paragraph above the opt-out), and the create
+stamps `Outreach.asksToJoinCivicPanel` from the stored message. The create
+and the composer's lock recognize every wording in `CIVIC_PANEL_JOIN_LINES`
+(`findCivicPanelJoinLine`), because sends written before the line was
+rewritten carry the first one; the composer only writes the current line. The reply ingest
 (`OutreachTextIngestService.applyCivicPanelEvents`, `source: sms`, `sourceId`
 the reply's message id) writes `member` for a JOIN reply
 (`util/civicPanelJoin.util.ts`: the whole reply or a sentence of its own) on
@@ -611,6 +616,23 @@ who left drops out of a saved panel list on its next read. The catalog entry
 (`civicPanel`, `modes: 'serve'`) is what lets the Chief of Staff and the
 priority agent count and propose to the panel. It is not flag-filtered:
 with nobody on a panel it resolves to an empty audience.
+
+**Building the panel starts on the Chief of Staff home.** With the flag on,
+`GET /v1/dashboard/cards` runs `DashboardCardsService.syncCivicPanelCards`
+before it lists (with it off, it lists no `civic_panel` card at all). The
+office's one build card (`sourceExternalId` from contracts'
+`civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) links to
+`/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel`,
+and is done once any `text` row of the org with `asksToJoinCivicPanel` is past
+checkout (not `pending_payment`, `draft`, `canceled`, `denied` or `failed`):
+the purpose is not stored on the row, and the ask is what recruits. While it
+is open its due date rolls forward so it never lapses into missed. Only once
+it is done does the sync make a `civic_panel` card per open priority, which
+opens the priority. One advisory lock per office serializes the sync, because
+the build card's null `sourceItemId` leaves the unique key unable to stop a
+second insert. The seed draw is contracts' `PANEL_SEED_SAMPLE_SIZE`:
+`ceil(PANEL_SEED_TARGET_MEMBERS / PANEL_SEED_ASSUMED_JOIN_RATE)`, 3,334 at
+100 members and 3%, under `MAX_LIST_SAMPLE_SIZE`.
 
 **The rest window.** `voter_file_filter.not_contacted_recently` (both
 products) leaves out anyone the org reached on any channel in the last

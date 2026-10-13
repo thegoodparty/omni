@@ -25,7 +25,7 @@ const bodyOf = (name: string): string => {
 }
 
 describe('useOutreachAudience reset paths', () => {
-  const RESETTERS = ['resetBuilder', 'reset']
+  const RESETTERS = ['reset']
   const BUILDER_CLEARS = [
     'setBuilderFilters({})',
     'setBuilderSupportStatus([])',
@@ -46,5 +46,23 @@ describe('useOutreachAudience reset paths', () => {
   it.each(RESETTERS)('%s clears every builder field, and no more', (fn) => {
     const calls = bodyOf(fn).match(/setBuilder\w+\(/g) ?? []
     expect(calls).toHaveLength(BUILDER_CLEARS.length)
+  })
+
+  // Leaving the builder returns it to what the caller handed in (a card's
+  // seeded draw), and to blank only when nothing was.
+  it('resetBuilder returns every builder field to the handed-in audience', () => {
+    const body = bodyOf('resetBuilder')
+    for (const call of [
+      'setBuilderFilters(proposed?.filters ?? {})',
+      'setBuilderSupportStatus(proposed?.supportStatus ?? [])',
+      'setBuilderPrecincts(proposed?.precincts ?? [])',
+      "setBuilderName(proposed?.name ?? '')",
+      'setBuilderSample(proposed?.sample)',
+    ]) {
+      expect(body).toContain(call)
+    }
+    expect(body.match(/setBuilder\w+\(/g) ?? []).toHaveLength(
+      BUILDER_CLEARS.length,
+    )
   })
 })

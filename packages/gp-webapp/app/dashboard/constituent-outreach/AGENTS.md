@@ -96,6 +96,16 @@ generation services, the spine scoping — are in
   and `POST /v1/outreach/serve/sms` on the same key, so the surface and the
   API roll out together — but the flag gates UX, not authz:
   `@UseElectedOffice()` is still the real check.
+- **`?compose=text&purpose=build_citizens_panel` is the Chief of Staff's
+  "Build your citizens' panel" card.** Once both `serve-sms-outreach` and
+  `serve-citizen-panels` have resolved, the page strips the params and opens
+  the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
+  district's cell phones (`hasCellPhone`, the one filter, which is also what
+  the builder needs before Continue enables), saved as a random draw of
+  contracts' `PANEL_SEED_SAMPLE_SIZE` (3,334), so a smaller district is
+  texted whole. With the panels flag off the same link
+  opens a plain text flow; with the SMS flag off it opens nothing. Both are
+  spent on close, so the tile opens a plain flow afterwards.
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the
   create response; a paid text send only exists once the server finalizes it,

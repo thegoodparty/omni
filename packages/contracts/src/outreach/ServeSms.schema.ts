@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { OutreachEventDetailsSchema } from './OutreachEvent.schema'
-import { ServeOutreachPurposeSchema } from './OutreachPurpose.schema'
+import { ServeSmsPurposeSchema } from './OutreachPurpose.schema'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
 import { ProposalLinkSchema } from '../chats/ChatCard.schema'
@@ -16,9 +16,9 @@ import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 
 // Mirrors SmsDraftRequestSchema with the purpose swapped to the serve
 // vocabulary, the same way ServePhoneBankingScriptDraftRequestSchema mirrors
-// its Win twin.
+// its Win twin. The SMS list, so it carries the panel-building purpose too.
 export const ServeSmsDraftRequestSchema = z.object({
-  purpose: ServeOutreachPurposeSchema,
+  purpose: ServeSmsPurposeSchema,
   tone: SocialToneSchema,
   currentDraft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH).optional(),
   event: OutreachEventDetailsSchema.optional(),
