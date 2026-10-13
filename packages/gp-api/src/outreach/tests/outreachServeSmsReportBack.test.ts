@@ -1,0 +1,167 @@
+import { randomUUID } from 'node:crypto'
+import { HttpStatus } from '@nestjs/common'
+import { addBusinessDays, format } from 'date-fns'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CIVIC_PANEL_JOIN_LINE, type Person } from '@goodparty_org/contracts'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { useTestService } from '@/test-service'
+import {
+  OutreachStatus,
+  OutreachType,
+  PrioritySource,
+} from '../../generated/prisma'
+
+const service = useTestService()
+
+const person = (n: number): Person =>
+  ({
+    id: randomUUID(),
+    firstName: 'Jane',
+    lastName: `Resident ${n}`,
+    cellPhone: `30755500${String(n).padStart(2, '0')}`,
+    address: { line1: `${n} Main St` },
+  }) as Person
+
+// A report back is a text to the people an earlier priority text asked. It
+// is marked as such on the row, which is what keeps it from being read as
+// another ask.
+describe('a Serve text that reports back', () => {
+  let slug: string
+  let priorityId: string
+  let filterId: number
+  let askedId: number
+  const isFeatureEnabled = vi.fn()
+
+  beforeEach(async () => {
+    slug = `eo-rb-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+    const office = await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: slug },
+    })
+    priorityId = (
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: office.id,
+          title: 'Downtown parking',
+          description: 'Not enough of it.',
+          source: PrioritySource.user_stated,
+        },
+      })
+    ).id
+    askedId = (
+      await service.prisma.outreach.create({
+        data: {
+          organizationSlug: slug,
+          campaignId: null,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.completed,
+          priorityId,
+        },
+      })
+    ).id
+    filterId = (
+      await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: slug, name: 'Everyone you texted' },
+      })
+    ).id
+
+    isFeatureEnabled.mockReset().mockResolvedValue(true)
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockImplementation(isFeatureEnabled)
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockResolvedValue({
+      people: Array.from({ length: 30 }, (_, n) => person(n)),
+      pagination: {
+        totalResults: 30,
+        currentPage: 1,
+        pageSize: 1000,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+    })
+  })
+
+  const create = (body: Record<string, unknown> = {}) =>
+    service.client.post(
+      '/v1/outreach/serve/sms',
+      {
+        name: 'Parking report back',
+        message:
+          'this is Bryan, your City Council Member. Thanks for answering.',
+        scheduledLocalDate: format(
+          addBusinessDays(new Date(), 5),
+          'yyyy-MM-dd',
+        ),
+        voterFileFilterId: filterId,
+        reportBackForOutreachId: askedId,
+        ...body,
+      },
+      { headers: { 'x-organization-slug': slug } },
+    )
+
+  it('marks the draft as a report back on the send it answers', async () => {
+    const response = await create()
+
+    expect(response.status).toBe(HttpStatus.CREATED)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: response.data.outreachId },
+    })
+    expect(row.reportBackForOutreachId).toBe(askedId)
+    expect(row.priorityId).toBeNull()
+    expect(row.asksToJoinCivicPanel).toBe(false)
+  })
+
+  it("refuses the citizens' panel join line", async () => {
+    const response = await create({
+      message: `this is Bryan, your City Council Member. ${CIVIC_PANEL_JOIN_LINE}`,
+    })
+
+    expect(response.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('refuses a priority or a check of its own', async () => {
+    const response = await create({ priorityId })
+
+    expect(response.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('refuses a send whose replies are not in yet', async () => {
+    await service.prisma.outreach.update({
+      where: { id: askedId },
+      data: { status: OutreachStatus.in_progress },
+    })
+
+    expect((await create()).status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('refuses a report back on a report back', async () => {
+    const first = await create()
+    await service.prisma.outreach.update({
+      where: { id: first.data.outreachId },
+      data: { status: OutreachStatus.completed },
+    })
+
+    const response = await create({
+      reportBackForOutreachId: first.data.outreachId,
+    })
+
+    expect(response.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('is not found with serve-citizen-panels off', async () => {
+    isFeatureEnabled.mockImplementation(
+      async ({ feature }: { feature: string }) =>
+        feature !== 'serve-citizen-panels',
+    )
+
+    expect((await create()).status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
