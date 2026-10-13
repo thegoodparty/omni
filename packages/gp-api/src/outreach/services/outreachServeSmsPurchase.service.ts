@@ -8,6 +8,7 @@ import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 import { REPORT_BACK_UNSENT_STATUSES } from './outreachReportBack.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 
 /**
  * The Serve SMS purchase handler: paying for a text send from an elected
@@ -61,6 +62,7 @@ export class OutreachServeSmsPurchaseHandlerService
   constructor(
     private readonly queueProducer: QueueProducerService,
     private readonly priorityStatus: PriorityStatusService,
+    private readonly stripe: StripeService,
   ) {
     super()
   }
@@ -274,9 +276,38 @@ export class OutreachServeSmsPurchaseHandlerService
       { outreachId, duplicateOf: outcome.duplicateOf, sessionId },
       'Serve report back paid after another went out; canceled unsent',
     )
+    await this.refundDuplicate(outreachId, sessionId)
     throw new BadRequestException(
       `A report back on outreach ${reportBackForOutreachId} already went out`,
     )
+  }
+
+  // The same refund a cancel-before-send issues, keyed on the row so a
+  // redelivered completion can never refund twice. A failed refund leaves
+  // the row canceled holding its session, which the console lists for staff.
+  private async refundDuplicate(
+    outreachId: number,
+    sessionId: string,
+  ): Promise<void> {
+    if (!sessionId.startsWith('cs_')) return
+    try {
+      const session = await this.stripe.retrieveCheckoutSession(sessionId)
+      const paymentIntentId =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id
+      if (paymentIntentId) {
+        await this.stripe.refundPaymentIntent(
+          paymentIntentId,
+          `outreach-cancel-${outreachId}`,
+        )
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, sessionId },
+        'Refund failed for a duplicate Serve report back; refund it by hand',
+      )
+    }
   }
 
   private parseMetadata(rawMetadata: unknown): ServeSmsPurchaseMetadata {

@@ -369,6 +369,25 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
             async (id) => ({ id }),
           )
 
+    // One payable report back per send: a new draft supersedes the unpaid
+    // ones before it, so a stale draft left open in another tab can no
+    // longer reach checkout. The same card pressed twice already lands on
+    // one draft through its proposal key.
+    if (input.reportBackForOutreachId !== undefined) {
+      await this.model.updateMany({
+        where: {
+          reportBackForOutreachId: input.reportBackForOutreachId,
+          status: OutreachStatus.pending_payment,
+          id: { not: outreach.id },
+        },
+        data: {
+          status: OutreachStatus.canceled,
+          canceledAt: new Date(),
+          canceledBy: 'superseded_report_back',
+        },
+      })
+    }
+
     this.logger.info(
       {
         outreachId: outreach.id,

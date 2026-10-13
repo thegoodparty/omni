@@ -13,6 +13,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
 
 const service = useTestService()
 
@@ -164,30 +165,64 @@ describe('a Serve text that reports back', () => {
     ).rejects.toThrow(/already went out/)
   })
 
-  // Both drafts passed checkout and were paid at once: the first claim
-  // sends, the second is canceled before anything goes out.
+  // A new draft supersedes the unpaid one before it, so a stale draft left
+  // open in another tab cannot reach checkout.
+  it('leaves one payable draft per send', async () => {
+    const first = await create()
+    const second = await create()
+    const purchase = service.app.get(OutreachServeSmsPurchaseHandlerService)
+
+    await expect(
+      purchase.validatePurchase({
+        outreachId: first.data.outreachId,
+        organizationSlug: slug,
+      }),
+    ).rejects.toThrow(/not awaiting payment/)
+    await expect(
+      purchase.validatePurchase({
+        outreachId: second.data.outreachId,
+        organizationSlug: slug,
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  // Two drafts that both reached checkout and were paid at once: the first
+  // claim sends, the second is canceled before anything goes out and its
+  // payment refunded.
   it('sends only the first of two report backs paid at once', async () => {
     vi.spyOn(
       service.app.get(QueueProducerService),
       'sendMessage',
     ).mockResolvedValue(undefined)
-    const first = await create()
-    const second = await create()
+    const stripe = service.app.get(StripeService)
+    vi.spyOn(stripe, 'retrieveCheckoutSession').mockResolvedValue({
+      payment_intent: 'pi_second',
+    } as never)
+    const refund = vi
+      .spyOn(stripe, 'refundPaymentIntent')
+      .mockResolvedValue({} as never)
+    const draft = () =>
+      service.prisma.outreach.create({
+        data: {
+          organizationSlug: slug,
+          campaignId: null,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.pending_payment,
+          textCount: 30,
+          reportBackForOutreachId: askedId,
+        },
+      })
+    const first = await draft()
+    const second = await draft()
     const purchase = service.app.get(OutreachServeSmsPurchaseHandlerService)
     const metadata = (id: number) => ({
       outreachId: id,
       organizationSlug: slug,
     })
 
-    await purchase.executePostPurchase(
-      'cs_first',
-      metadata(first.data.outreachId),
-    )
+    await purchase.executePostPurchase('cs_first', metadata(first.id))
     await expect(
-      purchase.executePostPurchase(
-        'cs_second',
-        metadata(second.data.outreachId),
-      ),
+      purchase.executePostPurchase('cs_second', metadata(second.id)),
     ).rejects.toThrow(/already went out/)
 
     const rows = await service.prisma.outreach.findMany({
@@ -202,6 +237,11 @@ describe('a Serve text that reports back', () => {
         stripeCheckoutSessionId: 'cs_second',
       },
     ])
+    expect(refund).toHaveBeenCalledTimes(1)
+    expect(refund).toHaveBeenCalledWith(
+      'pi_second',
+      `outreach-cancel-${second.id}`,
+    )
   })
 
   it('refuses a report back on a report back', async () => {
