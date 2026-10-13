@@ -835,6 +835,8 @@ export {
   type DashboardCard,
   DashboardCardsResponseSchema,
   type DashboardCardsResponse,
+  civicPanelBuildCardSourceId,
+  isCivicPanelBuildCard,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -991,6 +993,10 @@ export {
   type OutreachPurpose,
   SERVE_OUTREACH_PURPOSE_VALUES,
   ServeOutreachPurposeSchema,
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  SERVE_SMS_PURPOSE_VALUES,
+  ServeSmsPurposeSchema,
+  type ServeSmsPurpose,
   COMMUNITY_INPUT_PURPOSE,
   COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   type ServeOutreachPurpose,
@@ -1632,4 +1638,7 @@ export {
   CIVIC_PANEL_JOIN_LINE,
   PANEL_ASSUMED_REPLY_RATE,
   CONTACT_REST_DAYS,
+  PANEL_SEED_TARGET_MEMBERS,
+  PANEL_SEED_ASSUMED_JOIN_RATE,
+  PANEL_SEED_SAMPLE_SIZE,
 } from './outreach/CivicPanelJoin'

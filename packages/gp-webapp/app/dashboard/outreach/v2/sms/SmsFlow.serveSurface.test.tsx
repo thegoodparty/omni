@@ -323,6 +323,71 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).toBeChecked()
   })
 
+  it("hides building a citizens' panel with serve-citizen-panels off", async () => {
+    openServeFlow()
+    await screen.findByText('Explain a recent decision')
+    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
+  })
+
+  it("lists building a citizens' panel first with serve-citizen-panels on", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    openServeFlow()
+
+    expect(
+      await screen.findByText("Build your citizens' panel"),
+    ).toBeInTheDocument()
+  })
+
+  // The card already answered the purpose, and a panel text is its ask, so
+  // the box is ticked and cannot be unticked.
+  it("opens on the citizens' panel purpose with the JOIN ask locked on", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const draftCalls: ServeSmsDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted body' } }
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="build_citizens_panel"
+      />,
+    )
+
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).toBeChecked()
+    expect(ask).toBeDisabled()
+  })
+
   // "Campaign" is Win vocabulary: an elected official has an office and a
   // term. This string lives on the shared compose step, which the
   // per-surface records cannot reach, so it keys on the surface's own

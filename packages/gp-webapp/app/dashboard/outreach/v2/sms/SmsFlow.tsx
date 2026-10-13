@@ -19,6 +19,7 @@ import type {
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   checkSmsStandards,
   deriveSmsProtectedParts,
   mergeTagToken,
@@ -321,6 +322,9 @@ interface SmsFlowProps {
   // AI-drafts, so the seeded words are what they edit rather than something
   // a draft immediately overwrites.
   initialScript?: string
+  // Opens past the purpose picker on this purpose, as a card that already
+  // answered it (the Chief of Staff's citizens' panel card).
+  initialPurpose?: SmsFlowPurpose
   // What an agent's proposal knows about the event it invites people to; the
   // details step opens on it.
   initialEvent?: ProposalEvent
@@ -508,6 +512,7 @@ export const SmsFlow = ({
   initialEvent,
   source,
   initialScript,
+  initialPurpose,
   proposedAudience,
   proposalLink,
   onProposalCreateFailed,
@@ -554,11 +559,16 @@ export const SmsFlow = ({
     surface.isServe,
   )
   const [asksToJoinCivicPanel, setAsksToJoinCivicPanel] = useState(false)
+  // A text that builds the panel is its ask, so the ask cannot be unticked.
+  const civicPanelAskLocked =
+    surface.isServe && purpose === BUILD_CITIZENS_PANEL_PURPOSE
+  const asksToJoin =
+    surface.isServe && (asksToJoinCivicPanel || civicPanelAskLocked)
+  const purposes = citizenPanelsEnabled
+    ? surface.purposes
+    : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
   const composeMessage = (body: string, committee: string | null) =>
-    withCivicPanelJoin(
-      surface.composeMessage(body, committee),
-      surface.isServe && asksToJoinCivicPanel,
-    )
+    withCivicPanelJoin(surface.composeMessage(body, committee), asksToJoin)
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
@@ -753,9 +763,11 @@ export const SmsFlow = ({
     // drafting over them would throw the seed away. A carried-in
     // recommendation opens past it too, on the purpose its intent maps onto:
     // the candidate answered that question by picking the card.
-    const carriedPurpose = preselectedRecommendedVariant
-      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-      : null
+    const carriedPurpose =
+      initialPurpose ??
+      (preselectedRecommendedVariant
+        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+        : null)
     // A resumed draft answered purpose, audience and compose when it was
     // built, so it opens on the one thing still missing.
     setStepId(
@@ -780,7 +792,9 @@ export const SmsFlow = ({
     setLockSource(seeded)
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
-    setAsksToJoinCivicPanel(false)
+    setAsksToJoinCivicPanel(
+      !initialScript && carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE,
+    )
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -809,6 +823,7 @@ export const SmsFlow = ({
     resetAudience,
     resetEventDetails,
     initialScript,
+    initialPurpose,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
@@ -1140,6 +1155,11 @@ export const SmsFlow = ({
 
   const handleSelectPurpose = (selected: SmsFlowPurpose) => {
     setPurpose(selected)
+    // Kept ticked on the way to another purpose, so the box still matches
+    // the message.
+    if (surface.isServe && selected === BUILD_CITIZENS_PANEL_PURPOSE) {
+      setAsksToJoinCivicPanel(true)
+    }
     setTone('warm')
     setUndoText(null)
     // A custom message starts as its locked parts, written between.
@@ -1965,7 +1985,7 @@ export const SmsFlow = ({
         <SmsPurposeStep
           selected={purpose}
           onSelect={handleSelectPurpose}
-          purposes={surface.purposes}
+          purposes={purposes}
           introBody={surface.purposeIntroBody}
         />
       ) : stepId === 'details' ? (
@@ -2138,7 +2158,8 @@ export const SmsFlow = ({
           civicPanelAsk={
             surface.isServe && citizenPanelsEnabled
               ? {
-                  checked: asksToJoinCivicPanel,
+                  checked: asksToJoin,
+                  locked: civicPanelAskLocked,
                   onChange: (checked) => {
                     setAsksToJoinCivicPanel(checked)
                     loadMessage(withCivicPanelJoin(message, checked))

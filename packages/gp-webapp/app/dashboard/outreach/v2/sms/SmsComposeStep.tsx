@@ -127,8 +127,13 @@ interface SmsComposeStepProps {
   onImageChange: (file: File | null) => void
   imageError: string | null
   onImageError: (message: string | null) => void
-  // Serve only: the "Reply JOIN" ask for the official's civic panel.
-  civicPanelAsk?: { checked: boolean; onChange: (checked: boolean) => void }
+  // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
+  // on a text whose purpose is the ask.
+  civicPanelAsk?: {
+    checked: boolean
+    locked?: boolean
+    onChange: (checked: boolean) => void
+  }
 }
 
 // Plain-language fix per failed compliance rule. The greeting, opt-out, and
@@ -425,6 +430,7 @@ export const SmsComposeStep = ({
             <Checkbox
               id="civic-panel-ask"
               checked={civicPanelAsk.checked}
+              disabled={civicPanelAsk.locked}
               onCheckedChange={(value) =>
                 civicPanelAsk.onChange(value === true)
               }

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   BROADCAST_OUTREACH_PURPOSE_VALUES,
   COMMUNITY_INPUT_PURPOSE,
+  BUILD_CITIZENS_PANEL_PURPOSE,
   OUTREACH_PURPOSE_VALUES,
   SERVE_OUTREACH_PURPOSE_VALUES,
+  SERVE_SMS_PURPOSE_VALUES,
 } from './OutreachPurpose.schema'
 import { SMS_PURPOSE_VALUES } from './OutreachSms.schema'
 import { ROBOCALL_PURPOSE_VALUES } from './RobocallScript.schema'
@@ -37,6 +39,20 @@ describe('outreach purpose vocabulary', () => {
     expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).toEqual(
       SERVE_OUTREACH_PURPOSE_VALUES,
     )
+  })
+
+  // Seeding a citizens' panel is a random draw of the district's cell
+  // phones, so only a text can do it.
+  it('offers building a citizens panel on Serve SMS alone', () => {
+    expect(SERVE_SMS_PURPOSE_VALUES).toEqual([
+      BUILD_CITIZENS_PANEL_PURPOSE,
+      ...SERVE_OUTREACH_PURPOSE_VALUES,
+    ])
+    expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).not.toContain(
+      BUILD_CITIZENS_PANEL_PURPOSE,
+    )
+    expect(OUTREACH_PURPOSE_VALUES).not.toContain(BUILD_CITIZENS_PANEL_PURPOSE)
+    expect(SOCIAL_PURPOSE_VALUES).not.toContain(BUILD_CITIZENS_PANEL_PURPOSE)
   })
 
   it('lets social add issue_update without forking the list', () => {

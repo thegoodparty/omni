@@ -43,6 +43,20 @@ export const DashboardCardSchema = z.object({
 })
 export type DashboardCard = z.infer<typeof DashboardCardSchema>
 
+const CIVIC_PANEL_BUILD_CARD_PREFIX = 'build:'
+
+// The office's one "Build your citizens' panel" card. Its source is the office
+// rather than a priority, which is what tells it apart from the per-priority
+// panel cards that share its type.
+export const civicPanelBuildCardSourceId = (electedOfficeId: string): string =>
+  `${CIVIC_PANEL_BUILD_CARD_PREFIX}${electedOfficeId}`
+
+export const isCivicPanelBuildCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId'>,
+): boolean =>
+  card.type === 'civic_panel' &&
+  card.sourceExternalId.startsWith(CIVIC_PANEL_BUILD_CARD_PREFIX)
+
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,
   cards: z.array(DashboardCardSchema),

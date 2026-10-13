@@ -70,6 +70,15 @@ count, and so "Continue (N)", reads the sample's size. A reset clears it with
 the other builder fields. Phone banking with a preselected list and an
 `initialScript` lands on the script step once the list resolves.
 
+`SmsFlow` also takes `initialPurpose`, which opens past the purpose picker on
+that purpose the way a carried recommendation does; the Serve hub passes it
+for the Chief of Staff's citizens' panel card
+(`constituent-outreach/AGENTS.md`). On Serve, `build_citizens_panel` is
+offered only behind `serve-citizen-panels`, and picking it ticks the compose
+step's "Ask them to join your citizens' panel" and locks it
+(`civicPanelAsk.locked`): a panel text is its ask, so every message it
+composes carries the JOIN line.
+
 The voter data page's "Choose a channel" picker (`contacts/crm/shared/channelPicker/`)
 links here with the flow named — `?compose=text|robocall|phoneBanking|social&source=voter_data`
 — and the audience beside it as `?listId=` (a saved list) or `?recommended=<variant>`

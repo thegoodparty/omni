@@ -1,3 +1,5 @@
+import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
+
 // The one way a Serve text asks a constituent onto the official's citizens'
 // panel. A fixed sentence rather than composed copy, because two readers
 // depend on its exact words: the composer locks it so the ask cannot be
@@ -20,3 +22,18 @@ export const PANEL_ASSUMED_REPLY_RATE = 0.4
 // Nobody contacted by the office in this many days is asked again: the panel
 // brief's rotation, so the most eager members are not asked about everything.
 export const CONTACT_REST_DAYS = 30
+
+// The panel an office starts with: enough members for a read on a priority.
+export const PANEL_SEED_TARGET_MEMBERS = 100
+
+// The share of a cold text to the district that replies JOIN. An assumption
+// until offices' own seed sends give it a measured rate.
+export const PANEL_SEED_ASSUMED_JOIN_RATE = 0.03
+
+// How many residents the first panel text goes to, drawn at random from the
+// district's cell phones: 3,334, under the sampler's ceiling. A district
+// with fewer cell phones than this is texted whole.
+export const PANEL_SEED_SAMPLE_SIZE = Math.min(
+  Math.ceil(PANEL_SEED_TARGET_MEMBERS / PANEL_SEED_ASSUMED_JOIN_RATE),
+  MAX_LIST_SAMPLE_SIZE,
+)

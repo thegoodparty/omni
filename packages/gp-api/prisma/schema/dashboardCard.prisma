@@ -27,4 +27,5 @@ enum DashboardCardType {
   briefing
   agenda_item
   community_issue
+  civic_panel
 }

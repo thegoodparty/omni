@@ -94,6 +94,13 @@ vi.mock('@shared/experiments/serveSmsFlag', () => ({
   useServeSmsFlag: () => serveSmsFlag,
 }))
 
+// `serve-citizen-panels`, off unless a test turns it on.
+const panelsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
+  SERVE_CITIZEN_PANELS_FLAG_KEY: 'serve-citizen-panels',
+  useServeCitizenPanelsFlag: () => panelsFlag,
+}))
+
 // The phone banking flow's audience step calls these on mount/interaction
 // regardless of which test exercises it — mocked at module scope, same as
 // PhoneBankingFlow.test.tsx's beforeEach, so every test in this file that
@@ -631,6 +638,62 @@ describe('ConstituentOutreachPage — the serve-sms-outreach gate', () => {
     ).toBeInTheDocument()
     // A serve-only purpose card, from SERVE_SMS_PURPOSES.
     expect(screen.getByText('Explain a recent decision')).toBeInTheDocument()
+  })
+})
+
+// The Chief of Staff's "Build your citizens' panel" card links here.
+describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
+  const arriveWith = (params: string) => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams(params) as ReturnType<typeof useSearchParams>,
+    )
+  }
+
+  afterEach(() => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams() as ReturnType<typeof useSearchParams>,
+    )
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = false
+    panelsFlag.ready = true
+    panelsFlag.enabled = false
+  })
+
+  it('opens the text flow on the panel purpose with a district sample picked', async () => {
+    mockPhoneBankingAudience()
+    // The district's cell phones, of which the panel text reaches a draw.
+    api.mock('POST /v1/contacts/count', {
+      status: 200,
+      data: { count: 58520 },
+    })
+    serveSmsFlag.enabled = true
+    panelsFlag.enabled = true
+    arriveWith('compose=text&purpose=build_citizens_panel')
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Continue (3,334)' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Build a constituent list')).toBeInTheDocument()
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/constituent-outreach',
+      { scroll: false },
+    )
+  })
+
+  it('opens a plain text flow with serve-citizen-panels off', async () => {
+    mockPhoneBankingAudience()
+    serveSmsFlag.enabled = true
+    arriveWith('compose=text&purpose=build_citizens_panel')
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      await screen.findByText('Explain a recent decision'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
   })
 })
 

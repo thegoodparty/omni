@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { isCivicPanelBuildCard } from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
 import {
   Button,
@@ -48,6 +49,9 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
+  // The citizens' panel build card: it leads the deck and, like a
+  // get-started card, closes itself once its text has gone out.
+  buildsPanel: boolean
 }
 
 const HEADLINES: Record<DeckKind, string> = {
@@ -55,6 +59,7 @@ const HEADLINES: Record<DeckKind, string> = {
   briefing: 'Get ready for your next meeting',
   agenda_item: 'Know what is on the agenda',
   community_issue: 'Hear what your community is saying',
+  civic_panel: "Ask your citizens' panel",
 }
 
 const isExternalHref = (href: string): boolean =>
@@ -113,7 +118,19 @@ const TaskStack = ({
     return () => window.clearTimeout(timer)
   }, [leaving])
 
+  const dashboardCards: DeckCard[] = (cards.data ?? []).map((card) => ({
+    id: card.id,
+    kind: card.type,
+    title: card.title,
+    summary: card.summary,
+    dueDate: card.dueDate,
+    ctaLabel: card.ctaLabel,
+    ctaHref: card.ctaHref,
+    onboardingKey: null,
+    buildsPanel: isCivicPanelBuildCard(card),
+  }))
   const deck: DeckCard[] = [
+    ...dashboardCards.filter((card) => card.buildsPanel),
     ...ONBOARDING_CARD_ORDER.filter((key) =>
       onboarding?.some((c) => c.key === key && c.status === 'active'),
     ).map((key) => ({
@@ -125,17 +142,9 @@ const TaskStack = ({
       ctaLabel: ONBOARDING_CARDS[key].ctaLabel,
       ctaHref: null,
       onboardingKey: key,
+      buildsPanel: false,
     })),
-    ...(cards.data ?? []).map((card) => ({
-      id: card.id,
-      kind: card.type,
-      title: card.title,
-      summary: card.summary,
-      dueDate: card.dueDate,
-      ctaLabel: card.ctaLabel,
-      ctaHref: card.ctaHref,
-      onboardingKey: null,
-    })),
+    ...dashboardCards.filter((card) => !card.buildsPanel),
   ]
   const stack = leaving
     ? [leaving.card, ...deck.filter((card) => card.id !== leaving.card.id)]
@@ -214,7 +223,7 @@ const TaskStack = ({
   return (
     <section className="flex w-full flex-col gap-6">
       <h2 className="text-center text-2xl font-semibold text-foreground">
-        {HEADLINES[front.kind]}
+        {HEADLINES[front.buildsPanel ? 'onboarding' : front.kind]}
       </h2>
       <div
         className={cn(
@@ -306,7 +315,7 @@ const TaskStack = ({
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
                 {/* A get-started card closes itself once its goal is met,
                     so it offers no manual Mark done. */}
-                {!front.onboardingKey && (
+                {!front.onboardingKey && !front.buildsPanel && (
                   <Button
                     type="button"
                     variant="outline"

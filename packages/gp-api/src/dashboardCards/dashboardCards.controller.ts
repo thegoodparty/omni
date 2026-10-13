@@ -8,7 +8,7 @@ import {
   Query,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { ElectedOffice } from '../generated/prisma'
+import { ElectedOffice, User } from '../generated/prisma'
 import {
   DashboardCard,
   DashboardCardsQuery,
@@ -17,6 +17,9 @@ import {
   DashboardCardsResponseSchema,
 } from '@goodparty_org/contracts'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { DashboardCardsService } from './services/dashboardCards.service'
@@ -28,17 +31,28 @@ import { DashboardCard as DashboardCardRow } from '../generated/prisma'
 
 @Controller('dashboard/cards')
 export class DashboardCardsController {
-  constructor(private readonly cards: DashboardCardsService) {}
+  constructor(
+    private readonly cards: DashboardCardsService,
+    private readonly features: FeaturesService,
+  ) {}
 
   @UseElectedOffice()
   @Get()
   @ResponseSchema(DashboardCardsResponseSchema)
   async list(
     @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqUser() user: User,
     @Query(new ZodValidationPipe(DashboardCardsQuerySchema))
     { bucket }: DashboardCardsQuery,
   ): Promise<DashboardCardsResponse> {
-    const rows = await this.cards.listByBucket(electedOffice.id, bucket)
+    const includeCivicPanel = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (includeCivicPanel) await this.cards.syncCivicPanelCards(electedOffice)
+    const rows = await this.cards.listByBucket(electedOffice.id, bucket, {
+      includeCivicPanel,
+    })
     return { bucket, cards: rows.map(toDto) }
   }
 

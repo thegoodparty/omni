@@ -182,6 +182,64 @@ describe('<TaskStack>', () => {
     )
   })
 
+  const buildCard = card({
+    id: 'build',
+    type: 'civic_panel',
+    title: "Build your citizens' panel",
+    summary:
+      'Invite a random sample of residents to weigh in, so you hear from more than the loudest voices.',
+    ctaLabel: 'Get started',
+    ctaHref:
+      '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+    dueDate: '2026-10-21T18:00:00.000Z',
+    sourceExternalId: 'build:eo-1',
+  })
+
+  it("leads with the citizens' panel build card, ahead of get-started cards", () => {
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    withCards([card({}), buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(
+      screen.getByRole('heading', { name: "Build your citizens' panel" }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Start here' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
+      'href',
+      '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+    )
+  })
+
+  // It is done when its text goes out, not when it is pressed.
+  it('offers no Mark done on the build card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+  })
+
+  it('reads a priority panel card as asking the panel, with Mark done', () => {
+    withCards([
+      card({
+        type: 'civic_panel',
+        title: 'Affordable housing',
+        ctaLabel: 'Get started',
+        ctaHref: '/dashboard/priorities/p1',
+        sourceExternalId: 'p1',
+      }),
+    ])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(
+      screen.getByRole('heading', { name: "Ask your citizens' panel" }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /mark done/i }),
+    ).toBeInTheDocument()
+  })
+
   it('does not explain the system or use an em-dash', () => {
     onboardingRef.current = [{ key: 'meet', status: 'active' }]
     withCards([card({})])

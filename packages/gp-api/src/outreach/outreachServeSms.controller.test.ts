@@ -284,6 +284,43 @@ describe('Serve SMS feature gate', () => {
     expect(generateDraftWithVoice).toHaveBeenCalledOnce()
     expect(createDraft).toHaveBeenCalledOnce()
   })
+
+  it("404s a citizens' panel draft while serve-citizen-panels is off", async () => {
+    isFeatureEnabled.mockImplementation(
+      async ({ feature }: { feature: string }) =>
+        feature !== 'serve-citizen-panels',
+    )
+
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(generateDraftWithVoice).not.toHaveBeenCalled()
+  })
+
+  it("drafts a citizens' panel text with serve-citizen-panels on", async () => {
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(isFeatureEnabled).toHaveBeenCalledWith({
+      user: expect.objectContaining({ id: service.user.id }),
+      feature: 'serve-citizen-panels',
+    })
+    expect(generateDraftWithVoice).toHaveBeenCalledWith(
+      { purpose: 'build_citizens_panel', tone: 'warm' },
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      SERVE_SMS_VOICE,
+      undefined,
+    )
+  })
 })
 
 describe('Serve SMS results and replies routes', () => {

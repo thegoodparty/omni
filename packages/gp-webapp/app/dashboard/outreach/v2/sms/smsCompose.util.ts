@@ -1,5 +1,5 @@
 import type {
-  ServeOutreachPurpose,
+  ServeSmsPurpose,
   SmsPurpose,
   SocialTone,
 } from '@goodparty_org/contracts'
@@ -18,7 +18,7 @@ export const SMS_PURPOSES: { id: SmsPurpose; label: string }[] =
 // convention as SocialFlowPurpose and PhoneBankingFlowPurpose. Lives here
 // rather than in SmsFlow so the step components can name it without
 // importing the flow back.
-export type SmsFlowPurpose = SmsPurpose | ServeOutreachPurpose
+export type SmsFlowPurpose = SmsPurpose | ServeSmsPurpose
 
 export const smsPurposeLabel = (purpose: string): string =>
   SOCIAL_PURPOSE_LABELS[purpose as SmsPurpose] ?? 'Text message'
