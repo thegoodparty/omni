@@ -262,6 +262,12 @@ export class PriorityFlowOutreachService extends createPrismaBase(
             title: true,
             summary: true,
             members: {
+              where: {
+                OR: [
+                  { feedbackId: { not: null } },
+                  { textReplyId: { not: null } },
+                ],
+              },
               select: {
                 feedback: { select: { personId: true } },
                 textReply: { select: { personId: true } },
