@@ -13,6 +13,8 @@ export interface AuthProvider {
   verifySessionToken(token: string): Promise<VerifiedSession>
   verifyM2MToken(token: string): Promise<VerifiedM2MToken>
   isM2MToken(token: string): boolean
+  verifyM2MJwt(token: string): Promise<VerifiedM2MToken>
+  isM2MJwt(token: string): boolean
   getUser(externalUserId: string): Promise<{
     email?: string
     firstName?: string

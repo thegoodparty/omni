@@ -65,6 +65,18 @@ export class SessionGuard implements CanActivate {
       }
     }
 
+    // Clerk verifies a JWT-format M2M token against the instance JWKS only,
+    // never its scopes or our machine secret, so any machine in the Clerk
+    // instance can mint one that verifies. It must never set m2mToken, which
+    // the M2M route guards treat as fully privileged, and it only gets past
+    // this guard on @PublicAccess routes, where ServiceReadGuard reads it.
+    if (this.authProvider.isM2MJwt(token)) {
+      request.serviceReader = await this.authProvider
+        .verifyM2MJwt(token)
+        .catch(() => undefined)
+      return this.allowPublicOrThrow(context)
+    }
+
     try {
       const { externalUserId, actor, isAgentToken } =
         await this.authProvider.verifySessionToken(token)
