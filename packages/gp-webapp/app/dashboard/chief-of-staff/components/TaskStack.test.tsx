@@ -20,6 +20,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 
 const dismissMock = vi.fn()
 const completeMock = vi.fn()
+const snoozeMock = vi.fn()
 const skipOnboardingMock = vi.fn()
 
 vi.mock('../data/use-dashboard', () => ({
@@ -27,6 +28,7 @@ vi.mock('../data/use-dashboard', () => ({
   useOnboardingCards: () => ({ data: onboardingRef.current }),
   useDismissCard: () => ({ mutate: dismissMock }),
   useCompleteCard: () => ({ mutate: completeMock }),
+  useSnoozeCard: () => ({ mutate: snoozeMock }),
   useSkipOnboardingCard: () => ({ mutate: skipOnboardingMock }),
 }))
 
@@ -56,6 +58,7 @@ beforeEach(() => {
   onboardingRef.current = []
   dismissMock.mockReset()
   completeMock.mockReset()
+  snoozeMock.mockReset()
   skipOnboardingMock.mockReset()
   vi.mocked(trackEvent).mockReset()
 })
@@ -212,22 +215,45 @@ describe('<TaskStack>', () => {
     )
   })
 
-  // It is done when its text goes out, not when it is pressed.
-  it('offers no Mark done on the build card', () => {
+  it('marks the build card done', async () => {
+    const user = userEvent.setup()
     withCards([buildCard])
     render(<TaskStack onOpenCard={vi.fn()} />)
-    expect(
-      screen.queryByRole('button', { name: /mark done/i }),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /mark done/i }))
+    expect(completeMock).toHaveBeenCalledWith('build')
   })
 
-  it('reads a priority panel card as asking the panel, with Mark done', () => {
+  it('puts the build card off for 3 days from Skip', async () => {
+    const user = userEvent.setup()
+    withCards([buildCard, card({})])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    )
+    expect(snoozeMock).toHaveBeenCalledWith('build')
+    expect(dismissMock).not.toHaveBeenCalled()
+  })
+
+  it('sets the build card aside with Not for me', async () => {
+    const user = userEvent.setup()
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Not for me' }),
+    )
+    expect(dismissMock).toHaveBeenCalledWith('build')
+    expect(snoozeMock).not.toHaveBeenCalled()
+  })
+
+  it("reads a priority card as the priority's next step, with Mark done", () => {
     withCards([
       card({
         type: 'civic_panel',
         title: 'Affordable housing',
-        ctaLabel: 'Get started',
+        summary: 'Draft two options for the council.',
+        ctaLabel: 'Open priority',
         ctaHref: '/dashboard/priorities/p1',
         sourceExternalId: 'p1',
       }),
@@ -235,9 +261,13 @@ describe('<TaskStack>', () => {
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
       screen.getByRole('heading', {
-        name: 'Ask your community about a priority',
+        name: 'Next steps on your priorities',
       }),
     ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open priority' })).toHaveAttribute(
+      'href',
+      '/dashboard/priorities/p1',
+    )
     expect(
       screen.getByRole('button', { name: /mark done/i }),
     ).toBeInTheDocument()

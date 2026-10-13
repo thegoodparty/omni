@@ -43,6 +43,9 @@ export const DashboardCardSchema = z.object({
 })
 export type DashboardCard = z.infer<typeof DashboardCardSchema>
 
+// How far "Show in 3 days" puts a card off.
+export const DASHBOARD_CARD_SNOOZE_DAYS = 3
+
 const CIVIC_PANEL_BUILD_CARD_PREFIX = 'build:'
 
 // The office's one "Build your citizens' panel" card. Its source is the office
