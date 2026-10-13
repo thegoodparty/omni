@@ -1721,6 +1721,14 @@ export const SmsFlow = ({
     if (previous) setStepId(previous)
   }
 
+  // A card that answered the purpose opens on its audience with nothing behind
+  // it: Back would clear the card's seeded draw and reopen the question the
+  // card answered, so there it leaves the flow instead.
+  const atCardStart =
+    initialPurpose !== undefined &&
+    stepId === 'audience' &&
+    audience.mode !== 'name'
+
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = !scheduled && purpose !== null && savedDraft === null
 
@@ -1920,6 +1928,7 @@ export const SmsFlow = ({
           ? handleBack
           : undefined
       }
+      backExits={atCardStart}
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).

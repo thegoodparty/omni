@@ -745,6 +745,31 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     expect(created[0]?.message).toContain(CIVIC_PANEL_JOIN_LINE)
   })
 
+  // The card answered the purpose, so Back on its first step leaves the
+  // flow rather than reopening that question or dropping the draw.
+  it('leaves the flow on Back from the first step, never showing the purpose', async () => {
+    mockPhoneBankingAudience()
+    api.mock('POST /v1/contacts/count', {
+      status: 200,
+      data: { count: 58520 },
+    })
+    serveSmsFlag.enabled = true
+    panelsFlag.enabled = true
+    arriveWith('compose=text&purpose=build_citizens_panel')
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    await screen.findByRole('button', { name: 'Continue (3,334)' })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(
+      await screen.findByRole('button', { name: 'Continue (3,334)' }),
+    ).toBeEnabled()
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
+  })
+
   it('opens a plain text flow with serve-citizen-panels off', async () => {
     mockPhoneBankingAudience()
     serveSmsFlag.enabled = true

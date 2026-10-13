@@ -388,6 +388,40 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).toBeDisabled()
   })
 
+  // The reviewer's path: opened from the card, Back, Back. The purpose the
+  // card answered must never come back; Back leaves through the confirm.
+  it("leaves through the confirm on Back, never reopening the card's purpose", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const onClose = vi.fn()
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={onClose}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="build_citizens_panel"
+      />,
+    )
+
+    await screen.findByText('Choose a constituent list')
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Keep editing' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Discard' }),
+    )
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+    expect(screen.queryByText('What do you want to do?')).toBeNull()
+  })
+
   // "Campaign" is Win vocabulary: an elected official has an office and a
   // term. This string lives on the shared compose step, which the
   // per-surface records cannot reach, so it keys on the surface's own

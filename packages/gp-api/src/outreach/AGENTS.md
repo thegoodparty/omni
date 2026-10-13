@@ -394,7 +394,9 @@ citizens' panel. Its `SERVE_SMS_VOICE` structure writes the body only and
 never the JOIN ask, because the webapp appends the locked
 `CIVIC_PANEL_JOIN_LINE` and the reply reader honors only those words. The
 draft route 404s that purpose while `serve-citizen-panels` is off, on top of
-the `serve-sms-outreach` gate.
+the `serve-sms-outreach` gate, and the create route 400s any message carrying
+a join line (`findCivicPanelJoinLine`) while it is off, since that line is
+what marks a send as asking.
 
 **Opt-out has one definition**, `util/textOptOut.util.ts`, and both products
 use it. An unambiguous keyword as a standalone SENTENCE, an ordinary-verb
