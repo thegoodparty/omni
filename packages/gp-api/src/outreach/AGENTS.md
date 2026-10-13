@@ -111,7 +111,14 @@ and the build-ready edge stamps `phoneListId` later (pay-before-build). The DTO
 itself has no request context to evaluate a per-user flag against, so the Zod
 schema never enforces `phoneListId`; `OutreachService.create` (which has the
 request user) is the single enforcement point, evaluating the flag via
-`FeaturesService.isFeatureEnabled` at entry.
+`FeaturesService.isFeatureEnabled` at entry. The RESUME path
+(`convertP2pDraft`) re-checks the SAME flag independently, at resume time —
+a draft created pay-before-build (flag on, no `phoneListId`) can be resumed
+after the per-user flag has since turned off, and a resume with no usable
+`phoneListId` (the request's own, or the one already stamped on the draft)
+is refused there before any payment if the flag now reads off for this user;
+never trusting the flag's value at create time is what keeps a later flag
+flip from charging a send that can never complete.
 `finalizeOutreachPurchase` → `submitDraftToPeerly` is therefore the only p2p
 path that reaches `createPeerlyP2pJob`. `finalizeOutreachPurchase` DEFERS
 (SATELLITE-gated, not flag-gated) when the p2p draft has no numeric

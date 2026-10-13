@@ -279,6 +279,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // inserting a second one would leave the saved image and script behind and
   // let the expiry job delete the audience the candidate is paying for.
   private async convertP2pDraft(
+    user: User,
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
     draftOutreachId: number,
@@ -296,6 +297,29 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
     if (draft.status !== OutreachStatus.draft) {
       throw new ConflictException('This outreach is no longer a draft')
+    }
+
+    // Win SMS hold pay-before-build, RESUME SIDE: a draft created while the
+    // flag was ON for this user may carry no phoneListId yet (pay-before-
+    // build — the build-ready edge stamps it later). The flag is per-user
+    // and evaluated fresh at every entry, so it can differ at RESUME/pay
+    // time from what it was at create time — never trust the earlier
+    // decision. A resume that would otherwise take the immediate-charge path
+    // (flag now OFF for this user) MUST already have a usable phoneListId,
+    // or the draft pays and then submitDraftToPeerly fails post-payment —
+    // charged, nothing sent. Mirrors the fresh-create guard in `create()`.
+    const effectivePhoneListId =
+      createOutreachDto.phoneListId ?? draft.phoneListId
+    if (!effectivePhoneListId) {
+      const holdBillingEnabled = await this.features.isFeatureEnabled({
+        user,
+        feature: WIN_SMS_HOLD_BILLING_FLAG,
+      })
+      if (!holdBillingEnabled) {
+        throw new BadRequestException(
+          'Phone list ID is required for P2P outreach',
+        )
+      }
     }
 
     const {
@@ -395,6 +419,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         throw new BadRequestException('Script is required for P2P outreach')
       }
       return await this.convertP2pDraft(
+        user,
         campaign,
         createOutreachDto,
         createOutreachDto.draftOutreachId,
