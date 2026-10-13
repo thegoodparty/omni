@@ -79,11 +79,22 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       }),
     )
 
-    const byChannel = { text: 0, phoneBanking: 0, doorKnocking: 0 }
+    const byChannelPeople = {
+      text: new Set<string>(),
+      phoneBanking: new Set<string>(),
+      doorKnocking: new Set<string>(),
+    }
     const respondentIds = new Set<string>()
     for (const { send, respondentIds: ids } of perSend) {
-      if (send.channel !== 'social') byChannel[send.channel] += ids.length
-      for (const id of ids) respondentIds.add(id)
+      for (const id of ids) {
+        respondentIds.add(id)
+        if (send.channel !== 'social') byChannelPeople[send.channel].add(id)
+      }
+    }
+    const byChannel = {
+      text: byChannelPeople.text.size,
+      phoneBanking: byChannelPeople.phoneBanking.size,
+      doorKnocking: byChannelPeople.doorKnocking.size,
     }
     const ids = [...respondentIds]
 

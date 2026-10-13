@@ -87,6 +87,8 @@ export const PriorityResultsSchema = z.object({
   sends: z.array(PriorityResultsSendSchema),
   respondents: z.object({
     total: z.number().int(),
+    // Distinct people per channel. Someone heard by text and at the door
+    // counts once in each, so the channels can add up to more than total.
     byChannel: z.object({
       text: z.number().int(),
       phoneBanking: z.number().int(),

@@ -179,6 +179,28 @@ describe('GET /v1/priorities/:id/results', () => {
     expect(res.data.respondents.total).toBe(3)
   })
 
+  it('counts a person who answered two texts once on that channel', async () => {
+    const { respondents } = await createTextSend(3, 0)
+    const second = await createTextSend(2, 0)
+    await service.prisma.pollIndividualMessage.create({
+      data: {
+        id: uuidv7(),
+        personId: respondents[0]!,
+        outreachId: second.outreach.id,
+        electedOfficeId: eoId,
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        sentAt: new Date(),
+        content: 'Still flooding.',
+        isOptOut: false,
+      },
+    })
+
+    const res = await results()
+
+    expect(res.data.respondents.total).toBe(5)
+    expect(res.data.respondents.byChannel.text).toBe(5)
+  })
+
   it('withholds the comparison below the minimum number of respondents', async () => {
     await createTextSend(4, 2)
 
