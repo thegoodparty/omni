@@ -137,18 +137,23 @@ describe("the Chief of Staff's report back card", () => {
 
   it('never appears for a report back itself', async () => {
     const slug = 'eo-report-back-of-a-report-back'
-    const { priority } = await seedOffice(slug)
+    const { electedOffice, priority } = await seedOffice(slug)
     const asked = await seedSend(slug, { priorityId: priority.id })
     await seedSend(slug, {
       priorityId: priority.id,
       reportBackForOutreachId: asked.id,
     })
 
-    const cards = await listCards(slug)
+    await listCards(slug)
+    const rows = await service.prisma.dashboardCard.findMany({
+      where: {
+        electedOfficeId: electedOffice.id,
+        type: DashboardCardType.report_back,
+      },
+      select: { sourceExternalId: true },
+    })
 
-    expect(cards.map((card) => card.sourceExternalId)).toEqual([
-      String(asked.id),
-    ])
+    expect(rows).toEqual([{ sourceExternalId: String(asked.id) }])
   })
 
   it('is done once the report back goes out past checkout', async () => {
@@ -177,6 +182,20 @@ describe("the Chief of Staff's report back card", () => {
       },
     })
     expect(rows).toBe(1)
+  })
+
+  it('is done on its first read when the report back already went out', async () => {
+    const slug = 'eo-report-back-sent-first'
+    const { priority } = await seedOffice(slug)
+    const asked = await seedSend(slug, { priorityId: priority.id })
+    await seedSend(slug, {
+      reportBackForOutreachId: asked.id,
+      status: OutreachStatus.pending,
+    })
+
+    expect(await listCards(slug)).toHaveLength(0)
+    const [done] = await listCards(slug, 'done')
+    expect(done?.sourceExternalId).toBe(String(asked.id))
   })
 
   it('takes Show in 3 days, Not for me and Bring it back', async () => {

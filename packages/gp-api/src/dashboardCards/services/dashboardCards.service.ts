@@ -170,16 +170,23 @@ export class DashboardCardsService extends createPrismaBase(
           })),
         })
       }
-      const open = existing.filter((card) => card.completedAt === null)
-      const sent = await this.reportBack.sentReportBacks(
-        open.map((card) => Number(card.sourceExternalId)),
-      )
-      const done = open.filter((card) =>
-        sent.has(Number(card.sourceExternalId)),
-      )
-      if (done.length > 0) {
+      // Every open card, the ones just made included: a report back can be
+      // past checkout before its card's first read.
+      const openIds = [
+        ...existing
+          .filter((card) => card.completedAt === null)
+          .map((card) => Number(card.sourceExternalId)),
+        ...missing.map((send) => send.id),
+      ]
+      const sent = await this.reportBack.sentReportBacks(openIds)
+      if (sent.size > 0) {
         await tx.dashboardCard.updateMany({
-          where: { id: { in: done.map((card) => card.id) } },
+          where: {
+            electedOfficeId: electedOffice.id,
+            type: DashboardCardType.report_back,
+            completedAt: null,
+            sourceExternalId: { in: [...sent.keys()].map(String) },
+          },
           data: { completedAt: now, dismissedAt: null, snoozedUntil: null },
         })
       }
