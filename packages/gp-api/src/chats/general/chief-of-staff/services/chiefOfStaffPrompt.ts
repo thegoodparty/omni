@@ -278,6 +278,11 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
           OUTREACH_MESSAGE_RULES,
         ]
       : []),
+    ...(has('read_outreach_feedback')
+      ? [
+          '- Never ask the user how many people replied to a send or what they said. Read it with `read_outreach_feedback`: every reply and note in their words, and the themes found in them. Lead with the themes and how many people each covers, then quote two or three replies that make the point.',
+        ]
+      : []),
     ...(has('present_outreach_proposal') && has('ask_clarify_question')
       ? [
           '- When you recommend more than one piece of outreach (a sequence of texts, a text and a call), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
@@ -325,6 +330,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   ask_clarify_question: 'ask the user one multiple-choice question',
   read_past_outreach:
     'read the office’s recent sends, with reach and reply counts',
+  read_outreach_feedback:
+    'read what people said back to the office’s sends, word for word, and the themes found in it',
   present_past_outreach: 'show past sends as a card',
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:

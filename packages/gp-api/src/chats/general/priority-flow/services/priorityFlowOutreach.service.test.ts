@@ -4,6 +4,7 @@ import { v7 as uuidv7 } from 'uuid'
 import {
   OutreachStatus,
   OutreachType,
+  PollIndividualMessageSender,
   PrioritySource,
 } from '../../../../generated/prisma'
 import { PriorityFlowOutreachService } from './priorityFlowOutreach.service'
@@ -161,5 +162,77 @@ describe('PriorityFlowOutreachService.forCampaign', () => {
     const rows = await outreach.forCampaign(campaign.id)
 
     expect(rows.map((row) => row.outreachId)).toEqual([campaignSend.id])
+  })
+})
+
+describe('PriorityFlowOutreachService.feedbackFor', () => {
+  const reply = (
+    outreachId: number,
+    personId: string,
+    content: string,
+    isOptOut = false,
+  ) =>
+    service.prisma.pollIndividualMessage.create({
+      data: {
+        id: uuidv7(),
+        personId,
+        outreachId,
+        electedOfficeId: officeId,
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        sentAt: new Date(),
+        content,
+        isOptOut,
+      },
+    })
+
+  it("reads a priority's text replies in people's words, without opt-outs", async () => {
+    const flooding = await createPriority('Flooding')
+    const text = await send('Oak Street homeowners', flooding)
+    await service.prisma.outreach.update({
+      where: { id: text.id },
+      data: { scheduledLocalDate: '2026-10-08' },
+    })
+    const ana = uuidv7()
+    await reply(text.id, ana, 'The drain backs up every storm.')
+    await reply(text.id, ana, 'Twice this month.')
+    await reply(text.id, uuidv7(), 'STOP', true)
+    await send('other priority', await createPriority('Parks'))
+
+    const [feedback, ...rest] = await outreach.feedbackFor(slug, {
+      priorityId: flooding,
+    })
+
+    expect(rest).toEqual([])
+    expect(feedback).toMatchObject({
+      outreachId: text.id,
+      sentOn: '8 Oct',
+      heardFrom: 1,
+      verbatimsLeftOut: 0,
+      themes: [],
+    })
+    expect(feedback?.verbatims).toEqual([
+      {
+        said: 'The drain backs up every storm. / Twice this month.',
+        source: 'text_reply',
+        confirmed: true,
+        issues: [],
+      },
+    ])
+  })
+
+  it('leaves out unpaid drafts and Win sends on the same org', async () => {
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.pending_payment,
+        name: 'unpaid',
+      },
+    })
+    const sent = await send('newsletter', null)
+
+    const sends = await outreach.feedbackFor(slug, {})
+
+    expect(sends.map((row) => row.outreachId)).toEqual([sent.id])
   })
 })

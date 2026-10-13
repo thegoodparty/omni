@@ -35,6 +35,9 @@ export interface PriorityFlowContext {
   // Which people table the constituent-data tool reads. Defaults to 'voters'
   // here; the handler resolves it per turn from PeopleDatasetService.
   peopleDataset: PeopleDataset
+  // Whether read_outreach_feedback registers: the serve-citizen-panels flag
+  // for the chatting user, resolved per turn by the handler.
+  outreachFeedbackEnabled?: boolean
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the
