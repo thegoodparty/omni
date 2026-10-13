@@ -202,8 +202,9 @@ does not list sends, since the tiles already give those counts.
   the page reads the flag server-side (`getFlagVariants`) and 404s when off,
   and gp-api 404s the endpoint the same way.
 - **Who counts as answering:** a text with `respondedAt`, a call or a knock
-  with outcome `answered`. A knock is tied to a walk through its turf's stop
-  targets, since a knock carries no turf id.
+  with outcome `answered`. A knock counts toward the walk whose envelope it
+  was logged under (`ContactInteractionDoorKnock.outreachId`), never by the
+  turf's stops, since a person can sit in two turfs.
 - **The map never pins a house.** Coordinates arrive rounded to about 100 m
   with no ids, and `respondentGrid.ts` bins them into fixed ~400 m squares on
   the contact map's tile style, so no new map dependency.
