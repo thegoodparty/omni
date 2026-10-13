@@ -235,10 +235,15 @@ jobs:
           # deploy (Deploy job conclusion=failure/timed_out) is NOT superseded
           # and still fails E2E.
           # bash runs this step with -e, so one transient GitHub 5xx would fail the gate.
+          # A failed gh call can print an error body to stdout, so only a
+          # successful attempt's output may reach the caller.
           gh_retry() {
-            local n
+            local out n
             for n in 1 2 3; do
-              gh "$@" && return 0
+              if out=$(gh "$@"); then
+                printf '%s\n' "$out"
+                return 0
+              fi
               sleep 5
             done
             return 1
