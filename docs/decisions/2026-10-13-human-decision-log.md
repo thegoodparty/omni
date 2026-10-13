@@ -3,7 +3,7 @@ title: Keep an in-repo log of human decisions, and only humans decide
 status: active
 decided_by: [swain]
 date: 2026-10-13
-code: ['#PR']
+code: ['#2729']
 scope:
   - docs/decisions/**
   - AGENTS.md
