@@ -133,8 +133,9 @@ alone, sized as a cold text. The proposal carries both parts as one
 phone, `notContactedRecently`), and the saved list freezes the union of the
 two draws. The targeted groups wait for that send's read
 (`read_outreach_feedback`): only a thin or one-sided read brings the most or
-least affected group, as its own card with `widensOutreachIds` set to the
-first send. A side not yet sent may name the other side's sends there
+least affected group, as its own card with `widensOutreachIds` set to
+every send the check has had; a thin read is never widened to more of the
+same audience, and a side never offered is never recorded declined. A side not yet sent may name the other side's sends there
 (`PriorityFlowHandler.proposalRefusal`), which is how the least affected
 group leaves out everyone the first send asked. The handler reads the panel
 size per turn (`countCivicPanelMembers`) for the `<priority>` "Citizens'

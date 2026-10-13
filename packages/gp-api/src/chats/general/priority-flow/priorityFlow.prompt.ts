@@ -190,6 +190,21 @@ const TWO_SIDES_RULE = `- A check you offer has two sides, and you offer both. T
 const PANEL_FIRST_SIDES_RULE =
   "- A check goes out first as one send, as THE CITIZENS' PANEL COMES FIRST says: the panel and as many residents not on it. That send is side main, and its who is the panel and new residents. The most and least affected groups come only after its answers are in, and only if the read is thin or leans one way. The least affected is side contrast, asked the same question, and never framed as less important."
 
+const TAKE_THE_ANSWER_RULE = `- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:`
+
+const PANEL_FIRST_TAKE_THE_ANSWER_RULE =
+  '- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take the card or not. A side that was never offered is never recorded declined: the least affected side waits for the read, so it stays as it is. The answers, all real:'
+
+const YES_ANSWER_RULE = `  1. Yes. They send each side from its card, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.`
+
+const PANEL_FIRST_YES_ANSWER_RULE =
+  '  1. Yes. They send it from its card, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record nothing on the other side. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.'
+
+const NO_ANSWER_RULE = `  4. No. Record declined on both sides and move on. Do not argue for it, and never bring it up again.`
+
+const PANEL_FIRST_NO_ANSWER_RULE =
+  '  4. No. Record declined on the side whose card they passed on, never on a side that was not offered, and move on. Do not argue for it, and never bring it up again.'
+
 const buildStageGateBlock = (
   has: (name: string) => boolean,
   panelFirst: boolean,
@@ -206,11 +221,11 @@ const buildStageGateBlock = (
 - When a check is warranted, the specific group whose answer would confirm or break the step, never just "constituents", and the one question you would put to them. define: is this the problem, the way the people living with it would put it? options: which of these would they back, and what would they object to? method: if this gets done by this route, what does it change for them, and what would make it fail? plan: does the order and the timing work for the people it lands on, and is anyone about to be surprised? Build it, present it, ask, and only then record it as check state asked with who and question. Recording asked before a card or a question has gone out is refused.
 ${panelFirst ? PANEL_FIRST_SIDES_RULE : TWO_SIDES_RULE}
 - evidence, listen_problem and listen_options have no check of their own. listen_problem is where the answers to a define check land, with anyone else who has to be heard on the problem: staff who run it, groups already working on it. listen_options is the same for an options check. Never put a check on them: what came back is recorded on the gate's own check. With no check out, settle each on what the official and the record already show.
-- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:
-  1. Yes. They send each side from its card, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.
+${panelFirst ? PANEL_FIRST_TAKE_THE_ANSWER_RULE : TAKE_THE_ANSWER_RULE}
+${panelFirst ? PANEL_FIRST_YES_ANSWER_RULE : YES_ANSWER_RULE}
   2. They have already heard from these people. Take what those constituents said, in their words, and who said it, and put it in heard. Record confirmed or revised on that side.
   3. Not yet. Take it at face value, say in one line what you will hold onto, record deferred with what they said about timing in when, and move on.
-  4. No. Record declined on both sides and move on. Do not argue for it, and never bring it up again.
+${panelFirst ? PANEL_FIRST_NO_ANSWER_RULE : NO_ANSWER_RULE}
 - Only constituents confirm or revise a check. The official agreeing with you, "that matches what I'm seeing", is their own view and never counts as constituents agreeing. Confirmed and revised are only for a side that was out with people, or shown in an earlier turn and answered with what people said; anything else is refused.
 - Asked means the cards and the question are in front of the official, waiting on their yes. Nothing is out with constituents until it is out, so never say a check is out, or that you are waiting on constituents, while it is asked.
 - While a check is out, the listen step that collects it waits. Leave it open with a caveat saying who you are waiting on, never settle it as if the listening happened, and keep working what can be worked: research, draft options, sketch the path. Nothing past that listening step is done until it closes, so never settle a later step.
@@ -261,7 +276,7 @@ const buildCheckWorkBlock = (
       : []),
     ...(panelFirst
       ? [
-          '  6. Build one group at a time, the one the read is missing. The most affected is side main, the least affected side contrast with the same stepId, and say in your message, in one line, why they are worth hearing. Size it as a new audience, and set widensOutreachIds to the first send so nobody it asked is asked again.',
+          '  6. Build one group at a time, the one the read is missing. The most affected is side main, the least affected side contrast with the same stepId, and say in your message, in one line, why they are worth hearing. Size it as a new audience, and set widensOutreachIds to every send this check has had so nobody already asked is asked again.',
         ]
       : [
           '  6. Do the same for the least affected group: its own filter, its own count, the channel they are likeliest to answer on, and the same question, adapted only where it has to be.',
@@ -299,7 +314,7 @@ const buildCivicPanelFirstBlock = (members: number): string =>
     '  5. Either way: a short listName, an audience line in plain words (like "Your citizens\' panel and residents across the district"), the question as the message, the stepId the check is on and side main. The flow adds the line inviting people to join, so never write it into the message.',
     '- In your message, say in one line why the panel goes first: they asked to be asked. Say in one line that the same text invites new people to join. Say how many people get it. Never explain how the list is drawn or who was left out, and never say rotation, rested or sample sizing.',
     '- Do not find, count or describe the most or least affected group in this turn. Naming them now only confuses which card is real.',
-    '- Once it is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, or leans one way, build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to that send.',
+    '- Once it is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, or leans one way, build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to every send this check has had.',
     '- The panel chose itself, so it never stands in for everyone. Say so in one line when you report what it said.',
   ].join('\n')
 
@@ -333,10 +348,10 @@ const buildReadingRepliesBlock = (
     `- Count the replies on each side before you treat them as an answer. Polls hold a read to the same bar: more than ${HIGH_CONFIDENCE_MIN_REPLIES} replies, or replies from at least ${pct(HIGH_CONFIDENCE_MIN_SHARE)} of that side's whole audience. Short of both, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(panelFirst && has('present_outreach_proposal')
       ? [
-          '- On the first send of a check, a thin read, or one that leans one way, is not widened. Build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card. A thin read on a later group is widened as below.',
+          '- A thin read, or one that leans one way, is never widened to more of the same people. The one follow-up is the group it is missing, built as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to every send this check has had, so nobody already asked is asked again.',
         ]
       : []),
-    ...(has('present_outreach_proposal')
+    ...(!panelFirst && has('present_outreach_proposal')
       ? [
           `- Then offer to widen it: a new present_outreach_proposal with the same audienceFilters, sized with size_outreach_sample, with audience set to the full count_contacts count for those audienceFilters (not the people left, since the tool leaves out the people already asked itself), repliesAlready set to the replies already in, and alreadyAsked set to how many people those sends went to (from read_past_outreach), with widensOutreachIds set to the sends that already went out, so nobody already asked is asked again.`,
         ]

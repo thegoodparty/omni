@@ -1099,8 +1099,40 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain(
         'Do not find, count or describe the most or least affected group in this turn',
       )
-      expect(prompt).toContain('with widensOutreachIds set to that send')
+      expect(prompt).toContain(
+        'with widensOutreachIds set to every send this check has had',
+      )
       expect(prompt).toContain('they can send it from its card')
+    })
+
+    // The least affected side waits for the read, so a yes on the one card
+    // must not decline it: a declined side would block the targeted card.
+    it('never declines the side a yes on the panel card left unoffered', () => {
+      const prompt = buildWithCrm().buildSystemPrompt(panelsOn(42))
+      expect(prompt).toContain('They can take the card or not.')
+      expect(prompt).toContain(
+        'A side that was never offered is never recorded declined',
+      )
+      expect(prompt).toContain('Record nothing on the other side.')
+      expect(prompt).toContain('never on a side that was not offered')
+      expect(prompt).not.toContain('They can take both sides, take one')
+      expect(prompt).not.toContain('Record declined on a side they passed on')
+      expect(prompt).not.toContain('Record declined on both sides')
+    })
+
+    it('follows a thin read with the missing group, never a widen', () => {
+      const prompt = buildWithCrm().buildSystemPrompt(panelsOn(42))
+      expect(prompt).toContain(
+        'A thin read, or one that leans one way, is never widened',
+      )
+      expect(prompt).toContain('The one follow-up is the group it is missing')
+      expect(prompt).not.toContain('Then offer to widen it')
+      expect(prompt).not.toContain('repliesAlready set to the replies')
+
+      const off = buildWithCrm().buildSystemPrompt(baseCtx())
+      expect(off).toContain('Then offer to widen it')
+      expect(off).toContain('Record declined on both sides')
+      expect(off).not.toContain('is never widened')
     })
 
     it('falls back to the fresh sample alone when no member can be asked', () => {
