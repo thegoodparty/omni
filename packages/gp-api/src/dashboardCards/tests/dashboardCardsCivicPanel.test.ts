@@ -93,6 +93,9 @@ describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
       sourceExternalId: `build:${eo.id}`,
       completedAt: null,
     })
+    expect(cards[0]?.summary).toBe(
+      'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
+    )
     expect(cards[0]?.summary.split(' ').length).toBeLessThanOrEqual(20)
   })
 
@@ -134,7 +137,7 @@ describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
       type: 'civic_panel',
       title: 'Affordable housing',
       summary:
-        "Let's get a representative sample of constituents to weigh in on Affordable housing.",
+        "Hear what your citizens' panel thinks about Affordable housing before you decide.",
       ctaHref: `/dashboard/priorities/${housing.id}`,
       sourceExternalId: housing.id,
     })
@@ -232,7 +235,7 @@ describe('GET /v1/dashboard/cards: a card per priority, once the panel is built'
 
     const [card] = await priorityRows(eo.id)
     expect(card?.title).toBe('Housing costs')
-    expect(card?.summary).toContain('weigh in on Housing costs')
+    expect(card?.summary).toContain('thinks about Housing costs')
   })
 
   it('drops an untouched card once its priority is archived', async () => {

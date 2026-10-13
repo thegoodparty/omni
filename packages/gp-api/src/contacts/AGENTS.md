@@ -588,8 +588,13 @@ one door is not leaving the panel, so it never demotes a member. Leaving is the
 contact card or a texted STOP.
 
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
-contracts: "Reply JOIN to join my citizens' panel," plus one clause on what that means and that it comes from the office, not a campaign, in its own paragraph above the opt-out), and the create stamps
-`Outreach.asksToJoinCivicPanel` from the stored message. The reply ingest
+contracts: "Reply JOIN to join my citizens' panel. My office will text you
+about once a month to ask what you think before I decide. Empowered by
+GoodParty.org.", in its own paragraph above the opt-out), and the create
+stamps `Outreach.asksToJoinCivicPanel` from the stored message. The create
+and the composer's lock recognize every wording in `CIVIC_PANEL_JOIN_LINES`
+(`findCivicPanelJoinLine`), because sends written before the line was
+rewritten carry the first one; the composer only writes the current line. The reply ingest
 (`OutreachTextIngestService.applyCivicPanelEvents`, `source: sms`, `sourceId`
 the reply's message id) writes `member` for a JOIN reply
 (`util/civicPanelJoin.util.ts`: the whole reply or a sentence of its own) on

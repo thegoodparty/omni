@@ -61,7 +61,7 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
     'Structure: one short line of who the official is, drawn from the ' +
     'materials (what they do, community roots, why they serve); then ' +
     "one or two sentences on what their citizens' panel is: residents " +
-    'their office (not a campaign) texts a few times a year to hear what ' +
+    'their office (not a campaign) texts about once a month to hear what ' +
     'they think before the official makes decisions; then one sentence ' +
     'on why that matters to the official, in plain words. Keep the whole ' +
     'body under four sentences. Stop there. Do NOT ask the reader to ' +

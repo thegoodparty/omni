@@ -6,7 +6,7 @@ import {
   type MergeTagChannel,
   type MergeTagId,
 } from './MergeTag.const'
-import { CIVIC_PANEL_JOIN_LINE } from './CivicPanelJoin'
+import { findCivicPanelJoinLine } from './CivicPanelJoin'
 
 // The CAS SMS console (gp-admin): approval queue, per-campaign monitor,
 // and the message-standards verdict. gp-admin consumes these through the
@@ -349,13 +349,13 @@ export const deriveSmsProtectedParts = (
   }
 
   {
-    const at = script.lastIndexOf(CIVIC_PANEL_JOIN_LINE)
-    if (at !== -1) {
+    const join = findCivicPanelJoinLine(script)
+    if (join) {
       parts.push({
         rule: 'civic_panel_join',
         kind: 'phrase',
-        text: CIVIC_PANEL_JOIN_LINE,
-        start: at,
+        text: join.text,
+        start: join.start,
       })
     }
   }

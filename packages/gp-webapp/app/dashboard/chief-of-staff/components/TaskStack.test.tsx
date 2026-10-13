@@ -187,7 +187,7 @@ describe('<TaskStack>', () => {
     type: 'civic_panel',
     title: "Build your citizens' panel",
     summary:
-      'Invite a random sample of residents to weigh in, so you hear from more than the loudest voices.',
+      'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
     ctaLabel: 'Get started',
     ctaHref:
       '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
@@ -200,11 +200,12 @@ describe('<TaskStack>', () => {
     withCards([card({}), buildCard])
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
-      screen.getByRole('heading', { name: "Build your citizens' panel" }),
+      screen.getByRole('heading', {
+        level: 2,
+        name: "Build your citizens' panel",
+      }),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('heading', { name: 'Start here' }),
-    ).toBeInTheDocument()
+    expect(screen.queryByText(ONBOARDING_CARDS.meet.title)).toBeNull()
     expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
       'href',
       '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
@@ -233,7 +234,9 @@ describe('<TaskStack>', () => {
     ])
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
-      screen.getByRole('heading', { name: "Ask your citizens' panel" }),
+      screen.getByRole('heading', {
+        name: 'Ask your community about a priority',
+      }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /mark done/i }),

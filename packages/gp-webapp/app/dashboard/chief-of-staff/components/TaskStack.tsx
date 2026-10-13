@@ -59,8 +59,11 @@ const HEADLINES: Record<DeckKind, string> = {
   briefing: 'Get ready for your next meeting',
   agenda_item: 'Know what is on the agenda',
   community_issue: 'Hear what your community is saying',
-  civic_panel: "Ask your citizens' panel",
+  civic_panel: 'Ask your community about a priority',
 }
+
+// The build card shares its type with the per-priority panel cards.
+const BUILD_PANEL_HEADLINE = "Build your citizens' panel"
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||
@@ -223,7 +226,7 @@ const TaskStack = ({
   return (
     <section className="flex w-full flex-col gap-6">
       <h2 className="text-center text-2xl font-semibold text-foreground">
-        {HEADLINES[front.buildsPanel ? 'onboarding' : front.kind]}
+        {front.buildsPanel ? BUILD_PANEL_HEADLINE : HEADLINES[front.kind]}
       </h2>
       <div
         className={cn(

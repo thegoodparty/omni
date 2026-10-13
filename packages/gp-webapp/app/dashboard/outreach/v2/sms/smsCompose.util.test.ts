@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
   deriveSmsProtectedParts,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -380,7 +381,21 @@ describe('withCivicPanelJoin', () => {
   })
 
   it('explains what joining means', () => {
-    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/hear what you think/)
+    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/about once a month/)
+    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/what you think/)
+  })
+
+  // A draft saved before the line was rewritten carries the earlier wording.
+  it('reads the earlier wording as asked, and locks and removes it', () => {
+    const legacy = CIVIC_PANEL_JOIN_LINES[1]
+    const asked = base.replace(OPT_OUT_FOOTER, `${legacy}\n\n${OPT_OUT_FOOTER}`)
+    expect(withCivicPanelJoin(asked, true)).toBe(asked)
+    expect(withCivicPanelJoin(asked, false)).toBe(base)
+    expect(
+      deriveSmsProtectedParts(asked, { channel: 'serve' }).find(
+        (candidate) => candidate.rule === 'civic_panel_join',
+      ),
+    ).toMatchObject({ text: legacy, start: asked.indexOf(legacy) })
   })
 
   it('takes it back out and leaves the message as it was', () => {

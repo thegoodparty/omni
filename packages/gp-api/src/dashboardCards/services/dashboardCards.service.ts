@@ -16,6 +16,8 @@ import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   civicPanelBuildCardSourceId,
   DashboardCardBucket,
+  PANEL_SEED_SAMPLE_SIZE,
+  PRICE_PER_TEXT,
 } from '@goodparty_org/contracts'
 import {
   briefingItemHref,
@@ -38,7 +40,7 @@ export const civicPanelCardHref = (priorityId: string): string =>
 
 const civicPanelCardContent = (priority: { id: string; title: string }) => ({
   title: priority.title,
-  summary: `Let's get a representative sample of constituents to weigh in on ${priority.title}.`,
+  summary: `Hear what your citizens' panel thinks about ${priority.title} before you decide.`,
   ctaLabel: 'Get started',
   ctaHref: civicPanelCardHref(priority.id),
 })
@@ -49,8 +51,9 @@ export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/constituent-outreach?comp
 
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   title: "Build your citizens' panel",
-  summary:
-    'Invite a random sample of residents to weigh in, so you hear from more than the loudest voices.',
+  // A paid send, so the card says so and roughly what it costs before the
+  // official starts; the pay step quotes the exact total.
+  summary: `A paid text to up to ${PANEL_SEED_SAMPLE_SIZE.toLocaleString('en-US')} residents, about $${Math.round(PANEL_SEED_SAMPLE_SIZE * PRICE_PER_TEXT)}, so you hear from more than the loudest voices.`,
   ctaLabel: 'Get started',
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }

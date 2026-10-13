@@ -9,10 +9,30 @@ import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 export const CIVIC_PANEL_JOIN_KEYWORD = 'JOIN'
 
 // Says what joining means in the constituent's terms: who is asking (the
-// office, never a campaign) and how often. Two sentences at most: it shares a
-// text with the official's own message, and the opt-out line below it already
-// says how to leave.
-export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel, residents my office (not my campaign) texts a few times a year to hear what you think before I make decisions. Empowered by GoodParty.org.`
+// office) and how often. Short: it shares a text with the official's own
+// message, and the opt-out line below it already says how to leave.
+export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`
+
+// Every line a stored send may carry, newest first. Sends written before the
+// rewrite carry the first wording, so the reader and the composer's lock
+// still recognize it; the composer only ever writes CIVIC_PANEL_JOIN_LINE.
+export const CIVIC_PANEL_JOIN_LINES = [
+  CIVIC_PANEL_JOIN_LINE,
+  `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel, residents my office (not my campaign) texts a few times a year to hear what you think before I make decisions. Empowered by GoodParty.org.`,
+] as const
+
+// The join line in a message, if it carries one: the last occurrence of any
+// recognized wording.
+export const findCivicPanelJoinLine = (
+  message: string,
+): { text: string; start: number } | null => {
+  let found: { text: string; start: number } | null = null
+  for (const text of CIVIC_PANEL_JOIN_LINES) {
+    const start = message.lastIndexOf(text)
+    if (start !== -1 && (!found || start > found.start)) found = { text, start }
+  }
+  return found
+}
 
 // A panelist said yes to being asked, so far more of them answer than a cold
 // text gets. The panel brief cites 40 to 52 percent on UK council panels; this

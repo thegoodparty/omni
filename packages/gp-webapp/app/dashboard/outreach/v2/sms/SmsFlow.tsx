@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { chiefOfStaffHref } from 'app/dashboard/chief-of-staff/routes'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -381,6 +383,16 @@ const sendTimeLabel = (d: Date, timeZone?: string) =>
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
+// The first citizens' panel text ends on what it set in motion, and goes back
+// to the job it came from rather than to the outreach page.
+const SERVE_PANEL_SEED_SUCCESS_COPY = {
+  title: 'Your panel invite is scheduled',
+  reach: (count: string, when: string) =>
+    `It goes to ${count} residents${when}.`,
+  next: 'Replies come in over the next few days. Anyone who replies JOIN is added to your panel.',
+  action: 'Back to your Chief of Staff',
+}
+
 // Exported for its component test — the paid branch is unreachable through
 // the flow in jsdom (CheckoutPayment mounts real Stripe elements).
 export const SuccessScreen = ({
@@ -389,6 +401,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  seedsPanel = false,
   onDone,
 }: {
   contactCount: number
@@ -398,6 +411,8 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  // A build_citizens_panel send, which gets its own copy and next step.
+  seedsPanel?: boolean
   onDone: () => void
 }) => {
   const receiptQuery = useQuery({
@@ -420,18 +435,35 @@ export const SuccessScreen = ({
           <CircleCheckIcon className="size-8 text-primary" />
         </span>
       </div>
-      <div className="space-y-2">
-        <h2 className="text-2xl font-semibold text-foreground">
-          {paid ? 'Payment successful!' : 'Scheduled!'}
-        </h2>
-        <p className="text-muted-foreground">
-          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
-          recipients
-          {sendAt
-            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
-            : ' soon.'}
-        </p>
-      </div>
+      {seedsPanel ? (
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold text-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.title}
+          </h2>
+          <p className="text-muted-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.reach(
+              contactCount.toLocaleString(),
+              sendAt ? ` on ${sendDateLabel(sendAt, timeZone)}` : '',
+            )}
+          </p>
+          <p className="text-muted-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.next}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold text-foreground">
+            {paid ? 'Payment successful!' : 'Scheduled!'}
+          </h2>
+          <p className="text-muted-foreground">
+            Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+            recipients
+            {sendAt
+              ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
+              : ' soon.'}
+          </p>
+        </div>
+      )}
       {receipt && (
         <Card className="gap-0 p-0 text-left">
           <div className="flex items-center justify-between px-4 py-4">
@@ -491,9 +523,18 @@ export const SuccessScreen = ({
           Download receipt
         </Button>
       )}
-      <Button size="large" className="w-full" onClick={onDone}>
-        Done
-      </Button>
+      {seedsPanel ? (
+        // TODO: point at the citizens' panel's own page once it exists.
+        <Button asChild size="large" className="w-full">
+          <Link href={chiefOfStaffHref()} onClick={onDone}>
+            {SERVE_PANEL_SEED_SUCCESS_COPY.action}
+          </Link>
+        </Button>
+      ) : (
+        <Button size="large" className="w-full" onClick={onDone}>
+          Done
+        </Button>
+      )}
     </div>
   )
 }
@@ -1963,6 +2004,7 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          seedsPanel={civicPanelAskLocked}
           onDone={onClose}
         />
       ) : gateOpen ? (
