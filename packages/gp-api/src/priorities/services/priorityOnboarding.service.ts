@@ -167,6 +167,10 @@ export class PriorityOnboardingService extends createPrismaBase(
       }
 
       for (const issue of issues) {
+        // Looked up by issue alone because sourceCommunityIssueId is unique.
+        // Issues belong to an org and an org has one office
+        // (ElectedOffice.organizationSlug is unique), so a row owned by
+        // another office is not reachable here; the guard below is defensive.
         const existing = await tx.priority.findFirst({
           where: { sourceCommunityIssueId: issue.id },
         })
