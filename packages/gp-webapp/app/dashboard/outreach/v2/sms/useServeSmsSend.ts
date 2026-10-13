@@ -119,6 +119,7 @@ export interface UseServeSmsSendInput {
   // `trackerTaskId`/`phase` travel together or not at all.
   tracker?: OutreachTrackerOrigin
   proposalLink?: ProposalLink
+  reportBackForOutreachId?: number
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'schedule') => void
   setDraftOutreachId: (id: number) => void
@@ -154,6 +155,7 @@ export const useServeSmsSend = ({
   audience,
   tracker,
   proposalLink,
+  reportBackForOutreachId,
   create,
   setStepId,
   setDraftOutreachId,
@@ -232,6 +234,9 @@ export const useServeSmsSend = ({
           scheduledLocalDate: format(scheduledAt, 'yyyy-MM-dd'),
           voterFileFilterId: selectedListId,
           ...proposalLink,
+          ...(reportBackForOutreachId !== undefined && {
+            reportBackForOutreachId,
+          }),
         })
         // A create that started before the draft was discarded (Back off
         // review) must not resurrect its id — checkout would then charge for

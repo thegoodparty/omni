@@ -74,10 +74,12 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
         <DashboardTaskCard
           key={card.id}
           card={card}
-          // "Not for me" is the build card's way to set it aside, so it is
-          // the one a skipped card can be brought back from.
+          // "Not for me" is how the build and report back cards are set
+          // aside, so they are the ones a skipped card can be brought back
+          // from.
           onRestore={
-            bucket === 'skipped' && isCivicPanelBuildCard(card)
+            bucket === 'skipped' &&
+            (isCivicPanelBuildCard(card) || card.type === 'report_back')
               ? restoreCard.mutate
               : undefined
           }
