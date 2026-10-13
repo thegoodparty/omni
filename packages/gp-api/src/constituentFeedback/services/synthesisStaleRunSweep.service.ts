@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
-import { HttpException } from '@nestjs/common'
+import { HttpException, HttpStatus } from '@nestjs/common'
 import { SynthesisRunStatus, SynthesisScope } from '@/generated/prisma'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -9,6 +9,11 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { FeedbackSynthesisService } from './feedbackSynthesis.service'
 
 const SWEEP_JOB = 'feedbackSynthesisStaleRuns'
+
+const EXPECTED_REPOOL_REFUSALS: ReadonlySet<number> = new Set([
+  HttpStatus.CONFLICT,
+  HttpStatus.UNPROCESSABLE_ENTITY,
+])
 
 // A pipeline run takes minutes. One that has not reported back in thirty
 // lost its completion event, or its engine died mid-run.
@@ -87,12 +92,24 @@ export class SynthesisStaleRunSweepService extends createPrismaBase(
           priorityId: run.priorityId,
           requestedByUserId: null,
         })
-        .catch((err: Error) => {
-          if (err instanceof HttpException) return
+        .catch(async (err: Error) => {
+          // A conflict re-marks the run now in flight; under the floor there
+          // is nothing to pool. Anything else leaves the re-pool owed for the
+          // next sweep.
+          if (
+            err instanceof HttpException &&
+            EXPECTED_REPOOL_REFUSALS.has(err.getStatus())
+          ) {
+            return
+          }
           this.logger.error(
             { err, runId: run.id, priorityId: run.priorityId },
             'Owed priority re-pool failed',
           )
+          await this.model.update({
+            where: { id: run.id },
+            data: { repoolOwed: true },
+          })
         })
     }
   }

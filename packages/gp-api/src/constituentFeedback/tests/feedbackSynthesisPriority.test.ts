@@ -1,4 +1,8 @@
-import { HttpStatus, UnprocessableEntityException } from '@nestjs/common'
+import {
+  HttpStatus,
+  InternalServerErrorException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { PriorityResults } from '@goodparty_org/contracts'
 import {
@@ -287,6 +291,31 @@ describe('feedback synthesis across a priority', () => {
       [SynthesisRunStatus.completed, false],
       [SynthesisRunStatus.running, false],
     ])
+  })
+
+  it('keeps a re-pool owed when starting it fails unexpectedly', async () => {
+    const texted = await replies(5)
+    const first = await run()
+    await expect(run()).rejects.toMatchObject({ status: HttpStatus.CONFLICT })
+    await ingest().handle(
+      completionEvent(first.id, [
+        { theme: 'Drains back up', memberIds: texted.map((r) => r.id) },
+      ]),
+    )
+    const failing = vi
+      .spyOn(synthesis(), 'requestPriorityRun')
+      .mockRejectedValueOnce(new InternalServerErrorException())
+    onTestFinished(() => failing.mockRestore())
+
+    await service.app.get(SynthesisStaleRunSweepService).sweep(new Date())
+
+    expect(
+      (
+        await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+          where: { id: first.id },
+        })
+      ).repoolOwed,
+    ).toBe(true)
   })
 
   it('counts the same people per theme on the results page and in the agent read', async () => {
