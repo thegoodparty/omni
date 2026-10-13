@@ -30,9 +30,22 @@ interface OfficeDetailsCardProps {
 
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000
 
+// A bare "YYYY-MM-DD" (how campaign.details.electionDate is stored) is a
+// calendar day, not an instant. `new Date('YYYY-MM-DD')` parses it as UTC
+// midnight, which renders as the previous day anywhere behind UTC, so build
+// it from its parts in local time instead.
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
+
 const formatDate = (value?: string | null): string => {
   if (!value) return ''
-  const date = new Date(value)
+  const dateOnly = DATE_ONLY.exec(value)
+  const date = dateOnly
+    ? new Date(
+        Number(dateOnly[1]),
+        Number(dateOnly[2]) - 1,
+        Number(dateOnly[3]),
+      )
+    : new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleDateString('en-US', {
     month: 'long',
