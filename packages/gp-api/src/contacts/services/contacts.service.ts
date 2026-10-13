@@ -1981,6 +1981,9 @@ export class ContactsService {
   // A sample with a panel part is never null either: the list's criteria
   // match members and non-members alike, so saved whole it would hold
   // neither part at the size proposed.
+  //
+  // A report back's sample is never null: it is the people one send reached,
+  // minus anyone who opted out since, frozen, which no live filter can say.
   async drawListSample(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -1989,8 +1992,34 @@ export class ContactsService {
       seedKey?: string
       excludeOutreachIds?: number[]
       panelSize?: number
+      recipientsOfOutreachId?: number
     },
   ): Promise<string[] | null> {
+    if (sample.recipientsOfOutreachId !== undefined) {
+      if (!this.hasElectedOfficeAccess(organization)) {
+        throw new BadRequestException(
+          'Reporting back is not available for this organization',
+        )
+      }
+      const reached =
+        await this.voterFileFilterSampleService.personIdsReachedBy(
+          organization.slug,
+          sample.recipientsOfOutreachId,
+        )
+      if (reached.length <= sample.size) return reached
+      return (
+        (await this.drawWithin(
+          organization,
+          filterInput,
+          { kind: 'filter', idFilter: { in: reached } },
+          {
+            size: sample.size,
+            seedKey: sample.seedKey,
+            wholeWhenItFits: false,
+          },
+        )) ?? []
+      )
+    }
     const excludeIds =
       await this.voterFileFilterSampleService.personIdsForOutreaches(
         organization.slug,

@@ -11,6 +11,7 @@ import { ChatAnchorSchema, type PriorityStatus } from '@goodparty_org/contracts'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
+import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import {
   PriorityFlowOutreachService,
   type PriorityAnchorSummary,
@@ -44,6 +45,10 @@ export interface PriorityFlowContext {
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number
+  // This priority's texts whose replies are in, and whether each has been
+  // reported back on. Read per turn behind the same flag; undefined while
+  // it is off.
+  reportBacks?: ReportBackSend[]
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the

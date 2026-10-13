@@ -36,6 +36,9 @@ import {
 const SERVE_PURPOSE_GOALS: Record<ServeSmsPurpose, string> = {
   build_citizens_panel:
     "introduce the elected official and invite residents onto the official's citizens' panel",
+  report_back:
+    'tell the constituents an earlier text asked what the official heard ' +
+    'from them and what the official will do next',
   introduce_myself:
     'introduce the elected official to the constituents they serve',
   explain_decision:
@@ -69,6 +72,19 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
     'join: the app adds the line that asks them, right after your text. ' +
     'Never promise how many texts, what topics, or what the official ' +
     'will do with the answers beyond hearing them.',
+  // Sent to the people an earlier text asked, so it never carries the
+  // citizens' panel JOIN line or a fresh ask of its own.
+  report_back:
+    'Structure: one short sentence thanking the people who answered the ' +
+    'earlier text; then one or two sentences on what the official heard, ' +
+    'as the main themes and roughly how many people raised each, never ' +
+    "quoting anyone's words or saying anything that could point to who " +
+    'said it; then one or two sentences on what the official will do ' +
+    'next. Both the themes and the next step come only from the ' +
+    'materials: if either is missing, leave that part out rather than ' +
+    'writing one. Keep the whole body under four sentences. Never ask ' +
+    'people to join a panel or reply JOIN, and never promise an outcome ' +
+    'the materials do not state.',
   introduce_myself:
     'FIRST decide which of two structures applies. If the materials ' +
     'contain no published priorities, use the NARRATIVE structure and ' +

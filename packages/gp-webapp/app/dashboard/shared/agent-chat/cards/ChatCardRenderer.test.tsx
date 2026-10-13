@@ -182,6 +182,27 @@ describe('OutreachProposalCard', () => {
     expect(screen.queryByText(/\b42\b/)).toBeNull()
   })
 
+  it('says who a report back goes to in the official’s words, and how many', async () => {
+    mockNotSent()
+
+    renderCard(
+      proposalCard({
+        channel: 'text',
+        audience: 'Everyone you texted about Downtown parking on October 5',
+        count: 236,
+        reportBackForOutreachId: 77,
+      }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Everyone you texted about Downtown parking on October 5',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/236 constituents/)).toBeInTheDocument()
+    expect(screen.queryByText(/picked at random/)).toBeNull()
+  })
+
   it('reads a sample no smaller than its audience as the whole audience', async () => {
     mockNotSent()
 

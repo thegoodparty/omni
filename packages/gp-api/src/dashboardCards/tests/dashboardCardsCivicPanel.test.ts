@@ -467,6 +467,26 @@ describe("The citizens' panel build card, with the priorities and the usual card
     expect(titles(await listCards(orgSlug))).toEqual(ALL)
   })
 
+  it('keeps a priority card waiting behind the open build card from lapsing into missed', async () => {
+    const orgSlug = 'eo-civic-seq-waiting-lapse'
+    const { eo } = await officeWithBuildCard(orgSlug)
+    const housing = (await panelRows(eo.id)).find(
+      (card) => card.title === 'Affordable housing',
+    )
+    if (!housing) throw new Error('no priority card')
+    await service.prisma.dashboardCard.update({
+      where: { id: housing.id },
+      data: { dueDate: subDays(new Date(), 1) },
+    })
+
+    expect(titles(await listCards(orgSlug))).toEqual(ALL)
+    expect(await listCards(orgSlug, 'missed')).toHaveLength(0)
+    const [row] = (await panelRows(eo.id)).filter(
+      (card) => card.id === housing.id,
+    )
+    expect(row?.dueDate.getTime()).toBeGreaterThan(Date.now())
+  })
+
   it('is still done by the panel text after it was put off', async () => {
     const orgSlug = 'eo-civic-seq-snooze-sent'
     const { eo, build } = await officeWithBuildCard(orgSlug)

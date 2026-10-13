@@ -68,6 +68,7 @@ const HEADLINES: Record<DeckKind, string> = {
   agenda_item: 'Know what is on the agenda',
   community_issue: 'Hear what your community is saying',
   civic_panel: 'Next steps on your priorities',
+  report_back: 'Tell people what you heard',
 }
 
 // The build card shares its type with the per-priority panel cards.
@@ -350,7 +351,7 @@ const TaskStack = ({
                   </Button>
                 )}
                 {!leaving &&
-                  (front.buildsPanel ? (
+                  (front.buildsPanel || front.kind === 'report_back' ? (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button

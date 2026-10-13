@@ -34,6 +34,7 @@ export type DashboardCardType =
   | 'agenda_item'
   | 'community_issue'
   | 'civic_panel'
+  | 'report_back'
 
 export type DashboardCardBucket =
   | 'active'

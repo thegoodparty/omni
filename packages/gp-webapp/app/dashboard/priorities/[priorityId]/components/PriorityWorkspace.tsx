@@ -18,8 +18,10 @@ import {
   ListChecksIcon,
 } from '@styleguide/components/ui/icons'
 import {
+  isReportBackMessage,
   isToolRefusal,
   parsePriorityStatus,
+  reportBackMessage,
   type ChatAnchor,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
@@ -173,6 +175,8 @@ type PriorityWorkspaceProps = {
   initialStatus: PriorityStatus
   initialNextAction: string | null
   initialCurrentStep: string | null
+  // The send a "Report back" card opened this priority on, if one did.
+  reportBackOutreachId?: number | null
 }
 
 const PriorityWorkspaceBody = ({
@@ -182,8 +186,12 @@ const PriorityWorkspaceBody = ({
   initialStatus,
   initialNextAction,
   initialCurrentStep,
+  reportBackOutreachId = null,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
+  // Read once: the param is dropped from the address after the turn is
+  // queued, so a reload never asks twice.
+  const reportBackRef = useRef(reportBackOutreachId)
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -412,9 +420,30 @@ const PriorityWorkspaceBody = ({
           currentStep: initialCurrentStep,
           isNewConversation: history.length === 0,
         })
+        // A report back card's turn is the opener on a fresh thread, and
+        // otherwise waits its turn behind anything in flight, once per send.
+        const reportBackId = reportBackRef.current
+        reportBackRef.current = null
+        if (reportBackId !== null) {
+          router.replace(`/dashboard/priorities/${priorityId}`, {
+            scroll: false,
+          })
+        }
+        const reportBackTurn =
+          reportBackId === null ? null : reportBackMessage(reportBackId)
         if (history.length === 0) {
-          sendRef.current(KICKOFF, { hidden: true, idOverride: id })
+          sendRef.current(reportBackTurn ?? KICKOFF, {
+            hidden: true,
+            idOverride: id,
+          })
           return
+        }
+        if (
+          reportBackTurn !== null &&
+          !history.some((m) => m.content === reportBackTurn)
+        ) {
+          pendingSent.current.push(reportBackTurn)
+          setSentTick((tick) => tick + 1)
         }
         if (history[history.length - 1]?.role !== 'user') return
         setAwaitingReply(true)
@@ -452,6 +481,7 @@ const PriorityWorkspaceBody = ({
     initialCurrentStep,
     setMessages,
     retryNonce,
+    router,
   ])
 
   const markers = useMemo(() => replayStatusMarkers(messages), [messages])
@@ -485,7 +515,8 @@ const PriorityWorkspaceBody = ({
           (later) =>
             later.role === 'user' &&
             later.content !== KICKOFF &&
-            !isProposalSentMessage(later.content),
+            !isProposalSentMessage(later.content) &&
+            !isReportBackMessage(later.content),
         )
       if (reply) answers[message.id] = reply.content
     })
@@ -497,7 +528,9 @@ const PriorityWorkspaceBody = ({
         (m) =>
           !(
             m.role === 'user' &&
-            (m.content === KICKOFF || isProposalSentMessage(m.content))
+            (m.content === KICKOFF ||
+              isProposalSentMessage(m.content) ||
+              isReportBackMessage(m.content))
           ),
       ),
     [messages],

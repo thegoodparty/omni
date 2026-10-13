@@ -12,9 +12,10 @@ import {
 // banking and serve door knocking draw from, so a Serve row is readable
 // across channels without a per-channel translation table, plus the
 // SMS-only build_citizens_panel, which SmsFlow offers only behind
-// serve-citizen-panels.
+// serve-citizen-panels, and report_back, which only a chat card opens.
 export const SERVE_SMS_PURPOSE_LABELS: Record<ServeSmsPurpose, string> = {
   build_citizens_panel: "Build your citizens' panel",
+  report_back: 'Report back to the people you asked',
   introduce_myself: 'Introduce myself to constituents',
   explain_decision: 'Explain a recent decision',
   event_invite: 'Invite constituents to a local event',
@@ -39,6 +40,7 @@ export const SERVE_SMS_PURPOSE_NAME_SUGGESTIONS: Record<
   string
 > = {
   build_citizens_panel: "Citizens' panel invite texts",
+  report_back: 'Report back texts',
   introduce_myself: 'Introduction texts',
   explain_decision: 'Decision update texts',
   event_invite: 'Event invite texts',

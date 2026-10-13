@@ -117,3 +117,43 @@ describe("a priority's text card to the panel and new residents", () => {
     ).not.toHaveProperty('panelSize')
   })
 })
+
+describe('a report back card', () => {
+  beforeEach(() => {
+    smsFlow.props = null
+  })
+
+  const reportBack: Proposal = {
+    kind: 'outreach_proposal',
+    proposalKey: PROPOSAL_KEY,
+    audience: 'Everyone you texted about Flooding on Maple on October 5',
+    count: 236,
+    channel: 'text',
+    listName: 'Flooding report back',
+    message:
+      'this is Bryan, your City Council Member. Thanks for answering. Most of you named the drains, so I will ask for them to be cleared first.',
+    deepLinkOnly: false,
+    reportBackForOutreachId: 77,
+  }
+
+  it('saves one list of the people that send reached, as a report back', async () => {
+    await openCard(reportBack)
+
+    const props = smsFlow.props
+    expect(props?.initialPurpose).toBe('report_back')
+    expect(props?.reportBackForOutreachId).toBe(77)
+    expect(props?.initialAsksToJoinCivicPanel).toBe(false)
+    expect(props?.proposedAudience).toMatchObject({
+      name: 'Flooding report back',
+      filters: {},
+      sample: {
+        size: 236,
+        seedKey: PROPOSAL_KEY,
+        recipientsOfOutreachId: 77,
+      },
+    })
+    // Linked through the send it answers, never as another ask on the
+    // priority.
+    expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
+  })
+})

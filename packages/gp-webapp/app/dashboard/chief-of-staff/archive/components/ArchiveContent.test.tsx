@@ -91,4 +91,24 @@ describe('<ArchiveContent>', () => {
       screen.getByRole('button', { name: 'Bring it back' }),
     ).toBeInTheDocument()
   })
+
+  it('brings a set-aside report back card back', async () => {
+    cardsByBucket.skipped = [
+      card({}),
+      card({
+        id: 'rb',
+        type: 'report_back',
+        title: 'Report back on Downtown parking',
+        sourceExternalId: '77',
+      }),
+    ]
+    const user = userEvent.setup()
+    render(<ArchiveContent />)
+    await user.click(screen.getByRole('radio', { name: 'Skipped' }))
+
+    const buttons = screen.getAllByRole('button', { name: 'Bring it back' })
+    expect(buttons).toHaveLength(1)
+    await user.click(buttons[0]!)
+    expect(restoreMock).toHaveBeenCalledWith('rb')
+  })
 })
