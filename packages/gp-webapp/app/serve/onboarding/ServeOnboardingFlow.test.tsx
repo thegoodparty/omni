@@ -363,28 +363,30 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(loads).toBe(2)
   })
 
-  it('opens Other when there are no issues to pick', async () => {
+  it('lets the official skip the step when there are no issues to pick', async () => {
     resumedAt('priorities')
+    let saves = 0
     api.mock('GET /v1/priorities/onboarding', {
       status: 200,
       data: { options: [] },
     })
+    api.mock('PUT /v1/priorities/onboarding', () => {
+      saves += 1
+      return { status: 200, data: undefined }
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText(
-      'We didn’t find local issues yet. Add the one you’re working on.',
-    )
-    expect(screen.getByLabelText(/Other/)).toBeChecked()
-    await user.type(
-      screen.getByLabelText('What do you want to get done?'),
-      'Library hours',
-    )
-    await user.type(
-      screen.getByLabelText('Why does it matter?'),
-      'Open on Sundays',
-    )
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    await screen.findByText(/We couldn’t find issues for your area yet/)
+    expect(screen.getByLabelText(/Other/)).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get started')
+    expect(saves).toBe(0)
   })
 })
 

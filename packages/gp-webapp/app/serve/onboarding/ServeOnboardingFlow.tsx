@@ -385,8 +385,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         setSelectedPriorityKeys(
           new Set(res.data.options.filter((o) => o.selected).map((o) => o.key)),
         )
-        // With nothing to pick, Other is the only way forward, so open it.
-        if (res.data.options.length === 0) setOtherPrioritySelected(true)
       } catch (err) {
         reportErrorToSentry(err, { context: 'serveOnboarding.loadPriorities' })
         if (!cancelled) setPriorityLoadFailed(true)
@@ -583,6 +581,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // failed save keeps the user here to retry instead of advancing silently.
   const savePrioritiesAndAdvance = async (): Promise<void> => {
     if (priorityOptions === null) return
+    if (priorityOptions.length === 0 && !otherPriorityComplete) {
+      await persistAndAdvance(
+        { targetStep: 'pledge' },
+        () => setStep('pledge'),
+        'serveOnboarding.checkpoint.priorities',
+      )
+      return
+    }
     setSaving(true)
     try {
       const eo = await ensureElectedOffice()
@@ -981,11 +987,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return officeIsChosen && datesValid
       case 'priorities':
         // A checked Other must be filled in, so it is never dropped silently.
+        // With nothing found to pick, the step can be skipped.
         return (
           priorityOptions !== null &&
           (otherPrioritySelected
             ? otherPriorityComplete
-            : selectedPriorityKeys.size > 0)
+            : selectedPriorityKeys.size > 0 || priorityOptions.length === 0)
         )
       default:
         return true
@@ -1659,7 +1666,8 @@ const PrioritiesStep = ({
         <div className="mt-8 space-y-3">
           {options.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              We didn’t find local issues yet. Add the one you’re working on.
+              We couldn’t find issues for your area yet. Add one under Other, or
+              skip this for now.
             </p>
           )}
           {PRIORITY_KIND_ORDER.flatMap((kind) =>
