@@ -21,3 +21,7 @@ Routes that should accept M2M-only use `@M2MOnly()`. Routes that accept either a
 - Caller services don't manage their own keys; rotation goes through Clerk.
 - people-api used a separate model (S2S JWT) because it predated this decision. That is moot now: gp-api reads voter data from Databricks and the S2S path is gone, so Clerk M2M is the only machine-auth model left.
 - Public routes still need `@PublicAccess()`; the guard chain runs even when no token is present.
+
+## Update: JWT-format M2M tokens are a read tier
+
+Clerk can also issue M2M tokens as JWTs (`sub` starts with `mch_`). `@clerk/backend` verifies those against the instance JWKS and `exp`/`nbf` only; it does not check scopes or the machine secret, so any machine in the Clerk instance can mint one that verifies. `SessionGuard` therefore tags a verified JWT M2M token as `request.serviceReader`, never `request.m2mToken`, and honours it only on `@PublicAccess()` routes. `ServiceReadGuard` admits it (along with full M2M and admins) on the public person-profile reads that gp-marketing calls server-side; the render gate uses `ServiceReadOrOwnerGuard`, which also admits the owner of the requested `personId`. Opaque `mt_*` tokens keep full M2M as before.

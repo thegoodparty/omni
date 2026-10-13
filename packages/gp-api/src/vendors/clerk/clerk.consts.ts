@@ -1,4 +1,5 @@
 export const M2M_TOKEN_PREFIX = 'mt_'
+export const M2M_JWT_SUBJECT_PREFIX = 'mch_'
 
 // Every authenticated request verifies its session token through a live Clerk
 // call in SessionGuard, so unbounded Clerk latency is unbounded gp-api latency

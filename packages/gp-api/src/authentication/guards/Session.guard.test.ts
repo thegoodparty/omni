@@ -72,6 +72,8 @@ describe('SessionGuard — impersonating flag', () => {
       isM2MToken: vi.fn().mockReturnValue(false),
       verifySessionToken: vi.fn(),
       verifyM2MToken: vi.fn(),
+      isM2MJwt: vi.fn().mockReturnValue(false),
+      verifyM2MJwt: vi.fn(),
       getUser: vi.fn(),
     }
 
