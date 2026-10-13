@@ -1,5 +1,6 @@
 import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
 import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
+import { ServiceReadOrOwnerGuard } from '@/authentication/guards/ServiceReadOrOwner.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
@@ -96,8 +97,9 @@ function buildMarkerResponse(
 // Deletion still outranks unpublished: an owner who deleted a draft asked for
 // the page to be gone, which is a stronger request than "not live right now".
 //
-// The three reads sit behind ServiceReadGuard because /unlisted and the
-// removed marker reveal who asked for a privacy takedown. The class stays
+// The three reads are gated (ServiceReadGuard, or ServiceReadOrOwnerGuard on
+// the render gate) because /unlisted and the removed marker reveal who asked
+// for a privacy takedown. The class stays
 // @PublicAccess so voter-density and claim-request remain open to browsers.
 @Controller('public-person-profiles')
 @PublicAccess()
@@ -168,7 +170,7 @@ export class PublicPersonProfilesController {
 
   @Get()
   @ResponseSchema(PublicPersonProfileResponseSchema)
-  @UseGuards(ServiceReadGuard)
+  @UseGuards(ServiceReadOrOwnerGuard)
   async getByPersonId(
     @Query() dto: GetPublicPersonProfileDto,
   ): Promise<PublicPersonProfileResponse> {

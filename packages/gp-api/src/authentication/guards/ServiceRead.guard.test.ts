@@ -22,7 +22,7 @@ const withBearer = (token: string) => ({
   headers: { Authorization: `Bearer ${token}` },
 })
 
-describe('ServiceReadGuard on the public person-profile reads', () => {
+describe('ServiceReadGuard and ServiceReadOrOwnerGuard on the public person-profile reads', () => {
   it.each(READS)('403s $path with no token', async ({ path, params }) => {
     const res = await axios.get(path, {
       baseURL: service.client.defaults.baseURL,
@@ -113,6 +113,24 @@ describe('ServiceReadGuard on the public person-profile reads', () => {
 
     expect(res.status).toBe(200)
     expect(res.data.removed).toBe(true)
+  })
+
+  it.each([
+    '/v1/public-person-profiles/published',
+    '/v1/public-person-profiles/unlisted',
+  ])('403s %s for a user who passes their own personId', async (path) => {
+    // The owner clause belongs to the render gate alone; on a list route the
+    // query param names nothing, so honouring it would self-authorize.
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { personId: PERSON_ID },
+    })
+
+    const res = await service.client.get(path, {
+      params: { personId: PERSON_ID },
+    })
+
+    expect(res.status).toBe(403)
   })
 
   it("403s the render gate for someone else's personId", async () => {
