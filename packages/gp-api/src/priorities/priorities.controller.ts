@@ -12,7 +12,11 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import { PrioritySchema, parsePriorityStatus } from '@goodparty_org/contracts'
+import {
+  OnboardingPriorityOptionsSchema,
+  PrioritySchema,
+  parsePriorityStatus,
+} from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.decorator'
@@ -24,10 +28,12 @@ import { ElectedOffice, PrioritySource } from '../generated/prisma'
 import {
   CreatePriorityDto,
   PriorityIdParamDto,
+  SetOnboardingPrioritiesDto,
   UpdatePriorityDto,
 } from './schemas/priority.schema'
 import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
 import { PrioritiesService } from './services/priorities.service'
+import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { currentStepOf, priorityToApi } from './util/priority.util'
 
 @Controller('priorities')
@@ -35,7 +41,10 @@ import { currentStepOf, priorityToApi } from './util/priority.util'
 @UseInterceptors(ZodResponseInterceptor)
 @UseElectedOffice()
 export class PrioritiesController {
-  constructor(private readonly prioritiesService: PrioritiesService) {}
+  constructor(
+    private readonly prioritiesService: PrioritiesService,
+    private readonly onboarding: PriorityOnboardingService,
+  ) {}
 
   @Get()
   @McpTool({ description: 'List priorities for the elected office.' })
@@ -43,6 +52,21 @@ export class PrioritiesController {
   async list(@ReqElectedOffice() electedOffice: ElectedOffice) {
     const priorities = await this.prioritiesService.listActive(electedOffice.id)
     return priorities.map(priorityToApi)
+  }
+
+  @Get('onboarding')
+  @ResponseSchema(OnboardingPriorityOptionsSchema)
+  async onboardingOptions(@ReqElectedOffice() electedOffice: ElectedOffice) {
+    return { options: await this.onboarding.options(electedOffice) }
+  }
+
+  @Put('onboarding')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setOnboarding(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body() body: SetOnboardingPrioritiesDto,
+  ) {
+    await this.onboarding.set(electedOffice, body)
   }
 
   @Get(':id/status')

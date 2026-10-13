@@ -57,6 +57,10 @@ export class DispatchRequestDto extends createZodDto(DispatchRequestSchema) {}
 
 export const DispatchResponseSchema = CommunityIssuesDispatchResultSchema
 
+export const OnboardingStartResponseSchema = z.object({
+  starterIssueCount: z.number().int(),
+})
+
 export const SelfDispatchRequestSchema = z.object({
   type: z.enum(['top_community_issues', 'trending_issues']),
 })
