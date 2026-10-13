@@ -7,6 +7,7 @@ import { OutreachRobocallCancelService } from '@/outreach/services/outreachRoboc
 import { OutreachRobocallPromoService } from '@/outreach/services/outreachRobocallPromo.service'
 import { RobocallOrphanedHoldService } from '@/outreach/services/robocallOrphanedHold.service'
 import { RobocallOrphanedCampaignService } from '@/outreach/services/robocallOrphanedCampaign.service'
+import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import {
   Campaign,
@@ -21,6 +22,7 @@ let voidSpy: ReturnType<typeof vi.spyOn>
 let restoreSpy: ReturnType<typeof vi.spyOn>
 let recordSpy: ReturnType<typeof vi.spyOn>
 let campaignRecordSpy: ReturnType<typeof vi.spyOn>
+let notifySpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -40,6 +42,12 @@ beforeEach(async () => {
     .mockResolvedValue(undefined)
   campaignRecordSpy = vi
     .spyOn(service.app.get(RobocallOrphanedCampaignService), 'record')
+    .mockResolvedValue(undefined)
+  notifySpy = vi
+    .spyOn(
+      service.app.get(OutreachNotificationService),
+      'notifyRobocallCanceled',
+    )
     .mockResolvedValue(undefined)
 
   const campaignId = 997
@@ -156,6 +164,23 @@ describe('OutreachRobocallCancelService.cancel', () => {
     expect(restoreSpy).toHaveBeenCalledWith(outreachId)
     // No CallHub campaign was staged, so none is recorded for cleanup.
     expect(campaignRecordSpy).not.toHaveBeenCalled()
+    // CAS gets a cancel notice naming who ended it (candidate here).
+    expect(notifySpy).toHaveBeenCalledWith('cancel-me', outreachId, false)
+  })
+
+  it('posts the CAS cancel notice as staff when an admin cancels', async () => {
+    const outreachId = await createRobocall({
+      settleState: RobocallSettleState.authorized,
+      spineStatus: OutreachStatus.pending,
+      authorizationIntentId: 'pi_admin_cancel',
+    })
+
+    await cancel.cancel(outreachId, campaign.id, {
+      canceledBy: String(service.user.id),
+      byAdmin: true,
+    })
+
+    expect(notifySpy).toHaveBeenCalledWith('cancel-me', outreachId, true)
   })
 
   it('records the staged CallHub campaign for cleanup when a staged run is canceled', async () => {
