@@ -31,6 +31,7 @@ import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
 import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 import { RecommendedListCard } from './RecommendedListCard'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 
@@ -224,6 +225,8 @@ export const OutreachAudienceStep = ({
   builderCountErrorMessage,
 }: OutreachAudienceStepProps) => {
   const [open, setOpen] = useState(false)
+  const { enabled: citizenPanelsEnabled } =
+    useServeCitizenPanelsFlag(isElectedOfficial)
   // The recommendation whose card the candidate tapped, opening the
   // naming drawer. Cleared on drawer close (cancel) or on a successful
   // submit; either way the picker returns to its default state.
@@ -352,6 +355,7 @@ export const OutreachAudienceStep = ({
           // render-driven, so they persist onto the created list and the
           // candidate has no control to clear them with.
           showRecommendedListFilters
+          showCitizenPanelFilters={citizenPanelsEnabled}
         />
       </div>
     )

@@ -243,6 +243,7 @@ describe('VoterFileStep — prototype filter order', () => {
         }}
         onSupportStatusChange={noop}
         isElectedOfficial
+        showCitizenPanelFilters
       />,
     )
 
@@ -252,8 +253,10 @@ describe('VoterFileStep — prototype filter order', () => {
 
     // Ethnicity is absent here and present in the Win list above: #1933
     // barred subsetting by it for both products, and only the Win half was
-    // reverted.
+    // reverted. The citizens' panel is Serve's own group, where Win's prior
+    // contacts made sit.
     expect(headings).toEqual([
+      "Citizens' panel",
       'Support status',
       'Age',
       'Marital status',
@@ -267,7 +270,36 @@ describe('VoterFileStep — prototype filter order', () => {
       'Gender',
       'Cell phone',
       'Landline',
+      'Contact history',
     ])
+  })
+
+  it('leaves out the citizens panel groups with serve-citizen-panels off', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        onSupportStatusChange={noop}
+        isElectedOfficial
+      />,
+    )
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+
+    expect(headings).not.toContain("Citizens' panel")
+    expect(headings).not.toContain('Contact history')
   })
 })
 

@@ -15,10 +15,12 @@ import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
+  Checkbox,
   cn,
   FilterPill,
   FilterPillGroup,
   IconButton,
+  Label,
   type ProtectedSpec,
   seamlessFieldHost,
   TokenField,
@@ -56,6 +58,8 @@ const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
   paid_for_by: 'The law requires this line, but you can write around it.',
   opt_out_line:
     'Every text has to offer a way to opt out, but you can write around it.',
+  civic_panel_join:
+    "This is how people join your citizens' panel. Uncheck the box below to remove it.",
 }
 
 const LOCKED_FALLBACK =
@@ -123,6 +127,8 @@ interface SmsComposeStepProps {
   onImageChange: (file: File | null) => void
   imageError: string | null
   onImageError: (message: string | null) => void
+  // Serve only: the "Reply JOIN" ask for the official's civic panel.
+  civicPanelAsk?: { checked: boolean; onChange: (checked: boolean) => void }
 }
 
 // Plain-language fix per failed compliance rule. The greeting, opt-out, and
@@ -169,6 +175,7 @@ export const SmsComposeStep = ({
   onImageChange,
   imageError,
   onImageError,
+  civicPanelAsk,
 }: SmsComposeStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
@@ -413,6 +420,27 @@ export const SmsComposeStep = ({
             </IconButton>
           </div>
         </Card>
+        {civicPanelAsk && (
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="civic-panel-ask"
+              checked={civicPanelAsk.checked}
+              onCheckedChange={(value) =>
+                civicPanelAsk.onChange(value === true)
+              }
+              className="mt-0.5"
+            />
+            <Label htmlFor="civic-panel-ask" className="block">
+              <span className="block text-sm font-medium">
+                Ask them to join your citizens&apos; panel
+              </span>
+              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                People who reply JOIN are added to your panel for future
+                questions.
+              </span>
+            </Label>
+          </div>
+        )}
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your

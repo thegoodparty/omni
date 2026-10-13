@@ -4,6 +4,7 @@ import {
   type SupportStatusRollup as GeneratedSupportStatusRollup,
 } from '../generated/enums'
 import {
+  CivicPanelStatusSchema,
   FollowUpStatusSchema,
   VoterLikelihoodSchema,
 } from './ContactStatus.schema'
@@ -183,6 +184,8 @@ export const PersonSchema = z.object({
   // field, so there is no seed to distinguish "no override" from "answered
   // no".
   followUp: FollowUpStatusSchema.optional(),
+  // Serve's civic panel membership, omitted for a Win org like followUp.
+  civicPanel: CivicPanelStatusSchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

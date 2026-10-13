@@ -4,6 +4,7 @@ import {
   type VoterLikelihood,
 } from '@goodparty_org/contracts'
 import {
+  CivicPanelStatus,
   ContactInteractionDoorKnock,
   ContactStatusField,
   ContactStatusSource,
@@ -44,6 +45,7 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
     const row = await this.model.create({ data })
     await this.emitLikelihoodEvent(row)
     await this.emitFollowUpEvent(row)
+    await this.emitCivicPanelEvent(row)
     return row
   }
 
@@ -73,12 +75,14 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
         supportAnswer: data.supportAnswer,
         willVote: data.willVote,
         followUp: data.followUp,
+        joinCivicPanel: data.joinCivicPanel,
         note: data.note,
         outreachId: data.outreachId,
       },
     })
     await this.emitLikelihoodEvent(row)
     await this.emitFollowUpEvent(row)
+    await this.emitCivicPanelEvent(row)
     return row
   }
 
@@ -159,6 +163,29 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
       // Nobody is born flagged, so a "no" against no prior flag is a no-op
       // rather than a logged transition that never happened.
       fallbackFromValue: FollowUpStatus.cleared,
+    })
+  }
+
+  // Serve-only, like follow-up. Only a yes writes: declining at one door is
+  // not leaving the panel, so a "no" must never demote an existing member.
+  private async emitCivicPanelEvent(row: ContactInteractionDoorKnock) {
+    if (row.joinCivicPanel !== FollowUpAnswer.yes) {
+      return
+    }
+    if (!row.organizationSlug.startsWith('eo-')) {
+      return
+    }
+    await this.contactStatus.changeStatus({
+      organizationSlug: row.organizationSlug,
+      personId: row.personId,
+      field: ContactStatusField.civic_panel,
+      toValue: CivicPanelStatus.member,
+      source: ContactStatusSource.door_knock,
+      actorUserId: row.actorUserId,
+      // Stable per knock, so a replayed offline sync no-ops even if the
+      // person has since left the panel by another route.
+      sourceId: `${row.sourceId ?? row.id}:${row.joinCivicPanel}`,
+      fallbackFromValue: CivicPanelStatus.left,
     })
   }
 }

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
+  CIVIC_PANEL_JOIN_LINE,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
@@ -285,6 +286,9 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       status: OutreachStatus.pending_payment,
       name: input.name,
       message: input.message,
+      // Read off the message, never a request flag, so the stored text and
+      // whether the ingest honors JOIN cannot disagree.
+      asksToJoinCivicPanel: input.message.includes(CIVIC_PANEL_JOIN_LINE),
       imageUrl: input.imageUrl ?? null,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
       // null: Serve sends at a fixed 11am local, so there is no chosen

@@ -227,6 +227,8 @@ export const convertVoterFileFilterToFilters = (
     'contactsMade5Plus',
     // Resolves against contact_current_status, not a voter-file column.
     'followUpRequested',
+    'civicPanelMember',
+    'notContactedRecently',
     'independentAffinity',
     'ideologyConservative',
     'ideologyLiberal',

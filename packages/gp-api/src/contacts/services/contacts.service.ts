@@ -4,10 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { subDays } from 'date-fns'
 import {
+  CONTACT_REST_DAYS,
   MAX_OVERLAP_SAVED_FILTER_SETS,
   FollowUpStatusSchema,
   type FollowUpStatusResponse,
+  CivicPanelStatusSchema,
+  type CivicPanelStatusResponse,
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
   type ContactStatuses,
@@ -27,6 +31,7 @@ import {
   ContactStatusField,
   ContactStatusSource,
   FollowUpStatus,
+  CivicPanelStatus,
   Organization,
 } from '../../generated/prisma'
 import { FastifyReply } from 'fastify'
@@ -463,6 +468,14 @@ export class ContactsService {
         'Follow-up filtering is not available for this organization',
       )
     }
+    if (
+      !this.hasElectedOfficeAccess(organization) &&
+      filterInput.civicPanelMember
+    ) {
+      throw new BadRequestException(
+        "Citizens' panel filtering is not available for this organization",
+      )
+    }
   }
 
   // Override-aware Voter Likelihood filtering (ENG-10838): a person manually
@@ -650,22 +663,30 @@ export class ContactsService {
     // boundary is a Serve feature and that return is the Serve path. Applied
     // after it, the boundary would hold on the CSV and the counts and
     // nowhere a holder actually looks.
-    const idResolution = intersectIdFilterResolutions(
+    const idResolution = await this.resolveNotContactedRecently(
+      organization,
+      filterInput,
       intersectIdFilterResolutions(
-        activityResolution,
-        await this.resolveGeoIdFilter(filterInput),
+        intersectIdFilterResolutions(
+          activityResolution,
+          await this.resolveGeoIdFilter(filterInput),
+        ),
+        await this.resolveSampleIdFilter(filterInput),
       ),
-      await this.resolveSampleIdFilter(filterInput),
     )
     if (this.hasElectedOfficeAccess(organization)) {
       // Serve's own dimension takes the Win block's place rather than sitting
       // beside it: an org is one surface or the other, and neither product
       // can select the other's audience.
       return {
-        idResolution: await this.resolveFollowUpRequested(
+        idResolution: await this.resolveCivicPanelMember(
           organization,
           filterInput,
-          idResolution,
+          await this.resolveFollowUpRequested(
+            organization,
+            filterInput,
+            idResolution,
+          ),
         ),
       }
     }
@@ -735,6 +756,54 @@ export class ContactsService {
       return { kind: 'empty' }
     }
 
+    return intersectIdFilterResolutions(idResolution, {
+      kind: 'filter',
+      idFilter: { in: personIds },
+    })
+  }
+
+  // The rest window: leaves out anyone the office reached on any channel in
+  // the last CONTACT_REST_DAYS. Read when the list is read, so a saved list
+  // lets people back in as their window passes.
+  private async resolveNotContactedRecently(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    idResolution: IdFilterResolution,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.notContactedRecently || idResolution.kind === 'empty') {
+      return idResolution
+    }
+    const contacted =
+      await this.contactsMadeResolutionService.personIdsContactedSince(
+        organization.slug,
+        subDays(new Date(), CONTACT_REST_DAYS),
+      )
+    if (contacted.length === 0) return idResolution
+    return intersectIdFilterResolutions(idResolution, {
+      kind: 'filter',
+      idFilter: { notIn: contacted },
+    })
+  }
+
+  // Serve's citizens' panel: people whose standing civic_panel status is member.
+  // The same positive membership set as follow-up, and the same rule that
+  // nobody on the panel is an empty audience, never the whole district.
+  private async resolveCivicPanelMember(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    idResolution: IdFilterResolution,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.civicPanelMember || idResolution.kind === 'empty') {
+      return idResolution
+    }
+    const personIds = await this.contactStatusService.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.civic_panel,
+      [CivicPanelStatus.member],
+    )
+    if (personIds.length === 0) {
+      return { kind: 'empty' }
+    }
     return intersectIdFilterResolutions(idResolution, {
       kind: 'filter',
       idFilter: { in: personIds },
@@ -1543,6 +1612,16 @@ export class ContactsService {
             savedFilter,
             savedIdResolution,
           )
+          savedIdResolution = await this.resolveCivicPanelMember(
+            organization,
+            savedFilter,
+            savedIdResolution,
+          )
+          savedIdResolution = await this.resolveNotContactedRecently(
+            organization,
+            savedFilter,
+            savedIdResolution,
+          )
           // And the shape drawn on it. Without this a boundaried list joins
           // the union at its PRE-boundary size — every person its criteria
           // match anywhere in the district, not the ones inside the shape —
@@ -1981,35 +2060,43 @@ export class ContactsService {
     // voterLikelihood is Win-only (ENG-10833) — Serve responses stay exactly
     // as they were (field omitted), so skip the lookup entirely for `eo-`
     // orgs rather than compute-and-drop it.
-    const [optedOutAt, supportStatus, voterLikelihoodOrNull, followUpOrNull] =
-      await Promise.all([
-        this.contactInteractionTextService.latestOptOutAt(
-          organization.slug,
-          person.id,
-        ),
-        this.effectiveStatus(
-          organization.slug,
-          person.id,
-          ContactStatusField.support_status,
-          SupportStatusRollupSchema,
-          () => this.derivedSupportStatus(organization.slug, person.id),
-        ),
-        this.hasElectedOfficeAccess(organization)
-          ? Promise.resolve(null)
-          : this.effectiveStatus(
-              organization.slug,
-              person.id,
-              ContactStatusField.voter_likelihood,
-              VoterLikelihoodSchema,
-              () => seedVoterLikelihood(person.voterStatus),
-            ),
-        // The mirror of the line above: Serve-only, so a Win response stays
-        // exactly as it was rather than carrying a flag that surface cannot
-        // set.
-        this.hasElectedOfficeAccess(organization)
-          ? this.effectiveFollowUp(organization.slug, person.id)
-          : Promise.resolve(null),
-      ])
+    const [
+      optedOutAt,
+      supportStatus,
+      voterLikelihoodOrNull,
+      followUpOrNull,
+      civicPanelOrNull,
+    ] = await Promise.all([
+      this.contactInteractionTextService.latestOptOutAt(
+        organization.slug,
+        person.id,
+      ),
+      this.effectiveStatus(
+        organization.slug,
+        person.id,
+        ContactStatusField.support_status,
+        SupportStatusRollupSchema,
+        () => this.derivedSupportStatus(organization.slug, person.id),
+      ),
+      this.hasElectedOfficeAccess(organization)
+        ? Promise.resolve(null)
+        : this.effectiveStatus(
+            organization.slug,
+            person.id,
+            ContactStatusField.voter_likelihood,
+            VoterLikelihoodSchema,
+            () => seedVoterLikelihood(person.voterStatus),
+          ),
+      // The mirror of the line above: Serve-only, so a Win response stays
+      // exactly as it was rather than carrying a flag that surface cannot
+      // set.
+      this.hasElectedOfficeAccess(organization)
+        ? this.effectiveFollowUp(organization.slug, person.id)
+        : Promise.resolve(null),
+      this.hasElectedOfficeAccess(organization)
+        ? this.effectiveCivicPanel(organization.slug, person.id)
+        : Promise.resolve(null),
+    ])
     const base = {
       ...this.stripWinOnlyFieldsIfElectedOffice(organization, person),
       supportStatus,
@@ -2019,9 +2106,13 @@ export class ContactsService {
       voterLikelihoodOrNull === null
         ? base
         : { ...base, voterLikelihood: voterLikelihoodOrNull }
-    return followUpOrNull === null
+    return followUpOrNull === null || civicPanelOrNull === null
       ? withLikelihood
-      : { ...withLikelihood, followUp: followUpOrNull }
+      : {
+          ...withLikelihood,
+          followUp: followUpOrNull,
+          civicPanel: civicPanelOrNull,
+        }
   }
 
   // Both editable statuses (ENG-10833) are Win-only. Rejects `eo-` orgs
@@ -2131,6 +2222,52 @@ export class ContactsService {
     return {
       followUp: await this.effectiveFollowUp(organization.slug, personId),
     }
+  }
+
+  // Serve's civic panel toggle on the contact card. Same shape and gates as
+  // updateFollowUp; a yes to a panel invitation reaches the same field from
+  // the outreach writers, so the latest of either wins.
+  async updateCivicPanel(
+    personId: string,
+    value: CivicPanelStatus,
+    organization: Organization,
+    actorUserId: number,
+  ): Promise<CivicPanelStatusResponse> {
+    if (!this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        "The citizens' panel is not available for this organization",
+      )
+    }
+
+    await this.findPerson(personId, organization)
+
+    await this.contactStatusService.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field: ContactStatusField.civic_panel,
+      toValue: value,
+      source: ContactStatusSource.manual,
+      actorUserId,
+      fallbackFromValue: CivicPanelStatus.left,
+    })
+
+    return {
+      civicPanel: await this.effectiveCivicPanel(organization.slug, personId),
+    }
+  }
+
+  // Nobody is on the panel until they say yes, so absence of a row is `left`.
+  private effectiveCivicPanel(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<CivicPanelStatus> {
+    return this.effectiveStatus(
+      organizationSlug,
+      personId,
+      ContactStatusField.civic_panel,
+      CivicPanelStatusSchema,
+      () => CivicPanelStatus.left,
+    )
   }
 
   // No derived seed to fall back to: unlike voter likelihood (people-api's

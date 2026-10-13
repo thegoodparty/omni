@@ -149,6 +149,8 @@ export interface PhoneBankingOutcomeDraft {
   willVote?: WillVoteAnswer
   // Serve's one, in their place — see RecordPhoneBankingCallSchema.
   followUp?: FollowUpAnswer
+  // Serve's optional closing question, asked once follow-up is answered.
+  joinCivicPanel?: FollowUpAnswer
 }
 
 export const EMPTY_DRAFT: PhoneBankingOutcomeDraft = {}
@@ -168,6 +170,7 @@ export const draftWithOutcome = (
         supportAnswer: undefined,
         willVote: undefined,
         followUp: undefined,
+        joinCivicPanel: undefined,
       }
 
 export const draftWithEngagement = (
@@ -182,6 +185,7 @@ export const draftWithEngagement = (
         supportAnswer: undefined,
         willVote: undefined,
         followUp: undefined,
+        joinCivicPanel: undefined,
       }
 
 export const draftWithSupportAnswer = (
@@ -197,7 +201,15 @@ export const draftWithWillVote = (
 export const draftWithFollowUp = (
   draft: PhoneBankingOutcomeDraft,
   followUp: FollowUpAnswer | undefined,
-): PhoneBankingOutcomeDraft => ({ ...draft, followUp })
+): PhoneBankingOutcomeDraft =>
+  followUp
+    ? { ...draft, followUp }
+    : { ...draft, followUp, joinCivicPanel: undefined }
+
+export const draftWithJoinCivicPanel = (
+  draft: PhoneBankingOutcomeDraft,
+  joinCivicPanel: FollowUpAnswer | undefined,
+): PhoneBankingOutcomeDraft => ({ ...draft, joinCivicPanel })
 
 // Reading a persisted row back into the cascade: an answered row that
 // carries conversation answers must have come through the engaged path; a
@@ -244,6 +256,9 @@ export const draftFromInteraction = (
           : (interaction.supportAnswer ?? undefined),
         willVote: isServe ? undefined : (interaction.willVote ?? undefined),
         followUp: isServe ? (interaction.followUp ?? undefined) : undefined,
+        joinCivicPanel: isServe
+          ? (interaction.joinCivicPanel ?? undefined)
+          : undefined,
       }
     : EMPTY_DRAFT
 
@@ -298,6 +313,7 @@ export const buildRecordCallRequest = (
     ...(draft.supportAnswer ? { supportAnswer: draft.supportAnswer } : {}),
     ...(draft.willVote ? { willVote: draft.willVote } : {}),
     ...(draft.followUp ? { followUp: draft.followUp } : {}),
+    ...(draft.joinCivicPanel ? { joinCivicPanel: draft.joinCivicPanel } : {}),
     ...(markHouseholdDone ? { markHouseholdDone: true } : {}),
   }
 }

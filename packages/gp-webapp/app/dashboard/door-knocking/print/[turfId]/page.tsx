@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation'
 import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from 'app/dashboard/shared/candidateAccess'
+import { getFlagVariants } from '@shared/experiments/getFlagVariants'
+import { SERVE_CITIZEN_PANELS_FLAG_KEY } from '@shared/experiments/serveCitizenPanelsFlag'
 import WalkSheet from '../WalkSheet'
 import { fetchRoute, fetchTurfName } from '../walkListData'
 
@@ -29,11 +31,21 @@ export default async function Page({
   // who typed it, and there's no reason to ask the API about it at all.
   if (!/^\d+$/.test(turfId)) notFound()
 
-  const [payload, turfName] = await Promise.all([
+  const [payload, turfName, variants] = await Promise.all([
     fetchRoute(turfId),
     fetchTurfName(turfId),
+    getFlagVariants(),
   ])
   if (!payload) notFound()
 
-  return <WalkSheet turfId={turfId} turfName={turfName} payload={payload} />
+  return (
+    <WalkSheet
+      turfId={turfId}
+      turfName={turfName}
+      payload={payload}
+      citizenPanelsEnabled={
+        variants?.[SERVE_CITIZEN_PANELS_FLAG_KEY]?.value === 'on'
+      }
+    />
+  )
 }

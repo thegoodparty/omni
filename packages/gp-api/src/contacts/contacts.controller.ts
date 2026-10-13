@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -15,6 +16,9 @@ import {
   FollowUpStatusResponseSchema,
   UpdateFollowUpInputSchema,
   type UpdateFollowUpInput,
+  CivicPanelStatusResponseSchema,
+  UpdateCivicPanelInputSchema,
+  type UpdateCivicPanelInput,
   ListDetailContactsResponseSchema,
   PersonSchema,
   type UpdateContactStatusInput,
@@ -29,6 +33,8 @@ import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.de
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
+import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
 import { ListDetailContactsDTO } from './schemas/listDetailContacts.schema'
@@ -46,7 +52,10 @@ import { ContactsService } from './services/contacts.service'
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
 export class ContactsController {
-  constructor(private readonly contactsService: ContactsService) {}
+  constructor(
+    private readonly contactsService: ContactsService,
+    private readonly features: FeaturesService,
+  ) {}
 
   @Get()
   async listContacts(
@@ -162,6 +171,30 @@ export class ContactsController {
     @ReqUser() user: User,
   ) {
     return this.contactsService.updateFollowUp(
+      personId,
+      body.value,
+      organization,
+      user.id,
+    )
+  }
+
+  @Patch(':personId/civic-panel')
+  @ResponseSchema(CivicPanelStatusResponseSchema)
+  async updateCivicPanel(
+    @Param() { personId }: UpdateContactStatusParamsDTO,
+    @Body(new ZodValidationPipe(UpdateCivicPanelInputSchema))
+    body: UpdateCivicPanelInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    // 404 rather than 403 when the flag is off: a surface the user has not
+    // been rolled out to should not advertise that it exists.
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+    return this.contactsService.updateCivicPanel(
       personId,
       body.value,
       organization,

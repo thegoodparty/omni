@@ -6,6 +6,11 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import RecordKnockForm from './RecordKnockForm'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: vi.fn(),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -99,6 +104,10 @@ const walkToEngaged = () => {
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
+  vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+    ready: true,
+    enabled: true,
+  })
   mocks.input.current = null
   api.mock('POST /v1/door-knocking/interactions', {
     status: 200,
@@ -636,6 +645,75 @@ describe('RecordKnockForm in serve mode', () => {
     expect(posted[0]).not.toHaveProperty('followUp')
   })
 
+  it('asks the civic panel question after follow-up and posts the answer', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'engaged' },
+      }
+    })
+    renderForm(vi.fn(), true)
+    walkToEngaged()
+
+    expect(
+      screen.queryByText("Do they want to join your citizens' panel?"),
+    ).toBeNull()
+    answer('Do they need follow-up?', 'No')
+    answer("Do they want to join your citizens' panel?", 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ followUp: 'no', joinCivicPanel: 'yes' })
+  })
+
+  it('saves without a civic panel answer when the canvasser skips it', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'engaged' },
+      }
+    })
+    renderForm(vi.fn(), true)
+    walkToEngaged()
+    answer('Do they need follow-up?', 'No')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).not.toHaveProperty('joinCivicPanel')
+  })
+
+  it('never asks the citizens panel question with serve-citizen-panels off', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: false,
+    })
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'engaged' },
+      }
+    })
+    renderForm(vi.fn(), true)
+    walkToEngaged()
+    answer('Do they need follow-up?', 'No')
+
+    expect(
+      screen.queryByText("Do they want to join your citizens' panel?"),
+    ).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).not.toHaveProperty('joinCivicPanel')
+  })
+
   // Win regression: an org that isn't in serve mode keeps the question and
   // keeps sending the answer.
   it('still asks support and will-vote in win mode', async () => {
@@ -651,6 +729,9 @@ describe('RecordKnockForm in serve mode', () => {
     walkToEngaged()
 
     expect(screen.queryByText('Do they need follow-up?')).toBeNull()
+    expect(
+      screen.queryByText("Do they want to join your citizens' panel?"),
+    ).toBeNull()
     answer('Do they support you?', 'Yes')
 
     expect(screen.getByText('Will they vote this election?')).toBeVisible()

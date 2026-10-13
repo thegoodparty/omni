@@ -207,6 +207,7 @@ describe('PhoneBankingCallerPage: what we heard', () => {
               supportAnswer: null,
               willVote: null,
               followUp: 'yes',
+              joinCivicPanel: null,
               occurredAt: new Date(),
             },
           },

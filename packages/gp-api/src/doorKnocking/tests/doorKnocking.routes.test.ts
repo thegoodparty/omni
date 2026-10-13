@@ -5256,6 +5256,111 @@ describe('door-knocking routes', () => {
       })
     })
 
+    describe('join civic panel, the Serve closing question', () => {
+      const serveTarget = async (label: string) => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg(label)
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: `EO ${label} turf`,
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+        const recordEo = (clientKey: string, joinCivicPanel: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey,
+              outcome: 'answered',
+              followUp: 'no',
+              joinCivicPanel,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+        return { eoSlug, eoTarget, recordEo }
+      }
+
+      it('a yes makes them a member, and a replayed knock adds no event', async () => {
+        const { eoSlug, eoTarget, recordEo } = await serveTarget('panelyes')
+
+        expect((await recordEo(CLIENT_KEY, 'yes')).status).toBe(201)
+        expect((await recordEo(CLIENT_KEY, 'yes')).status).toBe(201)
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug, field: 'civic_panel' },
+        })
+        expect(events).toHaveLength(1)
+        expect(events[0]).toMatchObject({
+          personId: eoTarget.personId,
+          fromValue: 'left',
+          toValue: 'member',
+          source: 'door_knock',
+        })
+        const knock =
+          await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+            where: { organizationSlug: eoSlug },
+          })
+        expect(knock.joinCivicPanel).toBe('yes')
+      })
+
+      it('a later no at another knock leaves a member on the panel', async () => {
+        const { eoSlug, recordEo } = await serveTarget('panelno')
+
+        await recordEo(CLIENT_KEY, 'yes')
+        expect(
+          (await recordEo('bbbbbbbb-cccc-4ddd-8eee-ffffffffffff', 'no')).status,
+        ).toBe(201)
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'civic_panel' },
+          })
+        expect(current.value).toBe('member')
+        expect(
+          await service.prisma.contactStatusEvent.count({
+            where: { organizationSlug: eoSlug, field: 'civic_panel' },
+          }),
+        ).toBe(1)
+      })
+
+      it('writes no civic_panel event for a Win organization', async () => {
+        const target = await knockAndGetTarget()
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          joinCivicPanel: 'yes',
+        })
+        expect(res.status).toBe(201)
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, field: 'civic_panel' },
+        })
+        expect(events).toHaveLength(0)
+      })
+
+      it('refuses the answer on a door that never answered', async () => {
+        const target = await knockAndGetTarget()
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'not_home',
+          joinCivicPanel: 'yes',
+        })
+        expect(res.status).toBe(400)
+      })
+    })
+
     describe('willVote -> voter_likelihood override events (ENG-10841)', () => {
       const recordWillVote = async (willVote: string) => {
         const target = await knockAndGetTarget()
