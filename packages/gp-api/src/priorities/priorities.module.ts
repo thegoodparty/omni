@@ -6,6 +6,7 @@ import {
   SampleCensusComposition,
 } from './services/censusComposition'
 import { PrioritiesService } from './services/priorities.service'
+import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { PriorityResultsService } from './services/priorityResults.service'
 import { PriorityStatusService } from './services/priorityStatus.service'
 
@@ -15,6 +16,7 @@ import { PriorityStatusService } from './services/priorityStatus.service'
   providers: [
     PrioritiesService,
     PriorityStatusService,
+    PriorityOnboardingService,
     PriorityResultsService,
     // Sample figures until the district and block group census tables are
     // readable from mart_gp_api; swapping the class here is the whole switch.

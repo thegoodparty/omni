@@ -47,6 +47,8 @@ import type {
   UpdateOrdinanceRequest,
   Priority,
   CreatePriorityInput,
+  OnboardingPriorityOptions,
+  SetOnboardingPrioritiesInput,
   UpdatePriorityInput,
   PriorityStatus,
   ChatAnchor,
@@ -1218,6 +1220,16 @@ export type APIEndpoints = {
     Response: Priority
   }
 
+  'GET /v1/priorities/onboarding': {
+    Request: {}
+    Response: OnboardingPriorityOptions
+  }
+
+  'PUT /v1/priorities/onboarding': {
+    Request: SetOnboardingPrioritiesInput
+    Response: void
+  }
+
   'GET /v1/priorities/:id': {
     Request: {}
     Response: Priority
@@ -2069,6 +2081,11 @@ export type APIEndpoints = {
         title: string
       }>
     }
+  }
+
+  'POST /v1/community-issues/onboarding': {
+    Request: {}
+    Response: { starterIssueCount: number }
   }
 
   // Self-serve landing catch-up: called client-side after landing on the

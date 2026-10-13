@@ -13,6 +13,7 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import {
+  OnboardingPriorityOptionsSchema,
   PriorityResultsSchema,
   PrioritySchema,
   parsePriorityStatus,
@@ -31,10 +32,12 @@ import { ElectedOffice, PrioritySource, User } from '../generated/prisma'
 import {
   CreatePriorityDto,
   PriorityIdParamDto,
+  SetOnboardingPrioritiesDto,
   UpdatePriorityDto,
 } from './schemas/priority.schema'
 import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
 import { PrioritiesService } from './services/priorities.service'
+import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { PriorityResultsService } from './services/priorityResults.service'
 import { currentStepOf, priorityToApi } from './util/priority.util'
 
@@ -45,6 +48,7 @@ import { currentStepOf, priorityToApi } from './util/priority.util'
 export class PrioritiesController {
   constructor(
     private readonly prioritiesService: PrioritiesService,
+    private readonly onboarding: PriorityOnboardingService,
     private readonly priorityResults: PriorityResultsService,
     private readonly features: FeaturesService,
   ) {}
@@ -55,6 +59,21 @@ export class PrioritiesController {
   async list(@ReqElectedOffice() electedOffice: ElectedOffice) {
     const priorities = await this.prioritiesService.listActive(electedOffice.id)
     return priorities.map(priorityToApi)
+  }
+
+  @Get('onboarding')
+  @ResponseSchema(OnboardingPriorityOptionsSchema)
+  async onboardingOptions(@ReqElectedOffice() electedOffice: ElectedOffice) {
+    return { options: await this.onboarding.options(electedOffice) }
+  }
+
+  @Put('onboarding')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setOnboarding(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body() body: SetOnboardingPrioritiesDto,
+  ) {
+    await this.onboarding.set(electedOffice, body)
   }
 
   @Get(':id/status')

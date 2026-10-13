@@ -809,6 +809,20 @@ export {
 } from './priorities/Priority.schema'
 
 export {
+  ONBOARDING_PRIORITY_OPTION_KINDS,
+  OnboardingPriorityOptionKindSchema,
+  type OnboardingPriorityOptionKind,
+  OnboardingPriorityOptionSchema,
+  type OnboardingPriorityOption,
+  OnboardingPriorityOptionsSchema,
+  type OnboardingPriorityOptions,
+  OnboardingOtherPrioritySchema,
+  type OnboardingOtherPriority,
+  SetOnboardingPrioritiesInputSchema,
+  type SetOnboardingPrioritiesInput,
+} from './priorities/PriorityOnboarding.schema'
+
+export {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   PRIORITY_RESULTS_CHANNELS,
   PriorityResultsChannelSchema,

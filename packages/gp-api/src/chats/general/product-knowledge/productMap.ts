@@ -337,6 +337,7 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Add a priority writes down what you want to get done and why it matters',
       'An issue from Community Issues can be pulled in as a priority',
+      'Issues picked during sign-up, from the campaign or the community, start here as priorities. The sign-up step that asks for them is being rolled out account by account',
       'Each row shows the step it is on and the next thing to do about it',
       'Opening a priority works it forward one step at a time',
       'Before a step is done, it offers to check it with the constituents it affects most and least, with the lists and the question ready',
