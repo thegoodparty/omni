@@ -411,11 +411,28 @@ priority) → Stripe test card `4242 4242 4242 4242`, any future expiry/CVC/ZIP 
 Post-payment, dev has two more gates before texting: any numeric PIN validates on
 dev, but the 10DLC "under review" state stays until the registration is APPROVED.
 
-**E2E specs** live in `e2e-tests/tests/app/dashboard/pro-upgrade/` (entry,
-happy-path, not-filed, step-resume, validation). Traps learned fixing the
-permanently-red main gate (PR #1009):
+**E2E specs** live in `e2e-tests/tests/app/dashboard/pro-upgrade/`, as two suites
+that each pin `outreach-pro-gating-v2` with `setFlagOverrides` before auth:
 
-- The happy-path spec is `@dev-only` and needs `BASE_URL=https://dev.goodparty.org`
+- `pro-upgrade-*.spec.ts` (entry, happy-path, not-filed, step-resume,
+  validation) pin it **off** and cover the default step set. They are deleted
+  with the flag.
+- `pro-upgrade-v2-*.spec.ts` (entry, happy-path, not-filed, step-resume,
+  validation) pin it **on** and cover the purchase-only flow: guidance as the
+  entry, the stuck-cohort path (an already-Pro candidate with no filing, made
+  Pro through `setupProCampaignUser`'s test-only endpoint, lands on success
+  and is sent to campaign verification), the not-filed dead end, resume (the
+  saved EIN fills in, and a filing already on record shows the submitted
+  notice instead of the form), and the EIN and filing-form validation gates.
+
+In both suites only the happy path is `@dev-only`, for the inbound Stripe
+`checkout.session.completed` webhook a preview cannot receive. Everything
+else stops before payment (a pre-payment filing submit creates the record
+but defers the compliance agent), so it runs on every PR preview.
+
+Traps learned fixing the permanently-red main gate (PR #1009):
+
+- The legacy happy-path spec is `@dev-only` and needs `BASE_URL=https://dev.goodparty.org`
   (the alias, not the raw Vercel deploy URL) — the referer-restricted Google Maps key
   rejects `*.vercel.app`, so Places suggestions (`.pac-item`) never render and the
   filing-details address step hangs. Run locally with
