@@ -278,8 +278,12 @@ false → true transition of `open`, and renders that regardless of what
 `requirement` does afterwards; only `handleProComplete` moves it, re-reading
 the live requirement when the candidate presses Continue and switching to
 `'verify'`/`'in_review'`/`'pin'` (texting's second step, which only `sms` can
-reach) instead of calling the caller's `onComplete`. A gate opened with
-`requirement === null` still renders nothing. The mirror rule in the flows:
+reach) instead of calling the caller's `onComplete`. The wizard collects the
+filing before payment, so a texting candidate who walked it comes back with a
+`submitted` record and moves on to `'in_review'`, the gate's own notice, never
+back into the filing form; `'verify'` is left for a candidate who was already
+Pro with no filing on record. A gate opened with `requirement === null` still
+renders nothing. The mirror rule in the flows:
 the resumed effect is OPEN-only (`if (resumed && gate.requirement !== null)
 setGateOpen(true)`) and phone banking's sheets gate has no auto-close at all
 — the gate closes through `onExit` or `onComplete` and nothing else.

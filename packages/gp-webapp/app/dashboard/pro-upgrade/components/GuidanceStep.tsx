@@ -4,14 +4,15 @@ import { useEffect } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
-import {
-  CreditCardIcon,
-  FileBadgeIcon,
-  FileTextIcon,
-} from '@styleguide/components/ui/icons'
+import { CreditCardIcon, FileBadgeIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  CONTACT_DETAILS_ROW,
+  FILING_DETAILS_ROW,
+  PIN_TIMING_ROW,
+} from 'app/dashboard/campaign-verification/verificationCopy'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -29,34 +30,23 @@ const GATHER_STEPS = [
 ]
 
 // The purchase-only flow (outreach-pro-gating-v2), design: sgBody's
-// overview. Texting is the two-step channel, so its list also names the
-// filing details campaign verification gathers right after payment; every
-// other launch only sets up the two things collected before checkout.
-const PAYMENT_ROW = {
-  icon: CreditCardIcon,
-  title: 'Payment',
-  body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
-}
+// overview. Every launch now gathers the filing details before payment, so
+// the list carries campaign verification's own rows around the EIN and
+// payment ones, with the wait for the PIN last.
 const PURCHASE_ONLY_ROWS = [
-  {
-    icon: FileBadgeIcon,
-    title: 'Your campaign EIN',
-    body: 'Your campaign EIN confirms your campaign is a real tax entity.',
-  },
-  PAYMENT_ROW,
-]
-const TWO_STEP_ROWS = [
   {
     icon: FileBadgeIcon,
     title: 'Your campaign EIN',
     body: 'Your campaign EIN helps verify your candidacy and comply with texting regulations.',
   },
+  FILING_DETAILS_ROW,
+  CONTACT_DETAILS_ROW,
   {
-    icon: FileTextIcon,
-    title: 'Your campaign filing details',
-    body: 'Your election authority can provide these details to help verify your campaign.',
+    icon: CreditCardIcon,
+    title: 'Payment',
+    body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
   },
-  PAYMENT_ROW,
+  PIN_TIMING_ROW,
 ]
 
 // Mirrors gp-api's buildFilingInstructionsContent / formatFilingWindow
@@ -85,7 +75,6 @@ const formatFilingWindow = (
 const GuidanceStep = (): React.JSX.Element => {
   const { purchaseOnly, channel, goToStep, goToPreviousStep, exit } =
     useProUpgradeWizard()
-  const twoStep = channel === 'sms'
   const [campaign] = useCampaign()
 
   const filingWindow = formatFilingWindow(
@@ -116,31 +105,27 @@ const GuidanceStep = (): React.JSX.Element => {
           Let&apos;s gather a few things to unlock Pro
         </h1>
         <p className="mb-6 text-base text-base-muted-foreground">
-          {twoStep
-            ? 'Have this information available to verify your campaign.'
-            : 'Have this information available to activate Pro.'}
+          Have this information available to verify your campaign.
         </p>
 
         <ul className="rounded-xl border border-base-border">
-          {(twoStep ? TWO_STEP_ROWS : PURCHASE_ONLY_ROWS).map(
-            ({ icon: Icon, title, body }) => (
-              <li
-                key={title}
-                className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"
-              >
-                <Icon
-                  className="mt-0.5 size-[18px] shrink-0 text-primary"
-                  aria-hidden
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{title}</span>
-                  <span className="mt-0.5 block text-[13px] text-base-muted-foreground">
-                    {body}
-                  </span>
+          {PURCHASE_ONLY_ROWS.map(({ icon: Icon, title, body }) => (
+            <li
+              key={title}
+              className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"
+            >
+              <Icon
+                className="mt-0.5 size-[18px] shrink-0 text-primary"
+                aria-hidden
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{title}</span>
+                <span className="mt-0.5 block text-[13px] text-base-muted-foreground">
+                  {body}
                 </span>
-              </li>
-            ),
-          )}
+              </span>
+            </li>
+          ))}
         </ul>
 
         <p className="mt-5 text-sm text-base-muted-foreground">
