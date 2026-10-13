@@ -6,6 +6,7 @@ import {
   type MergeTagChannel,
   type MergeTagId,
 } from './MergeTag.const'
+import { CIVIC_PANEL_JOIN_LINE } from './CivicPanelJoin'
 
 // The CAS SMS console (gp-admin): approval queue, per-campaign monitor,
 // and the message-standards verdict. gp-admin consumes these through the
@@ -191,7 +192,12 @@ export type SmsProtectedPart =
       text: string
     }
   | {
-      rule: Exclude<SmsStandardsRule, 'first_name_token' | 'length'>
+      // civic_panel_join is not a standards rule: no send fails for lacking
+      // it. It is locked because the reply reader only recognizes JOIN on a
+      // send that carries the exact sentence.
+      rule:
+        | Exclude<SmsStandardsRule, 'first_name_token' | 'length'>
+        | 'civic_panel_join'
       kind: 'phrase'
       text: string
       // Where the locked copy starts in the script. The same words can
@@ -340,6 +346,18 @@ export const deriveSmsProtectedParts = (
       text: disclaimer.text,
       start: disclaimer.start,
     })
+  }
+
+  {
+    const at = script.lastIndexOf(CIVIC_PANEL_JOIN_LINE)
+    if (at !== -1) {
+      parts.push({
+        rule: 'civic_panel_join',
+        kind: 'phrase',
+        text: CIVIC_PANEL_JOIN_LINE,
+        start: at,
+      })
+    }
   }
 
   if (!ignored.has('opt_out_line')) {

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  CivicPanelStatusSchema as GeneratedCivicPanelStatusSchema,
+  type CivicPanelStatus as GeneratedCivicPanelStatus,
   ContactStatusFieldSchema as GeneratedContactStatusFieldSchema,
   type ContactStatusField as GeneratedContactStatusField,
   ContactStatusSourceSchema as GeneratedContactStatusSourceSchema,
@@ -67,6 +69,25 @@ export const FollowUpStatusResponseSchema = z.object({
 })
 export type FollowUpStatusResponse = z.infer<
   typeof FollowUpStatusResponseSchema
+>
+
+// Serve's civic panel, written through its own endpoint for the follow-up
+// flag's reasons above: no Pro gate, and a response that guarantees only this
+// field rather than Win's two statuses.
+export const CivicPanelStatusSchema = GeneratedCivicPanelStatusSchema
+export type CivicPanelStatus = GeneratedCivicPanelStatus
+
+export const UpdateCivicPanelInputSchema = z
+  .object({ value: CivicPanelStatusSchema })
+  .strict()
+export type UpdateCivicPanelInput = z.infer<typeof UpdateCivicPanelInputSchema>
+
+// Read back from the persisted row, never echoed from the request.
+export const CivicPanelStatusResponseSchema = z.object({
+  civicPanel: CivicPanelStatusSchema,
+})
+export type CivicPanelStatusResponse = z.infer<
+  typeof CivicPanelStatusResponseSchema
 >
 
 // The two answers that mean something happened, without the off switch —
@@ -166,12 +187,19 @@ export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   cleared: 'No',
 }
 
+// Reads as "Civic panel: Not a member -> Member" in the feed.
+export const CIVIC_PANEL_STATUS_LABELS: Record<CivicPanelStatus, string> = {
+  member: 'Member',
+  left: 'Not a member',
+}
+
 const LABELS_BY_FIELD: Record<ContactStatusField, Record<string, string>> = {
   voter_likelihood: VOTER_LIKELIHOOD_LABELS,
   support_status: SUPPORT_STATUS_ROLLUP_LABELS,
   do_not_knock: DO_NOT_KNOCK_LABELS,
   not_a_voter: NOT_A_VOTER_LABELS,
   follow_up: FOLLOW_UP_STATUS_LABELS,
+  civic_panel: CIVIC_PANEL_STATUS_LABELS,
 }
 
 export const resolveContactStatusLabel = (

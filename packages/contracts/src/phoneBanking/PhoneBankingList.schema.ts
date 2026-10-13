@@ -21,6 +21,9 @@ export const PhoneBankingInteractionSchema = z.object({
   // schema refuses it alongside supportAnswer/willVote, so that holds for any
   // caller and not just ours. Also null on anything logged before it existed.
   followUp: FollowUpAnswerSchema.nullable(),
+  // Serve's closing question, read back so a corrected save keeps it. Same
+  // null-on-Win rule as followUp.
+  joinCivicPanel: FollowUpAnswerSchema.nullable(),
   occurredAt: zCoerceDate(),
 })
 export type PhoneBankingInteraction = z.infer<

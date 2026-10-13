@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -103,6 +104,10 @@ beforeEach(async () => {
       OutreachTextIngestService,
       { provide: PrismaService, useValue: service.prisma },
       { provide: ContactInteractionTextService, useValue: textInteractions },
+      {
+        provide: ContactStatusService,
+        useValue: service.app.get(ContactStatusService),
+      },
       {
         provide: ContactsService,
         useValue: {
@@ -536,5 +541,141 @@ describe('OutreachTextIngestService.ingestReplies', () => {
         rows: [row('3035550101', 'Hello')],
       }),
     ).rejects.toThrow(NotFoundException)
+  })
+})
+
+describe('OutreachTextIngestService civic panel', () => {
+  const EO_SLUG = 'eo-civic-panel-ingest'
+  let panelOutreach: Outreach
+
+  const seedServeSend = async (asksToJoinCivicPanel: boolean) => {
+    await service.prisma.organization.upsert({
+      where: { slug: EO_SLUG },
+      create: { slug: EO_SLUG, ownerId: service.user.id },
+      update: {},
+    })
+    panelOutreach = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: EO_SLUG,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.in_progress,
+        date: new Date(),
+        asksToJoinCivicPanel,
+      },
+    })
+    await service.prisma.outreachTextRecipient.createMany({
+      data: [PERSON_1, PERSON_2].map((recipient) => ({
+        outreachId: panelOutreach.id,
+        organizationSlug: EO_SLUG,
+        personId: recipient.personId,
+        phone: recipient.phone,
+      })),
+    })
+    await service.prisma.contactInteractionText.createMany({
+      data: [PERSON_1, PERSON_2].map((recipient) => ({
+        outreachId: panelOutreach.id,
+        organizationSlug: EO_SLUG,
+        personId: recipient.personId,
+        occurredAt: new Date(),
+      })),
+    })
+  }
+
+  const panelStatus = async (personId: string) =>
+    (
+      await service.prisma.contactCurrentStatus.findUnique({
+        where: {
+          organizationSlug_personId_field: {
+            organizationSlug: EO_SLUG,
+            personId,
+            field: 'civic_panel',
+          },
+        },
+      })
+    )?.value ?? 'left'
+
+  const upload = (rows: IngestReplyRow[]) =>
+    ingest.ingestReplies({
+      outreachId: panelOutreach.id,
+      sourceLabel: 'staff_upload',
+      rows,
+    })
+
+  it('puts a JOIN reply on the panel when the send asked', async () => {
+    await seedServeSend(true)
+
+    await upload([
+      row(PERSON_1.phone, 'JOIN'),
+      row(PERSON_2.phone, 'I want to join the meeting on Tuesday'),
+    ])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('member')
+    expect(await panelStatus(PERSON_2.personId)).toBe('left')
+    const events = await service.prisma.contactStatusEvent.findMany({
+      where: { organizationSlug: EO_SLUG, field: 'civic_panel' },
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      personId: PERSON_1.personId,
+      toValue: 'member',
+      source: 'sms',
+      actorUserId: null,
+    })
+  })
+
+  it('ignores JOIN on a send that did not ask', async () => {
+    await seedServeSend(false)
+
+    await upload([row(PERSON_1.phone, 'JOIN')])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+  })
+
+  it('takes a member off the panel on STOP, on any send', async () => {
+    await seedServeSend(false)
+    await service.prisma.contactCurrentStatus.create({
+      data: {
+        organizationSlug: EO_SLUG,
+        personId: PERSON_1.personId,
+        field: 'civic_panel',
+        value: 'member',
+      },
+    })
+
+    await upload([row(PERSON_1.phone, 'STOP')])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+  })
+
+  it('writes nothing new when the same file is uploaded twice', async () => {
+    await seedServeSend(true)
+
+    await upload([row(PERSON_1.phone, 'join please')])
+    await upload([row(PERSON_1.phone, 'join please')])
+
+    expect(
+      await service.prisma.contactStatusEvent.count({
+        where: { organizationSlug: EO_SLUG, field: 'civic_panel' },
+      }),
+    ).toBe(1)
+  })
+
+  it('never writes panel membership for a Win send', async () => {
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { asksToJoinCivicPanel: true },
+    })
+
+    await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows: [row(PERSON_1.phone, 'JOIN')],
+    })
+
+    expect(
+      await service.prisma.contactStatusEvent.count({
+        where: { field: 'civic_panel' },
+      }),
+    ).toBe(0)
   })
 })

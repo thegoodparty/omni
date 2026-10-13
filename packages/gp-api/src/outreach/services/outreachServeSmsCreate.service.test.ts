@@ -1,5 +1,8 @@
 import { Test } from '@nestjs/testing'
-import { ServeSmsCreateRequestSchema } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  ServeSmsCreateRequestSchema,
+} from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -115,6 +118,37 @@ describe('OutreachServeSmsCreateService', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  describe('the civic panel ask', () => {
+    const createdData = () =>
+      (
+        firstOrThrow(prisma.outreach.create.mock.calls)[0] as {
+          data: Record<string, unknown>
+        }
+      ).data
+
+    it('marks a send as asking when the message carries the JOIN line', async () => {
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(
+          request({
+            message: `The budget hearing is Thursday. ${CIVIC_PANEL_JOIN_LINE} Reply STOP to opt out.`,
+          }),
+        ),
+      )
+
+      expect(createdData().asksToJoinCivicPanel).toBe(true)
+    })
+
+    it('leaves a send without the line unmarked', async () => {
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(request()),
+      )
+
+      expect(createdData().asksToJoinCivicPanel).toBe(false)
+    })
   })
 
   describe('the count is server-derived', () => {

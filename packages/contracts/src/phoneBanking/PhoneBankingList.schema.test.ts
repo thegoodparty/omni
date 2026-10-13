@@ -61,6 +61,7 @@ describe('PhoneBankingListSchema', () => {
                 supportAnswer: null,
                 willVote: null,
                 followUp: null,
+                joinCivicPanel: null,
                 occurredAt: '2026-08-20T12:05:00Z',
               },
             },

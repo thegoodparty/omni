@@ -116,6 +116,10 @@ export const TextConstituentActivitySchema = z.object({
     note: z.string().nullable(),
     manual: z.boolean(),
     outreachId: z.number().nullable(),
+    // What they wrote back, oldest first. Only a Serve text keeps reply
+    // bodies (Win's Peerly sweep records timestamps), and only the person
+    // feed reads them; absent means none to show.
+    replies: z.array(z.string()).optional(),
   }),
 })
 export type TextConstituentActivity = z.infer<

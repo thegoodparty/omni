@@ -1,6 +1,8 @@
 import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import {
   ANY_PHONE_FIELD,
+  CIVIC_PANEL_FIELD,
+  CONTACT_HISTORY_FIELD,
   RECOMMENDED_LIST_FILTER_FIELDS,
   RECOMMENDED_LIST_FILTER_OPTION_KEYS,
 } from './recommendedListFilters.config'
@@ -60,6 +62,8 @@ const ALL_FILTER_FIELDS = [
   ...filterSections.flatMap((section) => section.fields),
   ...RECOMMENDED_LIST_FILTER_FIELDS,
   ANY_PHONE_FIELD,
+  CIVIC_PANEL_FIELD,
+  CONTACT_HISTORY_FIELD,
 ]
 const PARTY_FIELD = ALL_FILTER_FIELDS.find(
   (field) => field.key === 'political_party',

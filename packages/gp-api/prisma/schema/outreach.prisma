@@ -48,6 +48,9 @@ model Outreach {
   // after the create that carried them.
   priorityStepId                    String?                            @map("priority_step_id")
   priorityCheckSide                 String?                            @map("priority_check_side")
+  // Set at create when the message carries the civic panel JOIN line, so the
+  // reply ingest reads JOIN replies off this send and nothing else.
+  asksToJoinCivicPanel              Boolean                            @default(false) @map("asks_to_join_civic_panel")
   // The campaign plan task this outreach was launched from, when it was. The
   // task list marks that task done once the outreach is scheduled, then
   // clears this, so a later "Mark not done" on the task sticks.

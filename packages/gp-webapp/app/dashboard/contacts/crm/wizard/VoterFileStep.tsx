@@ -9,6 +9,8 @@ import {
 import { sentenceCase } from '../shared/labels.util'
 import {
   ANY_PHONE_FIELD,
+  CIVIC_PANEL_FIELD,
+  CONTACT_HISTORY_FIELD,
   ANY_PHONE_FILTER_KEY,
   RECOMMENDED_LIST_FILTER_FIELDS,
   SPECIFIC_PHONE_FILTER_KEYS,
@@ -40,6 +42,10 @@ interface VoterFileStepProps {
   // so the surfaces that share this step and must NOT gain these groups
   // (door-knocking's WhoStep, TurfDetailsSheet) stay unchanged.
   showRecommendedListFilters?: boolean
+  // The Citizens' panel and Contact history groups, behind
+  // serve-citizen-panels. Resolved upstream for the same reason as
+  // isElectedOfficial.
+  showCitizenPanelFilters?: boolean
 }
 
 // filters.config.ts's "General Information" section key for Contacts Made:
@@ -91,6 +97,7 @@ export default function VoterFileStep({
   precinctOptions,
   isElectedOfficial,
   showRecommendedListFilters = false,
+  showCitizenPanelFilters = false,
 }: VoterFileStepProps) {
   // Political party doesn't apply to an elected official's constituent file.
   // Contacts Made is Win-only the same way (campaign activity has no Serve
@@ -262,6 +269,12 @@ export default function VoterFileStep({
         contactsMadeField &&
         renderField(contactsMadeField)}
 
+      {/* Serve's own group, where Win's prior contacts sit: the people on
+          the official's citizens' panel. */}
+      {showCitizenPanelFilters &&
+        isElectedOfficial &&
+        renderField(CIVIC_PANEL_FIELD)}
+
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
@@ -305,6 +318,8 @@ export default function VoterFileStep({
       </div>
 
       {fieldsBelowSupportStatus.map(renderField)}
+
+      {showCitizenPanelFilters && renderField(CONTACT_HISTORY_FIELD)}
     </div>
   )
 }

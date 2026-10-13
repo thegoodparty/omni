@@ -110,7 +110,9 @@ describe('Serve SMS results — the Statistics card', () => {
     expect(screen.getByText('No response')).toBeInTheDocument()
     expect(screen.getByText('330')).toBeInTheDocument()
     expect(screen.getByText('Opted out')).toBeInTheDocument()
-    expect(screen.getByText('8')).toBeInTheDocument()
+    // Once in Statistics, once in the Unsubscribes tile: one count, so the
+    // two can never disagree.
+    expect(screen.getAllByText('8')).toHaveLength(2)
   })
 
   it('never reads the Win campaign-scoped endpoint on a Serve drawer', async () => {
@@ -225,6 +227,12 @@ describe('Serve SMS results — the reply list', () => {
     expect(screen.getByText('Dana Whitfield')).toBeInTheDocument()
     expect(screen.getByText('Northside, CO')).toBeInTheDocument()
     expect(screen.getByText('+13035550101')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Open their record' }),
+    ).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/dashboard\/contacts\/[^/]+$/),
+    )
   })
 
   // The label names what ONE press does, not the size of the list: 23 are

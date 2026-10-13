@@ -65,6 +65,13 @@ export const voterFilterBaseSchema = z.object({
   // against contact_current_status, not a voter-file column, so it is
   // handled separately rather than by the generic field loop.
   followUpRequested: z.boolean().optional(),
+  // Serve's civic panel: people whose standing civic_panel status is
+  // member. Resolved against contact_current_status the same way.
+  civicPanelMember: z.boolean().optional(),
+  // Nobody the office texted, called, knocked or robocalled in the last
+  // CONTACT_REST_DAYS. Resolved against the interaction tables, not a
+  // voter-file column, so it is handled separately like the two above.
+  notContactedRecently: z.boolean().optional(),
   businessOwnerYes: z.boolean().optional(),
   businessOwnerUnknown: z.boolean().optional(),
   educationNone: z.boolean().optional(),

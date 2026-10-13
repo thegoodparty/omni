@@ -41,6 +41,7 @@ import { InfoSection } from './InfoSection'
 import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import FollowUpRow from './FollowUpRow'
+import CivicPanelRow from './CivicPanelRow'
 import NotesSection from './NotesSection'
 import StatusRow from './StatusRow'
 import {
@@ -305,7 +306,9 @@ const ActivitiesContent: React.FC = () => {
             // Serve's, so neither surface can render the answer to a question
             // its own canvassers never asked. Held back until the mode has
             // settled, since the default reads Win.
-            const isServeField = activity.data.field === 'follow_up'
+            const isServeField =
+              activity.data.field === 'follow_up' ||
+              activity.data.field === 'civic_panel'
             return isWinContextReady && isWinContext !== isServeField ? (
               <StatusChangeActivityRow key={idx} activity={activity} />
             ) : null
@@ -433,6 +436,7 @@ export const PersonRecord: React.FC<{
       {/* Serve's only editable per-contact status, self-gating the same way
           StatusRow does for Win. */}
       <FollowUpRow person={person} isServe={isServe} />
+      <CivicPanelRow person={person} isServe={isServe} />
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
 

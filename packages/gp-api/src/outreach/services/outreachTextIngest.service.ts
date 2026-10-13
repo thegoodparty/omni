@@ -3,8 +3,12 @@ import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
 import { v5 as uuidv5 } from 'uuid'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
+  CivicPanelStatus,
+  ContactStatusField,
+  ContactStatusSource,
   Organization,
   OutreachStatus,
   PollIndividualMessageSender,
@@ -12,6 +16,7 @@ import {
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { phoneDigitsKey } from '@/shared/util/strings.util'
+import { isCivicPanelJoinMessage } from '../util/civicPanelJoin.util'
 import { isOptOutMessage } from '../util/textOptOut.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
@@ -95,6 +100,7 @@ export class OutreachTextIngestService extends createPrismaBase(
   constructor(
     private readonly textInteractions: ContactInteractionTextService,
     private readonly contactsService: ContactsService,
+    private readonly contactStatus: ContactStatusService,
   ) {
     super()
   }
@@ -128,6 +134,7 @@ export class OutreachTextIngestService extends createPrismaBase(
         id: true,
         status: true,
         organizationSlug: true,
+        asksToJoinCivicPanel: true,
         campaign: { select: { organizationSlug: true } },
       },
     })
@@ -310,8 +317,14 @@ export class OutreachTextIngestService extends createPrismaBase(
     // there is no work-queue row to reconcile later — such a row would be a
     // second, weaker copy of a guarantee the ingest already has.
     let statusAdvanced = false
+    let civicPanelJoins = 0
     try {
       await this.applyInboundEvents(outreachId, messages)
+      civicPanelJoins = await this.applyCivicPanelEvents(
+        organizationSlug,
+        outreach.asksToJoinCivicPanel,
+        messages,
+      )
     } finally {
       statusAdvanced = await this.advanceToCompleted(outreachId, messages)
     }
@@ -325,6 +338,7 @@ export class OutreachTextIngestService extends createPrismaBase(
         unmatched,
         optOuts,
         messagesWritten: messages.length,
+        civicPanelJoins,
         statusAdvanced,
       },
       '[Outreach Ingest] replies committed',
@@ -337,6 +351,43 @@ export class OutreachTextIngestService extends createPrismaBase(
       optOuts,
       committed: true,
     }
+  }
+
+  /**
+   * Step 5b. Serve's civic panel. A STOP takes the person off the panel on
+   * any send, because panel membership is not consent to text and a texted
+   * STOP always wins. A JOIN puts them on it only when this send asked; a
+   * JOIN to any other text means nothing. Both are idempotent on the message
+   * id, the same key as the reply events, so a re-upload writes nothing new.
+   * Returns how many joins this ingest recorded.
+   */
+  private async applyCivicPanelEvents(
+    organizationSlug: string | null,
+    asksToJoinCivicPanel: boolean,
+    messages: Prisma.PollIndividualMessageCreateManyInput[],
+  ): Promise<number> {
+    if (!organizationSlug?.startsWith('eo-')) return 0
+    let joins = 0
+    for (const message of messages) {
+      const toValue = message.isOptOut
+        ? CivicPanelStatus.left
+        : asksToJoinCivicPanel && isCivicPanelJoinMessage(message.content)
+          ? CivicPanelStatus.member
+          : null
+      if (!toValue) continue
+      const event = await this.contactStatus.changeStatus({
+        organizationSlug,
+        personId: message.personId,
+        field: ContactStatusField.civic_panel,
+        toValue,
+        source: ContactStatusSource.sms,
+        actorUserId: null,
+        sourceId: message.id,
+        fallbackFromValue: CivicPanelStatus.left,
+      })
+      if (event && toValue === CivicPanelStatus.member) joins += 1
+    }
+    return joins
   }
 
   /**

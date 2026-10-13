@@ -775,6 +775,96 @@ describe('phone banking call outcome routes', () => {
       ).toBe(0)
     })
 
+    it('joinCivicPanel=yes on a Serve call makes them a member; a later no or re-save changes nothing', async () => {
+      const eoSlug = `eo-pbc-civic-panel-${Date.now()}`
+      await service.prisma.organization.create({
+        data: {
+          slug: eoSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      const eoFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: eoSlug, name: 'EO calls audience' },
+      })
+      const personId = randomUUID()
+      mockPeoplePage([fakePerson({ id: personId, cellPhone: '3075551014' })])
+      const build = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ voterFileFilterId: eoFilter.id }),
+        orgHeaders(eoSlug),
+      )
+      expect(build.status).toBe(201)
+      const entry = await service.prisma.phoneBankingListEntry.findFirstOrThrow(
+        { where: { phoneBankingListId: build.data.id } },
+      )
+
+      const postEoCall = (joinCivicPanel: string) =>
+        service.client.post(
+          `/v1/phone-banking/lists/${build.data.id}/calls`,
+          {
+            entryId: entry.id,
+            outcome: 'answered',
+            personId,
+            followUp: 'no',
+            joinCivicPanel,
+          },
+          orgHeaders(eoSlug),
+        )
+
+      const first = await postEoCall('yes')
+      expect(first.status).toBe(201)
+      expect(first.data.results[0].interaction.joinCivicPanel).toBe('yes')
+
+      const civicEvents = () =>
+        service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug, personId, field: 'civic_panel' },
+        })
+      const [event] = await civicEvents()
+      expect(event).toMatchObject({
+        fromValue: 'left',
+        toValue: 'member',
+        source: 'phone_banking',
+        actorUserId: service.user.id,
+      })
+
+      expect((await postEoCall('yes')).status).toBe(201)
+      expect((await postEoCall('no')).status).toBe(201)
+      expect(await civicEvents()).toHaveLength(1)
+
+      const current =
+        await service.prisma.contactCurrentStatus.findFirstOrThrow({
+          where: { organizationSlug: eoSlug, personId, field: 'civic_panel' },
+        })
+      expect(current.value).toBe('member')
+    })
+
+    it('joinCivicPanel on a Win call writes no civic_panel event', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }],
+        '3075551015',
+      )
+      const [personA] = entry.persons
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'answered',
+        personId: personA!.personId,
+        joinCivicPanel: 'yes',
+      })
+      expect(res.status).toBe(201)
+
+      expect(
+        await service.prisma.contactStatusEvent.count({
+          where: {
+            organizationSlug: orgSlug,
+            personId: personA!.personId,
+            field: 'civic_panel',
+          },
+        }),
+      ).toBe(0)
+    })
+
     it('an eo- org writes no voter_likelihood event', async () => {
       const eoSlug = `eo-pbc-${Date.now()}`
       await service.prisma.organization.create({
