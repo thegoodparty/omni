@@ -112,7 +112,6 @@ describe('OutreachP2pSmsCaptureService', () => {
   }
 
   beforeEach(async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
     sms = {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -223,17 +222,13 @@ describe('OutreachP2pSmsCaptureService', () => {
       expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(LEADS_LOADED)
     })
 
+    // SATELLITE-gated, not flag-gated: no persisted cap and no authorized hold
+    // reads as null regardless of the flag — there is nothing to re-read a
+    // flag for.
     it('returns null when no cap is persisted and no hold is authorized (no cap applied)', async () => {
       peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
       sms.findFirst.mockResolvedValue(null)
       expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
-    })
-
-    it('returns null when the flag is off (inert)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
-      // Flag off short-circuits before any DB read.
-      expect(sms.findFirst).not.toHaveBeenCalled()
     })
   })
 
@@ -462,15 +457,19 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
   })
 
-  it('writes and moves nothing when the flag is off', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-    arrange({})
+  it('writes and moves nothing when there is no authorized satellite to capture (SATELLITE-gated, not flag-gated)', async () => {
+    // No satellite row at all for this outreach/list — the immediate-charge
+    // (flag-off, never-held) population. captureHold's readiness gate and
+    // captureHoldsForReadyList's holds query both find nothing, so this is
+    // inert without any flag check.
+    sms.findUnique.mockResolvedValue(null)
+    outreach.findUnique.mockResolvedValue(null)
+    peerlyPhoneList.findUnique.mockResolvedValue(null)
+    sms.findMany.mockResolvedValue([])
 
     await service.captureHold(OUTREACH_ID)
     await service.captureHoldsForReadyList(PEERLY_LIST_ID)
 
-    expect(outreach.findUnique).not.toHaveBeenCalled()
-    expect(outreach.findMany).not.toHaveBeenCalled()
     expect(sms.updateMany).not.toHaveBeenCalled()
     expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
     expect(stripe.voidHold).not.toHaveBeenCalled()
@@ -503,7 +502,8 @@ describe('OutreachP2pSmsCaptureService', () => {
       expect(authorizedSelect?.orderBy).toMatchObject({ captureBefore: 'asc' })
     })
 
-    // Flag-off kill switch on a row stranded mid-settlement (a rollback).
+    // A row stranded mid-settlement (e.g. a crashed capture), recovered
+    // regardless of the flag — settlement is satellite/PI-driven.
     const arrangeStaleRecovery = (intent: Stripe.PaymentIntent) => {
       vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
       // No authorized candidates; one stale `capturing` row to recover.
@@ -536,8 +536,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       stripe.retrievePaymentIntent.mockResolvedValue(intent)
     }
 
-    it('flag off: reconciles a stale succeeded PI (records the capture that already happened)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+    it('reconciles a stale succeeded PI (records the capture that already happened)', async () => {
       arrangeStaleRecovery(
         mockIntent({ status: 'succeeded', amount_received: 777 }),
       )
@@ -550,15 +549,22 @@ describe('OutreachP2pSmsCaptureService', () => {
       })
     })
 
-    it('flag off: does NOT fresh-capture a stale requires_capture PI (reverts to authorized)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+    // SETTLEMENT IGNORES THE FLAG (money-safety crux): a row already in
+    // `capturing` with a live `requires_capture` PI always settles — there is
+    // no flag kill-switch here to strand it mid-settlement. Before this fix, a
+    // flag read here reverted the row to `authorized` instead of capturing it;
+    // revert-checked by temporarily restoring that check, which makes this
+    // assertion fail (capturePaymentIntent never called, row left authorized).
+    it('settles (captures) a stale requires_capture PI with no flag check — no-strand guarantee', async () => {
       arrangeStaleRecovery(mockIntent({ status: 'requires_capture' }))
+      stripe.capturePaymentIntent.mockResolvedValue(
+        mockIntent({ status: 'succeeded', amount_received: AUTHORIZED }),
+      )
 
       await service.sweepCaptures()
 
-      expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
-      expect(settingState()(P2pSmsSettleState.captured)).toBeUndefined()
-      expect(settingState()(P2pSmsSettleState.authorized)).toBeDefined()
+      expect(stripe.capturePaymentIntent).toHaveBeenCalledOnce()
+      expect(settingState()(P2pSmsSettleState.captured)).toBeDefined()
     })
 
     it('backstop re-finalizes a pre-build draft stranded past the build-ready edge', async () => {
@@ -691,9 +697,11 @@ describe('OutreachP2pSmsCaptureService', () => {
       expect(outreachService.finalizeOutreachPurchase).not.toHaveBeenCalled()
     })
 
-    it('is inert when the flag is off', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-      arrangePreBuildDraft()
+    // SATELLITE-gated, not flag-gated: a ready list with no PeerlyPhoneList row
+    // (never built under the hold model — the immediate-charge/flag-off
+    // population) has nothing to finalize, with no flag check involved.
+    it('is inert when the ready list has no matching PeerlyPhoneList build', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue(null)
 
       await service.finalizeDraftsForReadyList(PEERLY_LIST_ID)
 
