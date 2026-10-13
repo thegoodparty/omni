@@ -234,8 +234,10 @@ export const checkPanelPart = (input: {
     input.panelSampleSize >= input.sampleSize
   ) {
     return (
-      'sampleSize is the whole send: the panel members plus the residents ' +
-      'not on the panel. Set it to both added together and present again.'
+      'sampleSize is the whole send: the panel part plus as many residents ' +
+      'not on the panel, so twice panelSampleSize. A send of panel members ' +
+      'alone invites nobody new to join. Set sampleSize that way and ' +
+      'present again.'
     )
   }
   if (input.civicPanelAsk !== true) {
