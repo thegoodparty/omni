@@ -214,7 +214,8 @@ does not list sends, since the tiles already give those counts.
   25 respondents and only for groups at 2% or more of the district; nothing
   shows below 10 respondents.
 - **The census figures are a sample for now, and the page does not say so.**
-  gp-api reads them through `CENSUS_COMPOSITION_SOURCE`, bound to
+  gp-api reads them through `CENSUS_COMPOSITION_SOURCE`, bound once in
+  `CensusCompositionModule` (shared with the citizens' panel page) to
   `SampleCensusComposition` until gp-data-platform's district ACS columns,
   block group table and per person block group geoid reach `mart_gp_api`.
   The response says `source: 'sample'`; the label was taken off the page by
