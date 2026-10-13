@@ -359,7 +359,10 @@ export class OutreachTextIngestService extends createPrismaBase(
    * STOP always wins. A JOIN puts them on it only when this send asked; a
    * JOIN to any other text means nothing. Both are idempotent on the message
    * id, the same key as the reply events, so a re-upload writes nothing new.
-   * Returns how many joins this ingest recorded.
+   * Replies are applied in the order they were sent, not the order the
+   * upload lists them, and a JOIN at or before the person's latest STOP on
+   * any send is skipped, so a STOP stays the last word even when it arrived
+   * in an earlier upload. Returns how many joins this ingest recorded.
    */
   private async applyCivicPanelEvents(
     organizationSlug: string | null,
@@ -367,14 +370,26 @@ export class OutreachTextIngestService extends createPrismaBase(
     messages: Prisma.PollIndividualMessageCreateManyInput[],
   ): Promise<number> {
     if (!organizationSlug?.startsWith('eo-')) return 0
+    const sentAtOf = (message: Prisma.PollIndividualMessageCreateManyInput) =>
+      message.sentAt instanceof Date ? message.sentAt : new Date(message.sentAt)
+    const inSentOrder = [...messages].sort(
+      (a, b) => sentAtOf(a).getTime() - sentAtOf(b).getTime(),
+    )
     let joins = 0
-    for (const message of messages) {
+    for (const message of inSentOrder) {
       const toValue = message.isOptOut
         ? CivicPanelStatus.left
         : asksToJoinCivicPanel && isCivicPanelJoinMessage(message.content)
           ? CivicPanelStatus.member
           : null
       if (!toValue) continue
+      if (toValue === CivicPanelStatus.member) {
+        const optedOutAt = await this.textInteractions.latestOptOutAt(
+          organizationSlug,
+          message.personId,
+        )
+        if (optedOutAt && optedOutAt >= sentAtOf(message)) continue
+      }
       const event = await this.contactStatus.changeStatus({
         organizationSlug,
         personId: message.personId,

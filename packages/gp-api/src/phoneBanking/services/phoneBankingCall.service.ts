@@ -434,8 +434,8 @@ export class PhoneBankingCallService extends createPrismaBase(
 
   // Serve-only, like follow-up. Only a yes writes: declining on one call is
   // not leaving the panel, so a "no" must never demote an existing member.
-  // Per-save sourceId like the follow-up twin; a re-saved yes on a member is
-  // a same-value no-op inside changeStatus.
+  // Unlike the follow-up twin, the sourceId is stable per call and answer:
+  // re-saving a yes on someone who has since left must not put them back.
   private async emitCivicPanelEvents(
     rows: ContactInteractionPhoneBanking[],
   ): Promise<void> {
@@ -449,7 +449,7 @@ export class PhoneBankingCallService extends createPrismaBase(
         toValue: CivicPanelStatus.member,
         source: ContactStatusSource.phone_banking,
         actorUserId: row.actorUserId,
-        sourceId: `${row.id}:${row.updatedAt.toISOString()}`,
+        sourceId: `${row.id}:${row.joinCivicPanel}`,
         fallbackFromValue: CivicPanelStatus.left,
       })
     }

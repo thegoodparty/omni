@@ -581,7 +581,8 @@ history for that one knock or call. Two writers turn a yes into
 `civic_panel = member`: `ContactInteractionDoorKnockService.emitCivicPanelEvent`
 (`source: door_knock`, `sourceId` stable per synced knock so a replay no-ops)
 and `PhoneBankingCallService.emitCivicPanelEvents` (`source: phone_banking`,
-`sourceId` minted per save like the follow-up twin). Both carry the `eo-` guard
+`sourceId` stable per call and answer, so re-saving a yes never re-enrolls
+someone who left). Both carry the `eo-` guard
 and `fallbackFromValue: left`. Unlike follow-up, **only a yes writes**: a no at
 one door is not leaving the panel, so it never demotes a member. Leaving is the
 contact card or a texted STOP.
@@ -593,7 +594,9 @@ contracts: "Reply JOIN to join my citizens' panel," plus one clause on what that
 the reply's message id) writes `member` for a JOIN reply
 (`util/civicPanelJoin.util.ts`: the whole reply or a sentence of its own) on
 a send that asked, and `left` for any STOP on any Serve send, because panel
-membership is not consent to text.
+membership is not consent to text. Replies apply in sent order, and a JOIN
+at or before the person's latest STOP is skipped, so a STOP stays the last
+word across uploads.
 
 **The audience side.** `voter_file_filter.civic_panel_member` is the saved-
 filter dimension for the panel, built exactly like `follow_up_requested`:

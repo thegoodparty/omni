@@ -647,6 +647,32 @@ describe('OutreachTextIngestService civic panel', () => {
     expect(await panelStatus(PERSON_1.personId)).toBe('left')
   })
 
+  it('lets a later STOP win over an earlier JOIN listed after it', async () => {
+    await seedServeSend(true)
+    const joinedAt = new Date('2026-08-11T15:00:00.000Z')
+    const stoppedAt = new Date('2026-08-11T16:00:00.000Z')
+
+    await upload([
+      row(PERSON_1.phone, 'STOP', stoppedAt),
+      row(PERSON_1.phone, 'JOIN', joinedAt),
+    ])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+  })
+
+  it('skips a JOIN sent before a STOP that an earlier upload recorded', async () => {
+    await seedServeSend(true)
+
+    await upload([
+      row(PERSON_1.phone, 'STOP', new Date('2026-08-11T16:00:00.000Z')),
+    ])
+    await upload([
+      row(PERSON_1.phone, 'JOIN', new Date('2026-08-11T15:00:00.000Z')),
+    ])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+  })
+
   it('writes nothing new when the same file is uploaded twice', async () => {
     await seedServeSend(true)
 

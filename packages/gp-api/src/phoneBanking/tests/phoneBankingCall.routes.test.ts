@@ -837,6 +837,17 @@ describe('phone banking call outcome routes', () => {
           where: { organizationSlug: eoSlug, personId, field: 'civic_panel' },
         })
       expect(current.value).toBe('member')
+
+      // Someone who left since must not be put back by re-saving the call.
+      await service.prisma.contactCurrentStatus.update({
+        where: { id: current.id },
+        data: { value: 'left' },
+      })
+      expect((await postEoCall('yes')).status).toBe(201)
+      const after = await service.prisma.contactCurrentStatus.findFirstOrThrow({
+        where: { organizationSlug: eoSlug, personId, field: 'civic_panel' },
+      })
+      expect(after.value).toBe('left')
     })
 
     it('joinCivicPanel on a Win call writes no civic_panel event', async () => {
