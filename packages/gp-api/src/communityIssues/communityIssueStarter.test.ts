@@ -149,4 +149,20 @@ describe('community issues onboarding start', () => {
     expect(res.data.starterIssueCount).toBe(0)
     expect(dispatchSpy()).toHaveBeenCalledTimes(1)
   })
+
+  it('runs one generation for concurrent starts on the same org', async () => {
+    const [first, second] = await Promise.all([
+      service.client.post<{ starterIssueCount: number }>(PATH, {}, eoHeaders()),
+      service.client.post<{ starterIssueCount: number }>(PATH, {}, eoHeaders()),
+    ])
+
+    expect(first.status).toBe(HttpStatus.OK)
+    expect(second.status).toBe(HttpStatus.OK)
+    expect(structuredSpy()).toHaveBeenCalledTimes(1)
+    expect(
+      await service.prisma.communityIssue.count({
+        where: { organizationSlug: eoOrgSlug },
+      }),
+    ).toBe(1)
+  })
 })

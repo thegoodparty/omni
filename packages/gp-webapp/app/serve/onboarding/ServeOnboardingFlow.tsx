@@ -504,15 +504,18 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // is never sent here, so the completion guard stays untouched.
   // Writes quick starter issues for the office, then starts the full community
   // issues research, so the priorities step can offer real local issues. Kept
-  // as a promise so that step can wait on it. Cleared on failure to retry.
+  // as a promise so that step can wait on it. A failed start stays in the ref
+  // so later steps never refire it; only the priorities step's Try again
+  // starts one fresh attempt.
   const communityIssuesStartRef = useRef<Promise<void> | null>(null)
+  const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
     const started = clientRequest('POST /v1/community-issues/onboarding', {})
       .then(() => undefined)
       .catch((err: Error) => {
         reportErrorToSentry(err, { context: 'serveOnboarding.communityIssues' })
-        communityIssuesStartRef.current = null
+        communityIssuesFailedRef.current = true
       })
     communityIssuesStartRef.current = started
     return started
@@ -616,6 +619,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       () => setStep('pledge'),
       'serveOnboarding.checkpoint.priorities',
     )
+  }
+
+  const retryPriorities = () => {
+    if (communityIssuesFailedRef.current) {
+      communityIssuesFailedRef.current = false
+      communityIssuesStartRef.current = null
+    }
+    setPriorityLoadFailed(false)
   }
 
   const togglePriority = (key: string) => {
@@ -1110,7 +1121,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               <PrioritiesStep
                 options={priorityOptions}
                 loadFailed={priorityLoadFailed}
-                onRetry={() => setPriorityLoadFailed(false)}
+                onRetry={retryPriorities}
                 selectedKeys={selectedPriorityKeys}
                 onToggle={togglePriority}
                 otherSelected={otherPrioritySelected}

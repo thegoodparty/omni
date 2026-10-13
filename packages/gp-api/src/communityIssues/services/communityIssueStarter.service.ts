@@ -111,10 +111,26 @@ export class CommunityIssueStarterService extends createPrismaBase(
     })
   }
 
+  // Concurrent calls for one org all pass the hasTopList check before any
+  // write, so without this each would pay for its own Gemini generation.
+  // Per process; across tasks the transaction below still stops duplicates.
+  private readonly inFlight = new Map<string, Promise<number>>()
+
   // Returns how many starter issues were written. Zero when the org already
   // has a top list (starter or agent), lacks an office, or the search finds
-  // nothing usable; the full run still produces the list either way.
-  async seed(organizationSlug: string): Promise<number> {
+  // nothing usable; the full run still produces the list either way. A call
+  // made while one for the same org is running shares that call's result.
+  seed(organizationSlug: string): Promise<number> {
+    const running = this.inFlight.get(organizationSlug)
+    if (running) return running
+    const started = this.seedOnce(organizationSlug).finally(() => {
+      this.inFlight.delete(organizationSlug)
+    })
+    this.inFlight.set(organizationSlug, started)
+    return started
+  }
+
+  private async seedOnce(organizationSlug: string): Promise<number> {
     if (await this.hasTopList(organizationSlug)) return 0
 
     const organization = await this.client.organization.findUnique({

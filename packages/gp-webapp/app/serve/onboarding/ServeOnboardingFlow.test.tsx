@@ -388,6 +388,44 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     await screen.findByText('Take our pledge to get started')
     expect(saves).toBe(0)
   })
+
+  it('does not refire a failed community issues start on later steps, only on Try again', async () => {
+    resumedAt('term-dates')
+    let communityStarts = 0
+    let loadFails = true
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return { status: 500, data: {} }
+    })
+    api.mock('GET /v1/priorities/onboarding', () =>
+      loadFails
+        ? { status: 500, data: {} }
+        : { status: 200, data: { options: [] } },
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('When does your term run?')
+    await waitFor(() => expect(communityStarts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText("Here's everything to know about your constituents")
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('We couldn’t load issues for your community.')
+    expect(communityStarts).toBe(1)
+
+    loadFails = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await screen.findByText(/We couldn’t find issues for your area yet/)
+    expect(communityStarts).toBe(2)
+  })
 })
 
 describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
