@@ -793,6 +793,7 @@ export {
   ChatCardSchema,
   ProposalLinkSchema,
   PROPOSAL_SENT_MARKER,
+  isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
   type ProposalLink,

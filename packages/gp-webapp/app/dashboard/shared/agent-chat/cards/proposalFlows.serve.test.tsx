@@ -1,0 +1,119 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { ChatCard } from '@goodparty_org/contracts'
+import { render } from 'helpers/test-utils/render'
+import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
+}))
+
+// The Serve flow is the outreach page's own component with its own suite
+// (SmsFlow.serveSurface.test.tsx). Here only what the provider hands it.
+const smsFlow = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}))
+vi.mock('app/dashboard/outreach/v2/sms/SmsFlow', () => ({
+  SERVE_SMS_SURFACE: { isServe: true },
+  SmsFlow: (props: Record<string, unknown>) => {
+    smsFlow.props = props
+    return <div data-testid="sms-flow" />
+  },
+}))
+
+vi.mock('@shared/experiments/serveSmsFlag', () => ({
+  useServeSmsFlag: () => ({ ready: true, enabled: true }),
+}))
+
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'eo-riverside' }),
+}))
+
+type Proposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
+
+const PROPOSAL_KEY = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'
+const MESSAGE =
+  'this is Bryan, your City Council Member. Is flooding on your block the problem to fix first?'
+
+const panelAndFresh: Proposal = {
+  kind: 'outreach_proposal',
+  proposalKey: PROPOSAL_KEY,
+  audience: "Your citizens' panel and residents across the district",
+  count: 18_400,
+  channel: 'text',
+  audienceFilters: { hasCellPhone: true, notContactedRecently: true },
+  listName: 'Flooding check',
+  message: MESSAGE,
+  deepLinkOnly: false,
+  stepId: 'define',
+  side: 'main',
+  sampleSize: 84,
+  panelSampleSize: 42,
+  civicPanelAsk: true,
+}
+
+const Opener = ({ proposal }: { proposal: Proposal }) => {
+  const flows = useProposalFlows()
+  return (
+    <button
+      type="button"
+      disabled={!flows?.textResolved}
+      onClick={() => flows?.open(proposal, 'priority-1')}
+    >
+      Start the text
+    </button>
+  )
+}
+
+const openCard = async (proposal: Proposal) => {
+  render(
+    <ProposalFlowsProvider>
+      <Opener proposal={proposal} />
+    </ProposalFlowsProvider>,
+  )
+  const button = await screen.findByRole('button', { name: 'Start the text' })
+  await waitFor(() => expect(button).toBeEnabled())
+  await userEvent.click(button)
+  await screen.findByTestId('sms-flow')
+}
+
+describe("a priority's text card to the panel and new residents", () => {
+  beforeEach(() => {
+    smsFlow.props = null
+  })
+
+  it('opens the Serve text flow on one list holding both draws, the join ask on', async () => {
+    await openCard(panelAndFresh)
+
+    const props = smsFlow.props
+    expect(props?.surface).toEqual({ isServe: true })
+    expect(props?.initialAsksToJoinCivicPanel).toBe(true)
+    expect(props?.proposedAudience).toMatchObject({
+      name: 'Flooding check',
+      filters: { hasCellPhone: true, notContactedRecently: true },
+      sample: { size: 84, panelSize: 42, seedKey: PROPOSAL_KEY },
+    })
+  })
+
+  it('leaves the join ask off for a text that did not ask for it', async () => {
+    await openCard({
+      ...panelAndFresh,
+      panelSampleSize: undefined,
+      civicPanelAsk: undefined,
+    })
+
+    expect(smsFlow.props?.initialAsksToJoinCivicPanel).toBe(false)
+    expect(smsFlow.props?.proposedAudience).toMatchObject({
+      sample: { size: 84, seedKey: PROPOSAL_KEY },
+    })
+    expect(
+      (smsFlow.props?.proposedAudience as { sample?: object }).sample,
+    ).not.toHaveProperty('panelSize')
+  })
+})

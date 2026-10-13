@@ -219,10 +219,30 @@ describe('ContactsService.getFilterDimensions', () => {
 
   const organization = (slug: string): Organization =>
     ({ slug }) as Organization
+  const PANELS_ON = { citizenPanels: true }
+
+  it("leaves the citizens' panel dimensions out while the flag is off", () => {
+    const off = buildService()
+      .getFilterDimensions(organization('eo-city-council'), {
+        citizenPanels: false,
+      })
+      .map((d) => d.key)
+    const on = buildService()
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
+      .map((d) => d.key)
+    expect(off).not.toContain('civicPanel')
+    expect(off).not.toContain('contactHistory')
+    expect(on).toEqual(expect.arrayContaining(['civicPanel', 'contactHistory']))
+    expect(on.filter((key) => !off.includes(key)).sort()).toEqual([
+      'civicPanel',
+      'contactHistory',
+    ])
+  })
 
   it('includes party for a Win organization', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('win-campaign'),
+      PANELS_ON,
     )
     expect(dimensions.map((d) => d.key)).toContain('party')
   })
@@ -230,6 +250,7 @@ describe('ContactsService.getFilterDimensions', () => {
   it('strips party (and any Win-only dimension) for an eo- organization', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('eo-city-council'),
+      PANELS_ON,
     )
     expect(dimensions.some((d) => d.modes === 'win')).toBe(false)
     expect(dimensions.map((d) => d.key)).not.toContain('party')
@@ -241,10 +262,10 @@ describe('ContactsService.getFilterDimensions', () => {
   // reverted, so Serve is the half that must hold.
   it('offers ethnicity to Win and never to an eo- organization', () => {
     const winKeys = buildService()
-      .getFilterDimensions(organization('win-campaign'))
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
       .map((d) => d.key)
     const serveKeys = buildService()
-      .getFilterDimensions(organization('eo-city-council'))
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
       .map((d) => d.key)
     expect(winKeys).toContain('ethnicity')
     expect(serveKeys).not.toContain('ethnicity')
@@ -262,10 +283,10 @@ describe('ContactsService.getFilterDimensions', () => {
     const winOnlyKeys = keysForMode('win')
     const serveOnlyKeys = keysForMode('serve')
     const winKeys = buildService()
-      .getFilterDimensions(organization('win-campaign'))
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
       .map((d) => d.key)
     const serveKeys = buildService()
-      .getFilterDimensions(organization('eo-city-council'))
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
       .map((d) => d.key)
 
     expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(
@@ -284,6 +305,7 @@ describe('ContactsService.getFilterDimensions', () => {
   it('preserves provenance on every classified dimension for a Serve org', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('eo-city-council'),
+      PANELS_ON,
     )
     expect(dimensions.length).toBeGreaterThan(0)
     const classified = dimensions.filter(
@@ -303,6 +325,7 @@ describe('ContactsService.getFilterDimensions', () => {
   it('preserves provenance on the Win-only dimensions', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('win-campaign'),
+      PANELS_ON,
     )
     expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
       'modeled',

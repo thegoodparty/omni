@@ -1,7 +1,7 @@
 import type { RepresentationDimension } from '@goodparty_org/contracts'
 
 export const RESULTS_COPY = {
-  pageTitle: (priority: string) => `What you heard on ${priority}`,
+  pageTitle: (priority: string) => `What we heard on ${priority}`,
   caption: 'Everything your outreach on this priority has brought back so far.',
   backToPriority: 'Back to this priority',
   answered: 'People who answered',
@@ -22,7 +22,7 @@ export const RESULTS_COPY = {
     ]
       .filter(Boolean)
       .join(' · ') || null,
-  themesTitle: 'What people told you',
+  themesTitle: 'Top themes',
   themesCaption: 'Across every text, call and door on this priority.',
   themesEmpty: 'Themes show up once at least 5 people have answered.',
   themesUpdating: 'Updating with the latest answers.',

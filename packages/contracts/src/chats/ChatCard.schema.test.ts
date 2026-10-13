@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { ChatCardSchema, OutreachProposalSchema } from './ChatCard.schema'
+import {
+  ChatCardSchema,
+  isToolRefusal,
+  OutreachProposalSchema,
+} from './ChatCard.schema'
 import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 const proposal = {
@@ -54,5 +58,32 @@ describe('OutreachProposalSchema', () => {
       OutreachProposalSchema.safeParse({ ...proposal, assumedReplyRate: 2.5 })
         .success,
     ).toBe(false)
+  })
+
+  it('carries one send to the panel and a fresh sample, with the join ask', () => {
+    expect(
+      OutreachProposalSchema.parse({
+        ...proposal,
+        savedFilterId: undefined,
+        audienceFilters: { hasCellPhone: true, notContactedRecently: true },
+        sampleSize: 240,
+        panelSampleSize: 120,
+        civicPanelAsk: true,
+      }),
+    ).toMatchObject({
+      sampleSize: 240,
+      panelSampleSize: 120,
+      civicPanelAsk: true,
+    })
+  })
+})
+
+describe('isToolRefusal', () => {
+  it('reads an error result as a refusal and anything else as not', () => {
+    expect(isToolRefusal({ error: 'Count again.' })).toBe(true)
+    expect(isToolRefusal({ presented: true })).toBe(false)
+    expect(isToolRefusal({ error: { code: 1 } })).toBe(false)
+    expect(isToolRefusal(null)).toBe(false)
+    expect(isToolRefusal('error')).toBe(false)
   })
 })

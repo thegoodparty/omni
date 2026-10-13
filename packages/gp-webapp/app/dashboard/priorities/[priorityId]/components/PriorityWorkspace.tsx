@@ -18,6 +18,7 @@ import {
   ListChecksIcon,
 } from '@styleguide/components/ui/icons'
 import {
+  isToolRefusal,
   parsePriorityStatus,
   type ChatAnchor,
   type PriorityStatus,
@@ -139,7 +140,7 @@ const statusMarker = (
 })
 
 const RAIL_TITLE = 'Where this stands'
-const RESULTS_LINK = 'Constituent feedback'
+const RESULTS_LINK = 'What we heard'
 
 const ResultsLink = ({
   priorityId,
@@ -254,6 +255,14 @@ const PriorityWorkspaceBody = ({
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (
+        event.type === 'tool_result' &&
+        event.toolCallId &&
+        isToolRefusal(event.result)
+      ) {
+        const key = `${event.toolName}-${event.toolCallId}`
+        setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
+      }
       if (event.type === 'tool_input_start') {
         setGeneratingTool(event.toolName)
         setAfterFinding(false)

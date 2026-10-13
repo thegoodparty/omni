@@ -117,6 +117,14 @@ export const OutreachProposalSchema = z.object({
   listName: z.string().nullish(),
   /** What goes out under the official's name. */
   message: z.string().min(1),
+  civicPanelAsk: z
+    .boolean()
+    .optional()
+    .describe(
+      "Text only: true to ask the people texted to join the citizens' panel. " +
+        'The flow adds the ask and what it means; never write it into the ' +
+        'message.',
+    ),
   /**
    * Nothing shows this: the agent says why in its message. Kept so cards
    * already persisted with it still parse.
@@ -139,6 +147,21 @@ export const OutreachProposalSchema = z.object({
    * whole audience.
    */
   sampleSize: z.number().int().positive().max(MAX_LIST_SAMPLE_SIZE).optional(),
+  /**
+   * Of `sampleSize`, how many are drawn from the official's citizens' panel.
+   * The rest are drawn from residents not on it, so one send asks the panel
+   * and invites new people to join. Absent, the sample ignores the panel.
+   */
+  panelSampleSize: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_LIST_SAMPLE_SIZE)
+    .optional()
+    .describe(
+      "Text only: how many of sampleSize are citizens' panel members. The " +
+        'rest of sampleSize are residents not on the panel.',
+    ),
   /** The replies a text sample was sized to bring back. */
   targetResponses: z.number().int().positive().optional(),
   /** The reply rate it was sized with, as a fraction: 0.025 is 2.5%. */
@@ -172,6 +195,18 @@ export type ProposalLink = z.infer<typeof ProposalLinkSchema>
  * leave it out. The proposal key follows it, so a reload sends it once.
  */
 export const PROPOSAL_SENT_MARKER = '[Sent from a card]'
+
+/**
+ * A tool that refuses its arguments returns `{ error }` so the model can fix
+ * them and call again. Its card must never show: the server drops the call's
+ * persisted arguments and the live surfaces drop its widget, so the refused
+ * card and the corrected one never appear side by side.
+ */
+export const isToolRefusal = (result: unknown): boolean =>
+  typeof result === 'object' &&
+  result !== null &&
+  'error' in result &&
+  typeof result.error === 'string'
 
 /** A prior send worth looking at, resolved live from the outreach history. */
 export const PastOutreachRefSchema = z.object({

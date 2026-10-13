@@ -120,7 +120,28 @@ runbook), counts the group without saving it, writes the one question, and offer
 work already done through `present_outreach_proposal` on whichever channel
 those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
-inverted, same gates), each on its own card. The official can take both, one,
+inverted, same gates), each on its own card.
+
+Behind `serve-citizen-panels` the default is one card instead
+(`buildCivicPanelFirstBlock`, "THE CITIZENS' PANEL COMES FIRST"): one text to
+the panel members who can be asked now (`civicPanelMember`, cell phone,
+`notContactedRecently`, sized at `PANEL_ASSUMED_REPLY_RATE`) plus as many
+residents not on the panel, with `civicPanelAsk` on so the fresh half can
+reply JOIN. With nobody on the panel to ask, the card is the fresh sample
+alone, sized as a cold text. The proposal carries both parts as one
+`sampleSize` with `panelSampleSize` inside it, over the shared criteria (cell
+phone, `notContactedRecently`), and the saved list freezes the union of the
+two draws. The targeted groups wait for that send's read
+(`read_outreach_feedback`): only a thin or one-sided read brings the most or
+least affected group, as its own card with `widensOutreachIds` set to
+every send the check has had; a thin read is never widened to more of the
+same audience, and a side never offered is never recorded declined. A side not yet sent may name the other side's sends there
+(`PriorityFlowHandler.proposalRefusal`), which is how the least affected
+group leaves out everyone the first send asked. The handler reads the panel
+size per turn (`countCivicPanelMembers`) for the `<priority>` "Citizens'
+panel" line, only with the flag on.
+
+The official can take both, one,
 or neither, from the cards' own buttons: the agent asks no follow-up question
 about them and never rebuilds a card already in the thread, because a second
 ask and a second set of cards read as redundant. The check is the ask for its stage. `listen_problem` and
@@ -187,10 +208,11 @@ records it with `record_check_reminder`, a narrow write in
 check and spends the same raise counter, so the two surfaces never nag
 separately.
 
-## What you heard (`results/`)
+## What we heard (`results/`)
 
-`/dashboard/priorities/[priorityId]/results`, reached from the "Constituent
-feedback" link under "Where this stands" in the rail, pools every send linked to the
+`/dashboard/priorities/[priorityId]/results`, titled "What we heard on" the
+priority to match each send's own "What we heard" report, and reached from
+the "What we heard" link under "Where this stands" in the rail, pools every send linked to the
 priority (`Outreach.priorityId`) through `GET /v1/priorities/:id/results`
 (gp-api `PriorityResultsService`): who answered (with the channels that
 brought answers under the count), how many of those people are now civic
@@ -221,7 +243,7 @@ does not list sends, since the tiles already give those counts.
   The response says `source: 'sample'`; the label was taken off the page by
   product call, so swapping the binding before the flag reaches an official
   is required, not optional.
-- **Themes are pooled across every send.** "What people told you" reads the
+- **Themes are pooled across every send.** "Top themes" reads the
   priority's latest completed `priority`-scope synthesis run (gp-api
   `FeedbackSynthesisService.requestPriorityRun`): text replies, door notes
   and call notes grouped together. Any send on the priority finishing (a

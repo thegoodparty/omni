@@ -341,6 +341,8 @@ interface SmsFlowProps {
   // paid one reads as sent and cannot be paid twice) and, on a priority, the
   // paid send puts its check out.
   proposalLink?: ProposalLink
+  // Serve: open with the citizens' panel ask on, as a chat card asked for.
+  initialAsksToJoinCivicPanel?: boolean
   // Win's create was refused while carrying the card's key, which is how a
   // card sent from another tab or an earlier session answers (409). The
   // card's surface decides whether that means it already went out.
@@ -556,6 +558,7 @@ export const SmsFlow = ({
   initialPurpose,
   proposedAudience,
   proposalLink,
+  initialAsksToJoinCivicPanel = false,
   onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
@@ -599,7 +602,15 @@ export const SmsFlow = ({
   const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(
     surface.isServe,
   )
-  const [asksToJoinCivicPanel, setAsksToJoinCivicPanel] = useState(false)
+  const [asksToJoinCivicPanel, setAsksToJoinCivicPanelState] = useState(false)
+  // The seed is signed in an effect that can run in the same commit as the
+  // open that set this, while state still reads the last session's value; it
+  // reads the ref so a card's ask is not dropped on the way in.
+  const asksToJoinCivicPanelRef = useRef(false)
+  const setAsksToJoinCivicPanel = (asks: boolean) => {
+    asksToJoinCivicPanelRef.current = asks
+    setAsksToJoinCivicPanelState(asks)
+  }
   // A text that builds the panel is its ask, so the ask cannot be unticked.
   const civicPanelAskLocked =
     surface.isServe && purpose === BUILD_CITIZENS_PANEL_PURPOSE
@@ -829,16 +840,19 @@ export const SmsFlow = ({
     resetEventDetails()
     confirmedEventRef.current = null
     setTone('warm')
+    const asks =
+      surface.isServe &&
+      (initialAsksToJoinCivicPanel ||
+        (!initialScript && carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE))
     const seeded = initialScript
-      ? surface.composeMessage(initialScript, null)
+      ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
       : ''
     setMessage(seeded)
     setLockSource(seeded)
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
-    setAsksToJoinCivicPanel(
-      !initialScript && carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE,
-    )
+    asksToJoinCivicPanelRef.current = asks
+    setAsksToJoinCivicPanelState(asks)
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -868,6 +882,7 @@ export const SmsFlow = ({
     resetEventDetails,
     initialScript,
     initialPurpose,
+    initialAsksToJoinCivicPanel,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
@@ -939,9 +954,9 @@ export const SmsFlow = ({
     // Repaired as a body, then composed: the identification follows the
     // greeting. Composed without a committee; the footer effect below adds
     // the line the message should name.
-    const repaired = surface.composeMessage(
-      withIdentification(seed, 'warm'),
-      null,
+    const repaired = withCivicPanelJoin(
+      surface.composeMessage(withIdentification(seed, 'warm'), null),
+      surface.isServe && asksToJoinCivicPanelRef.current,
     )
     setMessage(repaired)
     setLockSource(repaired)

@@ -99,6 +99,7 @@ export default function ClarifyQuestionWidget({
   disabled,
   answer,
   onAnswer,
+  showWrittenAnswer = true,
 }: {
   question: ChatClarifyQuestion
   disabled: boolean
@@ -107,6 +108,10 @@ export default function ClarifyQuestionWidget({
   // taking input.
   answer?: string
   onAnswer: (answer: string) => void
+  // Whether a written-in answer is echoed under the options. Off where the
+  // surface already shows that answer as the user's own message, so it is
+  // never on screen twice.
+  showWrittenAnswer?: boolean
 }): React.JSX.Element {
   const [writingOwn, setWritingOwn] = useState(false)
   const [ownText, setOwnText] = useState('')
@@ -267,7 +272,7 @@ export default function ClarifyQuestionWidget({
         </RadioGroup>
       )}
 
-      {isAnswered && writtenIn ? (
+      {isAnswered && writtenIn && showWrittenAnswer ? (
         <div className="rounded-xl border border-primary bg-primary/5 p-4 text-sm text-foreground shadow-sm">
           {answer}
         </div>

@@ -67,7 +67,11 @@ carries `proposedAudience.sample`, and the save posts it as the list's
 `sample` along with the count overlay, so the list is the frozen draw of
 people this channel can reach rather than the live filter; the builder's
 count, and so "Continue (N)", reads the sample's size. A reset clears it with
-the other builder fields. Phone banking with a preselected list and an
+the other builder fields. A priority's text that asks the citizens' panel and
+new residents in one send (`panelSampleSize` inside `sampleSize`) posts the
+sample with `panelSize`, so the one list freezes both draws, and its
+`civicPanelAsk` opens the Serve `SmsFlow` with the JOIN ask ticked
+(`initialAsksToJoinCivicPanel`), which the official can still untick. Phone banking with a preselected list and an
 `initialScript` lands on the script step once the list resolves.
 
 `SmsFlow` also takes `initialPurpose`, which opens past the purpose picker on
@@ -77,7 +81,8 @@ for the Chief of Staff's citizens' panel card
 offered only behind `serve-citizen-panels`, and picking it ticks the compose
 step's "Ask them to join your citizens' panel" and locks it
 (`civicPanelAsk.locked`): a panel text is its ask, so every message it
-composes carries the JOIN line.
+composes carries the JOIN line, and the line's hover reason says they can
+write around it rather than to untick the box.
 
 The voter data page's "Choose a channel" picker (`contacts/crm/shared/channelPicker/`)
 links here with the flow named — `?compose=text|robocall|phoneBanking|social&source=voter_data`

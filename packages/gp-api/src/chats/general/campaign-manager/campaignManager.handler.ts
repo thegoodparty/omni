@@ -643,6 +643,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(filterTools),
         peopleDataset: 'voters',
+        citizenPanels: false,
       })
       Object.assign(tools, filterTools)
       // The card's flows save the list through the voter-file route,

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -323,6 +324,48 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).toBeChecked()
   })
 
+  // A priority card that asks the panel and new residents in one send opens
+  // with the ask on. The seed is signed with the official's name after the
+  // flow opens, and that pass must not drop the ask.
+  it("keeps a chat card's citizens panel ask through the seed's signing", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialScript="Has flooding damaged your home?"
+        initialAsksToJoinCivicPanel
+        preselectedListId={41}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).toBeChecked()
+    // Not a panel-building text, so the official can still take it off.
+    expect(ask).not.toBeDisabled()
+  })
+
   it("hides building a citizens' panel with serve-citizen-panels off", async () => {
     openServeFlow()
     await screen.findByText('Explain a recent decision')
@@ -386,6 +429,21 @@ describe('SmsFlow (Serve surface)', () => {
     })
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()
+
+    // Locked on, the line cannot be unchecked, so the reason does not say to.
+    const box = screen.getByRole('textbox', { name: 'Message body' })
+    const editor = (box as HTMLElement & { editor: Editor }).editor
+    let at = -1
+    editor.state.doc.descendants((node, pos) => {
+      const index = node.isText ? (node.text?.indexOf('Reply JOIN') ?? -1) : -1
+      if (at === -1 && index !== -1) at = pos + index + 'Reply JOIN'.length
+    })
+    act(() => {
+      editor.view.dispatch(editor.state.tr.delete(at - 1, at))
+    })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      "This is how people join your citizens' panel, but you can write around it.",
+    )
   })
 
   // The reviewer's path: opened from the card, Back, Back. The purpose the
