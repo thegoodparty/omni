@@ -29,9 +29,15 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     super()
   }
 
-  // `checkoutSessionId` is the `cs_...` id from the completed webhook. The caller
-  // (the p2p post-purchase handler) only invokes this on the paid checkout path
-  // under the flag, so the session always has a PaymentIntent.
+  // `checkoutSessionId` is the `cs_...` id from the completed webhook. The
+  // caller (the p2p post-purchase handler) invokes this on every paid p2p
+  // checkout now — NOT gated on a fresh flag read, because a flag flip
+  // between session-creation and this webhook must never stymie recording a
+  // hold Stripe already placed. Returns whether this WAS a hold-model
+  // (manual-capture) checkout at all, durably read off the live PI's
+  // capture_method — the caller uses this, not the flag, to decide whether
+  // the rest of the webhook's hold-only steps (the per-send free-texts stamp,
+  // the post-hold capture attempt) should run.
   async recordHold({
     outreachId,
     checkoutSessionId,
@@ -54,14 +60,23 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     // its path needs no re-scope — ownership was already proven at checkout).
     phoneListBuildId?: string
     campaignId?: number
-  }): Promise<void> {
+  }): Promise<boolean> {
     const intent = await this.resolveHeldIntent(checkoutSessionId)
     if (!intent) {
       this.logger.error(
         { outreachId, checkoutSessionId },
         'win sms hold: no PaymentIntent on completed session; nothing to record',
       )
-      return
+      return false
+    }
+
+    // DURABLE hold-model signal: capture_method is set ('manual') at checkout-
+    // session CREATION time (entry) and never changes afterward, so reading it
+    // here tells us what entry decided WITHOUT re-reading the flag. An
+    // immediate-charge (automatic-capture) session reaching this webhook is
+    // not a hold at all — nothing to record on the satellite.
+    if (intent.capture_method !== 'manual') {
+      return false
     }
 
     // Seed the satellite at pending_payment if it does not exist yet. The unique
@@ -132,7 +147,7 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
         { outreachId, checkoutSessionId, status: intent.status },
         'win sms hold: PI not in requires_capture; recorded hold_failed',
       )
-      return
+      return true
     }
 
     // STAMP: a single single-owner CAS straight from pending_payment ->
@@ -164,7 +179,7 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
         { outreachId, checkoutSessionId },
         'win sms hold: satellite already past pending_payment; skipping (replay)',
       )
-      return
+      return true
     }
 
     this.logger.info(
@@ -175,6 +190,7 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
       },
       'win sms hold: authorized hold recorded on satellite',
     )
+    return true
   }
 
   // Resolves the durable PeerlyPhoneList row id (the uuid primary key, which the

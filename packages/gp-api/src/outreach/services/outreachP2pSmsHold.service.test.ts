@@ -15,7 +15,9 @@ const SESSION_ID = 'cs_test_hold'
 const INTENT_ID = 'pi_test_hold'
 
 // A manual-capture hold completes at requires_capture; amount is the authorized
-// (undiscounted) estimate in cents.
+// (undiscounted) estimate in cents. capture_method defaults to 'manual' — the
+// durable, entry-time signal recordHold reads to decide this IS a hold-model
+// checkout, independent of any later flag read.
 const mockIntent = (
   overrides: Partial<Stripe.PaymentIntent> = {},
 ): Stripe.PaymentIntent =>
@@ -24,6 +26,7 @@ const mockIntent = (
     object: 'payment_intent',
     status: 'requires_capture',
     amount: 10500,
+    capture_method: 'manual',
     ...overrides,
   }) as Stripe.PaymentIntent
 
@@ -326,7 +329,7 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
   it('records nothing when the completed session carries no PaymentIntent', async () => {
     stripe.retrieveCheckoutSession.mockResolvedValue({ payment_intent: null })
 
-    await service.recordHold({
+    const isHoldModel = await service.recordHold({
       outreachId: OUTREACH_ID,
       checkoutSessionId: SESSION_ID,
     })
@@ -334,5 +337,65 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
     expect(model.upsert).not.toHaveBeenCalled()
     expect(model.updateMany).not.toHaveBeenCalled()
     expect(stripe.retrievePaymentIntent).not.toHaveBeenCalled()
+    expect(isHoldModel).toBe(false)
+  })
+
+  // NO-STRAND GUARANTEE: the caller (the p2p post-purchase handler) invokes
+  // recordHold on every paid p2p checkout, never gated on a fresh flag read —
+  // so a flag flip between session-creation and this webhook can never skip
+  // recording a hold Stripe already placed. recordHold itself tells hold-model
+  // checkouts apart from immediate-charge ones durably, off the live PI's
+  // capture_method (set once, at session creation, and never changed after).
+  describe('durable hold-model detection (no-strand guarantee)', () => {
+    it('records the hold and returns true for a manual-capture PI even if the flag would now read off', async () => {
+      // Simulates: entry evaluated the flag ON and created a manual-capture
+      // session; by the time this webhook runs, the flag has flipped OFF for
+      // this user. The session Stripe already authorized must still be
+      // recorded — nothing here reads the flag at all.
+      model.updateMany.mockResolvedValue({ count: 1 })
+
+      const isHoldModel = await service.recordHold({
+        outreachId: OUTREACH_ID,
+        checkoutSessionId: SESSION_ID,
+      })
+
+      expect(isHoldModel).toBe(true)
+      expect(authorizedCall()?.data).toMatchObject({
+        settleState: P2pSmsSettleState.authorized,
+      })
+    })
+
+    it('is a no-op and returns false for an automatic-capture (immediate-charge) PI', async () => {
+      stripe.retrievePaymentIntent.mockResolvedValue(
+        mockIntent({ capture_method: 'automatic', status: 'succeeded' }),
+      )
+
+      const isHoldModel = await service.recordHold({
+        outreachId: OUTREACH_ID,
+        checkoutSessionId: SESSION_ID,
+      })
+
+      expect(isHoldModel).toBe(false)
+      // Never seeds or touches the satellite for a send that was never a hold.
+      expect(model.upsert).not.toHaveBeenCalled()
+      expect(model.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('returns true (hold-model) even when the manual-capture PI declined to hold_failed', async () => {
+      stripe.retrievePaymentIntent.mockResolvedValue(
+        mockIntent({ status: 'processing' }),
+      )
+      model.updateMany.mockResolvedValue({ count: 1 })
+
+      const isHoldModel = await service.recordHold({
+        outreachId: OUTREACH_ID,
+        checkoutSessionId: SESSION_ID,
+      })
+
+      expect(isHoldModel).toBe(true)
+      expect(firstOrThrow(model.updateMany.mock.calls)[0]).toMatchObject({
+        data: { settleState: P2pSmsSettleState.hold_failed },
+      })
+    })
   })
 })

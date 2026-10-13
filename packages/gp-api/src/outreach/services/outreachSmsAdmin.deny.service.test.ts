@@ -52,7 +52,6 @@ const refundResult = (status: string): Stripe.Response<Stripe.Refund> =>
   ({ status }) as unknown as Stripe.Response<Stripe.Refund>
 
 beforeEach(async () => {
-  vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
   admin = service.app.get(OutreachSmsAdminService)
 
   const stripe = service.app.get(StripeService)
