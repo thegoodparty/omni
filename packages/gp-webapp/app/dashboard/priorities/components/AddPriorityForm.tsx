@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button, Input, Label, Textarea } from '@styleguide'
 import type { Priority } from '@goodparty_org/contracts'
 import { createPriority } from '../data/priorities-api'
+import { PRIORITY_FORM_COPY } from '../priorityFormCopy'
 
 const AddPriorityForm = ({
   onCreated,
@@ -54,28 +55,28 @@ const AddPriorityForm = ({
     >
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="priority-title" className="text-sm font-medium">
-          What do you want to get done?
+          {PRIORITY_FORM_COPY.titleLabel}
         </Label>
         <Input
           id="priority-title"
           value={title}
           autoFocus
-          maxLength={120}
-          placeholder="Fix the flooding on Oak Street"
+          maxLength={PRIORITY_FORM_COPY.titleMaxLength}
+          placeholder={PRIORITY_FORM_COPY.titlePlaceholder}
           onChange={(e) => setTitle(e.target.value)}
         />
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="priority-description" className="text-sm font-medium">
-          Why does it matter?
+          {PRIORITY_FORM_COPY.descriptionLabel}
         </Label>
         <Textarea
           id="priority-description"
           value={description}
           rows={3}
-          maxLength={600}
-          placeholder="A sentence in your own words is plenty."
+          maxLength={PRIORITY_FORM_COPY.descriptionMaxLength}
+          placeholder={PRIORITY_FORM_COPY.descriptionPlaceholder}
           onChange={(e) => setDescription(e.target.value)}
         />
       </div>

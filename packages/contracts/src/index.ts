@@ -802,6 +802,20 @@ export {
 } from './priorities/Priority.schema'
 
 export {
+  ONBOARDING_PRIORITY_OPTION_KINDS,
+  OnboardingPriorityOptionKindSchema,
+  type OnboardingPriorityOptionKind,
+  OnboardingPriorityOptionSchema,
+  type OnboardingPriorityOption,
+  OnboardingPriorityOptionsSchema,
+  type OnboardingPriorityOptions,
+  OnboardingOtherPrioritySchema,
+  type OnboardingOtherPriority,
+  SetOnboardingPrioritiesInputSchema,
+  type SetOnboardingPrioritiesInput,
+} from './priorities/PriorityOnboarding.schema'
+
+export {
   DASHBOARD_CARD_TYPE_VALUES,
   DashboardCardTypeSchema,
   type DashboardCardType,
