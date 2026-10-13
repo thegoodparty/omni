@@ -1,5 +1,6 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { AxiosError, AxiosHeaders } from 'axios'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -972,6 +973,30 @@ describe('PeerlyP2pJobService', () => {
         service.sendTestMessage('test-job-1', '5551234567', 169614),
       ).rejects.toThrow(BadGatewayException)
       expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
+
+    it('marks a Peerly 400 an expected rejection surfaced as a 400', async () => {
+      mockHttpService.post.mockRejectedValueOnce(
+        new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, null, {
+          data: { Error: 'not in test list' },
+          status: 400,
+          statusText: '',
+          headers: {},
+          config: { headers: new AxiosHeaders() },
+        }),
+      )
+
+      await expect(
+        service.sendTestMessage('test-job-1', '5551234567', 169614),
+      ).rejects.toThrow()
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: {
+            expectedRejection: true,
+            httpExceptionClass: BadRequestException,
+          },
+        }),
+      )
     })
   })
 })

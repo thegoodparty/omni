@@ -15,6 +15,7 @@ import {
   P2P_PHONE_LIST_MAP,
 } from '../constants/p2pJob.constants'
 import { PinoLogger } from 'nestjs-pino'
+import { isPeerlyClientRejection } from '../utils/peerlyClientRejection.util'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 
@@ -176,6 +177,9 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
       return this.peerlyErrorHandling.handleApiError({
         error,
         logger: this.logger,
+        context: {
+          expectedRejection: isPeerlyClientRejection(error),
+        },
       })
     }
   }

@@ -3,9 +3,11 @@ import {
   ConflictException,
   HttpStatus,
 } from '@nestjs/common'
+import { AxiosError, AxiosHeaders } from 'axios'
 import { addDays, format, subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { PeerlyHttpService } from '@/vendors/peerly/services/peerlyHttp.service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyTestListService } from '@/vendors/peerly/services/peerlyTestList.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
@@ -115,6 +117,30 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
       '5551234567',
       169614,
     )
+  })
+
+  it("answers 400 with Peerly's refusal when it rejects the typed number", async () => {
+    const row = await seedOutreach()
+    const peerly = service.app.get(PeerlyP2pJobService)
+    vi.mocked(peerly.sendTestMessage).mockRestore()
+    const config = { headers: new AxiosHeaders() }
+    vi.spyOn(service.app.get(PeerlyHttpService), 'post').mockRejectedValue(
+      new AxiosError('Request failed', 'ERR_BAD_REQUEST', config, null, {
+        data: { Error: "test_contact_phone '5551234567' not in test list" },
+        status: 400,
+        statusText: '',
+        headers: {},
+        config,
+      }),
+    )
+
+    const res = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toContain('not in test list')
   })
 
   it('reuses an existing test job on a repeat send', async () => {

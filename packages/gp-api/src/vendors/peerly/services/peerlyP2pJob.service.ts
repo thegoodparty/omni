@@ -15,6 +15,7 @@ import {
   P2P_JOB_READ_TIMEOUT_MS,
 } from '../constants/p2pJob.constants'
 import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
+import { isPeerlyClientRejection } from '../utils/peerlyClientRejection.util'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyMediaService } from './peerlyMedia.service'
@@ -594,9 +595,16 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         { test_contact_phone: phone, test_list_id: String(testListId) },
       )
     } catch (error) {
+      const rejected = isPeerlyClientRejection(error)
       return this.peerlyErrorHandling.handleApiError({
         error,
         logger: this.logger,
+        context: rejected
+          ? {
+              expectedRejection: true,
+              httpExceptionClass: BadRequestException,
+            }
+          : undefined,
       })
     }
   }
