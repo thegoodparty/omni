@@ -871,9 +871,7 @@ describe('FilingDetailsStep (purchase-only)', () => {
     expect(
       screen.getByText('What is your campaign filing contact information?'),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Submit for verification' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
     // The EIN step already has it, so the verification form does not ask.
     expect(screen.queryByLabelText('EIN')).not.toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
@@ -892,9 +890,7 @@ describe('FilingDetailsStep (purchase-only)', () => {
     await screen.findByText('What are your campaign filing details?')
     fillVerificationForm()
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Submit for verification' }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1))
     expect(mockSubmit).toHaveBeenCalledWith(
@@ -933,9 +929,7 @@ describe('FilingDetailsStep (purchase-only)', () => {
     await screen.findByText('What are your campaign filing details?')
     fillVerificationForm()
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Submit for verification' }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(

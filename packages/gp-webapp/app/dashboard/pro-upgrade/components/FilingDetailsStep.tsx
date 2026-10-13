@@ -571,6 +571,9 @@ const PurchaseOnlyFilingDetailsStep = (): React.JSX.Element => {
       contactCaption={FILING_CONTACT_CAPTION}
       onBack={goToPreviousStep}
       onSubmitted={goToNextStep}
+      // The submit still files the record; payment is what sets the rest in
+      // motion, so the step reads like any other wizard step.
+      submitLabel="Continue"
       persistDraft
     />
   )
