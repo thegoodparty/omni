@@ -633,7 +633,8 @@ text is its only way to done: the webapp offers it no Mark done, and
 `snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
 Alongside it, whatever its state, the sync makes a `civic_panel` next-step
 card per open priority (summary is the priority's `nextAction`, falling back
-to a first-step line), which opens the priority and takes the usual actions.
+to a first-step line), which opens the priority and takes the usual actions; while open, its due
+date rolls forward too, so it stays on the home as long as its priority does.
 The webapp puts the build card first and stacks the rest under it. One
 advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a

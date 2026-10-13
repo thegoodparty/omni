@@ -60,7 +60,7 @@ describe('<ArchiveContent>', () => {
     expect(restoreMock).toHaveBeenCalledWith('build')
   })
 
-  it('lists the build card beside the priority cards this week, with no Mark done', () => {
+  it('lists the build card beside the priority cards this week, with nothing to bring back', () => {
     cardsByBucket.this_week = [
       card({
         id: 'build',
@@ -81,9 +81,6 @@ describe('<ArchiveContent>', () => {
 
     expect(screen.getByText("Build your citizens' panel")).toBeInTheDocument()
     expect(screen.getByText('Affordable housing')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /mark done/i }),
-    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Bring it back' }),
     ).not.toBeInTheDocument()

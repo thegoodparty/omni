@@ -313,6 +313,23 @@ describe('GET /v1/dashboard/cards: a card per priority', () => {
     expect(worked?.summary).toBe('Pick up where you left off.')
   })
 
+  it('keeps an open card from lapsing into missed while its priority is open', async () => {
+    const eo = await builtOffice('eo-civic-card-lapsed')
+    await seedPriority(eo.id, 'Affordable housing')
+    await listCards('eo-civic-card-lapsed')
+    const [card] = await priorityRows(eo.id)
+    if (!card) throw new Error('no card')
+    await service.prisma.dashboardCard.update({
+      where: { id: card.id },
+      data: { dueDate: subDays(new Date(), 1) },
+    })
+
+    expect(titles(await listCards('eo-civic-card-lapsed'))).toEqual([
+      'Affordable housing',
+    ])
+    expect(await listCards('eo-civic-card-lapsed', 'missed')).toHaveLength(0)
+  })
+
   it('drops an untouched card once its priority is archived', async () => {
     const eo = await builtOffice('eo-civic-card-archived')
     const housing = await seedPriority(eo.id, 'Affordable housing')

@@ -234,8 +234,9 @@ export class DashboardCardsService extends createPrismaBase(
   }
 
   // One next-step card per open priority. A skipped or done card stays that way; only
-  // its words follow a renamed priority. A card whose priority was archived
-  // or deleted goes, unless the official already acted on it.
+  // its words follow a renamed priority. An open card stands for as long as
+  // its priority does, so it does not lapse into missed. A card whose priority
+  // was archived or deleted goes, unless the official already acted on it.
   private async syncPriorityPanelCards(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
@@ -270,8 +271,13 @@ export class DashboardCardsService extends createPrismaBase(
         summary: true,
         ctaLabel: true,
         ctaHref: true,
+        dueDate: true,
+        dismissedAt: true,
+        completedAt: true,
       },
     })
+    const now = new Date()
+    const dueDate = addDays(now, CIVIC_PANEL_CARD_DUE_DAYS)
     const byPriority = new Map(priorities.map((p) => [p.id, p]))
     for (const card of existing) {
       const priority = byPriority.get(card.sourceExternalId)
@@ -282,15 +288,16 @@ export class DashboardCardsService extends createPrismaBase(
         card.summary !== content.summary ||
         card.ctaLabel !== content.ctaLabel ||
         card.ctaHref !== content.ctaHref
-      if (stale) {
+      const lapsed =
+        !card.dismissedAt && !card.completedAt && card.dueDate < now
+      if (stale || lapsed) {
         await tx.dashboardCard.update({
           where: { id: card.id },
-          data: content,
+          data: { ...content, ...(lapsed && { dueDate }) },
         })
       }
     }
     const carded = new Set(existing.map((card) => card.sourceExternalId))
-    const dueDate = addDays(new Date(), CIVIC_PANEL_CARD_DUE_DAYS)
     const missing = priorities.filter((priority) => !carded.has(priority.id))
     if (missing.length === 0) return
     await tx.dashboardCard.createMany({
