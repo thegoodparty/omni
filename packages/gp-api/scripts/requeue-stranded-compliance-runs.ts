@@ -14,6 +14,9 @@
  * ONLY RUN AFTER the gp-api fix is deployed to prod AND the compliance_setup
  * instruction.md is republished — otherwise the re-dispatch fails the same way.
  *
+ * For a Peerly billing outage (ENG-11255) also confirm the Peerly account has
+ * been funded first, or the re-dispatch just trips the billing hold again.
+ *
  * Idempotent: targets only status=FAILED rows with the terminal error string, so
  * a row already flipped (now AWAITING_RESUME / superseded) won't be re-matched.
  * `--failed-before` is REQUIRED: pass the deploy timestamp so the query can't
@@ -27,6 +30,10 @@
  *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-17T00:00:00Z
  *   npx tsx scripts/requeue-stranded-compliance-runs.ts --failed-before=2026-06-17T00:00:00Z --execute
  *
+ * `--stage=<stage>` (default pending_website_live) selects which terminal stage
+ * to re-queue. Check the dry-run list first: the stage is read from the run's
+ * `Exceeded max resume attempts (N) at stage: <stage>` error.
+ *
  * Required env vars:
  *   DATABASE_URL — Postgres connection string (point at prod to remediate prod)
  */
@@ -38,7 +45,7 @@ import {
   ExperimentRunStatus,
 } from '../src/generated/prisma'
 
-const STAGE = 'pending_website_live'
+const DEFAULT_STAGE = 'pending_website_live'
 const TERMINAL_ERROR_PREFIX = 'Exceeded max resume attempts'
 
 const parseArgs = () => {
@@ -50,6 +57,14 @@ const parseArgs = () => {
       '--failed-before is required. Pass the deploy timestamp (in the past) ' +
         'so post-fix failures are excluded, e.g. --failed-before=2026-06-17T00:00:00Z',
     )
+  }
+  // The stage the runs exhausted their resume budget at. Defaults to the
+  // original pending_website_live incident; pass --stage=<stage> for another
+  // class (e.g. the 2026-10-02 Peerly out-of-funds outage, ENG-11255).
+  const stageArg = args.find((a) => a.startsWith('--stage='))
+  const stage = stageArg ? stageArg.slice('--stage='.length) : DEFAULT_STAGE
+  if (!stage) {
+    throw new Error('--stage must not be empty')
   }
   const failedBefore = new Date(before.split('=')[1])
   if (Number.isNaN(failedBefore.getTime())) {
@@ -64,11 +79,11 @@ const parseArgs = () => {
         'Pass the deploy timestamp, not a future date.',
     )
   }
-  return { execute, failedBefore }
+  return { execute, failedBefore, stage }
 }
 
 const main = async () => {
-  const { execute, failedBefore } = parseArgs()
+  const { execute, failedBefore, stage } = parseArgs()
   const prisma = new PrismaClient()
 
   try {
@@ -76,7 +91,7 @@ const main = async () => {
       where: {
         experimentType: 'compliance_setup',
         status: ExperimentRunStatus.FAILED,
-        stage: STAGE,
+        stage,
         error: { startsWith: TERMINAL_ERROR_PREFIX },
         updatedAt: { lt: failedBefore },
       },
@@ -91,7 +106,7 @@ const main = async () => {
 
     console.log(
       `Mode: ${execute ? 'EXECUTE' : 'DRY-RUN'} | failed-before: ` +
-        `${failedBefore.toISOString()} | matched: ${stranded.length}`,
+        `${failedBefore.toISOString()} | stage: ${stage} | matched: ${stranded.length}`,
     )
 
     // resumeRun() needs params.clerk_user_id to re-dispatch; a row without it
