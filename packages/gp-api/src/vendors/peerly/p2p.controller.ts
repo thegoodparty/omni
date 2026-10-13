@@ -46,7 +46,13 @@ type ListStatusRow = Pick<
   | 'peerlyListId'
   | 'excludedOptedOutCount'
   | 'excludedDuplicatePhoneCount'
->
+> & { createdAt?: Date }
+
+// Peerly answers the checkstatus call with a 400 ("there may be an error with
+// the phone list") while a list is processing, and gp-api reads that as "not
+// yet". A list that never leaves that state would poll as in-progress forever,
+// so past this age a build with no Peerly list id is parked as failed.
+const PHONE_LIST_STATUS_UNAVAILABLE_FAIL_AFTER_MS = 30 * 60 * 1000
 
 @Controller('p2p')
 @UsePipes(ZodValidationPipe)
@@ -71,7 +77,9 @@ export class P2pController {
     @Param('token') token: string,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<
-    CheckPhoneListStatusResponseDto | CheckPhoneListStatusAcceptedResponseDto
+    | CheckPhoneListStatusResponseDto
+    | CheckPhoneListStatusAcceptedResponseDto
+    | CheckPhoneListBuildStatusFailedResponseDto
   > {
     // The token is client-supplied: without this ownership check any
     // authenticated campaign could poll (and stamp) another campaign's
@@ -180,12 +188,29 @@ export class P2pController {
     token: string,
     res: FastifyReply,
   ): Promise<
-    CheckPhoneListStatusResponseDto | CheckPhoneListStatusAcceptedResponseDto
+    | CheckPhoneListStatusResponseDto
+    | CheckPhoneListStatusAcceptedResponseDto
+    | CheckPhoneListBuildStatusFailedResponseDto
   > {
     const statusResponse =
       await this.peerlyPhoneListService.checkPhoneListStatus(token)
 
     if (!statusResponse) {
+      if (
+        row.createdAt &&
+        !row.peerlyListId &&
+        Date.now() - row.createdAt.getTime() >
+          PHONE_LIST_STATUS_UNAVAILABLE_FAIL_AFTER_MS
+      ) {
+        const buildError =
+          'Peerly could not process this phone list. Please try again.'
+        this.logger.error(
+          { buildId: row.id, token },
+          `Phone list build ${row.id} never became available in Peerly; marking failed`,
+        )
+        await this.peerlyPhoneListCapture.markBuildFailed(row.id, buildError)
+        return { buildStatus: 'failed', buildError }
+      }
       res.status(HttpStatus.ACCEPTED)
       return {
         message: 'Phone list status is not yet available. Please try again.',

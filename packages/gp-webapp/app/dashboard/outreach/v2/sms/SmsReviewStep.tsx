@@ -90,6 +90,8 @@ interface SmsReviewStepProps {
   // covers) resolved to `failed` — distinct because the fix is different:
   // there's a fresh build to request, not a draft to retry.
   buildFailed?: boolean
+  // gp-api's reason for a failed build, shown in place of the generic copy.
+  buildError?: string | null
   retryingBuild?: boolean
   onRetryBuild?: () => void
   // The candidate cannot send yet (milestone 2's gate), so this reads back
@@ -120,6 +122,7 @@ export const SmsReviewStep = ({
   preparing,
   prepareError,
   buildFailed = false,
+  buildError = null,
   retryingBuild = false,
   onRetryBuild,
   readOnlySummary = false,
@@ -393,7 +396,7 @@ export const SmsReviewStep = ({
       {readOnlySummary ? null : buildFailed ? (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
-            We couldn&apos;t prepare this audience. Try again.
+            {buildError ?? "We couldn't prepare this audience. Try again."}
           </p>
           <Button
             type="button"

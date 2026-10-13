@@ -562,6 +562,11 @@ export const SmsFlow = ({
   const [phoneListBuildId, setPhoneListBuildId] = useState<string | null>(null)
   const [phoneListCreating, setPhoneListCreating] = useState(false)
   const [phoneListError, setPhoneListError] = useState(false)
+  // gp-api's own reason for a rejected phone-list create (e.g. an audience too
+  // large to build), when it sent one; null falls back to the generic copy.
+  const [phoneListErrorDetail, setPhoneListErrorDetail] = useState<
+    string | null
+  >(null)
   const [stopPolling, setStopPolling] = useState(false)
   const [phoneList, setPhoneList] = useState<PhoneListStatusResponse | null>(
     null,
@@ -572,6 +577,9 @@ export const SmsFlow = ({
   // sharing `phoneListError`'s because by review time there's a phone list
   // build to re-request, not a list create to re-run.
   const [phoneListBuildFailed, setPhoneListBuildFailed] = useState(false)
+  const [phoneListBuildError, setPhoneListBuildError] = useState<string | null>(
+    null,
+  )
 
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
@@ -706,6 +714,19 @@ export const SmsFlow = ({
   // the checkout then bills/links the hold off the buildId instead. Without the
   // flag a null token is still unusable (the sync path requires it), so the
   // flow is byte-identical when the flag is off.
+  const failPhoneListCreate = (result: PhoneListResult) => {
+    setPhoneListError(true)
+    setPhoneListErrorDetail(
+      !result.ok && typeof result.message === 'string' && result.message
+        ? result.message
+        : null,
+    )
+  }
+  const clearPhoneListError = () => {
+    setPhoneListError(false)
+    setPhoneListErrorDetail(null)
+  }
+
   const phoneListResultUsable = (
     result: PhoneListResult,
   ): result is { ok: true } & PhoneListResponse =>
@@ -771,7 +792,7 @@ export const SmsFlow = ({
     setPhoneListToken(null)
     setPhoneListBuildId(null)
     setPhoneListCreating(false)
-    setPhoneListError(false)
+    clearPhoneListError()
     setStopPolling(false)
     setPhoneList(null)
     setPhoneListBuildFailed(false)
@@ -1225,7 +1246,7 @@ export const SmsFlow = ({
     if (surface.isServe) return serveSend.createListContinue()
     if (audience.builderName.trim().length === 0 || audience.createListPending)
       return
-    setPhoneListError(false)
+    clearPhoneListError()
     try {
       const created = await audience.createList()
       if (buildMode) {
@@ -1241,7 +1262,7 @@ export const SmsFlow = ({
       const result = await createP2pPhoneList(created, created.id)
       setPhoneListCreating(false)
       if (!phoneListResultUsable(result)) {
-        setPhoneListError(true)
+        failPhoneListCreate(result)
         return
       }
       setPhoneListToken(result.token)
@@ -1279,13 +1300,13 @@ export const SmsFlow = ({
     setPhoneListBuildId(null)
     setPhoneList(null)
     setStopPolling(false)
-    setPhoneListError(false)
+    clearPhoneListError()
     setPhoneListBuildFailed(false)
     setPhoneListCreating(true)
     const result = await createP2pPhoneList(created, created.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
-      setPhoneListError(true)
+      failPhoneListCreate(result)
       return
     }
     setPhoneListToken(result.token)
@@ -1321,12 +1342,12 @@ export const SmsFlow = ({
       return
     }
     setPhoneListCreating(true)
-    setPhoneListError(false)
+    clearPhoneListError()
     setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
-      setPhoneListError(true)
+      failPhoneListCreate(result)
       return
     }
     setPhoneListToken(result.token)
@@ -1373,12 +1394,12 @@ export const SmsFlow = ({
     }
     if (!selectedList || phoneListCreating) return
     setPhoneListCreating(true)
-    setPhoneListError(false)
+    clearPhoneListError()
     setPhoneListBuildFailed(false)
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
-      setPhoneListError(true)
+      failPhoneListCreate(result)
       return
     }
     setPhoneListToken(result.token)
@@ -1392,6 +1413,7 @@ export const SmsFlow = ({
   const handleRetryPhoneListBuild = async () => {
     if (!selectedList || phoneListCreating) return
     setPhoneListBuildFailed(false)
+    setPhoneListBuildError(null)
     setPhoneListToken(null)
     setPhoneListBuildId(null)
     setPhoneList(null)
@@ -1895,6 +1917,7 @@ export const SmsFlow = ({
               return true
             }
             if (result.buildStatus === 'failed') {
+              setPhoneListBuildError(result.buildError || null)
               setPhoneListBuildFailed(true)
               setStopPolling(true)
               return true
@@ -1904,6 +1927,7 @@ export const SmsFlow = ({
           }}
           limit={PHONE_LIST_BUILD_POLL_LIMIT}
           onLimitReached={() => {
+            setPhoneListBuildError(null)
             setPhoneListBuildFailed(true)
             setStopPolling(true)
           }}
@@ -1975,7 +1999,7 @@ export const SmsFlow = ({
               setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
-              setPhoneListError(false)
+              clearPhoneListError()
               setPhoneListBuildFailed(false)
             }}
             universeName={audience.universeName}
@@ -1987,7 +2011,7 @@ export const SmsFlow = ({
             universeError={audience.universeError}
             onPickerOpenChange={audience.onPickerOpenChange}
             onStartBuilder={() => {
-              setPhoneListError(false)
+              clearPhoneListError()
               audience.startBuilder()
             }}
             recommendations={audience.recommendations}
@@ -2003,7 +2027,7 @@ export const SmsFlow = ({
               setPhoneListBuildId(null)
               setPhoneList(null)
               setStopPolling(false)
-              setPhoneListError(false)
+              clearPhoneListError()
               setPhoneListBuildFailed(false)
             }}
             createRecommendedListError={audience.createRecommendedListError}
@@ -2039,7 +2063,8 @@ export const SmsFlow = ({
           )}
           {phoneListError && (
             <p className="mt-4 text-sm text-destructive">
-              We couldn&apos;t prepare this audience. Try again.
+              {phoneListErrorDetail ??
+                "We couldn't prepare this audience. Try again."}
             </p>
           )}
         </>
@@ -2084,7 +2109,8 @@ export const SmsFlow = ({
             )}
             {resumed && phoneListError && (
               <p className="mt-4 text-sm text-destructive">
-                We couldn&apos;t prepare this audience. Try again.
+                {phoneListErrorDetail ??
+                  "We couldn't prepare this audience. Try again."}
               </p>
             )}
             {buildMode && draftGate.draftSaveError && (
@@ -2181,6 +2207,7 @@ export const SmsFlow = ({
             }
             prepareError={draftCreateError}
             buildFailed={phoneListBuildFailed}
+            buildError={phoneListBuildError}
             retryingBuild={phoneListCreating}
             onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}

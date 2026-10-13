@@ -1247,6 +1247,59 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     expect(checkStatus).not.toHaveBeenCalled()
   })
 
+  it('fails a build whose Peerly status stays unavailable past the stale window, instead of polling forever', async () => {
+    const campaign = await seedWinCampaign()
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue(null)
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        buildStatus: 'building',
+        token: 'stuck-token',
+        createdAt: new Date(Date.now() - 31 * 60 * 1000),
+      },
+    })
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.buildStatus).toBe('failed')
+    expect(result.data.buildError).toContain('Peerly could not process')
+    const row = await service.prisma.peerlyPhoneList.findUniqueOrThrow({
+      where: { id: build.id },
+    })
+    expect(row.buildStatus).toBe('failed')
+  })
+
+  it('keeps a recent build with unavailable Peerly status at 202', async () => {
+    const campaign = await seedWinCampaign()
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockResolvedValue(null)
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        buildStatus: 'building',
+        token: 'fresh-token',
+      },
+    })
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(202)
+  })
+
   it('404s a build the campaign does not own', async () => {
     await seedWinCampaign()
     await service.prisma.organization.create({

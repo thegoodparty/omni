@@ -522,6 +522,28 @@ describe('SmsFlow', () => {
         screen.queryByText('When do you want to send it?'),
       ).not.toBeInTheDocument()
     })
+
+    it("shows gp-api's own reason when the phone list create is rejected", async () => {
+      vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        message:
+          'This filter matches 120000 contacts — too many to build a phone list while you wait.',
+      })
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+
+      expect(
+        await screen.findByText(/too many to build a phone list/),
+      ).toBeInTheDocument()
+    })
   })
 
   describe('event invite details', () => {
@@ -2435,16 +2457,14 @@ describe('SmsFlow', () => {
       await runToReview()
 
       expect(
-        await screen.findByText(
-          "We couldn't prepare this audience. Try again.",
-        ),
+        await screen.findByText('No contacts matched the filter.'),
       ).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
       await waitFor(() =>
         expect(
-          screen.queryByText("We couldn't prepare this audience. Try again."),
+          screen.queryByText('No contacts matched the filter.'),
         ).not.toBeInTheDocument(),
       )
       expect(await screen.findByText('1,200')).toBeInTheDocument()
@@ -2475,9 +2495,7 @@ describe('SmsFlow', () => {
       await runToReview()
 
       expect(
-        await screen.findByText(
-          "We couldn't prepare this audience. Try again.",
-        ),
+        await screen.findByText('No contacts matched the filter.'),
       ).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('button', { name: 'Back' }))

@@ -763,6 +763,13 @@ export class P2pPhoneListUploadService {
     error: unknown,
   ): Promise<void> {
     const message = error instanceof Error ? error.message : String(error)
+    // Every failure path funnels through here, so this is the one place a
+    // parked build is guaranteed to log at error level with its build id
+    // (HttpException rejections were previously only a warn without it).
+    this.logger.error(
+      { buildId, buildError: message.slice(0, 500) },
+      `Phone list build ${buildId} failed`,
+    )
     await this.peerlyPhoneListCapture
       .markBuildFailed(buildId, message.slice(0, 500))
       .catch((markError: Error) =>
