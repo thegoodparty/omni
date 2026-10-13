@@ -718,16 +718,19 @@ export const SmsFlow = ({
     (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
   // A list create succeeded enough to proceed. The sync path returns a token;
   // an async build (gp-api behind the `win_sms_hold_billing` flag) returns a
-  // null token with only the buildId, which is NOT a failure under the hold flag —
-  // the checkout then bills/links the hold off the buildId instead. Without the
-  // flag a null token is still unusable (the sync path requires it), so the
-  // flow is byte-identical when the flag is off.
+  // null token with only the buildId, which is NOT a failure — the checkout
+  // then bills/links the hold off the buildId instead. Trust the SERVER's own
+  // response here, never this client's `holdBillingActive` belief: gp-api and
+  // the browser evaluate the SAME managed flag independently (one via
+  // FeaturesService per-request, the other via the Amplitude JS SDK on its own
+  // async schedule), so a null token can legitimately arrive before this
+  // client's own flag read has resolved. A null token is self-describing proof
+  // the server ran the async path regardless of why; gating acceptance on a
+  // local flag belief that can lag or disagree would reject a perfectly good
+  // response as a false "could not prepare this audience" error.
   const phoneListResultUsable = (
     result: PhoneListResult,
-  ): result is { ok: true } & PhoneListResponse =>
-    result.ok &&
-    !!result.buildId &&
-    (result.token !== null || holdBillingActive)
+  ): result is { ok: true } & PhoneListResponse => result.ok && !!result.buildId
 
   // A build-ready list always has its numeric phoneListId; before that, only a
   // paid hold-billing send may pay (on the estimate), and only once the list
@@ -967,7 +970,7 @@ export const SmsFlow = ({
   // gate), so the send floor is the hard 48-hour scheduling window.
   const earliestSend = useMemo(
     () => Date.now() + 48 * 60 * 60 * 1000,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute on
+
     // each open, like the fresh-state reset
     [open],
   )

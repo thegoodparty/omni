@@ -63,13 +63,12 @@ export class PurchaseService {
   private async resolveWinSmsHoldBillingEnabled(
     user: User,
     purchaseType: PurchaseType,
-    metadata: unknown,
+    metadata: { outreachType?: string } | null | undefined,
   ): Promise<boolean> {
-    const outreachType =
-      metadata && typeof metadata === 'object' && 'outreachType' in metadata
-        ? metadata.outreachType
-        : undefined
-    if (purchaseType !== PurchaseType.TEXT || outreachType !== 'p2p') {
+    if (
+      purchaseType !== PurchaseType.TEXT ||
+      metadata?.outreachType !== 'p2p'
+    ) {
       return false
     }
     return this.features.isFeatureEnabled({
@@ -162,7 +161,10 @@ export class PurchaseService {
     const winSmsHoldBillingEnabled = await this.resolveWinSmsHoldBillingEnabled(
       user,
       dto.type,
-      dto.metadata,
+      // dto's generic Metadata is unknown at this call site (CreateCheckoutSessionDto<unknown>);
+      // the handler-specific shape is validated downstream by each PurchaseHandler.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      dto.metadata as { outreachType?: string } | null | undefined,
     )
 
     // Merge server-side campaignId into metadata for calculateAmount.
@@ -304,7 +306,17 @@ export class PurchaseService {
       // this webhook must never make an already-placed hold fall through to
       // the ACH deferral, which would strand it forever (a manual-capture hold
       // has no async_payment_succeeded follow-up to ever retrigger it).
-      const paymentIntent = await this.resolveSessionPaymentIntent(session)
+      //
+      // Scoped to TEXT by TYPE, not by flag: manualCapture is only ever set
+      // for PurchaseType.TEXT (createCheckoutSession), so no other purchase
+      // type can ever carry a manual-capture PI. Checking first avoids an
+      // extra live Stripe read (and a new failure mode — a transient read
+      // error now throwing instead of deferring) on every ACH-paid domain/
+      // poll/pro-plan purchase, which can never be a hold.
+      const paymentIntent =
+        session.metadata?.purchaseType === PurchaseType.TEXT
+          ? await this.resolveSessionPaymentIntent(session)
+          : null
       if (paymentIntent?.capture_method === 'manual') {
         // Once the PI is authorized (requires_capture) fulfill now; while it is
         // still the transient not-yet-authorized state, THROW so
@@ -481,7 +493,10 @@ export class PurchaseService {
     const winSmsHoldBillingEnabled = await this.resolveWinSmsHoldBillingEnabled(
       user,
       purchaseType,
-      dto.metadata,
+      // FreePurchaseMetadata is a union of handler-specific shapes; only the
+      // outreach branch carries outreachType, validated downstream per handler.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      dto.metadata as { outreachType?: string },
     )
 
     const mergedMetadata = {

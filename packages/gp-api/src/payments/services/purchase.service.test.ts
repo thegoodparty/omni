@@ -823,6 +823,41 @@ describe('PurchaseService', () => {
       )
     })
 
+    // manualCapture is only ever set for PurchaseType.TEXT at session
+    // creation, so no other purchase type can ever carry a manual-capture
+    // PI — checking capture_method for a domain/poll/pro-plan purchase would
+    // be a wasted Stripe round trip and a new failure mode (a transient read
+    // error throwing instead of deferring) for every ACH-paid purchase of
+    // every other type.
+    it('defers a non-TEXT unpaid session (e.g. an ACH-paid domain) without reading the PI at all', async () => {
+      const sessionId = 'cs_test_domain_unpaid'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.DOMAIN_REGISTRATION,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'unpaid',
+          payment_intent: 'pi_domain_ach',
+          metadata: {
+            purchaseType: PurchaseType.DOMAIN_REGISTRATION,
+            userId: '1',
+          },
+        }),
+      )
+
+      const result = await service.completeCheckoutSession({
+        checkoutSessionId: sessionId,
+      })
+
+      expect(result.deferred).toBe(true)
+      expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
+      expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
+    })
+
     it('fulfills a session a promotion code covered in full', async () => {
       // Stripe completes a $0 session with payment_status
       // no_payment_required and no PaymentIntent; there is nothing to wait

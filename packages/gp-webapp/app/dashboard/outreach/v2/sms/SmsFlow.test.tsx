@@ -498,7 +498,14 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
-    it('flag OFF + async build (null token): errors at audience, does not advance (unchanged)', async () => {
+    // NO CLIENT/SERVER RACE: gp-api and the browser evaluate the SAME managed
+    // flag independently, so this client's own read can lag the server's
+    // (e.g. the Amplitude JS SDK hasn't resolved yet when the request fires).
+    // A null token is the server's own proof it ran the async build — trusted
+    // unconditionally, never re-validated against this client's possibly-stale
+    // `holdBillingActive` belief, so a legitimate response can never be
+    // rejected as a false "could not prepare this audience" error.
+    it('a null token always advances, even while this client reads the flag off (server is the source of truth)', async () => {
       winSmsHoldRef.enabled = false
       vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
         ok: true,
@@ -515,15 +522,11 @@ describe('SmsFlow', () => {
         await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
       )
 
-      // Without the flag a null token is still unusable: the audience step shows
-      // its error and never advances to scheduling.
       expect(
-        await screen.findByText(
-          "We couldn't prepare this audience. Try again.",
-        ),
+        await screen.findByText('When do you want to send it?'),
       ).toBeInTheDocument()
       expect(
-        screen.queryByText('When do you want to send it?'),
+        screen.queryByText("We couldn't prepare this audience. Try again."),
       ).not.toBeInTheDocument()
     })
   })
