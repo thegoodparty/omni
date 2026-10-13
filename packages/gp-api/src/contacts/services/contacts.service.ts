@@ -278,8 +278,15 @@ export type ContactsFilterResolutionInput = Partial<
   search?: string | null
 }
 
+const POSITION_DISTRICT_TTL_MS = 60 * 60 * 1000
+
 @Injectable()
 export class ContactsService {
+  private readonly districtIdByPositionId = new Map<
+    string,
+    { districtId: string; resolvedAt: number }
+  >()
+
   constructor(
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly voterFileFilterGeoService: VoterFileFilterGeoService,
@@ -880,13 +887,43 @@ export class ContactsService {
     }
 
     if (org.positionId) {
-      const position = await this.elections.getPositionById(org.positionId, {
-        includeDistrict: true,
-      })
-      return { districtId: position?.district?.id ?? null }
+      return this.resolveDistrictInfoFromPosition(org.positionId)
     }
 
     return { districtId: null }
+  }
+
+  // A position's district does not change, so it is cached in-process: the
+  // election-api lookup then stays off the hot path of every contacts read, and
+  // when election-api is down (DB pool exhaustion, 2026-10-13) a previously
+  // resolved district still serves the request instead of a 502.
+  private async resolveDistrictInfoFromPosition(
+    positionId: string,
+  ): Promise<{ districtId: string | null }> {
+    const cached = this.districtIdByPositionId.get(positionId)
+    if (cached && Date.now() - cached.resolvedAt < POSITION_DISTRICT_TTL_MS) {
+      return { districtId: cached.districtId }
+    }
+    try {
+      const position = await this.elections.getPositionById(positionId, {
+        includeDistrict: true,
+      })
+      const districtId = position?.district?.id ?? null
+      if (districtId) {
+        this.districtIdByPositionId.set(positionId, {
+          districtId,
+          resolvedAt: Date.now(),
+        })
+      }
+      return { districtId }
+    } catch (error) {
+      if (!cached) throw error
+      this.logger.warn(
+        { error, positionId },
+        'election-api position lookup failed; using cached districtId',
+      )
+      return { districtId: cached.districtId }
+    }
   }
 
   // Which people table this org reads. Batch callers fanning out over many
