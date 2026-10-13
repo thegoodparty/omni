@@ -150,7 +150,7 @@ requestSend({
   outreachId,          // the envelope, org-scoped
   audience,            // { savedFilterId } | { sampleSize, excludePersonIds }
   message,             // text sent verbatim
-  imageUrl,            // optional
+  imageUrl,            // optional in delivery; Serve SMS always sends one
   scheduledFor,        // see Send timing
   sendSeq,             // 1, then incremented per expansion
 }) → { recipientCount, excludedOptedOutCount, excludedDuplicateCount, sendKey }

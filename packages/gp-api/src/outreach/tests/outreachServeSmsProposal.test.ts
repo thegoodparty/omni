@@ -103,6 +103,7 @@ describe('a Serve text carrying a proposal link', () => {
       {
         name: 'Flood block renters',
         message: 'this is Bryan, your City Council Member. Is it the drains?',
+        imageUrl: 'https://assets.test/header.png',
         scheduledLocalDate: format(
           addBusinessDays(new Date(), 5),
           'yyyy-MM-dd',
