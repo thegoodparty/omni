@@ -174,6 +174,24 @@ export class DashboardCardsService extends createPrismaBase(
       )
       if (!buildCardActive) {
         await this.syncPriorityPanelCards(tx, electedOffice.id)
+      } else {
+        // Priority cards made while the build card was away wait hidden
+        // behind it, so their dates roll forward instead of lapsing into
+        // missed.
+        const now = new Date()
+        await tx.dashboardCard.updateMany({
+          where: {
+            electedOfficeId: electedOffice.id,
+            type: DashboardCardType.civic_panel,
+            sourceExternalId: {
+              not: civicPanelBuildCardSourceId(electedOffice.id),
+            },
+            dismissedAt: null,
+            completedAt: null,
+            dueDate: { lt: now },
+          },
+          data: { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) },
+        })
       }
       return { buildCardActive }
     })

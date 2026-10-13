@@ -634,7 +634,8 @@ Once it is done, dismissed or snoozed, the sync makes a `civic_panel`
 next-step card per open priority (summary is the priority's `nextAction`,
 falling back to a first-step line), which opens the priority. While the build
 card is active again (brought back, or its snooze ran out) `listByBucket`
-keeps those priority cards off the active list. Briefing, agenda item and
+keeps those priority cards off the active list, and the sync rolls their dates
+forward so they do not lapse into missed while hidden. Briefing, agenda item and
 community issue cards are never filtered by it. One advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
 second insert. The seed draw is contracts' `PANEL_SEED_SAMPLE_SIZE`:
