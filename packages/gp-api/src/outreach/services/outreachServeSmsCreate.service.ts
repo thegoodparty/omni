@@ -27,7 +27,13 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { ProposalLink } from '@goodparty_org/contracts'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
-import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
+import {
+  ElectedOffice,
+  OutreachStatus,
+  OutreachType,
+  Prisma,
+} from '../../generated/prisma'
+import { OutreachReportBackService } from './outreachReportBack.service'
 
 /**
  * The Serve SMS draft-first create: `POST /v1/outreach/serve/sms`.
@@ -170,8 +176,48 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     private readonly organizationsService: OrganizationsService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
+    private readonly reportBack: OutreachReportBackService,
   ) {
     super()
+  }
+
+  // A report back answers one of the office's own priority texts whose
+  // replies are in. It is linked through that send, never to the priority
+  // or a check itself, so it is never read as another ask; and it never asks
+  // anyone to join the panel.
+  async assertReportBackTarget(
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+    outreachId: number,
+    draft: { message: string; link: ProposalOutreachLink },
+  ): Promise<void> {
+    if (
+      draft.link.priorityId !== undefined ||
+      draft.link.priorityStepId !== undefined
+    ) {
+      throw new BadRequestException(
+        'A report back is linked through the text it reports on',
+      )
+    }
+    if (findCivicPanelJoinLine(draft.message) !== null) {
+      throw new BadRequestException(
+        "A report back doesn't ask people to join your citizens' panel. Remove that line and try again.",
+      )
+    }
+    const target = await this.model.findFirst({
+      where: {
+        id: outreachId,
+        ...this.reportBack.repliesInWhere(
+          electedOffice.organizationSlug,
+          electedOffice.id,
+        ),
+      },
+      select: { id: true },
+    })
+    if (!target) {
+      throw new BadRequestException(
+        "That text can't be reported back on yet. Wait until its replies are in.",
+      )
+    }
   }
 
   /**
@@ -296,6 +342,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
       scheduledLocalDate: input.scheduledLocalDate,
       voterFileFilterId: input.voterFileFilterId,
+      reportBackForOutreachId: input.reportBackForOutreachId ?? null,
       // Server-derived, and the only number the purchase handler prices
       // from.
       textCount: recipientCount,

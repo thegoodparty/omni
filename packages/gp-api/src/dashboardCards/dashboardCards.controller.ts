@@ -52,6 +52,7 @@ export class DashboardCardsController {
     const { buildCardActive } = includeCivicPanel
       ? await this.cards.syncCivicPanelCards(electedOffice)
       : { buildCardActive: false }
+    if (includeCivicPanel) await this.cards.syncReportBackCards(electedOffice)
     const rows = await this.cards.listByBucket(electedOffice.id, bucket, {
       includeCivicPanel,
       buildCardActive,
