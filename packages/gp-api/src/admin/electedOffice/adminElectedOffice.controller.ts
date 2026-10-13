@@ -56,7 +56,7 @@ export class AdminElectedOfficeController {
   @Post('magic-link')
   @HttpCode(HttpStatus.OK)
   async createMagicLink(@Body() body: CreateMagicLinkDto) {
-    const { email, personId } = body
+    const { email, personId, hubspotContactId } = body
     // Trim before validating so a name of only whitespace is treated as blank.
     const firstName = body.firstName.trim()
     const lastName = body.lastName.trim()
@@ -70,6 +70,14 @@ export class AdminElectedOfficeController {
         firstName,
         lastName,
       })
+
+    // Before the elected office exists, so its first Office Holder sync can
+    // link the Contact. An id the user already has is never replaced.
+    if (hubspotContactId && !user.metaData?.hubspotId) {
+      await this.usersService.patchUserMetaData(user.id, {
+        hubspotId: hubspotContactId,
+      })
+    }
 
     const prefill = personId
       ? await this.prefillFromBallotReady(user.id, personId)

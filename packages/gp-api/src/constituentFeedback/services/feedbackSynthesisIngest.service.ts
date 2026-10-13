@@ -119,8 +119,12 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       if (claim.count === 0) return false
 
       const applied: Array<{ feedbackId: string; tagId: string }> = []
+      const pooled = run.scope === SynthesisScope.priority
       for (const { issue, members } of themes) {
-        const tagId = await this.resolveTag(tx, run, issue)
+        // The org's tag list and a memo's tags come from its own send's run.
+        // A priority run regroups the same memos, and tagging them again
+        // would propose a second vocabulary for one conversation.
+        const tagId = pooled ? null : await this.resolveTag(tx, run, issue)
         const theme = await tx.feedbackTheme.create({
           data: {
             runId: run.id,
@@ -140,11 +144,13 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
           skipDuplicates: true,
         })
         // A tag lands on a memo's record; a reply has no row to carry one.
-        applied.push(
-          ...members.flatMap(({ id, source }) =>
-            source === 'feedback' ? [{ feedbackId: id, tagId }] : [],
-          ),
-        )
+        if (tagId !== null) {
+          applied.push(
+            ...members.flatMap(({ id, source }) =>
+              source === 'feedback' ? [{ feedbackId: id, tagId }] : [],
+            ),
+          )
+        }
       }
 
       // Before this run's tag rows go in: a pair the old run applied and
@@ -233,13 +239,13 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
     run: FeedbackSynthesisRun,
     ids: string[],
   ): Promise<Map<string, MemberSource>> {
-    const effortScoped = run.scope === SynthesisScope.effort
+    const outreachScope = await this.outreachScope(run)
     const [memos, replies] = await Promise.all([
       this.client.constituentFeedback.findMany({
         where: {
           id: { in: ids },
           organizationSlug: run.organizationSlug,
-          ...(effortScoped ? { outreachId: run.outreachId } : {}),
+          ...outreachScope,
         },
         select: { id: true },
       }),
@@ -248,7 +254,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
           id: { in: ids },
           sender: PollIndividualMessageSender.CONSTITUENT,
           outreach: { organizationSlug: run.organizationSlug },
-          ...(effortScoped ? { outreachId: run.outreachId } : {}),
+          ...outreachScope,
         },
         select: { id: true },
       }),
@@ -257,6 +263,28 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       ...replies.map((row) => [row.id, 'text'] as const),
       ...memos.map((row) => [row.id, 'feedback'] as const),
     ])
+  }
+
+  // An effort run reads its own send; a priority run every send the office
+  // made for that priority; an organization run the whole org.
+  private async outreachScope(
+    run: FeedbackSynthesisRun,
+  ): Promise<{ outreachId?: number | null | { in: number[] } }> {
+    if (run.scope === SynthesisScope.effort) {
+      return { outreachId: run.outreachId }
+    }
+    if (run.scope !== SynthesisScope.priority || run.priorityId === null) {
+      return {}
+    }
+    const sends = await this.client.outreach.findMany({
+      where: {
+        priorityId: run.priorityId,
+        organizationSlug: run.organizationSlug,
+        campaignId: null,
+      },
+      select: { id: true },
+    })
+    return { outreachId: { in: sends.map((send) => send.id) } }
   }
 
   // One tag per theme, matched on the normalized title.
@@ -346,6 +374,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
         organizationSlug: run.organizationSlug,
         scope: run.scope,
         outreachId: run.outreachId,
+        priorityId: run.priorityId,
         status: SynthesisRunStatus.completed,
         id: { not: run.id },
       },

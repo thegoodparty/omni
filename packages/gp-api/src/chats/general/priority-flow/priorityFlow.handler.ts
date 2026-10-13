@@ -23,6 +23,8 @@ import { PriorityStatusService } from '@/priorities/services/priorityStatus.serv
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   ChatScopeHandler,
@@ -61,6 +63,7 @@ import {
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
@@ -140,6 +143,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly voterFileFilters?: VoterFileFilterService,
     @Optional()
     private readonly peopleDatasets?: PeopleDatasetService,
+    @Optional()
+    private readonly features?: FeaturesService,
   ) {}
 
   // ONE conversation per priority, for the life of the priority. The ordinance
@@ -202,9 +207,16 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
       : 'voters'
-    if (!resolved) return { ...ctx, peopleDataset }
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: SERVE_CITIZEN_PANELS_FLAG,
+        })
+      : false
+    if (!resolved) return { ...ctx, peopleDataset, outreachFeedbackEnabled }
     return {
       ...ctx,
+      outreachFeedbackEnabled,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
@@ -329,6 +341,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
       }),
+    }
+
+    if (ctx.outreachFeedbackEnabled) {
+      tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
+        outreach: this.outreach,
+        priorityId: ctx.priorityId,
+        organizationSlug: ctx.organizationSlug,
+      })
     }
 
     // Web search runs through Anthropic's native tool (the scope is

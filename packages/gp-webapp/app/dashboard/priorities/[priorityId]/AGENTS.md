@@ -187,6 +187,49 @@ records it with `record_check_reminder`, a narrow write in
 check and spends the same raise counter, so the two surfaces never nag
 separately.
 
+## What you heard (`results/`)
+
+`/dashboard/priorities/[priorityId]/results`, reached from the "Constituent
+feedback" link under "Where this stands" in the rail, pools every send linked to the
+priority (`Outreach.priorityId`) through `GET /v1/priorities/:id/results`
+(gp-api `PriorityResultsService`): who answered (with the channels that
+brought answers under the count), how many of those people are now civic
+panel members, a heat grid of where they live, and over/under bars against
+the district. The response also carries reach and answers per send; the page
+does not list sends, since the tiles already give those counts.
+
+- **Behind `serve-citizen-panels`.** The link renders only with the flag on,
+  the page reads the flag server-side (`getFlagVariants`) and 404s when off,
+  and gp-api 404s the endpoint the same way.
+- **Who counts as answering:** a text with `respondedAt`, a call or a knock
+  with outcome `answered`. A knock counts toward the walk whose envelope it
+  was logged under (`ContactInteractionDoorKnock.outreachId`), never by the
+  turf's stops, since a person can sit in two turfs.
+- **The map never pins a house.** Coordinates arrive rounded to about 100 m
+  with no ids, and `respondentGrid.ts` bins them into fixed ~400 m squares on
+  the contact map's tile style, so no new map dependency.
+- **The bars compare places, not people** (product decision Q10): each
+  respondent stands for their census block group's makeup, averaged, against
+  the district's, so both sides read one census source. Race shows only from
+  25 respondents and only for groups at 2% or more of the district; nothing
+  shows below 10 respondents.
+- **The census figures are a sample for now, and the page does not say so.**
+  gp-api reads them through `CENSUS_COMPOSITION_SOURCE`, bound to
+  `SampleCensusComposition` until gp-data-platform's district ACS columns,
+  block group table and per person block group geoid reach `mart_gp_api`.
+  The response says `source: 'sample'`; the label was taken off the page by
+  product call, so swapping the binding before the flag reaches an official
+  is required, not optional.
+- **Themes are pooled across every send.** "What people told you" reads the
+  priority's latest completed `priority`-scope synthesis run (gp-api
+  `FeedbackSynthesisService.requestPriorityRun`): text replies, door notes
+  and call notes grouped together. Any send on the priority finishing (a
+  results upload, a turf's Done, a list's last call) starts a new run that
+  replaces the last, so a door walk after a text feeds the same themes.
+  `people` counts distinct people, and `summarizing` shows while a run is in
+  flight with the previous themes still up. Each send's own report keeps its
+  own themes and tags; a pooled run tags nothing.
+
 ## A check asks a sample, not everyone
 
 A check is a directional read, so the agent proposes a random sample of each

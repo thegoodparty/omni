@@ -181,7 +181,9 @@ const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 - If a source is more than about two years old, or older than a change it would miss, say so in the same clause.
 - Our own data needs no link, just what it is: their contact records, past outreach, or community issues.`
 
-const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
+const buildStageGateBlock = (
+  has: (name: string) => boolean,
+): string => `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 - What a step settles is the official's read. Sometimes whether the people it lands on would say the same is the open question, and hearing from them is what makes it hold up in chambers. Often it is not.
 - define, options, method and plan can each carry a check with constituents. None of them needs one. A check is outreach the official has to send and wait on, so it is worth it only when it fills a gap nothing else can.
 - Before you offer a check, work out what is actually missing. Say it in one line: what this step rests on that is not known yet. Then match the gap to the source:
@@ -204,7 +206,7 @@ const STAGE_GATE_BLOCK = `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 - While a check is out, the listen step that collects it waits. Leave it open with a caveat saying who you are waiting on, never settle it as if the listening happened, and keep working what can be worked: research, draft options, sketch the path. Nothing past that listening step is done until it closes, so never settle a later step.
 - A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Reminders the official got elsewhere count too: the raised count in <status> is the total. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
 - A card already in this thread for a step and side stays that card. Never present it again unless they ask to change who it reaches or what it says. When they say to send it, point them to its button.
-- A side whose <status> line says Sent already went out. Never present it again and never ask whether to send it: those people have been asked. Wait for what they say. A send finished outside this conversation, like a walk drawn on its own page, first shows up as that Sent: whenever a side shows Sent and nothing in this conversation mentions it yet, say in one line that it is out, once.
+- A side whose <status> line says Sent already went out. Never present it again and never ask whether to send it: those people have been asked. Wait for what they say${has('read_outreach_feedback') ? ', and read it yourself with read_outreach_feedback rather than asking the official' : ''}. A send finished outside this conversation, like a walk drawn on its own page, first shows up as that Sent: whenever a side shows Sent and nothing in this conversation mentions it yet, say in one line that it is out, once.
 - A message that starts with ${PROPOSAL_SENT_MARKER} comes from the app, not the official: they just sent that outreach from its card, and the side it puts out is already recorded. Acknowledge it in one short line, record nothing for it, and carry on with the work.
 - When answers come back, the step held or it did not. Record confirmed or revised. If revised, rewrite the summary and send any later step it undermines back to stale. A revised step is the flow working.
 - Never imply backing the official does not have. If a step turns on what people think and nobody has been heard from, say so once in its summary.`
@@ -269,6 +271,12 @@ const buildSamplingBlock = (has: (name: string) => boolean): string =>
 const buildReadingRepliesBlock = (has: (name: string) => boolean): string =>
   [
     'READING WHAT CAME BACK',
+    ...(has('read_outreach_feedback')
+      ? [
+          "- Whenever a side is Sent, call read_outreach_feedback before you say anything about it. It returns every reply and note in people's own words, and the themes found in them. Never ask the official how many replied or what people said; read it. If nothing has come back yet, say so in one line and carry on.",
+          '- When you report it, lead with the themes and how many people each covers, then quote two or three replies that make the point. Put what people said, in their words, into heard on that side.',
+        ]
+      : []),
     `- Count the replies on each side before you treat them as an answer. Polls hold a read to the same bar: more than ${HIGH_CONFIDENCE_MIN_REPLIES} replies, or replies from at least ${pct(HIGH_CONFIDENCE_MIN_SHARE)} of that side's whole audience. Short of both, the read is thin: say so in one line, and do not record that side confirmed or revised on it.`,
     ...(has('present_outreach_proposal')
       ? [
@@ -407,7 +415,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     SOURCES_BLOCK,
     CLAIM_STRENGTH_RULE,
     LEGAL_VALUES_RULE,
-    STAGE_GATE_BLOCK,
+    buildStageGateBlock(has),
     ...(canFindGroup ? [AFFECTEDNESS_BLOCK] : []),
     ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has)]

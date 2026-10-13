@@ -343,6 +343,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Each row shows the step it is on and the next thing to do about it',
       'Opening a priority works it forward one step at a time',
       'Before a step is done, it offers to check it with the constituents it affects most and least, with the lists and the question ready',
+      'Where the citizens’ panel is on, Constituent feedback, under Where this stands on an open priority, pools every text, call and door knock sent for it: how many answered, how many joined your citizens’ panel, the themes in what they said, a map of where answers came from, and how those neighborhoods compare with the whole district',
     ],
     gate: 'Priorities is being rolled out, so it is not on every account yet.',
   },

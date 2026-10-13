@@ -1339,6 +1339,39 @@ export class ContactsService {
     )
   }
 
+  // Where a known set of people live, for a map of who answered. Scoped to
+  // the org's district like every other people read, so an id from another
+  // district simply has no point.
+  async pointsForPeople(
+    personIds: string[],
+    organization: Organization,
+  ): Promise<{
+    points: { id: string; lat: number; lng: number }[]
+    truncated: boolean
+  }> {
+    if (personIds.length === 0) return { points: [], truncated: false }
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) => {
+        const { people, truncated } =
+          await this.voterDoorKnockingService.evaluatePoints(
+            DoorKnockingEvaluateDTO.create({
+              districtId,
+              bbox: DISTRICT_WIDE_BBOX,
+              filters: { id: { in: personIds } },
+              maxPeople: MAP_POINTS_MAX,
+            }),
+            dataset,
+            { requireRooftopAccuracy: false },
+          )
+        return {
+          points: people.map(({ id, lat, lng }) => ({ id, lat, lng })),
+          truncated,
+        }
+      },
+    )
+  }
+
   // Everyone a drawn boundary encloses, for freezing onto the list.
   //
   // Evaluated with NO demographic filters on purpose. The stored set is the

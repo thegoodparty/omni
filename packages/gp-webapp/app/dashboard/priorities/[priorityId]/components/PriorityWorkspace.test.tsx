@@ -22,9 +22,14 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchPriorityStatus: vi.fn(),
+  citizenPanels: { ready: true, enabled: false },
   sentListener: null as
     | null
     | ((proposal: Record<string, string | number | boolean>) => void),
+}))
+
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: () => mocks.citizenPanels,
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -151,9 +156,29 @@ beforeEach(() => {
   mocks.listMessages.mockResolvedValue([])
   mocks.streamMessage.mockImplementation(streamOf([]))
   mocks.fetchPriorityStatus.mockResolvedValue(null)
+  mocks.citizenPanels = { ready: true, enabled: false }
 })
 
 describe('PriorityWorkspace', () => {
+  it('links to constituent feedback under the rail with serve-citizen-panels on', async () => {
+    mocks.citizenPanels = { ready: true, enabled: true }
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    const links = screen.getAllByRole('link', { name: 'Constituent feedback' })
+    expect(links[0]).toHaveAttribute(
+      'href',
+      '/dashboard/priorities/pri-1/results',
+    )
+  })
+
+  it('shows no constituent feedback link with serve-citizen-panels off', async () => {
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    expect(
+      screen.queryByRole('link', { name: 'Constituent feedback' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('opens the conversation anchored on the priority and takes the first turn', async () => {
     renderWorkspace()
     await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
