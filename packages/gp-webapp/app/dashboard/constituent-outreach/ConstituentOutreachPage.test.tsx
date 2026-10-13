@@ -15,6 +15,7 @@ import type {
   SocialAsset,
   SocialAssetPlatform,
 } from '@goodparty_org/contracts'
+import { CIVIC_PANEL_JOIN_LINE } from '@goodparty_org/contracts'
 import ConstituentOutreachPage from './ConstituentOutreachPage'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 
@@ -657,9 +658,10 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     serveSmsFlag.enabled = false
     panelsFlag.ready = true
     panelsFlag.enabled = false
+    vi.useRealTimers()
   })
 
-  it('opens the text flow on the panel purpose with a district sample picked', async () => {
+  it('runs the panel card through the sample, the locked JOIN ask and the priced review', async () => {
     mockPhoneBankingAudience()
     // The district's cell phones, of which the panel text reaches a draw.
     api.mock('POST /v1/contacts/count', {
@@ -669,18 +671,78 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     serveSmsFlag.enabled = true
     panelsFlag.enabled = true
     arriveWith('compose=text&purpose=build_citizens_panel')
+    // Tuesday, so the first bookable send day is Friday the 4th.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-01T12:00:00Z'))
+    const created: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      created.push(body as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 501,
+          recipientCount: 3334,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+        },
+      }
+    })
+    const saved: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      saved.push(body as Record<string, unknown>)
+      return { status: 200, data: { id: 88, name: "Citizens' panel invite" } }
+    })
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'I want to hear from you before I decide.' },
+    })
 
     render(<ConstituentOutreachPage outreaches={[]} />)
 
-    expect(
-      await screen.findByRole('button', { name: 'Continue (3,334)' }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Build a constituent list')).toBeInTheDocument()
+    const proceed = await screen.findByRole('button', {
+      name: 'Continue (3,334)',
+    })
+    expect(proceed).toBeEnabled()
     expect(screen.queryByText('Explain a recent decision')).toBeNull()
     expect(router.replace).toHaveBeenCalledWith(
       '/dashboard/constituent-outreach',
       { scroll: false },
     )
+    await user.click(proceed)
+    expect(
+      await screen.findByDisplayValue("Citizens' panel invite"),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0]).toMatchObject({
+      name: "Citizens' panel invite",
+      hasCellPhone: true,
+      sample: { size: 3334 },
+    })
+    await user.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).toBeChecked()
+    expect(ask).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    // Review prices the draw. The live total is Stripe's, which jsdom
+    // cannot mount, so the per-text price and the count stand in for it.
+    expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
+      0,
+    )
+    expect(screen.getByText('3,334')).toBeInTheDocument()
+    expect(screen.getByText('$0.035')).toBeInTheDocument()
+    await waitFor(() => expect(created).toHaveLength(1))
+    expect(created[0]).toMatchObject({ voterFileFilterId: 88 })
+    expect(created[0]?.message).toContain(CIVIC_PANEL_JOIN_LINE)
   })
 
   it('opens a plain text flow with serve-citizen-panels off', async () => {

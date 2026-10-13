@@ -43,9 +43,10 @@ import { clientRequest } from 'gpApi/typed-request'
 
 // The first citizens' panel text goes to a random draw of the whole district,
 // so the panel looks like the district rather than like any one list. The
-// flow's count adds the cell-phone overlay, and the draw is saved from it.
+// one filter is the cell-phone reach a text needs, which is also what lets
+// the builder continue: it holds Continue until something is selected.
 const SERVE_PANEL_SEED_AUDIENCE: ProposedAudience = {
-  filters: {},
+  filters: { hasCellPhone: true },
   supportStatus: [],
   precincts: [],
   name: "Citizens' panel invite",
