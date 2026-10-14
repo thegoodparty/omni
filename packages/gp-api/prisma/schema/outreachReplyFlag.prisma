@@ -1,0 +1,12 @@
+// Per-user favorite/read state on an inbound reply.
+model OutreachReplyFlag {
+  userId      Int                   @map("user_id")
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replyId     String                @map("reply_id")
+  reply       PollIndividualMessage @relation(fields: [replyId], references: [id], onDelete: Cascade)
+  favoritedAt DateTime?             @map("favorited_at")
+  readAt      DateTime?             @map("read_at")
+
+  @@id([userId, replyId])
+  @@map("outreach_reply_flag")
+}

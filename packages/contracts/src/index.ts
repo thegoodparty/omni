@@ -1217,7 +1217,14 @@ export {
   type SmsOutreachReplies,
   SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
   SMS_OUTREACH_REPLIES_MAX_LIMIT,
+  SmsOutreachRepliesFilterSchema,
+  type SmsOutreachRepliesFilter,
+  SmsOutreachRepliesQuerySchema,
+  type SmsOutreachRepliesQuery,
 } from './outreach/OutreachResults.schema'
+export * from './outreach/ServePoll.schema'
+export * from './outreach/PollResults.schema'
+export * from './outreach/PollAdmin.schema'
 
 export {
   SMS_PURPOSE_VALUES,
