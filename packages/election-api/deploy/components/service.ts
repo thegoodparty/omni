@@ -280,38 +280,107 @@ export function createService({
     ),
   })
 
-  new aws.ecs.Service('ecsService', {
-    name: serviceName,
-    cluster: cluster.arn,
-    taskDefinition: taskDefinition.arn,
-    desiredCount: isProd ? 2 : 1,
-    capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
-    networkConfiguration: {
-      subnets: privateSubnetIds,
-      securityGroups: securityGroupIds,
-      assignPublicIp: false,
-    },
-    loadBalancers: [
-      {
-        targetGroupArn: targetGroup.arn,
-        containerName: serviceName,
-        containerPort: 80,
+  const minTasks = select({ dev: 1, prod: 6 })
+
+  const ecsService = new aws.ecs.Service(
+    'ecsService',
+    {
+      name: serviceName,
+      cluster: cluster.arn,
+      taskDefinition: taskDefinition.arn,
+      desiredCount: minTasks,
+      capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
+      networkConfiguration: {
+        subnets: privateSubnetIds,
+        securityGroups: securityGroupIds,
+        assignPublicIp: false,
       },
-    ],
-    healthCheckGracePeriodSeconds: 120,
-    deploymentCircuitBreaker: {
-      enable: true,
-      rollback: false,
+      loadBalancers: [
+        {
+          targetGroupArn: targetGroup.arn,
+          containerName: serviceName,
+          containerPort: 80,
+        },
+      ],
+      healthCheckGracePeriodSeconds: 120,
+      deploymentCircuitBreaker: {
+        enable: true,
+        rollback: false,
+      },
+      enableExecuteCommand: true,
+      forceNewDeployment: true,
+      // Propagate the task-definition's Project tag onto the running tasks so
+      // Fargate compute is attributed in Cost Explorer (tasks don't inherit
+      // task-def tags otherwise).
+      propagateTags: 'TASK_DEFINITION',
+      enableEcsManagedTags: true,
+      waitForSteadyState: true,
     },
-    enableExecuteCommand: true,
-    forceNewDeployment: true,
-    // Propagate the task-definition's Project tag onto the running tasks so
-    // Fargate compute is attributed in Cost Explorer (tasks don't inherit
-    // task-def tags otherwise).
-    propagateTags: 'TASK_DEFINITION',
-    enableEcsManagedTags: true,
-    waitForSteadyState: true,
+    // Autoscaling owns the task count. Without this, every deploy resets it
+    // to the minimum mid-traffic.
+    { ignoreChanges: ['desiredCount'] },
+  )
+
+  // Register and Put are upserts, so these adopt the SST-era target and
+  // policies by name instead of creating duplicates. The register is only an
+  // upsert while it carries no tags — AWS treats a tagged
+  // RegisterScalableTarget as create-only and rejects it when the target
+  // already exists ("use the TagResource API") — and the stack's
+  // aws:defaultTags (deploy.sh) would tag it. A provider without defaultTags
+  // keeps the adoption working; this one resource stays untagged.
+  const untaggedProvider = new aws.Provider('scalableTargetProvider', {
+    region: aws.config.region,
   })
+  const scalableTarget = new aws.appautoscaling.Target(
+    'scalableTarget',
+    {
+      serviceNamespace: 'ecs',
+      scalableDimension: 'ecs:service:DesiredCount',
+      resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
+      minCapacity: minTasks,
+      maxCapacity: select({ dev: 4, prod: 16 }),
+    },
+    { provider: untaggedProvider },
+  )
+
+  // A scale-in cooldown of 0 removed a task every minute down to the floor,
+  // where the remaining tasks saturated and every route returned 500s
+  // (ENG-11238).
+  const scalingPolicy = (
+    name: string,
+    policyName: string,
+    metricType: string,
+  ) =>
+    new aws.appautoscaling.Policy(name, {
+      name: policyName,
+      policyType: 'TargetTrackingScaling',
+      serviceNamespace: scalableTarget.serviceNamespace,
+      scalableDimension: scalableTarget.scalableDimension,
+      resourceId: scalableTarget.resourceId,
+      targetTrackingScalingPolicyConfiguration: {
+        targetValue: 50,
+        predefinedMetricSpecification: { predefinedMetricType: metricType },
+        scaleInCooldown: 300,
+        scaleOutCooldown: 0,
+      },
+    })
+
+  scalingPolicy(
+    'cpuScalingPolicy',
+    select({
+      dev: 'election-develop-electionapidevelopAutoScalingCpuPolicy-vxuvwwvb',
+      prod: 'election-master-electionapimasterAutoScalingCpuPolicy-vxafbvxu',
+    }),
+    'ECSServiceAverageCPUUtilization',
+  )
+  scalingPolicy(
+    'memoryScalingPolicy',
+    select({
+      dev: 'election-develop-electionapidevelopAutoScalingMemoryPolicy-mfmzzawt',
+      prod: 'election-master-electionapimasterAutoScalingMemoryPolicy-nadronzr',
+    }),
+    'ECSServiceAverageMemoryUtilization',
+  )
 
   new aws.route53.Record('dnsARecord', {
     zoneId: hostedZoneId,

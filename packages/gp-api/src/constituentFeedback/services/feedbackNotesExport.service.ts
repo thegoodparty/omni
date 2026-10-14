@@ -156,6 +156,7 @@ export class FeedbackNotesExportService extends createPrismaBase(
     const byFeedbackId = new Map<string, string[]>()
     for (const theme of themes) {
       for (const member of theme.members) {
+        if (member.feedbackId === null) continue
         const titles = byFeedbackId.get(member.feedbackId) ?? []
         titles.push(theme.title)
         byFeedbackId.set(member.feedbackId, titles)

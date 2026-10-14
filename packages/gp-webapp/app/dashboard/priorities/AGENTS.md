@@ -13,6 +13,7 @@ done this term, and where they open one to work it forward. Gated by
 | `components/PrioritiesHub.tsx`   | The list: lane chips, rows, archive, and the community-issue seed lane below                          |
 | `components/AddPriorityForm.tsx` | Inline create, opened by the header button                                                            |
 | `data/priorities-api.ts`         | List, create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`             |
+| `priorityFormCopy.ts`            | The add form's questions and limits, shared with Serve onboarding's priorities step                   |
 
 `[priorityId]/` is the detail view and carries its own doc.
 

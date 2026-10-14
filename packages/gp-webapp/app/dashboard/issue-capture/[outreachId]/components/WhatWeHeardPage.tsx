@@ -50,10 +50,12 @@ const VISIBLE_NOTES = 5
 
 const EveryNote = ({
   memos,
+  channel,
   outreachId,
   isServe,
 }: {
   memos: MemoListItem[]
+  channel: FeedbackReportResponse['channel']
   outreachId: number
   isServe: boolean
 }) => {
@@ -66,19 +68,23 @@ const EveryNote = ({
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <h2 id={headingId} className="text-lg font-semibold text-foreground">
-          {copy.everyNoteHeading}
+          {copy.everyNoteHeading(channel)}
         </h2>
-        <DownloadNotesLink
-          outreachId={outreachId}
-          hasNotes={memos.length > 0}
-          isServe={isServe}
-        />
+        {/* The export is the canvassers' notes; a text send's replies are
+            already a file on the results page that received them. */}
+        {channel !== 'text' && (
+          <DownloadNotesLink
+            outreachId={outreachId}
+            hasNotes={memos.length > 0}
+            isServe={isServe}
+          />
+        )}
       </div>
-      <MemoList memos={shown} isServe={isServe} />
+      <MemoList memos={shown} channel={channel} isServe={isServe} />
       {hidden > 0 && (
         <div className="mt-1 flex justify-center">
           <Button variant="outline" onClick={() => setExpanded(true)}>
-            {copy.showMoreNotes(hidden)}
+            {copy.showMoreNotes(hidden, channel)}
           </Button>
         </div>
       )}
@@ -107,14 +113,24 @@ const ReportBody = ({
     return (
       <>
         <SummarizingBanner isServe={isServe} />
-        <EveryNote memos={memos} outreachId={outreachId} isServe={isServe} />
+        <EveryNote
+          memos={memos}
+          channel={report.channel}
+          outreachId={outreachId}
+          isServe={isServe}
+        />
       </>
     )
   }
 
   if (report.denominators.confirmed < report.floor) {
     return (
-      <UnderFloorList memos={memos} outreachId={outreachId} isServe={isServe} />
+      <UnderFloorList
+        memos={memos}
+        channel={report.channel}
+        outreachId={outreachId}
+        isServe={isServe}
+      />
     )
   }
 
@@ -134,7 +150,12 @@ const ReportBody = ({
           isServe={isServe}
         />
       )}
-      <EveryNote memos={memos} outreachId={outreachId} isServe={isServe} />
+      <EveryNote
+        memos={memos}
+        channel={report.channel}
+        outreachId={outreachId}
+        isServe={isServe}
+      />
     </>
   )
 }
@@ -231,6 +252,7 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
               </h1>
               <ReportCounts
                 denominators={report.denominators}
+                channel={report.channel}
                 isServe={isServe}
               />
             </header>

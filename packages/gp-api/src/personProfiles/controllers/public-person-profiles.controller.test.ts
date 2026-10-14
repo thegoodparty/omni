@@ -1,4 +1,4 @@
-import { useTestService } from '@/test-service'
+import { signTestM2MJwt, useTestService } from '@/test-service'
 import {
   PersonProfileIssueStatus,
   PrioritySource,
@@ -47,8 +47,17 @@ const seedPriority = async (title: string) => {
   })
 }
 
+// The reads are ServiceReadGuard-gated; gp-marketing calls them with a
+// JWT-format M2M token, so the tests do too.
+const asServiceReader = () => ({
+  headers: { Authorization: `Bearer ${signTestM2MJwt()}` },
+})
+
 const get = (personId: string = PERSON_ID) =>
-  service.client.get('/v1/public-person-profiles', { params: { personId } })
+  service.client.get('/v1/public-person-profiles', {
+    params: { personId },
+    ...asServiceReader(),
+  })
 
 describe('GET /v1/public-person-profiles', () => {
   it('404s when no profile exists', async () => {
@@ -112,7 +121,10 @@ describe('GET /v1/public-person-profiles', () => {
 
   it('lists only live profiles at /published', async () => {
     await seedProfile()
-    const res = await service.client.get('/v1/public-person-profiles/published')
+    const res = await service.client.get(
+      '/v1/public-person-profiles/published',
+      asServiceReader(),
+    )
     expect(res.status).toBe(200)
     expect(Array.isArray(res.data)).toBe(true)
     expect(res.data).toHaveLength(1)
@@ -123,7 +135,10 @@ describe('GET /v1/public-person-profiles', () => {
 
   it('excludes unpublished and deleted profiles from /published', async () => {
     await seedProfile({ publishedAt: null })
-    const res = await service.client.get('/v1/public-person-profiles/published')
+    const res = await service.client.get(
+      '/v1/public-person-profiles/published',
+      asServiceReader(),
+    )
     expect(res.status).toBe(200)
     expect(res.data).toHaveLength(0)
   })
@@ -334,7 +349,10 @@ describe('public profile render-gate scenarios (local DB)', () => {
     })
     await seedProfile() // service.user, created after `older`
 
-    const res = await service.client.get('/v1/public-person-profiles/published')
+    const res = await service.client.get(
+      '/v1/public-person-profiles/published',
+      asServiceReader(),
+    )
     expect(res.status).toBe(200)
     expect(res.data).toHaveLength(2)
     expect(res.data[0].personId).toBe(PERSON_ID)

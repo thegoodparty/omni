@@ -92,13 +92,15 @@ const SummarizeButton = ({
   // number the 422 carries.
   const refusal =
     status === 422
-      ? copy.floorLine(report.floor)
+      ? copy.floorLine(report.floor, report.channel)
       : status === 429
         ? copy.coolingDown
         : null
   // Why the button is off, said where the reader is already looking: on
   // the button, as the styleguide's disabled-tooltip pattern.
-  const reason = refusal ?? (underFloor ? copy.floorLine(report.floor) : null)
+  const reason =
+    refusal ??
+    (underFloor ? copy.floorLine(report.floor, report.channel) : null)
   const failed = start.isError && status !== 409 && refusal === null
   const button = (
     // Small, so the bar it sits in stays the title bar's 56px: the button

@@ -2,6 +2,8 @@ import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
 import {
   ANY_PHONE_FIELD,
+  CIVIC_PANEL_FILTER_KEY,
+  NOT_CONTACTED_RECENTLY_FILTER_KEY,
   RECOMMENDED_LIST_FILTER_FIELDS,
   WIN_ONLY_RECOMMENDED_FIELD_KEYS,
 } from '../shared/recommendedListFilters.config'
@@ -69,6 +71,13 @@ export const buildFilterSummary = (
   isElectedOfficial: boolean,
 ): string => {
   const clauses: string[] = []
+
+  if (isElectedOfficial && isTrue(segment[CIVIC_PANEL_FILTER_KEY])) {
+    clauses.push("On your citizens' panel")
+  }
+  if (isTrue(segment[NOT_CONTACTED_RECENTLY_FILTER_KEY])) {
+    clauses.push('Not contacted in the last 30 days')
+  }
 
   // Read side covers every dimension the wizard can write, including the
   // recommended-list groups the outreach builders never render.

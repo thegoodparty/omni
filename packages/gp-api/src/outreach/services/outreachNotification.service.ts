@@ -284,6 +284,24 @@ export class OutreachNotificationService {
     )
   }
 
+  /**
+   * Notify CAS when a robocall is canceled before it dials (CAS request: the
+   * monitoring team wants cancels surfaced the way sends and completions are).
+   * Names who ended it — staff vs the candidate — so a canceled run doesn't
+   * silently vanish from the channel's narrative. Best-effort.
+   */
+  async notifyRobocallCanceled(
+    campaignSlug: string,
+    outreachId: number,
+    canceledByAdmin: boolean,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `🚫 Robocall canceled (by ${canceledByAdmin ? 'staff' : 'candidate'}) — ` +
+        `${campaignSlug} · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
   private async postRobocallLine(
     text: string,
     outreachId: number,

@@ -13,6 +13,7 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import {
   PanelDrawer,
@@ -58,6 +59,7 @@ import {
   draftFromInteraction,
   draftWithEngagement,
   draftWithFollowUp,
+  draftWithJoinCivicPanel,
   draftWithOutcome,
   draftWithSupportAnswer,
   draftWithWillVote,
@@ -170,6 +172,7 @@ export default function PhoneBankingOutcomeForm({
   // Issue capture. Behind its flag, and only once the call is
   // answered — there is nothing to summarize about a voicemail.
   const { enabled: captureEnabled } = useIssueCaptureFlag()
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(isServe)
   const product = outreachProduct(isServe)
   const [memo, setMemo] = useState(stashed?.memo ?? '')
   const [spoken, setSpoken] = useState(stashed?.spoken ?? false)
@@ -393,6 +396,7 @@ export default function PhoneBankingOutcomeForm({
             supportAnswer: request.supportAnswer ?? null,
             willVote: request.willVote ?? null,
             followUp: request.followUp ?? null,
+            joinCivicPanel: request.joinCivicPanel ?? null,
             occurredAt: new Date(),
           },
         },
@@ -722,6 +726,33 @@ export default function PhoneBankingOutcomeForm({
                               <FilterPill value="no">No</FilterPill>
                             </FilterPillGroup>
                           </div>
+                          {citizenPanelsEnabled &&
+                            draft.followUp !== undefined && (
+                              <div className="mt-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Do they want to join your citizens&apos;
+                                  panel?
+                                </p>
+                                <div className="mt-2">
+                                  <FilterPillGroup
+                                    type="single"
+                                    value={draft.joinCivicPanel ?? ''}
+                                    onValueChange={(value) =>
+                                      setDraft((current) =>
+                                        draftWithJoinCivicPanel(
+                                          current,
+                                          (value ||
+                                            undefined) as typeof draft.joinCivicPanel,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    <FilterPill value="yes">Yes</FilterPill>
+                                    <FilterPill value="no">No</FilterPill>
+                                  </FilterPillGroup>
+                                </div>
+                              </div>
+                            )}
                         </div>
                       ) : (
                         <>

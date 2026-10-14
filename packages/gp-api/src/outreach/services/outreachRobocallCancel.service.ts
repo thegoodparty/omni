@@ -12,6 +12,8 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallPromoService } from './outreachRobocallPromo.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
+import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
+import { OutreachNotificationService } from './outreachNotification.service'
 import { NOT_YET_DIALED_STATES } from './outreachRobocallWebhook.service'
 
 // Candidate cancel is the not-yet-dialed set MINUS `hold_pending`. That state is
@@ -34,8 +36,9 @@ const CANDIDATE_CANCELABLE_STATES: RobocallSettleState[] =
 // not just flipping the spine. Cancelable ONLY while NOT dialed
 // (NOT_YET_DIALED_STATES); a dialed/settling/captured run has gone out and must
 // settle, so it is refused. Mirrors OutreachRobocallWebhookService's per-row
-// unwind, and stays silent (no email/Slack) because the candidate is present
-// and sees the result.
+// unwind. Posts a best-effort CAS Slack notice naming who ended it (CAS
+// request: the robocall-monitoring team wants cancels surfaced like sends) but
+// no candidate email, since the candidate is present and sees the result.
 @Injectable()
 export class OutreachRobocallCancelService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -44,6 +47,8 @@ export class OutreachRobocallCancelService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly promos: OutreachRobocallPromoService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
+    private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
+    private readonly notification: OutreachNotificationService,
   ) {
     super()
   }
@@ -133,7 +138,58 @@ export class OutreachRobocallCancelService extends createPrismaBase(
       }
     }
 
+    // A cancel on an already-STAGED draft leaves a PAUSED CallHub campaign that
+    // nothing else retires: the cancel voids the hold but the cleanup sweep only
+    // aborts campaigns recorded here, so without this the orphan lingers in
+    // CallHub reserving pool capacity and STARTable into a cancelled send.
+    // Record it for the sweep, mirroring failSend / the re-auth restage.
+    // Best-effort — a PAUSED campaign charges nothing, so a lost record only
+    // leaves account clutter and must never fail the cancel.
+    if (cancelled.callhubCampaignPkStr) {
+      try {
+        await this.orphanedCampaigns.record(
+          cancelled.callhubCampaignPkStr,
+          outreachId,
+          'cancel',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId },
+          'robocall: failed to record orphaned CallHub campaign after cancel',
+        )
+      }
+    }
+
+    await this.notifyCanceled(outreachId, campaignId, attribution?.byAdmin)
+
     return this.result(outreachId)
+  }
+
+  // Posts the CAS cancel notice (best-effort — the cancel already committed, so
+  // a Slack or slug-read failure must never fail it). Resolves the campaign slug
+  // for the line; an unresolvable slug degrades to 'unknown' rather than skipping
+  // the notice.
+  private async notifyCanceled(
+    outreachId: number,
+    campaignId: number,
+    byAdmin?: boolean,
+  ): Promise<void> {
+    try {
+      const campaign = await this.client.campaign.findUnique({
+        where: { id: campaignId },
+        select: { slug: true },
+      })
+      await this.notification.notifyRobocallCanceled(
+        campaign?.slug ?? 'unknown',
+        outreachId,
+        byAdmin ?? false,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to post CAS cancel Slack notice',
+      )
+    }
   }
 
   // The spine as it stands now, read fresh so the `canceled` status the cancel

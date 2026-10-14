@@ -1,3 +1,4 @@
+import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { ChatScope, type Organization } from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
@@ -45,6 +46,12 @@ export interface ChiefOfStaffContext {
   // defaults it to 'voters'; the handler resolves it per turn from
   // PeopleDatasetService for the conversation's org.
   peopleDataset: PeopleDataset
+  // Whether read_outreach_feedback registers: the serve-citizen-panels flag
+  // for the chatting user, resolved per turn by the handler.
+  outreachFeedbackEnabled?: boolean
+  // The office's priority texts whose replies are in, and whether each has
+  // been reported back on. Read per turn behind the same flag.
+  reportBacks?: ReportBackSend[]
 }
 
 // Loads the static CoS context from the conversation's owning user + their

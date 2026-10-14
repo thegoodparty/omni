@@ -1,0 +1,25 @@
+import { describe, expect, it } from 'vitest'
+import { parsePriorityStatus } from '@goodparty_org/contracts'
+import { checkProposalRefusal } from './presentOutreachProposal.tool'
+
+const status = parsePriorityStatus(null)
+
+describe('checkProposalRefusal', () => {
+  it('lets a check on its gate through', () => {
+    expect(
+      checkProposalRefusal({ stepId: 'define', side: 'main' }, status),
+    ).toBeNull()
+  })
+
+  // The model reads "Who to hear from" as the step a check is on. Naming the
+  // gate in the refusal is what lets it fix the call instead of dropping the
+  // link and presenting the card again unlinked.
+  it('names the gate when a check is put on its listening step', () => {
+    expect(
+      checkProposalRefusal({ stepId: 'listen_problem', side: 'main' }, status),
+    ).toContain('stepId define')
+    expect(
+      checkProposalRefusal({ stepId: 'listen_options', side: 'main' }, status),
+    ).toContain('stepId options')
+  })
+})

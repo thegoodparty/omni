@@ -1,5 +1,10 @@
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { Test } from '@nestjs/testing'
-import { ServeSmsCreateRequestSchema } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
+  ServeSmsCreateRequestSchema,
+} from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -34,6 +39,7 @@ const request = (overrides: Record<string, unknown> = {}) => ({
   name: 'Budget hearing reminder',
   message:
     'The budget hearing is Thursday at 6pm at City Hall. Reply STOP to opt out.',
+  imageUrl: 'https://assets.test/header.png',
   scheduledLocalDate: VALID_DATE,
   voterFileFilterId: FILTER_ID,
   ...overrides,
@@ -106,6 +112,7 @@ describe('OutreachServeSmsCreateService', () => {
         { provide: OrganizationsService, useValue: organizations },
         { provide: VoterFileFilterService, useValue: filters },
         { provide: ContactInteractionTextService, useValue: texts },
+        { provide: OutreachReportBackService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -115,6 +122,53 @@ describe('OutreachServeSmsCreateService', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  describe('the civic panel ask', () => {
+    const createdData = () =>
+      (
+        firstOrThrow(prisma.outreach.create.mock.calls)[0] as {
+          data: Record<string, unknown>
+        }
+      ).data
+
+    it('marks a send as asking when the message carries the JOIN line', async () => {
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(
+          request({
+            message: `The budget hearing is Thursday. ${CIVIC_PANEL_JOIN_LINE} Reply STOP to opt out.`,
+          }),
+        ),
+      )
+
+      expect(createdData().asksToJoinCivicPanel).toBe(true)
+    })
+
+    // Sends composed before the line was rewritten still carry the old one.
+    it('still marks a send carrying the earlier wording of the line', async () => {
+      const legacy = CIVIC_PANEL_JOIN_LINES[1]
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(
+          request({
+            message: `The budget hearing is Thursday.\n\n${legacy}\n\nReply STOP to opt out.`,
+          }),
+        ),
+      )
+
+      expect(legacy).toContain('(not my campaign)')
+      expect(createdData().asksToJoinCivicPanel).toBe(true)
+    })
+
+    it('leaves a send without the line unmarked', async () => {
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(request()),
+      )
+
+      expect(createdData().asksToJoinCivicPanel).toBe(false)
+    })
   })
 
   describe('the count is server-derived', () => {

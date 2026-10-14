@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { ServeSmsDraftRequest } from '@goodparty_org/contracts'
 import { checkSmsStandards } from '@goodparty_org/contracts'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
   OPT_OUT_FOOTER,
@@ -14,6 +16,10 @@ import {
   SMS_GREETING,
   withSampleFirstName,
 } from './smsCompose.util'
+
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: vi.fn(),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -91,6 +97,10 @@ const openServeFlow = () => {
 describe('SmsFlow (Serve surface)', () => {
   beforeEach(() => {
     recommendedListsRequested = false
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: false,
+    })
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
     api.mock('GET /v1/voters/voter-file/filters', {
@@ -262,6 +272,265 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText(/Paid for by/)).toBeNull()
   })
 
+  const composeWithDraft = async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(OPT_OUT_FOOTER)
+  }
+
+  it('offers no citizens panel ask with serve-citizen-panels off', async () => {
+    await composeWithDraft()
+
+    expect(
+      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+    ).toBeNull()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+  })
+
+  it('adds the JOIN line when the citizens panel ask is checked', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    await composeWithDraft()
+
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).not.toBeChecked()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+
+    await userEvent.click(ask)
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    expect(ask).toBeChecked()
+  })
+
+  // A priority card that asks the panel and new residents in one send opens
+  // with the ask on. The seed is signed with the official's name after the
+  // flow opens, and that pass must not drop the ask.
+  it("keeps a chat card's citizens panel ask through the seed's signing", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialScript="Has flooding damaged your home?"
+        initialAsksToJoinCivicPanel
+        preselectedListId={41}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).toBeChecked()
+    // Not a panel-building text, so the official can still take it off.
+    expect(ask).not.toBeDisabled()
+  })
+
+  // A report back goes to the people already asked: with the panel on, it
+  // still never carries the join line or offers the box.
+  it('keeps the join ask off a report back, whatever the card asked', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="report_back"
+        initialScript="Thanks for answering. Most of you named the drains."
+        initialAsksToJoinCivicPanel
+        preselectedListId={41}
+        reportBackForOutreachId={77}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/Most of you named the drains/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+    ).toBeNull()
+  })
+
+  it('never offers reporting back in the purpose picker', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    openServeFlow()
+    await screen.findByText('Explain a recent decision')
+    expect(screen.queryByText('Report back to the people you asked')).toBeNull()
+  })
+
+  it("hides building a citizens' panel with serve-citizen-panels off", async () => {
+    openServeFlow()
+    await screen.findByText('Explain a recent decision')
+    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
+  })
+
+  it("lists building a citizens' panel first with serve-citizen-panels on", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    openServeFlow()
+
+    expect(
+      await screen.findByText("Build your citizens' panel"),
+    ).toBeInTheDocument()
+  })
+
+  // The card already answered the purpose, and a panel text is its ask, so
+  // the box is ticked and cannot be unticked.
+  it("opens on the citizens' panel purpose with the JOIN ask locked on", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const draftCalls: ServeSmsDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted body' } }
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="build_citizens_panel"
+      />,
+    )
+
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).toBeChecked()
+    expect(ask).toBeDisabled()
+
+    // Locked on, the line cannot be unchecked, so the reason does not say to.
+    const box = screen.getByRole('textbox', { name: 'Message body' })
+    const editor = (box as HTMLElement & { editor: Editor }).editor
+    let at = -1
+    editor.state.doc.descendants((node, pos) => {
+      const index = node.isText ? (node.text?.indexOf('Reply JOIN') ?? -1) : -1
+      if (at === -1 && index !== -1) at = pos + index + 'Reply JOIN'.length
+    })
+    act(() => {
+      editor.view.dispatch(editor.state.tr.delete(at - 1, at))
+    })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      "This is how people join your citizens' panel, but you can write around it.",
+    )
+  })
+
+  // The reviewer's path: opened from the card, Back, Back. The purpose the
+  // card answered must never come back; Back leaves through the confirm.
+  it("leaves through the confirm on Back, never reopening the card's purpose", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const onClose = vi.fn()
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={onClose}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="build_citizens_panel"
+      />,
+    )
+
+    await screen.findByText('Choose a constituent list')
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Keep editing' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Discard' }),
+    )
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+    expect(screen.queryByText('What do you want to do?')).toBeNull()
+  })
+
   // "Campaign" is Win vocabulary: an elected official has an office and a
   // term. This string lives on the shared compose step, which the
   // per-surface records cannot reach, so it keys on the surface's own
@@ -286,9 +555,7 @@ describe('SmsFlow (Serve surface)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText('Add a header image (optional)'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Add your header image')).toBeInTheDocument()
     expect(screen.queryByText(/campaign headshot/i)).not.toBeInTheDocument()
   })
 
@@ -325,10 +592,9 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
   })
 
-  // Win's image gate is Peerly's: it rejects an imageless text/p2p send.
-  // Serve's fulfilment takes imageUrl as optional all the way down, so the
-  // gate would be asking for a file nothing needs.
-  it('lets a message with no image continue to review', async () => {
+  // The image makes the text an MMS, which is what lets it run past one
+  // SMS segment, so Serve holds Continue until one is attached, as Win does.
+  it('holds Continue until an image is attached', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
       data: { draft: 'drafted body' },
@@ -348,13 +614,19 @@ describe('SmsFlow (Serve surface)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // The compose card renders as soon as the draft fills the body, which
-    // can be a tick before draftMutation.isPending clears — and Continue is
-    // disabled for that tick.
-    await waitFor(() => {
-      screen.getByText('Add a header image (optional)')
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
-    })
+    await screen.findByText(/drafted body/)
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement
+    await userEvent.upload(
+      input,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
   })
 })
 

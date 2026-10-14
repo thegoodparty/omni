@@ -86,6 +86,13 @@ registry existed, and they had started to drift.
    point in the text where its tool fired, with prose above and below it, and a
    reload renders the same order it streamed in.
 
+**A refused call's widget is removed.** A tool that refuses its args returns
+`{ error }` (`isToolRefusal` in contracts) so the model can fix them and call
+again. gp-api nulls that call's persisted args, so a reload never renders it,
+and the live surfaces (PriorityWorkspace, ChiefOfStaffChatBody) drop the
+widget keyed `${toolName}-${toolCallId}` on its `tool_result`, so a refused
+card and its corrected one never show side by side.
+
 **A question written right above the clarify widget is dropped.** The widget
 shows its own question, so prose that also asks it puts it on screen twice.
 Both `liveTurnBlocks` and `persistedTurnBlocks` strip the closing question of
@@ -257,8 +264,13 @@ widget sends the checked labels in option order, not click order, as one line:
 `A`, `A and B`, `A, B, and C` (`formatClarifyChoices`). On reload
 `parseClarifyChoices` maps that line back to the set by matching whole labels in
 option order, so a label holding a comma or an "and" still parses. Anything
-that is not exactly such a line is a written-in answer and shows as written.
-The ordinance flow's stored `clarifyAnswers[].answer` holds the same line.
+that is not exactly such a line is a written-in answer. The ordinance flow
+hides the answer's user turn, so the widget echoes a written-in answer under
+its options there. The registry entry (`clarifyWidget.tsx`, Priorities and
+Chief of Staff) passes `showWrittenAnswer={false}`, because those surfaces
+already show the answer as the user's own message and an echo put it on
+screen twice. The ordinance flow's stored `clarifyAnswers[].answer` holds the
+same line.
 
 ## Reference wrappers — copy the closest
 

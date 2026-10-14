@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  DASHBOARD_CARD_SNOOZE_DAYS,
+  isCivicPanelBuildCard,
+} from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
 import {
   Button,
@@ -10,6 +14,10 @@ import {
   Card,
   CheckIcon,
   ConfettiBurst,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   EmptyState,
   ExternalLinkIcon,
   cn,
@@ -20,6 +28,7 @@ import {
   useDismissCard,
   useOnboardingCards,
   useSkipOnboardingCard,
+  useSnoozeCard,
 } from '../data/use-dashboard'
 import {
   ONBOARDING_CARDS,
@@ -48,6 +57,9 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
+  // The citizens' panel build card: it leads the deck, and closes itself
+  // once its text has gone out.
+  buildsPanel: boolean
 }
 
 const HEADLINES: Record<DeckKind, string> = {
@@ -55,7 +67,12 @@ const HEADLINES: Record<DeckKind, string> = {
   briefing: 'Get ready for your next meeting',
   agenda_item: 'Know what is on the agenda',
   community_issue: 'Hear what your community is saying',
+  civic_panel: 'Next steps on your priorities',
+  report_back: 'Tell people what you heard',
 }
+
+// The build card shares its type with the per-priority panel cards.
+const BUILD_PANEL_HEADLINE = "Build your citizens' panel"
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||
@@ -87,6 +104,7 @@ const TaskStack = ({
   const { data: onboarding } = useOnboardingCards()
   const dismissCard = useDismissCard()
   const completeCard = useCompleteCard()
+  const snoozeCard = useSnoozeCard()
   const skipOnboarding = useSkipOnboardingCard()
   // The card just finished or skipped. It has already left the query data, so
   // it is held here and stays in front until it has finished leaving.
@@ -113,7 +131,19 @@ const TaskStack = ({
     return () => window.clearTimeout(timer)
   }, [leaving])
 
+  const dashboardCards: DeckCard[] = (cards.data ?? []).map((card) => ({
+    id: card.id,
+    kind: card.type,
+    title: card.title,
+    summary: card.summary,
+    dueDate: card.dueDate,
+    ctaLabel: card.ctaLabel,
+    ctaHref: card.ctaHref,
+    onboardingKey: null,
+    buildsPanel: isCivicPanelBuildCard(card),
+  }))
   const deck: DeckCard[] = [
+    ...dashboardCards.filter((card) => card.buildsPanel),
     ...ONBOARDING_CARD_ORDER.filter((key) =>
       onboarding?.some((c) => c.key === key && c.status === 'active'),
     ).map((key) => ({
@@ -125,17 +155,9 @@ const TaskStack = ({
       ctaLabel: ONBOARDING_CARDS[key].ctaLabel,
       ctaHref: null,
       onboardingKey: key,
+      buildsPanel: false,
     })),
-    ...(cards.data ?? []).map((card) => ({
-      id: card.id,
-      kind: card.type,
-      title: card.title,
-      summary: card.summary,
-      dueDate: card.dueDate,
-      ctaLabel: card.ctaLabel,
-      ctaHref: card.ctaHref,
-      onboardingKey: null,
-    })),
+    ...dashboardCards.filter((card) => !card.buildsPanel),
   ]
   const stack = leaving
     ? [leaving.card, ...deck.filter((card) => card.id !== leaving.card.id)]
@@ -201,20 +223,22 @@ const TaskStack = ({
     setLeaving({ card: front, stage: 'celebrate', direction: 'up' })
     completeCard.mutate(front.id)
   }
-  const skip = () => {
+  const skip = (putOff = false) => {
     trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
       ...cardProps,
       action: 'skip',
     })
     setLeaving({ card: front, stage: 'exit', direction: 'down' })
     if (front.onboardingKey) skipOnboarding.mutate(front.onboardingKey)
+    else if (putOff) snoozeCard.mutate(front.id)
     else dismissCard.mutate(front.id)
   }
+  const skipClassName = cn(QUIET_ON_PHONE, 'sm:ml-auto')
 
   return (
     <section className="flex w-full flex-col gap-6">
       <h2 className="text-center text-2xl font-semibold text-foreground">
-        {HEADLINES[front.kind]}
+        {front.buildsPanel ? BUILD_PANEL_HEADLINE : HEADLINES[front.kind]}
       </h2>
       <div
         className={cn(
@@ -304,9 +328,9 @@ const TaskStack = ({
                 )
               )}
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                {/* A get-started card closes itself once its goal is met,
-                    so it offers no manual Mark done. */}
-                {!front.onboardingKey && (
+                {/* A get-started card and the build card close themselves
+                    once their goal is met, so they offer no manual Mark done. */}
+                {!front.onboardingKey && !front.buildsPanel && (
                   <Button
                     type="button"
                     variant="outline"
@@ -326,17 +350,39 @@ const TaskStack = ({
                     Mark done
                   </Button>
                 )}
-                {!leaving && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="medium"
-                    className={cn(QUIET_ON_PHONE, 'sm:ml-auto')}
-                    onClick={skip}
-                  >
-                    Skip
-                  </Button>
-                )}
+                {!leaving &&
+                  (front.buildsPanel || front.kind === 'report_back' ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="medium"
+                          className={skipClassName}
+                        >
+                          Skip
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => skip(true)}>
+                          Show in {DASHBOARD_CARD_SNOOZE_DAYS} days
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => skip()}>
+                          Not for me
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="medium"
+                      className={skipClassName}
+                      onClick={() => skip()}
+                    >
+                      Skip
+                    </Button>
+                  ))}
               </div>
             </div>
           </div>

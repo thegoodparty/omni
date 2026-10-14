@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
+  findCivicPanelJoinLine,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
@@ -26,7 +27,13 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { ProposalLink } from '@goodparty_org/contracts'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
-import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
+import {
+  ElectedOffice,
+  OutreachStatus,
+  OutreachType,
+  Prisma,
+} from '../../generated/prisma'
+import { OutreachReportBackService } from './outreachReportBack.service'
 
 /**
  * The Serve SMS draft-first create: `POST /v1/outreach/serve/sms`.
@@ -169,8 +176,55 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     private readonly organizationsService: OrganizationsService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
+    private readonly reportBack: OutreachReportBackService,
   ) {
     super()
+  }
+
+  // A report back answers one of the office's own priority texts whose
+  // replies are in. It is linked through that send, never to the priority
+  // or a check itself, so it is never read as another ask; and it never asks
+  // anyone to join the panel.
+  async assertReportBackTarget(
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+    outreachId: number,
+    draft: { message: string; link: ProposalOutreachLink },
+  ): Promise<void> {
+    if (
+      draft.link.priorityId !== undefined ||
+      draft.link.priorityStepId !== undefined
+    ) {
+      throw new BadRequestException(
+        'A report back is linked through the text it reports on',
+      )
+    }
+    if (findCivicPanelJoinLine(draft.message) !== null) {
+      throw new BadRequestException(
+        "A report back doesn't ask people to join your citizens' panel. Remove that line and try again.",
+      )
+    }
+    // One report back per send: a paid one closes it. Unpaid drafts are left
+    // alone, since re-entering the flow makes a fresh draft by design; the
+    // checkout refuses a second once one is paid.
+    const sent = await this.reportBack.sentReportBacks([outreachId])
+    if (sent.has(outreachId)) {
+      throw new BadRequestException('You already reported back on that text.')
+    }
+    const target = await this.model.findFirst({
+      where: {
+        id: outreachId,
+        ...this.reportBack.repliesInWhere(
+          electedOffice.organizationSlug,
+          electedOffice.id,
+        ),
+      },
+      select: { id: true },
+    })
+    if (!target) {
+      throw new BadRequestException(
+        "That text can't be reported back on yet. Wait until its replies are in.",
+      )
+    }
   }
 
   /**
@@ -285,13 +339,17 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       status: OutreachStatus.pending_payment,
       name: input.name,
       message: input.message,
-      imageUrl: input.imageUrl ?? null,
+      // Read off the message, never a request flag, so the stored text and
+      // whether the ingest honors JOIN cannot disagree.
+      asksToJoinCivicPanel: findCivicPanelJoinLine(input.message) !== null,
+      imageUrl: input.imageUrl,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
       // null: Serve sends at a fixed 11am local, so there is no chosen
       // time to store, and completion is derived as
       // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
       scheduledLocalDate: input.scheduledLocalDate,
       voterFileFilterId: input.voterFileFilterId,
+      reportBackForOutreachId: input.reportBackForOutreachId ?? null,
       // Server-derived, and the only number the purchase handler prices
       // from.
       textCount: recipientCount,
@@ -310,6 +368,25 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
             (tx) => tx.outreach.create({ data, select: { id: true } }),
             async (id) => ({ id }),
           )
+
+    // One payable report back per send: a new draft supersedes the unpaid
+    // ones before it, so a stale draft left open in another tab can no
+    // longer reach checkout. The same card pressed twice already lands on
+    // one draft through its proposal key.
+    if (input.reportBackForOutreachId !== undefined) {
+      await this.model.updateMany({
+        where: {
+          reportBackForOutreachId: input.reportBackForOutreachId,
+          status: OutreachStatus.pending_payment,
+          id: { not: outreach.id },
+        },
+        data: {
+          status: OutreachStatus.canceled,
+          canceledAt: new Date(),
+          canceledBy: 'superseded_report_back',
+        },
+      })
+    }
 
     this.logger.info(
       {

@@ -1,4 +1,5 @@
 import { useTestService } from '@/test-service'
+import { FeaturesService } from '@/features/services/features.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
@@ -18,6 +19,18 @@ import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 
 const service = useTestService()
+
+// Defaults the async-build managed flag (win_sms_hold_billing) OFF for every
+// test in this file — the real FeaturesService defaults every flag ON when
+// no Amplitude key is configured (the test env's placeholder key), which
+// would silently flip every test below onto the async-build path. Individual
+// describes override this where they exercise the async build.
+beforeEach(() => {
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'isFeatureEnabled',
+  ).mockResolvedValue(false)
+})
 
 const WIN_SLUG = 'campaign-p2p-phone-list'
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
@@ -1292,12 +1305,9 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
   })
 })
 
-describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)', () => {
+describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated)', () => {
   beforeEach(() => {
     stubDistrict()
-  })
-  afterEach(() => {
-    vi.unstubAllEnvs()
   })
 
   const ageBuildRow = (buildId: string, minutes: number) =>
@@ -1338,7 +1348,10 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
     })
 
     it('ON: creates the queued row, enqueues after it commits, and returns {buildId, token: null} without building in-request', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(true)
       await seedWinCampaign()
       const upload = stubPeerlyUpload()
       const enqueue = vi
@@ -1421,7 +1434,10 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
     })
 
     it('Win SMS hold: caps the uploaded list at the PAID count when the resolved audience grew past the hold', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(true)
       const campaign = await seedWinCampaign()
       const build = await createQueuedRow(campaign.id)
 
@@ -1497,7 +1513,10 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
     })
 
     it('Win SMS hold: the PERSISTED cap binds with the hold linked AFTER the resolve (order-independent)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(true)
       const campaign = await seedWinCampaign()
       const build = await createQueuedRow(campaign.id)
 
@@ -1559,7 +1578,10 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, kill-switch gated)
     })
 
     it('Win SMS hold: no cap is applied when no hold is authorized for the build (uploads the full audience)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(true)
       const campaign = await seedWinCampaign()
       const build = await createQueuedRow(campaign.id)
 

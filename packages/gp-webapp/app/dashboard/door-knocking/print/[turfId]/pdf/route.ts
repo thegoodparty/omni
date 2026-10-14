@@ -1,4 +1,6 @@
 import candidateAccess from 'app/dashboard/shared/candidateAccess'
+import { getFlagVariants } from '@shared/experiments/getFlagVariants'
+import { SERVE_CITIZEN_PANELS_FLAG_KEY } from '@shared/experiments/serveCitizenPanelsFlag'
 import { renderWalkListPdf } from '../../pdf/WalkListPdf'
 import { walkListFilename } from '../../pdf/walkListRows'
 import { fetchRoute, fetchTurfName } from '../../walkListData'
@@ -37,13 +39,19 @@ export const GET = async (
   // who typed it, and there's no reason to ask the API about it at all.
   if (!/^\d+$/.test(turfId)) return notFound()
 
-  const [payload, turfName] = await Promise.all([
+  const [payload, turfName, variants] = await Promise.all([
     fetchRoute(turfId),
     fetchTurfName(turfId),
+    getFlagVariants(),
   ])
   if (!payload) return notFound()
 
-  const pdf = await renderWalkListPdf({ turfName, payload })
+  const pdf = await renderWalkListPdf({
+    turfName,
+    payload,
+    citizenPanelsEnabled:
+      variants?.[SERVE_CITIZEN_PANELS_FLAG_KEY]?.value === 'on',
+  })
 
   return new Response(new Uint8Array(pdf), {
     headers: {

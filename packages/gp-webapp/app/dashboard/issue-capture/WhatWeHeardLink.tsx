@@ -50,7 +50,7 @@ export const WhatWeHeardLink = ({
         {copy.title}
       </span>
       <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
-        {copy.entryCounts(data.denominators)}
+        {copy.entryCounts(data.denominators, data.channel)}
         <ChevronRightIcon size={16} aria-hidden="true" />
       </span>
     </Link>

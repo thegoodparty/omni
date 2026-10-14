@@ -183,6 +183,13 @@ const activityChannelValue = (
   })),
 })
 
+// Behind serve-citizen-panels: getFilterDimensions leaves these out while the
+// flag is off for the user.
+export const CITIZEN_PANEL_DIMENSION_KEYS: ReadonlySet<string> = new Set([
+  'civicPanel',
+  'contactHistory',
+])
+
 export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   {
     key: 'audience',
@@ -233,6 +240,34 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     modes: 'serve',
     provenance: 'observed',
     values: [{ key: 'followUpRequested', label: 'Asked For Follow-Up' }],
+  },
+  {
+    // The standing civic panel status: people who joined (by replying JOIN,
+    // at a door, on a call, or on their contact card) and have not left.
+    // Serve-only, `observed` for the same reason as follow-up.
+    key: 'civicPanel',
+    label: "Citizens' Panel",
+    kind: 'boolean-group',
+    modes: 'serve',
+    provenance: 'observed',
+    values: [{ key: 'civicPanelMember', label: "On Your Citizens' Panel" }],
+  },
+  {
+    // A rest window, not a trait: anyone the office reached on any channel
+    // in the last 30 days is left out, so a panel ask or a check does not
+    // land on the same people twice in a month. `observed`: it reads what the
+    // office actually sent.
+    key: 'contactHistory',
+    label: 'Contact History',
+    kind: 'boolean-group',
+    modes: 'both',
+    provenance: 'observed',
+    values: [
+      {
+        key: 'notContactedRecently',
+        label: 'Not Contacted In The Last 30 Days',
+      },
+    ],
   },
   {
     key: 'age',

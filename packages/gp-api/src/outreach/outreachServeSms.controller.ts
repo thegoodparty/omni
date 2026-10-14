@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -10,6 +11,9 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  findCivicPanelJoinLine,
+  REPORT_BACK_PURPOSE,
   ServeSmsCreateRequest,
   ServeSmsCreateRequestSchema,
   ServeSmsCreateResponse,
@@ -30,6 +34,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
 import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -141,11 +146,11 @@ export class OutreachServeSmsController {
 
   // 404 rather than 403 when the flag is off: a surface the user has not been
   // rolled out to should not advertise that it exists.
-  private async assertFeatureEnabled(user: User): Promise<void> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: SERVE_SMS_FLAG,
-    })
+  private async assertFeatureEnabled(
+    user: User,
+    feature: string = SERVE_SMS_FLAG,
+  ): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({ user, feature })
     if (!enabled) {
       throw new NotFoundException()
     }
@@ -160,6 +165,12 @@ export class OutreachServeSmsController {
     input: ServeSmsDraftRequest,
   ): Promise<ServeSmsDraftResponse> {
     await this.assertFeatureEnabled(user)
+    if (
+      input.purpose === BUILD_CITIZENS_PANEL_PURPOSE ||
+      input.purpose === REPORT_BACK_PURPOSE
+    ) {
+      await this.assertFeatureEnabled(user, SERVE_CITIZEN_PANELS_FLAG)
+    }
     const { office, context } = await this.buildServeContext(electedOffice)
     return {
       draft: await this.generationService.generateDraftWithVoice(
@@ -201,6 +212,22 @@ export class OutreachServeSmsController {
     input: ServeSmsCreateRequest,
   ): Promise<ServeSmsCreateResponse> {
     await this.assertFeatureEnabled(user)
+    // The stored message is what marks a send as asking to join, so a join
+    // line from a caller the panel is not rolled out to is refused here.
+    if (
+      findCivicPanelJoinLine(input.message) &&
+      !(await this.features.isFeatureEnabled({
+        user,
+        feature: SERVE_CITIZEN_PANELS_FLAG,
+      }))
+    ) {
+      throw new BadRequestException(
+        "This text asks people to join a citizens' panel, which isn't on for your office yet. Remove that line and try again.",
+      )
+    }
+    if (input.reportBackForOutreachId !== undefined) {
+      await this.assertFeatureEnabled(user, SERVE_CITIZEN_PANELS_FLAG)
+    }
     // The org comes from the ElectedOffice row the guard resolved, never from
     // the body — the same posture every route on this controller takes.
     const { proposalKey, priorityId, stepId, side, ...draft } = input
@@ -208,6 +235,13 @@ export class OutreachServeSmsController {
       { proposalKey, priorityId, stepId, side },
       electedOffice.id,
     )
+    if (draft.reportBackForOutreachId !== undefined) {
+      await this.createService.assertReportBackTarget(
+        electedOffice,
+        draft.reportBackForOutreachId,
+        { message: draft.message, link },
+      )
+    }
     return this.createService.createDraft(
       electedOffice.organizationSlug,
       draft,

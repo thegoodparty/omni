@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeServeResumeStep,
+  getServeBranchSteps,
+  getServeProgress,
   resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
@@ -275,5 +277,33 @@ describe('resolveServeBranch', () => {
         selfReported: true,
       }),
     ).toBe('net-new')
+  })
+})
+
+describe('the priorities step behind serve-citizen-panels', () => {
+  const done = { hasParty: true, hasOffice: true, hasDates: true }
+
+  it('puts priorities between constituents and pledge only when on', () => {
+    expect(getServeBranchSteps('net-new', true).slice(-3)).toEqual([
+      'constituents',
+      'priorities',
+      'pledge',
+    ])
+    expect(getServeBranchSteps('prefill').slice(-2)).toEqual([
+      'constituents',
+      'pledge',
+    ])
+    expect(getServeProgress('prefill', 'pledge', true).total).toBe(
+      getServeProgress('prefill', 'pledge').total + 1,
+    )
+  })
+
+  it('resumes at a priorities checkpoint only when on', () => {
+    expect(resolveServeResumeStep('net-new', 'priorities', done, true)).toBe(
+      'priorities',
+    )
+    expect(resolveServeResumeStep('net-new', 'priorities', done)).toBe(
+      'constituents',
+    )
   })
 })

@@ -119,6 +119,7 @@ export interface UseServeSmsSendInput {
   // `trackerTaskId`/`phase` travel together or not at all.
   tracker?: OutreachTrackerOrigin
   proposalLink?: ProposalLink
+  reportBackForOutreachId?: number
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'schedule') => void
   setDraftOutreachId: (id: number) => void
@@ -154,6 +155,7 @@ export const useServeSmsSend = ({
   audience,
   tracker,
   proposalLink,
+  reportBackForOutreachId,
   create,
   setStepId,
   setDraftOutreachId,
@@ -218,13 +220,15 @@ export const useServeSmsSend = ({
         // create takes a URL rather than a multipart file, so the bytes go up
         // first. Reuses the elected-office-scoped presign polls already
         // ships; there is no outreach-scoped one to use yet.
-        const imageUrl = image
-          ? await uploadFileToS3(image, apiRoutes.polls.imageUploadUrl)
-          : undefined
+        if (!image) throw new Error('Serve SMS requires an image')
+        const imageUrl = await uploadFileToS3(
+          image,
+          apiRoutes.polls.imageUploadUrl,
+        )
         const result = await create({
           name: name.trim(),
           message: composedMessage,
-          ...(imageUrl ? { imageUrl } : {}),
+          imageUrl,
           // A calendar day, not an instant: the send hour is fixed at 11am
           // local and is therefore not the client's to choose. Formatted from
           // the local date so an evening render cannot roll it forward the
@@ -232,6 +236,9 @@ export const useServeSmsSend = ({
           scheduledLocalDate: format(scheduledAt, 'yyyy-MM-dd'),
           voterFileFilterId: selectedListId,
           ...proposalLink,
+          ...(reportBackForOutreachId !== undefined && {
+            reportBackForOutreachId,
+          }),
         })
         // A create that started before the draft was discarded (Back off
         // review) must not resurrect its id — checkout would then charge for

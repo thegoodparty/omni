@@ -242,6 +242,7 @@ describe('<PhoneBankingEntryPanel>', () => {
                   supportAnswer: null,
                   willVote: null,
                   followUp: 'no',
+                  joinCivicPanel: null,
                   occurredAt: new Date(),
                 },
               },
@@ -296,6 +297,7 @@ describe('<PhoneBankingEntryPanel>', () => {
         supportAnswer: 'supporter' as const,
         willVote: 'yes' as const,
         followUp: 'no' as const,
+        joinCivicPanel: null,
         occurredAt: new Date(),
       }
       const entry = buildEntry({
@@ -324,6 +326,7 @@ describe('<PhoneBankingEntryPanel>', () => {
               supportAnswer: 'supporter' as const,
               willVote: 'yes' as const,
               followUp: 'no' as const,
+              joinCivicPanel: null,
               occurredAt: new Date(),
             },
           },

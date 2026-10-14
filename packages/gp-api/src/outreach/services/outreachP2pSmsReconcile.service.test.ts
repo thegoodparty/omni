@@ -47,7 +47,6 @@ const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
 beforeEach(async () => {
   process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-  vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
   reconcile = service.app.get(OutreachP2pSmsReconcileService)
 
   const stripe = service.app.get(StripeService)
@@ -97,6 +96,10 @@ const createHold = async ({
   projectId = null as string | null,
   deniedAt = null as Date | null,
   sendInHours = -24,
+  // Overrides the derived `addHours` date — `null` simulates a resume that
+  // omitted `date` entirely (every draft starts with none; nothing requires
+  // a p2p resume to supply it).
+  date = addHours(new Date(), sendInHours) as Date | null,
 }: {
   settleState: P2pSmsSettleState
   spineStatus?: OutreachStatus
@@ -106,6 +109,7 @@ const createHold = async ({
   projectId?: string | null
   deniedAt?: Date | null
   sendInHours?: number
+  date?: Date | null
 }): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -113,7 +117,7 @@ const createHold = async ({
       organizationSlug: orgSlug,
       outreachType: 'p2p',
       status: spineStatus,
-      date: addHours(new Date(), sendInHours),
+      date,
       voterFileFilterId: filterId,
       projectId,
       deniedAt,
@@ -275,22 +279,6 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
 
     expect(refundChargeSpy).not.toHaveBeenCalled()
     expect(listRefundsSpy).not.toHaveBeenCalled()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      P2pSmsSettleState.refunding,
-    )
-  })
-
-  it('no-ops with the flag off', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-    const outreachId = await createHold({
-      settleState: P2pSmsSettleState.refunding,
-      chargeIntentId: CHARGE_ID,
-    })
-    await backdateUpdatedAt(outreachId, 20)
-
-    await reconcile.sweepStrandedRefunding()
-
-    expect(refundChargeSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       P2pSmsSettleState.refunding,
     )
@@ -484,20 +472,6 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     )
   })
 
-  it('no-ops with the flag off', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-    const outreachId = await createHold({
-      settleState: P2pSmsSettleState.captured,
-      chargeIntentId: CHARGE_ID,
-      deniedAt: new Date(),
-    })
-    await backdateUpdatedAt(outreachId, 20)
-
-    await reconcile.sweepDeniedUnreleased()
-
-    expect(refundChargeSpy).not.toHaveBeenCalled()
-  })
-
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     const outreachId = await createHold({
@@ -645,22 +619,6 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     )
   })
 
-  it('no-ops with the flag off', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
-    const outreachId = await createHold({
-      settleState: P2pSmsSettleState.authorized,
-      spineStatus: OutreachStatus.pending_payment,
-      projectId: null,
-    })
-
-    await reconcile.sweepStrandedAuthorized()
-
-    expect(voidSpy).not.toHaveBeenCalled()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      P2pSmsSettleState.authorized,
-    )
-  })
-
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     await createHold({
@@ -672,5 +630,71 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     await reconcile.sweepStrandedAuthorized()
 
     expect(voidSpy).not.toHaveBeenCalled()
+  })
+
+  // NULL-DATE GAP (money-adjacent): `date` is schema-optional on a p2p
+  // resume — convertP2pDraft writes it verbatim with no fallback — so a
+  // resume that omits it leaves the spine's `date` null straight through to
+  // `pending_payment`. Prisma's `lt` never matches a NULL column, so a hold
+  // authorized on that row would never be past-due by the date filter alone
+  // and would sit until Stripe's own ~7-day auth expiry instead of being
+  // actively released. Staleness-gated on the SATELLITE's own updatedAt (not
+  // unconditional) so a hold that was JUST authorized — still seconds from
+  // getting its date — is never raced.
+  it('voids a stale null-date stranded hold (the date-filter gap)', async () => {
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
+      projectId: null,
+      date: null,
+    })
+    await backdateUpdatedAt(outreachId, 20)
+
+    await reconcile.sweepStrandedAuthorized()
+
+    expect(voidSpy).toHaveBeenCalledWith(INTENT_ID)
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.voided,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+  })
+
+  it('does NOT touch a fresh null-date hold (still inside the stale window)', async () => {
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending_payment,
+      projectId: null,
+      date: null,
+    })
+    // updatedAt is `now` from create — inside the stale window, unlike the
+    // backdated case above.
+
+    await reconcile.sweepStrandedAuthorized()
+
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.authorized,
+    )
+    expect((await readSpine(outreachId)).status).toBe(
+      OutreachStatus.pending_payment,
+    )
+  })
+
+  it('does NOT void a stale null-date row whose status advanced to pending (race-close intact)', async () => {
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.authorized,
+      spineStatus: OutreachStatus.pending,
+      projectId: null,
+      date: null,
+    })
+    await backdateUpdatedAt(outreachId, 20)
+
+    await reconcile.sweepStrandedAuthorized()
+
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.authorized,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.pending)
   })
 })

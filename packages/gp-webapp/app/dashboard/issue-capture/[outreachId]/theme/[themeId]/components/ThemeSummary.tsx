@@ -41,7 +41,11 @@ const ThemeSummary = ({
           </div>
         </div>
         <p className="text-sm text-foreground">{theme.summary}</p>
-        <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+        {/* Null when every member is a text reply, which carries no stance:
+            four zeros would read as a finding. */}
+        {theme.stanceCounts !== null && (
+          <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+        )}
       </div>
     </Card>
   )

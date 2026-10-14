@@ -8,6 +8,9 @@ never sees it.
 
 An effort's confirmed memos are then synthesized into ranked themes, each
 proposing a tag for the org's list, and read back as the effort's report.
+A Serve text send is an effort too: the constituents' replies are its
+memos, synthesized the same way once the results upload lands (decided
+2026-10-12; `docs/features/serve-sms.md`).
 
 With no signal, the phone records the memo instead and sends it later; the
 server transcribes it, extracts, and the memo waits in "Notes to review"
@@ -54,7 +57,9 @@ Enums: `ConstituentFeedbackChannel`, `ConstituentFeedbackStance`,
 
 ## Tables
 
-The effort is the `Outreach` envelope: one key for a turf or a phone list.
+The effort is the `Outreach` envelope: one key for a turf, a phone list, or
+a Serve text send (`outreachType: text`, `campaignId: null`; a Win text's
+replies come back as timestamps, never words, so it is not one).
 
 - `ConstituentFeedback.outreachId`: the memo's effort, resolved at capture.
   A knock memo takes the knock row's own `outreachId` and falls back to the
@@ -69,12 +74,16 @@ The effort is the `Outreach` envelope: one key for a turf or a phone list.
   retired.
 - `ConstituentFeedbackTag`: a tag on a memo. `runId` null means a human
   applied it.
-- `FeedbackSynthesisRun`: one synthesis over an effort or the whole org.
-  `activeKey` is unique while running, so one run is in flight per scope.
+- `FeedbackSynthesisRun`: one synthesis over an effort, a priority, or the
+  whole org. `activeKey` is unique while running, so one run is in flight per
+  scope. A `priority` run sets `priorityId` and leaves `outreachId` null.
   Superseded runs are kept as history.
 - `FeedbackTheme`: one ranked grouping a run produced, linked to a tag.
-- `FeedbackThemeMember`: a memo in a theme. Counts are computed from these
-  rows at read time, never stored.
+- `FeedbackThemeMember`: a memo in a theme, or on a text send a reply
+  (`PollIndividualMessage`). Exactly one of `feedbackId` / `textReplyId`
+  is set (DB CHECK `feedback_theme_member_source_check`), under a surrogate
+  id and a unique pair per source. Counts are computed from these rows at
+  read time, never stored.
 
 A run never overwrites a human's tag row. It skips any
 `ConstituentFeedbackTag` pair that already exists, and superseding a run
@@ -147,11 +156,18 @@ guard are the access check; the flag gates rollout, not access.
 confirmed by hand after a failed recording has none, and would be an empty
 CSV row), refuses under `MIN_CONFIRMED_FOR_SYNTHESIS` (5, provisional),
 inserts a `running` run whose `confirmed` is that count, and hands the memos
-to the engine. Two ways in: the report's button (`trigger: 'button'`), which
+to the engine. On a text send the memos are the send's `CONSTITUENT` reply
+rows minus opt-outs and empty bodies (`textRepliesWhere` in
+`feedbackReport.service.ts`, the one predicate the floor, the run and the
+denominators share), each keyed by the reply row's id so the ingest can
+find it again; a reply is the constituent's own words and needs no
+confirming. Two ways in: the report's button (`trigger: 'button'`), which
 is also refused inside `SYNTHESIS_COOLDOWN_MS` (10 minutes since the last
 completed run), and the effort completing (a turf's Done in
 `doorKnockingTurf.service.ts`, a list's last call in
-`phoneBankingCall.service.ts`), which calls `requestRunOnEffortCompleted`
+`phoneBankingCall.service.ts`, a text send's committed results upload in
+`outreach/services/outreachResultsAdmin.service.ts`), which calls
+`requestRunOnEffortCompleted`
 fire-and-forget, skips the cooldown, and swallows the floor and the run in
 flight. That path has no request to flag-gate, so it checks the floor and
 then the flag for the org's owner itself; turning the flag off
@@ -181,6 +197,27 @@ from its `CampaignPosition`s first.
   after 30 minutes by the stale-run sweep, every ten minutes under
   `CronLockService`.
 
+### Priority runs
+
+`requestPriorityRun` pools every Serve send linked to one priority
+(`Outreach.priorityId`, `campaignId` null, gone out) into one run: each
+send's memos or replies, loaded exactly as its own effort run would load
+them, against the same floor. It has no route and no cooldown of its own.
+`requestRunOnEffortCompleted` starts it alongside the effort's own run
+whenever a send on a priority finishes, and the report's Summarize button
+starts it after the send's own run, so the priority's themes never trail a
+send's. Either way it runs whatever that send's own floor is, so a
+door walk after a text re-pools the same priority and the new run supersedes
+the last. The activeKey is `<org>:priority:<priorityId>`. A send that finishes
+while a pooled run is in flight marks that run `repoolOwed`, and the
+stale-run sweep starts a fresh pooled run once it is done, so that send's
+answers are never left out. The ingest scopes a
+priority run's members to that priority's sends, and writes its themes with
+no tag: the tag list and a memo's tags come from the send's own run, and a
+second vocabulary for the same conversation would only compete with it. The
+themes are read by gp-api `PriorityResultsService` and the priority agent's
+`read_outreach_feedback`.
+
 ## The ingest
 
 One transaction, claimed first with a conditional update on
@@ -188,9 +225,13 @@ One transaction, claimed first with a conditional update on
 
 - A theme's members are the union of the S3 rows at `responsesLocation`
   matching its title (the pipeline writes them; the mock sends null), its
-  quotes, and its `memberIds`. Ids outside the run's effort or org are
-  dropped and counted in the log. If no theme keeps a member, the run fails
-  (`error: no_members_in_scope`) rather than superseding a good one.
+  quotes, and its `memberIds`. Each id is looked up in both tables, memos
+  and `CONSTITUENT` replies, and written as the member kind it was found
+  as; ids outside the run's effort or org are dropped and counted in the
+  log. If no theme keeps a member, the run fails
+  (`error: no_members_in_scope`) rather than superseding a good one. A
+  reply member gets no `ConstituentFeedbackTag` row: a tag lands on a
+  memo's record, and a reply has none.
 - One tag per theme, by `normalizedName`: merged away follows
   `mergedIntoId` to its target (one hop; merges re-point earlier ones) and
   is then handled as that target, which may since have been retired;
@@ -225,20 +266,31 @@ effort's memos, confirmed and pending, newest first, capped at
 `FEEDBACK_REPORT_MEMO_LIMIT` (200): the page shows them when there are no
 themes to show, under the floor and while a run is in flight.
 
-A theme's `conversationCount` is distinct confirmed member memos, but
-`stanceCounts` and `desiredOutcomes` are stances from every issue raised in
-the conversations in this theme; a conversation that raised two issues
+A theme's `conversationCount` is distinct confirmed member memos plus reply
+members, but `stanceCounts` and `desiredOutcomes` are stances from every
+issue raised in the memos in this theme; a memo that raised two issues
 contributes two, so counts can exceed `conversationCount`. That is the interim
 rule: membership is per memo, and matching an issue to its theme by label
 missed nearly every multi-issue memo. Per-issue membership through the
 pipeline is the follow-up that lets the split count only this theme's issues.
 An issue with no stance counts as unclear; a memo that named no issue adds no
-stance. `channel` is
+stance, and a reply names none, so a theme with no memo in it has
+`stanceCounts: null`, which the page reads as nothing to show rather than
+four zeros. `channel` is
 the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
-memo or no memo), and `floor` is `MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
+a text send's `text`, memo or no memo), and `floor` is
+`MIN_CONFIRMED_FOR_SYNTHESIS`, sent so the
 page's "Themes appear after N" line cannot drift from the 422. The constant
 lives in `feedbackReport.service.ts` because the synthesis service imports
 that file, not the other way round.
+
+On a text send the denominators are the replies with words and the distinct
+people who sent them, `confirmed` equals `memos` and `pending` is 0, and
+`memos` lists those replies as the constituent's own words (`channel: text`,
+no issues, no actor, `confirmedAt` the moment it arrived). A theme page's
+reply member carries `textReplyId` and a null `feedbackId`. Nothing here
+or on the export (`feedbackNotesExport.service.ts`, which reads memos only)
+ever returns the number a reply came from.
 
 ## Tags
 

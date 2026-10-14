@@ -189,6 +189,64 @@ describe('ClerkAuthService', () => {
     })
   })
 
+  describe('verifyM2MJwt', () => {
+    const M2M_JWT = jwt.sign({ sub: 'mch_machine' }, 'any-key')
+
+    it('verifies without the machine secret and returns id and subject', async () => {
+      m2mVerify.mockResolvedValue({
+        id: 'm2m_jwt_1',
+        subject: 'mch_machine',
+        expired: false,
+      })
+
+      await expect(service.verifyM2MJwt(M2M_JWT)).resolves.toEqual({
+        id: 'm2m_jwt_1',
+        subject: 'mch_machine',
+      })
+      expect(m2mVerify).toHaveBeenCalledWith({ token: M2M_JWT })
+    })
+
+    it('rejects an expired token', async () => {
+      m2mVerify.mockResolvedValue({
+        id: 'm2m_jwt_1',
+        subject: 'mch_machine',
+        expired: true,
+      })
+
+      await expect(service.verifyM2MJwt(M2M_JWT)).rejects.toThrow(
+        UnauthorizedException,
+      )
+    })
+
+    it('rejects with UnauthorizedException on verification failure', async () => {
+      const clerkError = new Error('bad signature')
+      m2mVerify.mockRejectedValue(clerkError)
+
+      await expect(service.verifyM2MJwt(M2M_JWT)).rejects.toThrow(
+        UnauthorizedException,
+      )
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { err: clerkError },
+        'M2M JWT verification failed',
+      )
+    })
+  })
+
+  describe('isM2MJwt', () => {
+    it('recognizes a JWT whose subject is a Clerk machine', () => {
+      expect(service.isM2MJwt(jwt.sign({ sub: 'mch_machine' }, 'k'))).toBe(true)
+    })
+
+    it('rejects a user session JWT', () => {
+      expect(service.isM2MJwt(jwt.sign({ sub: 'user_123' }, 'k'))).toBe(false)
+    })
+
+    it('rejects opaque tokens', () => {
+      expect(service.isM2MJwt('mt_token')).toBe(false)
+      expect(service.isM2MJwt('not.a.jwt')).toBe(false)
+    })
+  })
+
   describe('isM2MToken', () => {
     it('recognizes the mt_ prefix', () => {
       expect(service.isM2MToken('mt_token')).toBe(true)

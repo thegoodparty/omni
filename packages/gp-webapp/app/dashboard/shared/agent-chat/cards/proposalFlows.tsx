@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   PHONE_BANKING_NAME_MAX_LENGTH,
+  REPORT_BACK_PURPOSE,
   type ChatCard,
   type ProposalLink,
 } from '@goodparty_org/contracts'
@@ -90,16 +91,19 @@ export const useOnProposalSent = (listener: SentListener): void => {
 }
 
 // The check rides along only on a priority, where there is one to put out.
+// A report back is linked through the send it answers instead, so it is
+// never read as another ask on the priority.
 const linkOf = ({ proposal, priorityId }: Opened): ProposalLink => ({
   proposalKey: proposal.proposalKey,
-  ...(priorityId !== undefined && {
-    priorityId,
-    ...(proposal.stepId !== undefined &&
-      proposal.side !== undefined && {
-        stepId: proposal.stepId,
-        side: proposal.side,
-      }),
-  }),
+  ...(priorityId !== undefined &&
+    proposal.reportBackForOutreachId === undefined && {
+      priorityId,
+      ...(proposal.stepId !== undefined &&
+        proposal.side !== undefined && {
+          stepId: proposal.stepId,
+          side: proposal.side,
+        }),
+    }),
 })
 
 type WinProChannel = 'text' | 'phoneBanking' | 'doorKnocking'
@@ -371,6 +375,11 @@ export const ProposalFlowsProvider = ({
           onScheduled={async () => settled()}
           surface={SERVE_SMS_SURFACE}
           initialScript={proposal.message}
+          initialAsksToJoinCivicPanel={proposal.civicPanelAsk === true}
+          {...(proposal.reportBackForOutreachId !== undefined && {
+            initialPurpose: REPORT_BACK_PURPOSE,
+            reportBackForOutreachId: proposal.reportBackForOutreachId,
+          })}
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}

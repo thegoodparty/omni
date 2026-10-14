@@ -11,6 +11,7 @@ import {
   OutreachType,
   PhoneBankCallOutcome,
   PhoneBankingPurpose,
+  PollIndividualMessageSender,
 } from '@/generated/prisma'
 import type { TestServiceContext } from '@/test-service'
 
@@ -310,6 +311,50 @@ export const seedCallMemo = async (
       confirmedAt: new Date(),
       clientKey: randomUUID(),
       outreachId: input.outreachId,
+    },
+  })
+
+// A Serve text send whose results have come back: the envelope, completed,
+// with no campaign. Replies are seeded separately.
+export const seedTextEffort = async (
+  service: TestServiceContext,
+  slug: string,
+  options: { campaignId?: number } = {},
+) =>
+  service.prisma.outreach.create({
+    data: {
+      organizationSlug: slug,
+      campaignId: options.campaignId ?? null,
+      outreachType: OutreachType.text,
+      status: OutreachStatus.completed,
+      name: 'Pothole check-in',
+      message: 'Which street needs fixing first? Reply STOP to opt out.',
+    },
+  })
+
+// One message row on a text send, a constituent's reply unless told
+// otherwise, keyed the way the ingest keys them.
+export const seedReply = async (
+  service: TestServiceContext,
+  input: {
+    outreachId: number
+    content: string | null
+    personId?: string
+    sentAt?: Date
+    isOptOut?: boolean
+    sender?: PollIndividualMessageSender
+  },
+) =>
+  service.prisma.pollIndividualMessage.create({
+    data: {
+      id: randomUUID(),
+      outreachId: input.outreachId,
+      personId: input.personId ?? randomUUID(),
+      personCellPhone: '+13035550100',
+      sentAt: input.sentAt ?? new Date(),
+      isOptOut: input.isOptOut ?? false,
+      sender: input.sender ?? PollIndividualMessageSender.CONSTITUENT,
+      content: input.content,
     },
   })
 

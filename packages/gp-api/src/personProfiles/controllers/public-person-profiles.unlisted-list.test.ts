@@ -1,4 +1,4 @@
-import { useTestService } from '@/test-service'
+import { signTestM2MJwt, useTestService } from '@/test-service'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -9,6 +9,12 @@ const DELETED_PERSON_ID = '77777777-7777-4777-8777-777777777777'
 const LIVE_PERSON_ID = '88888888-8888-4888-8888-888888888888'
 
 const UNLISTED_LIST = '/v1/public-person-profiles/unlisted'
+
+// The feed is ServiceReadGuard-gated; gp-marketing reads it with a JWT-format
+// M2M token, so the tests do too.
+const asServiceReader = () => ({
+  headers: { Authorization: `Bearer ${signTestM2MJwt()}` },
+})
 
 const seedRemoval = (personId: string, note?: string) =>
   service.prisma.personProfileRemoval.create({
@@ -53,7 +59,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     await seedRemoval(REMOVED_PERSON_ID)
     await seedRemoval(SECOND_REMOVED_PERSON_ID)
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(personIds(res.data)).toEqual(
@@ -67,7 +73,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     // renders again — an un-undoable delisting.
     await seedClearedRemoval(REMOVED_PERSON_ID)
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(res.data).toEqual([])
@@ -77,7 +83,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     await seedRemoval(REMOVED_PERSON_ID)
     await seedClearedRemoval(SECOND_REMOVED_PERSON_ID)
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(personIds(res.data)).toEqual([REMOVED_PERSON_ID])
@@ -88,7 +94,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     // marketing loader renders as a 404 — a URL the sitemap must not carry.
     await seedProfile(DELETED_PERSON_ID, { deletedAt: new Date() })
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(personIds(res.data)).toEqual([DELETED_PERSON_ID])
@@ -98,7 +104,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     await seedProfile(REMOVED_PERSON_ID, { deletedAt: new Date() })
     await seedRemoval(REMOVED_PERSON_ID)
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(res.data).toHaveLength(1)
@@ -108,14 +114,14 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
   it('excludes a published person with no removal and no deletion', async () => {
     await seedProfile(LIVE_PERSON_ID)
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(res.data).toEqual([])
   })
 
   it('returns an empty list when nothing is unlisted', async () => {
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(res.data).toEqual([])
@@ -127,7 +133,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     // with an overlay, the sitemap would advertise the ones who need it least.
     await seedRemoval(REMOVED_PERSON_ID)
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(res.data).toHaveLength(1)
@@ -138,7 +144,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     await seedRemoval(REMOVED_PERSON_ID, 'court order re: Jane Rivera')
     await seedProfile(DELETED_PERSON_ID, { deletedAt: new Date() })
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(res.data).toHaveLength(2)
@@ -146,19 +152,19 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
       expect(Object.keys(row)).toEqual(['personId'])
     }
     // The note is free text an ops user typed about a privacy request — the
-    // one field on that table that can carry PII, on an unauthenticated route.
+    // one field on that table that can carry PII, on a feed served off-site.
     expect(res.data.some((row: { note?: string }) => row.note)).toBe(false)
   })
 
-  it('serves the list without a session', async () => {
+  it('refuses a caller without a verifiable token', async () => {
+    // The list names every person who asked for a privacy takedown.
     await seedRemoval(REMOVED_PERSON_ID)
 
     const res = await service.client.get(UNLISTED_LIST, {
       headers: { Authorization: 'Bearer not-a-valid-token' },
     })
 
-    expect(res.status).toBe(200)
-    expect(res.data).toHaveLength(1)
+    expect(res.status).toBe(403)
   })
 
   it('caps both sides of the union at the sitemap URL ceiling', async () => {
@@ -170,7 +176,7 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     const removals = vi.spyOn(service.prisma.personProfileRemoval, 'findMany')
     const profiles = vi.spyOn(service.prisma.personProfile, 'findMany')
 
-    const res = await service.client.get(UNLISTED_LIST)
+    const res = await service.client.get(UNLISTED_LIST, asServiceReader())
 
     expect(res.status).toBe(200)
     expect(removals).toHaveBeenCalledWith(

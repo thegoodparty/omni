@@ -36,6 +36,15 @@ election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
 
+A local stack can't run agent experiments (community issues, briefings,
+opponent research, compliance setup). A run's result comes back on dev's
+shared results queue to dev gp-api, so no `LOCAL_DEV_ENV` key or AWS
+credential fixes it. Seed the data locally (community issues have
+`POST /v1/community-issues/seed`) and test real runs on dev. Dev doesn't
+dispatch anything gated by `MEETINGS_AUTOMATION_ENABLED` on its own, because
+that flag is prod-only. Previews can't run agent experiments at all. See
+`packages/gp-api/src/communityIssues/AGENTS.md`.
+
 Once the stack is healthy, it finishes by seeding a login: a QA fixture user
 (`packages/gp-api/src/testFixtures/`) in product state `--user-state`
 (default `free-win`), minted via a per-run Clerk M2M token and printed once

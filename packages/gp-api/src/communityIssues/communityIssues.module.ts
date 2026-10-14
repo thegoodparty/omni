@@ -11,6 +11,7 @@ import { CommunityIssueDispatchService } from './services/communityIssueDispatch
 import { CommunityIssuePrioritizeService } from './services/communityIssuePrioritize.service'
 import { CommunityIssueReadService } from './services/communityIssueRead.service'
 import { CommunityIssueSeedService } from './services/communityIssueSeed.service'
+import { CommunityIssueStarterService } from './services/communityIssueStarter.service'
 import { CommunityIssueUpsertService } from './services/communityIssueUpsert.service'
 
 @Module({
@@ -29,6 +30,7 @@ import { CommunityIssueUpsertService } from './services/communityIssueUpsert.ser
     CommunityIssuePrioritizeService,
     CommunityIssueReadService,
     CommunityIssueSeedService,
+    CommunityIssueStarterService,
     CommunityIssueUpsertService,
   ],
   exports: [

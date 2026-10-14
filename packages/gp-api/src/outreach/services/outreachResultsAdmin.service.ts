@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { addBusinessDays, isAfter, parseISO } from 'date-fns'
 import type {
   OutreachAwaitingResultsItem,
@@ -25,6 +26,7 @@ import {
   type SkippedResultsRow,
 } from '../util/outreachResultsCsv.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { OutreachTextIngestService } from './outreachTextIngest.service'
 
 /**
@@ -130,6 +132,7 @@ export class OutreachResultsAdminService extends createPrismaBase(
   constructor(
     private readonly ingest: OutreachTextIngestService,
     private readonly s3Service: S3Service,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -481,7 +484,7 @@ export class OutreachResultsAdminService extends createPrismaBase(
     outreachId: number,
     input: OutreachResultsUploadRequest,
   ): Promise<OutreachResultsParseReport> {
-    await this.requireDispatchedSend(outreachId)
+    const send = await this.requireDispatchedSend(outreachId)
 
     const parsed = checkResultsCsv(input)
     if (!parsed.ok) throw new BadRequestException(parsed.error)
@@ -497,6 +500,26 @@ export class OutreachResultsAdminService extends createPrismaBase(
     })
 
     this.logIngest(outreachId, input, parsed.skipped, result.committed)
+
+    // The replies are on disk: a Serve send's can be grouped into themes
+    // now, the way a turf's notes are when it is marked done. Fire-and-
+    // forget, resolved lazily like the turf's and the list's triggers. The
+    // upload has already committed, so nothing here may fail it. A Win send
+    // (campaign-scoped) is never an effort; its replies come back as
+    // timestamps, not words.
+    if (result.committed && send.organizationSlug && send.campaign === null) {
+      const organizationSlug = send.organizationSlug
+      try {
+        this.moduleRef
+          .get(FeedbackSynthesisService, { strict: false })
+          .requestRunOnEffortCompleted({ organizationSlug, outreachId })
+      } catch (err) {
+        this.logger.error(
+          { err, organizationSlug, outreachId },
+          'Could not start synthesis for a text send with results',
+        )
+      }
+    }
 
     // A row the parse threw out (a blank phone cell, an unreadable
     // timestamp) never reached the ingest, so the ingest cannot count it.

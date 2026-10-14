@@ -3,8 +3,12 @@ import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
 import { v5 as uuidv5 } from 'uuid'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
+  CivicPanelStatus,
+  ContactStatusField,
+  ContactStatusSource,
   Organization,
   OutreachStatus,
   PollIndividualMessageSender,
@@ -12,6 +16,7 @@ import {
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { phoneDigitsKey } from '@/shared/util/strings.util'
+import { isCivicPanelJoinMessage } from '../util/civicPanelJoin.util'
 import { isOptOutMessage } from '../util/textOptOut.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
@@ -22,7 +27,8 @@ import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
  * Neither producer is visible to whoever uploaded the file.
  *
  * Nothing in here is product-specific. Polls adds a step on top that writes
- * themes; SMS never clusters at all.
+ * themes; a Serve SMS send's themes come from issue capture's synthesis,
+ * which the results upload requests once this ingest has committed.
  *
  * See docs/features/serve-sms.md, "Layer 1: Delivery", Inbound.
  */
@@ -94,6 +100,7 @@ export class OutreachTextIngestService extends createPrismaBase(
   constructor(
     private readonly textInteractions: ContactInteractionTextService,
     private readonly contactsService: ContactsService,
+    private readonly contactStatus: ContactStatusService,
   ) {
     super()
   }
@@ -127,6 +134,7 @@ export class OutreachTextIngestService extends createPrismaBase(
         id: true,
         status: true,
         organizationSlug: true,
+        asksToJoinCivicPanel: true,
         campaign: { select: { organizationSlug: true } },
       },
     })
@@ -259,21 +267,36 @@ export class OutreachTextIngestService extends createPrismaBase(
       }
     }
 
-    // Idempotency: delete the exact ids we are about to write, then write
-    // them. The ids are deterministic, so a redelivered queue message or a
-    // re-analysis replaces its own rows and touches nothing else. Scoped to
-    // CONSTITUENT so an outbound row could never be swept up.
+    // Idempotency: the ids are deterministic, so a redelivered queue message
+    // or a re-upload lands on its own rows and touches nothing else. Rows
+    // that already exist are updated in place rather than deleted and
+    // recreated: a reply row is what a synthesis theme's member points at
+    // (FeedbackThemeMember.textReplyId, cascade on delete), and a re-upload
+    // must not empty the themes the last run wrote. Scoped to CONSTITUENT
+    // so an outbound row could never be swept up.
     if (messages.length > 0) {
       await this.client.$transaction(
         async (tx) => {
-          await tx.pollIndividualMessage.deleteMany({
-            where: {
-              id: { in: messages.map((message) => message.id) },
-              outreachId,
-              sender: PollIndividualMessageSender.CONSTITUENT,
-            },
+          const existing = new Set(
+            (
+              await tx.pollIndividualMessage.findMany({
+                where: {
+                  id: { in: messages.map((message) => message.id) },
+                  outreachId,
+                  sender: PollIndividualMessageSender.CONSTITUENT,
+                },
+                select: { id: true },
+              })
+            ).map((row) => row.id),
+          )
+          await tx.pollIndividualMessage.createMany({
+            data: messages.filter((message) => !existing.has(message.id)),
           })
-          await tx.pollIndividualMessage.createMany({ data: messages })
+          for (const message of messages) {
+            if (!existing.has(message.id)) continue
+            const { id, ...data } = message
+            await tx.pollIndividualMessage.update({ where: { id }, data })
+          }
         },
         { timeout: INGEST_TRANSACTION_TIMEOUT_MS },
       )
@@ -294,8 +317,14 @@ export class OutreachTextIngestService extends createPrismaBase(
     // there is no work-queue row to reconcile later — such a row would be a
     // second, weaker copy of a guarantee the ingest already has.
     let statusAdvanced = false
+    let civicPanelJoins = 0
     try {
       await this.applyInboundEvents(outreachId, messages)
+      civicPanelJoins = await this.applyCivicPanelEvents(
+        organizationSlug,
+        outreach.asksToJoinCivicPanel,
+        messages,
+      )
     } finally {
       statusAdvanced = await this.advanceToCompleted(outreachId, messages)
     }
@@ -309,6 +338,7 @@ export class OutreachTextIngestService extends createPrismaBase(
         unmatched,
         optOuts,
         messagesWritten: messages.length,
+        civicPanelJoins,
         statusAdvanced,
       },
       '[Outreach Ingest] replies committed',
@@ -321,6 +351,58 @@ export class OutreachTextIngestService extends createPrismaBase(
       optOuts,
       committed: true,
     }
+  }
+
+  /**
+   * Step 5b. Serve's civic panel. A STOP takes the person off the panel on
+   * any send, because panel membership is not consent to text and a texted
+   * STOP always wins. A JOIN puts them on it only when this send asked; a
+   * JOIN to any other text means nothing. Both are idempotent on the message
+   * id, the same key as the reply events, so a re-upload writes nothing new.
+   * Replies are applied in the order they were sent, not the order the
+   * upload lists them, and a JOIN from anyone who has opted out on any send
+   * is skipped, so a STOP stays the last word even when it arrived in an
+   * earlier upload or before the JOIN. Returns how many joins this ingest recorded.
+   */
+  private async applyCivicPanelEvents(
+    organizationSlug: string | null,
+    asksToJoinCivicPanel: boolean,
+    messages: Prisma.PollIndividualMessageCreateManyInput[],
+  ): Promise<number> {
+    if (!organizationSlug?.startsWith('eo-')) return 0
+    const sentAtOf = (message: Prisma.PollIndividualMessageCreateManyInput) =>
+      message.sentAt instanceof Date ? message.sentAt : new Date(message.sentAt)
+    const inSentOrder = [...messages].sort(
+      (a, b) => sentAtOf(a).getTime() - sentAtOf(b).getTime(),
+    )
+    let joins = 0
+    for (const message of inSentOrder) {
+      const toValue = message.isOptOut
+        ? CivicPanelStatus.left
+        : asksToJoinCivicPanel && isCivicPanelJoinMessage(message.content)
+          ? CivicPanelStatus.member
+          : null
+      if (!toValue) continue
+      if (toValue === CivicPanelStatus.member) {
+        const optedOutAt = await this.textInteractions.latestOptOutAt(
+          organizationSlug,
+          message.personId,
+        )
+        if (optedOutAt) continue
+      }
+      const event = await this.contactStatus.changeStatus({
+        organizationSlug,
+        personId: message.personId,
+        field: ContactStatusField.civic_panel,
+        toValue,
+        source: ContactStatusSource.sms,
+        actorUserId: null,
+        sourceId: message.id,
+        fallbackFromValue: CivicPanelStatus.left,
+      })
+      if (event && toValue === CivicPanelStatus.member) joins += 1
+    }
+    return joins
   }
 
   /**

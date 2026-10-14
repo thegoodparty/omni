@@ -1,9 +1,12 @@
 # app/dashboard/issue-capture/
 
 "What we heard": one effort's report. An effort is a door-knocking turf's or a
-phone list's `Outreach` envelope, and the report shows what people said on it,
-as ranked themes once there are enough confirmed notes. Both products, on one
-flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
+phone list's `Outreach` envelope, or a Serve text send, and the report shows
+what people said on it, as ranked themes once there are enough confirmed
+notes. On a text send the notes are the constituents' own replies: the
+report's `channel` is `text`, every entry is a reply, nothing waits for
+review, and the copy says reply where it would say note. Both products, on
+one flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`; shapes are
 `@goodparty_org/contracts` `constituentFeedback/FeedbackSynthesis.schema.ts`.
 
 ## Files
@@ -66,9 +69,9 @@ fires on the press, refused or not.
 ## Rules
 
 - **Two counts head the report** (`ReportCounts`, under the title): people
-  answered and left a note, each its own small `Card` on the gray canvas, a
-  number over its label like the theme cards' `StanceSplit` tiles. Only
-  confirmed notes enter a theme.
+  answered and left a note (on a text send, people replied and replies),
+  each its own small `Card` on the gray canvas, a number over its label like
+  the theme cards' `StanceSplit` tiles. Only confirmed notes enter a theme.
 - **Cards rank by `conversationCount`**, the run's `rank` breaking ties: the
   issue several people raised rises. A count is "conversations that touched
   this theme", never a share, since one note can sit in two themes. The stance
@@ -76,14 +79,21 @@ fires on the press, refused or not.
   issue raised in the theme's notes, so a note that raised two issues
   contributes two and the split can sum past the conversation count (interim,
   until membership is per issue; `packages/gp-api/src/constituentFeedback/AGENTS.md`).
+  A reply names no issue, so a theme of replies has `stanceCounts: null`
+  and the card and the theme page show no split at all.
 - **Every note is labeled as the canvasser's summary** ("Summary by ..."),
   never quoted as the other person's words, with its issues listed under it
-  (`MemoList`). A theme's members are confirmed only.
+  (`MemoList`). A theme's members are confirmed only. A text reply is the
+  person's own words and is labeled "Their reply", credited to nobody.
 - **Copy is mode-keyed in `copy.ts`.** Win says voters and never constituent,
   Serve says constituents and never voter, and nothing says poll, survey,
   representative or statistically significant.
   `WhatWeHeardPage.test.tsx` and `ThemeDetailPage.test.tsx` assert all three
-  across every state.
+  across every state. The lines that say note take the report's `channel`
+  and say reply on a text send; the door and the phone read as they did.
+- **Download notes is for notes.** It is hidden on a text send: the export
+  reads memos, and the replies are already the file the results page took
+  in.
 - **Download notes is a plain link, not a fetch.** `DownloadNotesLink`
   points straight at gp-api's `GET efforts/:outreachId/export` through the
   `/api/v1/...` proxy, with the `download` attribute, so the browser saves
@@ -142,6 +152,11 @@ the effort it belongs to.
   row links only when the campaign is one turf, to that turf's envelope: a
   report is per turf and the row's id names just the anchor's, so a
   several-turf campaign leaves it to the turf cards.
+- **Serve text send**: the drawer's Serve SMS section (above
+  `ServeSmsRepliesSection`, completed sends only) carries `WhatWeHeardLink`,
+  the counted one, reading "N replies": a send nobody has replied to has
+  nothing to report, and the link says nothing until somebody has. A Win
+  text gets no link; its replies come back as timestamps, never words.
 
 The person record (`contacts/crm/person/ConstituentFeedbackSection.tsx`)
 lists each memo's issues, with where the person stands and what they want,
@@ -150,8 +165,9 @@ and its accepted tags as badges under it.
 ## Analytics
 
 `EVENTS.IssueCapture`, `product` on every event, and `channel` as
-`doorKnocking` or `phoneBanking` (`analytics.ts`) to match the capture
-events. Counts only, never a memo's words or a tag's name.
+`doorKnocking`, `phoneBanking` or, on a text send, `sms` (`analytics.ts`) to
+match the capture and outreach events. Counts only, never a memo's words or
+a tag's name.
 
 | Event                  | Fires                                | Properties                                                   |
 | ---------------------- | ------------------------------------ | ------------------------------------------------------------ |

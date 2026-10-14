@@ -46,21 +46,29 @@ built on it. There are three layers:
 1. **Delivery.** Resolve recipients, scrub opt-outs, dedupe, capture the
    phone-to-person map, hand the send off, ingest raw replies. Knows nothing
    about polls or SMS. Slack and CSVs today; a vendor API and webhooks later.
-2. **SMS.** A message to a saved list. Results are engagement counts and a
-   reply list.
+2. **SMS.** A message to a saved list. Results are engagement counts, a
+   reply list, and the replies grouped into themes on the "What we heard"
+   report.
 3. **Polls.** A question to a sample or a list, plus analysis. Results are
    clustered themes, issues, confidence, and an expansion flow.
 
-The clustering pipeline belongs to layer 3, not layer 1. That is the load-
-bearing claim here. An earlier draft of this document let analysis leak into
-the transport, which is exactly what would have made the two products hard to
-keep distinct, and would have made an SMS send's basic reply counts depend on
-an LLM run succeeding.
+The poll clustering pipeline belongs to layer 3, not layer 1. That is the
+load-bearing claim here. An earlier draft of this document let analysis leak
+into the transport, which is exactly what would have made the two products
+hard to keep distinct, and would have made an SMS send's basic reply counts
+depend on an LLM run succeeding.
 
-**SMS bypasses clustering entirely** (decided 2026-09-18). It does not run the
-Fargate analysis, does not read a cluster artifact, and does not consume theme
-events. Consequence: SMS needs no part of the S3-plus-Lambda-plus-Fargate
-chain, so its replies arrive through an upload instead.
+**SMS replies are themed by issue capture, not by the poll pipeline**
+(decided 2026-10-12, superseding the 2026-09-18 decision that SMS bypassed
+clustering entirely). An SMS send runs none of the poll chain: no Fargate
+analysis keyed on the send, no cluster artifact, no `pollAnalysisComplete`
+event, so its replies still arrive through an upload. Once that upload
+commits, the send is an _effort_ to the constituent-feedback module, exactly
+like a door-knocking turf or a phone list: its replies are the memos, and the
+same synthesis (`packages/gp-api/src/constituentFeedback/`) groups them into
+themes behind the same `issue-capture` flag. Counts never wait on that run:
+the Statistics card and the reply list read the message rows directly, and a
+run that fails leaves them untouched.
 
 **Both products return results through one surface** (decided 2026-09-18;
 **the slice-2 half reversed 2026-09-21**). Fulfillment must never have to work
@@ -91,7 +99,9 @@ retire, and it inherits an opt-out bug polls has today.
 
 * Any Peerly involvement. The Serve path never touches
   `resolveP2pCreateInputs`, no identity, no phone list, no job, no CAS console.
-* Clustering, themes, or issues for SMS. Ever, not just in v1.
+* Running an SMS send through the poll analysis pipeline (confidence,
+  expansion, `PollIssue` rows). Its replies are themed by issue capture
+  instead; see Layer 2.
 * Migrating existing poll data or retiring the polls page. This build makes
   that possible; it does not do it.
 * Two-way reply threads. See Out of scope.
@@ -123,8 +133,9 @@ already outreach-scoped.
 | Raw reply ingest, opt-out detection, CRM write-back | Delivery |
 | Reply flags (favorite, read) and, later, threads | Delivery |
 | Tone and purpose compose, engagement counts, reply list | SMS |
+| Replies grouped into themes on "What we heard" (issue capture's synthesis, triggered by the results upload) | SMS |
 | Question compose, bias analysis, sample sizing | Polls |
-| Clustering run, themes, issues, confidence, expansion | Polls |
+| Poll clustering run, issues, confidence, expansion | Polls |
 
 The test for whether something belongs in delivery: would it still be true if
 we swapped Slack for Twilio? Scrubbing opt-outs, yes. Ranking themes, no.
@@ -139,7 +150,7 @@ requestSend({
   outreachId,          // the envelope, org-scoped
   audience,            // { savedFilterId } | { sampleSize, excludePersonIds }
   message,             // text sent verbatim
-  imageUrl,            // optional
+  imageUrl,            // optional in delivery; Serve SMS always sends one
   scheduledFor,        // see Send timing
   sendSeq,             // 1, then incremented per expansion
 }) → { recipientCount, excludedOptedOutCount, excludedDuplicateCount, sendKey }
@@ -406,7 +417,9 @@ with pluggable producers.
 location and a required issues array, so reply counts and clustering succeed or
 fail together. Split them: the pipeline always emits the artifact location, and
 emits themes as a separate payload. Polls consumes both. Nothing consumes the
-theme payload for SMS because SMS never triggers the pipeline.
+theme payload for SMS because SMS never triggers the poll pipeline: its
+themes come from issue capture's own run, which reads the message rows the
+upload wrote and reports back on `feedbackSynthesisComplete`.
 
 **Ingest (shared).** Whichever producer:
 
@@ -501,8 +514,19 @@ in Stripe checkout metadata, which caps values at 500 characters, and
 scope, the same way `findByScope` already handles Win and Serve. Plus a
 read-only reply list off the shared message rows.
 
-**No themes, no confidence, no expansion.** A second send to a different list
-is a new send.
+**Themes, through issue capture** (decided 2026-10-12). A committed results
+upload calls `requestRunOnEffortCompleted` for the send, the same trigger a
+turf's Done and a list's last call use, and the report's own Summarize
+button works on a text send too. The run's input is the send's
+`CONSTITUENT` message rows minus opt-outs and empty bodies, under the same
+five-reply floor; a theme member is then a reply row
+(`FeedbackThemeMember.textReplyId`) rather than a memo. A reply carries no
+stance or desired outcome, so a theme of replies has no stance split. The
+Serve SMS drawer links to the report once somebody has replied. Detail in
+`packages/gp-api/src/constituentFeedback/AGENTS.md`.
+
+**No confidence, no expansion.** A second send to a different list is a new
+send.
 
 ## Layer 3: Polls
 
@@ -711,9 +735,10 @@ so polls runs on the shared layer while still living on its own page.
 
 ## Decisions to finalize
 
-Labelled by layer, because **SMS has no clustering, themes, confidence or
-expansion.** Every theme-shaped item below is a polls-layer question in slice
-5 or 6 and touches nothing the customer build ships.
+Labelled by layer, because **SMS has no poll clustering, confidence or
+expansion**; its themes come from issue capture (Layer 2). Every item below
+is a polls-layer question in slice 5 or 6 and touches nothing the customer
+build ships.
 
 **Blocks slices 0-3 (the customer path): none.** All settled, see below.
 
@@ -832,7 +857,8 @@ Same labelling.
 * *Polls, slice 6* — does clustering run usefully at list-targeted volumes?
   The design contemplates 41 responses; the pipeline searches k=5 to k=50 and
   will not cluster under 10 messages. It may change the poll product's own
-  audience guidance. **Nothing here reaches SMS.**
+  audience guidance. **Nothing here reaches SMS**, whose themes come from
+  issue capture's synthesis under its own five-reply floor.
 
 Turnaround is no longer open: the estimate is `addBusinessDays(scheduledDate,
 3)`, the same figure polls already shows.

@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import type { FeedbackReportChannel } from '@goodparty_org/contracts'
 import { whatWeHeardCopy } from '../../copy'
 import DownloadNotesLink from './DownloadNotesLink'
 import MemoList, { type MemoListItem } from './MemoList'
@@ -9,10 +10,12 @@ import MemoList, { type MemoListItem } from './MemoList'
 // will appear.
 const UnderFloorList = ({
   memos,
+  channel,
   outreachId,
   isServe,
 }: {
   memos: MemoListItem[]
+  channel: FeedbackReportChannel
   outreachId: number
   isServe: boolean
 }) => {
@@ -25,13 +28,17 @@ const UnderFloorList = ({
         <h2 id={headingId} className="text-lg font-semibold text-foreground">
           {copy.soFarHeading}
         </h2>
-        <DownloadNotesLink
-          outreachId={outreachId}
-          hasNotes={memos.length > 0}
-          isServe={isServe}
-        />
+        {/* The export is the canvassers' notes; a text send's replies are
+            already a file on the results page that received them. */}
+        {channel !== 'text' && (
+          <DownloadNotesLink
+            outreachId={outreachId}
+            hasNotes={memos.length > 0}
+            isServe={isServe}
+          />
+        )}
       </div>
-      <MemoList memos={memos} isServe={isServe} />
+      <MemoList memos={memos} channel={channel} isServe={isServe} />
     </section>
   )
 }

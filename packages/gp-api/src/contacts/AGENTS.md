@@ -132,6 +132,8 @@ gating is per-action inside the services (see Access control).
 | `GET /v1/contacts/download`                                                            | Streaming CSV export: a curated ~76-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766, widened in DATA-2281), not the raw L2 columns. Serve downloads drop the party, turnout propensity, vote history, ethnicity, and L2 voter id **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, which is `EXCLUDABLE_VOTER_COLUMNS` verbatim, ENG-10830 + #1933) since a stream can't be post-processed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId`     | Notes CRUD, org-scoped (cross-org id = 404). `@AllowVolunteer()` (ENG-11057) — a volunteer gets full CRUD, but only on people reachable through an assigned outreach envelope; see Access control                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `PATCH /v1/contacts/:personId/follow-up`                                               | Serve's standing follow-up flag (`{ value: 'requested' \| 'cleared' }` → `{ followUp }`). 400s for a non-`eo-` org, the mirror of the status route's Serve rejection. Its own route rather than a third `field` on that one, whose response promises both of Win's editable statuses and which a Serve write can honestly supply neither of                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `PATCH /v1/contacts/:personId/civic-panel`                                             | Serve's civic panel membership (`{ value: 'member' \| 'left' }` → `{ civicPanel }`). Same gates and reasoning as the follow-up route: 400s for a non-`eo-` org, its own route so Win's two-status response is untouched. 404s with `serve-citizen-panels` off |
+| `GET /v1/contacts/civic-panel` · `GET /v1/contacts/civic-panel/representation` | Serve's citizens' panel as a whole (`CivicPanelSummaryService`): `{ members, reachedRecently, askableNow }`, and the members compared with the district (`{ representation }`, the priority results' shape). 400 for a non-`eo-` org, 404 with `serve-citizen-panels` off |
 | `POST /v1/contacts/:personId/interactions`                                             | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET /v1/contact-engagement/:id/activities`                                            | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`      | Saved-filter CRUD; PUT/DELETE 409 once locked. Create is not Pro-gated (outreach-pro-gating-v2, a free candidate can save a list before upgrading); PUT/DELETE still call `filterAccessCheck`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -152,7 +154,7 @@ id-list filter can't enumerate outside the org's district.
 | `VoterFileFilter`                              | The saved filter (UI "list"). ~60 demographic columns, `search`, `supportStatus`, `firstUsedForOutreachAt` (the lock), org FK cascade, plus `recommendedVariant` / `recommendedChannel` / `recommendedIntent` / `recommendedModified` — provenance stamped at create when the list came from a recommended-list card, never a filter criterion (`docs/features/recommended-lists.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `VoterFileFilterActivityCondition`             | Owned condition rows: `outreachType` + `outreachId?` (null = any campaign of that channel) + `actions[]` (`ActivityConditionAction` enum; per-channel validity is Zod-enforced at the boundary, 400 otherwise)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `VoterFileFilterGeoMember`                     | The person-id set a drawn boundary resolved to, frozen at draw time. The GEOGRAPHIC half of a list, not its membership. `geoPoly` set with zero rows means the shape enclosed nobody and must resolve to empty, never to "no constraint". A boundary of several parts resolves to ONE set — a person standing where two parts overlap is one member, which is why the parts may overlap at all. What each part is called and drawn in rides beside `geoPoly` as `VoterFileFilter.geoPolyLabels` (`GeoShapeLabelsSchema` in contracts) — display only, joined to the parts by index, so a write that reshapes `geoPoly` without restating them clears them, and `convertVoterFileFilterToFilters` skips it (the generic array branch would otherwise turn it into a filter)                                                    |
-| `VoterFileFilterSampleMember`                  | Who a list saved as a sample drew (`POST /v1/voters/voter-file/filter` with `sample`), frozen at save. Keyed like the geo members: `VoterFileFilter.sampleSize` set means a sample exists, and zero rows resolve to nobody, never to the whole audience. `resolveSampleIdFilter` intersects it everywhere `resolveGeoIdFilter` is (list, count, the edit wizard's `boundaryFromSegmentId`, overlap's saved sets), so the criteria still apply and the list can only shrink. Drawn by `ContactsService.drawListSample`, which resolves the criteria exactly as a count does, saves an audience no bigger than the sample whole, and leaves out whoever the lists behind `excludeOutreachIds` already drew. A list drawn on the map cannot also be sampled (400): an unsaved draft's boundary has no members yet to draw within |
+| `VoterFileFilterSampleMember`                  | Who a list saved as a sample drew (`POST /v1/voters/voter-file/filter` with `sample`), frozen at save. Keyed like the geo members: `VoterFileFilter.sampleSize` set means a sample exists, and zero rows resolve to nobody, never to the whole audience. `resolveSampleIdFilter` intersects it everywhere `resolveGeoIdFilter` is (list, count, the edit wizard's `boundaryFromSegmentId`, overlap's saved sets), so the criteria still apply and the list can only shrink. Drawn by `ContactsService.drawListSample`, which resolves the criteria exactly as a count does, saves an audience no bigger than the sample whole, and leaves out whoever the lists behind `excludeOutreachIds` already drew. A sample with `panelSize` (Serve only, 400 for a campaign) is two draws within the criteria, `panelSize` from citizens' panel members and the rest from everyone else, frozen as one list and never saved whole. A sample with `recipientsOfOutreachId` (Serve only, 400 for a campaign) is a report back's audience: everyone that send's `OutreachTextRecipient` rows name who has not opted out of the org's texts since (`VoterFileFilterSampleService.personIdsReachedBy`), frozen whole when it fits in `size`, another org's send reaching nobody. A list drawn on the map cannot also be sampled (400): an unsaved draft's boundary has no members yet to draw within |
 | `ContactInteractionText`                       | Per-recipient send truth: `outreachId` FK, `respondedAt`, `optedOutAt`, `sourceEventId`, `manual`. Unique `[outreachId, personId]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`, `sourceCallId`) — but **the outcome columns are only ever written by the manual log**; campaign-materialized rows have them null forever (ADR 0013)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `ContactInteractionDoorKnock`                  | `outcome`, three-way `supportAnswer`, `note`, `manual`, `sourceId`, `actorUserId`. Unique `[organizationSlug, sourceId]`. Written by the in-house door-knocking tool, never by outreach launch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -213,8 +215,10 @@ returns `{ count }`. A voter read that exceeds the warehouse's timeout fails
 loudly as a `GatewayTimeoutException` (504) rather than degrading into a
 floored or partial count — see `src/peopleDb/CLAUDE.md`.
 
-A `segment` is either a built-in name (`segmentsToFiltersMap.const.ts`) or a
-`VoterFileFilter` id this org owns. Anything else — malformed, deleted,
+A `segment` is either a built-in name (`segmentsToFiltersMap.const.ts`), Serve's
+`civicPanel` (`CIVIC_PANEL_SEGMENT` in contracts: resolved as a saved list holding
+only `civicPanelMember`, so the same 400 for a non-`eo-` org and the same empty
+result for an empty panel), or a `VoterFileFilter` id this org owns. Anything else — malformed, deleted,
 cross-org — is a **404** (`resolveCustomSegment`), never "no filter". Widening
 an unresolvable segment to the whole district is the most expensive possible
 default: it served, and let `GET /v1/contacts/download` stream, every voter in
@@ -551,6 +555,124 @@ field rather than skipping it for Serve: `field: follow_up` for an `eo-` org,
 answer to a question its own canvassers never asked. `findPerson` includes
 `followUp` on the person payload for `eo-` orgs only, the exact mirror of
 `voterLikelihood`'s Win-only inclusion.
+
+### Serve's civic panel
+
+User-facing it is the "citizens' panel". Every surface that offers it is behind
+the `serve-citizen-panels` Amplitude flag (`SERVE_CITIZEN_PANELS_FLAG`): the
+`PATCH /civic-panel` route 404s with it off, and the webapp hides the record
+toggle, the list-builder groups, the door and call question, the SMS ask and
+the printed panel column. The data paths below stay live, so nothing is
+written with it off except by a flag-on surface.
+
+`ContactStatusField.civic_panel` is the layered status model's sixth field:
+the constituents who said yes to being asked for feedback. Each office has one
+panel, so the people at `member` are the panel. Vocabulary is
+`CivicPanelStatus { member, left }`, with `left` a real value for the ADR 0007
+reason (who joined and who left, and how, is the history an official will be
+asked to account for). It is built exactly like `follow_up`: written through
+`ContactStatusService.changeStatus`, Serve-only in both directions, seeded
+`left` because nobody is a member until they say yes, on the person payload
+for `eo-` orgs only, and read back in the Serve half of the activity feed's
+field filter. The contact card writes it (`updateCivicPanel`,
+`source: manual`).
+
+The Serve door and call flows close with "Do they want to join your citizens'
+panel?", stored as `join_civic_panel` (`FollowUpAnswer`) on
+`contact_interaction_door_knock` and `contact_interaction_phone_banking` as
+history for that one knock or call. Two writers turn a yes into
+`civic_panel = member`: `ContactInteractionDoorKnockService.emitCivicPanelEvent`
+(`source: door_knock`, `sourceId` stable per synced knock so a replay no-ops)
+and `PhoneBankingCallService.emitCivicPanelEvents` (`source: phone_banking`,
+`sourceId` stable per call and answer, so re-saving a yes never re-enrolls
+someone who left). Both carry the `eo-` guard
+and `fallbackFromValue: left`. Unlike follow-up, **only a yes writes**: a no at
+one door is not leaving the panel, so it never demotes a member. Leaving is the
+contact card or a texted STOP.
+
+A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
+contracts: "Reply JOIN to join my citizens' panel. My office will text you
+about once a month to ask what you think before I decide. Empowered by
+GoodParty.org.", in its own paragraph above the opt-out), and the create
+stamps `Outreach.asksToJoinCivicPanel` from the stored message. The create
+and the composer's lock recognize every wording in `CIVIC_PANEL_JOIN_LINES`
+(`findCivicPanelJoinLine`), because sends written before the line was
+rewritten carry the first one; the composer only writes the current line. The reply ingest
+(`OutreachTextIngestService.applyCivicPanelEvents`, `source: sms`, `sourceId`
+the reply's message id) writes `member` for a JOIN reply
+(`util/civicPanelJoin.util.ts`: the whole reply or a sentence of its own) on
+a send that asked, and `left` for any STOP on any Serve send, because panel
+membership is not consent to text. Replies apply in sent order, and a JOIN
+from anyone who has opted out on any send is skipped, so a STOP stays the
+last word across uploads.
+
+**The audience side.** `voter_file_filter.civic_panel_member` is the saved-
+filter dimension for the panel, built exactly like `follow_up_requested`:
+`ContactStatusService.personIdsByFieldValue(civic_panel, [member])` into an
+`id: { in }` constraint, AND-composed after the follow-up resolution in the
+Serve branch of `resolveIdFilterWithContactsMade` and in
+`resolveSavedFilterSets`, listed in `fieldsHandledSeparately`, and 400'd for
+a Win org by the same gate as follow-up. An empty panel resolves to an empty
+audience, never the district. Because it reads the standing status, someone
+who left drops out of a saved panel list on its next read. The catalog entry
+(`civicPanel`, `modes: 'serve'`) is what lets the Chief of Staff and the
+priority agent count and propose to the panel. It is not flag-filtered:
+with nobody on a panel it resolves to an empty audience.
+
+**Building the panel starts on the Chief of Staff home.** With the flag on,
+`GET /v1/dashboard/cards` runs `DashboardCardsService.syncCivicPanelCards`
+before it lists (with it off, it lists no `civic_panel` card at all). The
+office's one build card (`sourceExternalId` from contracts'
+`civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) links to
+`/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel`,
+and is done once any `text` row of the org with `asksToJoinCivicPanel` is past
+checkout (not `pending_payment`, `draft`, `canceled`, `denied` or `failed`):
+the purpose is not stored on the row, and the ask is what recruits. While it
+is open its due date rolls forward so it never lapses into missed. That sent
+text is its only way to done: the webapp offers it no Mark done, and
+`complete` leaves it untouched. It takes `dismiss` (Not for me, undone by
+`restore`, Bring it back in the archive) and `snooze` (Show in 3 days:
+`snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
+Alongside it, whatever its state, the sync makes a `civic_panel` next-step
+card per open priority (summary is the priority's `nextAction`, falling back
+to a first-step line), which opens the priority and takes the usual actions; while open, its due
+date rolls forward too, so it stays on the home as long as its priority does.
+The webapp puts the build card first and stacks the rest under it. One
+advisory lock per office serializes the sync, because
+the build card's null `sourceItemId` leaves the unique key unable to stop a
+second insert. The seed draw is contracts' `PANEL_SEED_SAMPLE_SIZE`:
+`ceil(PANEL_SEED_TARGET_MEMBERS / PANEL_SEED_ASSUMED_JOIN_RATE)`, 3,334 at
+100 members and 3%, under `MAX_LIST_SAMPLE_SIZE`.
+
+**Reporting back is a card too.** The same read runs
+`DashboardCardsService.syncReportBackCards`: one `report_back` card per
+priority text whose replies are in (`OutreachReportBackService.repliesInWhere`
+in `src/outreach/`), `sourceExternalId` the send's id, due
+`REPORT_BACK_DUE_DAYS` (14) after the read that made it, opening
+`/dashboard/priorities/<id>?reportBack=<outreachId>`. It is done once a text
+with `reportBackForOutreachId` set to that send is past checkout, and takes the
+same Mark done, Show in 3 days, Not for me and Bring it back. Flag off, no
+`report_back` card is made or listed.
+
+**The rest window.** `voter_file_filter.not_contacted_recently` (both
+products) leaves out anyone the org reached on any channel in the last
+`CONTACT_REST_DAYS` (30): `ContactsMadeResolutionService.personIdsContactedSince`
+unions the four interaction tables on `occurred_at` into an `id: { notIn }`
+constraint, applied before the Win/Serve split in
+`resolveIdFilterWithContactsMade` and in `resolveSavedFilterSets`. It is read
+when the list is read, so people come back in as their window passes.
+
+**The panel as a whole.** `CivicPanelSummaryService` backs the Serve
+Contacts page's "Your citizens' panel" section and its page. Members are
+the standing `member` set; `reachedRecently` is
+`countContactedSinceAmong(CONTACT_REST_DAYS, members)`, the rest window's
+rule counted in SQL over the member ids (so a busy office never hits the
+contacted-set cap), and `askableNow` is exactly who a panel list with "Not
+contacted in the last 30 days" holds. Past the map read's cap the comparison
+is drawn from the members returned, and `respondentCount` says how many. The representation reuses the priority results' math
+(`computeRepresentation`, `MIN_RESPONDENTS_FOR_REPRESENTATION`,
+`pointsForPeople`) and the one `CENSUS_COMPOSITION_SOURCE` binding in
+`CensusCompositionModule`, with members in place of respondents.
 
 ### Saved-filter lifecycle
 

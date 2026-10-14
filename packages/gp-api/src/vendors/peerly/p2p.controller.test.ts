@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, User } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { P2pController } from './p2p.controller'
@@ -43,6 +43,8 @@ const mockCampaign: Campaign = {
   data: {},
   details: { state: 'CA', electionDate: '2026-11-03' },
 }
+
+const mockUser = { id: 1, email: 'user@example.com' } as User
 
 function createMockReply(): FastifyReply {
   return { status: vi.fn().mockReturnThis() } as unknown as FastifyReply
@@ -443,7 +445,7 @@ describe('P2pController', () => {
         buildId: 'build-row-1',
       })
 
-      const result = await controller.uploadPhoneList(mockCampaign, {
+      const result = await controller.uploadPhoneList(mockUser, mockCampaign, {
         name: 'My List',
       })
 
@@ -459,10 +461,14 @@ describe('P2pController', () => {
       ).mockRejectedValue(new Error('Upload failed'))
 
       await expect(
-        controller.uploadPhoneList(mockCampaign, { name: 'My List' }),
+        controller.uploadPhoneList(mockUser, mockCampaign, {
+          name: 'My List',
+        }),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.uploadPhoneList(mockCampaign, { name: 'My List' }),
+        controller.uploadPhoneList(mockUser, mockCampaign, {
+          name: 'My List',
+        }),
       ).rejects.toMatchObject({
         message: 'Failed to upload phone list.',
       })
@@ -479,7 +485,9 @@ describe('P2pController', () => {
       ).mockRejectedValue(structured)
 
       await expect(
-        controller.uploadPhoneList(mockCampaign, { name: 'My List' }),
+        controller.uploadPhoneList(mockUser, mockCampaign, {
+          name: 'My List',
+        }),
       ).rejects.toBe(structured)
     })
   })

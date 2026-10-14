@@ -1,3 +1,4 @@
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { BadRequestException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
@@ -49,6 +50,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: QueueProducerService, useValue: queueProducer },
         { provide: PriorityStatusService, useValue: priorityStatus },
+        { provide: StripeService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()

@@ -41,9 +41,12 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
+      citizenPanels: true,
     })
     const result = await tool.execute({})
-    expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION)
+    expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
+      citizenPanels: true,
+    })
     expect(result).toEqual({ dimensions: serveDimensions })
   })
 
@@ -53,6 +56,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
+      citizenPanels: true,
     })
     expect(tool.inputSchema.safeParse({}).success).toBe(true)
     expect(
@@ -68,6 +72,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
+      citizenPanels: true,
     })
     expect(tool.description).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
@@ -81,6 +86,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
+      citizenPanels: true,
     })
     const result = await tool.execute({})
     if (!isDescribeFilterDimensionsOutput(result)) {
@@ -109,6 +115,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
+      citizenPanels: true,
     })
     expect(instructionLine(tool.description)).toContain(
       'before composing any filter for count_contacts or crud_saved_filters',
@@ -132,6 +139,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: [],
       peopleDataset: 'voters',
+      citizenPanels: true,
     })
     expect(instructionLine(tool.description)).not.toMatch(
       /count_contacts|crud_saved_filters/,
@@ -145,6 +153,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
+      citizenPanels: true,
     })
     expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
@@ -155,6 +164,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
       peopleDataset: 'constituents',
+      citizenPanels: true,
     })
     expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
     expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)

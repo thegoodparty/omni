@@ -24,6 +24,7 @@ import { ChannelPickerProvider } from './shared/channelPicker/ChannelPickerProvi
 import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
+import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -191,6 +192,7 @@ export const CrmContactsPage = () => {
                     />
                   </div>
 
+                  <CitizensPanelSection />
                   <RecommendedListsSection />
                   <ListsIndex />
                 </>

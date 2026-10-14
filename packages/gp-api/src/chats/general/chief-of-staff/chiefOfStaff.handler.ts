@@ -49,6 +49,10 @@ import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideCont
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import { FeaturesService } from '@/features/services/features.service'
+import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
@@ -109,6 +113,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly priorityStatus?: PriorityStatusService,
     @Optional()
     private readonly peopleDatasets?: PeopleDatasetService,
+    @Optional()
+    private readonly features?: FeaturesService,
+    @Optional()
+    private readonly reportBack?: OutreachReportBackService,
   ) {}
 
   async loadContext(
@@ -134,7 +142,22 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
       : 'voters'
-    if (!resolved) return { ...ctx, peopleDataset }
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: SERVE_CITIZEN_PANELS_FLAG,
+        })
+      : false
+    const reportBacks =
+      outreachFeedbackEnabled && this.reportBack
+        ? await this.reportBack.listForOffice(
+            ctx.organizationSlug,
+            ctx.electedOfficeId,
+          )
+        : undefined
+    if (!resolved) {
+      return { ...ctx, peopleDataset, outreachFeedbackEnabled, reportBacks }
+    }
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
@@ -143,6 +166,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       this.constituentTables[peopleDataset].length > 0
     return {
       ...ctx,
+      outreachFeedbackEnabled,
+      reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,
@@ -254,6 +279,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         priorityId: null,
         organizationSlug: ctx.organizationSlug,
       })
+      if (ctx.outreachFeedbackEnabled) {
+        tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
+          outreach: this.pastOutreach,
+          priorityId: null,
+          organizationSlug: ctx.organizationSlug,
+        })
+      }
       tools.present_past_outreach = buildPresentPastOutreachTool()
     }
 
@@ -312,6 +344,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(crmTools),
         peopleDataset: ctx.peopleDataset,
+        citizenPanels: ctx.outreachFeedbackEnabled === true,
       })
       Object.assign(tools, crmTools)
       // A proposal is sent against a saved list, so it is offered only where

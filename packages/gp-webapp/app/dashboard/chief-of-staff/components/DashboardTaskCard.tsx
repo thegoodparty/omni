@@ -9,6 +9,8 @@ interface Props {
   card: DashboardCard
   onSkip?: (id: string) => void
   skipDisabled?: boolean
+  onRestore?: (id: string) => void
+  restoreDisabled?: boolean
 }
 
 function formatDueDate(iso: string): string | null {
@@ -24,6 +26,8 @@ export default function DashboardTaskCard({
   card,
   onSkip,
   skipDisabled,
+  onRestore,
+  restoreDisabled,
 }: Props): React.JSX.Element {
   const { label } = cardCategory(card.type)
   const dueLine = formatDueDate(card.dueDate)
@@ -37,6 +41,8 @@ export default function DashboardTaskCard({
       ctaHref={card.ctaHref}
       onSkip={onSkip ? () => onSkip(card.id) : undefined}
       skipDisabled={skipDisabled}
+      onRestore={onRestore ? () => onRestore(card.id) : undefined}
+      restoreDisabled={restoreDisabled}
     />
   )
 }

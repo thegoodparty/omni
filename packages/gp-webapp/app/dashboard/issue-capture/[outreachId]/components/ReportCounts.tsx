@@ -7,15 +7,17 @@ import { whatWeHeardCopy } from '../../copy'
 // over its label as on the theme cards' tiles.
 const ReportCounts = ({
   denominators,
+  channel,
   isServe,
 }: {
   denominators: FeedbackReportResponse['denominators']
+  channel: FeedbackReportResponse['channel']
   isServe: boolean
 }) => {
   const copy = whatWeHeardCopy(isServe)
   const tiles: Array<[string, number]> = [
-    [copy.countAnswered, denominators.conversations],
-    [copy.countNoted, denominators.memos],
+    [copy.countAnswered(channel), denominators.conversations],
+    [copy.countNoted(channel), denominators.memos],
   ]
 
   return (

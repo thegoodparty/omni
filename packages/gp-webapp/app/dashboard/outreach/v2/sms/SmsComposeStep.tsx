@@ -15,10 +15,12 @@ import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
+  Checkbox,
   cn,
   FilterPill,
   FilterPillGroup,
   IconButton,
+  Label,
   type ProtectedSpec,
   seamlessFieldHost,
   TokenField,
@@ -56,7 +58,13 @@ const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
   paid_for_by: 'The law requires this line, but you can write around it.',
   opt_out_line:
     'Every text has to offer a way to opt out, but you can write around it.',
+  civic_panel_join:
+    "This is how people join your citizens' panel. Uncheck the box below to remove it.",
 }
+
+// A text that builds the panel is its ask, so there is no box to uncheck.
+const LOCKED_JOIN_REASON =
+  "This is how people join your citizens' panel, but you can write around it."
 
 const LOCKED_FALLBACK =
   'This part is required, but you can reword anything around it.'
@@ -90,7 +98,7 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 // right words for them.
 const IMAGE_DROPZONE_LABEL = {
   win: 'Add your campaign headshot or logo',
-  serve: 'Add a header image (optional)',
+  serve: 'Add your header image',
 } as const
 
 interface SmsComposeStepProps {
@@ -123,6 +131,13 @@ interface SmsComposeStepProps {
   onImageChange: (file: File | null) => void
   imageError: string | null
   onImageError: (message: string | null) => void
+  // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
+  // on a text whose purpose is the ask.
+  civicPanelAsk?: {
+    checked: boolean
+    locked?: boolean
+    onChange: (checked: boolean) => void
+  }
 }
 
 // Plain-language fix per failed compliance rule. The greeting, opt-out, and
@@ -169,6 +184,7 @@ export const SmsComposeStep = ({
   onImageChange,
   imageError,
   onImageError,
+  civicPanelAsk,
 }: SmsComposeStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
@@ -205,7 +221,10 @@ export const SmsComposeStep = ({
             text: part.text,
             // The copy the lock rules chose (the footer, not a quote of it).
             start: part.start,
-            reason: LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK,
+            reason:
+              part.rule === 'civic_panel_join' && civicPanelAsk?.locked
+                ? LOCKED_JOIN_REASON
+                : (LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK),
           },
         ]
       : [],
@@ -413,6 +432,28 @@ export const SmsComposeStep = ({
             </IconButton>
           </div>
         </Card>
+        {civicPanelAsk && (
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="civic-panel-ask"
+              checked={civicPanelAsk.checked}
+              disabled={civicPanelAsk.locked}
+              onCheckedChange={(value) =>
+                civicPanelAsk.onChange(value === true)
+              }
+              className="mt-0.5"
+            />
+            <Label htmlFor="civic-panel-ask" className="block">
+              <span className="block text-sm font-medium">
+                Ask them to join your citizens&apos; panel
+              </span>
+              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                People who reply JOIN are added to your panel for future
+                questions.
+              </span>
+            </Label>
+          </div>
+        )}
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your

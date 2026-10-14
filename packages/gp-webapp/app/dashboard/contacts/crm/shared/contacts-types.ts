@@ -1,4 +1,6 @@
 import type {
+  CivicPanelStatus,
+  CivicPanelStatusResponse,
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
@@ -30,6 +32,7 @@ import type {
   TextConstituentActivity,
   UpdateContactStatusInput,
   UpdateFollowUpInput,
+  UpdateCivicPanelInput,
   VoterLikelihood,
   VoterOutreachAttributionSource,
 } from '@goodparty_org/contracts'
@@ -77,6 +80,14 @@ export type { ContactStatuses, UpdateContactStatusInput, VoterLikelihood }
 // both of Win's editable statuses and a Serve write can honestly supply
 // neither.
 export type { FollowUpStatus, FollowUpStatusResponse, UpdateFollowUpInput }
+
+// PATCH /v1/contacts/:personId/civic-panel, its own endpoint for the same
+// reason as follow-up.
+export type {
+  CivicPanelStatus,
+  CivicPanelStatusResponse,
+  UpdateCivicPanelInput,
+}
 
 export type ListContactsResponse = PeopleListResponse
 

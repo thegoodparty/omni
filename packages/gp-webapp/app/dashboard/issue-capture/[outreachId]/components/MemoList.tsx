@@ -1,6 +1,6 @@
 import type {
-  ConstituentFeedbackChannel,
   ConstituentFeedbackIssue,
+  FeedbackReportChannel,
 } from '@goodparty_org/contracts'
 import { Badge, Card, EmptyState, Overline } from '@styleguide'
 import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
@@ -10,7 +10,7 @@ export interface MemoListItem {
   transcript: string | null
   issues: ConstituentFeedbackIssue[]
   actorName: string | null
-  channel: ConstituentFeedbackChannel
+  channel: FeedbackReportChannel
   occurredAt: Date
   // Listed, never counted: a note nobody who was there has confirmed.
   pending: boolean
@@ -24,18 +24,25 @@ const formatDate = (value: Date): string =>
   })
 
 // The notes themselves, on the report while there are no themes to show and
-// under them once there are, and as a theme's members on its own page.
+// under them once there are, and as a theme's members on its own page. On a
+// text send, the replies constituents wrote.
 const MemoList = ({
   memos,
+  channel,
   isServe,
 }: {
   memos: MemoListItem[]
+  // The effort's own channel, for the empty state: a text send with nothing
+  // yet is waiting on replies, not notes.
+  channel: FeedbackReportChannel
   isServe: boolean
 }) => {
   const copy = whatWeHeardCopy(isServe)
   const stanceLabels = STANCE_LABELS[isServe ? 'serve' : 'win']
 
-  if (memos.length === 0) return <EmptyState message={copy.noNotes} />
+  if (memos.length === 0) {
+    return <EmptyState message={copy.noNotes(channel)} />
+  }
 
   return (
     // A card per note, the theme cards' own frame and padding, so each
@@ -53,7 +60,9 @@ const MemoList = ({
               {' · '}
               {formatDate(memo.occurredAt)}
               {' · '}
-              {copy.summaryBy(memo.actorName)}
+              {memo.channel === 'text'
+                ? copy.theirReply
+                : copy.summaryBy(memo.actorName)}
             </p>
             {/* The note as written, set apart the way a field shows its
               value and in the muted colour, so it reads as the source and

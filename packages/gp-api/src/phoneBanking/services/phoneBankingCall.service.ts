@@ -13,6 +13,7 @@ import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbac
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { mapWillVoteToLikelihood } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import {
+  CivicPanelStatus,
   ContactInteractionPhoneBanking,
   ContactStatusField,
   ContactStatusSource,
@@ -40,6 +41,7 @@ type RowInput = {
   supportAnswer: SupportAnswer | null
   willVote: WillVoteAnswer | null
   followUp: FollowUpAnswer | null
+  joinCivicPanel: FollowUpAnswer | null
   note: string | null
   actorUserId: number
 }
@@ -129,6 +131,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     // recordIdempotent() use.
     await this.emitLikelihoodEvents(rows)
     await this.emitFollowUpEvents(rows)
+    await this.emitCivicPanelEvents(rows)
 
     // The list just finished: its memos can be summarized. Fire-and-forget,
     // resolved lazily like the turf's trigger. The call is already saved, so
@@ -158,6 +161,7 @@ export class PhoneBankingCallService extends createPrismaBase(
           supportAnswer: row.supportAnswer,
           willVote: row.willVote,
           followUp: row.followUp,
+          joinCivicPanel: row.joinCivicPanel,
           occurredAt: row.occurredAt,
         },
       })),
@@ -210,6 +214,7 @@ export class PhoneBankingCallService extends createPrismaBase(
           supportAnswer: input.supportAnswer ?? null,
           willVote: input.willVote ?? null,
           followUp: input.followUp ?? null,
+          joinCivicPanel: input.joinCivicPanel ?? null,
           note: input.note ?? null,
           actorUserId,
         }),
@@ -240,6 +245,7 @@ export class PhoneBankingCallService extends createPrismaBase(
             supportAnswer: null,
             willVote: null,
             followUp: null,
+            joinCivicPanel: null,
             note: input.note ?? null,
             actorUserId,
           }),
@@ -300,6 +306,7 @@ export class PhoneBankingCallService extends createPrismaBase(
         supportAnswer: null,
         willVote: null,
         followUp: null,
+        joinCivicPanel: null,
         note: null,
         actorUserId,
       })),
@@ -421,6 +428,29 @@ export class PhoneBankingCallService extends createPrismaBase(
         // Nobody is born flagged, so an answer of "no" against no prior flag
         // is a no-op rather than a logged transition that never happened.
         fallbackFromValue: FollowUpStatus.cleared,
+      })
+    }
+  }
+
+  // Serve-only, like follow-up. Only a yes writes: declining on one call is
+  // not leaving the panel, so a "no" must never demote an existing member.
+  // Unlike the follow-up twin, the sourceId is stable per call and answer:
+  // re-saving a yes on someone who has since left must not put them back.
+  private async emitCivicPanelEvents(
+    rows: ContactInteractionPhoneBanking[],
+  ): Promise<void> {
+    for (const row of rows) {
+      if (row.joinCivicPanel !== FollowUpAnswer.yes) continue
+      if (!row.organizationSlug.startsWith('eo-')) continue
+      await this.contactStatus.changeStatus({
+        organizationSlug: row.organizationSlug,
+        personId: row.personId,
+        field: ContactStatusField.civic_panel,
+        toValue: CivicPanelStatus.member,
+        source: ContactStatusSource.phone_banking,
+        actorUserId: row.actorUserId,
+        sourceId: `${row.id}:${row.joinCivicPanel}`,
+        fallbackFromValue: CivicPanelStatus.left,
       })
     }
   }

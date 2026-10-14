@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
+  deriveSmsProtectedParts,
+  SOCIAL_TONE_VALUES,
+  type SocialTone,
+} from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
   composeScript,
@@ -13,6 +19,8 @@ import {
   restoreSmsSystemRegions,
   unfilledBrackets,
   upgradeScriptFooter,
+  withCivicPanelJoin,
+  composeServeScript,
 } from './smsCompose.util'
 
 // The identification sentence is the one piece of Serve copy that could not
@@ -360,5 +368,54 @@ describe('restoreSmsSystemRegions', () => {
       'Hello {first_name}, vote Tuesday.\n\nOur event was paid for by the community.' +
         `\n\n${regions.footer}`,
     )
+  })
+})
+
+describe('withCivicPanelJoin', () => {
+  const base = composeServeScript('The park cleanup is Saturday.')
+
+  it('puts the ask in its own paragraph, above the opt-out', () => {
+    expect(withCivicPanelJoin(base, true)).toBe(
+      `Hello {{first_name}}, The park cleanup is Saturday.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('explains what joining means', () => {
+    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/about once a month/)
+    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/what you think/)
+  })
+
+  // A draft saved before the line was rewritten carries the earlier wording.
+  it('reads the earlier wording as asked, and locks and removes it', () => {
+    const legacy = CIVIC_PANEL_JOIN_LINES[1]
+    const asked = base.replace(OPT_OUT_FOOTER, `${legacy}\n\n${OPT_OUT_FOOTER}`)
+    expect(withCivicPanelJoin(asked, true)).toBe(asked)
+    expect(withCivicPanelJoin(asked, false)).toBe(base)
+    expect(
+      deriveSmsProtectedParts(asked, { channel: 'serve' }).find(
+        (candidate) => candidate.rule === 'civic_panel_join',
+      ),
+    ).toMatchObject({ text: legacy, start: asked.indexOf(legacy) })
+  })
+
+  it('takes it back out and leaves the message as it was', () => {
+    expect(withCivicPanelJoin(withCivicPanelJoin(base, true), false)).toBe(base)
+  })
+
+  it('does nothing when the message already matches', () => {
+    expect(withCivicPanelJoin(base, false)).toBe(base)
+    const asked = withCivicPanelJoin(base, true)
+    expect(withCivicPanelJoin(asked, true)).toBe(asked)
+  })
+
+  it('locks the ask so it cannot be edited out from under the reply reader', () => {
+    const asked = withCivicPanelJoin(base, true)
+    const part = deriveSmsProtectedParts(asked, { channel: 'serve' }).find(
+      (candidate) => candidate.rule === 'civic_panel_join',
+    )
+    expect(part).toMatchObject({
+      text: CIVIC_PANEL_JOIN_LINE,
+      start: asked.indexOf(CIVIC_PANEL_JOIN_LINE),
+    })
   })
 })

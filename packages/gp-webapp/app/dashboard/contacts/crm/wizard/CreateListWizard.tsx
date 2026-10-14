@@ -46,6 +46,7 @@ import { useListWizardCount } from './useListWizardCount'
 import { useListWizardOverlapCount } from './useListWizardOverlapCount'
 import { useListWizardPolygonCount } from './useListWizardPolygonCount'
 import OverlapBar from './OverlapBar'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 
 type WizardStepName = 'branch' | 'conditions' | 'boundary' | 'name'
 
@@ -89,6 +90,8 @@ export default function CreateListWizard({
     voterDataUnavailable,
   } = useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
+  const { enabled: citizenPanelsEnabled } =
+    useServeCitizenPanelsFlag(isElectedOfficial)
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -817,6 +820,7 @@ export default function CreateListWizard({
           precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
           showRecommendedListFilters
+          showCitizenPanelFilters={citizenPanelsEnabled}
         />
       )}
       {stepName === 'conditions' && activeBranch === 'activity' && (

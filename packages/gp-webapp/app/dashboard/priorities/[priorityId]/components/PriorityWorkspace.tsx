@@ -12,9 +12,16 @@ import {
   SheetTrigger,
   Skeleton,
 } from '@styleguide'
-import { ListChecksIcon } from '@styleguide/components/ui/icons'
+import Link from 'next/link'
 import {
+  ChartColumnIcon,
+  ListChecksIcon,
+} from '@styleguide/components/ui/icons'
+import {
+  isReportBackMessage,
+  isToolRefusal,
   parsePriorityStatus,
+  reportBackMessage,
   type ChatAnchor,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
@@ -60,6 +67,7 @@ import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { priorityFlowChatApi } from '../data/chat-api'
 import { fetchPriorityStatus } from '../data/priority-api'
 import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
@@ -134,6 +142,31 @@ const statusMarker = (
 })
 
 const RAIL_TITLE = 'Where this stands'
+const RESULTS_LINK = 'What we heard'
+
+const ResultsLink = ({
+  priorityId,
+}: {
+  priorityId: string
+}): React.JSX.Element | null => {
+  const { enabled } = useServeCitizenPanelsFlag()
+  if (!enabled) return null
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="small"
+      className="mt-3 w-full gap-1.5"
+    >
+      <Link
+        href={`/dashboard/priorities/${encodeURIComponent(priorityId)}/results`}
+      >
+        <ChartColumnIcon className="size-4" aria-hidden />
+        {RESULTS_LINK}
+      </Link>
+    </Button>
+  )
+}
 
 type PriorityWorkspaceProps = {
   priorityId: string
@@ -142,6 +175,8 @@ type PriorityWorkspaceProps = {
   initialStatus: PriorityStatus
   initialNextAction: string | null
   initialCurrentStep: string | null
+  // The send a "Report back" card opened this priority on, if one did.
+  reportBackOutreachId?: number | null
 }
 
 const PriorityWorkspaceBody = ({
@@ -151,8 +186,12 @@ const PriorityWorkspaceBody = ({
   initialStatus,
   initialNextAction,
   initialCurrentStep,
+  reportBackOutreachId = null,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
+  // Read once: the param is dropped from the address after the turn is
+  // queued, so a reload never asks twice.
+  const reportBackRef = useRef(reportBackOutreachId)
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -224,6 +263,14 @@ const PriorityWorkspaceBody = ({
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (
+        event.type === 'tool_result' &&
+        event.toolCallId &&
+        isToolRefusal(event.result)
+      ) {
+        const key = `${event.toolName}-${event.toolCallId}`
+        setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
+      }
       if (event.type === 'tool_input_start') {
         setGeneratingTool(event.toolName)
         setAfterFinding(false)
@@ -373,9 +420,30 @@ const PriorityWorkspaceBody = ({
           currentStep: initialCurrentStep,
           isNewConversation: history.length === 0,
         })
+        // A report back card's turn is the opener on a fresh thread, and
+        // otherwise waits its turn behind anything in flight, once per send.
+        const reportBackId = reportBackRef.current
+        reportBackRef.current = null
+        if (reportBackId !== null) {
+          router.replace(`/dashboard/priorities/${priorityId}`, {
+            scroll: false,
+          })
+        }
+        const reportBackTurn =
+          reportBackId === null ? null : reportBackMessage(reportBackId)
         if (history.length === 0) {
-          sendRef.current(KICKOFF, { hidden: true, idOverride: id })
+          sendRef.current(reportBackTurn ?? KICKOFF, {
+            hidden: true,
+            idOverride: id,
+          })
           return
+        }
+        if (
+          reportBackTurn !== null &&
+          !history.some((m) => m.content === reportBackTurn)
+        ) {
+          pendingSent.current.push(reportBackTurn)
+          setSentTick((tick) => tick + 1)
         }
         if (history[history.length - 1]?.role !== 'user') return
         setAwaitingReply(true)
@@ -413,6 +481,7 @@ const PriorityWorkspaceBody = ({
     initialCurrentStep,
     setMessages,
     retryNonce,
+    router,
   ])
 
   const markers = useMemo(() => replayStatusMarkers(messages), [messages])
@@ -446,7 +515,8 @@ const PriorityWorkspaceBody = ({
           (later) =>
             later.role === 'user' &&
             later.content !== KICKOFF &&
-            !isProposalSentMessage(later.content),
+            !isProposalSentMessage(later.content) &&
+            !isReportBackMessage(later.content),
         )
       if (reply) answers[message.id] = reply.content
     })
@@ -458,7 +528,9 @@ const PriorityWorkspaceBody = ({
         (m) =>
           !(
             m.role === 'user' &&
-            (m.content === KICKOFF || isProposalSentMessage(m.content))
+            (m.content === KICKOFF ||
+              isProposalSentMessage(m.content) ||
+              isReportBackMessage(m.content))
           ),
       ),
     [messages],
@@ -565,6 +637,7 @@ const PriorityWorkspaceBody = ({
                       nextAction={nextAction}
                       className="border-0 shadow-none"
                     />
+                    <ResultsLink priorityId={priorityId} />
                   </SheetBody>
                 </SheetContent>
               </Sheet>
@@ -666,6 +739,7 @@ const PriorityWorkspaceBody = ({
 
       <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
         <PriorityStatusRail status={status} nextAction={nextAction} />
+        <ResultsLink priorityId={priorityId} />
       </aside>
       <CardDetailSheetHost />
     </div>

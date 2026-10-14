@@ -103,6 +103,12 @@ vi.mock('helpers/createOutreach', () => ({
   createOutreach: vi.fn(async () => ({ id: 55 })),
 }))
 
+// Win SMS hold-billing flag — default off (unchanged flow); flipped per test.
+const winSmsHoldRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('app/shared/experiments/winSmsHoldFlag', () => ({
+  useWinSmsHoldFlag: () => ({ ready: true, enabled: winSmsHoldRef.enabled }),
+}))
+
 const completeFreePurchase = vi.fn(
   async (
     _type: string,
@@ -122,20 +128,17 @@ vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
     completeFreePurchase(type, meta),
 }))
 
-// The flow reads campaign (details/office, free-texts offer, ownerName, the
-// WIN_SMS_HOLD_BILLING flag) and user (first name) from their providers; both
-// are context-mocked at the hook level. The campaign is a mutable ref so
-// per-test cases can flip fields (ownerName, winSmsHoldBillingEnabled); the
-// base is the owner-composing shape (session user Jane IS the owner),
-// matching the real GET /v1/campaigns/mine payload — hold billing defaults
-// off (unchanged flow) and is flipped per test.
+// The flow reads campaign (details/office, free-texts offer, ownerName) and
+// user (first name) from their providers; both are context-mocked at the
+// hook level. The campaign is a mutable ref so per-test cases can flip
+// fields (ownerName); the base is the owner-composing shape (session user
+// Jane IS the owner), matching the real GET /v1/campaigns/mine payload.
 const campaignState = vi.hoisted(() => {
   const base = () => ({
     id: 9,
     isPro: true,
     hasFreeTextsOffer: true,
     ownerName: 'Jane Doe',
-    winSmsHoldBillingEnabled: false,
     positionName: undefined as string | undefined,
     details: { normalizedOffice: 'City Council' } as {
       normalizedOffice?: string
@@ -256,6 +259,7 @@ const TCR_FIXTURE = {
 describe('SmsFlow', () => {
   beforeEach(() => {
     campaignState.campaign = campaignState.base()
+    winSmsHoldRef.enabled = false
     // Reset the module mock a pay-before-ready test overrides to 'building', so
     // it never leaks a non-ready build into a later test.
     vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
@@ -442,7 +446,7 @@ describe('SmsFlow', () => {
 
   describe('Win SMS hold billing: pay before the build is ready', () => {
     it('flag ON: creates the draft on the estimate while the build is still building (no phoneListId)', async () => {
-      campaignState.campaign.winSmsHoldBillingEnabled = true
+      winSmsHoldRef.enabled = true
 
       await reachReviewWhileBuilding()
 
@@ -458,7 +462,7 @@ describe('SmsFlow', () => {
     })
 
     it('flag OFF: waits for the build — no draft is created while it is still building', async () => {
-      campaignState.campaign.winSmsHoldBillingEnabled = false
+      winSmsHoldRef.enabled = false
 
       await reachReviewWhileBuilding()
 
@@ -473,8 +477,8 @@ describe('SmsFlow', () => {
     })
 
     it('flag ON + async build (null token): reaches pay-before-ready off the buildId', async () => {
-      campaignState.campaign.winSmsHoldBillingEnabled = true
-      // Async build (gp-api, same WIN_SMS_HOLD_BILLING flag): no token yet,
+      winSmsHoldRef.enabled = true
+      // Async build (gp-api, same win_sms_hold_billing flag): no token yet,
       // only the build id — the biggest lists pay while they build.
       vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
         ok: true,
@@ -494,8 +498,15 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
-    it('flag OFF + async build (null token): errors at audience, does not advance (unchanged)', async () => {
-      campaignState.campaign.winSmsHoldBillingEnabled = false
+    // NO CLIENT/SERVER RACE: gp-api and the browser evaluate the SAME managed
+    // flag independently, so this client's own read can lag the server's
+    // (e.g. the Amplitude JS SDK hasn't resolved yet when the request fires).
+    // A null token is the server's own proof it ran the async build — trusted
+    // unconditionally, never re-validated against this client's possibly-stale
+    // `holdBillingActive` belief, so a legitimate response can never be
+    // rejected as a false "could not prepare this audience" error.
+    it('a null token always advances, even while this client reads the flag off (server is the source of truth)', async () => {
+      winSmsHoldRef.enabled = false
       vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
         ok: true,
         token: null,
@@ -511,15 +522,11 @@ describe('SmsFlow', () => {
         await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
       )
 
-      // Without the flag a null token is still unusable: the audience step shows
-      // its error and never advances to scheduling.
       expect(
-        await screen.findByText(
-          "We couldn't prepare this audience. Try again.",
-        ),
+        await screen.findByText('When do you want to send it?'),
       ).toBeInTheDocument()
       expect(
-        screen.queryByText('When do you want to send it?'),
+        screen.queryByText("We couldn't prepare this audience. Try again."),
       ).not.toBeInTheDocument()
     })
   })
@@ -2565,5 +2572,34 @@ describe('SuccessScreen receipt', () => {
       'noopener',
     )
     open.mockRestore()
+  })
+
+  it("ends a citizens' panel send on what happens next and the panel's page", async () => {
+    const onDone = vi.fn()
+    render(
+      <SuccessScreen
+        contactCount={3334}
+        sendAt={new Date('2026-09-08T11:00:00')}
+        outreachId={56}
+        paid={false}
+        seedsPanel
+        onDone={onDone}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Your panel invite is scheduled' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('It goes to 3,334 residents on Tue, Sep 8, 2026.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Anyone who replies JOIN/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
+    const back = screen.getByRole('link', {
+      name: "See your citizens' panel",
+    })
+    expect(back).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    await userEvent.click(back)
+    expect(onDone).toHaveBeenCalled()
   })
 })

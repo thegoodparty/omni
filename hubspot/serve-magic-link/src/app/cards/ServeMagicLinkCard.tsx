@@ -17,8 +17,15 @@ import { useCrmProperties } from '@hubspot/ui-extensions/crm'
 const FUNCTION_UID = 'serve_magic_link_function'
 
 // Contact properties forwarded to the serverless function and shown to the rep
-// for confirmation before generating the link.
-const CONTACT_PROPERTIES = ['email', 'firstname', 'lastname', 'br_person_id']
+// for confirmation before generating the link. `hs_object_id` is not shown; it
+// lets gp-api store which Contact the link was sent from.
+const CONTACT_PROPERTIES = [
+  'email',
+  'firstname',
+  'lastname',
+  'br_person_id',
+  'hs_object_id',
+]
 
 // `propertiesToSend` is passed at call time on 2026.03 (it is no longer
 // declared in the card's *-hsmeta.json config); the function reads them from
@@ -100,11 +107,15 @@ function ServeMagicLinkCard({ actions }: { actions: Actions }) {
     if (!url) return
     try {
       await actions.copyTextToClipboard(url)
-      actions.addAlert({ type: 'success', message: 'Magic link copied to clipboard.' })
+      actions.addAlert({
+        type: 'success',
+        message: 'Magic link copied to clipboard.',
+      })
     } catch {
       actions.addAlert({
         type: 'warning',
-        message: "Couldn't copy automatically — select the link field and copy manually.",
+        message:
+          "Couldn't copy automatically — select the link field and copy manually.",
       })
     }
   }
@@ -169,13 +180,21 @@ function ServeMagicLinkCard({ actions }: { actions: Actions }) {
               fallback if it doesn't arrive.
             </Alert>
           ) : (
-            <Alert title="Auto-send failed — copy the link manually" variant="warning">
-              The magic link was generated, but emailing it automatically
-              failed{sendError ? `: ${sendError}` : '.'} Copy the link below and
-              send it to the elected official manually.
+            <Alert
+              title="Auto-send failed — copy the link manually"
+              variant="warning"
+            >
+              The magic link was generated, but emailing it automatically failed
+              {sendError ? `: ${sendError}` : '.'} Copy the link below and send
+              it to the elected official manually.
             </Alert>
           )}
-          <Input name="magic-link-url" label="Magic link" readOnly value={url} />
+          <Input
+            name="magic-link-url"
+            label="Magic link"
+            readOnly
+            value={url}
+          />
           <Button onClick={copy}>Copy link</Button>
         </Flex>
       ) : null}
