@@ -5,7 +5,10 @@ import {
   ChatMessageRole,
   ChatScope,
 } from '../../../generated/prisma'
-import type { ChatMessageFeedback as ChatMessageFeedbackDTO } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  type ChatMessageFeedback as ChatMessageFeedbackDTO,
+} from '@goodparty_org/contracts'
 import { ChatMessageFeedbackService } from '@/chats/services/chatMessageFeedback.prisma'
 import {
   ChatMessageWithSegments,
@@ -62,7 +65,13 @@ export interface SendMessageArgs {
   pagePath?: string
 }
 
+// The build card's hidden turn would title the conversation with its marker,
+// which the history list then shows the official.
+const BUILD_CITIZENS_PANEL_TITLE = 'Build your civic panel'
+
 const toTitle = (message: string): string => {
+  if (message === BUILD_CITIZENS_PANEL_MESSAGE)
+    return BUILD_CITIZENS_PANEL_TITLE
   const trimmed = message.trim().replace(/\s+/g, ' ')
   return trimmed.length <= TITLE_MAX_LENGTH
     ? trimmed

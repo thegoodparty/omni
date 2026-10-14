@@ -871,6 +871,9 @@ export {
   DASHBOARD_CARD_SNOOZE_DAYS,
   civicPanelBuildCardSourceId,
   isCivicPanelBuildCard,
+  CIVIC_PANEL_BUILD_CHAT_PARAM,
+  CIVIC_PANEL_BUILD_CHAT_VALUE,
+  CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -1678,4 +1681,6 @@ export {
   PANEL_SEED_TARGET_MEMBERS,
   PANEL_SEED_ASSUMED_JOIN_RATE,
   PANEL_SEED_SAMPLE_SIZE,
+  BUILD_CITIZENS_PANEL_MARKER,
+  BUILD_CITIZENS_PANEL_MESSAGE,
 } from './outreach/CivicPanelJoin'

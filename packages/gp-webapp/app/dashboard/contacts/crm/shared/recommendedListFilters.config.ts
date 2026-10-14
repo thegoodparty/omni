@@ -70,7 +70,7 @@ export const CIVIC_PANEL_FILTER_KEY = 'civicPanelMember'
 export const CIVIC_PANEL_FIELD = {
   key: 'civic_panel',
   label: "Citizens' Panel",
-  options: [{ key: CIVIC_PANEL_FILTER_KEY, label: "On Your Citizens' Panel" }],
+  options: [{ key: CIVIC_PANEL_FILTER_KEY, label: "On your citizens' panel" }],
 }
 
 // Both products: a rest window that leaves out anyone the office reached on

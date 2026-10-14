@@ -4,14 +4,21 @@ import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  BUILD_CITIZENS_PANEL_PURPOSE,
   MAX_CHECK_RAISES,
+  PANEL_SEED_ASSUMED_JOIN_RATE,
+  PANEL_SEED_TARGET_MEMBERS,
   PRIORITY_STEP_LABELS,
   SAMPLE_TARGET_REPLIES,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
 } from '@goodparty_org/contracts'
-import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
+import {
+  ChiefOfStaffContext,
+  type CivicPanelBuildState,
+} from './chiefOfStaffContext.service'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
@@ -249,6 +256,57 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
   ].join('\n')
 }
 
+// What the agent does when the official presses Get started on the "Build
+// your citizens' panel" card: the home sends BUILD_CITIZENS_PANEL_MESSAGE as
+// a hidden turn. Behind serve-citizen-panels (civicPanel is only read with it
+// on). The steps follow what is already true, so it never offers a second
+// invite or a text the office cannot send.
+const civicPanelBuildBlock = (
+  panel: CivicPanelBuildState,
+  toolNames: string[],
+): string => {
+  const canPropose =
+    toolNames.includes('size_panel_invite') &&
+    toolNames.includes('present_outreach_proposal') &&
+    toolNames.includes('count_contacts')
+  const explain =
+    '- Explain what a civic panel is, calling it their civic panel, in 2 or 3 short sentences: residents who said yes to being texted about once a month to share what they think, so the official hears from the whole community, not only the loudest voices.'
+  const state =
+    panel.members > 0
+      ? [
+          `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line and do not propose another invite. Offer to help them ask the panel about a priority instead.`,
+        ]
+      : panel.inviteSent
+        ? [
+            '- Their panel invite already went out, and people join as they reply JOIN. Say so in one line and do not propose another invite. Nobody has joined yet, so suggest checking back in a few days.',
+          ]
+        : !panel.textingEnabled
+          ? [
+              explain,
+              '- Texting is not set up for their office yet, and the panel starts with a text, so you cannot build it today. Say so plainly in one line and do not draft or present anything.',
+            ]
+          : !canPropose
+            ? [
+                explain,
+                '- You cannot count the district or present a text in this conversation, so you cannot build it here. Say so in one line, and point them to the panel card on their home.',
+              ]
+            : [
+                explain,
+                '- Count everyone in the district with a cell phone: `count_contacts` with { hasCellPhone: true } and nothing else. Then call `size_panel_invite` with that count. Quote only the numbers those two return.',
+                `- Walk through the math in plain words, in 3 or 4 short sentences, from those numbers: the panel aims for about ${PANEL_SEED_TARGET_MEMBERS} members; about ${Math.round(PANEL_SEED_ASSUMED_JOIN_RATE * 100)} in 100 people reply JOIN to a first text; so you would text a random group of sendTo residents with a cell phone; random, so the panel looks like the district and not only the people who already reach out; it costs about the cost it returned, quoted exactly as written. Never call it free. When wholeAudience is true, say the district has fewer people with a cell phone than that, so the text goes to all of them.`,
+                '- Never say "sample", "sample size", "opt-in rate", "join rate", "seed" or "conversion". Say "a random group of".',
+                "- Draft the invite in the official's own voice, first person: who they are, what the panel is (residents their office texts about once a month to hear what they think before they decide), and why it matters to them. Under 4 sentences. Never write the line asking people to reply JOIN, how to join, or a sign-up step: the text adds that line and locks it. Never promise topics, how many texts, or what they will do with the answers.",
+                `- Present it as one text card with \`present_outreach_proposal\`: channel text, purpose ${BUILD_CITIZENS_PANEL_PURPOSE}, civicPanelAsk true, audienceFilters { hasCellPhone: true }, count from count_contacts, sampleSize set to sendTo, and listName "Civic panel invite". Leave targetResponses and assumedReplyRate out. The SAMPLING RULES and \`size_outreach_sample\` do not apply to this text.`,
+                '- One card, no alternatives, no second channel. Do not ask whether they want it first: the card is how they say yes.',
+              ]
+  return [
+    `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", or they ask to build or start their civic panel):`,
+    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app when they press Get started on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
+    ...state,
+    '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters.',
+  ].join('\n')
+}
+
 const cardRulesBlock = (toolNames: string[]): string | null => {
   const has = (name: string): boolean => toolNames.includes(name)
   const lines = [
@@ -336,6 +394,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
+  size_panel_invite: 'size and price the text that builds the civic panel',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:
@@ -597,6 +656,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('present_outreach_proposal') &&
     toolNames.includes('size_outreach_sample')
       ? [outreachSamplingBlock(toolNames)]
+      : []),
+    ...(ctx.civicPanel
+      ? [civicPanelBuildBlock(ctx.civicPanel, toolNames)]
       : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
