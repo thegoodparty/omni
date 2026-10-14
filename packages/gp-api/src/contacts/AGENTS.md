@@ -706,7 +706,12 @@ it takes `dismiss`, `snooze` and `restore`. While open its due date rolls
 forward. It is deleted, skipped or not, once its priority is archived, and
 recreated if it is unarchived; a ready plan (null step) deletes it too,
 unless it is done, and it is recreated when a step comes open again.
-The webapp puts the build card first and stacks the rest under it. One
+The webapp leads with the Chief of Staff's `meet` get-started card while it
+is active, then the build card, then the `priorities` get-started card, then
+the rest. `meet` is done only once its button opens the intro
+(`PUT /v1/dashboard/onboarding-cards/meet/complete`, an
+`OnboardingCardCompletion` row), never by any Chief of Staff conversation:
+the build card's own chat would otherwise hide it from a new official. One
 advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
 second insert. The seed draw is contracts' `PANEL_SEED_SAMPLE_SIZE`:
@@ -718,7 +723,9 @@ second insert. The seed draw is contracts' `PANEL_SEED_SAMPLE_SIZE`:
 priority text whose replies are in (`OutreachReportBackService.repliesInWhere`
 in `src/outreach/`), `sourceExternalId` the send's id, due
 `REPORT_BACK_DUE_DAYS` (14) after the read that made it, opening
-`/dashboard/priorities/<id>?reportBack=<outreachId>`. It is done once a text
+`/dashboard/priorities/<id>?reportBack=<outreachId>`. Its words follow the
+current copy in every state, rewritten on read like the build card's. It is
+done once a text
 with `reportBackForOutreachId` set to that send is past checkout, and takes the
 same Mark done, Show in 3 days, Not for me and Bring it back. Flag off, no
 `report_back` card is made or listed.

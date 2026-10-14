@@ -113,7 +113,7 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
     })
     expect(build?.summary).toBe(
       'Decisions land better when you know what the whole community ' +
-        'thinks, not just who shows up.',
+        'thinks, not only who shows up.',
     )
     expect(build?.summary.split(' ').length).toBeLessThanOrEqual(20)
     expect(
