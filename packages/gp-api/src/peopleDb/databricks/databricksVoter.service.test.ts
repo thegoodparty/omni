@@ -211,6 +211,7 @@ describe('DatabricksVoterService', () => {
     })
 
     it('answers 422, not 500, when the district type is not a voter column', async () => {
+      findDistrictById.mockReset()
       stubDistrict('Congressional_District_2026', '29')
       query.mockRejectedValueOnce(
         new Error(
@@ -227,6 +228,7 @@ describe('DatabricksVoterService', () => {
     })
 
     it('keeps an unresolved column that is not the district type a 500', async () => {
+      findDistrictById.mockReset()
       stubDistrict('US_Congressional_District', '29')
       const failure = new Error(
         'Databricks statement FAILED: [UNRESOLVED_COLUMN.WITH_SUGGESTION] name `v`.`Typo_Column` cannot be resolved.',
@@ -650,6 +652,22 @@ describe('DatabricksVoterService', () => {
         BadGatewayException,
       )
       expect(logger.error).toHaveBeenCalled()
+    })
+
+    it('answers 422, not 500, when the district type is not a voter column', async () => {
+      findDistrictById.mockReset()
+      stubDistrict('Congressional_District_2026', '29')
+      query
+        .mockRejectedValueOnce(
+          new Error(
+            'Databricks statement FAILED: [UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name `v`.`Congressional_District_2026` cannot be resolved. SQLSTATE: 42703',
+          ),
+        )
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.findStats(DISTRICT_ID, 'voters')).rejects.toThrow(
+        UnprocessableEntityException,
+      )
     })
   })
 
