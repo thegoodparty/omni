@@ -576,7 +576,16 @@ describe('SmsFlow (Serve surface)', () => {
     ).toBeGreaterThan(0)
     expect(screen.queryByText('What do you want to do?')).toBeNull()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    // The header image is still asked for here, on the message.
+    expect(screen.getByText('Add your header image')).toBeInTheDocument()
+    const next = screen.getByRole('button', { name: 'Continue' })
+    expect(next).toBeDisabled()
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() => expect(next).toBeEnabled())
+    await userEvent.click(next)
     expect(
       (await screen.findAllByText('When do you want to send?')).length,
     ).toBeGreaterThan(0)
