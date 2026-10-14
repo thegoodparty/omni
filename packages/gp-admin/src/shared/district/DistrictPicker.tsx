@@ -49,7 +49,7 @@ export function DistrictPicker({
   const [selectedName, setSelectedName] = useState<string>(
     initialL2DistrictName ?? SELECT_NONE
   )
-  const [loadingTypes, setLoadingTypes] = useState(false)
+  const [loadingTypes, setLoadingTypes] = useState(true)
   const [loadingNames, setLoadingNames] = useState(false)
   const [saving, setSaving] = useState(false)
   const [excludeInvalid, setExcludeInvalid] = useState(defaultExcludeInvalid)
