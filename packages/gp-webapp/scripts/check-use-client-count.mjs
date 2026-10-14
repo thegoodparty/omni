@@ -507,7 +507,12 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-29: 592 -> 591. The Priorities chat's own turnBlocks.tsx, a copy of
 // the shared splicer, was deleted when every chat moved onto the shared widget
 // registry. Locked in per the policy above.
-const BASELINE = 591
+// 2026-10-14: 591 -> 593 for the SMS compliance cutoff. SmsCutoffNotice fires
+// its viewed event from an effect and tracks the channel a candidate picks,
+// and useSmsCompliance reads the campaign through the client campaign
+// context, so neither can render on the server. SmsCutoffNoticeDialog and
+// SmsCutoffPage carry no directive.
+const BASELINE = 593
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
