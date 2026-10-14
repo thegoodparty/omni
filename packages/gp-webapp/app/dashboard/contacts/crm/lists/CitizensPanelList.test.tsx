@@ -102,7 +102,7 @@ describe('CitizensPanelListCard', () => {
       detail()
       return { status: 500, data: {} }
     })
-    mockSummary(2, '2026-10-13T18:00:00.000Z')
+    mockSummary(2, '2026-10-13T12:00:00.000Z')
     render(<CitizensPanelListCard />)
 
     expect(
@@ -259,16 +259,16 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
         name: 'Ask about the park',
         outreachType: 'nativePhoneBanking',
         status: 'completed',
-        date: '2026-10-13T18:00:00.000Z',
-        createdAt: '2026-10-12T18:00:00.000Z',
+        date: '2026-10-13T12:00:00.000Z',
+        createdAt: '2026-10-12T12:00:00.000Z',
       },
       {
         id: 3,
         name: 'Join my civic panel',
         outreachType: 'text',
         status: 'completed',
-        date: '2026-09-01T18:00:00.000Z',
-        createdAt: '2026-08-30T18:00:00.000Z',
+        date: '2026-09-01T12:00:00.000Z',
+        createdAt: '2026-08-30T12:00:00.000Z',
       },
     ] as unknown as OutreachHistory)
     render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
