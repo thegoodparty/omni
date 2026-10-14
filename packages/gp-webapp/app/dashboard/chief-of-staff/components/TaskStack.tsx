@@ -328,9 +328,10 @@ const TaskStack = ({
                 )
               )}
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                {/* A get-started card and the build card close themselves
-                    once their goal is met, so they offer no manual Mark done. */}
-                {!front.onboardingKey && !front.buildsPanel && (
+                {/* Get-started and citizens' panel cards close themselves once
+                    their goal is met (a priority card, once the priority is
+                    resolved), so they offer no manual Mark done. */}
+                {!front.onboardingKey && front.kind !== 'civic_panel' && (
                   <Button
                     type="button"
                     variant="outline"
@@ -351,7 +352,8 @@ const TaskStack = ({
                   </Button>
                 )}
                 {!leaving &&
-                  (front.buildsPanel || front.kind === 'report_back' ? (
+                  (front.kind === 'civic_panel' ||
+                  front.kind === 'report_back' ? (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button

@@ -632,9 +632,13 @@ text is its only way to done: the webapp offers it no Mark done, and
 `restore`, Bring it back in the archive) and `snooze` (Show in 3 days:
 `snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
 Alongside it, whatever its state, the sync makes a `civic_panel` next-step
-card per open priority (summary is the priority's `nextAction`, falling back
-to a first-step line), which opens the priority and takes the usual actions; while open, its due
-date rolls forward too, so it stays on the home as long as its priority does.
+card per open priority, which opens the priority. Its summary is what the
+Priorities page shows: `nextAction`, or with none, the current step's
+`PRIORITY_STEP_LABELS` label (`currentStepOf`), or "Plan ready". It has no
+Mark done (`complete` ignores every `civic_panel` card, and a priority card
+done before that reopens on the next read); it takes `dismiss`, `snooze` and
+`restore`. While open its due date rolls forward, and it is deleted, skipped
+or not, once its priority is archived, and recreated if it is unarchived.
 The webapp puts the build card first and stacks the rest under it. One
 advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a

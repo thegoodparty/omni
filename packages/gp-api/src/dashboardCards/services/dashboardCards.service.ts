@@ -20,7 +20,10 @@ import {
   DashboardCardBucket,
   PANEL_SEED_SAMPLE_SIZE,
   PRICE_PER_TEXT,
+  PRIORITY_STEP_IDS,
+  PRIORITY_STEP_LABELS,
 } from '@goodparty_org/contracts'
+import { currentStepOf } from '@/priorities/util/priority.util'
 import {
   briefingItemHref,
   briefingOverviewHref,
@@ -44,20 +47,23 @@ const CIVIC_PANEL_CARD_DUE_DAYS = 30
 export const civicPanelCardHref = (priorityId: string): string =>
   `/dashboard/priorities/${encodeURIComponent(priorityId)}`
 
-const PRIORITY_NOT_STARTED_STEP = 'Start by naming the problem in one sentence.'
-const PRIORITY_NEXT_STEP_FALLBACK = 'Pick up where you left off.'
+type PriorityForCard = Pick<
+  Priority,
+  'id' | 'title' | 'status' | 'currentStep' | 'nextAction'
+>
 
-type PriorityForCard = Pick<Priority, 'id' | 'title' | 'status' | 'nextAction'>
+// What the Priorities page shows for the priority: its "Next" line, or with
+// none, the step badge, so the card and the page never disagree.
+const priorityStepLabel = (priority: PriorityForCard): string => {
+  const currentStep = currentStepOf(priority)
+  if (!currentStep) return 'Plan ready'
+  const step = PRIORITY_STEP_IDS.find((id) => id === currentStep)
+  return step ? PRIORITY_STEP_LABELS[step] : 'Plan ready'
+}
 
-// The priority's next step, in the words its status rail shows under "Next".
-// A priority never worked has no status yet, so it starts at the first step.
 const priorityNextStepCardContent = (priority: PriorityForCard) => ({
   title: priority.title,
-  summary:
-    priority.nextAction?.trim() ||
-    (priority.status === null
-      ? PRIORITY_NOT_STARTED_STEP
-      : PRIORITY_NEXT_STEP_FALLBACK),
+  summary: priority.nextAction?.trim() || priorityStepLabel(priority),
   ctaLabel: 'Open priority',
   ctaHref: civicPanelCardHref(priority.id),
 })
@@ -332,17 +338,24 @@ export class DashboardCardsService extends createPrismaBase(
     }
   }
 
-  // One next-step card per open priority. A skipped or done card stays that way; only
-  // its words follow a renamed priority. An open card stands for as long as
-  // its priority does, so it does not lapse into missed. A card whose priority
-  // was archived or deleted goes, unless the official already acted on it.
+  // One next-step card per open priority, there until the priority is
+  // resolved (archived or deleted), and back if it is unarchived. Its words
+  // follow the priority's next step; a skipped card stays skipped. It cannot
+  // be done by hand, and does not lapse into missed, so there is always a
+  // next step waiting.
   private async syncPriorityPanelCards(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
   ): Promise<void> {
     const priorities = await tx.priority.findMany({
       where: { electedOfficeId, archivedAt: null },
-      select: { id: true, title: true, status: true, nextAction: true },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        currentStep: true,
+        nextAction: true,
+      },
     })
     const openIds = priorities.map((priority) => priority.id)
 
@@ -350,8 +363,6 @@ export class DashboardCardsService extends createPrismaBase(
       where: {
         electedOfficeId,
         type: DashboardCardType.civic_panel,
-        dismissedAt: null,
-        completedAt: null,
         sourceExternalId: {
           notIn: [...openIds, civicPanelBuildCardSourceId(electedOfficeId)],
         },
@@ -387,12 +398,17 @@ export class DashboardCardsService extends createPrismaBase(
         card.summary !== content.summary ||
         card.ctaLabel !== content.ctaLabel ||
         card.ctaHref !== content.ctaHref
-      const lapsed =
-        !card.dismissedAt && !card.completedAt && card.dueDate < now
+      // A card marked done before priority cards lost Mark done reopens.
+      const reopen = !!card.completedAt
+      const lapsed = !card.dismissedAt && (reopen || card.dueDate < now)
       if (stale || lapsed) {
         await tx.dashboardCard.update({
           where: { id: card.id },
-          data: { ...content, ...(lapsed && { dueDate }) },
+          data: {
+            ...content,
+            ...(lapsed && { dueDate }),
+            ...(reopen && { completedAt: null }),
+          },
         })
       }
     }
@@ -594,7 +610,8 @@ export class DashboardCardsService extends createPrismaBase(
     })
   }
 
-  // The build card is done only by its text going out.
+  // Citizens' panel cards finish on their own: the build card when its text
+  // goes out, a priority card when its priority is resolved.
   async complete(electedOfficeId: string, id: string): Promise<void> {
     await this.client.dashboardCard.updateMany({
       where: {
@@ -602,7 +619,7 @@ export class DashboardCardsService extends createPrismaBase(
         electedOfficeId,
         dismissedAt: null,
         completedAt: null,
-        sourceExternalId: { not: civicPanelBuildCardSourceId(electedOfficeId) },
+        type: { not: DashboardCardType.civic_panel },
       },
       data: { completedAt: new Date(), snoozedUntil: null },
     })
