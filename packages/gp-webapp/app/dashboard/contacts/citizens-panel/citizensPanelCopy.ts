@@ -26,8 +26,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   seeMembers: 'See members',
   listTitle: 'Civic panel',
   listFilter: 'On your civic panel.',
-  listMembersError: "We couldn't load your panel members. Try again later.",
-  unnamedMember: 'Name not on file',
   representationTitle: "Who's on your panel",
   representationCaption:
     'Compares the neighborhoods members live in with your whole district.',
