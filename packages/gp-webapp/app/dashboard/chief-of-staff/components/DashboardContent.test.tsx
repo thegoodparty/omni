@@ -77,7 +77,7 @@ const message = (
 })
 
 const REPLY =
-  "A citizens' panel is a group of residents who said yes to a text about once a month."
+  'A civic panel is a group of residents who said yes to a text about once a month.'
 
 const arriveWith = (params: string) => {
   vi.mocked(useSearchParams).mockReturnValue(
@@ -112,7 +112,7 @@ afterEach(() => {
   )
 })
 
-describe("DashboardContent: Get started on the citizens' panel card", () => {
+describe('DashboardContent: Get started on the civic panel card', () => {
   it('opens the chat on the home, started by a turn the official never sees', async () => {
     arriveWith('chat=build_citizens_panel')
     render(<DashboardContent />)
@@ -126,7 +126,7 @@ describe("DashboardContent: Get started on the citizens' panel card", () => {
     expect(
       await screen.findByText(REPLY, undefined, { timeout: 5000 }),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/Help me build my citizens' panel/)).toBeNull()
+    expect(screen.queryByText(/Help me build my civic panel/)).toBeNull()
     expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff', {
       scroll: false,
     })

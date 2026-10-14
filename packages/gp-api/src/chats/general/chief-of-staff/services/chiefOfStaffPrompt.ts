@@ -270,11 +270,11 @@ const civicPanelBuildBlock = (
     toolNames.includes('present_outreach_proposal') &&
     toolNames.includes('count_contacts')
   const explain =
-    "- Explain what a citizens' panel is in 2 or 3 short sentences: residents who said yes to being texted about once a month to share what they think, so the official hears from the whole community, not only the loudest voices."
+    '- Explain what a civic panel is, calling it their civic panel, in 2 or 3 short sentences: residents who said yes to being texted about once a month to share what they think, so the official hears from the whole community, not only the loudest voices.'
   const state =
     panel.members > 0
       ? [
-          `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their citizens' panel. Say so in one line and do not propose another invite. Offer to help them ask the panel about a priority instead.`,
+          `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line and do not propose another invite. Offer to help them ask the panel about a priority instead.`,
         ]
       : panel.inviteSent
         ? [
@@ -288,7 +288,7 @@ const civicPanelBuildBlock = (
           : !canPropose
             ? [
                 explain,
-                "- You cannot count the district or present a text in this conversation, so you cannot build it here. Say so in one line, and point them to the Build your citizens' panel card on their home.",
+                '- You cannot count the district or present a text in this conversation, so you cannot build it here. Say so in one line, and point them to the panel card on their home.',
               ]
             : [
                 explain,
@@ -296,12 +296,12 @@ const civicPanelBuildBlock = (
                 `- Walk through the math in plain words, in 3 or 4 short sentences, from those numbers: the panel aims for about ${PANEL_SEED_TARGET_MEMBERS} members; about ${Math.round(PANEL_SEED_ASSUMED_JOIN_RATE * 100)} in 100 people reply JOIN to a first text; so you would text a random group of sendTo residents with a cell phone; random, so the panel looks like the district and not only the people who already reach out; it costs about costDollars. When wholeAudience is true, say the district has fewer people with a cell phone than that, so the text goes to all of them.`,
                 '- Never say "sample", "sample size", "opt-in rate", "join rate", "seed" or "conversion". Say "a random group of".',
                 "- Draft the invite in the official's own voice, first person: who they are, what the panel is (residents their office texts about once a month to hear what they think before they decide), and why it matters to them. Under 4 sentences. Never write the line asking people to reply JOIN, how to join, or a sign-up step: the text adds that line and locks it. Never promise topics, how many texts, or what they will do with the answers.",
-                `- Present it as one text card with \`present_outreach_proposal\`: channel text, purpose ${BUILD_CITIZENS_PANEL_PURPOSE}, civicPanelAsk true, audienceFilters { hasCellPhone: true }, count from count_contacts, sampleSize set to sendTo, and listName "Citizens' panel invite". Leave targetResponses and assumedReplyRate out. The SAMPLING RULES and \`size_outreach_sample\` do not apply to this text.`,
+                `- Present it as one text card with \`present_outreach_proposal\`: channel text, purpose ${BUILD_CITIZENS_PANEL_PURPOSE}, civicPanelAsk true, audienceFilters { hasCellPhone: true }, count from count_contacts, sampleSize set to sendTo, and listName "Civic panel invite". Leave targetResponses and assumedReplyRate out. The SAMPLING RULES and \`size_outreach_sample\` do not apply to this text.`,
                 '- One card, no alternatives, no second channel. Do not ask whether they want it first: the card is how they say yes.',
               ]
   return [
-    `CITIZENS' PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", or they ask to build or start their citizens' panel):`,
-    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app when they press Get started on the Build your citizens' panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
+    `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", or they ask to build or start their civic panel):`,
+    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app when they press Get started on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
     ...state,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters.',
   ].join('\n')
@@ -394,7 +394,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
-  size_panel_invite: "size and price the text that builds the citizens' panel",
+  size_panel_invite: 'size and price the text that builds the civic panel',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:

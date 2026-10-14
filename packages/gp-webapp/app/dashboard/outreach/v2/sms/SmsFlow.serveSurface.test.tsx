@@ -519,7 +519,7 @@ describe('SmsFlow (Serve surface)', () => {
         surface={SERVE_SMS_SURFACE}
         initialPurpose="build_citizens_panel"
         initialAsksToJoinCivicPanel
-        initialScript="this is Jane, your Council Member. I am starting a citizens' panel to hear from all of you."
+        initialScript="this is Jane, your Council Member. I am starting a civic panel to hear from all of you."
       />,
     )
 
@@ -536,7 +536,7 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText(/I am starting a citizens' panel/),
+      await screen.findByText(/I am starting a civic panel/),
     ).toBeInTheDocument()
     expect(
       screen.getByText(/Reply JOIN to join my citizens' panel/),

@@ -118,7 +118,7 @@ describe("a priority's text card to the panel and new residents", () => {
   })
 })
 
-describe("the Chief of Staff's citizens' panel invite", () => {
+describe("the Chief of Staff's civic panel invite", () => {
   beforeEach(() => {
     smsFlow.props = null
   })
@@ -133,7 +133,7 @@ describe("the Chief of Staff's citizens' panel invite", () => {
       count: 12_000,
       channel: 'text',
       audienceFilters: { hasCellPhone: true },
-      listName: "Citizens' panel invite",
+      listName: 'Civic panel invite',
       message: MESSAGE,
       deepLinkOnly: false,
       sampleSize: 3334,
@@ -146,7 +146,7 @@ describe("the Chief of Staff's citizens' panel invite", () => {
     expect(props?.initialAsksToJoinCivicPanel).toBe(true)
     expect(props?.initialScript).toBe(MESSAGE)
     expect(props?.proposedAudience).toMatchObject({
-      name: "Citizens' panel invite",
+      name: 'Civic panel invite',
       filters: { hasCellPhone: true },
       sample: { size: 3334, seedKey: PROPOSAL_KEY },
     })

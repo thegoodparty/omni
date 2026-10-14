@@ -128,7 +128,7 @@ export const OutreachProposalSchema = z.object({
     ),
   /**
    * Text only, Serve only: the purpose the text flow opens on, past its
-   * purpose picker. Only the citizens' panel invite sets it, so the flow
+   * purpose picker. Only the civic panel invite sets it, so the flow
    * locks the join line and the build card closes once it is paid for.
    */
   purpose: ServeSmsPurposeSchema.optional(),

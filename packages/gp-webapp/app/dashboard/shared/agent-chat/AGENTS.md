@@ -211,7 +211,7 @@ there is the agent's to say, once, in its message; no card repeats it.
   SMS flag reads off, a text
   proposal says texting is not available instead of offering a button.
   A Serve text proposal may carry `purpose` (contracts' Serve SMS purposes;
-  the Chief of Staff only ever sets `build_citizens_panel`, for the citizens'
+  the Chief of Staff only ever sets `build_citizens_panel`, for the civic
   panel invite). `SmsFlow` then opens on it as `initialPurpose`, past the
   picker, with the seeded message kept (a script otherwise opens on
   `custom`), the JOIN line locked on, and Back leaving the flow rather than

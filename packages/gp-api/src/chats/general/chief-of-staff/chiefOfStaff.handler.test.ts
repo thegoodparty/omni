@@ -648,7 +648,7 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
-  describe("building the citizens' panel", () => {
+  describe('building the civic panel', () => {
     const buildPanelHandler = (flags: {
       panels: boolean
       texting: boolean
@@ -711,7 +711,7 @@ describe('ChiefOfStaffHandler', () => {
       count: 12_000,
       channel: 'text' as const,
       audienceFilters: { hasCellPhone: true },
-      listName: "Citizens' panel invite",
+      listName: 'Civic panel invite',
       message:
         'Hi, this is Jordan, your Council Member. I am starting a citizens ' +
         'panel so I hear from all of you before I decide.',
@@ -729,7 +729,7 @@ describe('ChiefOfStaffHandler', () => {
 
       const prompt = handler.buildSystemPrompt(ctx)
       expect(prompt).toContain(
-        "CITIZENS' PANEL (apply when the user's message is exactly " +
+        "CIVIC PANEL (apply when the user's message is exactly " +
           `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
       )
       expect(prompt).toContain('`count_contacts` with { hasCellPhone: true }')
@@ -789,7 +789,7 @@ describe('ChiefOfStaffHandler', () => {
       const { handler } = buildPanelHandler({ panels: true, texting: true })
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(handler.buildSystemPrompt(ctx)).toContain(
-        "They already have 42 people on their citizens' panel",
+        'They already have 42 people on their civic panel',
       )
       expect(
         await proposalTool(handler.buildTools(ctx)).execute(invite),
@@ -835,7 +835,7 @@ describe('ChiefOfStaffHandler', () => {
       expect(inputKeys(proposalTool(tools))).toEqual(
         Object.keys(buildPresentOutreachProposalTool().inputSchema.shape),
       )
-      expect(handler.buildSystemPrompt(ctx)).not.toContain("CITIZENS' PANEL")
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('CIVIC PANEL')
     })
   })
 

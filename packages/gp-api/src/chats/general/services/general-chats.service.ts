@@ -67,7 +67,7 @@ export interface SendMessageArgs {
 
 // The build card's hidden turn would title the conversation with its marker,
 // which the history list then shows the official.
-const BUILD_CITIZENS_PANEL_TITLE = "Build your citizens' panel"
+const BUILD_CITIZENS_PANEL_TITLE = 'Build your civic panel'
 
 const toTitle = (message: string): string => {
   if (message === BUILD_CITIZENS_PANEL_MESSAGE)

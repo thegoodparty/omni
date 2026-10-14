@@ -123,7 +123,7 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
 })
 
 // The Chief of Staff's card behind serve-citizen-panels, with texting on: it
-// can also be the citizens' panel invite, the one text that carries a
+// can also be the civic panel invite, the one text that carries a
 // purpose, so the flow opens on it with the join line locked.
 const chiefOfStaffPanelProposalInput = presentOutreachProposalInput.extend({
   civicPanelAsk: OutreachProposalSchema.shape.civicPanelAsk,
@@ -131,7 +131,7 @@ const chiefOfStaffPanelProposalInput = presentOutreachProposalInput.extend({
     .literal(BUILD_CITIZENS_PANEL_PURPOSE)
     .optional()
     .describe(
-      "Only for the invite that builds the citizens' panel. Leave it out " +
+      'Only for the invite that builds the civic panel. Leave it out ' +
         'for every other piece of outreach.',
     ),
 })
@@ -139,7 +139,7 @@ type ChiefOfStaffPanelProposalInput = z.infer<
   typeof chiefOfStaffPanelProposalInput
 >
 
-// Why a Chief of Staff proposal's citizens' panel part cannot be shown, or
+// Why a Chief of Staff proposal's civic panel part cannot be shown, or
 // null. The invite goes once, to a random group of the district's cell
 // phones sized for about 100 members, with the join ask on.
 export const checkPanelInvite = (
@@ -156,29 +156,29 @@ export const checkPanelInvite = (
 ): string | null => {
   if (input.purpose === undefined) {
     return input.civicPanelAsk
-      ? "civicPanelAsk is only for the invite that builds the citizens' " +
+      ? 'civicPanelAsk is only for the invite that builds the civic ' +
           `panel. Set purpose to ${BUILD_CITIZENS_PANEL_PURPOSE} for that, ` +
           'or leave civicPanelAsk out.'
       : null
   }
   if (panel.members > 0) {
     return (
-      `They already have ${panel.members} people on their citizens' panel, ` +
+      `They already have ${panel.members} people on their civic panel, ` +
       'so do not invite again. Tell them so.'
     )
   }
   if (panel.inviteSent) {
     return (
-      "Their citizens' panel invite already went out, so do not send " +
+      'Their civic panel invite already went out, so do not send ' +
       'another. Tell them so: people join as they reply JOIN.'
     )
   }
   if (input.channel !== 'text') {
-    return "The citizens' panel invite is a text. Set channel to text."
+    return 'The civic panel invite is a text. Set channel to text.'
   }
   if (input.civicPanelAsk !== true) {
     return (
-      "The citizens' panel invite asks people to join. Set civicPanelAsk " +
+      'The civic panel invite asks people to join. Set civicPanelAsk ' +
       'to true and present again.'
     )
   }
@@ -187,7 +187,7 @@ export const checkPanelInvite = (
   const filters = input.audienceFilters ?? {}
   if (Object.keys(filters).length !== 1 || filters.hasCellPhone !== true) {
     return (
-      "The citizens' panel invite goes to everyone in the district with a " +
+      'The civic panel invite goes to everyone in the district with a ' +
       'cell phone. Count with { hasCellPhone: true } and nothing else, and ' +
       'pass that as audienceFilters.'
     )
@@ -208,7 +208,7 @@ export const buildChiefOfStaffOutreachProposalTool = (panel: {
 }): LlmStreamTool<typeof chiefOfStaffPanelProposalInput> => ({
   description:
     DESCRIPTION +
-    "\n\nFor the invite that builds the citizens' panel, set purpose to " +
+    '\n\nFor the invite that builds the civic panel, set purpose to ' +
     `${BUILD_CITIZENS_PANEL_PURPOSE} and civicPanelAsk to true. The flow ` +
     'adds the line asking people to reply JOIN and locks it, so never write ' +
     'that ask or how to join into the message.',

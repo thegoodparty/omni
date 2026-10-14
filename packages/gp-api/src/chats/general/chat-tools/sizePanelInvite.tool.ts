@@ -41,7 +41,7 @@ export const buildSizePanelInviteTool = (): LlmStreamTool<
   typeof sizePanelInviteInput
 > => ({
   description:
-    "Size the text that builds the citizens' panel. Call it after " +
+    'Size the text that builds the civic panel. Call it after ' +
     'count_contacts counts the district with a cell phone. Returns the ' +
     'members it aims for, how many in 100 are expected to reply JOIN, how ' +
     'many residents to text (sendTo), whether that is all of them, and ' +

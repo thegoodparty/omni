@@ -340,7 +340,7 @@ describe('GeneralChatsService', () => {
     )
     expect(store.setTitleIfUnset).toHaveBeenCalledWith(
       'c1',
-      "Build your citizens' panel",
+      'Build your civic panel',
     )
   })
 
