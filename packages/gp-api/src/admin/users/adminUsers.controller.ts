@@ -7,6 +7,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -18,7 +19,7 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
-import { Prisma, UserRole } from '../../generated/prisma'
+import { Prisma, User, UserRole } from '../../generated/prisma'
 import { subDays, subMonths } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -125,17 +126,23 @@ export class AdminUsersController {
     @Req() req: IncomingRequest,
     @Body() body: AdminSignInLinkSchema,
   ) {
+    const m2mActor = req.user
+      ? null
+      : await this.findStaffActor(body.actorEmail)
+
     const user = await this.usersService.findUniqueOrThrow({ where: { id } })
     const { token, clerkId, expiresAt } =
       await this.usersService.createSignInLink(user.id)
 
     const actorClerkId =
-      req.actorUser?.clerkId ?? req.user?.clerkId ?? req.actorSub ?? null
+      m2mActor?.clerkId ??
+      req.actorUser?.clerkId ??
+      req.user?.clerkId ??
+      req.actorSub ??
+      null
 
     // Minting a link is not permission-gated in gp-admin, so this line is the
-    // only record of who did it. actorEmail is read straight off the body
-    // rather than through resolveActorClerkId, which hard-fails an M2M caller
-    // that supplies none — and this route must stay callable without one.
+    // only record of who did it.
     this.logger.info(
       {
         targetUserId: user.id,
@@ -168,13 +175,12 @@ export class AdminUsersController {
   // Resolves which Clerk ID to embed as actor.sub in the impersonation token.
   //
   // gp-admin and gp-api/gp-webapp run on separate Clerk instances, so an admin's
-  // Clerk ID from gp-admin is never valid here. We accept actorEmail instead and
-  // resolve it against gp-api's Clerk instance. If the admin has no account in
-  // this instance (common — they may have never logged into the webapp), we fall
-  // back to the email string itself. Clerk does not validate actor.sub at token
-  // creation time, so this works in practice; SessionGuard's startsWith('user_')
-  // check prevents the downstream 404 latency on every subsequent request.
-  // If Clerk ever starts validating actor.sub, admins will need gp-api accounts.
+  // Clerk ID from gp-admin is never valid here. We accept actorEmail instead,
+  // which must belong to a gp-api admin. If that admin's row has no Clerk ID,
+  // we resolve the email against gp-api's Clerk instance and fall back to the
+  // email string itself. Clerk does not validate actor.sub at token creation
+  // time, so this works in practice; SessionGuard's startsWith('user_') check
+  // prevents the downstream 404 latency on every subsequent request.
   private async resolveActorClerkId(
     req: IncomingRequest,
     actorEmail?: string,
@@ -191,21 +197,35 @@ export class AdminUsersController {
     // without re-resolving so the actor identity stays consistent for the session
     if (req.actorSub) return req.actorSub
 
-    // M2M initial impersonation from gp-admin: resolve email → gp-api Clerk ID,
-    // falling back to the email string if the admin has no gp-api account
-    if (actorEmail) {
-      const identity = await this.usersService.resolveClerkIdByEmail(actorEmail)
-      if (identity.source === 'email-fallback') {
-        this.logger.warn(
-          { actorEmail },
-          'Actor has no gp-api Clerk account — using email as actor.sub fallback',
-        )
-        return identity.email
-      }
-      return identity.clerkId
-    }
+    // M2M initial impersonation from gp-admin: the named actor must be a
+    // gp-api admin; use their Clerk ID, else resolve it by email
+    const actor = await this.findStaffActor(actorEmail)
+    if (actor.clerkId) return actor.clerkId
 
-    throw new BadRequestException('actorEmail is required when using M2M auth')
+    const identity = await this.usersService.resolveClerkIdByEmail(actor.email)
+    if (identity.source === 'email-fallback') {
+      this.logger.warn(
+        { actorEmail: actor.email },
+        'Actor has no gp-api Clerk account — using email as actor.sub fallback',
+      )
+      return identity.email
+    }
+    return identity.clerkId
+  }
+
+  // An M2M token proves the calling service, not the person acting through it,
+  // so the actor it names has to be a real admin here.
+  private async findStaffActor(actorEmail?: string): Promise<User> {
+    if (!actorEmail) {
+      throw new BadRequestException(
+        'actorEmail is required when using M2M auth',
+      )
+    }
+    const actor = await this.usersService.findUserByEmail(actorEmail)
+    if (!actor?.roles.includes(UserRole.admin)) {
+      throw new ForbiddenException('actorEmail must belong to an admin user')
+    }
+    return actor
   }
 
   @Delete(':id')

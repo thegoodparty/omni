@@ -160,14 +160,11 @@ describe('AdminUsersController', () => {
       expect(result).toEqual({ token: 'swap_token' })
     })
 
-    it('resolves actorEmail via resolveClerkIdByEmail when called via M2M', async () => {
+    it("uses the admin actor's gp-api Clerk ID when called via M2M", async () => {
       vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
         mockTargetUser,
       )
-      vi.spyOn(usersService, 'resolveClerkIdByEmail').mockResolvedValue({
-        source: 'clerk',
-        clerkId: mockUser.clerkId!,
-      })
+      vi.spyOn(usersService, 'findUserByEmail').mockResolvedValue(mockUser)
       vi.spyOn(usersService, 'impersonateUser').mockResolvedValue({
         token: 'm2m_token',
       })
@@ -177,9 +174,8 @@ describe('AdminUsersController', () => {
         actorEmail: mockUser.email,
       })
 
-      expect(usersService.resolveClerkIdByEmail).toHaveBeenCalledWith(
-        mockUser.email,
-      )
+      expect(usersService.findUserByEmail).toHaveBeenCalledWith(mockUser.email)
+      expect(usersService.resolveClerkIdByEmail).not.toHaveBeenCalled()
       expect(usersService.impersonateUser).toHaveBeenCalledWith(
         mockTargetUser.id,
         mockUser.clerkId,
@@ -206,14 +202,17 @@ describe('AdminUsersController', () => {
       )
     })
 
-    it('uses email directly as actor identity when no Clerk account exists in this environment', async () => {
-      const unknownEmail = 'unknown@example.com'
+    it('uses email as actor identity when the admin has no Clerk account', async () => {
       vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
         mockTargetUser,
       )
+      vi.spyOn(usersService, 'findUserByEmail').mockResolvedValue({
+        ...mockUser,
+        clerkId: null,
+      })
       vi.spyOn(usersService, 'resolveClerkIdByEmail').mockResolvedValue({
         source: 'email-fallback',
-        email: unknownEmail,
+        email: mockUser.email,
       })
       vi.spyOn(usersService, 'impersonateUser').mockResolvedValue({
         token: 'fallback_token',
@@ -221,12 +220,15 @@ describe('AdminUsersController', () => {
 
       const req = { user: undefined } as IncomingRequest
       const result = await controller.impersonate(42, req, {
-        actorEmail: unknownEmail,
+        actorEmail: mockUser.email,
       })
 
+      expect(usersService.resolveClerkIdByEmail).toHaveBeenCalledWith(
+        mockUser.email,
+      )
       expect(usersService.impersonateUser).toHaveBeenCalledWith(
         mockTargetUser.id,
-        unknownEmail,
+        mockUser.email,
       )
       expect(result).toEqual({ token: 'fallback_token' })
     })
@@ -323,6 +325,7 @@ describe('AdminUsersController', () => {
       vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
         mockTargetUser,
       )
+      vi.spyOn(usersService, 'findUserByEmail').mockResolvedValue(mockUser)
       vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
         token: 'signin_token_abc',
         clerkId: 'user_target_clerk_id',
@@ -339,6 +342,7 @@ describe('AdminUsersController', () => {
           targetUserId: mockTargetUser.id,
           targetClerkId: mockTargetUser.clerkId,
           actorEmail: mockUser.email,
+          actorClerkId: mockUser.clerkId,
           actorSource: 'actorEmail',
           authSource: 'm2m',
           expiresAt,
@@ -369,23 +373,6 @@ describe('AdminUsersController', () => {
         }),
         'Created admin sign-in link',
       )
-    })
-
-    it('does not require an actorEmail when called via M2M', async () => {
-      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
-        mockTargetUser,
-      )
-      vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
-        token: 'signin_token_abc',
-        clerkId: 'user_target_clerk_id',
-        expiresAt,
-      })
-
-      const req = { user: undefined } as IncomingRequest
-      const result = await controller.createSignInLink(42, req, {})
-
-      expect(usersService.resolveClerkIdByEmail).not.toHaveBeenCalled()
-      expect(result.url).toContain('/sign-in-link?__clerk_ticket=')
     })
   })
 
