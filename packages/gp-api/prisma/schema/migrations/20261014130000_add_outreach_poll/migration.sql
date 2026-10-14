@@ -47,6 +47,9 @@ CREATE TABLE "outreach_reply_flag" (
 );
 
 -- CreateIndex
+CREATE INDEX "outreach_reply_flag_reply_id_idx" ON "outreach_reply_flag"("reply_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "outreach_poll_expansion_outreach_id_send_seq_key" ON "outreach_poll_expansion"("outreach_id", "send_seq");
 
 -- AddForeignKey

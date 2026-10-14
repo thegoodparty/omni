@@ -8,5 +8,6 @@ model OutreachReplyFlag {
   readAt      DateTime?             @map("read_at")
 
   @@id([userId, replyId])
+  @@index([replyId])
   @@map("outreach_reply_flag")
 }
