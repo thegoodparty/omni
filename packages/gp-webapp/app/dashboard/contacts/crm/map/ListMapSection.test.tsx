@@ -135,6 +135,37 @@ describe('ListMapSection — boundary CTA', () => {
     ).toBeInTheDocument()
   })
 
+  it('maps a built-in list read-only, with no draw CTA', async () => {
+    const segments: (string | undefined)[] = []
+    api.mock('GET /v1/contacts', ({ query }) => {
+      segments.push(query.segment)
+      return {
+        status: 200,
+        data: {
+          people: [person('p1', '44.76', '-85.61')],
+          pagination: {
+            totalResults: 1,
+            currentPage: 1,
+            pageSize: 20,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        },
+      }
+    })
+    render(<ListMapSection builtInListId="civicPanel" />)
+
+    expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
+      'data-people',
+      '1',
+    )
+    expect(segments).toEqual(['civicPanel'])
+    expect(
+      screen.queryByRole('button', { name: /shapes/i }),
+    ).not.toBeInTheDocument()
+  })
+
   it('reads as editing once the list carries a boundary, and draws it', async () => {
     render(<ListMapSection segment={segment({ geoPoly: SAVED_POLYGON })} />)
 

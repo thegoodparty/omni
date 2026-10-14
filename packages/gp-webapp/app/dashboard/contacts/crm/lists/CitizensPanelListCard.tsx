@@ -27,6 +27,10 @@ export const CitizensPanelListCard = () => {
   return (
     <Card className="w-full gap-2 rounded-2xl p-4 shadow-xs">
       <h3 className="text-base font-semibold">{COPY.listTitle}</h3>
+      {/* Outreach is sent to saved lists, so the panel's list-detail
+          outreachHistory is always empty; fetching it here would spend four
+          voter-file aggregates on a fixed answer. */}
+      <p className="text-[13px] text-muted-foreground">No outreach yet</p>
       <div className="mt-1 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <UserIcon className="size-3.5" aria-hidden />
