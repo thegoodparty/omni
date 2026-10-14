@@ -37,10 +37,6 @@ const GATHER_STEPS = [
   'Payment',
 ]
 
-// The purchase-only flow (outreach-pro-gating-v2), design: sgBody's
-// overview. Every launch now gathers the filing details before payment, so
-// the list carries campaign verification's own rows around the EIN and
-// payment ones, with the wait for the PIN last.
 const smsClosedReason = (cutoff: string | null): string =>
   cutoff
     ? `The ${cutoff} deadline to get verified for texting has passed.`
@@ -49,6 +45,10 @@ const smsClosedReason = (cutoff: string | null): string =>
 const smsClosingGuidance = (cutoff: string): string =>
   `In order to send SMS, you must finish these steps by ${cutoff}.`
 
+// The purchase-only flow (outreach-pro-gating-v2), design: sgBody's
+// overview. Every launch now gathers the filing details before payment, so
+// the list carries campaign verification's own rows around the EIN and
+// payment ones, with the wait for the PIN last.
 const PURCHASE_ONLY_ROWS = [
   {
     icon: FileBadgeIcon,
