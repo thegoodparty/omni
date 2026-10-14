@@ -9,7 +9,14 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { Cron, Interval } from '@nestjs/schedule'
-import { formatISO, isAfter, isValid, parseISO, subMinutes } from 'date-fns'
+import {
+  differenceInHours,
+  formatISO,
+  isAfter,
+  isValid,
+  parseISO,
+  subMinutes,
+} from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import {
   Campaign,
@@ -29,7 +36,16 @@ import {
   TcrComplianceStatusCheckMessage,
 } from '../../../queue/queue.types'
 import { getUserFullName, isInternalUser } from '../../../users/util/users.util'
-import { EASTERN_TIMEZONE } from '../../../shared/util/date.util'
+import {
+  EASTERN_TIMEZONE,
+  getMidnightForDate,
+  parseIsoDateAsUTC,
+} from '../../../shared/util/date.util'
+import {
+  SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+  SMS_CUTOFF_LEAD_DAYS,
+  smsComplianceWindow,
+} from '../../util/eligibility.util'
 import {
   BrandApprovalResult,
   PeerlyCvVerificationStatus,
@@ -62,6 +78,7 @@ import {
 import {
   ComplianceStage,
   MIN_BIO_LENGTH,
+  SmsComplianceWindow,
   SubmitToPeerlyOutput,
 } from '@goodparty_org/contracts'
 import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
@@ -177,6 +194,15 @@ const getComplianceCompletedSingleSendEmailId = (): number | null => {
 // these values are display-only.
 const INTERNAL_TESTING_PLACEHOLDER = 'internal-testing'
 
+export const smsComplianceCutoffException = () =>
+  new ConflictException({
+    message:
+      'Texting setup is closed for this race. It closes ' +
+      `${SMS_CUTOFF_LEAD_DAYS} days before the general election, so ` +
+      'verification could not finish in time.',
+    errorCode: SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+  })
+
 type PeerlySubmissionResult = {
   peerlyIdentityId: string
   peerlyIdentityProfileLink: string | null
@@ -249,6 +275,19 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         this.logger.error(
           { tcrComplianceId: record.id, campaignId: record.campaignId },
           '[TCR Compliance] Stranded agentic record has no Clerk user; skipping',
+        )
+        continue
+      }
+      const { smsCompliance } = smsComplianceWindow({
+        electionDate: record.campaign.details?.electionDate,
+        tcrCompliance: record,
+        now: new Date(),
+      })
+      if (smsCompliance === SmsComplianceWindow.closed) {
+        this.logger.debug(
+          { tcrComplianceId: record.id, campaignId: record.campaignId },
+          '[TCR Compliance] Stranded agentic record is past the SMS ' +
+            'compliance cutoff; skipping',
         )
         continue
       }
@@ -1840,6 +1879,16 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     const existing = await this.fetchByCampaignId(campaign.id)
+    if (
+      await this.isPastSmsCutoff({
+        userId: user.id,
+        campaign,
+        tcrCompliance: existing,
+        path: 'agentic',
+      })
+    ) {
+      throw smsComplianceCutoffException()
+    }
     const isRetryableFailure =
       existing?.status === TcrComplianceStatus.error ||
       existing?.status === TcrComplianceStatus.rejected
@@ -2018,7 +2067,69 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
+    if (
+      campaign &&
+      (await this.isPastSmsCutoff({
+        userId: campaign.userId,
+        campaign,
+        tcrCompliance: record,
+        path: 'kickoff',
+      }))
+    ) {
+      return
+    }
+
     await this.claimAndEnqueueKickoff(record, clerkUserId)
+  }
+
+  // Verification takes about two weeks, so a candidate who has not filed and
+  // paid (kickoffSentAt) by the cutoff could not text before election day.
+  // Logs and fires the blocked event when the window is closed.
+  async isPastSmsCutoff({
+    userId,
+    campaign,
+    tcrCompliance,
+    path,
+  }: {
+    userId: number
+    campaign: Campaign
+    tcrCompliance: Pick<TcrCompliance, 'kickoffSentAt'> | null
+    path: 'agentic' | 'legacy' | 'kickoff'
+  }): Promise<boolean> {
+    const now = new Date()
+    const { smsCompliance, generalElectionDate } = smsComplianceWindow({
+      electionDate: campaign.details?.electionDate,
+      tcrCompliance,
+      now,
+    })
+    if (smsCompliance !== SmsComplianceWindow.closed || !generalElectionDate) {
+      return false
+    }
+
+    const daysToElection = Math.round(
+      differenceInHours(
+        parseIsoDateAsUTC(generalElectionDate),
+        getMidnightForDate(now),
+      ) / 24,
+    )
+    this.logger.info(
+      { campaignId: campaign.id, path, daysToElection },
+      '[TCR Compliance] Past the SMS compliance cutoff; not starting ' +
+        'compliance',
+    )
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Outreach.ComplianceSubmissionBlocked,
+        { path, days_to_election: daysToElection, campaignId: campaign.id },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        '[TCR Compliance] Failed to track compliance submission blocked',
+      )
+    }
+    return true
   }
 
   // Single source of the kickoff SQS message shape, shared by createAgentic

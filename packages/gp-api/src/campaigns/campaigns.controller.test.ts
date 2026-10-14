@@ -302,8 +302,11 @@ describe('CampaignsController', () => {
     } as User
 
     it('returns the campaign with positionName, raceTargetMetrics, and the owner name', async () => {
-      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+      const campaignWithRelations: CampaignWith<
+        'organization' | 'user' | 'tcrCompliance'
+      > = {
         ...mockCampaign,
+        tcrCompliance: null,
         organization: {} as Organization,
         user: owner,
       }
@@ -318,13 +321,20 @@ describe('CampaignsController', () => {
         positionName: 'Mayor',
         raceTargetMetrics: null,
         ownerName: 'Jared Smith',
+        smsCompliance: 'closed',
+        smsCutoffDate: '2025-10-16',
+        generalElectionDate: '2025-11-04',
       })
       expect(result).not.toHaveProperty('user')
+      expect(result).not.toHaveProperty('tcrCompliance')
     })
 
     it('returns ownerName null when the owner has no usable name', async () => {
-      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+      const campaignWithRelations: CampaignWith<
+        'organization' | 'user' | 'tcrCompliance'
+      > = {
         ...mockCampaign,
+        tcrCompliance: null,
         organization: {} as Organization,
         user: { firstName: null, lastName: null, name: null } as User,
       }
@@ -348,8 +358,11 @@ describe('CampaignsController', () => {
         'fetchLiveRaceTargetMetrics',
       ).mockResolvedValue(liveMetrics)
 
-      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+      const campaignWithRelations: CampaignWith<
+        'organization' | 'user' | 'tcrCompliance'
+      > = {
         ...mockCampaign,
+        tcrCompliance: null,
         organization: {} as Organization,
         user: owner,
       }

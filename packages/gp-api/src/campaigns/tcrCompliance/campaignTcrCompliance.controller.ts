@@ -20,7 +20,10 @@ import {
 } from '@nestjs/common'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
+import {
+  CampaignTcrComplianceService,
+  smsComplianceCutoffException,
+} from './services/campaignTcrCompliance.service'
 import { ComplianceStateService } from './services/complianceState.service'
 import { CreateTcrComplianceDto } from './schemas/createTcrComplianceDto.schema'
 import { CreateAgenticTcrComplianceDto } from './schemas/createAgenticTcrComplianceDto.schema'
@@ -379,7 +382,20 @@ export class CampaignTcrComplianceController {
     @Body()
     tcrComplianceDto: CreateTcrComplianceDto,
   ) {
-    if (await this.tcrComplianceService.fetchByCampaignId(campaign.id)) {
+    const existing = await this.tcrComplianceService.fetchByCampaignId(
+      campaign.id,
+    )
+    if (
+      await this.tcrComplianceService.isPastSmsCutoff({
+        userId: campaign.userId,
+        campaign,
+        tcrCompliance: existing,
+        path: 'legacy',
+      })
+    ) {
+      throw smsComplianceCutoffException()
+    }
+    if (existing) {
       throw new ConflictException(
         'TCR compliance already exists for this campaign',
       )

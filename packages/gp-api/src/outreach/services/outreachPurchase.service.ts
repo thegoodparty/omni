@@ -1,6 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
+import { SmsComplianceWindow } from '@goodparty_org/contracts'
 import { isAxiosError } from 'axios'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import {
+  SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+  smsComplianceWindow,
+} from 'src/campaigns/util/eligibility.util'
 import {
   ContactsFilterResolutionInput,
   ContactsService,
@@ -59,11 +68,33 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   async validatePurchase({
     contactCount,
     outreachType,
+    campaignId,
   }: OutreachPurchaseMetadata): Promise<void> {
     // p2p is priced off the draft's own list, where a Peerly-confirmed 0 is a
     // valid $0 send. Only types priced off the request's count need one here.
     if (outreachType !== 'p2p' && !contactCount) {
       throw new BadRequestException('contactCount is required')
+    }
+
+    if (!campaignId) {
+      return
+    }
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: campaignId },
+      include: { tcrCompliance: { select: { kickoffSentAt: true } } },
+    })
+    const { smsCompliance } = smsComplianceWindow({
+      electionDate: campaign?.details?.electionDate,
+      tcrCompliance: campaign?.tcrCompliance ?? null,
+      now: new Date(),
+    })
+    if (smsCompliance === SmsComplianceWindow.closed) {
+      throw new ConflictException({
+        message:
+          'Texting is closed for this race because it is too close to ' +
+          'the general election to finish verification.',
+        errorCode: SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+      })
     }
   }
 

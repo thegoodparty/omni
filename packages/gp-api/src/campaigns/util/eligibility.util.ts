@@ -33,6 +33,7 @@ export const isUpcomingElectionDate = (
 
 export const SMS_CUTOFF_LEAD_DAYS = 19
 export const SMS_CUTOFF_CLOSING_DAYS = 7
+export const SMS_COMPLIANCE_CUTOFF_ERROR_CODE = 'SMS_COMPLIANCE_CUTOFF'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 

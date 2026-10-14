@@ -62,6 +62,7 @@ import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
 import { toCampaignGroupTraits } from './util/campaignGroupTraits.util'
+import { smsComplianceWindow } from './util/eligibility.util'
 
 class ListCampaignsPaginationDto extends createZodDto(
   ListCampaignsPaginationSchema,
@@ -107,15 +108,22 @@ export class CampaignsController {
       'Use this on startup to understand who the user is, what office they are running for, ' +
       'and what state the campaign is in.',
   })
-  @UseCampaign({ include: { organization: true, user: true } })
+  @UseCampaign({
+    include: { organization: true, user: true, tcrCompliance: true },
+  })
   async findMine(
     @ReqCampaign()
-    campaign: CampaignWith<'organization' | 'user'>,
+    campaign: CampaignWith<'organization' | 'user' | 'tcrCompliance'>,
   ) {
     // The user relation is the campaign OWNER (Campaign.userId), not the
     // caller — a team member's request still resolves the owner here. Strip
     // the row from the response; only the display name leaves the API.
-    const { organization: org, user: owner, ...campaignFields } = campaign
+    const {
+      organization: org,
+      user: owner,
+      tcrCompliance,
+      ...campaignFields
+    } = campaign
 
     const [{ positionName }, liveMetrics] = await Promise.all([
       this.organizations.resolvePositionContext({
@@ -131,6 +139,11 @@ export class CampaignsController {
       positionName,
       raceTargetMetrics: liveMetrics,
       ownerName: (owner && getUserFullName(owner)) || null,
+      ...smsComplianceWindow({
+        electionDate: campaign.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
     }
   }
 
