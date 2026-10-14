@@ -262,10 +262,26 @@ export class ElectionsService {
     displayOfficeLevels?: string[]
     timeframe?: 'future' | 'past' | 'all'
   }): Promise<RaceListItem[]> {
-    const result = await this.electionApiGet<RaceListItem[], typeof query>(
-      'positions/search',
-      query,
-    )
+    let result: RaceListItem[] | null
+    try {
+      result = await this.electionApiGet<RaceListItem[], typeof query>(
+        'positions/search',
+        query,
+      )
+    } catch (error) {
+      // Deploy-order safety: an election-api that predates timeframe=all
+      // rejects it. Degrade to the previous 'future' behavior instead of
+      // failing the picker. Remove once election-api with 'all' is everywhere.
+      if (query.timeframe !== 'all' || !(error instanceof BadGatewayException))
+        throw error
+      this.logger.warn(
+        'Election API rejected timeframe=all; retrying with timeframe=future',
+      )
+      result = await this.electionApiGet<RaceListItem[], typeof query>(
+        'positions/search',
+        { ...query, timeframe: 'future' },
+      )
+    }
     return RaceListItemArraySchema.parse(result ?? [])
   }
 
