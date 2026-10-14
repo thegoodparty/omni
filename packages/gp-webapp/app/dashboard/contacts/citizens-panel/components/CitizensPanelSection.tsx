@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRightIcon, Skeleton } from '@styleguide'
-import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { useContactsTable } from '../../crm/ContactsTableProvider'
@@ -11,6 +10,7 @@ import {
   CITIZENS_PANEL_PATH,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
+import { civicPanelSummaryQueryOptions } from '../civicPanelSummary.query'
 import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
 
 export const CitizensPanelSection = () => {
@@ -20,11 +20,7 @@ export const CitizensPanelSection = () => {
   const show = isWinContextReady && !isWinContext && flag.ready && flag.enabled
 
   const query = useQuery({
-    queryKey: ['civic-panel-summary', orgSlug],
-    queryFn: async () => {
-      const { data } = await clientRequest('GET /v1/contacts/civic-panel', {})
-      return data
-    },
+    ...civicPanelSummaryQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
 

@@ -250,7 +250,7 @@ const TaskStack = ({
     else dismissCard.mutate(front.id)
   }
   const skipClassName = cn(QUIET_ON_PHONE, 'sm:ml-auto')
-  const offersMarkDone = !front.onboardingKey && !front.buildsPanel
+  const offersMarkDone = !front.onboardingKey && front.kind !== 'civic_panel'
 
   return (
     <section className="flex w-full flex-col gap-6">
@@ -345,8 +345,9 @@ const TaskStack = ({
                 )
               )}
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                {/* A get-started card and the build card close themselves
-                    once their goal is met, so they offer no manual Mark done. */}
+                {/* Get-started and civic panel cards close themselves once
+                    their goal is met (a priority card, once the priority is
+                    resolved), so they offer no manual Mark done. */}
                 {offersMarkDone && (
                   <Button
                     type="button"
@@ -395,7 +396,8 @@ const TaskStack = ({
                   </Button>
                 )}
                 {!leaving &&
-                  (front.buildsPanel || front.kind === 'report_back' ? (
+                  (front.kind === 'civic_panel' ||
+                  front.kind === 'report_back' ? (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button

@@ -169,6 +169,7 @@ export {
 } from './people/ContactStatus.schema'
 
 export {
+  CIVIC_PANEL_SEGMENT,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
   CivicPanelRepresentationSchema,

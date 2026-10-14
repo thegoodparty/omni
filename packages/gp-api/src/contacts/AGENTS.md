@@ -215,8 +215,10 @@ returns `{ count }`. A voter read that exceeds the warehouse's timeout fails
 loudly as a `GatewayTimeoutException` (504) rather than degrading into a
 floored or partial count — see `src/peopleDb/CLAUDE.md`.
 
-A `segment` is either a built-in name (`segmentsToFiltersMap.const.ts`) or a
-`VoterFileFilter` id this org owns. Anything else — malformed, deleted,
+A `segment` is either a built-in name (`segmentsToFiltersMap.const.ts`), Serve's
+`civicPanel` (`CIVIC_PANEL_SEGMENT` in contracts: resolved as a saved list holding
+only `civicPanelMember`, so the same 400 for a non-`eo-` org and the same empty
+result for an empty panel), or a `VoterFileFilter` id this org owns. Anything else — malformed, deleted,
 cross-org — is a **404** (`resolveCustomSegment`), never "no filter". Widening
 an unresolvable segment to the whole district is the most expensive possible
 default: it served, and let `GET /v1/contacts/download` stream, every voter in
@@ -632,9 +634,15 @@ text is its only way to done: the webapp offers it no Mark done, and
 `restore`, Bring it back in the archive) and `snooze` (Show in 3 days:
 `snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
 Alongside it, whatever its state, the sync makes a `civic_panel` next-step
-card per open priority (summary is the priority's `nextAction`, falling back
-to a first-step line), which opens the priority and takes the usual actions; while open, its due
-date rolls forward too, so it stays on the home as long as its priority does.
+card per open priority with a step left (`currentStepOf` not null), which
+opens the priority. Its summary is what the Priorities page shows:
+`nextAction`, or with none, the current step's `PRIORITY_STEP_LABELS` label
+(an unknown step id reads as the first step). It has no Mark done
+(`complete` ignores every `civic_panel` card; one already done stays done);
+it takes `dismiss`, `snooze` and `restore`. While open its due date rolls
+forward. It is deleted, skipped or not, once its priority is archived, and
+recreated if it is unarchived; a ready plan (null step) deletes it too,
+unless it is done, and it is recreated when a step comes open again.
 The webapp puts the build card first and stacks the rest under it. One
 advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
