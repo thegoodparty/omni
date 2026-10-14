@@ -110,7 +110,8 @@ export const CrmContactsPage = () => {
     const params = new URLSearchParams(searchParams?.toString() ?? '')
     params.delete(NEW_LIST_PARAM)
     const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname, {
+    const path = pathname ?? '/dashboard/contacts'
+    router.replace(query ? `${path}?${query}` : path, {
       scroll: false,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
