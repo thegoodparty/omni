@@ -14,7 +14,7 @@ describe('SERVE_SMS_PURPOSES', () => {
       ...SERVE_SMS_PURPOSE_VALUES,
     ])
     expect(SERVE_SMS_PURPOSES).toEqual([
-      { id: 'build_citizens_panel', label: "Build your citizens' panel" },
+      { id: 'build_citizens_panel', label: 'Build your civic panel' },
       { id: 'report_back', label: 'Report back to the people you asked' },
       { id: 'introduce_myself', label: 'Introduce myself to constituents' },
       { id: 'explain_decision', label: 'Explain a recent decision' },

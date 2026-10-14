@@ -1,6 +1,6 @@
 import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
-// The one way a Serve text asks a constituent onto the official's citizens'
+// The one way a Serve text asks a constituent onto the official's civic
 // panel. A fixed sentence rather than composed copy, because two readers
 // depend on its exact words: the composer locks it so the ask cannot be
 // edited into something the reply reader would not recognize, and gp-api
@@ -11,13 +11,15 @@ export const CIVIC_PANEL_JOIN_KEYWORD = 'JOIN'
 // Says what joining means in the constituent's terms: who is asking (the
 // office) and how often. Short: it shares a text with the official's own
 // message, and the opt-out line below it already says how to leave.
-export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`
+export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my civic panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`
 
-// Every line a stored send may carry, newest first. Sends written before the
-// rewrite carry the first wording, so the reader and the composer's lock
-// still recognize it; the composer only ever writes CIVIC_PANEL_JOIN_LINE.
+// Every line a stored send may carry, newest first. Sends written before a
+// rewrite carry an older wording (the panel's earlier name among them), so
+// the reader and the composer's lock still recognize them; the composer only
+// ever writes CIVIC_PANEL_JOIN_LINE. Never drop or edit a legacy line.
 export const CIVIC_PANEL_JOIN_LINES = [
   CIVIC_PANEL_JOIN_LINE,
+  `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`,
   `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel, residents my office (not my campaign) texts a few times a year to hear what you think before I make decisions. Empowered by GoodParty.org.`,
 ] as const
 

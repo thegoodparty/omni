@@ -73,7 +73,7 @@ describe('PriorityResultsView', () => {
 
     expect(screen.getByText('What we heard on Flooding')).toBeInTheDocument()
     expect(screen.getByText('People who answered')).toBeInTheDocument()
-    expect(screen.getByText("Joined your citizens' panel")).toBeInTheDocument()
+    expect(screen.getByText('Joined your civic panel')).toBeInTheDocument()
     expect(screen.getByText('25 by text')).toBeInTheDocument()
     expect(screen.getByText('6')).toBeInTheDocument()
     expect(screen.getByTestId('heat-grid')).toHaveTextContent('1')

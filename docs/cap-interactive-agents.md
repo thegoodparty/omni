@@ -191,7 +191,7 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
   filter-dimension catalog (`ContactsService.getFilterDimensions` — party stripped
-  for `eo-` orgs, and the citizens' panel and contact history dimensions only
+  for `eo-` orgs, and the civic panel and contact history dimensions only
   with the user's `serve-citizen-panels` flag on, which the handler resolves
   per turn); `count` takes the same `voterFilterBaseSchema` shape as
   `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,

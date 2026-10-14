@@ -90,13 +90,13 @@ const titles = (cards: { title: string }[]) =>
 
 const buildCard = {
   type: 'civic_panel',
-  title: "Build your citizens' panel",
+  title: 'Build your civic panel',
   ctaLabel: 'Get started',
   ctaHref:
     '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
 }
 
-describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
+describe('GET /v1/dashboard/cards: the civic panel build card', () => {
   it('starts an office on one build card, with a card per priority beside it', async () => {
     const eo = await seedElectedOffice('eo-civic-build-first')
     const housing = await seedPriority(eo.id, 'Affordable housing')
@@ -389,7 +389,7 @@ const OTHER_TITLES = [
   'Rezoning on Main Street',
 ]
 
-describe("The citizens' panel build card, with the priorities and the usual cards under it", () => {
+describe('The civic panel build card, with the priorities and the usual cards under it', () => {
   const ALL = [buildCard.title, 'Affordable housing', ...OTHER_TITLES].sort()
   const WITHOUT_BUILD = ['Affordable housing', ...OTHER_TITLES].sort()
 

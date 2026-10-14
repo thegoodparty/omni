@@ -200,7 +200,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     if (findCivicPanelJoinLine(draft.message) !== null) {
       throw new BadRequestException(
-        "A report back doesn't ask people to join your citizens' panel. Remove that line and try again.",
+        "A report back doesn't ask people to join your civic panel. Remove that line and try again.",
       )
     }
     // One report back per send: a paid one closes it. Unpaid drafts are left

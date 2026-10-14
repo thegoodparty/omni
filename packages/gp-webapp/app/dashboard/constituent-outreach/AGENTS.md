@@ -97,7 +97,7 @@ generation services, the spine scoping — are in
   API roll out together — but the flag gates UX, not authz:
   `@UseElectedOffice()` is still the real check.
 - **`?compose=text&purpose=build_citizens_panel` is the Chief of Staff's
-  "Build your citizens' panel" card.** Once both `serve-sms-outreach` and
+  "Build your civic panel" card.** Once both `serve-sms-outreach` and
   `serve-citizen-panels` have resolved, the page strips the params and opens
   the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
   district's cell phones (`hasCellPhone`, the one filter, which is also what

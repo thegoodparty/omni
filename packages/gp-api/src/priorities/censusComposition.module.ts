@@ -5,7 +5,7 @@ import {
 } from './services/censusComposition'
 
 // One binding for every page that compares people with their district: a
-// priority's results and the citizens' panel read the same source.
+// priority's results and the civic panel read the same source.
 @Module({
   providers: [
     // Sample figures until the district and block group census tables are

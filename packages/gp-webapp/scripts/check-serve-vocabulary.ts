@@ -56,7 +56,7 @@ const main = async (): Promise<void> => {
 
   if (violations.length > 0) {
     console.error(
-      `\nServe copy uses Win-only words (${violations.length} ${
+      `\nCopy uses a banned product word (${violations.length} ${
         violations.length === 1 ? 'place' : 'places'
       }).\n`,
     )

@@ -85,7 +85,7 @@ const reportBackCardContent = (
 export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/constituent-outreach?compose=text&purpose=${BUILD_CITIZENS_PANEL_PURPOSE}`
 
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
-  title: "Build your citizens' panel",
+  title: 'Build your civic panel',
   // A paid send, so the card says so and roughly what it costs before the
   // official starts; the pay step quotes the exact total.
   summary: `A paid text to up to ${PANEL_SEED_SAMPLE_SIZE.toLocaleString('en-US')} residents, about $${Math.round(PANEL_SEED_SAMPLE_SIZE * PRICE_PER_TEXT)}, so you hear from more than the loudest voices.`,
@@ -253,7 +253,7 @@ export class DashboardCardsService extends createPrismaBase(
     })
   }
 
-  // The citizens' panel cards, created when the card list is read, so an
+  // The civic panel cards, created when the card list is read, so an
   // office that onboarded long ago gets them on its next visit: the office's
   // one build card, and a next-step card per open priority alongside it.
   async syncCivicPanelCards(

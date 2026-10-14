@@ -5,7 +5,7 @@ export const RESULTS_COPY = {
   caption: 'Everything your outreach on this priority has brought back so far.',
   backToPriority: 'Back to this priority',
   answered: 'People who answered',
-  joinedPanel: "Joined your citizens' panel",
+  joinedPanel: 'Joined your civic panel',
   // Only the channels that brought answers, so a text-only priority reads
   // "25 by text" rather than two zeros.
   byChannel: (counts: {

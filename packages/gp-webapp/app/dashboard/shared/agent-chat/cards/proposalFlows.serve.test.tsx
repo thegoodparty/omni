@@ -44,7 +44,7 @@ const MESSAGE =
 const panelAndFresh: Proposal = {
   kind: 'outreach_proposal',
   proposalKey: PROPOSAL_KEY,
-  audience: "Your citizens' panel and residents across the district",
+  audience: 'Your civic panel and residents across the district',
   count: 18_400,
   channel: 'text',
   audienceFilters: { hasCellPhone: true, notContactedRecently: true },

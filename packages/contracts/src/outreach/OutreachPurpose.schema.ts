@@ -54,7 +54,7 @@ export const ServeOutreachPurposeSchema = z.enum(SERVE_OUTREACH_PURPOSE_VALUES)
 export type ServeOutreachPurpose = z.infer<typeof ServeOutreachPurposeSchema>
 
 // A text that introduces the official and asks residents to join their
-// citizens' panel. SMS only: the panel is seeded by a random draw of the
+// civic panel. SMS only: the panel is seeded by a random draw of the
 // district, which a door or a call list cannot reach the same way, so it is
 // not in the list the other Serve channels share.
 export const BUILD_CITIZENS_PANEL_PURPOSE = 'build_citizens_panel'
@@ -62,7 +62,7 @@ export const BUILD_CITIZENS_PANEL_PURPOSE = 'build_citizens_panel'
 // A text back to the people an earlier text asked: what the official heard,
 // then what they will do next. SMS only, and only ever opened from a chat
 // card, because its audience is exactly who that send reached. It never
-// carries the citizens' panel join line.
+// carries the civic panel join line.
 export const REPORT_BACK_PURPOSE = 'report_back'
 
 export const SERVE_SMS_PURPOSE_VALUES = [

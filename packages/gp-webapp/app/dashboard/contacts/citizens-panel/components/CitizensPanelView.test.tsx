@@ -126,7 +126,7 @@ describe('CitizensPanelView', () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [
-        { id: 7, name: "Citizens' panel", civicPanelMember: true },
+        { id: 7, name: 'Civic panel', civicPanelMember: true },
         { id: 8, name: 'Other' },
       ],
     })
@@ -153,7 +153,7 @@ describe('CitizensPanelView', () => {
       data: [
         {
           id: 6,
-          name: "Citizens' panel",
+          name: 'Civic panel',
           civicPanelMember: true,
           notContactedRecently: true,
         },
@@ -172,9 +172,7 @@ describe('CitizensPanelView', () => {
     await waitFor(() =>
       expect(push).toHaveBeenCalledWith('/dashboard/contacts/lists/12'),
     )
-    expect(bodies).toEqual([
-      { name: "Citizens' panel", civicPanelMember: true },
-    ])
+    expect(bodies).toEqual([{ name: 'Civic panel', civicPanelMember: true }])
   })
 
   it('points to the Chief of Staff when nobody has joined yet', () => {
@@ -186,7 +184,7 @@ describe('CitizensPanelView', () => {
     )
 
     expect(
-      screen.getByRole('link', { name: "Build your citizens' panel" }),
+      screen.getByRole('link', { name: 'Build your civic panel' }),
     ).toHaveAttribute('href', '/dashboard/chief-of-staff')
     expect(
       screen.queryByRole('button', { name: 'See members' }),

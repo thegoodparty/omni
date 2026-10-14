@@ -312,7 +312,7 @@ export class ContactsService {
   // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
   // (party, ethnicity), mirroring assertNoPartyFilterForElectedOffice and
   // assertNoEthnicityFilterForElectedOffice on the read side.
-  // The citizens' panel dimensions follow the user's serve-citizen-panels
+  // The civic panel dimensions follow the user's serve-citizen-panels
   // flag, the same flag that shows them in the list builder, so an agent never
   // names a filter the official cannot see.
   getFilterDimensions(
@@ -483,7 +483,7 @@ export class ContactsService {
       filterInput.civicPanelMember
     ) {
       throw new BadRequestException(
-        "Citizens' panel filtering is not available for this organization",
+        'Civic panel filtering is not available for this organization',
       )
     }
   }
@@ -795,7 +795,7 @@ export class ContactsService {
     })
   }
 
-  // Serve's citizens' panel: people whose standing civic_panel status is member.
+  // Serve's civic panel: people whose standing civic_panel status is member.
   // The same positive membership set as follow-up, and the same rule that
   // nobody on the panel is an empty audience, never the whole district.
   private async resolveCivicPanelMember(
@@ -2038,7 +2038,7 @@ export class ContactsService {
     }
     if (!this.hasElectedOfficeAccess(organization)) {
       throw new BadRequestException(
-        "Citizens' panel sampling is not available for this organization",
+        'Civic panel sampling is not available for this organization',
       )
     }
     const members = await this.contactStatusService.personIdsByFieldValue(
@@ -2374,7 +2374,7 @@ export class ContactsService {
   ): Promise<CivicPanelStatusResponse> {
     if (!this.hasElectedOfficeAccess(organization)) {
       throw new BadRequestException(
-        "The citizens' panel is not available for this organization",
+        'The civic panel is not available for this organization',
       )
     }
 

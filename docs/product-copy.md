@@ -109,7 +109,8 @@ everywhere it appears, in the same change.
 
 The same question should read the same way in every channel. Before writing
 a new string, grep for the one that exists. Consistency beats freshness, and
-a new synonym for an old idea is a bug, not a flourish.
+a new synonym for an old idea is a bug, not a flourish. The panel residents
+join is the "civic panel" and nothing else (`product-vocabulary.md`).
 
 Copy that is shared lives in constants, not inline: see
 `outreach/v2/*Purposes.ts`, `outreach/v2/channelMeta.tsx`,

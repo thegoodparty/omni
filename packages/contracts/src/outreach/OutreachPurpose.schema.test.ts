@@ -42,9 +42,9 @@ describe('outreach purpose vocabulary', () => {
     )
   })
 
-  // Seeding a citizens' panel is a random draw of the district's cell
+  // Seeding a civic panel is a random draw of the district's cell
   // phones, so only a text can do it.
-  it('offers building a citizens panel on Serve SMS alone', () => {
+  it('offers building a civic panel on Serve SMS alone', () => {
     expect(SERVE_SMS_PURPOSE_VALUES).toEqual([
       BUILD_CITIZENS_PANEL_PURPOSE,
       REPORT_BACK_PURPOSE,

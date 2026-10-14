@@ -42,7 +42,7 @@ interface VoterFileStepProps {
   // so the surfaces that share this step and must NOT gain these groups
   // (door-knocking's WhoStep, TurfDetailsSheet) stay unchanged.
   showRecommendedListFilters?: boolean
-  // The Citizens' panel and Contact history groups, behind
+  // The Civic panel and Contact history groups, behind
   // serve-citizen-panels. Resolved upstream for the same reason as
   // isElectedOfficial.
   showCitizenPanelFilters?: boolean
@@ -270,7 +270,7 @@ export default function VoterFileStep({
         renderField(contactsMadeField)}
 
       {/* Serve's own group, where Win's prior contacts sit: the people on
-          the official's citizens' panel. */}
+          the official's civic panel. */}
       {showCitizenPanelFilters &&
         isElectedOfficial &&
         renderField(CIVIC_PANEL_FIELD)}

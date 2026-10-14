@@ -189,7 +189,7 @@ const TWO_SIDES_RULE = `- A check you offer has two sides, and you offer both. T
 // Behind serve-citizen-panels the first send of a check is the panel and a
 // fresh sample in one card, so the two targeted sides wait for its read.
 const PANEL_FIRST_SIDES_RULE =
-  "- A check goes out first as one send, as THE CITIZENS' PANEL COMES FIRST says: the panel and as many residents not on it. That send is side main, and its who is the panel and new residents. The most and least affected groups come only after its answers are in, and only if the read is thin or leans one way. The least affected is side contrast, asked the same question, and never framed as less important."
+  '- A check goes out first as one send, as THE CIVIC PANEL COMES FIRST says: the panel and as many residents not on it. That send is side main, and its who is the panel and new residents. The most and least affected groups come only after its answers are in, and only if the read is thin or leans one way. The least affected is side contrast, asked the same question, and never framed as less important.'
 
 const TAKE_THE_ANSWER_RULE = `- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:`
 
@@ -264,7 +264,7 @@ const buildCheckWorkBlock = (
   [
     'BUILD THE CHECK BEFORE YOU OFFER IT',
     panelFirst
-      ? "- The first send of a check is built as THE CITIZENS' PANEL COMES FIRST says. These steps are for a group that follows it, only once its read is thin or leans one way. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:"
+      ? '- The first send of a check is built as THE CIVIC PANEL COMES FIRST says. These steps are for a group that follows it, only once its read is thin or leans one way. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:'
       : '- Only for a check the gap calls for, as above. Never ask whether to set it up, and never offer to go and find people. By the time you offer it, the work is done:',
     '  1. Find the group by the method above, in their own contact records, and size it with count_contacts. Keep the exact filter you counted with.',
     '  2. Do not save the list. The card carries the filter, and the list is saved when the official starts the outreach. A list saved now is one nobody asked for.',
@@ -303,16 +303,16 @@ const buildCheckWorkBlock = (
 // send's read.
 const buildCivicPanelFirstBlock = (members: number): string =>
   [
-    "THE CITIZENS' PANEL COMES FIRST",
+    'THE CIVIC PANEL COMES FIRST',
     members > 0
-      ? `- This official's citizens' panel has ${members.toLocaleString('en-US')} ${members === 1 ? 'person' : 'people'}: residents who said yes to being asked before decisions are made.`
-      : "- This official has nobody on their citizens' panel yet. Every send invites people to join it.",
+      ? `- This official's civic panel has ${members.toLocaleString('en-US')} ${members === 1 ? 'person' : 'people'}: residents who said yes to being asked before decisions are made.`
+      : '- This official has nobody on their civic panel yet. Every send invites people to join it.',
     '- When a check is warranted, offer ONE card, one text: the panel members who can be asked now, plus as many residents not on the panel, picked at random. Not the most or least affected groups: those come later, as the steps below say.',
     `  1. Count everyone the text can reach with count_contacts: Has Cell Phone and notContactedRecently true, nothing else. That count is the card's count, and those two filters are its audienceFilters. notContactedRecently leaves out anyone the office reached in the last ${CONTACT_REST_DAYS} days, so never drop it, and never add civicPanelMember to audienceFilters.`,
     '  2. Count the panel members who can be asked now with count_contacts: civicPanelMember true, Has Cell Phone and notContactedRecently true.',
     `  3. If that is more than 0, size the panel part with size_outreach_sample on that count with replyRate ${PANEL_ASSUMED_REPLY_RATE}, since people who asked to be asked answer far more often. Its sampleSize is the panel part; a small panel comes back whole, which is right. Present the text with panelSampleSize set to that panel part, sampleSize set to twice it (the panel part plus as many residents not on the panel), targetResponses and assumedReplyRate from that sizing, and civicPanelAsk true.`,
     '  4. If it is 0, the card is the fresh residents alone: size it with size_outreach_sample on the count from step 1, as HOW MANY PEOPLE TO ASK says, and present the text with sampleSize, targetResponses and assumedReplyRate from that sizing, civicPanelAsk true and no panelSampleSize.',
-    '  5. Either way: a short listName, an audience line in plain words (like "Your citizens\' panel and residents across the district"), the question as the message, the stepId the check is on and side main. The flow adds the line inviting people to join, so never write it into the message.',
+    '  5. Either way: a short listName, an audience line in plain words (like "Your civic panel and residents across the district"), the question as the message, the stepId the check is on and side main. The flow adds the line inviting people to join, so never write it into the message.',
     '- In your message, say in one line why the panel goes first: they asked to be asked. Say in one line that the same text invites new people to join. Say how many people get it. Never explain how the list is drawn or who was left out, and never say rotation, rested or sample sizing.',
     '- Do not find, count or describe the most or least affected group in this turn. Naming them now only confuses which card is real.',
     '- Once it is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, or leans one way, build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to every send this check has had.',
@@ -367,7 +367,7 @@ const REPORT_BACK_BLOCK = `REPORTING BACK TO THE PEOPLE YOU ASKED
 - A message that starts with ${REPORT_BACK_MARKER} comes from the app, not the official: they opened the report back for the send whose id ends it. Start on that send right away, without restating the message.
 - Call read_report_back for the send first. Then walk the official through it in three or four short lines: who it went to (its audience), how many people it reached, how many answered, and the top themes with how many people raised each.
 - Then ask what they are going to do next, as one plain question. If <status> already records a decision or a plan, offer it back for them to confirm instead of asking from scratch. Never write a next step they have not told you, and never guess one to fill the draft.
-- Once they have told you, write the report back as a text: one short line thanking the people who answered, what we heard as themes and rough counts, then what they will do next in their own words. Never quote a reply, and never include a name, street, or any detail that could point to who said it. Sign it as any text is signed. It goes to the same people, so never ask anyone to join the citizens' panel and never ask a new question.
+- Once they have told you, write the report back as a text: one short line thanking the people who answered, what we heard as themes and rough counts, then what they will do next in their own words. Never quote a reply, and never include a name, street, or any detail that could point to who said it. Sign it as any text is signed. It goes to the same people, so never ask anyone to join the civic panel and never ask a new question.
 - Show the draft in your message and ask if it reads right or if anything should change. Change what they ask for. Ask anything you need to get it right.
 - When they are happy with it, present it with present_outreach_proposal: channel text, reportBackForOutreachId set to the send, audience and count exactly as read_report_back gave them (count is canReach), a short listName, and the message. Nothing else about who gets it: no audienceFilters, sample, panel part, civicPanelAsk, stepId or side.
 - If textable is false, too few of those people can still be texted to send one through the app: say so in one line and do not present a card.
@@ -423,7 +423,7 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     `City/District: ${optional(ctx.jurisdiction)}`,
     ...(ctx.civicPanelMembers === undefined
       ? []
-      : [`Citizens' panel: ${ctx.civicPanelMembers} members`]),
+      : [`Civic panel: ${ctx.civicPanelMembers} members`]),
     '</priority>',
   ].join('\n')
 

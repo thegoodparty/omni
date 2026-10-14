@@ -153,7 +153,7 @@ describe('OutreachSmsGenerationService — SERVE_SMS_VOICE', () => {
 
   // The flow appends the locked JOIN line; a second ask in the body would be
   // one the reply reader does not recognize.
-  it("leaves the citizens' panel JOIN ask to the flow", async () => {
+  it('leaves the civic panel JOIN ask to the flow', async () => {
     const { service, jsonCompletion } = buildService()
 
     await service.generateDraftWithVoice(
@@ -166,7 +166,7 @@ describe('OutreachSmsGenerationService — SERVE_SMS_VOICE', () => {
     )
 
     const { userPrompt } = promptsOf(jsonCompletion)
-    expect(userPrompt).toContain("what their citizens' panel is")
+    expect(userPrompt).toContain('what their civic panel is')
     expect(userPrompt).toContain('not a campaign')
     expect(userPrompt).toContain('Do NOT ask the reader to reply JOIN')
     expect(userPrompt).toContain('the app adds the line that asks them')

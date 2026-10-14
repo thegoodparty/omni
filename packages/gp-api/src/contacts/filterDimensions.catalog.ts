@@ -246,11 +246,11 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     // at a door, on a call, or on their contact card) and have not left.
     // Serve-only, `observed` for the same reason as follow-up.
     key: 'civicPanel',
-    label: "Citizens' Panel",
+    label: 'Civic panel',
     kind: 'boolean-group',
     modes: 'serve',
     provenance: 'observed',
-    values: [{ key: 'civicPanelMember', label: "On Your Citizens' Panel" }],
+    values: [{ key: 'civicPanelMember', label: 'On your civic panel' }],
   },
   {
     // A rest window, not a trait: anyone the office reached on any channel

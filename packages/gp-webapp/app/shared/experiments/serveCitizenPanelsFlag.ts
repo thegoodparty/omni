@@ -1,6 +1,6 @@
 import { useFlagOn } from './FeatureFlagsProvider'
 
-// Gates the citizens' panel on Serve and everything that ships with it: the
+// Gates the civic panel on Serve and everything that ships with it: the
 // reframed onboarding and its priorities step, panel membership on the
 // constituent record and in lists, joining from a text, a door or a call, the
 // panel-first checks in the priorities flow, and what a priority's outreach

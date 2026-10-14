@@ -42,7 +42,7 @@ beforeEach(() => {
     card({
       id: 'build',
       type: 'civic_panel',
-      title: "Build your citizens' panel",
+      title: 'Build your civic panel',
       sourceExternalId: 'build:eo-1',
     }),
   ]
@@ -67,7 +67,7 @@ describe('<ArchiveContent>', () => {
       card({
         id: 'build',
         type: 'civic_panel',
-        title: "Build your citizens' panel",
+        title: 'Build your civic panel',
         sourceExternalId: 'build:eo-1',
       }),
       card({
@@ -80,7 +80,7 @@ describe('<ArchiveContent>', () => {
     ]
     render(<ArchiveContent />)
 
-    expect(screen.getByText("Build your citizens' panel")).toBeInTheDocument()
+    expect(screen.getByText('Build your civic panel')).toBeInTheDocument()
     expect(screen.getByText('Affordable housing')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Bring it back' }),

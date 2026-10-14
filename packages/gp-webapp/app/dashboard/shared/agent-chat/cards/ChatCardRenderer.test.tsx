@@ -163,7 +163,7 @@ describe('OutreachProposalCard', () => {
     renderCard(
       proposalCard({
         channel: 'text',
-        audience: "Your citizens' panel and residents across the district",
+        audience: 'Your civic panel and residents across the district',
         count: 18_400,
         sampleSize: 84,
         panelSampleSize: 42,
@@ -175,9 +175,7 @@ describe('OutreachProposalCard', () => {
       await screen.findByText('Text 84 of 18,400, picked at random'),
     ).toBeInTheDocument()
     expect(
-      screen.getAllByText(
-        "Your citizens' panel and residents across the district",
-      ),
+      screen.getAllByText('Your civic panel and residents across the district'),
     ).toHaveLength(1)
     expect(screen.queryByText(/\b42\b/)).toBeNull()
   })

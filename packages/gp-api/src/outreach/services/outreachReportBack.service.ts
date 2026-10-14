@@ -16,7 +16,7 @@ export const REPORT_BACK_DUE_DAYS = 14
 const MAX_THEMES = 3
 const MAX_SENDS = 10
 
-// Past checkout, the same statuses the citizens' panel build card reads as
+// Past checkout, the same statuses the civic panel build card reads as
 // sent.
 export const REPORT_BACK_UNSENT_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending_payment,

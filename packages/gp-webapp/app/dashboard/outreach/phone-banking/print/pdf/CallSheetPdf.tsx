@@ -39,7 +39,7 @@ const OUTCOME_WIDTH =
   COLUMN.wrongNumber +
   COLUMN.refused
 
-// Serve's citizens' panel column comes out of Notes, the only column with room
+// Serve's civic panel column comes out of Notes, the only column with room
 // to give, so every other column keeps one width on both surfaces.
 const notesWidth = (asksCivicPanel: boolean): number =>
   CONTENT_WIDTH -
@@ -310,7 +310,7 @@ const headings = (
   ['Refused', COLUMN.refused],
   [answerHeading(isServe), COLUMN.support],
   ...(asksCivicPanel
-    ? [["Citizens' panel Y N", COLUMN.civicPanel] as [string, number]]
+    ? [['Civic panel Y N', COLUMN.civicPanel] as [string, number]]
     : []),
   ['Notes', notesWidth(asksCivicPanel)],
 ]

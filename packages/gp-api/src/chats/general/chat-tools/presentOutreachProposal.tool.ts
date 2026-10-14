@@ -24,7 +24,7 @@ const priorityProposalInput = OutreachProposalSchema.omit({
     'main for the most-affected group, contrast for the least-affected one.',
   ),
 })
-// The citizens' panel parts and the report back, offered only on a priority
+// The civic panel parts and the report back, offered only on a priority
 // and only behind serve-citizen-panels.
 const priorityProposalInputWithoutPanel = priorityProposalInput.omit({
   civicPanelAsk: true,

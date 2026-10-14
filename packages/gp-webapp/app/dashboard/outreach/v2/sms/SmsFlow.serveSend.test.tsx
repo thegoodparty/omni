@@ -364,7 +364,7 @@ describe('SmsFlow serve send path', () => {
     await screen.findByText(/Most of you named parking/)
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
     expect(
-      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
     ).toBeNull()
     await attachImage()
     await waitFor(() =>

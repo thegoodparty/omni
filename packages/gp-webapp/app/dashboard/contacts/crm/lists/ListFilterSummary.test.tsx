@@ -38,7 +38,7 @@ describe('buildFilterSummary — demographic-only filters', () => {
   it("leads with the civic panel on a Serve list, and never shows it on Win's", () => {
     const segment = baseSegment({ civicPanelMember: true, age65Plus: true })
     expect(buildFilterSummary(segment, true)).toBe(
-      "On your citizens' panel and Age 65+.",
+      'On your civic panel and Age 65+.',
     )
     expect(buildFilterSummary(segment, false)).not.toContain('panel')
   })
