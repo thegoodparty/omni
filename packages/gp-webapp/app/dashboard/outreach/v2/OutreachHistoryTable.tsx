@@ -415,16 +415,17 @@ const BASE_STATUS_FILTERS = [
   'Canceled',
 ] as const
 
-// The five names a saved draft's status can take (historyStatus.util.ts's
+// The six names a saved draft's status can take (historyStatus.util.ts's
 // DRAFT_LABELS). They are offered only when the caller passes a membership:
 // with the flag off the hub passes none AND filters every draft row out, so
-// these would be five checkboxes matching nothing.
+// these would be six checkboxes matching nothing.
 const DRAFT_STATUS_FILTERS = [
   'Pro needed',
   'Verification needed',
   'Verification in review',
   'PIN needed',
   'Ready to schedule',
+  'Texting closed',
 ] as const
 
 type StatusFilterKey =

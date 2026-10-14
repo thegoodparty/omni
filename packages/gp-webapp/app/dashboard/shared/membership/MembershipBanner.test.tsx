@@ -18,6 +18,23 @@ const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
   }),
 )
 
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    } as {
+      smsCompliance: string
+      smsCutoffDate: string | null
+      generalElectionDate: string | null
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
+
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
@@ -71,6 +88,11 @@ const setup = ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
 })
 
 describe('resolveMembershipAction', () => {
@@ -93,6 +115,15 @@ describe('resolveMembershipAction', () => {
         membership({ tier: 'free', isElectedOffice: true }),
       ),
     ).toBe(null)
+  })
+
+  it('opens the cutoff notice for closed texting, and still pitches Pro to a free campaign', () => {
+    expect(resolveMembershipAction(membership({ texting: 'closed' }))).toBe(
+      'notice',
+    )
+    expect(
+      resolveMembershipAction(membership({ tier: 'free', texting: 'closed' })),
+    ).toBe('pitch')
   })
 })
 
@@ -221,6 +252,56 @@ describe('MembershipBanner', () => {
 
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Membership.BannerClicked,
+      expect.anything(),
+    )
+  })
+
+  it('counts down to the cutoff while the window is closing', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'needs_verification' }) })
+
+    expect(
+      screen.getByText('Start texting verification by Oct 15.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button')).toHaveTextContent('Start verification')
+  })
+
+  it('opens the cutoff notice once texting is closed', async () => {
+    const user = userEvent.setup()
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'closed' }) })
+
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.closed.body),
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: /See other ways to reach voters/ }),
+    )
+
+    expect(
+      screen.getByRole('dialog', {
+        name: "Texting isn't available for this race",
+      }),
+    ).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.SmsCutoff.NoticeViewed,
+      {
+        surface: 'membership_banner',
+        cutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      },
+    )
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.VerificationBannerClicked,
       expect.anything(),
     )
   })

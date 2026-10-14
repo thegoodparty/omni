@@ -56,6 +56,10 @@ interface SmsCutoffNoticeProps {
   surface: string
   onBack?: () => void
   backLabel?: string
+  // A host on the outreach hub (a dialog, a flow sheet) closes itself here:
+  // the robocall, phone banking and social links reopen the hub with
+  // `?compose=`, which would open that flow on top of the host.
+  onPick?: () => void
 }
 
 // The one cutoff notice: 'screen' is the full info screen that replaces a
@@ -67,6 +71,7 @@ export const SmsCutoffNotice = ({
   surface,
   onBack,
   backLabel = SMS_CUTOFF_COPY.backToOutreach,
+  onPick,
 }: SmsCutoffNoticeProps): React.JSX.Element => {
   const { smsCutoffDate, generalElectionDate } = useSmsCompliance()
   const body = SMS_CUTOFF_COPY.body(
@@ -81,8 +86,10 @@ export const SmsCutoffNotice = ({
     })
   }, [surface, smsCutoffDate, generalElectionDate])
 
-  const trackPick = (channel: string) =>
+  const trackPick = (channel: string) => {
     trackEvent(EVENTS.Outreach.SmsCutoff.NoticeCompleted, { surface, channel })
+    onPick?.()
+  }
 
   if (variant === 'card') {
     return (

@@ -50,7 +50,9 @@ export const GateExplainerModal = ({
     })
   }, [open, channel])
 
-  if (requirement === null) return null
+  // A closed text shows the cutoff notice in place of the flow, so no
+  // banner is up to open this from.
+  if (requirement === null || requirement === 'closed') return null
 
   const noun = GATE_NOUN[channel]
   const needsPro = requirement === 'pro'

@@ -18,6 +18,23 @@ const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
   }),
 )
 
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    } as {
+      smsCompliance: string
+      smsCutoffDate: string | null
+      generalElectionDate: string | null
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
+
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
@@ -71,6 +88,11 @@ const setup = ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
 })
 
 describe('MembershipChip', () => {
@@ -169,6 +191,40 @@ describe('MembershipChip', () => {
       MEMBERSHIP_COPY.chip.inReview,
     )
     expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('counts down to the cutoff while the window is closing', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup()
+
+    expect(screen.getByRole('button')).toHaveTextContent('Verify by Oct 15')
+  })
+
+  it('reads Texting closed and opens the cutoff notice', async () => {
+    const user = userEvent.setup()
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'closed' }) })
+
+    await user.click(screen.getByRole('button', { name: 'Texting closed' }))
+
+    expect(
+      screen.getByRole('dialog', {
+        name: "Texting isn't available for this race",
+      }),
+    ).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.SmsCutoff.NoticeViewed,
+      expect.objectContaining({ surface: 'membership_chip' }),
+    )
   })
 
   it('renders nothing once a Pro campaign is cleared to text', () => {

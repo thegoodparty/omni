@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChannelCard } from '@styleguide'
+import { MessageSquareOff } from 'lucide-react'
+import { ChannelCard, cn } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import {
@@ -18,6 +19,12 @@ import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -51,6 +58,8 @@ const preselectKey = (
   recommendedVariant: RecommendedListVariant | undefined,
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
+const SMS_TILE_CLOSED_COPY = 'Not available for this race'
+
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
 // channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
 // pricing server-side.
@@ -77,6 +86,12 @@ export const ChannelTileGrid = ({
   const { isPro } = campaign || {}
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+  // gp-api's texting window, read off the campaign on both sides of the
+  // flag: once it is closed the text tile opens the cutoff notice instead of
+  // the flow, the Pro wizard or the compliance modal.
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
+  const [smsNoticeOpen, setSmsNoticeOpen] = useState(false)
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
   // flow, which pauses itself once there is something to save. Read without
@@ -125,6 +140,12 @@ export const ChannelTileGrid = ({
   }
 
   const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
+    // Not a create: the notice reports itself, and the carried audience is
+    // left for the channel the candidate picks instead.
+    if (type === OUTREACH_TYPES.text && smsClosed) {
+      setSmsNoticeOpen(true)
+      return
+    }
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.socialMedia) {
@@ -258,13 +279,30 @@ export const ChannelTileGrid = ({
               type === OUTREACH_TYPES.robocall ||
               type === OUTREACH_TYPES.phoneBanking ||
               type === OUTREACH_TYPES.doorKnocking)
+          const isText = type === OUTREACH_TYPES.text
+          const textClosed = isText && smsClosed
           return (
             <ChannelCard
               key={type}
-              icon={meta.icon}
-              iconClassName={meta.iconTint}
+              icon={textClosed ? <MessageSquareOff /> : meta.icon}
+              iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
               label={meta.label}
+              subCopy={
+                textClosed
+                  ? SMS_TILE_CLOSED_COPY
+                  : isText && smsCompliance === 'closing' && smsCutoffDate
+                    ? SMS_CUTOFF_COPY.countdownChip(
+                        formatSmsCutoffDate(smsCutoffDate),
+                      )
+                    : undefined
+              }
+              aria-disabled={textClosed || undefined}
+              className={cn(
+                textClosed &&
+                  'cursor-default bg-muted opacity-70 hover:border-border',
+              )}
               locked={
+                !textClosed &&
                 !gatedInFlow &&
                 Boolean(
                   option?.requiresPro &&
@@ -286,6 +324,13 @@ export const ChannelTileGrid = ({
         }}
       />
       {gateModals}
+      {smsNoticeOpen && (
+        <SmsCutoffNoticeDialog
+          open
+          onOpenChange={setSmsNoticeOpen}
+          surface="sms_tile"
+        />
+      )}
     </section>
   )
 }

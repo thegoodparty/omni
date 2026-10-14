@@ -22,6 +22,8 @@ import {
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import type { OutreachTrackerOrigin } from 'app/dashboard/outreach/util/outreachAnalytics'
 import type { TcrCompliance } from 'helpers/types'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 
 // What a `?compose=` deep link asks the hub to open, once the channel's gate
 // has passed. The hub owns the flow mounts (one instance each), so this
@@ -134,6 +136,11 @@ export const OutreachComposeDeepLink = ({
   // opens them instead of refusing the arrival.
   const { enabled: gatedFlows } = useOutreachProGatingV2Flag(false)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
+  // Every link that opens a new text lands here (task CTAs, Know Your
+  // Opponent, the voter data picker, the chat), so this is where a closed
+  // texting window stops them, on both sides of the flag.
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
+  const [smsNoticeOpen, setSmsNoticeOpen] = useState(false)
   const consumedRef = useRef(false)
   const bareParamConsumedRef = useRef(false)
 
@@ -195,6 +202,10 @@ export const OutreachComposeDeepLink = ({
       searchParams?.get('phase'),
     )
     router.replace('/dashboard/outreach', { scroll: false })
+    if (composeType === OUTREACH_TYPES.text && smsClosed) {
+      setSmsNoticeOpen(true)
+      return
+    }
     trackEvent(EVENTS.Outreach.ClickCreate, {
       type: composeType,
       source: composeSource,
@@ -264,6 +275,7 @@ export const OutreachComposeDeepLink = ({
     composeType,
     campaign,
     gatedFlows,
+    smsClosed,
     searchParams,
     router,
     runTextGate,
@@ -285,6 +297,13 @@ export const OutreachComposeDeepLink = ({
         }}
       />
       {gateModals}
+      {smsNoticeOpen && (
+        <SmsCutoffNoticeDialog
+          open
+          onOpenChange={setSmsNoticeOpen}
+          surface="compose_deep_link"
+        />
+      )}
     </>
   )
 }

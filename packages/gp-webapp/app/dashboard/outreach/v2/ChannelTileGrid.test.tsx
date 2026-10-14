@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ChannelTileGrid } from './ChannelTileGrid'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -43,7 +44,13 @@ vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
   useOutreachProGatingV2Flag: () => proGatingV2,
 }))
 
-let mockCampaign: { id: number; isPro: boolean } = { id: 9, isPro: true }
+let mockCampaign: {
+  id: number
+  isPro: boolean
+  smsCompliance?: string
+  smsCutoffDate?: string
+  generalElectionDate?: string
+} = { id: 9, isPro: true }
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign, vi.fn()],
 }))
@@ -135,6 +142,70 @@ describe('ChannelTileGrid — SMS tile', () => {
 
 // ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
 // asserting open vs redirect.
+describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
+  beforeEach(() => {
+    mockRouterPush.mockClear()
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  afterEach(() => {
+    proGatingV2.enabled = false
+    mockCampaign = { id: 9, isPro: true }
+  })
+
+  it('counts down on the tile while the window is closing', () => {
+    mockCampaign = {
+      id: 9,
+      isPro: true,
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    renderGrid()
+
+    expect(screen.getByText('Verify by Oct 15')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['off', false, true],
+    ['off', false, false],
+    ['on', true, false],
+  ])(
+    'opens the cutoff notice instead of the flow (flag %s, Pro %s)',
+    async (_label, flagOn, isPro) => {
+      proGatingV2.enabled = flagOn
+      mockCampaign = {
+        id: 9,
+        isPro,
+        smsCompliance: 'closed',
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      }
+      const onCreateSms = vi.fn()
+      renderGrid({ onCreateSms })
+
+      expect(screen.getByText('Not available for this race')).toBeVisible()
+      await userEvent.click(screen.getByText('SMS'))
+
+      expect(
+        screen.getByRole('dialog', {
+          name: "Texting isn't available for this race",
+        }),
+      ).toBeInTheDocument()
+      expect(onCreateSms).not.toHaveBeenCalled()
+      expect(mockRouterPush).not.toHaveBeenCalled()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.SmsCutoff.NoticeViewed,
+        expect.objectContaining({ surface: 'sms_tile' }),
+      )
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Outreach.ClickCreate,
+        expect.anything(),
+      )
+    },
+  )
+})
+
 describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
   beforeEach(() => {
     mockCampaign = { id: 9, isPro: true }

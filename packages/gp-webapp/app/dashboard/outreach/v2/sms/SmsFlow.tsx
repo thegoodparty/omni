@@ -82,6 +82,8 @@ import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
+import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
+import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
 import {
   SERVE_SMS_PURPOSES,
   serveSmsPurposeNameSuggestion,
@@ -1944,6 +1946,31 @@ export const SmsFlow = ({
           disabled: eventDetails.event === null,
         }
       : baseCta
+
+  // gp-api has closed texting for this race, so nothing built here could
+  // send: the notice stands in for the whole flow, before build mode, a
+  // resumed draft or the gate. A send that already settled keeps its
+  // success screen.
+  if (gate.requirement === 'closed' && !scheduled) {
+    return (
+      <OutreachFlowShell
+        open={open}
+        onClose={onClose}
+        title={SMS_CUTOFF_COPY.title}
+        currentStep={0}
+        totalSteps={0}
+        cta={null}
+        dirty={false}
+      >
+        <SmsCutoffNotice
+          variant="screen"
+          surface="sms_flow"
+          onBack={onClose}
+          onPick={onClose}
+        />
+      </OutreachFlowShell>
+    )
+  }
 
   return (
     <OutreachFlowShell

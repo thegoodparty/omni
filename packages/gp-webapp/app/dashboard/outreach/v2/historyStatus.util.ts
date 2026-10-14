@@ -1,5 +1,6 @@
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 // The two legacy status vocabularies the unified history has to keep
 // rendering. One DELIBERATE divergence from the legacy table's vocabulary:
@@ -78,6 +79,7 @@ export const DRAFT_LABELS = {
   inReview: 'Verification in review',
   pin: 'PIN needed',
   ready: 'Ready to schedule',
+  closed: SMS_CUTOFF_COPY.closedLabel,
 } as const
 
 export const draftLabelFor = (
@@ -85,10 +87,13 @@ export const draftLabelFor = (
   membership: MembershipState | null,
 ): string | null => {
   if (!membership) return null
-  if (membership.tier === 'free') return DRAFT_LABELS.pro
   // Only the texting channels gate on TCR/CV verification — a robocall or
   // other Pro-only draft has nothing left to clear but the send itself.
   const texting = row.outreachType === 'p2p' || row.outreachType === 'text'
+  // Closed texting outranks the tier, as it does in useOutreachGate: Pro
+  // would not get this draft sent.
+  if (texting && membership.texting === 'closed') return DRAFT_LABELS.closed
+  if (membership.tier === 'free') return DRAFT_LABELS.pro
   if (!texting) return DRAFT_LABELS.ready
   switch (membership.texting) {
     case 'needs_verification':
@@ -99,6 +104,8 @@ export const draftLabelFor = (
       return DRAFT_LABELS.pin
     case 'cleared':
       return DRAFT_LABELS.ready
+    case 'closed':
+      return DRAFT_LABELS.closed
   }
 }
 

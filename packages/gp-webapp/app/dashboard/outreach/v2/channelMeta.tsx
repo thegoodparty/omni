@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { MessageSquareOff } from 'lucide-react'
 import { Badge, StatusText } from '@styleguide'
 import {
   ArchiveIcon,
@@ -176,6 +177,8 @@ const STATUS_DISPLAY: Record<
   'Verification in review': { icon: <Loader2Icon />, tone: 'primary' },
   'PIN needed': { icon: <ShieldCheckIcon />, tone: 'primary' },
   'Ready to schedule': { icon: <CalendarDaysIcon />, tone: 'primary' },
+  // The sixth has no next step: the texting window closed for this race.
+  'Texting closed': { icon: <MessageSquareOff />, tone: 'muted' },
 }
 
 export const HistoryStatusText = ({ label }: { label: string | null }) => {
