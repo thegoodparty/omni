@@ -121,7 +121,7 @@ export interface UseServeSmsSendInput {
   proposalLink?: ProposalLink
   reportBackForOutreachId?: number
   create: ServeSmsCreateFn | undefined
-  setStepId: (step: 'schedule') => void
+  setStepId: (step: 'compose') => void
   setDraftOutreachId: (id: number) => void
   setDraftCreateError: (value: boolean) => void
   // The flow's own recipient-count state, which every step below review
@@ -171,7 +171,7 @@ export const useServeSmsSend = ({
   // nothing but a step.
   const audienceContinue = () => {
     if (!selectedListId) return
-    setStepId('schedule')
+    setStepId('compose')
   }
 
   // Name-step continue: save the built filter through the shared audience
@@ -182,7 +182,7 @@ export const useServeSmsSend = ({
       return
     try {
       await audience.createList()
-      setStepId('schedule')
+      setStepId('compose')
     } catch {
       // audience.createListError renders the inline message in the step.
     }
@@ -198,7 +198,7 @@ export const useServeSmsSend = ({
     listName: string,
   ) => {
     await audience.createRecommendedList(recommendation, listName)
-    setStepId('schedule')
+    setStepId('compose')
   }
 
   // Draft-first create, the Serve twin of the flow's own review-step effect:

@@ -425,7 +425,9 @@ export const ProposalFlowsProvider = ({
 
   const proposal = opened?.proposal
   // A text or phone banking card's list is saved before its flow opens, so
-  // the flow picks that list and opens on the message, never the builder.
+  // the flow picks that list and, with the card's message, opens on the
+  // message (outreachLandingStep), never the builder. A card with no
+  // audience to save opens on the picker with the message held.
   const readyListId = opened?.listId
   const proposedAudience =
     proposal && readyListId === undefined
@@ -499,7 +501,7 @@ export const ProposalFlowsProvider = ({
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
-          openOnMessage={readyListId !== undefined}
+          audienceSettled={readyListId !== undefined}
           proposalLink={linkOf(opened)}
           source="deep_link"
         />
@@ -517,7 +519,7 @@ export const ProposalFlowsProvider = ({
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
-          openOnMessage={readyListId !== undefined}
+          audienceSettled={readyListId !== undefined}
           {...(winProposalLink && { proposalLink: winProposalLink })}
           onProposalCreateFailed={proposalCreateFailed}
           source="campaign_manager"
