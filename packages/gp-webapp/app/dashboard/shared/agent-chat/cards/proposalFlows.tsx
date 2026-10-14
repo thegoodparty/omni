@@ -51,7 +51,6 @@ import {
   proposalOutreachQueryOptions,
 } from './cardQueries'
 import {
-  proposalAudienceSummary,
   proposalListName,
   proposedAudienceOf,
   type CardMode,
@@ -62,8 +61,8 @@ type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
 type Opened = {
   proposal: OutreachProposal
   priorityId?: string
-  // The list the card's audience was saved as, when the flow opens ready to
-  // send rather than on the list builder.
+  // The list the card's audience was saved as, when the flow opens on its
+  // message with that list picked rather than on the list builder.
   listId?: number
 }
 
@@ -90,7 +89,8 @@ const storeList = (proposalKey: string, listId: number): void => {
   }
 }
 
-// The channels whose Serve flow opens ready to send on the card's list.
+// The channels whose flow opens on the message with the card's list already
+// picked.
 const READY_CHANNELS: ReadonlySet<ProposalChannel> = new Set([
   'text',
   'phoneBanking',
@@ -389,7 +389,7 @@ export const ProposalFlowsProvider = ({
         return
       }
       const link = { ...(priorityId !== undefined && { priorityId }) }
-      if (mode === 'serve' && READY_CHANNELS.has(proposal.channel)) {
+      if (READY_CHANNELS.has(proposal.channel)) {
         void saveProposalList(proposal).then(
           (listId) =>
             setOpened({
@@ -431,18 +431,16 @@ export const ProposalFlowsProvider = ({
   )
 
   const proposal = opened?.proposal
-  // A Serve flow that opens ready to send has its list already saved, so it
-  // takes that list and the line saying who, never the builder.
+  // A text or phone banking card's list is saved before its flow opens, so
+  // the flow picks that list and, with the card's message, opens on the
+  // message (outreachLandingStep), never the builder. A card with no
+  // audience to save opens on the picker with the message held.
   const readyListId = opened?.listId
   const proposedAudience =
     proposal && readyListId === undefined
       ? proposedAudienceOf(proposal)
       : undefined
   const listId = readyListId ?? proposal?.savedFilterId ?? undefined
-  const audienceSummary =
-    proposal && readyListId !== undefined
-      ? proposalAudienceSummary(proposal)
-      : undefined
   // Stable across renders, since the Win text create effect depends on it.
   const winProposalLink = useMemo(
     () => (opened ? linkOf(opened) : undefined),
@@ -478,7 +476,6 @@ export const ProposalFlowsProvider = ({
           {...(mode === 'serve' && { surface: SERVE_PHONE_BANKING_SURFACE })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
-          {...(audienceSummary && { audienceSummary })}
           initialScript={proposal.message}
           {...(proposal.event && { initialEvent: proposal.event })}
           initialName={proposalListName(proposal).slice(
@@ -511,7 +508,7 @@ export const ProposalFlowsProvider = ({
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
-          {...(audienceSummary && { audienceSummary })}
+          audienceSettled={readyListId !== undefined}
           proposalLink={linkOf(opened)}
           source="deep_link"
         />
@@ -529,6 +526,7 @@ export const ProposalFlowsProvider = ({
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
+          audienceSettled={readyListId !== undefined}
           {...(winProposalLink && { proposalLink: winProposalLink })}
           onProposalCreateFailed={proposalCreateFailed}
           source="campaign_manager"

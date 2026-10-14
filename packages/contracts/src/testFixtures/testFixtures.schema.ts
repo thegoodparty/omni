@@ -61,3 +61,37 @@ export const DeleteTestFixtureUsersResponseSchema = z.object({
 export type DeleteTestFixtureUsersResponse = z.infer<
   typeof DeleteTestFixtureUsersResponseSchema
 >
+
+export const TEST_FIXTURE_ACTIVITY_MAX_PEOPLE = 500
+
+export const SeedTestFixtureActivityRequestSchema = z
+  .object({
+    people: z
+      .number()
+      .int()
+      .min(20)
+      .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
+      .optional(),
+  })
+  .strict()
+  .default({})
+export type SeedTestFixtureActivityRequest = z.infer<
+  typeof SeedTestFixtureActivityRequestSchema
+>
+
+export const TestFixtureActivityEffortSchema = z.object({
+  outreachId: z.number(),
+  outreachType: z.string(),
+  interactions: z.number(),
+  memos: z.number(),
+  synthesisRunId: z.string().nullable(),
+})
+
+export const SeedTestFixtureActivityResponseSchema = z.object({
+  organizationSlug: z.string(),
+  people: z.number(),
+  efforts: z.array(TestFixtureActivityEffortSchema),
+})
+export type SeedTestFixtureActivityResponse = z.infer<
+  typeof SeedTestFixtureActivityResponseSchema
+>

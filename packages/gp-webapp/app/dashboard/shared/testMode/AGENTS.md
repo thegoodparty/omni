@@ -11,7 +11,7 @@ before changing what a preset does.
 | File                   | Role                                                                                     |
 | ---------------------- | ---------------------------------------------------------------------------------------- |
 | `TestModeMenuItem.tsx` | Sidebar button, rendered in the `DashboardMenu` footer (desktop only)                    |
-| `TestModeSheet.tsx`    | Create form (campaign on a real race, or elected office), org list, per-family presets   |
+| `TestModeSheet.tsx`    | Create form (campaign or elected office, both on a real race), org list, family presets  |
 | `useTestMode.ts`       | React Query hooks over `GET/POST/DELETE /v1/test-mode*` and the post-mutation navigation |
 
 ## Gates

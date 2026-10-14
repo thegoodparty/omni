@@ -76,8 +76,8 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
-import { ProposalAudienceSummary } from '../ProposalAudienceSummary'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { outreachLandingStep } from '../landingStep'
 
 type StepId =
   | 'purpose'
@@ -338,15 +338,7 @@ interface PhoneBankingFlowProps {
   // What an agent's proposal knows about the event it invites people to; the
   // details step opens on it.
   initialEvent?: ProposalEvent
-  // Serve: a chat card already settled who gets this and saved the list
-  // (preselectedListId). The flow opens on the script with this line about
-  // who, then the sheets.
-  audienceSummary?: string
 }
-
-// A chat card settled the purpose and who gets it, so the official starts on
-// the script. Changing who gets it is a detour back to the script, not a step.
-const PROPOSAL_STEP_ORDER: StepId[] = ['script', 'sheets', 'download']
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
 // as SocialFlow/RobocallFlow): no server drafts — nothing persists until the
@@ -366,13 +358,7 @@ export const PhoneBankingFlow = ({
   tracker,
   source,
   initialEvent,
-  audienceSummary,
 }: PhoneBankingFlowProps) => {
-  const fromProposal =
-    surface.isServe &&
-    audienceSummary !== undefined &&
-    preselectedListId !== undefined &&
-    initialScript !== undefined
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
   // the deliverable and nothing exists until create — so the gate stands in
@@ -550,12 +536,16 @@ export const PhoneBankingFlow = ({
       !initialScript && preselectedRecommendedVariant
         ? purposeForRecommendedVariant(preselectedRecommendedVariant)
         : null
+    // The list is not resolved yet, so this lands on the who step at most;
+    // the preselection below moves on to the script once it resolves.
     setStepId(
-      fromProposal
-        ? 'script'
-        : initialScript || carriedPurpose
-          ? 'who'
-          : 'purpose',
+      outreachLandingStep({
+        purposeSettled: carriedPurpose !== null,
+        audienceSettled: false,
+        messageSettled: Boolean(initialScript),
+      }) === 'purpose'
+        ? 'purpose'
+        : 'who',
     )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
@@ -638,9 +628,12 @@ export const PhoneBankingFlow = ({
       // card's proposal) lands on the script, but only once the list really
       // resolved: a script with no audience behind it would strand the
       // official on a step whose Continue cannot pass.
-      if (initialScript) setStepId('script')
-    } else if (fromProposal) {
-      setStepId('who')
+      const landing = outreachLandingStep({
+        purposeSettled: false,
+        audienceSettled: true,
+        messageSettled: Boolean(initialScript),
+      })
+      if (landing === 'message') setStepId('script')
     }
   }, [
     open,
@@ -649,7 +642,6 @@ export const PhoneBankingFlow = ({
     audienceListsFetching,
     selectAudienceList,
     initialScript,
-    fromProposal,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead
@@ -677,10 +669,8 @@ export const PhoneBankingFlow = ({
     setSheetCount(count)
   }
 
-  const stepOrder = fromProposal ? PROPOSAL_STEP_ORDER : stepOrderFor(purpose)
-  // The audience detour counts as the script step it returns to.
-  const stepIndex =
-    fromProposal && stepId === 'who' ? 0 : stepOrder.indexOf(stepId)
+  const stepOrder = stepOrderFor(purpose)
+  const stepIndex = stepOrder.indexOf(stepId)
 
   const audienceLabel = audience.selectedList?.name ?? ''
 
@@ -862,10 +852,6 @@ export const PhoneBankingFlow = ({
       audience.resetBuilder()
       return
     }
-    if (fromProposal && stepId === 'who') {
-      setStepId('script')
-      return
-    }
     const previous = stepOrder[stepIndex - 1]
     if (!previous) return
     // Backing OFF the who step discards the picked list so a re-entry starts
@@ -1038,12 +1024,7 @@ export const PhoneBankingFlow = ({
       }
       currentStep={stepIndex + 1}
       totalSteps={stepOrder.length}
-      onBack={
-        (stepIndex > 0 || fromProposal) && !saved && !gateOpen
-          ? handleBack
-          : undefined
-      }
-      backExits={fromProposal && stepId === 'script'}
+      onBack={stepIndex > 0 && !saved && !gateOpen ? handleBack : undefined}
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
@@ -1199,47 +1180,39 @@ export const PhoneBankingFlow = ({
           )}
         </>
       ) : stepId === 'script' ? (
-        <>
-          {fromProposal && audienceSummary && (
-            <ProposalAudienceSummary
-              summary={audienceSummary}
-              onChange={() => setStepId('who')}
-            />
-          )}
-          <ScriptStep
-            isServe={surface.isServe}
-            name={name}
-            onNameChange={(value) => {
-              setName(value)
-              setNameEdited(true)
-            }}
-            audienceLabel={audienceLabel}
-            tone={tone}
-            onToneChange={handleToneChange}
-            script={script}
-            onScriptChange={handleScriptChange}
-            instructions={instructions}
-            onInstructionsChange={setInstructions}
-            onRegenerate={() =>
-              requestDraft(purpose, tone, undefined, script.trim() || undefined)
-            }
-            onImprove={() => requestDraft(purpose, tone, script.trim())}
-            canImprove={script.trim().length > 0 && !draftMutation.isPending}
-            isDrafting={draftMutation.isPending}
-            isDraftError={draftMutation.isError}
-            onRetry={() =>
-              lastDraftWasImproveRef.current
-                ? requestDraft(purpose, tone, script.trim())
-                : requestDraft(
-                    purpose,
-                    tone,
-                    undefined,
-                    script.trim() || undefined,
-                  )
-            }
-            isCustomPurpose={purpose === 'custom'}
-          />
-        </>
+        <ScriptStep
+          isServe={surface.isServe}
+          name={name}
+          onNameChange={(value) => {
+            setName(value)
+            setNameEdited(true)
+          }}
+          audienceLabel={audienceLabel}
+          tone={tone}
+          onToneChange={handleToneChange}
+          script={script}
+          onScriptChange={handleScriptChange}
+          instructions={instructions}
+          onInstructionsChange={setInstructions}
+          onRegenerate={() =>
+            requestDraft(purpose, tone, undefined, script.trim() || undefined)
+          }
+          onImprove={() => requestDraft(purpose, tone, script.trim())}
+          canImprove={script.trim().length > 0 && !draftMutation.isPending}
+          isDrafting={draftMutation.isPending}
+          isDraftError={draftMutation.isError}
+          onRetry={() =>
+            lastDraftWasImproveRef.current
+              ? requestDraft(purpose, tone, script.trim())
+              : requestDraft(
+                  purpose,
+                  tone,
+                  undefined,
+                  script.trim() || undefined,
+                )
+          }
+          isCustomPurpose={purpose === 'custom'}
+        />
       ) : stepId === 'sheets' ? (
         <SheetCountStep
           sheetCount={sheetCount}

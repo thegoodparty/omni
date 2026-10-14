@@ -129,7 +129,7 @@ describe('ProposalFlowsProvider', () => {
   })
 
   // The card already settled who gets this, so the flow saves the list and
-  // opens on the script with one line saying who, never on the builder.
+  // opens the standard flow on the script with that list picked behind it.
   it('opens phone banking on the script over the conversation, the list saved once', async () => {
     mockAudience()
     const lists = mockSavedLists()
@@ -143,30 +143,42 @@ describe('ProposalFlowsProvider', () => {
     await user.click(screen.getByRole('button', { name: 'Start' }))
 
     await screen.findAllByText('Write your call script')
-    expect(
-      screen.getByText('Renters on the flood blocks: 260 constituents'),
-    ).toBeInTheDocument()
-    expect(screen.queryByText('Who do you want to reach?')).toBeNull()
-    expect(lists).toHaveLength(1)
-    expect(navigatedToOutreach()).toEqual([])
-
-    // Back on the first step leaves through the discard confirm.
-    await user.click(screen.getByRole('button', { name: 'Back' }))
-    await user.click(await screen.findByRole('button', { name: /Discard/ }))
-    await waitFor(() =>
-      expect(screen.queryByText('Write your call script')).toBeNull(),
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 3 of 5',
     )
-
-    // Opening the card again reuses the list it saved.
-    await user.click(screen.getByRole('button', { name: 'Start' }))
-    await screen.findAllByText('Write your call script')
+    expect(screen.queryByTestId('proposal-audience-summary')).toBeNull()
+    expect(screen.queryByText('Change who gets this')).toBeNull()
     expect(lists).toHaveLength(1)
     expect(navigatedToOutreach()).toEqual([])
+
+    // Back walks the standard flow: the card's list, picked, then the
+    // purpose.
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Flood block renters')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 2 of 5',
+    )
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('button', { name: /Write my own script/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
   })
 
-  it('opens the list picker from Change who gets this, and comes back to the script', async () => {
+  it('reuses the list it saved when the card is opened again', async () => {
     mockAudience()
-    mockSavedLists()
+    const lists = mockSavedLists()
+
+    const { unmount } = render(
+      <ProposalFlowsProvider>
+        <Opener card={proposal()} />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await screen.findAllByText('Write your call script')
+    unmount()
 
     render(
       <ProposalFlowsProvider>
@@ -175,13 +187,8 @@ describe('ProposalFlowsProvider', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Start' }))
     await screen.findAllByText('Write your call script')
-
-    await user.click(
-      screen.getByRole('button', { name: 'Change who gets this' }),
-    )
-    await screen.findAllByText('Who do you want to reach?')
-    await user.click(screen.getByRole('button', { name: 'Back' }))
-    await screen.findAllByText('Write your call script')
+    expect(lists).toHaveLength(1)
+    expect(navigatedToOutreach()).toEqual([])
   })
 
   it('sends the calls on the list the card saved', async () => {
@@ -313,7 +320,7 @@ describe('ProposalFlowsProvider', () => {
   })
 
   // A check asks a sample, so the list the card saves is the draw, not the
-  // live filter, and the line above the script says so.
+  // live filter.
   it('saves a sampled proposal as that fixed sample', async () => {
     mockAudience()
     const lists = mockSavedLists()
@@ -326,11 +333,6 @@ describe('ProposalFlowsProvider', () => {
     await user.click(screen.getByRole('button', { name: 'Start' }))
     await screen.findAllByText('Write your call script')
 
-    expect(
-      screen.getByText(
-        'Renters on the flood blocks: up to 80 of the 260 not asked yet',
-      ),
-    ).toBeInTheDocument()
     expect(lists).toHaveLength(1)
     expect(lists[0]).toMatchObject({
       name: 'Flood block renters',

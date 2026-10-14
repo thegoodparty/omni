@@ -665,7 +665,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     vi.useRealTimers()
   })
 
-  it('runs the panel card through the sample, the locked JOIN ask and the priced review', async () => {
+  it('runs the panel card through the sample, the locked JOIN ask, the date and the priced review', async () => {
     mockPhoneBankingAudience()
     // The district's cell phones, of which the panel text reaches a draw.
     api.mock('POST /v1/contacts/count', {
@@ -723,11 +723,6 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
       hasCellPhone: true,
       sample: { size: 3334 },
     })
-    await user.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
     expect(
       await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
@@ -744,6 +739,12 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The date comes after the message.
+    await user.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     // Review prices the draw. The live total is Stripe's, which jsdom
     // cannot mount, so the per-text price and the count stand in for it.
     expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
@@ -756,9 +757,9 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     expect(created[0]?.message).toContain(CIVIC_PANEL_JOIN_LINE)
   })
 
-  // The card answered the purpose, so Back on its first step leaves the
-  // flow rather than reopening that question or dropping the draw.
-  it('leaves the flow on Back from the first step, never showing the purpose', async () => {
+  // Back from the seeded draw goes to the purpose picker like any flow, and
+  // the draw is still there on the way forward again.
+  it('goes back to the purpose picker from the first step, keeping the draw', async () => {
     mockPhoneBankingAudience()
     api.mock('POST /v1/contacts/count', {
       status: 200,
@@ -772,13 +773,10 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
 
     await screen.findByRole('button', { name: 'Continue (3,334)' })
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
-      await screen.findByRole('button', { name: 'Continue (3,334)' }),
-    ).toBeEnabled()
-    expect(screen.queryByText('Explain a recent decision')).toBeNull()
-    expect(screen.queryByText('Build your civic panel')).toBeNull()
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('opens a plain text flow with serve-citizen-panels off', async () => {
