@@ -34,6 +34,6 @@ import { PhoneBankingListService } from './services/phoneBankingList.service'
     PhoneBankingCallService,
     PhoneBankingAccessService,
   ],
-  exports: [PhoneBankingListService],
+  exports: [PhoneBankingListService, PhoneBankingCallService],
 })
 export class PhoneBankingModule {}

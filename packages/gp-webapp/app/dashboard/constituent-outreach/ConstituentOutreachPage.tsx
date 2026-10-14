@@ -41,7 +41,7 @@ import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { clientRequest } from 'gpApi/typed-request'
 
-// The first citizens' panel text goes to a random draw of the whole district,
+// The first civic panel text goes to a random draw of the whole district,
 // so the panel looks like the district rather than like any one list. The
 // one filter is the cell-phone reach a text needs, which is also what lets
 // the builder continue: it holds Continue until something is selected.
@@ -49,7 +49,7 @@ const SERVE_PANEL_SEED_AUDIENCE: ProposedAudience = {
   filters: { hasCellPhone: true },
   supportStatus: [],
   precincts: [],
-  name: "Citizens' panel invite",
+  name: 'Civic panel invite',
   sample: { size: PANEL_SEED_SAMPLE_SIZE },
 }
 
@@ -129,7 +129,7 @@ const ConstituentOutreachContent = () => {
   const smsMounted = smsFlagReady && smsFlagEnabled
   const { ready: panelsFlagReady, enabled: panelsFlagEnabled } =
     useServeCitizenPanelsFlag(false)
-  // The Chief of Staff's "Build your citizens' panel" card links here as
+  // The Chief of Staff's "Build your civic panel" card links here as
   // `?compose=text&purpose=build_citizens_panel`, which opens the text flow
   // on that purpose with the seed draw already picked.
   const [smsSeedsPanel, setSmsSeedsPanel] = useState(false)

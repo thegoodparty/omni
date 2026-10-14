@@ -209,7 +209,7 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText(/all voters with a mobile number/)).toBeNull()
   })
 
-  it('schedules by date only, at a fixed 11am, and drafts against the serve endpoint', async () => {
+  it('drafts against the serve endpoint, then schedules by date only at a fixed 11am', async () => {
     const draftCalls: ServeSmsDraftRequest[] = []
     api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
       draftCalls.push(body)
@@ -223,6 +223,19 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
+
+    // The message comes before the date: drafted on compose first.
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+    expect(draftCalls[0]).toMatchObject({
+      purpose: 'explain_decision',
+      tone: 'warm',
+    })
+    await screen.findByText(/drafted body/)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The serve step: the promise is stated, never picked.
     expect(
@@ -238,14 +251,6 @@ describe('SmsFlow (Serve surface)', () => {
     expect(
       await screen.findByText(/Estimated completion: Wed, Sep 9, 2026\./),
     ).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    await waitFor(() => expect(draftCalls).toHaveLength(1))
-    expect(draftCalls[0]).toMatchObject({
-      purpose: 'explain_decision',
-      tone: 'warm',
-    })
   })
 
   it('keeps the opt-out footer and appends no paid-for-by line', async () => {
@@ -261,12 +266,6 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(await screen.findByText(OPT_OUT_FOOTER)).toBeInTheDocument()
     expect(screen.queryByText(/Paid for by/)).toBeNull()
@@ -285,25 +284,19 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(OPT_OUT_FOOTER)
   }
 
-  it('offers no citizens panel ask with serve-citizen-panels off', async () => {
+  it('offers no civic panel ask with serve-citizen-panels off', async () => {
     await composeWithDraft()
 
     expect(
-      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
     ).toBeNull()
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
   })
 
-  it('adds the JOIN line when the citizens panel ask is checked', async () => {
+  it('adds the JOIN line when the civic panel ask is checked', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -311,7 +304,7 @@ describe('SmsFlow (Serve surface)', () => {
     await composeWithDraft()
 
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).not.toBeChecked()
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
@@ -319,7 +312,7 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(ask)
 
     expect(
-      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+      await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     expect(ask).toBeChecked()
   })
@@ -327,7 +320,7 @@ describe('SmsFlow (Serve surface)', () => {
   // A priority card that asks the panel and new residents in one send opens
   // with the ask on. The seed is signed with the official's name after the
   // flow opens, and that pass must not drop the ask.
-  it("keeps a chat card's citizens panel ask through the seed's signing", async () => {
+  it("keeps a chat card's civic panel ask through the seed's signing", async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -348,18 +341,12 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+      await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).toBeChecked()
     // Not a panel-building text, so the official can still take it off.
@@ -391,19 +378,13 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       await screen.findByText(/Most of you named the drains/),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
     expect(
-      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
     ).toBeNull()
   })
 
@@ -417,13 +398,13 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText('Report back to the people you asked')).toBeNull()
   })
 
-  it("hides building a citizens' panel with serve-citizen-panels off", async () => {
+  it('hides building a civic panel with serve-citizen-panels off', async () => {
     openServeFlow()
     await screen.findByText('Explain a recent decision')
-    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
+    expect(screen.queryByText('Build your civic panel')).toBeNull()
   })
 
-  it("lists building a citizens' panel first with serve-citizen-panels on", async () => {
+  it('lists building a civic panel first with serve-citizen-panels on', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -431,13 +412,13 @@ describe('SmsFlow (Serve surface)', () => {
     openServeFlow()
 
     expect(
-      await screen.findByText("Build your citizens' panel"),
+      await screen.findByText('Build your civic panel'),
     ).toBeInTheDocument()
   })
 
   // The card already answered the purpose, and a panel text is its ask, so
   // the box is ticked and cannot be unticked.
-  it("opens on the citizens' panel purpose with the JOIN ask locked on", async () => {
+  it('opens on the civic panel purpose with the JOIN ask locked on', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -464,19 +445,13 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+      await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()
@@ -493,23 +468,210 @@ describe('SmsFlow (Serve surface)', () => {
       editor.view.dispatch(editor.state.tr.delete(at - 1, at))
     })
     expect(await screen.findByRole('status')).toHaveTextContent(
-      "This is how people join your citizens' panel, but you can write around it.",
+      'This is how people join your civic panel, but you can write around it.',
     )
   })
 
-  // The reviewer's path: opened from the card, Back, Back. The purpose the
-  // card answered must never come back; Back leaves through the confirm.
-  it("leaves through the confirm on Back, never reopening the card's purpose", async () => {
+  // The Chief of Staff's invite card carries its own words and the build
+  // purpose. The words are kept, not drafted over, and the send is still the
+  // build purpose's: the ask locked on and the purpose on the draft.
+  it("keeps a card's invite on the civic panel purpose, the JOIN ask locked on", async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
     })
-    const onClose = vi.fn()
+    const draftCalls: ServeSmsDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted body' } }
+    })
     render(
       <SmsFlow
         source="deep_link"
         open
-        onClose={onClose}
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="build_citizens_panel"
+        initialAsksToJoinCivicPanel
+        initialScript="this is Jane, your Council Member. I am starting a civic panel to hear from all of you."
+      />,
+    )
+
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    expect(
+      await screen.findByText(/I am starting a civic panel/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Reply JOIN to join my civic panel/),
+    ).toBeInTheDocument()
+    const ask = screen.getByRole('checkbox', {
+      name: /join your civic panel/i,
+    })
+    expect(ask).toBeChecked()
+    expect(ask).toBeDisabled()
+    expect(draftCalls).toHaveLength(0)
+  })
+
+  // A chat card that saved its list opens the standard flow on the message,
+  // with the purpose and the list already done behind it.
+  it("opens a card's flow on the message with every step in the stepper", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSettled
+        initialPurpose="build_citizens_panel"
+        initialAsksToJoinCivicPanel
+        initialScript="this is Jane, your Council Member. I am starting a civic panel to hear from all of you."
+      />,
+    )
+
+    expect(
+      await screen.findByText(/I am starting a civic panel/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 3 of 5',
+    )
+    expect(screen.queryByTestId('proposal-audience-summary')).toBeNull()
+    expect(screen.queryByText('Change who gets this')).toBeNull()
+
+    // Back walks the standard flow: the card's list, picked, then its purpose.
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Message 1,200 constituents/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 2 of 5',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 1 of 5',
+    )
+  })
+
+  it("goes on from a card's message to the date, and back to the message", async () => {
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSettled
+        initialScript="this is Jane, your Council Member. The library opens Saturday."
+      />,
+    )
+
+    expect(
+      await screen.findByText(/The library opens Saturday/),
+    ).toBeInTheDocument()
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      (await screen.findAllByText('When do you want to send?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 4 of 5',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
+  })
+
+  // A tile open walks the same order a card does: the message before the date.
+  it('walks a tile open purpose, audience, message, date, review, and back', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+    const step = (n: number) =>
+      expect(screen.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuetext',
+        `Step ${n} of 5`,
+      )
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    step(2)
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    await screen.findByText(/drafted body/)
+    expect(screen.getByRole('textbox', { name: 'Message body' })).toBeVisible()
+    step(3)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      (await screen.findAllByText('When do you want to send?')).length,
+    ).toBeGreaterThan(0)
+    step(4)
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
+      0,
+    )
+    step(5)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      (await screen.findAllByText('When do you want to send?')).length,
+    ).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
+  })
+
+  // Reached without a card's list (the hub's panel link), Back from the list
+  // goes to the purpose picker like any flow.
+  it('goes back to the purpose picker from a purpose a link answered', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
         surface={SERVE_SMS_SURFACE}
         initialPurpose="build_citizens_panel"
@@ -518,17 +680,9 @@ describe('SmsFlow (Serve surface)', () => {
 
     await screen.findByText('Choose a constituent list')
     await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Keep editing' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Discard' }),
-    )
-
-    expect(onClose).toHaveBeenCalledOnce()
-    expect(screen.queryByText('Explain a recent decision')).toBeNull()
-    expect(screen.queryByText('What do you want to do?')).toBeNull()
+    expect(
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
   })
 
   // "Campaign" is Win vocabulary: an elected official has an office and a
@@ -548,12 +702,6 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(await screen.findByText('Add your header image')).toBeInTheDocument()
     expect(screen.queryByText(/campaign headshot/i)).not.toBeInTheDocument()
@@ -575,12 +723,6 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(
@@ -593,8 +735,9 @@ describe('SmsFlow (Serve surface)', () => {
   })
 
   // The image makes the text an MMS, which is what lets it run past one
-  // SMS segment, so Serve holds Continue until one is attached, as Win does.
-  it('holds Continue until an image is attached', async () => {
+  // SMS segment, so Serve asks for one before going on, as Win does. Continue
+  // stays pressable and a press says what is missing, next to the image.
+  it('asks for the header image when Continue is pressed without one', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
       data: { draft: 'drafted body' },
@@ -607,25 +750,39 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
+
+    await screen.findByText(/drafted body/)
+    const next = screen.getByRole('button', { name: 'Continue' })
+    expect(next).toBeEnabled()
+    expect(screen.queryByText('Add a header image to continue.')).toBeNull()
+
+    await userEvent.click(next)
+    expect(
+      await screen.findByText('Add a header image to continue.'),
+    ).toBeInTheDocument()
+    const dropzone = screen.getByRole('button', {
+      name: /Add your header image/,
+    })
+    expect(dropzone).toHaveFocus()
+    expect(dropzone).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('textbox', { name: 'Message body' })).toBeVisible()
+
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() =>
+      expect(screen.queryByText('Add a header image to continue.')).toBeNull(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await userEvent.click(
       await screen.findByRole('button', {
         name: /^Friday, September 4(?!\d)/,
       }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    await screen.findByText(/drafted body/)
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-
-    const input = document.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement
-    await userEvent.upload(
-      input,
-      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
-    )
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
+      0,
     )
   })
 })

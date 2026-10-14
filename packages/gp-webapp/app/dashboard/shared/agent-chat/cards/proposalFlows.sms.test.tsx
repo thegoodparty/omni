@@ -153,7 +153,9 @@ describe('a text card, through the drawer', () => {
     vi.useRealTimers()
   })
 
-  it('reaches the compose step with exactly one introduction', async () => {
+  // The card settled the purpose and who gets it, so the standard flow opens
+  // on the message with both steps done behind it, never on the builder.
+  it('opens on the message with exactly one introduction, every step counted', async () => {
     render(
       <ProposalFlowsProvider>
         <Opener />
@@ -162,15 +164,6 @@ describe('a text card, through the drawer', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Start the text' }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
-    )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The field holds the whole message: greeting, body and opt-out.
     const box = await screen.findByRole('textbox', { name: 'Message body' })
@@ -187,5 +180,41 @@ describe('a text card, through the drawer', () => {
       "We're working on expanding composting options.",
     )
     expect(message().match(/\b(?:hello|hi|hey)\b/gi)).toHaveLength(1)
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 3 of 5',
+    )
+    expect(screen.queryByTestId('proposal-audience-summary')).toBeNull()
+    expect(screen.queryByText('Change who gets this')).toBeNull()
+  })
+
+  it("goes back to the card's list, picked, then to the purpose", async () => {
+    render(
+      <ProposalFlowsProvider>
+        <Opener />
+      </ProposalFlowsProvider>,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start the text' }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Message 1,200 constituents/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Choose a constituent list')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('button', { name: 'Explain a recent decision' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Explain a recent decision' }),
+    )
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
   })
 })

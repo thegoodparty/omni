@@ -48,7 +48,7 @@ export const DASHBOARD_CARD_SNOOZE_DAYS = 3
 
 const CIVIC_PANEL_BUILD_CARD_PREFIX = 'build:'
 
-// The office's one "Build your citizens' panel" card. Its source is the office
+// The office's one card that builds its civic panel. Its source is the office
 // rather than a priority, which is what tells it apart from the per-priority
 // panel cards that share its type.
 export const civicPanelBuildCardSourceId = (electedOfficeId: string): string =>
@@ -59,6 +59,13 @@ export const isCivicPanelBuildCard = (
 ): boolean =>
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_BUILD_CARD_PREFIX)
+
+// Where the build card's Get started goes: the Chief of Staff home, which
+// opens its chat on the conversation that builds the panel and drops the
+// param, so the official never leaves the home to start.
+export const CIVIC_PANEL_BUILD_CHAT_PARAM = 'chat'
+export const CIVIC_PANEL_BUILD_CHAT_VALUE = 'build_citizens_panel'
+export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/chief-of-staff?${CIVIC_PANEL_BUILD_CHAT_PARAM}=${CIVIC_PANEL_BUILD_CHAT_VALUE}`
 
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,

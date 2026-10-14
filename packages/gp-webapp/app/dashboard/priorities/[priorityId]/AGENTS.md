@@ -123,7 +123,7 @@ both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card.
 
 Behind `serve-citizen-panels` the default is one card instead
-(`buildCivicPanelFirstBlock`, "THE CITIZENS' PANEL COMES FIRST"): one text to
+(`buildCivicPanelFirstBlock`, "THE CIVIC PANEL COMES FIRST"): one text to
 the panel members who can be asked now (`civicPanelMember`, cell phone,
 `notContactedRecently`, sized at `PANEL_ASSUMED_REPLY_RATE`) plus as many
 residents not on the panel, with `civicPanelAsk` on so the fresh half can
@@ -138,7 +138,7 @@ every send the check has had; a thin read is never widened to more of the
 same audience, and a side never offered is never recorded declined. A side not yet sent may name the other side's sends there
 (`PriorityFlowHandler.proposalRefusal`), which is how the least affected
 group leaves out everyone the first send asked. The handler reads the panel
-size per turn (`countCivicPanelMembers`) for the `<priority>` "Citizens'
+size per turn (`countCivicPanelMembers`) for the `<priority>` "Civic
 panel" line, only with the flag on.
 
 The official can take both, one,
@@ -212,9 +212,9 @@ separately.
 
 Behind `serve-citizen-panels`, once a priority text's replies are in (gp-api
 `OutreachReportBackService`: the results upload has landed and no summary of
-them is still running), the Chief of Staff home shows "Report back on" the
-priority, linking here with `?reportBack=<outreachId>`. `page.tsx` reads the
-param and the workspace sends `reportBackMessage(id)` (contracts,
+them is still running), the Chief of Staff home shows a report back card
+("Show people their voice counted on" the priority), linking here with
+`?reportBack=<outreachId>`. `page.tsx` reads the param and the workspace sends `reportBackMessage(id)` (contracts,
 `REPORT_BACK_MARKER`) as one hidden turn: the opener on a fresh thread instead
 of the kickoff, otherwise queued behind any turn in flight, never twice for a
 send already in the transcript, and the param is dropped from the address.
@@ -260,7 +260,7 @@ does not list sends, since the tiles already give those counts.
   shows below 10 respondents.
 - **The census figures are a sample for now, and the page does not say so.**
   gp-api reads them through `CENSUS_COMPOSITION_SOURCE`, bound once in
-  `CensusCompositionModule` (shared with the citizens' panel page) to
+  `CensusCompositionModule` (shared with the civic panel page) to
   `SampleCensusComposition` until gp-data-platform's district ACS columns,
   block group table and per person block group geoid reach `mart_gp_api`.
   The response says `source: 'sample'`; the label was taken off the page by

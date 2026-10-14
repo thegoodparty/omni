@@ -228,6 +228,12 @@ export const convertVoterFileFilterToFilters = (
     // Resolves against contact_current_status, not a voter-file column.
     'followUpRequested',
     'civicPanelMember',
+    'civicPanelLeft',
+    'civicPanelNeverInvited',
+    'civicPanelJoinedByText',
+    'civicPanelJoinedByDoor',
+    'civicPanelJoinedByPhone',
+    'civicPanelJoinedByHand',
     'notContactedRecently',
     'independentAffinity',
     'ideologyConservative',

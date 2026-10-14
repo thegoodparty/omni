@@ -263,3 +263,53 @@ export const pledge = 'I will run as an independent candidate'`,
     })
   })
 })
+
+describe('the civic panel name', () => {
+  it('flags every old name for the panel, in any file', () => {
+    expect(
+      words(
+        SHARED_FILE,
+        `export const copy = {
+  a: "Build your citizens' panel",
+  b: 'Do they want to join your citizens’ panel?',
+  c: "Who is on your citizen's panel",
+  d: 'On Your Citizens Panel',
+  e: 'Your civics panel is growing',
+  f: 'Your constituent panel is growing',
+}`,
+      ),
+    ).toEqual([
+      'citizens panel',
+      'citizens panel',
+      'citizens panel',
+      'citizens panel',
+      'civics panel',
+      'constituent panel',
+    ])
+  })
+
+  it('reads JSX text with its entities', () => {
+    expect(
+      words(
+        SHARED_FILE,
+        `export const Row = () => <span>On your citizens&apos; panel</span>`,
+      ),
+    ).toEqual(['citizens panel'])
+  })
+
+  it('passes the civic panel and the identifiers that keep the old name', () => {
+    expect(
+      words(
+        SHARED_FILE,
+        `import { useServeCitizenPanelsFlag } from './serveCitizenPanelsFlag'
+// The citizens' panel, in a comment, is not copy.
+export const copy = {
+  title: 'Your civic panel',
+  label: 'Civic panel',
+  href: '/dashboard/contacts/citizens-panel',
+  flag: 'serve-citizen-panels',
+}`,
+      ),
+    ).toEqual([])
+  })
+})

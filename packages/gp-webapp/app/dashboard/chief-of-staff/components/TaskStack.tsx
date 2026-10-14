@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   ExternalLinkIcon,
+  MessagesSquareIcon,
   cn,
 } from '@styleguide'
 import {
@@ -57,7 +58,7 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
-  // The citizens' panel build card: it leads the deck, and closes itself
+  // The civic panel build card: it leads the deck, and closes itself
   // once its text has gone out.
   buildsPanel: boolean
 }
@@ -71,8 +72,9 @@ const HEADLINES: Record<DeckKind, string> = {
   report_back: 'Tell people what you heard',
 }
 
-// The build card shares its type with the per-priority panel cards.
-const BUILD_PANEL_HEADLINE = "Build your citizens' panel"
+// The build card shares its type with the per-priority panel cards, and
+// leads the deck ahead of the get-started cards.
+const BUILD_PANEL_HEADLINE = 'Start here'
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||
@@ -88,15 +90,30 @@ const formatDueDate = (iso: string | null): string | null => {
   }
 }
 
+// Sent as the official's first message, so the chief of staff answers about
+// this task instead of opening on its greeting. Same shape as the Campaign
+// Manager's discussTaskMessage.
+const discussCardMessage = (card: DeckCard, dueLine: string | null): string =>
+  [
+    `Help me with this task from my dashboard: "${card.title}".`,
+    card.summary,
+    dueLine ? `It is due ${dueLine}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
 /**
  * The Serve home's one thing to do: the get-started cards, then the week's
  * task cards by due date, as a stack with only the front card actionable.
  */
 const TaskStack = ({
   onOpenCard,
+  onDiscussCard,
   briefingInFlight = false,
 }: {
   onOpenCard: (key: OnboardingCardKey) => void
+  // Opens a fresh chat seeded with a message about the front card.
+  onDiscussCard?: (message: string) => void
   // True while a briefing is generating, so the empty state stays hidden.
   briefingInFlight?: boolean
 }): React.JSX.Element | null => {
@@ -205,7 +222,9 @@ const TaskStack = ({
     )
   }
 
-  const dueLine = formatDueDate(front.dueDate)
+  // The build card's due date only keeps it from sitting forever; it is not
+  // a deadline the official has.
+  const dueLine = front.buildsPanel ? null : formatDueDate(front.dueDate)
 
   const cardProps = {
     cardId: front.id,
@@ -234,6 +253,7 @@ const TaskStack = ({
     else dismissCard.mutate(front.id)
   }
   const skipClassName = cn(QUIET_ON_PHONE, 'sm:ml-auto')
+  const offersMarkDone = !front.onboardingKey && front.kind !== 'civic_panel'
 
   return (
     <section className="flex w-full flex-col gap-6">
@@ -328,9 +348,10 @@ const TaskStack = ({
                 )
               )}
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                {/* A get-started card and the build card close themselves
-                    once their goal is met, so they offer no manual Mark done. */}
-                {!front.onboardingKey && !front.buildsPanel && (
+                {/* Get-started and civic panel cards close themselves once
+                    their goal is met (a priority card, once the priority is
+                    resolved), so they offer no manual Mark done. */}
+                {offersMarkDone && (
                   <Button
                     type="button"
                     variant="outline"
@@ -350,8 +371,39 @@ const TaskStack = ({
                     Mark done
                   </Button>
                 )}
+                {/* Get-started and civic panel cards already open a
+                    conversation from their own button. */}
+                {onDiscussCard &&
+                  !front.onboardingKey &&
+                  front.kind !== 'civic_panel' && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="medium"
+                      className={QUIET_ON_PHONE}
+                      onClick={() => {
+                        trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
+                          ...cardProps,
+                          action: 'ask',
+                        })
+                        onDiscussCard(discussCardMessage(front, dueLine))
+                      }}
+                    >
+                      {/* On the narrowest phones a third quiet button leaves
+                        no room for the icon. */}
+                      <MessagesSquareIcon
+                        className={cn(
+                          'size-4',
+                          offersMarkDone && 'max-[399px]:hidden',
+                        )}
+                        aria-hidden
+                      />
+                      Ask about this
+                    </Button>
+                  )}
                 {!leaving &&
-                  (front.buildsPanel || front.kind === 'report_back' ? (
+                  (front.kind === 'civic_panel' ||
+                  front.kind === 'report_back' ? (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button

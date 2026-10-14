@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -44,7 +45,7 @@ const MESSAGE =
 const panelAndFresh: Proposal = {
   kind: 'outreach_proposal',
   proposalKey: PROPOSAL_KEY,
-  audience: "Your citizens' panel and residents across the district",
+  audience: 'Your civic panel and residents across the district',
   count: 18_400,
   channel: 'text',
   audienceFilters: { hasCellPhone: true, notContactedRecently: true },
@@ -83,22 +84,42 @@ const openCard = async (proposal: Proposal) => {
   await screen.findByTestId('sms-flow')
 }
 
-describe("a priority's text card to the panel and new residents", () => {
-  beforeEach(() => {
-    smsFlow.props = null
+// Every list the card saves, as the server would return them.
+let saved: Record<string, unknown>[] = []
+beforeEach(() => {
+  saved = []
+  smsFlow.props = null
+  window.localStorage.clear()
+  api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+    saved.push(body)
+    return { status: 200, data: { id: 500 + saved.length, name: 'List' } }
   })
+  api.mock('GET /v1/voters/voter-file/filters', () => ({
+    status: 200,
+    data: saved.map((_, i) => ({ id: 501 + i, name: 'List' })),
+  }))
+})
 
-  it('opens the Serve text flow on one list holding both draws, the join ask on', async () => {
+describe("a priority's text card to the panel and new residents", () => {
+  // The card settled who gets it, so the list is saved before the flow
+  // opens, and the flow opens on the message with that list picked.
+  it('saves one list holding both draws and opens on the message, the join ask on', async () => {
     await openCard(panelAndFresh)
 
-    const props = smsFlow.props
-    expect(props?.surface).toEqual({ isServe: true })
-    expect(props?.initialAsksToJoinCivicPanel).toBe(true)
-    expect(props?.proposedAudience).toMatchObject({
+    expect(saved).toHaveLength(1)
+    expect(saved[0]).toMatchObject({
       name: 'Flooding check',
-      filters: { hasCellPhone: true, notContactedRecently: true },
+      hasCellPhone: true,
       sample: { size: 84, panelSize: 42, seedKey: PROPOSAL_KEY },
     })
+    const props = smsFlow.props
+    expect(props?.surface).toEqual({ isServe: true })
+    expect(props?.preselectedListId).toBe(501)
+    expect(props).not.toHaveProperty('proposedAudience')
+    expect(smsFlow.props?.audienceSettled).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
+    expect(props?.initialAsksToJoinCivicPanel).toBe(true)
+    expect(props?.initialScript).toBe(MESSAGE)
   })
 
   it('leaves the join ask off for a text that did not ask for it', async () => {
@@ -109,20 +130,66 @@ describe("a priority's text card to the panel and new residents", () => {
     })
 
     expect(smsFlow.props?.initialAsksToJoinCivicPanel).toBe(false)
-    expect(smsFlow.props?.proposedAudience).toMatchObject({
+    expect(saved[0]).toMatchObject({
       sample: { size: 84, seedKey: PROPOSAL_KEY },
     })
-    expect(
-      (smsFlow.props?.proposedAudience as { sample?: object }).sample,
-    ).not.toHaveProperty('panelSize')
+    expect(saved[0]?.sample).not.toHaveProperty('panelSize')
+    expect(smsFlow.props?.audienceSettled).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
+  })
+})
+
+describe("the Chief of Staff's civic panel invite", () => {
+  const invite: Proposal = {
+    kind: 'outreach_proposal',
+    proposalKey: PROPOSAL_KEY,
+    audience: 'Residents with a cell phone',
+    count: 12_000,
+    channel: 'text',
+    audienceFilters: { hasCellPhone: true },
+    listName: 'Civic panel invite',
+    message: MESSAGE,
+    deepLinkOnly: false,
+    sampleSize: 3334,
+    civicPanelAsk: true,
+    purpose: 'build_citizens_panel',
+  }
+
+  // The card's purpose rides into the flow, so it opens past the picker on
+  // the build purpose, on the seeded draw of the district's cell phones.
+  it('opens on the build purpose with the district draw saved', async () => {
+    await openCard(invite)
+
+    expect(saved[0]).toMatchObject({
+      name: 'Civic panel invite',
+      hasCellPhone: true,
+      sample: { size: 3334, seedKey: PROPOSAL_KEY },
+    })
+    const props = smsFlow.props
+    expect(props?.initialPurpose).toBe('build_citizens_panel')
+    expect(props?.initialAsksToJoinCivicPanel).toBe(true)
+    expect(props?.initialScript).toBe(MESSAGE)
+    expect(smsFlow.props?.audienceSettled).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
+  })
+
+  // A saved list would text a different audience from the one counted and
+  // priced, so the invite never takes one over its draw.
+  it('never takes a saved list over the district draw', async () => {
+    await openCard({ ...invite, savedFilterId: 41 })
+
+    expect(saved).toHaveLength(1)
+    expect(smsFlow.props?.preselectedListId).toBe(501)
+  })
+
+  it('opens any other text without a purpose', async () => {
+    await openCard({ ...panelAndFresh, purpose: undefined })
+
+    expect(smsFlow.props).not.toHaveProperty('initialPurpose')
   })
 })
 
 describe('a report back card', () => {
-  beforeEach(() => {
-    smsFlow.props = null
-  })
-
   const reportBack: Proposal = {
     kind: 'outreach_proposal',
     proposalKey: PROPOSAL_KEY,
@@ -139,21 +206,32 @@ describe('a report back card', () => {
   it('saves one list of the people that send reached, as a report back', async () => {
     await openCard(reportBack)
 
-    const props = smsFlow.props
-    expect(props?.initialPurpose).toBe('report_back')
-    expect(props?.reportBackForOutreachId).toBe(77)
-    expect(props?.initialAsksToJoinCivicPanel).toBe(false)
-    expect(props?.proposedAudience).toMatchObject({
+    expect(saved[0]).toMatchObject({
       name: 'Flooding report back',
-      filters: {},
       sample: {
         size: 236,
         seedKey: PROPOSAL_KEY,
         recipientsOfOutreachId: 77,
       },
     })
+    const props = smsFlow.props
+    expect(props?.initialPurpose).toBe('report_back')
+    expect(props?.reportBackForOutreachId).toBe(77)
+    expect(props?.initialAsksToJoinCivicPanel).toBe(false)
+    expect(smsFlow.props?.audienceSettled).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
     // Linked through the send it answers, never as another ask on the
     // priority.
     expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
+  })
+
+  // Even after a reload: a fresh provider finds the list by the card's key.
+  it('reuses the list it saved when the card is opened again', async () => {
+    await openCard(reportBack)
+    cleanup()
+    await openCard(reportBack)
+
+    expect(saved).toHaveLength(1)
+    expect(smsFlow.props?.preselectedListId).toBe(501)
   })
 })

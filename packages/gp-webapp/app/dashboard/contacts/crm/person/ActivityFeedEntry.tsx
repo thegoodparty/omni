@@ -80,7 +80,7 @@ const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   do_not_knock: 'Do Not Knock',
   not_a_voter: 'Not A Voter',
   follow_up: 'Follow-up',
-  civic_panel: "Citizens' panel",
+  civic_panel: 'Civic panel',
 }
 
 // Who made a change nobody on the team made: the channel it came in on.

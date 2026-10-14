@@ -409,6 +409,62 @@ describe('feedback synthesis routes', () => {
   })
 
   describe('the ingest', () => {
+    // Two efforts finishing together each propose the same new tag. Both
+    // see no tag yet, so the second insert must not abort its whole run.
+    it('completes two runs in one org that propose the same new tag', async () => {
+      const second = await seedTurfEffort(service, slug, { people: 6 })
+      const memos = await seedConfirmed(effort.targets.slice(0, 5))
+      const others = []
+      for (const target of second.targets.slice(0, 5)) {
+        others.push(
+          await seedKnockMemo(service, {
+            slug,
+            outreachId: second.outreachId,
+            personId: target.personId,
+          }),
+        )
+      }
+      const first = await synthesize()
+      const next = await synthesize(second.outreachId)
+      scheduled.splice(0)
+
+      await Promise.all([
+        ingest().handle(
+          completionEvent(first.data.id, [
+            {
+              theme: 'Street flooding',
+              memberIds: memos.map((m) => m.memo.id),
+            },
+          ]),
+        ),
+        ingest().handle(
+          completionEvent(next.data.id, [
+            {
+              theme: 'Street flooding',
+              memberIds: others.map((m) => m.memo.id),
+            },
+          ]),
+        ),
+      ])
+
+      const runs = await service.prisma.feedbackSynthesisRun.findMany({
+        where: { id: { in: [first.data.id, next.data.id] } },
+        include: { themes: { select: { tagId: true } } },
+      })
+      expect(runs.map((run) => run.status)).toEqual([
+        SynthesisRunStatus.completed,
+        SynthesisRunStatus.completed,
+      ])
+      const tags = await service.prisma.issueTag.findMany({
+        where: { organizationSlug: slug, normalizedName: 'street flooding' },
+      })
+      expect(tags).toHaveLength(1)
+      expect(runs.flatMap((run) => run.themes.map((t) => t.tagId))).toEqual([
+        tags[0]!.id,
+        tags[0]!.id,
+      ])
+    })
+
     it('links a theme to the accepted tag with the same name', async () => {
       const accepted = await service.prisma.issueTag.create({
         data: {

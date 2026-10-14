@@ -54,6 +54,7 @@ const officeBundle = (
   > = {},
 ): CreateTestOrganizationRequest => ({
   type: 'elected_office',
+  race: { zip: '82001', office: RACE.position.name },
   onboarding: 'complete',
   term: 'active',
   ...overrides,
@@ -198,11 +199,32 @@ describe('POST /v1/test-mode/organizations', () => {
       include: { electedOffice: true },
     })
     expect(org.testModeCreatedAt).not.toBeNull()
+    expect(org.positionId).toBe('pos_internal_1')
+    expect(org.customPositionName).toBe(RACE.position.name)
     expect(org.electedOffice?.onboardingCompletedAt).not.toBeNull()
     expect(org.electedOffice?.termEndDate).not.toBeNull()
     expect(created.type).toBe('elected_office')
     expect(created.families.term?.current).toBe('ending_soon')
     expect(electedOfficeCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses an elected office whose position election-api cannot find', async () => {
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getPositionByBallotReadyId',
+    ).mockResolvedValue(null)
+
+    const res = await service.client.post(
+      '/v1/test-mode/organizations',
+      officeBundle(),
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(
+      await service.prisma.organization.count({
+        where: { testModeCreatedAt: { not: null } },
+      }),
+    ).toBe(0)
   })
 
   it('creates the linked campaign and office pair for a won race', async () => {

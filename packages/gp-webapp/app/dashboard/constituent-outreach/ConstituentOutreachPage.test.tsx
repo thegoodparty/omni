@@ -646,8 +646,8 @@ describe('ConstituentOutreachPage — the serve-sms-outreach gate', () => {
   })
 })
 
-// The Chief of Staff's "Build your citizens' panel" card links here.
-describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
+// The Chief of Staff's "Build your civic panel" card links here.
+describe("ConstituentOutreachPage — the civic panel card's link", () => {
   const arriveWith = (params: string) => {
     vi.mocked(useSearchParams).mockReturnValue(
       new URLSearchParams(params) as ReturnType<typeof useSearchParams>,
@@ -665,7 +665,7 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     vi.useRealTimers()
   })
 
-  it('runs the panel card through the sample, the locked JOIN ask and the priced review', async () => {
+  it('runs the panel card through the sample, the locked JOIN ask, the date and the priced review', async () => {
     mockPhoneBankingAudience()
     // The district's cell phones, of which the panel text reaches a draw.
     api.mock('POST /v1/contacts/count', {
@@ -694,7 +694,7 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     const saved: Record<string, unknown>[] = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       saved.push(body as Record<string, unknown>)
-      return { status: 200, data: { id: 88, name: "Citizens' panel invite" } }
+      return { status: 200, data: { id: 88, name: 'Civic panel invite' } }
     })
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
@@ -714,25 +714,20 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     )
     await user.click(proceed)
     expect(
-      await screen.findByDisplayValue("Citizens' panel invite"),
+      await screen.findByDisplayValue('Civic panel invite'),
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await waitFor(() => expect(saved).toHaveLength(1))
     expect(saved[0]).toMatchObject({
-      name: "Citizens' panel invite",
+      name: 'Civic panel invite',
       hasCellPhone: true,
       sample: { size: 3334 },
     })
-    await user.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
     expect(
-      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+      await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()
@@ -742,6 +737,12 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     )
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The date comes after the message.
+    await user.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     // Review prices the draw. The live total is Stripe's, which jsdom
@@ -756,9 +757,9 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     expect(created[0]?.message).toContain(CIVIC_PANEL_JOIN_LINE)
   })
 
-  // The card answered the purpose, so Back on its first step leaves the
-  // flow rather than reopening that question or dropping the draw.
-  it('leaves the flow on Back from the first step, never showing the purpose', async () => {
+  // Back from the seeded draw goes to the purpose picker like any flow, and
+  // the draw is still there on the way forward again.
+  it('goes back to the purpose picker from the first step, keeping the draw', async () => {
     mockPhoneBankingAudience()
     api.mock('POST /v1/contacts/count', {
       status: 200,
@@ -772,13 +773,10 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
 
     await screen.findByRole('button', { name: 'Continue (3,334)' })
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
-      await screen.findByRole('button', { name: 'Continue (3,334)' }),
-    ).toBeEnabled()
-    expect(screen.queryByText('Explain a recent decision')).toBeNull()
-    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('opens a plain text flow with serve-citizen-panels off', async () => {
@@ -791,7 +789,7 @@ describe("ConstituentOutreachPage — the citizens' panel card's link", () => {
     expect(
       await screen.findByText('Explain a recent decision'),
     ).toBeInTheDocument()
-    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
+    expect(screen.queryByText('Build your civic panel')).toBeNull()
   })
 })
 

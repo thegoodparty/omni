@@ -147,6 +147,32 @@ describe('<TaskStack>', () => {
     expect(dismissMock).not.toHaveBeenCalled()
   })
 
+  it('asks the chief of staff about the front card', async () => {
+    const user = userEvent.setup()
+    const onDiscussCard = vi.fn()
+    withCards([card({})])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+    await user.click(screen.getByRole('button', { name: 'Ask about this' }))
+    expect(onDiscussCard).toHaveBeenCalledWith(
+      expect.stringContaining('"Prep for the zoning vote"'),
+    )
+    expect(onDiscussCard.mock.calls[0]?.[0]).toContain(
+      'Three items worth reading first.',
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      { cardId: 'c1', cardType: 'briefing', stackSize: 1, action: 'ask' },
+    )
+  })
+
+  it('offers no Ask about this on a get-started card', () => {
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('links the primary action to the card destination', () => {
     withCards([card({})])
     render(<TaskStack onOpenCard={vi.fn()} />)
@@ -188,30 +214,45 @@ describe('<TaskStack>', () => {
   const buildCard = card({
     id: 'build',
     type: 'civic_panel',
-    title: "Build your citizens' panel",
+    title: 'Hear from more than the loudest voices',
     summary:
-      'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
+      'Decisions land better when you know what the whole community thinks, not just who shows up.',
     ctaLabel: 'Get started',
-    ctaHref:
-      '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+    ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
     dueDate: '2026-10-21T18:00:00.000Z',
     sourceExternalId: 'build:eo-1',
   })
 
-  it("leads with the citizens' panel build card, ahead of get-started cards", () => {
+  it('offers no Ask about this on a civic panel card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows no due date on the build card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(screen.queryByText(/October 21/)).toBeNull()
+  })
+
+  it('leads with the civic panel build card, ahead of get-started cards', () => {
     onboardingRef.current = [{ key: 'meet', status: 'active' }]
     withCards([card({}), buildCard])
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
       screen.getByRole('heading', {
-        level: 2,
-        name: "Build your citizens' panel",
+        level: 3,
+        name: 'Hear from more than the loudest voices',
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(ONBOARDING_CARDS.meet.title)).toBeNull()
+    // Get started stays on the home: it opens the chat there, never the
+    // outreach page.
     expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
       'href',
-      '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+      '/dashboard/chief-of-staff?chat=build_citizens_panel',
     )
   })
 
@@ -233,8 +274,8 @@ describe('<TaskStack>', () => {
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
       screen.getByRole('heading', {
-        level: 2,
-        name: "Build your citizens' panel",
+        level: 3,
+        name: 'Hear from more than the loudest voices',
       }),
     ).toBeInTheDocument()
     expect(
@@ -274,9 +315,12 @@ describe('<TaskStack>', () => {
     expect(snoozeMock).not.toHaveBeenCalled()
   })
 
-  it("reads a priority card as the priority's next step, with Mark done", () => {
+  // It stays until its priority is resolved, so it offers no Mark done.
+  it("reads a priority card as the priority's next step, with no Mark done", async () => {
+    const user = userEvent.setup()
     withCards([
       card({
+        id: 'p1-card',
         type: 'civic_panel',
         title: 'Affordable housing',
         summary: 'Draft two options for the council.',
@@ -291,22 +335,31 @@ describe('<TaskStack>', () => {
         name: 'Next steps on your priorities',
       }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('Draft two options for the council.'),
+    ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open priority' })).toHaveAttribute(
       'href',
       '/dashboard/priorities/p1',
     )
     expect(
-      screen.getByRole('button', { name: /mark done/i }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    )
+    expect(snoozeMock).toHaveBeenCalledWith('p1-card')
+    expect(completeMock).not.toHaveBeenCalled()
   })
 
   describe('the report back card', () => {
     const reportBack = card({
       id: 'rb',
       type: 'report_back',
-      title: 'Report back on Downtown parking',
-      summary:
-        "Tell the people you texted what you heard and what you'll do next.",
+      title: 'Show people their voice counted on Downtown parking',
+      summary: 'People keep answering when they see what came of it.',
       ctaLabel: 'Report back',
       ctaHref: '/dashboard/priorities/p1?reportBack=77',
       sourceExternalId: '77',
@@ -318,7 +371,7 @@ describe('<TaskStack>', () => {
       render(<TaskStack onOpenCard={vi.fn()} />)
       expect(
         screen.getByRole('heading', {
-          name: 'Report back on Downtown parking',
+          name: 'Show people their voice counted on Downtown parking',
         }),
       ).toBeInTheDocument()
       expect(screen.getByRole('link', { name: 'Report back' })).toHaveAttribute(

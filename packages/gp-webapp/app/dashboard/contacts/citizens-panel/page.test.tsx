@@ -36,7 +36,7 @@ beforeEach(() => {
   })
 })
 
-describe("citizens' panel page", () => {
+describe('civic panel page', () => {
   it('404s without asking gp-api when serve-citizen-panels is off', async () => {
     mocks.getFlagVariants.mockResolvedValue({
       'serve-citizen-panels': { value: 'off' },

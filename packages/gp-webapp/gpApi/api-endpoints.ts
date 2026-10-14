@@ -1494,7 +1494,7 @@ export type APIEndpoints = {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
   }
-  // Serve's citizens' panel as a whole. Both 404 with serve-citizen-panels
+  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
   // off and 400 for a Win org.
   'GET /v1/contacts/civic-panel': {
     Request: {}

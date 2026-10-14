@@ -40,6 +40,13 @@ let scheduled: Array<Parameters<MockSynthesisEngine['scheduleCompletion']>>
 // Every send for one priority, texts and doors together, read as one
 // answer. Each new run replaces the last, so the themes keep up as sends
 // finish.
+// Slots the real every-ten-minutes @Cron in the test app never claims. With
+// sweep(new Date()), a test that crossed a ten-minute boundary lost the slot
+// to that cron and its sweep did nothing. No run is old enough to count as
+// stale against them, so only the re-pool half of the sweep acts.
+const SWEEP_SLOT_A = new Date('2001-01-01T00:00:00Z')
+const SWEEP_SLOT_B = new Date('2001-01-01T01:00:00Z')
+
 describe('feedback synthesis across a priority', () => {
   let slug: string
   let priorityId: string
@@ -281,7 +288,7 @@ describe('feedback synthesis across a priority', () => {
         { theme: 'Drains back up', memberIds: texted.map((r) => r.id) },
       ]),
     )
-    await service.app.get(SynthesisStaleRunSweepService).sweep(new Date())
+    await service.app.get(SynthesisStaleRunSweepService).sweep(SWEEP_SLOT_A)
 
     const runs = await service.prisma.feedbackSynthesisRun.findMany({
       where: { priorityId, scope: SynthesisScope.priority },
@@ -307,7 +314,7 @@ describe('feedback synthesis across a priority', () => {
       .mockRejectedValueOnce(new InternalServerErrorException())
     onTestFinished(() => failing.mockRestore())
 
-    await service.app.get(SynthesisStaleRunSweepService).sweep(new Date())
+    await service.app.get(SynthesisStaleRunSweepService).sweep(SWEEP_SLOT_B)
 
     expect(
       (

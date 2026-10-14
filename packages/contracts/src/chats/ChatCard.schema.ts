@@ -6,6 +6,7 @@ import {
   PriorityStepIdSchema,
 } from '../priorities/PriorityStatus.schema'
 import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
+import { ServeSmsPurposeSchema } from '../outreach/OutreachPurpose.schema'
 
 /**
  * Anchored views: the cards an agent can leave in a chat.
@@ -121,10 +122,16 @@ export const OutreachProposalSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Text only: true to ask the people texted to join the citizens' panel. " +
+      'Text only: true to ask the people texted to join the civic panel. ' +
         'The flow adds the ask and what it means; never write it into the ' +
         'message.',
     ),
+  /**
+   * Text only, Serve only: the purpose the text flow opens on, past its
+   * purpose picker. Only the civic panel invite sets it, so the flow
+   * locks the join line and the build card closes once it is paid for.
+   */
+  purpose: ServeSmsPurposeSchema.optional(),
   /**
    * Nothing shows this: the agent says why in its message. Kept so cards
    * already persisted with it still parse.
@@ -148,7 +155,7 @@ export const OutreachProposalSchema = z.object({
    */
   sampleSize: z.number().int().positive().max(MAX_LIST_SAMPLE_SIZE).optional(),
   /**
-   * Of `sampleSize`, how many are drawn from the official's citizens' panel.
+   * Of `sampleSize`, how many are drawn from the official's civic panel.
    * The rest are drawn from residents not on it, so one send asks the panel
    * and invites new people to join. Absent, the sample ignores the panel.
    */
@@ -159,7 +166,7 @@ export const OutreachProposalSchema = z.object({
     .max(MAX_LIST_SAMPLE_SIZE)
     .optional()
     .describe(
-      "Text only: how many of sampleSize are citizens' panel members. The " +
+      'Text only: how many of sampleSize are civic panel members. The ' +
         'rest of sampleSize are residents not on the panel.',
     ),
   /** The replies a text sample was sized to bring back. */

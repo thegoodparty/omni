@@ -19,7 +19,7 @@ export const ListSampleSchema = z
      */
     excludeOutreachIds: z.array(z.number().int().positive()).max(20).optional(),
     /**
-     * Serve only. Of `size`, this many are drawn from the official's citizens'
+     * Serve only. Of `size`, this many are drawn from the official's civic
      * panel and the rest from people not on it, each part its own random draw
      * within the criteria, so one list asks the panel and grows it at once.
      * Absent, the draw ignores the panel.

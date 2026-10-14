@@ -128,6 +128,8 @@ export {
   isLegacyDoorKnockingUnitKey,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
+  CivicPanelActivitySchema,
+  type CivicPanelActivity,
 } from './people/Person.schema'
 
 export {
@@ -871,6 +873,9 @@ export {
   DASHBOARD_CARD_SNOOZE_DAYS,
   civicPanelBuildCardSourceId,
   isCivicPanelBuildCard,
+  CIVIC_PANEL_BUILD_CHAT_PARAM,
+  CIVIC_PANEL_BUILD_CHAT_VALUE,
+  CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -1618,6 +1623,12 @@ export {
   type TestFixtureSessionResponse,
   DeleteTestFixtureUsersResponseSchema,
   type DeleteTestFixtureUsersResponse,
+  TEST_FIXTURE_ACTIVITY_MAX_PEOPLE,
+  SeedTestFixtureActivityRequestSchema,
+  type SeedTestFixtureActivityRequest,
+  TestFixtureActivityEffortSchema,
+  SeedTestFixtureActivityResponseSchema,
+  type SeedTestFixtureActivityResponse,
 } from './testFixtures/testFixtures.schema'
 
 export {
@@ -1678,4 +1689,6 @@ export {
   PANEL_SEED_TARGET_MEMBERS,
   PANEL_SEED_ASSUMED_JOIN_RATE,
   PANEL_SEED_SAMPLE_SIZE,
+  BUILD_CITIZENS_PANEL_MARKER,
+  BUILD_CITIZENS_PANEL_MESSAGE,
 } from './outreach/CivicPanelJoin'

@@ -128,6 +128,7 @@ describe('ContactsService', () => {
     }
     let mockContactsMadeResolutionService: {
       resolveContactsMade: ReturnType<typeof vi.fn>
+      lastReachedAt: ReturnType<typeof vi.fn>
     }
 
     beforeEach(() => {
@@ -183,6 +184,7 @@ describe('ContactsService', () => {
       }
       mockContactsMadeResolutionService = {
         resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+        lastReachedAt: vi.fn().mockResolvedValue(null),
       }
 
       service = new ContactsService(
@@ -203,6 +205,7 @@ describe('ContactsService', () => {
         mockStatsService as never,
         { resolve: vi.fn().mockResolvedValue('voters') } as never,
         mockContactsMadeResolutionService as never,
+        { latestEvent: vi.fn().mockResolvedValue(null) } as never,
         createMockLogger(),
       )
       vi.clearAllMocks()

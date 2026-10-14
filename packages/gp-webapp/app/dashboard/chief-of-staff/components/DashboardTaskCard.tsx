@@ -1,6 +1,7 @@
 'use client'
 
 import { format, parseISO } from 'date-fns'
+import { isCivicPanelBuildCard } from '@goodparty_org/contracts'
 import TaskCard from './TaskCard'
 import { cardCategory } from './cardCategory'
 import type { DashboardCard } from '../data/contracts'
@@ -30,7 +31,10 @@ export default function DashboardTaskCard({
   restoreDisabled,
 }: Props): React.JSX.Element {
   const { label } = cardCategory(card.type)
-  const dueLine = formatDueDate(card.dueDate)
+  // The build card's due date is not a deadline the official has.
+  const dueLine = isCivicPanelBuildCard(card)
+    ? null
+    : formatDueDate(card.dueDate)
   return (
     <TaskCard
       overlineLabel={label}

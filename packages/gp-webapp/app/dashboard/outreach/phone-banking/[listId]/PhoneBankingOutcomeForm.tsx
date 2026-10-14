@@ -730,8 +730,7 @@ export default function PhoneBankingOutcomeForm({
                             draft.followUp !== undefined && (
                               <div className="mt-4">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                  Do they want to join your citizens&apos;
-                                  panel?
+                                  Do they want to join your civic panel?
                                 </p>
                                 <div className="mt-2">
                                   <FilterPillGroup

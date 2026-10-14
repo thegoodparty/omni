@@ -396,7 +396,7 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
 export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
     icon: UsersRoundIcon,
-    title: "Build a citizens' panel you can ask before you vote",
+    title: 'Build a civic panel you can ask before you vote',
     desc: 'Invite residents who agree to give feedback, then hear from a random slice of them on each decision.',
   },
   {

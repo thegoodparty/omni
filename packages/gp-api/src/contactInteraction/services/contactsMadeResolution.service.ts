@@ -108,6 +108,63 @@ export class ContactsMadeResolutionService extends createPrismaBase(
     return rows.map((row) => row.personId)
   }
 
+  // Everyone whose LAST contact on any channel falls in [from, toExclusive):
+  // the rest window's rule read the other way, for "last asked" on a list.
+  // Someone reached inside the range and again after it is not in it.
+  async personIdsLastReachedBetween(
+    organizationSlug: string,
+    from: Date | null,
+    toExclusive: Date | null,
+  ): Promise<string[]> {
+    const having: Prisma.Sql[] = []
+    if (from) having.push(Prisma.sql`MAX(occurred_at) >= ${from}`)
+    if (toExclusive) having.push(Prisma.sql`MAX(occurred_at) < ${toExclusive}`)
+    const rows = await this.client.$queryRaw<{ personId: string }[]>(Prisma.sql`
+      SELECT person_id AS "personId"
+      FROM (
+        SELECT person_id, occurred_at FROM contact_interaction_text
+        WHERE organization_slug = ${organizationSlug}
+        UNION ALL
+        SELECT person_id, occurred_at FROM contact_interaction_robocall
+        WHERE organization_slug = ${organizationSlug}
+        UNION ALL
+        SELECT person_id, occurred_at FROM contact_interaction_door_knock
+        WHERE organization_slug = ${organizationSlug}
+        UNION ALL
+        SELECT person_id, occurred_at FROM contact_interaction_phone_banking
+        WHERE organization_slug = ${organizationSlug}
+      ) reached
+      GROUP BY person_id
+      ${having.length > 0 ? Prisma.sql`HAVING ${Prisma.join(having, ' AND ')}` : Prisma.empty}
+    `)
+    this.assertUnderCap(organizationSlug, rows.length, 'include')
+    return rows.map((row) => row.personId)
+  }
+
+  // When the org last reached one person on any channel, or null if never.
+  async lastReachedAt(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<Date | null> {
+    const [row] = await this.client.$queryRaw<{ at: Date | null }[]>(Prisma.sql`
+      SELECT MAX(occurred_at) AS at
+      FROM (
+        SELECT occurred_at FROM contact_interaction_text
+        WHERE organization_slug = ${organizationSlug} AND person_id = ${personId}
+        UNION ALL
+        SELECT occurred_at FROM contact_interaction_robocall
+        WHERE organization_slug = ${organizationSlug} AND person_id = ${personId}
+        UNION ALL
+        SELECT occurred_at FROM contact_interaction_door_knock
+        WHERE organization_slug = ${organizationSlug} AND person_id = ${personId}
+        UNION ALL
+        SELECT occurred_at FROM contact_interaction_phone_banking
+        WHERE organization_slug = ${organizationSlug} AND person_id = ${personId}
+      ) reached
+    `)
+    return row?.at ?? null
+  }
+
   // How many of `personIds` the org reached since `since`, by the same rule
   // as personIdsContactedSince. Counted in SQL so a busy office's contacted
   // set never has to come back whole, and so never trips its cap.

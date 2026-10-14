@@ -35,6 +35,7 @@ import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
 import { FeaturesService } from '@/features/services/features.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
+import { SERVE_SMS_FLAG } from '@/shared/util/serveSmsFlag.util'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -78,7 +79,7 @@ const clampOffset = (raw?: string): number => {
 //
 // This gates ROLLOUT, not authorization. @UseElectedOffice() is the real
 // access check on every route here and stays that way whatever the flag says.
-const SERVE_SMS_FLAG = 'serve-sms-outreach'
+// The key, SERVE_SMS_FLAG, is shared with the Chief of Staff.
 
 // Serve counterpart to OutreachSmsController: org-scoped, stateless
 // draft/improve for the body of one text to constituents.
@@ -222,7 +223,7 @@ export class OutreachServeSmsController {
       }))
     ) {
       throw new BadRequestException(
-        "This text asks people to join a citizens' panel, which isn't on for your office yet. Remove that line and try again.",
+        "This text asks people to join a civic panel, which isn't on for your office yet. Remove that line and try again.",
       )
     }
     if (input.reportBackForOutreachId !== undefined) {
