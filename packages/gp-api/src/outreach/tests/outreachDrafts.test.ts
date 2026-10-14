@@ -97,6 +97,16 @@ beforeEach(async () => {
     },
   })
 
+  // The resume's phoneListId has to name a list this campaign uploaded.
+  await service.prisma.peerlyPhoneList.create({
+    data: {
+      organizationSlug: orgSlug,
+      campaignId: CAMPAIGN_ID,
+      token: 'phone-list-token',
+      peerlyListId: 3180213,
+    },
+  })
+
   const filter = await service.prisma.voterFileFilter.create({
     data: { organizationSlug: orgSlug, name: 'saved list' },
   })
@@ -671,6 +681,19 @@ describe('resuming a draft', () => {
     expect(row.campaignPlanDueDate).toBe('2026-04-19')
     expect(row.script).toBe(resumeScript)
     expect(row.message).toBe(resumeScript)
+  })
+
+  it('refuses a resume naming a phone list this campaign never uploaded, leaving the draft as it was', async () => {
+    const draft = await createP2pDraft()
+
+    const res = await resumeP2p(draft.data.id, '999999')
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: draft.data.id },
+    })
+    expect(row.status).toBe(OutreachStatus.draft)
+    expect(row.phoneListId).toBeNull()
   })
 
   // Win SMS hold pay-before-build, RESUME SIDE (ENG money-safety): the
