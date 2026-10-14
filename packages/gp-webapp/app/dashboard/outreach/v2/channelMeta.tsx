@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react'
 import { MessageSquareOff } from 'lucide-react'
-import { Badge, StatusText } from '@styleguide'
+import {
+  Badge,
+  StatusText,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@styleguide'
 import {
   ArchiveIcon,
   CalendarClockIcon,
@@ -22,6 +28,7 @@ import {
   ShieldAlertIcon,
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
+import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 // One meta row per channel, shared by the hub tiles, the history table's
 // channel badge, and the details drawer so the channel reads identically
@@ -181,14 +188,33 @@ const STATUS_DISPLAY: Record<
   'Texting closed': { icon: <MessageSquareOff />, tone: 'muted' },
 }
 
-export const HistoryStatusText = ({ label }: { label: string | null }) => {
+// `textingClosedReason` is the hover reason behind "Texting closed", the one
+// label with no next step to name.
+export const HistoryStatusText = ({
+  label,
+  textingClosedReason,
+}: {
+  label: string | null
+  textingClosedReason?: string
+}) => {
   if (!label) {
     return <StatusText tone="muted">n/a</StatusText>
   }
   const display = STATUS_DISPLAY[label]
-  return (
+  const text = (
     <StatusText tone={display?.tone ?? 'primary'} icon={display?.icon}>
       {label}
     </StatusText>
+  )
+  if (label !== SMS_CUTOFF_COPY.closedLabel || !textingClosedReason) {
+    return text
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{text}</span>
+      </TooltipTrigger>
+      <TooltipContent>{textingClosedReason}</TooltipContent>
+    </Tooltip>
   )
 }

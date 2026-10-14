@@ -4,7 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquareOff } from 'lucide-react'
-import { ChannelCard, cn } from '@styleguide'
+import {
+  ChannelCard,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+} from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import {
@@ -24,7 +30,6 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -87,11 +92,10 @@ export const ChannelTileGrid = ({
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
   // gp-api's texting window, read off the campaign on both sides of the
-  // flag: once it is closed the text tile opens the cutoff notice instead of
-  // the flow, the Pro wizard or the compliance modal.
+  // flag: once it is closed the text tile only explains why, in a tooltip,
+  // and opens neither the flow, the Pro wizard nor the compliance modal.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
-  const [smsNoticeOpen, setSmsNoticeOpen] = useState(false)
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
   // flow, which pauses itself once there is something to save. Read without
@@ -140,12 +144,9 @@ export const ChannelTileGrid = ({
   }
 
   const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
-    // Not a create: the notice reports itself, and the carried audience is
-    // left for the channel the candidate picks instead.
-    if (type === OUTREACH_TYPES.text && smsClosed) {
-      setSmsNoticeOpen(true)
-      return
-    }
+    // Not a create: the tooltip is the whole answer, and the carried
+    // audience is left for the channel the candidate picks instead.
+    if (type === OUTREACH_TYPES.text && smsClosed) return
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.socialMedia) {
@@ -281,7 +282,7 @@ export const ChannelTileGrid = ({
               type === OUTREACH_TYPES.doorKnocking)
           const isText = type === OUTREACH_TYPES.text
           const textClosed = isText && smsClosed
-          return (
+          const card = (
             <ChannelCard
               key={type}
               icon={textClosed ? <MessageSquareOff /> : meta.icon}
@@ -314,6 +315,18 @@ export const ChannelTileGrid = ({
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )
+          return textClosed ? (
+            <Tooltip key={type} openOnClick>
+              <TooltipTrigger asChild>{card}</TooltipTrigger>
+              <TooltipContent>
+                {SMS_CUTOFF_COPY.closedReason(
+                  smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+                )}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            card
+          )
         })}
       </div>
       <ProUpgradeModal
@@ -324,13 +337,6 @@ export const ChannelTileGrid = ({
         }}
       />
       {gateModals}
-      {smsNoticeOpen && (
-        <SmsCutoffNoticeDialog
-          open
-          onOpenChange={setSmsNoticeOpen}
-          surface="sms_tile"
-        />
-      )}
     </section>
   )
 }

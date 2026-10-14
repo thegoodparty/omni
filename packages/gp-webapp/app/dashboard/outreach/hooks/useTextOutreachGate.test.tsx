@@ -113,7 +113,7 @@ describe('useTextOutreachGate', () => {
 
     expect(
       screen.getByRole('dialog', {
-        name: "Texting isn't available for this race",
+        name: 'The Oct. 15 deadline to get verified for texting has passed.',
       }),
     ).toBeInTheDocument()
     expect(

@@ -468,7 +468,7 @@ describe('OutreachGate', () => {
       )
 
       expect(
-        screen.getByText("Texting isn't available for this race"),
+        screen.getByText(/deadline to get verified for texting has passed/),
       ).toBeInTheDocument()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Outreach.SmsCutoff.NoticeViewed,
@@ -513,7 +513,7 @@ describe('OutreachGate', () => {
       act(() => latestCall[0].onComplete())
 
       expect(
-        screen.getByText("Texting isn't available for this race"),
+        screen.getByText(/deadline to get verified for texting has passed/),
       ).toBeInTheDocument()
       expect(onComplete).not.toHaveBeenCalled()
     })

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { MessageSquareOff } from 'lucide-react'
 import { ProBadge } from '@styleguide'
 import { ShieldCheckIcon } from '@styleguide/components/ui/icons'
 import { trackEvent } from 'helpers/analyticsHelper'
@@ -17,7 +16,6 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
 import { MEMBERSHIP_COPY } from './membershipCopy'
@@ -33,7 +31,8 @@ const CHIP_CLASS_NAME =
   'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full bg-info-50 px-2.5 text-xs font-semibold text-primary'
 
 // Same shape as the banner's copy: a countdown while the window is closing,
-// and nothing for a cleared Pro campaign, which never shows the chip.
+// and nothing for a cleared or closed Pro campaign, which never shows the
+// chip.
 const verificationLabel = (
   state: MembershipState,
   countdownCutoff: string | null,
@@ -48,7 +47,6 @@ const verificationLabel = (
     case 'awaiting_pin':
       return MEMBERSHIP_COPY.chip.awaitingPin
     case 'closed':
-      return MEMBERSHIP_COPY.chip.closed
     case 'cleared':
       return null
   }
@@ -63,7 +61,6 @@ export const MembershipChip = (): React.JSX.Element | null => {
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
-  const [noticeOpen, setNoticeOpen] = useState(false)
 
   const visible = Boolean(enabled && ready && isMembershipSurfaceVisible(state))
 
@@ -87,13 +84,12 @@ export const MembershipChip = (): React.JSX.Element | null => {
   if (state.tier === 'pro' && label === null) return null
 
   const handleClick = () => {
-    if (action && action !== 'notice') {
+    if (action) {
       trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
     }
     if (action === 'pitch') setPitchOpen(true)
     else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
-    else if (action === 'notice') setNoticeOpen(true)
   }
 
   const body =
@@ -105,11 +101,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
       </>
     ) : (
       <>
-        {state.texting === 'closed' ? (
-          <MessageSquareOff className="size-3.5" aria-hidden />
-        ) : (
-          <ShieldCheckIcon className="size-3.5" aria-hidden />
-        )}
+        <ShieldCheckIcon className="size-3.5" aria-hidden />
         {label}
       </>
     )
@@ -141,13 +133,6 @@ export const MembershipChip = (): React.JSX.Element | null => {
           open
           onOpenChange={setPinOpen}
           tcrCompliance={tcrCompliance}
-        />
-      )}
-      {noticeOpen && (
-        <SmsCutoffNoticeDialog
-          open
-          onOpenChange={setNoticeOpen}
-          surface="membership_chip"
         />
       )}
     </>

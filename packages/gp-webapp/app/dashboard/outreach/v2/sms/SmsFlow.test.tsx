@@ -2510,6 +2510,10 @@ describe('SmsFlow', () => {
         await screen.findByText('How else do you want to reach voters?'),
       ).toBeInTheDocument()
       expect(
+        screen.getAllByText(/deadline to get verified for texting has passed/)
+          .length,
+      ).toBeGreaterThan(0)
+      expect(
         screen.queryByText('Introduce myself to voters'),
       ).not.toBeInTheDocument()
       expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()

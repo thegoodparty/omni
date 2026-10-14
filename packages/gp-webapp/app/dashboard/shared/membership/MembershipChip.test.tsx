@@ -201,11 +201,12 @@ describe('MembershipChip', () => {
     }
     setup()
 
-    expect(screen.getByRole('button')).toHaveTextContent('Verify by Oct 15')
+    expect(screen.getByRole('button')).toHaveTextContent(
+      'Verify to send SMS by Oct. 15',
+    )
   })
 
-  it('reads Texting closed and opens the cutoff notice', async () => {
-    const user = userEvent.setup()
+  it('renders nothing once texting is closed for a Pro campaign', () => {
     mockSmsCompliance.current = {
       smsCompliance: 'closed',
       smsCutoffDate: '2026-10-15',
@@ -213,18 +214,9 @@ describe('MembershipChip', () => {
     }
     setup({ state: membership({ texting: 'closed' }) })
 
-    await user.click(screen.getByRole('button', { name: 'Texting closed' }))
-
-    expect(
-      screen.getByRole('dialog', {
-        name: "Texting isn't available for this race",
-      }),
-    ).toBeInTheDocument()
-    expect(router.push).not.toHaveBeenCalled()
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.SmsCutoff.NoticeViewed,
-      expect.objectContaining({ surface: 'membership_chip' }),
-    )
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 
   it('renders nothing once a Pro campaign is cleared to text', () => {
