@@ -71,9 +71,9 @@ export class ElectionApiTokenService {
 
   private refreshInBackground(): void {
     this.nextRefreshAttemptAt = Date.now() + REFRESH_RETRY_DELAY_MS
-    this.mint().catch((error) => {
+    this.mint().catch((error: unknown) => {
       this.logger.warn(
-        { error },
+        { error: error instanceof Error ? error.message : String(error) },
         'Election API M2M token refresh failed; reusing the cached token',
       )
     })
