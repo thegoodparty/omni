@@ -150,13 +150,15 @@ export const SMS_GREETING_PREVIEW = {
 // removes it. Tone-flavored per the design prototype's
 // introFor; reads as the continuation of SMS_GREETING, so no variant
 // carries its own greeting word. The CS compose-rules pass may replace
-// this wording.
+// this wording. The full name, not the first name alone: a voter texted
+// "this is Jane" from a number they do not know cannot tell which Jane is
+// asking for their vote (CAS, 2026-10-14).
 export const identificationIntro = (
   tone: SocialTone,
-  firstName: string,
+  fullName: string,
   office: string,
 ): string => {
-  const name = firstName || 'your candidate'
+  const name = fullName || 'your candidate'
   const role = office || 'local office'
   if (tone === 'direct') return `${name} here, candidate for ${role}.`
   if (tone === 'urgent') return `${name} here, running for ${role}.`
@@ -240,12 +242,12 @@ const hasSenderPlaceholder = (text: string): boolean =>
     NAME_HERE_PLACEHOLDER,
   ].some((pattern) => text.search(pattern) !== -1)
 
-const fillSenderPlaceholders = (text: string, firstName: string): string =>
-  firstName
+const fillSenderPlaceholders = (text: string, name: string): string =>
+  name
     ? text
-        .replace(SENDER_NAME_PLACEHOLDER, firstName)
-        .replace(SELF_INTRO_NAME_PLACEHOLDER, `$1 ${firstName}`)
-        .replace(NAME_HERE_PLACEHOLDER, firstName)
+        .replace(SENDER_NAME_PLACEHOLDER, name)
+        .replace(SELF_INTRO_NAME_PLACEHOLDER, `$1 ${name}`)
+        .replace(NAME_HERE_PLACEHOLDER, name)
     : text
 
 // The composed message already opens "Hello {first_name},", so a body's own
@@ -280,14 +282,17 @@ export interface SmsIdentificationContext {
   // The surface's own identification sentence for the current tone: Win's
   // identificationIntro or Serve's useServeSmsIdentification.
   intro: string
-  firstName: string
+  // What a sender-name placeholder is filled with: the name the intro uses,
+  // so a filled body names the sender the way the intro does (Win's full
+  // name, Serve's first name).
+  senderName: string
   // The same names the compose step's candidate_name check matches against.
   candidateNames: string[]
 }
 
 const identify = (
   body: string,
-  { intro, firstName, candidateNames }: SmsIdentificationContext,
+  { intro, senderName, candidateNames }: SmsIdentificationContext,
   mode: 'ensure' | 'open',
 ): string => {
   const names = candidateNames.map((name) => name.trim()).filter(Boolean)
@@ -325,7 +330,7 @@ const identify = (
   }
   const ungreeted = rest.replace(LONE_GREETING, '')
   const trimmedStart = replacedOpener || ungreeted !== rest
-  rest = fillSenderPlaceholders(ungreeted, firstName).trim()
+  rest = fillSenderPlaceholders(ungreeted, senderName).trim()
 
   if (mode === 'ensure' && !replacedOpener && namesSender(rest)) return rest
   if (!rest) return intro

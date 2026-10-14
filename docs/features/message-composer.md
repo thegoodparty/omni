@@ -277,6 +277,12 @@ Three system-owned regions wrap the editable body:
 | identification sentence                               | prepended _into_ the editable body | yes, and deleting it blocks Continue |
 | `Paid for by <committee>.` + `Reply STOP to opt out.` | muted text below the field         | no                                   |
 
+The identification sentence is `identificationIntro`'s: the candidate's full
+name and office in one of four tone variants ("this is Jane Doe, candidate for
+City Council.", "Jane Doe here, running for City Council."). Full name, not
+first name: a voter texted by an unknown number could not tell which Jane was
+asking for their vote.
+
 `composeScript(body, committeeName)` in `v2/sms/smsCompose.util.ts` concatenates
 the three. `checkSmsStandards`
 (`packages/contracts/src/outreach/SmsAdminConsole.schema.ts`) runs on the
