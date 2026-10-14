@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { isCivicPanelBuildCard } from '@goodparty_org/contracts'
 import { FilterPill, FilterPillGroup, IconButton } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffHref } from '../../routes'
@@ -74,12 +73,12 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
         <DashboardTaskCard
           key={card.id}
           card={card}
-          // "Not for me" is how the build and report back cards are set
-          // aside, so they are the ones a skipped card can be brought back
-          // from.
+          // "Not for me" is how the civic panel and report back cards are
+          // set aside, so they are the ones a skipped card can be brought
+          // back from.
           onRestore={
             bucket === 'skipped' &&
-            (isCivicPanelBuildCard(card) || card.type === 'report_back')
+            (card.type === 'civic_panel' || card.type === 'report_back')
               ? restoreCard.mutate
               : undefined
           }
