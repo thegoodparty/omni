@@ -132,7 +132,7 @@ const guardrailsBlock = (legislative: boolean): string => {
 // the draft lead-in and the draft-ready card already carry the one-time
 // attorney note (DRAFT RULES), and a per-turn line there would double it.
 const LEGAL_CAUTION_RULES = `LEGAL CAUTION (apply before you finish any answer)
-- When your answer says what the law allows, requires, or prohibits, or whether something complies, end it with this line, once: "${LEGAL_CAUTION_LINE}"
+- When your answer says what the law allows, requires, or prohibits, or whether something complies, end it with this line, once, in these exact words and in place of any caution of your own: "${LEGAL_CAUTION_LINE}"
 - Only add the line to a substantive answer. Never attach it to a reply that is only the decline line.`
 
 const INSTRUCTIONS_BLOCK = `Instructions:
