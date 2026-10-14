@@ -1,12 +1,19 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  CIVIC_PANEL_BUILD_CHAT_PARAM,
+  CIVIC_PANEL_BUILD_CHAT_VALUE,
+} from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
+import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { Button } from '@styleguide'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
-import { chiefOfStaffArchiveHref } from '../routes'
+import { chiefOfStaffArchiveHref, chiefOfStaffHref } from '../routes'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskStack from './TaskStack'
@@ -15,8 +22,10 @@ import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
-// A task-card kickoff answers in place of the intro, so the first-chat intro
-// must not type in over it. Module-level so its identity is stable.
+// The build card's turn, hidden again when its conversation is reopened.
+const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE]
+// A kickoff answers in place of the intro, so the first-chat intro must not
+// type in over it. Module-level so its identity is stable.
 const NO_INTRO: string[] = []
 
 /**
@@ -32,34 +41,57 @@ export default function DashboardContent(): React.JSX.Element {
     string | null
   >(null)
   const [openerKey, setOpenerKey] = useState<OnboardingCardKey | null>(null)
-  // One-shot hidden first message from a task card's "Ask about this".
-  const [kickoff, setKickoff] = useState<string | undefined>(undefined)
+  // One-shot hidden first message: the build card's turn, or a task card's
+  // "Ask about this".
+  const [pendingKickoff, setPendingKickoff] = useState<string | undefined>(
+    undefined,
+  )
   // Owned here so the banner and the task list below it cannot disagree about
   // whether a briefing is generating.
   const { inFlight: briefingInFlight } = useBriefingDispatch()
 
   const firstName = user?.firstName || undefined
 
-  const openNewChat = () => {
-    setKickoff(undefined)
+  // The build card's Get started links back here with the param, so the
+  // official stays on the home: the chat opens on the conversation that
+  // builds the panel, started by a turn they never see.
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const buildPanelParam =
+    searchParams?.get(CIVIC_PANEL_BUILD_CHAT_PARAM) ===
+    CIVIC_PANEL_BUILD_CHAT_VALUE
+  const { ready: panelsReady, enabled: panelsEnabled } =
+    useServeCitizenPanelsFlag(false)
+  useEffect(() => {
+    if (!buildPanelParam || !panelsReady) return
+    router.replace(chiefOfStaffHref(), { scroll: false })
+    if (!panelsEnabled) return
     setOpenerKey(null)
+    setInitialConversationId(null)
+    setPendingKickoff(BUILD_CITIZENS_PANEL_MESSAGE)
+    setChatOpen(true)
+  }, [buildPanelParam, panelsReady, panelsEnabled, router])
+
+  const openNewChat = () => {
+    setOpenerKey(null)
+    setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
   const openConversation = (id: string) => {
-    setKickoff(undefined)
     setOpenerKey(null)
+    setPendingKickoff(undefined)
     setInitialConversationId(id)
     setChatOpen(true)
   }
   const openCard = (key: OnboardingCardKey) => {
-    setKickoff(undefined)
     setOpenerKey(key)
+    setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
   const discussCard = (message: string) => {
-    setKickoff(message)
+    setPendingKickoff(message)
     setOpenerKey(null)
     setInitialConversationId(null)
     setChatOpen(true)
@@ -106,13 +138,14 @@ export default function DashboardContent(): React.JSX.Element {
         onOpenChange={(next) => {
           setChatOpen(next)
           // A later plain reopen (the footer bar) must never resend it.
-          if (!next) setKickoff(undefined)
+          if (!next) setPendingKickoff(undefined)
         }}
         initialConversationId={initialConversationId}
         opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
         openerKey={openerKey}
-        pendingKickoff={kickoff}
-        defaultIntro={kickoff ? NO_INTRO : undefined}
+        pendingKickoff={pendingKickoff}
+        defaultIntro={pendingKickoff ? NO_INTRO : undefined}
+        hiddenMessageContents={HIDDEN_TURNS}
         showMessageActions
       />
     </div>

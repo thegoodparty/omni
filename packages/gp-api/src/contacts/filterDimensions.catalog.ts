@@ -250,7 +250,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     kind: 'boolean-group',
     modes: 'serve',
     provenance: 'observed',
-    values: [{ key: 'civicPanelMember', label: "On Your Citizens' Panel" }],
+    values: [{ key: 'civicPanelMember', label: "On your citizens' panel" }],
   },
   {
     // A rest window, not a trait: anyone the office reached on any channel

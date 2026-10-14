@@ -153,7 +153,9 @@ describe('a text card, through the drawer', () => {
     vi.useRealTimers()
   })
 
-  it('reaches the compose step with exactly one introduction', async () => {
+  // The card settled who gets it, so the flow opens on the message, with one
+  // line about who, and never on the list builder.
+  it('opens on the message with exactly one introduction and who gets it', async () => {
     render(
       <ProposalFlowsProvider>
         <Opener />
@@ -162,15 +164,6 @@ describe('a text card, through the drawer', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Start the text' }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
-    )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The field holds the whole message: greeting, body and opt-out.
     const box = await screen.findByRole('textbox', { name: 'Message body' })
@@ -187,5 +180,50 @@ describe('a text card, through the drawer', () => {
       "We're working on expanding composting options.",
     )
     expect(message().match(/\b(?:hello|hi|hey)\b/gi)).toHaveLength(1)
+    expect(
+      screen.getByText('Northside residents: 1,200 constituents'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Who do you want to reach?')).toBeNull()
+  })
+
+  it('changes who gets it on the list picker, then comes back to the message', async () => {
+    render(
+      <ProposalFlowsProvider>
+        <Opener />
+      </ProposalFlowsProvider>,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start the text' }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Change who gets this' }),
+    )
+    await screen.findAllByText('Who do you want to reach?')
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByRole('textbox', { name: 'Message body' })
+  })
+
+  it('leaves through the discard confirm on Back from the message', async () => {
+    render(
+      <ProposalFlowsProvider>
+        <Opener />
+      </ProposalFlowsProvider>,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start the text' }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Discard' }),
+    )
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('textbox', { name: 'Message body' }),
+      ).toBeNull(),
+    )
   })
 })
