@@ -52,13 +52,17 @@ type PriorityForCard = Pick<
   'id' | 'title' | 'status' | 'currentStep' | 'nextAction'
 >
 
+// A priority whose every step is settled: the page's "Plan ready". It has no
+// next step, so it has no card.
+const isPlanReady = (priority: PriorityForCard): boolean =>
+  currentStepOf(priority) === null
+
 // What the Priorities page shows for the priority: its "Next" line, or with
-// none, the step badge, so the card and the page never disagree. "Plan ready"
-// is only for a null step (every step settled). A step id this build does not
-// know gets no badge on the page, so the card reads it as not started.
+// none, the step badge, so the card and the page never disagree. A step id
+// this build does not know gets no badge on the page, so the card reads it as
+// not started.
 const priorityStepLabel = (priority: PriorityForCard): string => {
   const currentStep = currentStepOf(priority)
-  if (!currentStep) return 'Plan ready'
   const step =
     PRIORITY_STEP_IDS.find((id) => id === currentStep) ?? PRIORITY_STEP_IDS[0]
   return PRIORITY_STEP_LABELS[step]
@@ -341,16 +345,17 @@ export class DashboardCardsService extends createPrismaBase(
     }
   }
 
-  // One next-step card per open priority, there until the priority is
-  // resolved (archived or deleted), and back if it is unarchived. Its words
-  // follow the priority's next step; a skipped card stays skipped. It cannot
+  // One next-step card per priority with a step left to take. It goes once
+  // the priority is archived or deleted, or its plan is ready, and comes back
+  // if the priority is unarchived or a step comes open again. Its words follow
+  // the priority's next step; a skipped or done card stays that way. It cannot
   // be done by hand, and does not lapse into missed, so there is always a
   // next step waiting.
   private async syncPriorityPanelCards(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
   ): Promise<void> {
-    const priorities = await tx.priority.findMany({
+    const open = await tx.priority.findMany({
       where: { electedOfficeId, archivedAt: null },
       select: {
         id: true,
@@ -360,7 +365,9 @@ export class DashboardCardsService extends createPrismaBase(
         nextAction: true,
       },
     })
-    const openIds = priorities.map((priority) => priority.id)
+    const openIds = open.map((priority) => priority.id)
+    const priorities = open.filter((priority) => !isPlanReady(priority))
+    const liveIds = priorities.map((priority) => priority.id)
 
     await tx.dashboardCard.deleteMany({
       where: {
@@ -371,11 +378,23 @@ export class DashboardCardsService extends createPrismaBase(
         },
       },
     })
+    // A ready plan takes the card off the home and out of the archive, the
+    // same as archiving; a card the official marked done stays done.
+    await tx.dashboardCard.deleteMany({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        completedAt: null,
+        sourceExternalId: {
+          in: openIds.filter((id) => !liveIds.includes(id)),
+        },
+      },
+    })
     const existing = await tx.dashboardCard.findMany({
       where: {
         electedOfficeId,
         type: DashboardCardType.civic_panel,
-        sourceExternalId: { in: openIds },
+        sourceExternalId: { in: liveIds },
       },
       select: {
         id: true,
@@ -401,17 +420,12 @@ export class DashboardCardsService extends createPrismaBase(
         card.summary !== content.summary ||
         card.ctaLabel !== content.ctaLabel ||
         card.ctaHref !== content.ctaHref
-      // A card marked done before priority cards lost Mark done reopens.
-      const reopen = !!card.completedAt
-      const lapsed = !card.dismissedAt && (reopen || card.dueDate < now)
+      const lapsed =
+        !card.dismissedAt && !card.completedAt && card.dueDate < now
       if (stale || lapsed) {
         await tx.dashboardCard.update({
           where: { id: card.id },
-          data: {
-            ...content,
-            ...(lapsed && { dueDate }),
-            ...(reopen && { completedAt: null }),
-          },
+          data: { ...content, ...(lapsed && { dueDate }) },
         })
       }
     }

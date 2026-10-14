@@ -313,16 +313,44 @@ describe('GET /v1/dashboard/cards: a card per priority', () => {
     })
     const [worked] = await listCards('eo-civic-card-next-step')
     expect(worked?.summary).toBe('What we know')
+  })
+
+  it('retires the card once the plan is ready, and brings it back when a step comes open again', async () => {
+    const orgSlug = 'eo-civic-card-plan-ready'
+    const eo = await builtOffice(orgSlug)
+    const housing = await seedPriority(eo.id, 'Affordable housing')
+    await service.prisma.priority.update({
+      where: { id: housing.id },
+      data: { status: { version: 1, steps: [] }, currentStep: 'plan' },
+    })
+    expect(titles(await listCards(orgSlug))).toEqual(['Affordable housing'])
 
     await service.prisma.priority.update({
       where: { id: housing.id },
-      data: { currentStep: null },
+      data: { currentStep: null, nextAction: null },
     })
-    const [planned] = await listCards('eo-civic-card-next-step')
-    expect(planned?.summary).toBe('Plan ready')
+    expect(await listCards(orgSlug)).toHaveLength(0)
+    expect(await listCards(orgSlug, 'this_week')).toHaveLength(0)
+    expect(await priorityRows(eo.id)).toHaveLength(0)
+
+    await listCards(orgSlug)
+    expect(await priorityRows(eo.id)).toHaveLength(0)
+
+    await service.prisma.priority.update({
+      where: { id: housing.id },
+      data: {
+        currentStep: 'evidence',
+        nextAction: 'Check the new permit numbers.',
+      },
+    })
+    const [back] = await listCards(orgSlug)
+    expect(back).toMatchObject({
+      title: 'Affordable housing',
+      summary: 'Check the new permit numbers.',
+    })
   })
 
-  it('never reads an unknown step as Plan ready', async () => {
+  it('reads an unknown step as the first step', async () => {
     const eo = await builtOffice('eo-civic-card-unknown-step')
     const housing = await seedPriority(eo.id, 'Affordable housing')
     await service.prisma.priority.update({
@@ -382,7 +410,7 @@ describe('GET /v1/dashboard/cards: a card per priority', () => {
     expect(titles(await listCards(orgSlug))).toEqual(['Affordable housing'])
   })
 
-  it('cannot be marked done by hand, and a card done before that reopens', async () => {
+  it('cannot be marked done by hand', async () => {
     const orgSlug = 'eo-civic-card-no-complete'
     const eo = await builtOffice(orgSlug)
     await seedPriority(eo.id, 'Affordable housing')
@@ -392,12 +420,23 @@ describe('GET /v1/dashboard/cards: a card per priority', () => {
     await act(orgSlug, card.id, 'complete')
     expect(titles(await listCards(orgSlug))).toEqual(['Affordable housing'])
     expect(titles(await listCards(orgSlug, 'done'))).toEqual([buildCard.title])
+  })
 
+  it('keeps a card marked done earlier done', async () => {
+    const orgSlug = 'eo-civic-card-done-earlier'
+    const eo = await builtOffice(orgSlug)
+    await seedPriority(eo.id, 'Affordable housing')
+    const [card] = await listCards(orgSlug)
+    if (!card) throw new Error('no card')
     await service.prisma.dashboardCard.update({
       where: { id: card.id },
       data: { completedAt: new Date() },
     })
-    expect(titles(await listCards(orgSlug))).toEqual(['Affordable housing'])
+
+    expect(await listCards(orgSlug)).toHaveLength(0)
+    expect(titles(await listCards(orgSlug, 'done'))).toEqual(
+      ['Affordable housing', buildCard.title].sort(),
+    )
   })
 })
 
