@@ -14,15 +14,12 @@ import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
 // An elected official already holds the office — this is a *position* picker,
-// not a race picker. Conceptually we want the elections an incumbent already
-// won, but the Race table isn't yet backfilled with past elections for every
-// position, so filtering to 'past' returns nothing for many zips. Until the
-// data team finishes that ingest we query upcoming elections ('future', which
-// every covered position has) so the picker is never empty; flip back to 'past'
-// (or 'all') once past races are loaded. We still surface the most recent
-// *already-held* election as a "last election" date — the signal that tells
-// apart cohort twins sharing an identical name — which stays blank until a past
-// election is on file.
+// not a race picker. We query timeframe 'all' so every seat for the zip is
+// listed, including staggered seats whose next election is beyond the
+// 'future' horizon. We still surface the most recent *already-held* election
+// as a "last election" date — the signal that tells apart cohort twins
+// sharing an identical name — which stays blank until a past election is on
+// file.
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
 interface PositionRow {

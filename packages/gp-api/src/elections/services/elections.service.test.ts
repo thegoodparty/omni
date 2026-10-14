@@ -393,6 +393,17 @@ describe('ElectionsService', () => {
       )
     })
 
+    it('re-throws a 500 even when timeframe=all', async () => {
+      mockHttpGet.mockReturnValueOnce(
+        throwError(() => makeAxiosError(500, 'internal server error')),
+      )
+
+      await expect(
+        service.searchPositions({ zip: '90210', timeframe: 'all' }),
+      ).rejects.toMatchObject({ status: 502 })
+      expect(mockHttpGet).toHaveBeenCalledTimes(1)
+    })
+
     it('forwards name-only queries', async () => {
       mockHttpGet.mockReturnValue(of({ data: [], status: 200 }))
 
