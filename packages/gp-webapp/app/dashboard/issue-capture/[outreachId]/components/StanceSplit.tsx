@@ -18,7 +18,7 @@ const StanceSplit = ({
       {STANCE_ORDER.map((stance) => (
         <li
           key={stance}
-          className="flex flex-col rounded-md bg-muted px-2 py-1.5"
+          className="flex flex-col rounded-lg bg-muted px-2 py-1.5"
         >
           <span className="text-base font-semibold tabular-nums text-foreground">
             {counts[stance].toLocaleString()}

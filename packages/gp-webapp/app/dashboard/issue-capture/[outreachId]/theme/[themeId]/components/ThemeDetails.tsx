@@ -31,7 +31,7 @@ const ThemeDetails = ({
               {copy.details}
             </h2>
           </div>
-          <p className="text-sm text-foreground">{theme.details}</p>
+          <p className="text-base text-foreground">{theme.details}</p>
         </CardContent>
       </Card>
       {theme.desiredOutcomes.length > 0 && (
@@ -48,7 +48,7 @@ const ThemeDetails = ({
             </div>
             <ul
               aria-labelledby={wantsId}
-              className="flex list-disc flex-col gap-1 pl-5 text-sm text-foreground"
+              className="flex list-disc flex-col gap-1 pl-5 text-base text-foreground"
             >
               {/* `list-item`: globals.css makes every li under a data-slot
                   a flex row, which takes its bullet away. */}

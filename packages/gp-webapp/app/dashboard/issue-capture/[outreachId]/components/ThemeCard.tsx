@@ -57,7 +57,7 @@ const ThemeCard = ({
                 </p>
               </div>
             </div>
-            <p className="text-sm text-foreground">{theme.summary}</p>
+            <p className="text-base text-foreground">{theme.summary}</p>
             {/* Null when every member is a text reply, which carries no
               stance: four zeros would read as a finding. */}
             {theme.stanceCounts !== null && (

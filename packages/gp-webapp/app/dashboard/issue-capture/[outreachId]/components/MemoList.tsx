@@ -109,7 +109,7 @@ const MemoList = ({
               colour, so it reads as the source and the labelled issues in
               the panel under it as what was taken from it. */}
               {memo.transcript !== null && (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-base text-muted-foreground">
                   {memo.transcript}
                 </p>
               )}
@@ -134,7 +134,7 @@ const MemoList = ({
                     // every `li` under a data-slot ancestor a row flex box.
                     <li
                       key={issue.position}
-                      className="grid grid-cols-[1fr_auto] items-baseline gap-x-2 gap-y-1 bg-muted px-3 py-2 text-sm first:rounded-t-md last:rounded-b-md sm:col-span-3 sm:grid-cols-subgrid"
+                      className="grid grid-cols-[1fr_auto] items-baseline gap-x-2 gap-y-1 bg-muted px-3 py-2 text-base first:rounded-t-lg last:rounded-b-lg sm:col-span-3 sm:grid-cols-subgrid"
                     >
                       {/* Numbered once a note names more than one, the confirm
                         form's own names for them. */}
