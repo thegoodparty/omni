@@ -295,7 +295,25 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   ): Promise<string> {
     const name = cleanTagName(issue.theme)
     const normalizedName = normalizeTagName(issue.theme)
-    const existing = await tx.issueTag.findUnique({
+    // Equal timestamps mark a proposal no human has touched, which is
+    // what lets a superseding run delete it. Skipping a duplicate rather
+    // than reading first: another run in the org can insert the same name
+    // between a read and this write, and the conflict would abort the run.
+    const now = new Date()
+    const { count } = await tx.issueTag.createMany({
+      data: {
+        organizationSlug: run.organizationSlug,
+        name,
+        normalizedName,
+        status: IssueTagStatus.proposed,
+        source: IssueTagSource.synthesis,
+        proposedByRunId: run.id,
+        createdAt: now,
+        updatedAt: now,
+      },
+      skipDuplicates: true,
+    })
+    const existing = await tx.issueTag.findUniqueOrThrow({
       where: {
         organizationSlug_normalizedName: {
           organizationSlug: run.organizationSlug,
@@ -303,25 +321,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
         },
       },
     })
-
-    if (existing === null) {
-      // Equal timestamps mark a proposal no human has touched, which is
-      // what lets a superseding run delete it.
-      const now = new Date()
-      const created = await tx.issueTag.create({
-        data: {
-          organizationSlug: run.organizationSlug,
-          name,
-          normalizedName,
-          status: IssueTagStatus.proposed,
-          source: IssueTagSource.synthesis,
-          proposedByRunId: run.id,
-          createdAt: now,
-          updatedAt: now,
-        },
-      })
-      return created.id
-    }
+    if (count === 1) return existing.id
 
     // A person merged this name into another tag. The theme follows that
     // decision rather than reviving the merged-away name. A merge re-points
