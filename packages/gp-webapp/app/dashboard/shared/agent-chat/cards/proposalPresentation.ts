@@ -257,7 +257,9 @@ export const proposalAudienceSummary = (proposal: {
     return (
       `${who}: ${proposal.panelSampleSize.toLocaleString()} from your civic ` +
       `panel and ${(size - proposal.panelSampleSize).toLocaleString()} more ` +
-      'picked at random'
+      (widens(proposal)
+        ? 'not asked yet, picked at random'
+        : 'picked at random')
     )
   }
   if (widens(proposal)) {

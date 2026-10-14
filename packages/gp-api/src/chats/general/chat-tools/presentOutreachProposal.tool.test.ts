@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { parsePriorityStatus } from '@goodparty_org/contracts'
-import { checkProposalRefusal } from './presentOutreachProposal.tool'
+import {
+  checkPanelPart,
+  checkProposalRefusal,
+} from './presentOutreachProposal.tool'
 
 const status = parsePriorityStatus(null)
 
@@ -21,5 +24,25 @@ describe('checkProposalRefusal', () => {
     expect(
       checkProposalRefusal({ stepId: 'listen_options', side: 'main' }, status),
     ).toContain('stepId options')
+  })
+})
+
+describe('checkPanelPart', () => {
+  const panelSend = {
+    channel: 'text' as const,
+    civicPanelAsk: true,
+    panelSampleSize: 42,
+    sampleSize: 84,
+  }
+
+  it('lets a panel and fresh send through', () => {
+    expect(checkPanelPart(panelSend)).toBeNull()
+  })
+
+  // Its card would name who it asks and leave out who it skips.
+  it('refuses a panel send that also widens an earlier sample', () => {
+    expect(checkPanelPart({ ...panelSend, widensOutreachIds: [12] })).toContain(
+      'not both',
+    )
   })
 })

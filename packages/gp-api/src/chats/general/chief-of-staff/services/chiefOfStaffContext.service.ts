@@ -4,13 +4,13 @@ import {
   ChatScope,
   CivicPanelStatus,
   ContactStatusField,
-  OutreachStatus,
   OutreachType,
   type Organization,
 } from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
 import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
 
@@ -73,16 +73,6 @@ export interface CivicPanelBuildState {
   // The serve-sms-outreach flag: without it there is no text flow to open.
   textingEnabled: boolean
 }
-
-// The statuses of a text that never went out. The same list the build card
-// counts as not sent (DashboardCardsService).
-const UNSENT_OUTREACH_STATUSES = [
-  OutreachStatus.pending_payment,
-  OutreachStatus.draft,
-  OutreachStatus.canceled,
-  OutreachStatus.denied,
-  OutreachStatus.failed,
-]
 
 // Loads the static CoS context from the conversation's owning user + their
 // elected office, plus the active priorities (via the slice-1 port).

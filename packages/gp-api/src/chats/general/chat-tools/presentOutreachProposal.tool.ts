@@ -331,6 +331,7 @@ export const checkPanelPart = (input: {
   civicPanelAsk?: boolean
   panelSampleSize?: number
   sampleSize?: number
+  widensOutreachIds?: number[]
 }): string | null => {
   if (input.channel !== 'text' && input.civicPanelAsk) {
     return 'civicPanelAsk is for a text only. Leave it out and present again.'
@@ -338,6 +339,14 @@ export const checkPanelPart = (input: {
   if (input.panelSampleSize === undefined) return null
   if (input.channel !== 'text') {
     return 'panelSampleSize is for a text only. Leave it out and present again.'
+  }
+  // The card would say who it asks without the people it leaves out.
+  if (input.widensOutreachIds?.length) {
+    return (
+      'A send to the panel and new residents does not widen an earlier ' +
+      'sample. Use panelSampleSize or widensOutreachIds, not both, and ' +
+      'present again.'
+    )
   }
   if (
     input.sampleSize === undefined ||

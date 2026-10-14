@@ -103,7 +103,8 @@ const CIVIC_PANEL_BUILD_CARD_CONTENT = {
 }
 
 // A text past checkout. The same statuses the priority flow counts as sent.
-const UNSENT_OUTREACH_STATUSES = [
+// The Chief of Staff reads the build card's invite as sent off this same list.
+export const UNSENT_OUTREACH_STATUSES = [
   OutreachStatus.pending_payment,
   OutreachStatus.draft,
   OutreachStatus.canceled,
