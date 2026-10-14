@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { subDays } from 'date-fns'
 import {
+  CIVIC_PANEL_SEGMENT,
   CONTACT_REST_DAYS,
   MAX_OVERLAP_SAVED_FILTER_SETS,
   FollowUpStatusSchema,
@@ -120,6 +121,11 @@ import { buildPreviewContacts } from '../utils/previewContacts.utils'
 // PII (see previewContacts.utils) — before being upsold. Search, custom/named
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
+
+// Serve's citizens' panel as a built-in list: resolved through the same
+// path as a saved list holding only the panel filter, so it matches what
+// the `civicPanelMember` dimension selects and is always the current members.
+const CIVIC_PANEL_FILTER: Partial<VoterFileFilter> = { civicPanelMember: true }
 
 // The pro gate message shared by every filter-resolution path. Exported so
 // the assistant's count_contacts tool can recognize the rejection and suggest
@@ -2723,10 +2729,10 @@ export class ContactsService {
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return { filters: builtInFilters, empty: false }
 
-    const customSegment = await this.resolveCustomSegment(
-      resolvedSegment,
-      organization,
-    )
+    const customSegment =
+      resolvedSegment === CIVIC_PANEL_SEGMENT
+        ? CIVIC_PANEL_FILTER
+        : await this.resolveCustomSegment(resolvedSegment, organization)
     this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
     this.assertNoFollowUpFilterForCampaign(organization, customSegment)
 
@@ -2816,7 +2822,12 @@ export class ContactsService {
     organization: Organization,
   ): Promise<string | undefined> {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
-    if (this.resolveBuiltInSegment(resolvedSegment)) return undefined
+    if (
+      resolvedSegment === CIVIC_PANEL_SEGMENT ||
+      this.resolveBuiltInSegment(resolvedSegment)
+    ) {
+      return undefined
+    }
 
     const customSegment = await this.resolveCustomSegment(
       resolvedSegment,

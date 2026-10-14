@@ -215,8 +215,10 @@ returns `{ count }`. A voter read that exceeds the warehouse's timeout fails
 loudly as a `GatewayTimeoutException` (504) rather than degrading into a
 floored or partial count — see `src/peopleDb/CLAUDE.md`.
 
-A `segment` is either a built-in name (`segmentsToFiltersMap.const.ts`) or a
-`VoterFileFilter` id this org owns. Anything else — malformed, deleted,
+A `segment` is either a built-in name (`segmentsToFiltersMap.const.ts`), Serve's
+`civicPanel` (`CIVIC_PANEL_SEGMENT` in contracts: resolved as a saved list holding
+only `civicPanelMember`, so the same 400 for a non-`eo-` org and the same empty
+result for an empty panel), or a `VoterFileFilter` id this org owns. Anything else — malformed, deleted,
 cross-org — is a **404** (`resolveCustomSegment`), never "no filter". Widening
 an unresolvable segment to the whole district is the most expensive possible
 default: it served, and let `GET /v1/contacts/download` stream, every voter in
