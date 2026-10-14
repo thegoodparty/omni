@@ -308,6 +308,23 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(amount).toBe(calcTextAmountInCents(billable))
     })
 
+    it('forgives a sub-Stripe-minimum remainder just over the free allowance', async () => {
+      const contactCount = FREE_TEXTS_OFFER.COUNT + 5
+      mockServerLeadsLoaded(contactCount)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount,
+        campaignId: 1,
+      })
+
+      expect(calcTextAmountInCents(5)).toBeGreaterThan(0)
+      expect(amount).toBe(0)
+    })
+
     it('returns 0 when contactCount equals FREE_TEXTS_OFFER.COUNT exactly', async () => {
       mockServerLeadsLoaded(FREE_TEXTS_OFFER.COUNT)
       vi.mocked(

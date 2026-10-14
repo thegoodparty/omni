@@ -132,7 +132,13 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         0,
         billedContactCount - FREE_TEXTS_OFFER.COUNT,
       )
-      const finalAmount = calcTextAmountInCents(discountedContactCount)
+      const discountedAmount = calcTextAmountInCents(discountedContactCount)
+      // A send just over the free allowance leaves a remainder of a few cents
+      // (5,001-5,014 contacts), which is non-zero but under Stripe's 50c
+      // minimum, so the checkout session is rejected and the candidate cannot
+      // submit. Forgive it like the hold path does: amount 0 -> the free path.
+      const finalAmount =
+        discountedAmount < WIN_SMS_HOLD_MIN_CENTS ? 0 : discountedAmount
 
       this.logger.info(
         `Campaign ${campaignId}: applying free texts discount (${billedContactCount} contacts, ${discountedContactCount} billable, amount: ${finalAmount})`,
