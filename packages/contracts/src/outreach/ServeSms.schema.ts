@@ -50,6 +50,9 @@ export const ServeSmsCreateRequestSchema = z
     // picker.
     scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     voterFileFilterId: z.number().int().positive(),
+    // The earlier text this one reports back on. It marks the send as a
+    // report back rather than a new ask, and is how its card is completed.
+    reportBackForOutreachId: z.number().int().positive().optional(),
   })
   .extend(ProposalLinkSchema.shape)
 export type ServeSmsCreateRequest = z.infer<typeof ServeSmsCreateRequestSchema>

@@ -55,6 +55,7 @@ import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
+import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { SERVE_SMS_FLAG } from '@/shared/util/serveSmsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
@@ -119,6 +120,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly peopleDatasets?: PeopleDatasetService,
     @Optional()
     private readonly features?: FeaturesService,
+    @Optional()
+    private readonly reportBack?: OutreachReportBackService,
   ) {}
 
   async loadContext(
@@ -160,8 +163,21 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
             }),
           )
         : undefined
+    const reportBacks =
+      outreachFeedbackEnabled && this.reportBack
+        ? await this.reportBack.listForOffice(
+            ctx.organizationSlug,
+            ctx.electedOfficeId,
+          )
+        : undefined
     if (!resolved) {
-      return { ...ctx, peopleDataset, outreachFeedbackEnabled, civicPanel }
+      return {
+        ...ctx,
+        peopleDataset,
+        outreachFeedbackEnabled,
+        civicPanel,
+        reportBacks,
+      }
     }
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
@@ -173,6 +189,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       ...ctx,
       outreachFeedbackEnabled,
       civicPanel,
+      reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,

@@ -178,6 +178,22 @@ export const OutreachProposalSchema = z.object({
    * left out of this one, so asking again reaches new people.
    */
   widensOutreachIds: z.array(z.number().int().positive()).max(20).optional(),
+  /**
+   * A report back: the text goes to everyone this earlier text send reached,
+   * minus anyone who has opted out since, and tells them what the official
+   * heard and will do next. The audience is that send's, so a card carrying
+   * it has no audienceFilters, sample, panel part or check.
+   */
+  reportBackForOutreachId: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Text only: the outreachId of the send this reports back on, from ' +
+        'read_report_back. The card goes to everyone it reached who has not ' +
+        'opted out since.',
+    ),
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
 
@@ -202,6 +218,24 @@ export type ProposalLink = z.infer<typeof ProposalLinkSchema>
  * leave it out. The proposal key follows it, so a reload sends it once.
  */
 export const PROPOSAL_SENT_MARKER = '[Sent from a card]'
+
+/**
+ * Opens the hidden turn the app sends when the official follows a "Report
+ * back" card into a priority, so the agent starts the report back on that
+ * send and the transcript can leave the turn out. It ends on the send's id,
+ * so a reload knows it was already asked.
+ */
+export const REPORT_BACK_MARKER = '[Report back]'
+
+export const reportBackMessage = (outreachId: number): string =>
+  `${REPORT_BACK_MARKER} Help me report back to the people I texted. ` +
+  `outreach:${outreachId}`
+
+// The whole message, not the marker alone: a turn the official typed that
+// merely starts with the marker is theirs, and stays on screen.
+export const isReportBackMessage = (content: string): boolean =>
+  /^outreach:\d+$/.test(content.split(' ').at(-1) ?? '') &&
+  content === reportBackMessage(Number(content.split(':').at(-1)))
 
 /**
  * A tool that refuses its arguments returns `{ error }` so the model can fix

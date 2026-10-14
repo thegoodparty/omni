@@ -13,6 +13,7 @@ const BY_TYPE: Record<DashboardCardType, CardCategory> = {
   agenda_item: { label: 'Legislation' },
   community_issue: { label: 'Community Issue' },
   civic_panel: { label: "Citizens' Panel" },
+  report_back: { label: 'Report back' },
 }
 
 /**

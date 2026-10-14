@@ -9,6 +9,17 @@ import {
 const KEY = '3f2c1a90-1111-4222-8333-444455556666'
 
 describe('proposalListSample', () => {
+  // A report back is everyone one send reached, frozen, whatever its count.
+  it('freezes a report back to the people the send reached', () => {
+    expect(
+      proposalListSample({
+        proposalKey: KEY,
+        count: 236,
+        reportBackForOutreachId: 77,
+      }),
+    ).toEqual({ size: 236, seedKey: KEY, recipientsOfOutreachId: 77 })
+  })
+
   it('draws the list as the sample, keyed on the proposal', () => {
     expect(
       proposalListSample({

@@ -1,3 +1,4 @@
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { Test } from '@nestjs/testing'
 import {
   CIVIC_PANEL_JOIN_LINE,
@@ -110,6 +111,7 @@ describe('OutreachServeSmsCreateService', () => {
         { provide: OrganizationsService, useValue: organizations },
         { provide: VoterFileFilterService, useValue: filters },
         { provide: ContactInteractionTextService, useValue: texts },
+        { provide: OutreachReportBackService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()

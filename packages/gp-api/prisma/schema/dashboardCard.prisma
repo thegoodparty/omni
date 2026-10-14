@@ -30,4 +30,6 @@ enum DashboardCardType {
   agenda_item
   community_issue
   civic_panel
+  // Tell the people a priority's text asked what was heard and what is next.
+  report_back
 }

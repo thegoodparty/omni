@@ -25,6 +25,12 @@ export const ListSampleSchema = z
      * Absent, the draw ignores the panel.
      */
     panelSize: z.number().int().min(1).max(MAX_LIST_SAMPLE_SIZE).optional(),
+    /**
+     * Serve only. Draw from the people this text send reached, minus anyone
+     * who has opted out since, so a report back goes to exactly who was
+     * asked. Everyone left is kept when they fit in `size`.
+     */
+    recipientsOfOutreachId: z.number().int().positive().optional(),
   })
   .refine(
     (sample) =>
@@ -32,6 +38,16 @@ export const ListSampleSchema = z
     {
       path: ['panelSize'],
       message: 'panelSize is part of size, with room for new residents',
+    },
+  )
+  .refine(
+    (sample) =>
+      sample.recipientsOfOutreachId === undefined ||
+      (sample.panelSize === undefined &&
+        sample.excludeOutreachIds === undefined),
+    {
+      path: ['recipientsOfOutreachId'],
+      message: 'The people a send reached are drawn on their own',
     },
   )
 export type ListSample = z.infer<typeof ListSampleSchema>

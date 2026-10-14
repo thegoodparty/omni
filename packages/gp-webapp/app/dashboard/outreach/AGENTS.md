@@ -86,6 +86,14 @@ step's "Ask them to join your citizens' panel" and locks it
 composes carries the JOIN line, and the line's hover reason says they can
 write around it rather than to untick the box.
 
+`report_back` is never in the picker: its audience is one earlier send, which
+only a priority's report back card names. That card opens the Serve `SmsFlow`
+with `initialPurpose: 'report_back'`, its message seeded (the purpose is kept
+rather than turned into `custom`), `reportBackForOutreachId` riding on the
+create, and the proposed list's `sample.recipientsOfOutreachId` set, so the
+list saved is that send's people, frozen. The JOIN ask is off and its box is
+not shown, whatever the card said.
+
 The voter data page's "Choose a channel" picker (`contacts/crm/shared/channelPicker/`)
 links here with the flow named — `?compose=text|robocall|phoneBanking|social&source=voter_data`
 — and the audience beside it as `?listId=` (a saved list) or `?recommended=<variant>`

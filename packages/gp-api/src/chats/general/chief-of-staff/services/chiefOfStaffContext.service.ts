@@ -1,3 +1,4 @@
+import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   ChatScope,
@@ -59,6 +60,9 @@ export interface ChiefOfStaffContext {
   // Undefined while it is off, so nothing about building a panel reaches the
   // prompt or the proposal tool.
   civicPanel?: CivicPanelBuildState
+  // The office's priority texts whose replies are in, and whether each has
+  // been reported back on. Read per turn behind the same flag.
+  reportBacks?: ReportBackSend[]
 }
 
 export interface CivicPanelBuildState {

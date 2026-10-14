@@ -28,11 +28,12 @@ const priorityProposalInput = OutreachProposalSchema.omit({
     'main for the most-affected group, contrast for the least-affected one.',
   ),
 })
-// The citizens' panel parts, offered only on a priority and only behind
-// serve-citizen-panels.
+// The citizens' panel parts and the report back, offered only on a priority
+// and only behind serve-citizen-panels.
 const priorityProposalInputWithoutPanel = priorityProposalInput.omit({
   civicPanelAsk: true,
   panelSampleSize: true,
+  reportBackForOutreachId: true,
 })
 // Outside a priority there is no check for a send to put out, and so no
 // earlier sample of one to widen.

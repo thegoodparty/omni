@@ -5,7 +5,9 @@ import {
   PRIORITY_STEP_LABELS,
   emptyPriorityStatus,
   PROPOSAL_SENT_MARKER,
+  REPORT_BACK_MARKER,
 } from '@goodparty_org/contracts'
+import type { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { ChatScope, type Organization } from '../../../generated/prisma'
 import { ChatScopeRegistry } from '../services/chatScopeRegistry.service'
 import {
@@ -1315,6 +1317,203 @@ describe('PriorityFlowHandler', () => {
       expect(
         await on.execute({ ...contrast, side: 'main' as const }),
       ).toHaveProperty('error', expect.stringContaining('this same side'))
+    })
+  })
+
+  describe('behind serve-citizen-panels, reporting back to the people asked', () => {
+    const send = {
+      outreachId: 77,
+      priorityId: 'pri-1',
+      priorityTitle: 'Sidewalk repairs on Maple Ave',
+      sentOn: '2026-10-05',
+      audience:
+        'Everyone you texted about Sidewalk repairs on Maple Ave on October 5',
+      reached: 240,
+      canReach: 236,
+      answered: 31,
+      themes: [{ title: 'Trip hazards near the school', people: 14 }],
+      reportBack: null,
+    }
+    let listForOffice: ReturnType<typeof vi.fn>
+
+    const withReportBack = (enabled = true) => {
+      listForOffice = vi.fn(() => Promise.resolve([send]))
+      return new PriorityFlowHandler(
+        store,
+        context,
+        outreach,
+        priorityStatus,
+        { voters: [], constituents: [] },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)) } as never,
+        { listForOffice } as unknown as OutreachReportBackService,
+      )
+    }
+    const on = (): PriorityFlowContext => ({
+      ...baseCtx(),
+      outreachFeedbackEnabled: true,
+      reportBacks: [send],
+    })
+    const card = {
+      audience: send.audience,
+      count: send.canReach,
+      channel: 'text' as const,
+      message:
+        'this is Bryan, your City Council Member. Thanks for answering. ' +
+        'Most of you named trip hazards near the school. I will ask for ' +
+        'those blocks to be fixed first.',
+      deepLinkOnly: false,
+      reportBackForOutreachId: send.outreachId,
+    }
+    const proposal = (handler: PriorityFlowHandler) => {
+      const tool = handler.buildTools(on()).present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      return tool
+    }
+
+    it('reads the sends whose replies are in only with the flag on', async () => {
+      context.countCivicPanelMembers = vi.fn(() => Promise.resolve(0))
+      const ctx = await withReportBack(true).loadContext('c1', USER_ID)
+      expect(ctx.reportBacks).toEqual([send])
+      expect(listForOffice).toHaveBeenCalledWith(ORG, 'office-1', {
+        priorityId: 'pri-1',
+      })
+      expect(Object.keys(withReportBack().buildTools(on()))).toContain(
+        'read_report_back',
+      )
+
+      const off = await withReportBack(false).loadContext('c1', USER_ID)
+      expect(off.reportBacks).toBeUndefined()
+      expect(listForOffice).not.toHaveBeenCalled()
+      expect(Object.keys(withReportBack().buildTools(baseCtx()))).not.toContain(
+        'read_report_back',
+      )
+      const prompt = withReportBack().buildSystemPrompt(baseCtx())
+      expect(prompt).not.toContain('REPORTING BACK')
+      expect(prompt).not.toContain('<report_backs>')
+    })
+
+    it('starts on the send the app names, and walks the official through it', () => {
+      const prompt = withReportBack().buildSystemPrompt(on())
+      expect(prompt).toContain('REPORTING BACK TO THE PEOPLE YOU ASKED')
+      expect(prompt).toContain(
+        `starts with ${REPORT_BACK_MARKER} comes from the app`,
+      )
+      expect(prompt).toContain('Call read_report_back for the send first')
+      expect(prompt).toContain(
+        'who it went to (its audience), how many people it reached, how many answered, and the top themes',
+      )
+      expect(prompt).toContain(
+        `outreach:77 — ${send.audience}. Reached 240, 31 answered. Report back: not sent yet.`,
+      )
+    })
+
+    it('asks for the next step and never makes one up', () => {
+      const prompt = withReportBack().buildSystemPrompt(on())
+      expect(prompt).toContain('ask what they are going to do next')
+      expect(prompt).toContain('Never write a next step they have not told you')
+      expect(prompt).toContain('never guess one to fill the draft')
+      expect(prompt).toContain('Show the draft in your message')
+    })
+
+    it('never quotes or points at an individual resident', () => {
+      const prompt = withReportBack().buildSystemPrompt(on())
+      expect(prompt).toContain('Never quote a reply')
+      expect(prompt).toContain('any detail that could point to who said it')
+      expect(prompt).toContain("never ask anyone to join the citizens' panel")
+    })
+
+    it("knows a report back already went out, so it doesn't ask", () => {
+      const prompt = withReportBack().buildSystemPrompt({
+        ...on(),
+        reportBacks: [
+          { ...send, reportBack: { outreachId: 90, sentOn: '2026-10-12' } },
+        ],
+      })
+      expect(prompt).toContain('Report back: sent 2026-10-12.')
+      expect(prompt).toContain(
+        'never ask the official whether they reported back',
+      )
+    })
+
+    it('presents a report back only to the people the send reached', async () => {
+      const handler = withReportBack()
+      const tool = proposal(handler)
+
+      expect(await tool.execute(card)).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      expect(listForOffice).toHaveBeenLastCalledWith(ORG, 'office-1', {
+        priorityId: 'pri-1',
+        outreachId: 77,
+      })
+      expect(await tool.execute({ ...card, count: 240 })).toHaveProperty(
+        'error',
+        expect.stringContaining('count to 236'),
+      )
+      expect(
+        await tool.execute({ ...card, audience: 'Residents' }),
+      ).toHaveProperty('error', expect.stringContaining(send.audience))
+      expect(
+        await tool.execute({
+          ...card,
+          audienceFilters: { hasCellPhone: true },
+        }),
+      ).toHaveProperty('error', expect.stringContaining('audienceFilters'))
+      expect(
+        await tool.execute({ ...card, civicPanelAsk: true }),
+      ).toHaveProperty('error', expect.stringContaining('civicPanelAsk'))
+      expect(
+        await tool.execute({
+          ...card,
+          stepId: 'define' as const,
+          side: 'main' as const,
+        }),
+      ).toHaveProperty('error', expect.stringContaining('stepId'))
+      expect(
+        await tool.execute({ ...card, channel: 'phoneBanking' as const }),
+      ).toHaveProperty('error', expect.stringContaining('is a text'))
+    })
+
+    it('never offers a second report back, or one too few can get', async () => {
+      const handler = withReportBack()
+      const tool = proposal(handler)
+      listForOffice.mockResolvedValueOnce([
+        { ...send, reportBack: { outreachId: 90, sentOn: '2026-10-12' } },
+      ])
+      expect(await tool.execute(card)).toHaveProperty(
+        'error',
+        expect.stringContaining('already went out'),
+      )
+      listForOffice.mockResolvedValueOnce([{ ...send, canReach: 12 }])
+      expect(await tool.execute({ ...card, count: 12 })).toHaveProperty(
+        'error',
+        expect.stringContaining('at least 25'),
+      )
+      listForOffice.mockResolvedValueOnce([])
+      expect(await tool.execute(card)).toHaveProperty(
+        'error',
+        expect.stringContaining('read_report_back'),
+      )
+    })
+
+    it('takes no report back with the flag off', () => {
+      const tool =
+        withReportBack().buildTools(baseCtx()).present_outreach_proposal
+      if (tool === undefined || !('inputSchema' in tool) || !tool.inputSchema) {
+        throw new Error('expected a schema')
+      }
+      expect(tool.inputSchema.parse(card)).not.toHaveProperty(
+        'reportBackForOutreachId',
+      )
     })
   })
 })

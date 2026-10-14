@@ -13,6 +13,7 @@ import {
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   findCivicPanelJoinLine,
+  REPORT_BACK_PURPOSE,
   ServeSmsCreateRequest,
   ServeSmsCreateRequestSchema,
   ServeSmsCreateResponse,
@@ -165,7 +166,10 @@ export class OutreachServeSmsController {
     input: ServeSmsDraftRequest,
   ): Promise<ServeSmsDraftResponse> {
     await this.assertFeatureEnabled(user)
-    if (input.purpose === BUILD_CITIZENS_PANEL_PURPOSE) {
+    if (
+      input.purpose === BUILD_CITIZENS_PANEL_PURPOSE ||
+      input.purpose === REPORT_BACK_PURPOSE
+    ) {
       await this.assertFeatureEnabled(user, SERVE_CITIZEN_PANELS_FLAG)
     }
     const { office, context } = await this.buildServeContext(electedOffice)
@@ -222,6 +226,9 @@ export class OutreachServeSmsController {
         "This text asks people to join a citizens' panel, which isn't on for your office yet. Remove that line and try again.",
       )
     }
+    if (input.reportBackForOutreachId !== undefined) {
+      await this.assertFeatureEnabled(user, SERVE_CITIZEN_PANELS_FLAG)
+    }
     // The org comes from the ElectedOffice row the guard resolved, never from
     // the body — the same posture every route on this controller takes.
     const { proposalKey, priorityId, stepId, side, ...draft } = input
@@ -229,6 +236,13 @@ export class OutreachServeSmsController {
       { proposalKey, priorityId, stepId, side },
       electedOffice.id,
     )
+    if (draft.reportBackForOutreachId !== undefined) {
+      await this.createService.assertReportBackTarget(
+        electedOffice,
+        draft.reportBackForOutreachId,
+        { message: draft.message, link },
+      )
+    }
     return this.createService.createDraft(
       electedOffice.organizationSlug,
       draft,
