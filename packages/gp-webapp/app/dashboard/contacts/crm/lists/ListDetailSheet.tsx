@@ -133,14 +133,11 @@ export default function ListDetailSheet({
           : segmentIdNumber,
     ],
     queryFn: () =>
-      (isPanel
-        ? clientRequest('POST /v1/contacts/list-detail', {
-            civicPanelMember: true,
-          })
-        : clientRequest(
-            'GET /v1/contacts/list-detail',
-            isUniverse ? {} : { segment: segmentIdNumber },
-          )
+      clientRequest(
+        'GET /v1/contacts/list-detail',
+        isUniverse
+          ? {}
+          : { segment: isPanel ? CIVIC_PANEL_SEGMENT : segmentIdNumber },
       ).then((res) => res.data),
     // getListDetail's own pro check runs before its segment branch, so a non-pro
     // request can only 400 — including the direct-URL path, which has no upsell

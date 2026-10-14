@@ -116,6 +116,7 @@ import type {
   ApplyTestModeRequest,
   PriorityResults,
   CivicPanelSummary,
+  CIVIC_PANEL_SEGMENT,
   CivicPanelRepresentation,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1781,8 +1782,8 @@ export type APIEndpoints = {
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
-    // unfiltered district.
-    Request: { segment?: number }
+    // unfiltered district. 'civicPanel' = Serve's built-in panel list.
+    Request: { segment?: number | typeof CIVIC_PANEL_SEGMENT }
     Response: ListDetailContactsResponse
   }
   // The same payload for a filter that has not been saved (a recommended

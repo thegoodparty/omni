@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ListDetailContactsResponse } from '@goodparty_org/contracts'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
@@ -9,6 +10,8 @@ import { useContactsDownload } from '../shared/useContactsDownload'
 import { makePerson } from '../shared/test-fixtures'
 import { CitizensPanelListCard } from './CitizensPanelListCard'
 import ListDetailSheet from './ListDetailSheet'
+
+type OutreachHistory = ListDetailContactsResponse['outreachHistory']
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test-org' }),
@@ -57,10 +60,15 @@ const setContext = ({
   })
 }
 
-const mockSummary = (members: number) =>
+const mockSummary = (members: number, lastOutreachAt: string | null = null) =>
   api.mock('GET /v1/contacts/civic-panel', {
     status: 200,
-    data: { members, reachedRecently: 0, askableNow: members },
+    data: {
+      members,
+      reachedRecently: 0,
+      askableNow: members,
+      lastOutreachAt: lastOutreachAt as unknown as Date | null,
+    },
   })
 
 beforeEach(() => {
@@ -88,13 +96,34 @@ describe('CitizensPanelListCard', () => {
     expect(selectList).toHaveBeenCalledWith('civicPanel')
   })
 
+  it('shows when the panel was last reached, without the list detail', async () => {
+    const detail = vi.fn()
+    api.mock('GET /v1/contacts/list-detail', () => {
+      detail()
+      return { status: 500, data: {} }
+    })
+    mockSummary(2, '2026-10-13T12:00:00.000Z')
+    render(<CitizensPanelListCard />)
+
+    expect(
+      await screen.findByText('Last outreach Oct 13, 2026'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No outreach yet')).not.toBeInTheDocument()
+    expect(detail).not.toHaveBeenCalled()
+  })
+
   it('stays hidden until someone has joined', async () => {
     const summary = vi.fn()
     api.mock('GET /v1/contacts/civic-panel', () => {
       summary()
       return {
         status: 200,
-        data: { members: 0, reachedRecently: 0, askableNow: 0 },
+        data: {
+          members: 0,
+          reachedRecently: 0,
+          askableNow: 0,
+          lastOutreachAt: null,
+        },
       }
     })
     render(<CitizensPanelListCard />)
@@ -110,7 +139,12 @@ describe('CitizensPanelListCard', () => {
       summary()
       return {
         status: 200,
-        data: { members: 2, reachedRecently: 0, askableNow: 2 },
+        data: {
+          members: 2,
+          reachedRecently: 0,
+          askableNow: 2,
+          lastOutreachAt: null,
+        },
       }
     })
     render(<CitizensPanelListCard />)
@@ -129,11 +163,11 @@ describe('CitizensPanelListCard', () => {
 })
 
 describe('ListDetailSheet — the built-in civic panel list', () => {
-  const mockPanel = () => {
-    const detailBodies: unknown[] = []
+  const mockPanel = (outreachHistory: OutreachHistory = []) => {
+    const detailSegments: unknown[] = []
     const segments: (string | undefined)[] = []
-    api.mock('POST /v1/contacts/list-detail', ({ body }) => {
-      detailBodies.push(body)
+    api.mock('GET /v1/contacts/list-detail', ({ query }) => {
+      detailSegments.push(query.segment)
       return {
         status: 200,
         data: {
@@ -145,7 +179,7 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
             doorKnocking: 2,
             polls: 2,
           },
-          outreachHistory: [],
+          outreachHistory,
         },
       }
     })
@@ -169,12 +203,12 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
         },
       }
     })
-    return { detailBodies, segments }
+    return { detailSegments, segments }
   }
 
   it('renders the same sections a saved list does, read live with no saved list', async () => {
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
-    const { detailBodies, segments } = mockPanel()
+    const { detailSegments, segments } = mockPanel()
     render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
 
     const dialog = await screen.findByRole('dialog')
@@ -211,10 +245,47 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
     ).toBeInTheDocument()
 
     expect(segments).toEqual(['civicPanel'])
-    expect(detailBodies).toEqual([{ civicPanelMember: true }])
+    expect(detailSegments).toEqual(['civicPanel'])
     expect(
       within(dialog).queryByText(/couldn.t be found/),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows the sends that reached the panel as its history', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    mockPanel([
+      {
+        id: 7,
+        name: 'Ask about the park',
+        outreachType: 'nativePhoneBanking',
+        status: 'completed',
+        date: '2026-10-13T12:00:00.000Z',
+        createdAt: '2026-10-12T12:00:00.000Z',
+      },
+      {
+        id: 3,
+        name: 'Join my civic panel',
+        outreachType: 'text',
+        status: 'completed',
+        date: '2026-09-01T12:00:00.000Z',
+        createdAt: '2026-08-30T12:00:00.000Z',
+      },
+    ] as unknown as OutreachHistory)
+    render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      await within(dialog).findByText('Ask about the park'),
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText('Join my civic panel')).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText('No outreach yet.'),
+    ).not.toBeInTheDocument()
+    // Once as Last outreach, once in the history row.
+    expect(within(dialog).getAllByText('Oct 13, 2026')).toHaveLength(2)
+    expect(
+      within(dialog).getByText('Last method').parentElement,
+    ).toHaveTextContent('Phone banking')
   })
 
   it('lists no member names and offers no shape drawing or list actions', async () => {
@@ -242,7 +313,7 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
   it('is an unknown list with the flag off', async () => {
     setContext({ flagOn: false })
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
-    const { detailBodies, segments } = mockPanel()
+    const { detailSegments, segments } = mockPanel()
     render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
 
     expect(
@@ -250,7 +321,7 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
         "This list couldn't be found. It may have been deleted.",
       ),
     ).toBeInTheDocument()
-    expect(detailBodies).toEqual([])
+    expect(detailSegments).toEqual([])
     expect(segments).toEqual([])
   })
 })

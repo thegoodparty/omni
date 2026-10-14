@@ -10,6 +10,7 @@ import {
   shapePartCount,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
@@ -72,6 +73,20 @@ const toActivityConditionCreateInput = (
     outreachId,
     actions,
   }))
+
+const OUTREACH_HISTORY_ORDER: Prisma.OutreachOrderByWithRelationInput[] = [
+  { date: { sort: Prisma.SortOrder.desc, nulls: Prisma.NullsOrder.last } },
+  { createdAt: Prisma.SortOrder.desc },
+]
+
+const OUTREACH_HISTORY_SELECT = {
+  id: true,
+  name: true,
+  outreachType: true,
+  status: true,
+  date: true,
+  createdAt: true,
+} satisfies Prisma.OutreachSelect
 
 @Injectable()
 export class VoterFileFilterService extends createPrismaBase(
@@ -547,23 +562,31 @@ export class VoterFileFilterService extends createPrismaBase(
         voterFileFilterId,
         outreachType: { not: OutreachType.doorKnocking },
       },
-      orderBy: [
-        {
-          date: {
-            sort: Prisma.SortOrder.desc,
-            nulls: Prisma.NullsOrder.last,
-          },
-        },
-        { createdAt: Prisma.SortOrder.desc },
-      ],
-      select: {
-        id: true,
-        name: true,
-        outreachType: true,
-        status: true,
-        date: true,
-        createdAt: true,
+      orderBy: OUTREACH_HISTORY_ORDER,
+      select: OUTREACH_HISTORY_SELECT,
+    })
+  }
+
+  // The civic panel's outreach history: the org's sends among `outreachIds`
+  // that went out, in a saved list's order and shape. "Went out" is the
+  // Chief of Staff's rule (UNSENT_OUTREACH_STATUSES), so a draft or a
+  // canceled send never shows.
+  findSentOutreachesByIds(
+    organizationSlug: string,
+    outreachIds: number[],
+    take?: number,
+  ) {
+    if (outreachIds.length === 0) return Promise.resolve([])
+    return this._prisma.outreach.findMany({
+      where: {
+        id: { in: outreachIds },
+        organizationSlug,
+        outreachType: { not: OutreachType.doorKnocking },
+        status: { notIn: UNSENT_OUTREACH_STATUSES },
       },
+      orderBy: OUTREACH_HISTORY_ORDER,
+      select: OUTREACH_HISTORY_SELECT,
+      take,
     })
   }
 
