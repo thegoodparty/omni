@@ -260,7 +260,7 @@ export class ElectionsService {
     name?: string
     officeType?: string[]
     displayOfficeLevels?: string[]
-    timeframe?: 'future' | 'past'
+    timeframe?: 'future' | 'past' | 'all'
   }): Promise<RaceListItem[]> {
     const result = await this.electionApiGet<RaceListItem[], typeof query>(
       'positions/search',

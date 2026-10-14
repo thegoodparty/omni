@@ -73,7 +73,7 @@ describe('ServeOfficePicker', () => {
     expect(screen.getByText(/Last election:.*2024/)).toBeInTheDocument()
   })
 
-  it('requests upcoming races for the submitted zip', async () => {
+  it('requests all races (no date bound) for the submitted zip', async () => {
     mockClientFetch.mockResolvedValue({
       ok: true,
       data: [],
@@ -84,7 +84,7 @@ describe('ServeOfficePicker', () => {
     await waitFor(() => expect(mockClientFetch).toHaveBeenCalled())
     expect(mockClientFetch).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ zipcode: '82001', timeframe: 'future' }),
+      expect.objectContaining({ zipcode: '82001', timeframe: 'all' }),
       expect.anything(),
     )
   })

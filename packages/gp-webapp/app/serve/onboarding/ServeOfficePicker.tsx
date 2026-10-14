@@ -60,7 +60,7 @@ const OTHER_PILL = 'Other'
 const fetchPositions = async (zip: string): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip, timeframe: 'future' },
+    { zipcode: zip, timeframe: 'all' },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -75,8 +75,8 @@ const fetchPositions = async (zip: string): Promise<Race[]> => {
 // A position is never dropped. Each row carries the position's most recent
 // *already-held* general/primary election (future dates and runoffs excluded)
 // as its "last election" date — the signal that tells apart cohort twins
-// sharing an identical name. While the picker queries upcoming elections (see
-// fetchPositions), no past date is on file, so this stays blank.
+// sharing an identical name. The picker queries every election (see
+// fetchPositions), so a seat whose next race is years out is still listed.
 const dedupeToPositions = (races: Race[]): PositionRow[] => {
   const byId = new Map<string, PositionRow>()
   const todayIso = new Date().toISOString().slice(0, 10)

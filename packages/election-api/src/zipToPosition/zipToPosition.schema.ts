@@ -46,8 +46,9 @@ export const SearchPositionsQuerySchema = z
     displayOfficeLevels: arrayOrSingle(z.enum(DISPLAY_OFFICE_LEVELS)),
     // Which side of today to return races for. Win onboarding wants upcoming
     // elections; Serve onboarding wants the elections an incumbent already won.
-    // Defaults to 'future' when omitted.
-    timeframe: z.enum(['future', 'past']).optional(),
+    // 'all' applies no date bound, so an office whose next race falls outside
+    // the future horizon is still offered. Defaults to 'future' when omitted.
+    timeframe: z.enum(['future', 'past', 'all']).optional(),
   })
   .refine((q) => q.zip || q.name || (q.officeType && q.officeType.length > 0), {
     message: 'At least one of zip, name, or officeType is required',
