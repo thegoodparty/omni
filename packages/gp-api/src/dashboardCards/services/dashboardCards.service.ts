@@ -14,7 +14,7 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
-  BUILD_CITIZENS_PANEL_PURPOSE,
+  CIVIC_PANEL_BUILD_CARD_HREF,
   civicPanelBuildCardSourceId,
   DASHBOARD_CARD_SNOOZE_DAYS,
   DashboardCardBucket,
@@ -57,10 +57,6 @@ const priorityNextStepCardContent = (priority: PriorityForCard) => ({
   ctaLabel: 'Open priority',
   ctaHref: civicPanelCardHref(priority.id),
 })
-
-// The outreach page opens its text flow on the panel purpose with a random
-// draw of the district already chosen (ConstituentOutreachPage).
-export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/constituent-outreach?compose=text&purpose=${BUILD_CITIZENS_PANEL_PURPOSE}`
 
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   title: "Build your citizens' panel",

@@ -836,14 +836,17 @@ export const SmsFlow = ({
               : 'audience'
             : 'purpose',
     )
-    setPurpose(initialScript ? 'custom' : carriedPurpose)
+    // A card that names its purpose as well as its words (the Chief of
+    // Staff's panel invite) keeps that purpose, so the flow treats the send
+    // as the purpose's own.
+    setPurpose(initialPurpose ?? (initialScript ? 'custom' : carriedPurpose))
     resetEventDetails()
     confirmedEventRef.current = null
     setTone('warm')
     const asks =
       surface.isServe &&
       (initialAsksToJoinCivicPanel ||
-        (!initialScript && carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE))
+        carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE)
     const seeded = initialScript
       ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
       : ''

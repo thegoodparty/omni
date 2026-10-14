@@ -1,5 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { ChatScope, type Organization } from '../../../../generated/prisma'
+import {
+  ChatScope,
+  CivicPanelStatus,
+  ContactStatusField,
+  OutreachStatus,
+  OutreachType,
+  type Organization,
+} from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -48,7 +55,30 @@ export interface ChiefOfStaffContext {
   // Whether read_outreach_feedback registers: the serve-citizen-panels flag
   // for the chatting user, resolved per turn by the handler.
   outreachFeedbackEnabled?: boolean
+  // Where the citizens' panel stands, read per turn behind the same flag.
+  // Undefined while it is off, so nothing about building a panel reaches the
+  // prompt or the proposal tool.
+  civicPanel?: CivicPanelBuildState
 }
+
+export interface CivicPanelBuildState {
+  members: number
+  // A text asking people to join is past checkout: the invite is out, and
+  // the build card is done.
+  inviteSent: boolean
+  // The serve-sms-outreach flag: without it there is no text flow to open.
+  textingEnabled: boolean
+}
+
+// The statuses of a text that never went out. The same list the build card
+// counts as not sent (DashboardCardsService).
+const UNSENT_OUTREACH_STATUSES = [
+  OutreachStatus.pending_payment,
+  OutreachStatus.draft,
+  OutreachStatus.canceled,
+  OutreachStatus.denied,
+  OutreachStatus.failed,
+]
 
 // Loads the static CoS context from the conversation's owning user + their
 // elected office, plus the active priorities (via the slice-1 port).
@@ -138,5 +168,31 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       constituentToolEnabled: false,
       peopleDataset: 'voters',
     }
+  }
+
+  async civicPanelBuildState(
+    organizationSlug: string,
+    textingEnabled: boolean,
+  ): Promise<CivicPanelBuildState> {
+    const [members, invite] = await Promise.all([
+      this.client.contactCurrentStatus.count({
+        where: {
+          organizationSlug,
+          field: ContactStatusField.civic_panel,
+          value: CivicPanelStatus.member,
+        },
+      }),
+      this.client.outreach.findFirst({
+        where: {
+          organizationSlug,
+          campaignId: null,
+          outreachType: OutreachType.text,
+          asksToJoinCivicPanel: true,
+          status: { notIn: UNSENT_OUTREACH_STATUSES },
+        },
+        select: { id: true },
+      }),
+    ])
+    return { members, inviteSent: invite !== null, textingEnabled }
   }
 }

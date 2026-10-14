@@ -372,6 +372,7 @@ export const ProposalFlowsProvider = ({
           surface={SERVE_SMS_SURFACE}
           initialScript={proposal.message}
           initialAsksToJoinCivicPanel={proposal.civicPanelAsk === true}
+          {...(proposal.purpose && { initialPurpose: proposal.purpose })}
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}

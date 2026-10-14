@@ -76,8 +76,10 @@ sample with `panelSize`, so the one list freezes both draws, and its
 
 `SmsFlow` also takes `initialPurpose`, which opens past the purpose picker on
 that purpose the way a carried recommendation does; the Serve hub passes it
-for the Chief of Staff's citizens' panel card
-(`constituent-outreach/AGENTS.md`). On Serve, `build_citizens_panel` is
+for its `?compose=text&purpose=build_citizens_panel` link
+(`constituent-outreach/AGENTS.md`), and a chat proposal card for its
+`purpose` (the Chief of Staff's panel invite). With `initialScript` too, the
+seeded words are kept on that purpose rather than opening on `custom`. On Serve, `build_citizens_panel` is
 offered only behind `serve-citizen-panels`, and picking it ticks the compose
 step's "Ask them to join your citizens' panel" and locks it
 (`civicPanelAsk.locked`): a panel text is its ask, so every message it

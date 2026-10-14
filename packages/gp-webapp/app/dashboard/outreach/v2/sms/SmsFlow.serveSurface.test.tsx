@@ -446,6 +446,58 @@ describe('SmsFlow (Serve surface)', () => {
     )
   })
 
+  // The Chief of Staff's invite card carries its own words and the build
+  // purpose. The words are kept, not drafted over, and the send is still the
+  // build purpose's: the ask locked on and the purpose on the draft.
+  it("keeps a card's invite on the citizens' panel purpose, the JOIN ask locked on", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const draftCalls: ServeSmsDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted body' } }
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="build_citizens_panel"
+        initialAsksToJoinCivicPanel
+        initialScript="this is Jane, your Council Member. I am starting a citizens' panel to hear from all of you."
+      />,
+    )
+
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/I am starting a citizens' panel/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Reply JOIN to join my citizens' panel/),
+    ).toBeInTheDocument()
+    const ask = screen.getByRole('checkbox', {
+      name: /join your citizens' panel/i,
+    })
+    expect(ask).toBeChecked()
+    expect(ask).toBeDisabled()
+    expect(draftCalls).toHaveLength(0)
+  })
+
   // The reviewer's path: opened from the card, Back, Back. The purpose the
   // card answered must never come back; Back leaves through the confirm.
   it("leaves through the confirm on Back, never reopening the card's purpose", async () => {

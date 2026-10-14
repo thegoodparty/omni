@@ -117,3 +117,44 @@ describe("a priority's text card to the panel and new residents", () => {
     ).not.toHaveProperty('panelSize')
   })
 })
+
+describe("the Chief of Staff's citizens' panel invite", () => {
+  beforeEach(() => {
+    smsFlow.props = null
+  })
+
+  // The card's purpose rides into the flow, so it opens past the picker on
+  // the build purpose, with the draw of the district's cell phones seeded.
+  it('opens the text flow on the build purpose, the join ask on and the draw seeded', async () => {
+    await openCard({
+      kind: 'outreach_proposal',
+      proposalKey: PROPOSAL_KEY,
+      audience: 'Residents with a cell phone',
+      count: 12_000,
+      channel: 'text',
+      audienceFilters: { hasCellPhone: true },
+      listName: "Citizens' panel invite",
+      message: MESSAGE,
+      deepLinkOnly: false,
+      sampleSize: 3334,
+      civicPanelAsk: true,
+      purpose: 'build_citizens_panel',
+    })
+
+    const props = smsFlow.props
+    expect(props?.initialPurpose).toBe('build_citizens_panel')
+    expect(props?.initialAsksToJoinCivicPanel).toBe(true)
+    expect(props?.initialScript).toBe(MESSAGE)
+    expect(props?.proposedAudience).toMatchObject({
+      name: "Citizens' panel invite",
+      filters: { hasCellPhone: true },
+      sample: { size: 3334, seedKey: PROPOSAL_KEY },
+    })
+  })
+
+  it('opens any other text on the picker as before', async () => {
+    await openCard({ ...panelAndFresh, purpose: undefined })
+
+    expect(smsFlow.props).not.toHaveProperty('initialPurpose')
+  })
+})

@@ -1,5 +1,7 @@
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   OutreachProposalSchema,
+  PANEL_SEED_SAMPLE_SIZE,
   PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
   PRIORITY_STEP_LABELS,
@@ -8,14 +10,16 @@ import {
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import type { ProposalChannel } from '@goodparty_org/contracts'
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 
 // The model never writes proposalKey: the server mints it deterministically
 // from (conversationId, toolCallId) so the card and the Outreach row it
-// becomes agree without the model being trusted with the link.
+// becomes agree without the model being trusted with the link. A purpose is
+// offered only on the Chief of Staff's panel invite, below.
 const priorityProposalInput = OutreachProposalSchema.omit({
   proposalKey: true,
+  purpose: true,
 }).extend({
   stepId: OutreachProposalSchema.shape.stepId.describe(
     'The step whose check this outreach puts out: the gate you just settled.',
@@ -115,6 +119,103 @@ export const buildPresentOutreachProposalTool = (): LlmStreamTool<
   description: DESCRIPTION,
   inputSchema: presentOutreachProposalInput,
   execute: proposalResult,
+})
+
+// The Chief of Staff's card behind serve-citizen-panels, with texting on: it
+// can also be the citizens' panel invite, the one text that carries a
+// purpose, so the flow opens on it with the join line locked.
+const chiefOfStaffPanelProposalInput = presentOutreachProposalInput.extend({
+  civicPanelAsk: OutreachProposalSchema.shape.civicPanelAsk,
+  purpose: z
+    .literal(BUILD_CITIZENS_PANEL_PURPOSE)
+    .optional()
+    .describe(
+      "Only for the invite that builds the citizens' panel. Leave it out " +
+        'for every other piece of outreach.',
+    ),
+})
+type ChiefOfStaffPanelProposalInput = z.infer<
+  typeof chiefOfStaffPanelProposalInput
+>
+
+// Why a Chief of Staff proposal's citizens' panel part cannot be shown, or
+// null. The invite goes once, to a random group of the district's cell
+// phones sized for about 100 members, with the join ask on.
+export const checkPanelInvite = (
+  input: Pick<
+    ChiefOfStaffPanelProposalInput,
+    | 'channel'
+    | 'purpose'
+    | 'civicPanelAsk'
+    | 'audienceFilters'
+    | 'count'
+    | 'sampleSize'
+  >,
+  panel: { members: number; inviteSent: boolean },
+): string | null => {
+  if (input.purpose === undefined) {
+    return input.civicPanelAsk
+      ? "civicPanelAsk is only for the invite that builds the citizens' " +
+          `panel. Set purpose to ${BUILD_CITIZENS_PANEL_PURPOSE} for that, ` +
+          'or leave civicPanelAsk out.'
+      : null
+  }
+  if (panel.members > 0) {
+    return (
+      `They already have ${panel.members} people on their citizens' panel, ` +
+      'so do not invite again. Tell them so.'
+    )
+  }
+  if (panel.inviteSent) {
+    return (
+      "Their citizens' panel invite already went out, so do not send " +
+      'another. Tell them so: people join as they reply JOIN.'
+    )
+  }
+  if (input.channel !== 'text') {
+    return "The citizens' panel invite is a text. Set channel to text."
+  }
+  if (input.civicPanelAsk !== true) {
+    return (
+      "The citizens' panel invite asks people to join. Set civicPanelAsk " +
+      'to true and present again.'
+    )
+  }
+  // The district's cell phones and nothing narrower, so the panel looks like
+  // the district rather than like any one list.
+  const filters = input.audienceFilters ?? {}
+  if (Object.keys(filters).length !== 1 || filters.hasCellPhone !== true) {
+    return (
+      "The citizens' panel invite goes to everyone in the district with a " +
+      'cell phone. Count with { hasCellPhone: true } and nothing else, and ' +
+      'pass that as audienceFilters.'
+    )
+  }
+  const sendTo = Math.min(PANEL_SEED_SAMPLE_SIZE, input.count)
+  if (input.sampleSize !== sendTo) {
+    return (
+      `Set sampleSize to ${sendTo}, the number size_panel_invite returned ` +
+      'for this count, and present again.'
+    )
+  }
+  return null
+}
+
+export const buildChiefOfStaffOutreachProposalTool = (panel: {
+  members: number
+  inviteSent: boolean
+}): LlmStreamTool<typeof chiefOfStaffPanelProposalInput> => ({
+  description:
+    DESCRIPTION +
+    "\n\nFor the invite that builds the citizens' panel, set purpose to " +
+    `${BUILD_CITIZENS_PANEL_PURPOSE} and civicPanelAsk to true. The flow ` +
+    'adds the line asking people to reply JOIN and locks it, so never write ' +
+    'that ask or how to join into the message.',
+  inputSchema: chiefOfStaffPanelProposalInput,
+  execute: (input) => {
+    const refusal = checkPanelInvite(input, panel)
+    return refusal === null ? proposalResult(input) : { error: refusal }
+  },
 })
 
 // Win's text, as its own flow composes it: the greeting merges Peerly's

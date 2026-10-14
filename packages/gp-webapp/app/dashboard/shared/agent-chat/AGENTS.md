@@ -210,6 +210,12 @@ there is the agent's to say, once, in its message; no card repeats it.
   turn. Chief of Staff has no check to move and sends no such turn. While the
   SMS flag reads off, a text
   proposal says texting is not available instead of offering a button.
+  A Serve text proposal may carry `purpose` (contracts' Serve SMS purposes;
+  the Chief of Staff only ever sets `build_citizens_panel`, for the citizens'
+  panel invite). `SmsFlow` then opens on it as `initialPurpose`, past the
+  picker, with the seeded message kept (a script otherwise opens on
+  `custom`), the JOIN line locked on, and Back leaving the flow rather than
+  reaching the picker, the way the outreach page's panel deep link opens it.
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
   hub. It reads its mode from the provider like the proposal card: Win reads
   the campaign's send (`GET /v1/outreach/:id`) and links to
