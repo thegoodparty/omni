@@ -103,6 +103,9 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       ] as const
       for (const step of steps) {
         expect(municipal(step)).toContain('LEGAL CAUTION')
+        expect(municipal(step)).toContain(
+          'in these exact words and in place of any caution of your own',
+        )
         expect(municipal(step)).toContain(legal)
         expect(bill(step)).toContain(legal)
       }
