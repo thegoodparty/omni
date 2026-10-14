@@ -79,7 +79,6 @@ export const SMS_CUTOFF_COPY = {
   closedLabel: 'Texting closed',
   backToOutreach: 'Back to outreach',
   backToDashboard: 'Back to dashboard',
-  backToChat: 'Back to chat',
   complianceCardClosingBody: (generalElectionDate: string | null): string =>
     generalElectionDate
       ? `Register your campaign so you can text voters before your ${generalElectionDate} election.`

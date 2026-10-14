@@ -147,30 +147,6 @@ describe('ComplianceModal', () => {
     )
   })
 
-  it('shows the cutoff notice once texting has closed, whatever the record says', () => {
-    const onClose = vi.fn()
-    render(
-      <ComplianceModal
-        open
-        tcrCompliance={{ status: 'submitted', peerlyIdentityId: '11540708' }}
-        smsCompliance="closed"
-        smsCutoffDate="2026-10-15"
-        onClose={onClose}
-      />,
-    )
-
-    expect(
-      screen.getByRole('heading', {
-        name: "Texting isn't available for this race",
-      }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByText('Submit your PIN to finish texting registration'),
-    ).not.toBeInTheDocument()
-    screen.getByRole('button', { name: 'Back to chat' }).click()
-    expect(onClose).toHaveBeenCalledTimes(1)
-  })
-
   it('adds the cutoff date to the registration prompt while closing', () => {
     render(
       <ComplianceModal

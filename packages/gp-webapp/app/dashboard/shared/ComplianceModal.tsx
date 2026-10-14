@@ -9,7 +9,6 @@ import Link from 'next/link'
 import type { SmsComplianceWindow } from '@goodparty_org/contracts'
 import { CalendarClockIcon } from '@styleguide/components/ui/icons'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
-import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
@@ -32,7 +31,8 @@ interface ComplianceModalProps {
     TcrCompliance,
     'status' | 'peerlyIdentityId' | 'cvValidationFailedAt'
   > | null
-  // gp-api's SMS compliance window. Missing reads as open.
+  // gp-api's SMS compliance window, for the countdown while closing. The
+  // text gate shows the cutoff notice itself once it has closed.
   smsCompliance?: SmsComplianceWindow
   smsCutoffDate?: string | null
   onClose: () => void
@@ -45,27 +45,6 @@ export function ComplianceModal({
   smsCutoffDate = null,
   onClose,
 }: ComplianceModalProps): React.JSX.Element {
-  // Closed wins over any record status: texting will not open for this race.
-  if (smsCompliance === 'closed') {
-    return (
-      <Modal
-        open={open}
-        closeCallback={onClose}
-        preventBackdropClose
-        preventEscClose
-      >
-        <div className="p-0 sm:p-2 md:p-8">
-          <SmsCutoffNotice
-            variant="screen"
-            surface="legacy_compliance_modal"
-            onBack={onClose}
-            backLabel={SMS_CUTOFF_COPY.backToChat}
-          />
-        </div>
-      </Modal>
-    )
-  }
-
   const helpTrailer = (
     <>
       <br />

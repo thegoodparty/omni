@@ -7,6 +7,7 @@ import {
 } from 'app/dashboard/shared/P2PUpgradeModal'
 import { ComplianceModal } from 'app/dashboard/shared/ComplianceModal'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
@@ -19,6 +20,7 @@ export const useTextOutreachGate = (
   const { isPro, hasFreeTextsOffer } = campaign || {}
   const [showP2PModal, setShowP2PModal] = useState(false)
   const [showComplianceModal, setShowComplianceModal] = useState(false)
+  const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
 
   const isTextCompliant =
@@ -28,7 +30,7 @@ export const useTextOutreachGate = (
     // Once the window has closed nothing unlocks texting for this race, so a
     // free candidate gets the notice too, not a Pro pitch for it.
     if (smsCompliance === 'closed') {
-      setShowComplianceModal(true)
+      setShowSmsCutoffNotice(true)
       return false
     }
     if (!isPro) {
@@ -71,6 +73,14 @@ export const useTextOutreachGate = (
           onClose: () => setShowComplianceModal(false),
         }}
       />
+
+      {showSmsCutoffNotice && (
+        <SmsCutoffNoticeDialog
+          open
+          onOpenChange={setShowSmsCutoffNotice}
+          surface={source}
+        />
+      )}
     </>
   )
 
