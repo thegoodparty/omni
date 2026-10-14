@@ -610,7 +610,7 @@ export class DashboardCardsService extends createPrismaBase(
     })
   }
 
-  // Citizens' panel cards finish on their own: the build card when its text
+  // Civic panel cards finish on their own: the build card when its text
   // goes out, a priority card when its priority is resolved.
   async complete(electedOfficeId: string, id: string): Promise<void> {
     await this.client.dashboardCard.updateMany({

@@ -73,7 +73,7 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
         <DashboardTaskCard
           key={card.id}
           card={card}
-          // "Not for me" is how the citizens' panel and report back cards are
+          // "Not for me" is how the civic panel and report back cards are
           // set aside, so they are the ones a skipped card can be brought
           // back from.
           onRestore={

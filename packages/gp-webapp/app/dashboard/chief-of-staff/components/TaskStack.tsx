@@ -328,7 +328,7 @@ const TaskStack = ({
                 )
               )}
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                {/* Get-started and citizens' panel cards close themselves once
+                {/* Get-started and civic panel cards close themselves once
                     their goal is met (a priority card, once the priority is
                     resolved), so they offer no manual Mark done. */}
                 {!front.onboardingKey && front.kind !== 'civic_panel' && (
