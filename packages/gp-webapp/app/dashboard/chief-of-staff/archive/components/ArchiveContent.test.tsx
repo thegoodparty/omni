@@ -60,6 +60,38 @@ describe('<ArchiveContent>', () => {
     expect(restoreMock).toHaveBeenCalledWith('build')
   })
 
+  // This week lists set-aside cards too; only Skipped brings one back.
+  it('offers Bring it back on a set-aside build card under Skipped, not This week', async () => {
+    const user = userEvent.setup()
+    cardsByBucket.this_week = [
+      card({
+        id: 'build',
+        type: 'civic_panel',
+        title: "Build your citizens' panel",
+        sourceExternalId: 'build:eo-1',
+      }),
+      card({
+        id: 'p1-card',
+        type: 'civic_panel',
+        title: 'Affordable housing',
+        sourceExternalId: 'p1',
+        dismissedAt: null,
+      }),
+    ]
+    render(<ArchiveContent />)
+
+    expect(screen.getByText("Build your citizens' panel")).toBeInTheDocument()
+    expect(screen.getByText('Affordable housing')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Bring it back' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'Skipped' }))
+    expect(
+      screen.getByRole('button', { name: 'Bring it back' }),
+    ).toBeInTheDocument()
+  })
+
   it('brings a set-aside report back card back', async () => {
     cardsByBucket.skipped = [
       card({}),

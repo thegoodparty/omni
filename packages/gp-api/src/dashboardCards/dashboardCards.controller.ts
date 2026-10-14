@@ -49,13 +49,12 @@ export class DashboardCardsController {
       user,
       feature: SERVE_CITIZEN_PANELS_FLAG,
     })
-    const { buildCardActive } = includeCivicPanel
-      ? await this.cards.syncCivicPanelCards(electedOffice)
-      : { buildCardActive: false }
-    if (includeCivicPanel) await this.cards.syncReportBackCards(electedOffice)
+    if (includeCivicPanel) {
+      await this.cards.syncCivicPanelCards(electedOffice)
+      await this.cards.syncReportBackCards(electedOffice)
+    }
     const rows = await this.cards.listByBucket(electedOffice.id, bucket, {
       includeCivicPanel,
-      buildCardActive,
     })
     return { bucket, cards: rows.map(toDto) }
   }

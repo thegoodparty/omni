@@ -215,12 +215,39 @@ describe('<TaskStack>', () => {
     )
   })
 
-  it('marks the build card done', async () => {
+  // It is done when its text goes out, not when it is pressed.
+  it('offers no Mark done on the build card, with the priorities stacked under it', async () => {
     const user = userEvent.setup()
-    withCards([buildCard])
+    withCards([
+      card({
+        id: 'p1-card',
+        type: 'civic_panel',
+        title: 'Affordable housing',
+        ctaLabel: 'Open priority',
+        ctaHref: '/dashboard/priorities/p1',
+        dueDate: '2026-10-01T18:00:00.000Z',
+        sourceExternalId: 'p1',
+      }),
+      buildCard,
+    ])
     render(<TaskStack onOpenCard={vi.fn()} />)
-    await user.click(screen.getByRole('button', { name: /mark done/i }))
-    expect(completeMock).toHaveBeenCalledWith('build')
+    expect(
+      screen.getByRole('heading', {
+        level: 2,
+        name: "Build your citizens' panel",
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Get started' }))
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      expect.objectContaining({ cardId: 'build', stackSize: 2 }),
+    )
+    expect(completeMock).not.toHaveBeenCalled()
   })
 
   it('puts the build card off for 3 days from Skip', async () => {
