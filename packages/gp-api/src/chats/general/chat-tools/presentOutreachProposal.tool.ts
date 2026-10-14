@@ -149,6 +149,7 @@ export const checkPanelInvite = (
     | 'purpose'
     | 'civicPanelAsk'
     | 'audienceFilters'
+    | 'savedFilterId'
     | 'count'
     | 'sampleSize'
   >,
@@ -180,6 +181,13 @@ export const checkPanelInvite = (
     return (
       'The civic panel invite asks people to join. Set civicPanelAsk ' +
       'to true and present again.'
+    )
+  }
+  if (input.savedFilterId != null) {
+    return (
+      "The civic panel invite goes to a random group of the district's " +
+      'cell phones, never a saved list. Leave savedFilterId out and present ' +
+      'again.'
     )
   }
   // The district's cell phones and nothing narrower, so the panel looks like

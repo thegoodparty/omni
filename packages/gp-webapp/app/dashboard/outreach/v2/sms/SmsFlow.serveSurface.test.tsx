@@ -549,6 +549,43 @@ describe('SmsFlow (Serve surface)', () => {
     expect(draftCalls).toHaveLength(0)
   })
 
+  // A chat card that saved its list opens on the message, then the date,
+  // and the steps it shows are the only ones counted.
+  it('opens a ready card on the message, then the date', async () => {
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSummary="Northside residents: 1,200 constituents"
+        initialScript="this is Jane, your Council Member. The library opens Saturday."
+      />,
+    )
+
+    expect(
+      await screen.findByText('Northside residents: 1,200 constituents'),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText(/The library opens Saturday/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('What do you want to say?').length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('What do you want to do?')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      (await screen.findAllByText('When do you want to send?')).length,
+    ).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByText('Northside residents: 1,200 constituents'),
+    ).toBeInTheDocument()
+  })
+
   // The reviewer's path: opened from the card, Back, Back. The purpose the
   // card answered must never come back; Back leaves through the confirm.
   it("leaves through the confirm on Back, never reopening the card's purpose", async () => {

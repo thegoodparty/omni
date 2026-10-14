@@ -59,7 +59,14 @@ on their default surfaces. That Win text create carries the card's
 the card reads as sent once the text is paid for; the Win phone banking
 and social creates take the key alone, never a Serve link's priority. It adds two seeds: phone
 banking's `initialName`, and `proposedAudience` on phone banking and SMS, an
-audience the agent counted but did not save. That one opens the audience step
+audience the agent counted but did not save. On Serve the provider saves that
+audience itself and passes `preselectedListId` with `audienceSummary`
+instead, and both flows open ready to send: `SmsFlow` on compose, then
+schedule, then review (`PROPOSAL_STEP_ORDER`), `PhoneBankingFlow` on the
+script, then sheets. `ProposalAudienceSummary` sits above the message with
+"Change who gets this", a detour to the audience step that returns to the
+message; Back on the message exits (`backExits`). `proposedAudience`, Win's
+seed, opens the audience step
 in the builder already filled in (`useOutreachAudience`'s reset seeds it), so
 the list is saved where the flow always saves one: when the official confirms
 and names it. A proposal that asks a sample (`sampleSize` under its `count`)

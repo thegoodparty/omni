@@ -186,11 +186,22 @@ there is the agent's to say, once, in its message; no card repeats it.
   `ensureSmsIdentification`, which persisted cards from before the server
   guard need, since they still carry "Hi, this is [Your Name]..."), phone
   banking's name, and the audience. A card from before `audienceFilters` points at a saved list; a
-  current one carries the filter the agent counted with, and the flow opens
-  its builder already filled in (`proposedAudience`, with the proposal's
-  sample when it asks one: "Text 4,000 of 58,520, picked at random" on the
-  card, the frozen draw in the saved list) and saves the list when
-  the official confirms and names it. Door knocking is the exception: its
+  current one carries the filter the agent counted with. On Serve, text and
+  phone banking open ready to send: the provider saves the card's audience
+  as a list at the click (`saveProposalList`: the proposal's sample, panel
+  part or report back draw, named from `listName`), once per card key (kept
+  in the provider and in localStorage under `proposal-list:<key>`, checked
+  against the org's lists before reuse), and opens the flow on the message
+  or script with `preselectedListId` and `audienceSummary`
+  (`proposalAudienceSummary`: the agent's audience line, the count, and how
+  the sample was drawn). The flow shows only message, date or sheets, and
+  pay; "Change who gets this" (`ProposalAudienceSummary`) is a detour to the
+  list picker that returns to the message, and Back on the message leaves
+  through the discard confirm. The civic panel invite always saves its
+  district draw, never a `savedFilterId`. Win still opens the builder filled
+  in (`proposedAudience`) and saves the list when the candidate confirms and
+  names it, because Win text derives its Peerly phone list at that step.
+  Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
   card saves the list at the click, the latest point it can, and goes there,
   carrying the card's link on the URL (`?proposalKey=&priorityId=&stepId=&side=`)

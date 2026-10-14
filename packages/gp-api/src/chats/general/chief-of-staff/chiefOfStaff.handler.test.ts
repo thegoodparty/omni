@@ -779,6 +779,10 @@ describe('ChiefOfStaffHandler', () => {
       expect(
         await tool.execute({ ...invite, civicPanelAsk: false }),
       ).toHaveProperty('error')
+      // A saved list would replace the counted and priced district draw.
+      expect(
+        await tool.execute({ ...invite, savedFilterId: 41 }),
+      ).toHaveProperty('error', expect.stringContaining('never a saved list'))
       expect(
         await tool.execute({ ...invite, purpose: undefined }),
       ).toHaveProperty('error')
