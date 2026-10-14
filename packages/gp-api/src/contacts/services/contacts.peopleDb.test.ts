@@ -221,6 +221,7 @@ describe('ContactsService — people-db (sole path)', () => {
       mockStatsService as never,
       mockPeopleDatasetService as never,
       mockContactsMadeResolutionService as never,
+      { latestEvent: vi.fn().mockResolvedValue(null) } as never,
       createMockLogger(),
     )
   })

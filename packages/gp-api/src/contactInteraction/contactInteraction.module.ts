@@ -5,6 +5,7 @@ import { ContactInteractionPhoneBankingService } from './services/contactInterac
 import { ContactInteractionRobocallService } from './services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from './services/contactInteractionText.service'
 import { ContactsMadeResolutionService } from './services/contactsMadeResolution.service'
+import { CivicPanelHistoryService } from './services/civicPanelHistory.service'
 import { ContactStatusService } from './services/contactStatus.service'
 import { SupportStatusService } from './services/supportStatus.service'
 
@@ -18,6 +19,7 @@ import { SupportStatusService } from './services/supportStatus.service'
     ActivityConditionResolutionService,
     ContactStatusService,
     ContactsMadeResolutionService,
+    CivicPanelHistoryService,
   ],
   exports: [
     ContactInteractionDoorKnockService,
@@ -28,6 +30,7 @@ import { SupportStatusService } from './services/supportStatus.service'
     ActivityConditionResolutionService,
     ContactStatusService,
     ContactsMadeResolutionService,
+    CivicPanelHistoryService,
   ],
 })
 export class ContactInteractionModule {}

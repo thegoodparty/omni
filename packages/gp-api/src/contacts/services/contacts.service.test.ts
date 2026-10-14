@@ -203,6 +203,7 @@ describe('ContactsService', () => {
         mockStatsService as never,
         { resolve: vi.fn().mockResolvedValue('voters') } as never,
         mockContactsMadeResolutionService as never,
+        { latestEvent: vi.fn().mockResolvedValue(null) } as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
