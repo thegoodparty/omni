@@ -237,7 +237,7 @@ describe('PaymentStep', () => {
     const VERIFICATION_LINE =
       'Verification starts when you pay. Texting usually opens 1 to 2 weeks later.'
     const CLOSING_LINE =
-      'Finish your upgrade by Oct 15 to text before your election.'
+      'Finish your upgrade by Oct. 15 to text before your election.'
 
     const launchFrom = (channel: 'sms' | 'robocall' | null) =>
       mockUseProUpgradeWizard.mockReturnValue({
