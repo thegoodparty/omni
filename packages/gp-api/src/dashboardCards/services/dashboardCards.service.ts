@@ -53,12 +53,15 @@ type PriorityForCard = Pick<
 >
 
 // What the Priorities page shows for the priority: its "Next" line, or with
-// none, the step badge, so the card and the page never disagree.
+// none, the step badge, so the card and the page never disagree. "Plan ready"
+// is only for a null step (every step settled). A step id this build does not
+// know gets no badge on the page, so the card reads it as not started.
 const priorityStepLabel = (priority: PriorityForCard): string => {
   const currentStep = currentStepOf(priority)
   if (!currentStep) return 'Plan ready'
-  const step = PRIORITY_STEP_IDS.find((id) => id === currentStep)
-  return step ? PRIORITY_STEP_LABELS[step] : 'Plan ready'
+  const step =
+    PRIORITY_STEP_IDS.find((id) => id === currentStep) ?? PRIORITY_STEP_IDS[0]
+  return PRIORITY_STEP_LABELS[step]
 }
 
 const priorityNextStepCardContent = (priority: PriorityForCard) => ({

@@ -322,6 +322,22 @@ describe('GET /v1/dashboard/cards: a card per priority', () => {
     expect(planned?.summary).toBe('Plan ready')
   })
 
+  it('never reads an unknown step as Plan ready', async () => {
+    const eo = await builtOffice('eo-civic-card-unknown-step')
+    const housing = await seedPriority(eo.id, 'Affordable housing')
+    await service.prisma.priority.update({
+      where: { id: housing.id },
+      data: {
+        status: { version: 1, steps: [] },
+        currentStep: 'a_step_from_a_newer_build',
+        nextAction: null,
+      },
+    })
+
+    const [card] = await listCards('eo-civic-card-unknown-step')
+    expect(card?.summary).toBe('The problem')
+  })
+
   it('keeps an open card from lapsing into missed while its priority is open', async () => {
     const eo = await builtOffice('eo-civic-card-lapsed')
     await seedPriority(eo.id, 'Affordable housing')

@@ -634,7 +634,8 @@ text is its only way to done: the webapp offers it no Mark done, and
 Alongside it, whatever its state, the sync makes a `civic_panel` next-step
 card per open priority, which opens the priority. Its summary is what the
 Priorities page shows: `nextAction`, or with none, the current step's
-`PRIORITY_STEP_LABELS` label (`currentStepOf`), or "Plan ready". It has no
+`PRIORITY_STEP_LABELS` label (`currentStepOf`), or "Plan ready" for a null
+step only (an unknown step id reads as the first step). It has no
 Mark done (`complete` ignores every `civic_panel` card, and a priority card
 done before that reopens on the next read); it takes `dismiss`, `snooze` and
 `restore`. While open its due date rolls forward, and it is deleted, skipped
