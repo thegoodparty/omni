@@ -1292,21 +1292,6 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
-    slug: 'loki-query-budget-critical',
-    name: 'Loki query budget nearly spent',
-    type: 'usage',
-    expr: LOKI_QUERY_BUDGET_RATIO,
-    threshold: 0.8,
-    for: '120m',
-    timeRangeSeconds: 21600,
-    message: [
-      'Loki log queries are running at more than **80%** of the included allowance (100x ingest), averaged over the last 6 hours. Past 100% Grafana Cloud bills the overage and, sustained, starts answering queries with HTTP 429 — at which point every log-backed alert rule fails to evaluate and fires.',
-      LOKI_ATTRIBUTION_PROSE,
-      '**Reducing log ingest does not fix this.** Ingest is the denominator of the allowance, so writing fewer logs lowers the budget by the same proportion it lowers nothing else. The fix is always a narrower stream selector, a shorter window, or a slower evaluation interval on whatever is doing the reading.',
-    ].join('\n\n'),
-    notify: BOTH,
-  },
-  {
     slug: 'loki-stream-count-approaching-cap',
     name: 'Loki active stream count approaching the cap',
     type: 'usage',
@@ -1356,7 +1341,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'More than **20%** of Grafana alert rule evaluations are failing. **Alerting is blind.** Treat every alert currently firing as unverified and every alert currently silent as unchecked — this says nothing about whether any particular route, job or service is healthy.',
       'Rules that cannot evaluate are configured to fire (`exec_err_state: Alerting`), so a burst of identical-looking pages naming different routes is the symptom of this, not of those routes breaking. Read this rule first and the others second.',
-      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check `loki-query-budget-critical`, then Grafana Alerting → the rule list for the actual evaluation error.',
+      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check `loki-query-budget-half`, then Grafana Alerting → the rule list for the actual evaluation error.',
     ].join('\n\n'),
     notify: BOTH,
   },

@@ -866,9 +866,8 @@ describe('loki query budget', () => {
     alert.slug.startsWith('loki-query-budget-'),
   )
 
-  it('registers both tiers', () => {
+  it('registers the half-spent tier only', () => {
     expect(alerts.map((alert) => alert.slug).sort()).toEqual([
-      'loki-query-budget-critical',
       'loki-query-budget-half',
     ])
   })
