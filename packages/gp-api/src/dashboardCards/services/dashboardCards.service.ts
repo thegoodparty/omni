@@ -18,8 +18,6 @@ import {
   civicPanelBuildCardSourceId,
   DASHBOARD_CARD_SNOOZE_DAYS,
   DashboardCardBucket,
-  PANEL_SEED_SAMPLE_SIZE,
-  PRICE_PER_TEXT,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
 } from '@goodparty_org/contracts'
@@ -87,17 +85,17 @@ const reportBackCardContent = (
   priorityId: string,
   priorityTitle: string,
 ) => ({
-  title: `Report back on ${priorityTitle}`,
-  summary: "Tell the people you texted what you heard and what you'll do next.",
+  title: `Show people their voice counted on ${priorityTitle}`,
+  summary: 'People keep answering when they see what came of it.',
   ctaLabel: 'Report back',
   ctaHref: reportBackCardHref(priorityId, outreachId),
 })
 
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
-  title: 'Build your civic panel',
-  // A paid send, so the card says so and roughly what it costs before the
-  // official starts; the pay step quotes the exact total.
-  summary: `A paid text to up to ${PANEL_SEED_SAMPLE_SIZE.toLocaleString('en-US')} residents, about $${Math.round(PANEL_SEED_SAMPLE_SIZE * PRICE_PER_TEXT)}, so you hear from more than the loudest voices.`,
+  title: 'Hear from more than the loudest voices',
+  summary:
+    'Decisions land better when you know what the whole community ' +
+    'thinks, not just who shows up.',
   ctaLabel: 'Get started',
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }

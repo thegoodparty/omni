@@ -214,9 +214,9 @@ describe('<TaskStack>', () => {
   const buildCard = card({
     id: 'build',
     type: 'civic_panel',
-    title: 'Build your civic panel',
+    title: 'Hear from more than the loudest voices',
     summary:
-      'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
+      'Decisions land better when you know what the whole community thinks, not just who shows up.',
     ctaLabel: 'Get started',
     ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
     dueDate: '2026-10-21T18:00:00.000Z',
@@ -231,14 +231,20 @@ describe('<TaskStack>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows no due date on the build card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(screen.queryByText(/October 21/)).toBeNull()
+  })
+
   it('leads with the civic panel build card, ahead of get-started cards', () => {
     onboardingRef.current = [{ key: 'meet', status: 'active' }]
     withCards([card({}), buildCard])
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
       screen.getByRole('heading', {
-        level: 2,
-        name: 'Build your civic panel',
+        level: 3,
+        name: 'Hear from more than the loudest voices',
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(ONBOARDING_CARDS.meet.title)).toBeNull()
@@ -268,8 +274,8 @@ describe('<TaskStack>', () => {
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
       screen.getByRole('heading', {
-        level: 2,
-        name: 'Build your civic panel',
+        level: 3,
+        name: 'Hear from more than the loudest voices',
       }),
     ).toBeInTheDocument()
     expect(
@@ -352,9 +358,8 @@ describe('<TaskStack>', () => {
     const reportBack = card({
       id: 'rb',
       type: 'report_back',
-      title: 'Report back on Downtown parking',
-      summary:
-        "Tell the people you texted what you heard and what you'll do next.",
+      title: 'Show people their voice counted on Downtown parking',
+      summary: 'People keep answering when they see what came of it.',
       ctaLabel: 'Report back',
       ctaHref: '/dashboard/priorities/p1?reportBack=77',
       sourceExternalId: '77',
@@ -366,7 +371,7 @@ describe('<TaskStack>', () => {
       render(<TaskStack onOpenCard={vi.fn()} />)
       expect(
         screen.getByRole('heading', {
-          name: 'Report back on Downtown parking',
+          name: 'Show people their voice counted on Downtown parking',
         }),
       ).toBeInTheDocument()
       expect(screen.getByRole('link', { name: 'Report back' })).toHaveAttribute(
