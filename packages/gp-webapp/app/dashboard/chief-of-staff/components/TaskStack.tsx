@@ -25,6 +25,7 @@ import {
 } from '@styleguide'
 import {
   useCompleteCard,
+  useCompleteOnboardingCard,
   useDashboardCards,
   useDismissCard,
   useOnboardingCards,
@@ -58,8 +59,8 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
-  // The civic panel build card: it leads the deck, and closes itself
-  // once its text has gone out.
+  // The civic panel build card: it follows the meet card, and closes
+  // itself once its text has gone out.
   buildsPanel: boolean
 }
 
@@ -73,7 +74,7 @@ const HEADLINES: Record<DeckKind, string> = {
 }
 
 // The build card shares its type with the per-priority panel cards, and
-// leads the deck ahead of the get-started cards.
+// sits between the two get-started cards.
 const BUILD_PANEL_HEADLINE = 'Start here'
 
 const isExternalHref = (href: string): boolean =>
@@ -123,6 +124,7 @@ const TaskStack = ({
   const completeCard = useCompleteCard()
   const snoozeCard = useSnoozeCard()
   const skipOnboarding = useSkipOnboardingCard()
+  const completeOnboarding = useCompleteOnboardingCard()
   // The card just finished or skipped. It has already left the query data, so
   // it is held here and stays in front until it has finished leaving.
   const [leaving, setLeaving] = useState<{
@@ -159,21 +161,25 @@ const TaskStack = ({
     onboardingKey: null,
     buildsPanel: isCivicPanelBuildCard(card),
   }))
+  const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
+    onboarding?.some((c) => c.key === key && c.status === 'active'),
+  ).map((key) => ({
+    id: `onboarding:${key}`,
+    kind: 'onboarding' as const,
+    title: ONBOARDING_CARDS[key].title,
+    summary: ONBOARDING_CARDS[key].summary,
+    dueDate: null,
+    ctaLabel: ONBOARDING_CARDS[key].ctaLabel,
+    ctaHref: null,
+    onboardingKey: key,
+    buildsPanel: false,
+  }))
+  // A new official meets their Chief of Staff before anything else, then
+  // builds the panel, then sets priorities.
   const deck: DeckCard[] = [
+    ...onboardingCards.filter((card) => card.onboardingKey === 'meet'),
     ...dashboardCards.filter((card) => card.buildsPanel),
-    ...ONBOARDING_CARD_ORDER.filter((key) =>
-      onboarding?.some((c) => c.key === key && c.status === 'active'),
-    ).map((key) => ({
-      id: `onboarding:${key}`,
-      kind: 'onboarding' as const,
-      title: ONBOARDING_CARDS[key].title,
-      summary: ONBOARDING_CARDS[key].summary,
-      dueDate: null,
-      ctaLabel: ONBOARDING_CARDS[key].ctaLabel,
-      ctaHref: null,
-      onboardingKey: key,
-      buildsPanel: false,
-    })),
+    ...onboardingCards.filter((card) => card.onboardingKey !== 'meet'),
     ...dashboardCards.filter((card) => !card.buildsPanel),
   ]
   const stack = leaving
@@ -321,7 +327,11 @@ const TaskStack = ({
                   className={PRIMARY_ON_PHONE}
                   onClick={() => {
                     start()
-                    if (front.onboardingKey) onOpenCard(front.onboardingKey)
+                    if (!front.onboardingKey) return
+                    if (front.onboardingKey === 'meet') {
+                      completeOnboarding.mutate('meet')
+                    }
+                    onOpenCard(front.onboardingKey)
                   }}
                 >
                   {front.ctaLabel}

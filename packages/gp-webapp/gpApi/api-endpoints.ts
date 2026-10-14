@@ -1079,6 +1079,11 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'PUT /v1/dashboard/onboarding-cards/:key/complete': {
+    Request: {}
+    Response: void
+  }
+
   'POST /v1/chats': {
     Request: { scope: ChatScope; anchor?: ChatAnchor }
     Response: { conversationId: string; created: boolean }
