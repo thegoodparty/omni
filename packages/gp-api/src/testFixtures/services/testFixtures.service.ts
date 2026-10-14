@@ -1,4 +1,5 @@
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { isTestUser, newFixtureUserEmail } from '@/users/util/users.util'
@@ -28,6 +29,7 @@ import {
   MintTestFixtureSessionInput,
 } from '../schemas/testFixtures.schema'
 
+import { ActivitySeedService } from './activitySeed.service'
 import {
   DEFAULT_RACE,
   StateTransitionsService,
@@ -45,6 +47,8 @@ export class TestFixturesService {
     private readonly campaigns: CampaignsService,
     private readonly transitions: StateTransitionsService,
     private readonly organizations: OrganizationsService,
+    private readonly activitySeed: ActivitySeedService,
+    private readonly elections: ElectionsService,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
   ) {}
@@ -62,7 +66,9 @@ export class TestFixturesService {
     if (input.state === 'serve') {
       const office = await this.transitions.createElectedOffice(
         user,
-        input.serve,
+        input.activity && !input.serve?.positionId
+          ? { ...input.serve, positionId: await this.seedablePositionId(input) }
+          : input.serve,
       )
       electedOfficeId = office.id
       orgSlug = OrganizationsService.electedOfficeOrgSlug(office.id)
@@ -84,6 +90,10 @@ export class TestFixturesService {
       }
     }
 
+    if (input.activity) {
+      await this.activitySeed.seed(orgSlug, {})
+    }
+
     const session = await this.mintSession(clerkUserId)
 
     return {
@@ -101,6 +111,23 @@ export class TestFixturesService {
       cookies: this.buildCookies(user, session.jwt, orgSlug),
       expiresAt: session.expiresAt,
     }
+  }
+
+  // Seeding samples voters from the org's district, and the default custom
+  // position has none, so a seeded office sits on the default race's seat.
+  private async seedablePositionId(
+    input: CreateTestFixtureUserInput,
+  ): Promise<string> {
+    const race = await this.transitions.findRace(input.race)
+    const position = await this.elections.getPositionByBallotReadyId(
+      race.brPositionId,
+    )
+    if (!position) {
+      throw new BadGatewayException(
+        `No election-api position for race ${race.id}`,
+      )
+    }
+    return position.id
   }
 
   async deleteFixtureUsers(

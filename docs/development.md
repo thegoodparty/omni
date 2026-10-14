@@ -55,6 +55,23 @@ absent, that step just prints a skip note and the run still exits 0. Secret
 mechanics (what `LOCAL_DEV_ENV` is, what it's allowed to vend, and the
 two-place rotation rule) are in `docs/secrets.md`.
 
+That login starts empty. To test the CRM, the effort reports or feedback
+synthesis against a lived-in account, seed one with the stack running:
+
+```bash
+npm run seed:activity -- --fixture serve       # or pro-win / serve-won-race
+npm run seed:activity -- --org <organization-slug>
+```
+
+`--fixture` mints a fresh fixture user that already has activity and prints
+its login. `--org` fills an org already in your local database, such as one
+you onboarded by hand. Either way the org gets a door-knocking turf, a phone
+list, a text send and a robocall against real voters from its district, a
+few hundred memos on the answered doors and calls, and a synthesis run per
+effort. It takes a minute or two, needs working voter data, and uses the same
+`LOCAL_SETUP_CLERK_MACHINE_SECRET` as the login step. Details are in
+`packages/gp-api/src/testFixtures/AGENTS.md`.
+
 If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
 that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
 `git submodule update --init --recursive ai-rules`), then copy each app's
