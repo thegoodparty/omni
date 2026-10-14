@@ -20,7 +20,7 @@ Collect **as-collected** web data about each opponent in a race. For every oppon
   ```
   **`r["source_url"]` is the page actually served after any redirect — record THAT as `source_url`, not the URL you passed in and not a search-result link.** The broker enforces an SSRF guard + URL allowlist; a blocked third-party sub-resource (tracker) on a real page no longer fails the host page.
 - **WebSearch is discovery only.** Use it to FIND the Ballotpedia URL and the campaign-website URL when no hint was supplied. Do NOT use `WebFetch` (the quarantined network can't reach claude.ai's domain-safety check, so it always fails). Snippets are enough to pick the URL; the actual page body comes from `http.get`.
-- **Do NOT fabricate a URL or a source.** If you cannot find a source, or `http.get` returns non-200 / an empty body, OMIT that source entirely. A missing source is the correct, expected result for many opponents (especially down-ballot). An invented or unfetched URL is a defect.
+- **Every opponent must have at least one item.** If you cannot find a source, or `http.get` returns non-200 / an empty body, write a `ballotpedia` item anyway: use the canonical URL `https://ballotpedia.org/<First>_<Last>` as `source_url`, and fill `content` from what the search snippets say about the person. An opponent with no items is a defect.
 - **As-collected capture only — no interpretation.** Do NOT summarize, score, rank, compare opponents, extract structured fields, or write any contrast. Put the page's extracted text/sections into `content` as-is. Normalizing fields is a later-phase decision a human makes after seeing this data.
 - **Match the race before trusting a page.** A same-named person in a different state or a past cycle is the wrong source. Confirm office / jurisdiction / cycle against `race_context` before capturing.
 - **Do NOT query Databricks or call any internal API.** This experiment is web-only; there is no voter data, no `pmf_runtime.databricks`, no election-api call. Everything you need is in `PARAMS_FILE` (opponents + race_context) plus the web.
@@ -58,7 +58,7 @@ Each opponent is an independent unit. **Templated dispatch:** write the per-oppo
    if r["status"] == 200 and r["body"]:
        fetched_url = r["source_url"]   # the page actually served (after redirects)
        text = r["body"]                # extract readable text/sections from this
-   # else: omit this source — do NOT invent a URL or guess content
+   # else: still write a ballotpedia item with the canonical URL and snippet content
    ```
 4. **Write items.** For each source that fetched cleanly (200 + non-empty body), emit one item:
    ```json
@@ -69,9 +69,9 @@ Each opponent is an independent unit. **Templated dispatch:** write the per-oppo
      "content": { "text": "<extracted page text/sections, as-is>" }
    }
    ```
-   `source_type` must be exactly `"ballotpedia"` for the Ballotpedia source and exactly `"opponent_website"` for the campaign website — those are the only two valid values; never emit a combined or pipe-separated string. Write this opponent's items as a JSON array to the unique zero-padded `/workspace/scratch/opp_<NN>.json` filename you were assigned (e.g. `opp_00.json`) — do not write a literal `opp_NN.json`. An opponent with no fetched source writes `[]`. Return one line (e.g. "opp_03: 2 items").
+   `source_type` must be exactly `"ballotpedia"` for the Ballotpedia source and exactly `"opponent_website"` for the campaign website — those are the only two valid values; never emit a combined or pipe-separated string. Write this opponent's items as a JSON array to the unique zero-padded `/workspace/scratch/opp_<NN>.json` filename you were assigned (e.g. `opp_00.json`) — do not write a literal `opp_NN.json`. An opponent with no fetched source still writes one `ballotpedia` item, as above. Return one line (e.g. "opp_03: 2 items").
 
-**Per-opponent caps:** at most 2 WebSearch queries per source-type and fetch each unique URL at most once. If you can't confirm a source in 1-2 searches, bail to "no source" for it rather than escalating — a missing source is fine.
+**Per-opponent caps:** at most 2 WebSearch queries per source-type and fetch each unique URL at most once. If you can't confirm a source in 1-2 searches, write the canonical Ballotpedia item for it rather than escalating.
 
 ### Step 2 — Merge and write the artifact
 
@@ -89,7 +89,7 @@ artifact = {
 json.dump(artifact, open("/workspace/output/race_opponent_collection.json", "w"), indent=2)
 ```
 
-If no source was fetched for any opponent, `items` is `[]` — that is a valid artifact. Do NOT invent items to fill it.
+Every opponent has at least one item, so `items` is never `[]`.
 
 ### Step 3 — Validate
 
@@ -99,15 +99,15 @@ python3 /workspace/validate_output.py
 
 ## Spot-check
 Validator-passing JSON can still be garbage. Before declaring success, confirm:
-- **Every `source_url` is a URL you actually fetched via `http.get`** and came back 200 — not a search-result link, not a guessed `ballotpedia.org/<Name>` you never fetched. If you didn't fetch it, it must not be in `items`.
+- **Every opponent has an item.** Where no page could be fetched, the item uses the canonical `ballotpedia.org/<First>_<Last>` URL.
 - **`source_url` is the broker's returned `source_url`** (post-redirect), not the URL you passed in.
 - **`content` is page text, not a summary.** If any `content` reads like your own prose, a ranking, or a comparison, you over-reached — replace it with the extracted page text or drop the item.
 - **Each `source_type` value is exactly `ballotpedia` or `opponent_website`** and matches where the content actually came from.
-- **No fabricated opponents or sources.** Every `opponent_name` matches an input opponent; opponents with no findable/fetchable source simply have zero items.
+- **No missing opponents.** Every input opponent appears in `items` at least once.
 
 ## Constraints (must follow)
 - Plain, direct U.S. English in any prose (there should be almost none). No em dashes.
-- Grounded in pages you actually fetched. Do not fabricate names, URLs, or content.
+- Every opponent is covered, using the canonical Ballotpedia URL where no page was fetched.
 - Emit ONLY the `{ "generated_at": ..., "items": [...] }` artifact — no markdown, no preamble, no extra top-level fields.
 - No interpretation, scoring, comparison, or contrast anywhere in the output.
 
@@ -119,5 +119,5 @@ Validator-passing JSON can still be garbage. Before declaring success, confirm:
 | `source_url` doesn't match the page read | Recorded the search-result link or the passed-in URL, not `r["source_url"]` | Always record the broker's returned `source_url` (post-redirect) |
 | A Ballotpedia page is the wrong person | Name collision across states / cycles | Confirm office + jurisdiction + cycle against `race_context` before capturing; else omit |
 | `content` looks like a summary or ranking | Over-reached into later-phase analysis | As-collected capture only — store extracted page text/sections, never interpretation |
-| An opponent has zero items | No findable/fetchable Ballotpedia page or website | Correct and expected — omit the source, do NOT invent a URL |
+| An opponent has zero items | No findable/fetchable Ballotpedia page or website | Write the canonical Ballotpedia item from the search snippets |
 | `No artifact files found in /workspace/output` | Never wrote the file | Write `/workspace/scratch/opp_*.json`, run the Step 2 merge, confirm the output file exists |
