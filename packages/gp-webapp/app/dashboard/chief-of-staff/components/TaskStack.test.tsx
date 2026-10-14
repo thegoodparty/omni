@@ -147,6 +147,32 @@ describe('<TaskStack>', () => {
     expect(dismissMock).not.toHaveBeenCalled()
   })
 
+  it('asks the chief of staff about the front card', async () => {
+    const user = userEvent.setup()
+    const onDiscussCard = vi.fn()
+    withCards([card({})])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+    await user.click(screen.getByRole('button', { name: 'Ask about this' }))
+    expect(onDiscussCard).toHaveBeenCalledWith(
+      expect.stringContaining('"Prep for the zoning vote"'),
+    )
+    expect(onDiscussCard.mock.calls[0]?.[0]).toContain(
+      'Three items worth reading first.',
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      { cardId: 'c1', cardType: 'briefing', stackSize: 1, action: 'ask' },
+    )
+  })
+
+  it('offers no Ask about this on a get-started card', () => {
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('links the primary action to the card destination', () => {
     withCards([card({})])
     render(<TaskStack onOpenCard={vi.fn()} />)
@@ -195,6 +221,14 @@ describe('<TaskStack>', () => {
     ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
     dueDate: '2026-10-21T18:00:00.000Z',
     sourceExternalId: 'build:eo-1',
+  })
+
+  it('offers no Ask about this on a civic panel card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
   })
 
   it("leads with the citizens' panel build card, ahead of get-started cards", () => {
