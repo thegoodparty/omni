@@ -202,6 +202,19 @@ describe('smsComplianceWindow', () => {
     })
   })
 
+  it('is not_applicable for an internal-testing approval inside the window', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: {
+          kickoffSentAt: null,
+          internalTestingAt: new Date('2026-10-18T12:00:00.000Z'),
+        },
+        now: at('2026-10-20'),
+      }).smsCompliance,
+    ).toBe('not_applicable')
+  })
+
   it('ignores a compliance record without a kickoff', () => {
     expect(
       smsComplianceWindow({

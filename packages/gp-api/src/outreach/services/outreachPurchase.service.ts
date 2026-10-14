@@ -81,7 +81,11 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     }
     const campaign = await this.campaignsService.findUnique({
       where: { id: campaignId },
-      include: { tcrCompliance: { select: { kickoffSentAt: true } } },
+      include: {
+        tcrCompliance: {
+          select: { kickoffSentAt: true, internalTestingAt: true },
+        },
+      },
     })
     const { smsCompliance } = smsComplianceWindow({
       electionDate: campaign?.details?.electionDate,

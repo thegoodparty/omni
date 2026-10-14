@@ -40,13 +40,17 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // A candidate "made the cutoff" only once they filed AND paid, which is when
 // kickoffSentAt is stamped. A compliance record saved without payment does not
 // count, so that candidate gets the date-based window like anyone else.
+// Internal-testing approvals never kick off, so they count as made.
 export const smsComplianceWindow = ({
   electionDate,
   tcrCompliance,
   now,
 }: {
   electionDate: string | null | undefined
-  tcrCompliance: { kickoffSentAt: Date | null } | null
+  tcrCompliance: {
+    kickoffSentAt: Date | null
+    internalTestingAt?: Date | null
+  } | null
   now: Date
 }): {
   smsCompliance: SmsComplianceWindow
@@ -62,7 +66,7 @@ export const smsComplianceWindow = ({
       ) ?? null)
     : null
 
-  if (tcrCompliance?.kickoffSentAt) {
+  if (tcrCompliance?.kickoffSentAt || tcrCompliance?.internalTestingAt) {
     return {
       smsCompliance: 'not_applicable',
       smsCutoffDate,

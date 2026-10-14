@@ -2093,7 +2093,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }: {
     userId: number
     campaign: Campaign
-    tcrCompliance: Pick<TcrCompliance, 'kickoffSentAt'> | null
+    tcrCompliance: Pick<
+      TcrCompliance,
+      'kickoffSentAt' | 'internalTestingAt'
+    > | null
     path: 'agentic' | 'legacy' | 'kickoff'
   }): Promise<boolean> {
     const now = new Date()
