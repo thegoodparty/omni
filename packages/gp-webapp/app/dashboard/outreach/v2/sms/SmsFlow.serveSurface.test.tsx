@@ -644,9 +644,7 @@ describe('SmsFlow (Serve surface)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByText('Add a header image (optional)'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Add your header image')).toBeInTheDocument()
     expect(screen.queryByText(/campaign headshot/i)).not.toBeInTheDocument()
   })
 
@@ -683,10 +681,9 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
   })
 
-  // Win's image gate is Peerly's: it rejects an imageless text/p2p send.
-  // Serve's fulfilment takes imageUrl as optional all the way down, so the
-  // gate would be asking for a file nothing needs.
-  it('lets a message with no image continue to review', async () => {
+  // The image makes the text an MMS, which is what lets it run past one
+  // SMS segment, so Serve holds Continue until one is attached, as Win does.
+  it('holds Continue until an image is attached', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
       data: { draft: 'drafted body' },
@@ -706,13 +703,19 @@ describe('SmsFlow (Serve surface)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // The compose card renders as soon as the draft fills the body, which
-    // can be a tick before draftMutation.isPending clears — and Continue is
-    // disabled for that tick.
-    await waitFor(() => {
-      screen.getByText('Add a header image (optional)')
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
-    })
+    await screen.findByText(/drafted body/)
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement
+    await userEvent.upload(
+      input,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
   })
 })
 
