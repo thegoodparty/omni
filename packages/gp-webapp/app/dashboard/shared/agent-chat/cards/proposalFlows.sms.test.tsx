@@ -153,9 +153,9 @@ describe('a text card, through the drawer', () => {
     vi.useRealTimers()
   })
 
-  // The card settled who gets it, so the flow opens on the message, with one
-  // line about who, and never on the list builder.
-  it('opens on the message with exactly one introduction and who gets it', async () => {
+  // The card settled the purpose and who gets it, so the standard flow opens
+  // on the message with both steps done behind it, never on the builder.
+  it('opens on the message with exactly one introduction, every step counted', async () => {
     render(
       <ProposalFlowsProvider>
         <Opener />
@@ -180,50 +180,41 @@ describe('a text card, through the drawer', () => {
       "We're working on expanding composting options.",
     )
     expect(message().match(/\b(?:hello|hi|hey)\b/gi)).toHaveLength(1)
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 3 of 5',
+    )
+    expect(screen.queryByTestId('proposal-audience-summary')).toBeNull()
+    expect(screen.queryByText('Change who gets this')).toBeNull()
+  })
+
+  it("goes back to the card's list, picked, then to the purpose", async () => {
+    render(
+      <ProposalFlowsProvider>
+        <Opener />
+      </ProposalFlowsProvider>,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start the text' }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
     expect(
-      screen.getByText('Northside residents: 1,200 constituents'),
+      await screen.findByText(/Message 1,200 constituents/),
     ).toBeInTheDocument()
-    expect(screen.queryByText('Who do you want to reach?')).toBeNull()
-  })
-
-  it('changes who gets it on the list picker, then comes back to the message', async () => {
-    render(
-      <ProposalFlowsProvider>
-        <Opener />
-      </ProposalFlowsProvider>,
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start the text' }),
-    )
-    await screen.findByRole('textbox', { name: 'Message body' })
-
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Change who gets this' }),
-    )
-    await screen.findAllByText('Who do you want to reach?')
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await screen.findByRole('textbox', { name: 'Message body' })
-  })
-
-  it('leaves through the discard confirm on Back from the message', async () => {
-    render(
-      <ProposalFlowsProvider>
-        <Opener />
-      </ProposalFlowsProvider>,
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start the text' }),
-    )
-    await screen.findByRole('textbox', { name: 'Message body' })
+    expect(screen.queryByText('Choose a constituent list')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('button', { name: 'Explain a recent decision' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Discard' }),
+      screen.getByRole('button', { name: 'Explain a recent decision' }),
     )
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('textbox', { name: 'Message body' }),
-      ).toBeNull(),
-    )
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
   })
 })

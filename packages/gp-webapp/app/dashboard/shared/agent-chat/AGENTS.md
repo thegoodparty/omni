@@ -186,21 +186,20 @@ there is the agent's to say, once, in its message; no card repeats it.
   `ensureSmsIdentification`, which persisted cards from before the server
   guard need, since they still carry "Hi, this is [Your Name]..."), phone
   banking's name, and the audience. A card from before `audienceFilters` points at a saved list; a
-  current one carries the filter the agent counted with. On Serve, text and
-  phone banking open ready to send: the provider saves the card's audience
-  as a list at the click (`saveProposalList`: the proposal's sample, panel
-  part or report back draw, named from `listName`), once per card key (kept
-  in the provider and in localStorage under `proposal-list:<key>`, checked
-  against the org's lists before reuse), and opens the flow on the message
-  or script with `preselectedListId` and `audienceSummary`
-  (`proposalAudienceSummary`: the agent's audience line, the count, and how
-  the sample was drawn). The flow shows only message, date or sheets, and
-  pay; "Change who gets this" (`ProposalAudienceSummary`) is a detour to the
-  list picker that returns to the message, and Back on the message leaves
-  through the discard confirm. The civic panel invite always saves its
-  district draw, never a `savedFilterId`. Win still opens the builder filled
-  in (`proposedAudience`) and saves the list when the candidate confirms and
-  names it, because Win text derives its Peerly phone list at that step.
+  current one carries the filter the agent counted with. On Win and Serve,
+  text and phone banking open the standard flow on the message or script:
+  the provider saves the card's audience as a list at the click
+  (`saveProposalList`: the proposal's sample, panel part or report back
+  draw, named from `listName`), once per card key (kept in the provider and
+  in localStorage under `proposal-list:<key>`, checked against the org's
+  lists before reuse), and opens the flow with `preselectedListId` (and
+  `openOnMessage` on `SmsFlow`). Every step is in the stepper with the
+  purpose and the list done; Back goes to the list, picked, then the
+  purpose, and Continue goes on to the date or sheets and payment
+  (`outreach/AGENTS.md`). The civic panel invite always saves its district
+  draw, never a `savedFilterId`. Win's text gate still runs before the flow
+  opens, and Win text derives its Peerly phone list for the saved list as
+  the flow opens.
   Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
   card saves the list at the click, the latest point it can, and goes there,

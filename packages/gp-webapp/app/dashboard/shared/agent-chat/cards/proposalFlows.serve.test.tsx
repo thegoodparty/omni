@@ -102,8 +102,8 @@ beforeEach(() => {
 
 describe("a priority's text card to the panel and new residents", () => {
   // The card settled who gets it, so the list is saved before the flow
-  // opens, and the flow opens on the message with one line saying who.
-  it('saves one list holding both draws and opens ready to send, the join ask on', async () => {
+  // opens, and the flow opens on the message with that list picked.
+  it('saves one list holding both draws and opens on the message, the join ask on', async () => {
     await openCard(panelAndFresh)
 
     expect(saved).toHaveLength(1)
@@ -116,9 +116,8 @@ describe("a priority's text card to the panel and new residents", () => {
     expect(props?.surface).toEqual({ isServe: true })
     expect(props?.preselectedListId).toBe(501)
     expect(props).not.toHaveProperty('proposedAudience')
-    expect(props?.audienceSummary).toBe(
-      'Your civic panel and residents across the district: 42 from your civic panel and 42 more picked at random',
-    )
+    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
     expect(props?.initialAsksToJoinCivicPanel).toBe(true)
     expect(props?.initialScript).toBe(MESSAGE)
   })
@@ -135,9 +134,8 @@ describe("a priority's text card to the panel and new residents", () => {
       sample: { size: 84, seedKey: PROPOSAL_KEY },
     })
     expect(saved[0]?.sample).not.toHaveProperty('panelSize')
-    expect(smsFlow.props?.audienceSummary).toBe(
-      'Your civic panel and residents across the district: a random group of 84 of 18,400 constituents',
-    )
+    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
   })
 })
 
@@ -171,9 +169,8 @@ describe("the Chief of Staff's civic panel invite", () => {
     expect(props?.initialPurpose).toBe('build_citizens_panel')
     expect(props?.initialAsksToJoinCivicPanel).toBe(true)
     expect(props?.initialScript).toBe(MESSAGE)
-    expect(props?.audienceSummary).toBe(
-      'Residents with a cell phone: a random group of 3,334 of 12,000 constituents',
-    )
+    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
   })
 
   // A saved list would text a different audience from the one counted and
@@ -221,9 +218,8 @@ describe('a report back card', () => {
     expect(props?.initialPurpose).toBe('report_back')
     expect(props?.reportBackForOutreachId).toBe(77)
     expect(props?.initialAsksToJoinCivicPanel).toBe(false)
-    expect(props?.audienceSummary).toBe(
-      'Everyone you texted about Flooding on Maple on October 5: 236 constituents',
-    )
+    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
     // Linked through the send it answers, never as another ask on the
     // priority.
     expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })

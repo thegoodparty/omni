@@ -549,9 +549,13 @@ describe('SmsFlow (Serve surface)', () => {
     expect(draftCalls).toHaveLength(0)
   })
 
-  // A chat card that saved its list opens on the message, then the date,
-  // and the steps it shows are the only ones counted.
-  it('opens a ready card on the message, then the date', async () => {
+  // A chat card that saved its list opens the standard flow on the message,
+  // with the purpose and the list already done behind it.
+  it("opens a card's flow on the message with every step in the stepper", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
     render(
       <SmsFlow
         source="deep_link"
@@ -560,54 +564,90 @@ describe('SmsFlow (Serve surface)', () => {
         onScheduled={vi.fn().mockResolvedValue(undefined)}
         surface={SERVE_SMS_SURFACE}
         preselectedListId={41}
-        audienceSummary="Northside residents: 1,200 constituents"
+        openOnMessage
+        initialPurpose="build_citizens_panel"
+        initialAsksToJoinCivicPanel
+        initialScript="this is Jane, your Council Member. I am starting a civic panel to hear from all of you."
+      />,
+    )
+
+    expect(
+      await screen.findByText(/I am starting a civic panel/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 3 of 5',
+    )
+    expect(screen.queryByTestId('proposal-audience-summary')).toBeNull()
+    expect(screen.queryByText('Change who gets this')).toBeNull()
+
+    // Back walks the standard flow: the card's list, picked, then its purpose.
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Message 1,200 constituents/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 2 of 5',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 1 of 5',
+    )
+  })
+
+  it("goes on from a card's message to the date, and back to the message", async () => {
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        openOnMessage
         initialScript="this is Jane, your Council Member. The library opens Saturday."
       />,
     )
 
     expect(
-      await screen.findByText('Northside residents: 1,200 constituents'),
-    ).toBeInTheDocument()
-    expect(
       await screen.findByText(/The library opens Saturday/),
     ).toBeInTheDocument()
-    expect(
-      screen.getAllByText('What do you want to say?').length,
-    ).toBeGreaterThan(0)
-    expect(screen.queryByText('What do you want to do?')).toBeNull()
-
-    // The header image is still asked for here, on the message.
-    expect(screen.getByText('Add your header image')).toBeInTheDocument()
-    const next = screen.getByRole('button', { name: 'Continue' })
-    expect(next).toBeDisabled()
     await userEvent.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
-    await waitFor(() => expect(next).toBeEnabled())
-    await userEvent.click(next)
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(
       (await screen.findAllByText('When do you want to send?')).length,
     ).toBeGreaterThan(0)
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 4 of 5',
+    )
     await userEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(
-      await screen.findByText('Northside residents: 1,200 constituents'),
+      await screen.findByRole('textbox', { name: 'Message body' }),
     ).toBeInTheDocument()
   })
 
-  // The reviewer's path: opened from the card, Back, Back. The purpose the
-  // card answered must never come back; Back leaves through the confirm.
-  it("leaves through the confirm on Back, never reopening the card's purpose", async () => {
+  // Reached without a card's list (the hub's panel link), Back from the list
+  // goes to the purpose picker like any flow.
+  it('goes back to the purpose picker from a purpose a link answered', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
     })
-    const onClose = vi.fn()
     render(
       <SmsFlow
         source="deep_link"
         open
-        onClose={onClose}
+        onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
         surface={SERVE_SMS_SURFACE}
         initialPurpose="build_citizens_panel"
@@ -616,17 +656,9 @@ describe('SmsFlow (Serve surface)', () => {
 
     await screen.findByText('Choose a constituent list')
     await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Keep editing' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Discard' }),
-    )
-
-    expect(onClose).toHaveBeenCalledOnce()
-    expect(screen.queryByText('Explain a recent decision')).toBeNull()
-    expect(screen.queryByText('What do you want to do?')).toBeNull()
+    expect(
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
   })
 
   // "Campaign" is Win vocabulary: an elected official has an office and a
@@ -691,8 +723,9 @@ describe('SmsFlow (Serve surface)', () => {
   })
 
   // The image makes the text an MMS, which is what lets it run past one
-  // SMS segment, so Serve holds Continue until one is attached, as Win does.
-  it('holds Continue until an image is attached', async () => {
+  // SMS segment, so Serve asks for one before going on, as Win does. Continue
+  // stays pressable and a press says what is missing, next to the image.
+  it('asks for the header image when Continue is pressed without one', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
       data: { draft: 'drafted body' },
@@ -713,17 +746,31 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText(/drafted body/)
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    const next = screen.getByRole('button', { name: 'Continue' })
+    expect(next).toBeEnabled()
+    expect(screen.queryByText('Add a header image to continue.')).toBeNull()
 
-    const input = document.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement
+    await userEvent.click(next)
+    expect(
+      await screen.findByText('Add a header image to continue.'),
+    ).toBeInTheDocument()
+    const dropzone = screen.getByRole('button', {
+      name: /Add your header image/,
+    })
+    expect(dropzone).toHaveFocus()
+    expect(dropzone).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('textbox', { name: 'Message body' })).toBeVisible()
+
     await userEvent.upload(
-      input,
+      document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      expect(screen.queryByText('Add a header image to continue.')).toBeNull(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
+      0,
     )
   })
 })

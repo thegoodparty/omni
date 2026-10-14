@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   outreachDetailHref,
   peopleCount,
-  proposalAudienceSummary,
   proposalListSample,
   proposalSampleLine,
 } from './proposalPresentation'
@@ -126,46 +125,6 @@ describe('outreachDetailHref', () => {
     )
     expect(outreachDetailHref(7, 'win')).toBe(
       '/dashboard/outreach?outreachId=7',
-    )
-  })
-})
-
-describe('proposalAudienceSummary', () => {
-  const base = { audience: 'Renters on Oak Street', count: 260 }
-
-  it('says everyone and how many for a whole audience', () => {
-    expect(proposalAudienceSummary(base)).toBe(
-      'Renters on Oak Street: 260 constituents',
-    )
-  })
-
-  it('says a random group for a sample', () => {
-    expect(proposalAudienceSummary({ ...base, sampleSize: 84 })).toBe(
-      'Renters on Oak Street: a random group of 84 of 260 constituents',
-    )
-  })
-
-  // A report back is everyone the send reached, never called random.
-  it('says how many a report back reaches', () => {
-    expect(
-      proposalAudienceSummary({
-        ...base,
-        sampleSize: 260,
-        reportBackForOutreachId: 7,
-      }),
-    ).toBe('Renters on Oak Street: 260 constituents')
-  })
-
-  it('says a panel and fresh draw that leaves out earlier sends', () => {
-    expect(
-      proposalAudienceSummary({
-        ...base,
-        sampleSize: 84,
-        panelSampleSize: 42,
-        widensOutreachIds: [3],
-      }),
-    ).toBe(
-      'Renters on Oak Street: 42 from your civic panel and 42 more not asked yet, picked at random',
     )
   })
 })
