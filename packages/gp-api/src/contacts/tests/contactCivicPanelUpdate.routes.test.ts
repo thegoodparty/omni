@@ -209,3 +209,76 @@ describe('PATCH /v1/contacts/:personId/civic-panel', () => {
     expect(result.status).toBe(400)
   })
 })
+
+// The line under the record's toggle: the latest join or leave and when the
+// office last reached the person, on the person payload for eo- orgs only.
+describe('GET /v1/contacts/:id — civicPanelActivity', () => {
+  const getDetail = (slug: string) =>
+    service.client.get(`/v1/contacts/${PERSON_ID}`, {
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+  it('is empty before anything has happened', async () => {
+    const slug = `eo-civic-panel-activity-empty-${Date.now()}`
+    await seedEoOrg(slug)
+    stubPeopleApi()
+
+    const detail = await getDetail(slug)
+    expect(detail.status).toBe(200)
+    expect(detail.data.civicPanelActivity).toEqual({
+      latestChange: null,
+      lastReachedAt: null,
+    })
+  })
+
+  it('carries the latest change and the last time they were reached', async () => {
+    const slug = `eo-civic-panel-activity-${Date.now()}`
+    await seedEoOrg(slug)
+    stubPeopleApi()
+    await service.client.patch(
+      `/v1/contacts/${PERSON_ID}/civic-panel`,
+      { value: 'member' },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+    await service.client.patch(
+      `/v1/contacts/${PERSON_ID}/civic-panel`,
+      { value: 'left' },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+    await service.prisma.contactInteractionText.create({
+      data: {
+        organizationSlug: slug,
+        personId: PERSON_ID,
+        occurredAt: new Date('2026-09-30T15:00:00Z'),
+      },
+    })
+    await service.prisma.contactInteractionPhoneBanking.create({
+      data: {
+        organizationSlug: slug,
+        personId: PERSON_ID,
+        occurredAt: new Date('2026-09-02T15:00:00Z'),
+        outcome: 'answered',
+      },
+    })
+
+    const detail = await getDetail(slug)
+    expect(detail.data.civicPanelActivity.latestChange).toEqual({
+      value: 'left',
+      source: 'manual',
+      at: expect.any(String),
+    })
+    expect(detail.data.civicPanelActivity.lastReachedAt).toBe(
+      '2026-09-30T15:00:00.000Z',
+    )
+  })
+
+  it('is omitted for a Win org', async () => {
+    const slug = `win-civic-panel-activity-${Date.now()}`
+    await seedWinOrg(slug)
+    stubPeopleApi()
+
+    const detail = await getDetail(slug)
+    expect(detail.status).toBe(200)
+    expect(detail.data.civicPanelActivity).toBeUndefined()
+  })
+})

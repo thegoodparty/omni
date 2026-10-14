@@ -619,6 +619,35 @@ who left drops out of a saved panel list on its next read. The catalog entry
 priority agent count and propose to the panel. It is not flag-filtered:
 with nobody on a panel it resolves to an empty audience.
 
+**The panel's history as filters.** The rest of the panel status group sits
+beside `civic_panel_member`, and the three OR together:
+`civic_panel_left` is a standing `left` row, and `civic_panel_never_invited`
+is everyone outside `CivicPanelHistoryService.invitedPersonIds` (any
+`civic_panel` status row, any recipient of a send with
+`asksToJoinCivicPanel` in `outreach_text_recipient` or
+`contact_interaction_text`, and anyone with a non-null `join_civic_panel`
+answer at a door or on a call). A status row only exists once an event wrote
+one, and `changeStatus` no-ops `left -> left`, so someone seeded `left` who
+never joined counts as never invited, never as left. Never invited resolves to
+a `notIn` (minus whichever of member/left is also picked). The joined group,
+`civic_panel_joined_by_{text,door,phone,hand}` (source `sms`, `door_knock`,
+`phone_banking`, `manual`, OR-ed) and `civic_panel_joined_from`/`_to`, reads
+the event that most recently set a person to `member`
+(`memberIdsByLatestJoin`, `DISTINCT ON` over `contact_status_event`) and
+matches current members only, so it never selects someone who left.
+`last_reached_from`/`_to` ("Last asked" in the webapp) is when the office last
+reached the person on any channel, `MAX(occurred_at)` over the four
+interaction tables (`ContactsMadeResolutionService.personIdsLastReachedBetween`),
+the same rule as `not_contacted_recently` and `reachedRecently`, so "not asked
+in 30 days" is that existing key. Days are inclusive `YYYY-MM-DD` text read in
+UTC. All resolve in `resolveCivicPanelMember` (status, then joined, then last
+reached, each AND-ed), every one is in `CIVIC_PANEL_FILTER_KEYS` for the Win
+400, and the catalog carries them as `civicPanel`, `civicPanelJoinedBy`, and
+two `date-range` dimensions (`civicPanelJoinedWhen`, `lastAsked`), all in
+`CITIZEN_PANEL_DIMENSION_KEYS`. `findPerson` adds `civicPanelActivity` for
+`eo-` orgs: the latest `civic_panel` event (`value`, `source`, `at`) and
+`lastReachedAt`, the line under the record's toggle.
+
 **Building the panel starts on the Chief of Staff home.** With the flag on,
 `GET /v1/dashboard/cards` runs `DashboardCardsService.syncCivicPanelCards`
 before it lists (with it off, it lists no `civic_panel` card at all). The
