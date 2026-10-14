@@ -250,56 +250,29 @@ export class DashboardCardsService extends createPrismaBase(
   }
 
   // The citizens' panel cards, created when the card list is read, so an
-  // office that onboarded long ago gets them on its next visit. First the
-  // office's one build card; once it is done, set aside or put off, a
-  // next-step card per open priority. Returns whether the build card is still
-  // the one to do, which keeps the priority cards off the active list.
+  // office that onboarded long ago gets them on its next visit: the office's
+  // one build card, and a next-step card per open priority alongside it.
   async syncCivicPanelCards(
     electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
-  ): Promise<{ buildCardActive: boolean }> {
-    return this.client.$transaction(async (tx) => {
+  ): Promise<void> {
+    await this.client.$transaction(async (tx) => {
       // The home page and the archive read the list at once, and the build
       // card's null sourceItemId leaves the unique key unable to stop a
       // second insert.
       const lockKey = `civic_panel_cards:${electedOffice.id}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      const buildCardActive = await this.syncCivicPanelBuildCard(
-        tx,
-        electedOffice,
-      )
-      if (!buildCardActive) {
-        await this.syncPriorityPanelCards(tx, electedOffice.id)
-      } else {
-        // Priority cards made while the build card was away wait hidden
-        // behind it, so their dates roll forward instead of lapsing into
-        // missed.
-        const now = new Date()
-        await tx.dashboardCard.updateMany({
-          where: {
-            electedOfficeId: electedOffice.id,
-            type: DashboardCardType.civic_panel,
-            sourceExternalId: {
-              not: civicPanelBuildCardSourceId(electedOffice.id),
-            },
-            dismissedAt: null,
-            completedAt: null,
-            dueDate: { lt: now },
-          },
-          data: { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) },
-        })
-      }
-      return { buildCardActive }
+      await this.syncCivicPanelBuildCard(tx, electedOffice)
+      await this.syncPriorityPanelCards(tx, electedOffice.id)
     })
   }
 
-  // Returns whether the build card is still active: not done, not set aside
-  // and not put off. Besides Mark done, it is done once any sent text asked
-  // people to JOIN, whichever purpose it went out under: the purpose is not
+  // The build card has no Mark done: it is done once any sent text asked
+  // people to JOIN, whichever purpose it went out under. The purpose is not
   // stored on the row, and the ask is what puts people on the panel.
   private async syncCivicPanelBuildCard(
     tx: Prisma.TransactionClient,
     electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
-  ): Promise<boolean> {
+  ): Promise<void> {
     const where = {
       electedOfficeId: electedOffice.id,
       type: DashboardCardType.civic_panel,
@@ -316,7 +289,7 @@ export class DashboardCardsService extends createPrismaBase(
           dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
         },
       }))
-    if (card.completedAt) return false
+    if (card.completedAt) return
 
     const seedSent = await tx.outreach.findFirst({
       where: {
@@ -333,10 +306,10 @@ export class DashboardCardsService extends createPrismaBase(
         where: { id: card.id },
         data: { completedAt: now, dismissedAt: null, snoozedUntil: null },
       })
-      return false
+      return
     }
 
-    // Every panel card waits on this one, so it does not lapse into missed
+    // It has no date of its own to miss, so it does not lapse into missed
     // while it is still open.
     const stale =
       card.title !== CIVIC_PANEL_BUILD_CARD_CONTENT.title ||
@@ -353,13 +326,12 @@ export class DashboardCardsService extends createPrismaBase(
         },
       })
     }
-    const snoozed = !!card.snoozedUntil && card.snoozedUntil > now
-    return !card.dismissedAt && !snoozed
   }
 
   // One next-step card per open priority. A skipped or done card stays that way; only
-  // its words follow a renamed priority. A card whose priority was archived
-  // or deleted goes, unless the official already acted on it.
+  // its words follow a renamed priority. An open card stands for as long as
+  // its priority does, so it does not lapse into missed. A card whose priority
+  // was archived or deleted goes, unless the official already acted on it.
   private async syncPriorityPanelCards(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
@@ -394,8 +366,13 @@ export class DashboardCardsService extends createPrismaBase(
         summary: true,
         ctaLabel: true,
         ctaHref: true,
+        dueDate: true,
+        dismissedAt: true,
+        completedAt: true,
       },
     })
+    const now = new Date()
+    const dueDate = addDays(now, CIVIC_PANEL_CARD_DUE_DAYS)
     const byPriority = new Map(priorities.map((p) => [p.id, p]))
     for (const card of existing) {
       const priority = byPriority.get(card.sourceExternalId)
@@ -406,15 +383,16 @@ export class DashboardCardsService extends createPrismaBase(
         card.summary !== content.summary ||
         card.ctaLabel !== content.ctaLabel ||
         card.ctaHref !== content.ctaHref
-      if (stale) {
+      const lapsed =
+        !card.dismissedAt && !card.completedAt && card.dueDate < now
+      if (stale || lapsed) {
         await tx.dashboardCard.update({
           where: { id: card.id },
-          data: content,
+          data: { ...content, ...(lapsed && { dueDate }) },
         })
       }
     }
     const carded = new Set(existing.map((card) => card.sourceExternalId))
-    const dueDate = addDays(new Date(), CIVIC_PANEL_CARD_DUE_DAYS)
     const missing = priorities.filter((priority) => !carded.has(priority.id))
     if (missing.length === 0) return
     await tx.dashboardCard.createMany({
@@ -550,10 +528,7 @@ export class DashboardCardsService extends createPrismaBase(
   async listByBucket(
     electedOfficeId: string,
     bucket: DashboardCardBucket,
-    {
-      includeCivicPanel = false,
-      buildCardActive = false,
-    }: { includeCivicPanel?: boolean; buildCardActive?: boolean } = {},
+    { includeCivicPanel = false }: { includeCivicPanel?: boolean } = {},
   ): Promise<DashboardCard[]> {
     return this.findMany({
       where: {
@@ -567,18 +542,6 @@ export class DashboardCardsService extends createPrismaBase(
             ],
           },
         }),
-        // A put-off build card comes back to the front, and the priority
-        // cards made while it was away wait behind it again.
-        ...(includeCivicPanel &&
-          buildCardActive &&
-          bucket === 'active' && {
-            NOT: {
-              type: DashboardCardType.civic_panel,
-              sourceExternalId: {
-                not: civicPanelBuildCardSourceId(electedOfficeId),
-              },
-            },
-          }),
       },
       orderBy: { dueDate: Prisma.SortOrder.asc },
     })
@@ -627,9 +590,16 @@ export class DashboardCardsService extends createPrismaBase(
     })
   }
 
+  // The build card is done only by its text going out.
   async complete(electedOfficeId: string, id: string): Promise<void> {
     await this.client.dashboardCard.updateMany({
-      where: { id, electedOfficeId, dismissedAt: null, completedAt: null },
+      where: {
+        id,
+        electedOfficeId,
+        dismissedAt: null,
+        completedAt: null,
+        sourceExternalId: { not: civicPanelBuildCardSourceId(electedOfficeId) },
+      },
       data: { completedAt: new Date(), snoozedUntil: null },
     })
   }
