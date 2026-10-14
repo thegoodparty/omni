@@ -69,14 +69,61 @@ describe('ElectionApiTokenService', () => {
       const service = makeService(createToken)
 
       await expect(service.getToken()).resolves.toBe('jwt-1')
-      // Still inside the window (TTL 3600s minus the 30s renewal buffer = 3570s).
-      vi.advanceTimersByTime(3_560_000)
+      // Before the refresh-ahead window (TTL 3600s minus 300s = 3300s).
+      vi.advanceTimersByTime(3_290_000)
       await expect(service.getToken()).resolves.toBe('jwt-1')
       expect(createToken).toHaveBeenCalledTimes(1)
-      // Now within the renewal buffer: re-mint.
-      vi.advanceTimersByTime(20_000)
+      // Within the renewal buffer (3570s): the token is unusable, so re-mint.
+      vi.advanceTimersByTime(290_000)
       await expect(service.getToken()).resolves.toBe('jwt-2')
       expect(createToken).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refreshes ahead of expiry without making the caller wait', async () => {
+    vi.useFakeTimers()
+    try {
+      const createToken = vi
+        .fn()
+        .mockResolvedValueOnce({ token: 'jwt-1', expiration: 1 })
+        .mockResolvedValueOnce({ token: 'jwt-2', expiration: 1 })
+      const service = makeService(createToken)
+
+      await service.getToken()
+      vi.advanceTimersByTime(3_400_000)
+      await expect(service.getToken()).resolves.toBe('jwt-1')
+      expect(createToken).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(service.getToken()).resolves.toBe('jwt-2')
+      expect(createToken).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps serving the cached token when a refresh-ahead fails (Clerk outage)', async () => {
+    vi.useFakeTimers()
+    try {
+      const createToken = vi
+        .fn()
+        .mockResolvedValueOnce({ token: 'jwt-1', expiration: 1 })
+        .mockRejectedValueOnce(new Error('clerk 500'))
+        .mockResolvedValueOnce({ token: 'jwt-2', expiration: 1 })
+      const service = makeService(createToken)
+
+      await service.getToken()
+      vi.advanceTimersByTime(3_400_000)
+      await expect(service.getToken()).resolves.toBe('jwt-1')
+      await vi.advanceTimersByTimeAsync(0)
+      // Retries are throttled while Clerk is down.
+      await expect(service.getToken()).resolves.toBe('jwt-1')
+      expect(createToken).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(20_000)
+      await expect(service.getToken()).resolves.toBe('jwt-1')
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(service.getToken()).resolves.toBe('jwt-2')
     } finally {
       vi.useRealTimers()
     }
