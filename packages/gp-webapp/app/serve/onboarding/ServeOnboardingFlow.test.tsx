@@ -176,7 +176,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     citizenPanelsFlag.enabled = false
   })
 
-  it('shows the reframed welcome with the citizens’ panel and no subscribe promise', async () => {
+  it('shows the reframed welcome with the civic panel and no subscribe promise', async () => {
     mockLoad(buildEO(), buildOrg())
     renderFlow()
 
@@ -186,7 +186,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByText("Build a citizens' panel you can ask before you vote"),
+      screen.getByText('Build a civic panel you can ask before you vote'),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('Let residents opt in to hear from you'),

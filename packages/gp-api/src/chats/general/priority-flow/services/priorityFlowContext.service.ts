@@ -41,7 +41,7 @@ export interface PriorityFlowContext {
   // Whether read_outreach_feedback registers: the serve-citizen-panels flag
   // for the chatting user, resolved per turn by the handler.
   outreachFeedbackEnabled?: boolean
-  // People on the citizens' panel right now, read per turn behind the same
+  // People on the civic panel right now, read per turn behind the same
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number

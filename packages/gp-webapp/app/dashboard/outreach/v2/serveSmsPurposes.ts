@@ -14,7 +14,7 @@ import {
 // SMS-only build_citizens_panel, which SmsFlow offers only behind
 // serve-citizen-panels, and report_back, which only a chat card opens.
 export const SERVE_SMS_PURPOSE_LABELS: Record<ServeSmsPurpose, string> = {
-  build_citizens_panel: "Build your citizens' panel",
+  build_citizens_panel: 'Build your civic panel',
   report_back: 'Report back to the people you asked',
   introduce_myself: 'Introduce myself to constituents',
   explain_decision: 'Explain a recent decision',
@@ -39,7 +39,7 @@ export const SERVE_SMS_PURPOSE_NAME_SUGGESTIONS: Record<
   ServeSmsPurpose,
   string
 > = {
-  build_citizens_panel: "Citizens' panel invite texts",
+  build_citizens_panel: 'Civic panel invite texts',
   report_back: 'Report back texts',
   introduce_myself: 'Introduction texts',
   explain_decision: 'Decision update texts',

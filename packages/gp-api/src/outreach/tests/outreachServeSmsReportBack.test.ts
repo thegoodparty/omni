@@ -123,7 +123,7 @@ describe('a Serve text that reports back', () => {
     expect(row.asksToJoinCivicPanel).toBe(false)
   })
 
-  it("refuses the citizens' panel join line", async () => {
+  it('refuses the civic panel join line', async () => {
     const response = await create({
       message: `this is Bryan, your City Council Member. ${CIVIC_PANEL_JOIN_LINE}`,
     })

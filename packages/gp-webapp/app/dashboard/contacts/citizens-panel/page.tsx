@@ -9,8 +9,8 @@ import { CitizensPanelView } from './components/CitizensPanelView'
 import { CITIZENS_PANEL_PATH } from './citizensPanelCopy'
 
 const meta = pageMetaData({
-  title: "Citizens' panel | GoodParty.org",
-  description: "Who is on your citizens' panel",
+  title: 'Civic panel | GoodParty.org',
+  description: 'Who is on your civic panel',
   slug: CITIZENS_PANEL_PATH,
 })
 export const metadata = meta

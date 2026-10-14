@@ -59,12 +59,12 @@ const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
   opt_out_line:
     'Every text has to offer a way to opt out, but you can write around it.',
   civic_panel_join:
-    "This is how people join your citizens' panel. Uncheck the box below to remove it.",
+    'This is how people join your civic panel. Uncheck the box below to remove it.',
 }
 
 // A text that builds the panel is its ask, so there is no box to uncheck.
 const LOCKED_JOIN_REASON =
-  "This is how people join your citizens' panel, but you can write around it."
+  'This is how people join your civic panel, but you can write around it.'
 
 const LOCKED_FALLBACK =
   'This part is required, but you can reword anything around it.'
@@ -445,7 +445,7 @@ export const SmsComposeStep = ({
             />
             <Label htmlFor="civic-panel-ask" className="block">
               <span className="block text-sm font-medium">
-                Ask them to join your citizens&apos; panel
+                Ask them to join your civic panel
               </span>
               <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
                 People who reply JOIN are added to your panel for future

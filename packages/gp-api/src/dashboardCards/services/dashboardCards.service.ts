@@ -94,7 +94,7 @@ const reportBackCardContent = (
 })
 
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
-  title: "Build your citizens' panel",
+  title: 'Build your civic panel',
   // A paid send, so the card says so and roughly what it costs before the
   // official starts; the pay step quotes the exact total.
   summary: `A paid text to up to ${PANEL_SEED_SAMPLE_SIZE.toLocaleString('en-US')} residents, about $${Math.round(PANEL_SEED_SAMPLE_SIZE * PRICE_PER_TEXT)}, so you hear from more than the loudest voices.`,
@@ -263,7 +263,7 @@ export class DashboardCardsService extends createPrismaBase(
     })
   }
 
-  // The citizens' panel cards, created when the card list is read, so an
+  // The civic panel cards, created when the card list is read, so an
   // office that onboarded long ago gets them on its next visit: the office's
   // one build card, and a next-step card per open priority alongside it.
   async syncCivicPanelCards(
@@ -303,7 +303,22 @@ export class DashboardCardsService extends createPrismaBase(
           dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
         },
       }))
-    if (card.completedAt) return
+    // Its words follow the current copy in every state, so a done card in the
+    // archive reads the same as an open one.
+    const stale =
+      card.title !== CIVIC_PANEL_BUILD_CARD_CONTENT.title ||
+      card.summary !== CIVIC_PANEL_BUILD_CARD_CONTENT.summary ||
+      card.ctaLabel !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaLabel ||
+      card.ctaHref !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaHref
+    if (card.completedAt) {
+      if (stale) {
+        await tx.dashboardCard.update({
+          where: { id: card.id },
+          data: CIVIC_PANEL_BUILD_CARD_CONTENT,
+        })
+      }
+      return
+    }
 
     const seedSent = await tx.outreach.findFirst({
       where: {
@@ -318,18 +333,18 @@ export class DashboardCardsService extends createPrismaBase(
     if (seedSent) {
       await tx.dashboardCard.update({
         where: { id: card.id },
-        data: { completedAt: now, dismissedAt: null, snoozedUntil: null },
+        data: {
+          ...CIVIC_PANEL_BUILD_CARD_CONTENT,
+          completedAt: now,
+          dismissedAt: null,
+          snoozedUntil: null,
+        },
       })
       return
     }
 
     // It has no date of its own to miss, so it does not lapse into missed
     // while it is still open.
-    const stale =
-      card.title !== CIVIC_PANEL_BUILD_CARD_CONTENT.title ||
-      card.summary !== CIVIC_PANEL_BUILD_CARD_CONTENT.summary ||
-      card.ctaLabel !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaLabel ||
-      card.ctaHref !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaHref
     const lapsed = !card.dismissedAt && card.dueDate < now
     if (stale || lapsed) {
       await tx.dashboardCard.update({

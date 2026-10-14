@@ -2578,7 +2578,7 @@ describe('SuccessScreen receipt', () => {
     open.mockRestore()
   })
 
-  it("ends a citizens' panel send on what happens next and the panel's page", async () => {
+  it("ends a civic panel send on what happens next and the panel's page", async () => {
     const onDone = vi.fn()
     render(
       <SuccessScreen
@@ -2600,7 +2600,7 @@ describe('SuccessScreen receipt', () => {
     expect(screen.getByText(/Anyone who replies JOIN/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
     const back = screen.getByRole('link', {
-      name: "See your citizens' panel",
+      name: 'See your civic panel',
     })
     expect(back).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
     await userEvent.click(back)

@@ -35,7 +35,7 @@ import {
 
 const SERVE_PURPOSE_GOALS: Record<ServeSmsPurpose, string> = {
   build_citizens_panel:
-    "introduce the elected official and invite residents onto the official's citizens' panel",
+    "introduce the elected official and invite residents onto the official's civic panel",
   report_back:
     'tell the constituents an earlier text asked what the official heard ' +
     'from them and what the official will do next',
@@ -63,7 +63,7 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
   build_citizens_panel:
     'Structure: one short line of who the official is, drawn from the ' +
     'materials (what they do, community roots, why they serve); then ' +
-    "one or two sentences on what their citizens' panel is: residents " +
+    'one or two sentences on what their civic panel is: residents ' +
     'their office (not a campaign) texts about once a month to hear what ' +
     'they think before the official makes decisions; then one sentence ' +
     'on why that matters to the official, in plain words. Keep the whole ' +
@@ -73,7 +73,7 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
     'Never promise how many texts, what topics, or what the official ' +
     'will do with the answers beyond hearing them.',
   // Sent to the people an earlier text asked, so it never carries the
-  // citizens' panel JOIN line or a fresh ask of its own.
+  // civic panel JOIN line or a fresh ask of its own.
   report_back:
     'Structure: one short sentence thanking the people who answered the ' +
     'earlier text; then one or two sentences on what the official heard, ' +

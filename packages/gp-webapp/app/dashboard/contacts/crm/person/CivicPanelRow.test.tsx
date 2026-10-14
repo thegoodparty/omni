@@ -24,7 +24,7 @@ vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
 }))
 
 const ORG_SLUG = 'eo-org-1'
-const TOGGLE = "On your citizens' panel"
+const TOGGLE = 'On your civic panel'
 
 const errorSnackbar = vi.fn()
 

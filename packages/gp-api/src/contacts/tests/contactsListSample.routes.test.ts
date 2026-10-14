@@ -347,7 +347,7 @@ describe('lists saved as a sample', () => {
     expect(await sampleMemberIds(second.data.id)).toEqual([rest])
   })
 
-  // One list that asks the citizens' panel and grows it: a draw from the
+  // One list that asks the civic panel and grows it: a draw from the
   // members and an equal draw from everyone else, frozen as one sample.
   describe('with a panel part', () => {
     const setMember = (organizationSlug: string, personId: string) =>

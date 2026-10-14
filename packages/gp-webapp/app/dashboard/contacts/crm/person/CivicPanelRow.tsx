@@ -56,7 +56,7 @@ export default function CivicPanelRow({
           current ? { ...current, civicPanel: context.fromValue } : current,
         )
       }
-      errorSnackbar("Couldn't update the citizens' panel. Please try again.")
+      errorSnackbar("Couldn't update the civic panel. Please try again.")
     },
     onSuccess: (data) => {
       queryClient.setQueryData<Person>(personQueryKey, (current) =>
@@ -73,14 +73,14 @@ export default function CivicPanelRow({
   return (
     <label className="mb-6 flex w-fit items-center gap-3 text-sm font-medium">
       <Switch
-        aria-label="On your citizens' panel"
+        aria-label="On your civic panel"
         checked={civicPanel === 'member'}
         disabled={civicPanelMutation.isPending}
         onCheckedChange={(checked) =>
           civicPanelMutation.mutate(checked ? 'member' : 'left')
         }
       />
-      On your citizens&apos; panel
+      On your civic panel
     </label>
   )
 }

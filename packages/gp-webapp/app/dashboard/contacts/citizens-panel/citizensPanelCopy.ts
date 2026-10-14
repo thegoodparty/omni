@@ -7,18 +7,18 @@ export const CITIZENS_PANEL_LIST_PATH = `/dashboard/contacts/lists/${CIVIC_PANEL
 export const CHIEF_OF_STAFF_PATH = '/dashboard/chief-of-staff'
 
 export const SERVE_CITIZENS_PANEL_COPY = {
-  title: "Your citizens' panel",
+  title: 'Your civic panel',
   caption: 'Residents who said yes to being asked for their views.',
   members: 'Members',
   reachedRecently: 'Reached in the last 30 days',
   reachedRecentlyDetail: 'Texted, called or visited by your office.',
   askableNow: 'Can be asked now',
   seePanel: 'See your panel',
-  empty: "Nobody has joined your citizens' panel yet.",
+  empty: 'Nobody has joined your civic panel yet.',
   emptyAction: 'Your Chief of Staff can help you build it.',
-  buildPanel: "Build your citizens' panel",
+  buildPanel: 'Build your civic panel',
   loadError:
-    "We couldn't load your citizens' panel. Refresh the page to try again.",
+    "We couldn't load your civic panel. Refresh the page to try again.",
   backToContacts: 'Back to constituent data',
   pageCaption:
     'How many people are on it, and how they compare with your district.',

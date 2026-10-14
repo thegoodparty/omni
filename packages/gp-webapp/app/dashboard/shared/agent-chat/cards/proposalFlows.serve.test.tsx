@@ -45,7 +45,7 @@ const MESSAGE =
 const panelAndFresh: Proposal = {
   kind: 'outreach_proposal',
   proposalKey: PROPOSAL_KEY,
-  audience: "Your citizens' panel and residents across the district",
+  audience: 'Your civic panel and residents across the district',
   count: 18_400,
   channel: 'text',
   audienceFilters: { hasCellPhone: true, notContactedRecently: true },
@@ -117,7 +117,7 @@ describe("a priority's text card to the panel and new residents", () => {
     expect(props?.preselectedListId).toBe(501)
     expect(props).not.toHaveProperty('proposedAudience')
     expect(props?.audienceSummary).toBe(
-      "Your citizens' panel and residents across the district: 42 from your civic panel and 42 more picked at random",
+      'Your civic panel and residents across the district: 42 from your civic panel and 42 more picked at random',
     )
     expect(props?.initialAsksToJoinCivicPanel).toBe(true)
     expect(props?.initialScript).toBe(MESSAGE)
@@ -136,7 +136,7 @@ describe("a priority's text card to the panel and new residents", () => {
     })
     expect(saved[0]?.sample).not.toHaveProperty('panelSize')
     expect(smsFlow.props?.audienceSummary).toBe(
-      "Your citizens' panel and residents across the district: a random group of 84 of 18,400 constituents",
+      'Your civic panel and residents across the district: a random group of 84 of 18,400 constituents',
     )
   })
 })

@@ -404,7 +404,7 @@ a re-upload is a no-op. Win sends never write it.
 **Serve SMS has one purpose the other channels do not.** The draft schema
 takes contracts' `SERVE_SMS_PURPOSE_VALUES`: the shared Serve list plus
 `build_citizens_panel`, the text that introduces the official and their
-citizens' panel. Its `SERVE_SMS_VOICE` structure writes the body only and
+civic panel. Its `SERVE_SMS_VOICE` structure writes the body only and
 never the JOIN ask, because the webapp appends the locked
 `CIVIC_PANEL_JOIN_LINE` and the reply reader honors only those words. The
 draft route 404s that purpose while `serve-citizen-panels` is off, on top of

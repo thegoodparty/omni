@@ -1073,9 +1073,9 @@ describe('PriorityFlowHandler', () => {
 
     it('offers one card asking the rested panel and as many new residents', () => {
       const prompt = buildWithCrm().buildSystemPrompt(panelsOn(42))
-      expect(prompt).toContain("THE CITIZENS' PANEL COMES FIRST")
-      expect(prompt).toContain("citizens' panel has 42 people")
-      expect(prompt).toContain("Citizens' panel: 42 members")
+      expect(prompt).toContain('THE CIVIC PANEL COMES FIRST')
+      expect(prompt).toContain('civic panel has 42 people')
+      expect(prompt).toContain('Civic panel: 42 members')
       expect(prompt).toContain('offer ONE card, one text')
       expect(prompt).toContain(
         'civicPanelMember true, Has Cell Phone and notContactedRecently true',
@@ -1139,9 +1139,9 @@ describe('PriorityFlowHandler', () => {
 
     it('falls back to the fresh sample alone when no member can be asked', () => {
       const prompt = buildWithCrm().buildSystemPrompt(panelsOn(0))
-      expect(prompt).toContain("THE CITIZENS' PANEL COMES FIRST")
-      expect(prompt).toContain("nobody on their citizens' panel yet")
-      expect(prompt).toContain("Citizens' panel: 0 members")
+      expect(prompt).toContain('THE CIVIC PANEL COMES FIRST')
+      expect(prompt).toContain('nobody on their civic panel yet')
+      expect(prompt).toContain('Civic panel: 0 members')
       expect(prompt).toContain(
         'If it is 0, the card is the fresh residents alone',
       )
@@ -1150,8 +1150,8 @@ describe('PriorityFlowHandler', () => {
 
     it('behaves as before with the flag off: no panel, both sides up front', () => {
       const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
-      expect(prompt).not.toContain("THE CITIZENS' PANEL COMES FIRST")
-      expect(prompt).not.toContain("Citizens' panel:")
+      expect(prompt).not.toContain('THE CIVIC PANEL COMES FIRST')
+      expect(prompt).not.toContain('Civic panel:')
       expect(prompt).not.toContain('civicPanelAsk')
       expect(prompt).toContain('A check you offer has two sides')
       expect(prompt).toContain(
@@ -1216,7 +1216,7 @@ describe('PriorityFlowHandler', () => {
         throw new Error('expected an executable tool')
       }
       const combined = {
-        audience: "Your citizens' panel and residents across the district",
+        audience: 'Your civic panel and residents across the district',
         count: 18_400,
         channel: 'text' as const,
         message: 'this is Bryan, your City Council Member. Is it the drains?',
@@ -1427,7 +1427,7 @@ describe('PriorityFlowHandler', () => {
       const prompt = withReportBack().buildSystemPrompt(on())
       expect(prompt).toContain('Never quote a reply')
       expect(prompt).toContain('any detail that could point to who said it')
-      expect(prompt).toContain("never ask anyone to join the citizens' panel")
+      expect(prompt).toContain('never ask anyone to join the civic panel')
     })
 
     it("knows a report back already went out, so it doesn't ask", () => {

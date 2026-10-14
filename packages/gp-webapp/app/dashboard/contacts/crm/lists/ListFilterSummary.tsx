@@ -73,7 +73,7 @@ export const buildFilterSummary = (
   const clauses: string[] = []
 
   if (isElectedOfficial && isTrue(segment[CIVIC_PANEL_FILTER_KEY])) {
-    clauses.push("On your citizens' panel")
+    clauses.push('On your civic panel')
   }
   if (isTrue(segment[NOT_CONTACTED_RECENTLY_FILTER_KEY])) {
     clauses.push('Not contacted in the last 30 days')

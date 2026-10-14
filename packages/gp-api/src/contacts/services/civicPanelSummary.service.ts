@@ -20,7 +20,7 @@ import {
 import { computeRepresentation } from '@/priorities/util/representation.util'
 import { ContactsService } from './contacts.service'
 
-// Serve's citizens' panel as a whole: how many are on it, how many can be
+// Serve's civic panel as a whole: how many are on it, how many can be
 // asked now, and whether it looks like the district.
 @Injectable()
 export class CivicPanelSummaryService {
@@ -94,7 +94,7 @@ export class CivicPanelSummaryService {
   private async memberIds(organization: Organization): Promise<string[]> {
     if (!organization.slug.startsWith('eo-')) {
       throw new BadRequestException(
-        "The citizens' panel is not available for this organization",
+        'The civic panel is not available for this organization',
       )
     }
     return this.contactStatusService.personIdsByFieldValue(
