@@ -46,13 +46,18 @@ import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
-import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import {
+  buildChiefOfStaffOutreachProposalTool,
+  buildPresentOutreachProposalTool,
+} from '../chat-tools/presentOutreachProposal.tool'
+import { buildSizePanelInviteTool } from '../chat-tools/sizePanelInvite.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
+import { SERVE_SMS_FLAG } from '@/shared/util/serveSmsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
@@ -148,6 +153,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
+    const civicPanel =
+      outreachFeedbackEnabled && this.features
+        ? await this.contextService.civicPanelBuildState(
+            ctx.organizationSlug,
+            await this.features.isFeatureEnabled({
+              user: userId,
+              feature: SERVE_SMS_FLAG,
+            }),
+          )
+        : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -156,7 +171,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           )
         : undefined
     if (!resolved) {
-      return { ...ctx, peopleDataset, outreachFeedbackEnabled, reportBacks }
+      return {
+        ...ctx,
+        peopleDataset,
+        outreachFeedbackEnabled,
+        civicPanel,
+        reportBacks,
+      }
     }
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
@@ -167,6 +188,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       outreachFeedbackEnabled,
+      civicPanel,
       reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
@@ -350,8 +372,15 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // A proposal is sent against a saved list, so it is offered only where
       // the list behind it can be built.
       if (this.voterFileFilters) {
-        tools.present_outreach_proposal = buildPresentOutreachProposalTool()
+        // The panel invite is a text, so it is offered only where one can
+        // be sent: serve-citizen-panels and serve-sms-outreach both on.
+        const panelInvite =
+          ctx.civicPanel?.textingEnabled === true ? ctx.civicPanel : null
+        tools.present_outreach_proposal = panelInvite
+          ? buildChiefOfStaffOutreachProposalTool(panelInvite)
+          : buildPresentOutreachProposalTool()
         tools.size_outreach_sample = buildSizeOutreachSampleTool()
+        if (panelInvite) tools.size_panel_invite = buildSizePanelInviteTool()
       }
     }
 

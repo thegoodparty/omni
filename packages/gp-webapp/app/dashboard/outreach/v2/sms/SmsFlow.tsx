@@ -88,6 +88,7 @@ import {
   serveSmsPurposeNameSuggestion,
 } from '../serveSmsPurposes'
 import { EventDetailsStep } from '../EventDetailsStep'
+import { ProposalAudienceSummary } from '../ProposalAudienceSummary'
 import {
   EVENT_DETAILS_TITLE,
   isEventInvite,
@@ -152,6 +153,10 @@ const PRO_BUILD_STEP_ORDER: StepId[] = [
   'schedule',
 ]
 const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
+
+// A chat card settled the purpose and who gets it, so the official starts on
+// the words. Changing who gets it is a detour back to the message, not a step.
+const PROPOSAL_STEP_ORDER: StepId[] = ['compose', 'schedule', 'review']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -344,6 +349,10 @@ interface SmsFlowProps {
   proposalLink?: ProposalLink
   // Serve: open with the civic panel ask on, as a chat card asked for.
   initialAsksToJoinCivicPanel?: boolean
+  // Serve: a chat card already settled who gets this and saved the list
+  // (preselectedListId). The flow opens on the message with this line about
+  // who, then the date, then payment.
+  audienceSummary?: string
   // Serve: the earlier text a report back card answers. Rides on the create,
   // which marks the send as a report back rather than a new ask.
   reportBackForOutreachId?: number
@@ -563,6 +572,7 @@ export const SmsFlow = ({
   proposedAudience,
   proposalLink,
   initialAsksToJoinCivicPanel = false,
+  audienceSummary,
   reportBackForOutreachId,
   onProposalCreateFailed,
   preselectedListId,
@@ -740,11 +750,18 @@ export const SmsFlow = ({
     : gate.requirement === 'pro'
       ? PRO_BUILD_STEP_ORDER
       : VERIFY_BUILD_STEP_ORDER
-  const stepOrder: StepId[] = isEventInvite(purpose)
-    ? baseStepOrder.flatMap((id) =>
-        id === 'purpose' ? ['purpose', 'details'] : [id],
-      )
-    : baseStepOrder
+  const fromProposal =
+    surface.isServe &&
+    audienceSummary !== undefined &&
+    preselectedListId !== undefined &&
+    !resumeDraft
+  const stepOrder: StepId[] = fromProposal
+    ? PROPOSAL_STEP_ORDER
+    : isEventInvite(purpose)
+      ? baseStepOrder.flatMap((id) =>
+          id === 'purpose' ? ['purpose', 'details'] : [id],
+        )
+      : baseStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -842,23 +859,21 @@ export const SmsFlow = ({
     setStepId(
       resumeDraft
         ? 'schedule'
-        : initialScript
-          ? 'audience'
-          : carriedPurpose
-            ? isEventInvite(carriedPurpose)
-              ? 'details'
-              : 'audience'
-            : 'purpose',
+        : fromProposal
+          ? 'compose'
+          : initialScript
+            ? 'audience'
+            : carriedPurpose
+              ? isEventInvite(carriedPurpose)
+                ? 'details'
+                : 'audience'
+              : 'purpose',
     )
-    // A report back card's message is seeded, but it keeps its purpose so
-    // the flow never adds the panel ask to it.
-    setPurpose(
-      initialScript
-        ? carriedPurpose === REPORT_BACK_PURPOSE
-          ? REPORT_BACK_PURPOSE
-          : 'custom'
-        : carriedPurpose,
-    )
+    // A card that names its purpose as well as its words (the Chief of
+    // Staff's panel invite, a report back) keeps that purpose, so the flow
+    // treats the send as the purpose's own: a report back never gets the
+    // panel ask, and a panel invite always does.
+    setPurpose(initialPurpose ?? (initialScript ? 'custom' : carriedPurpose))
     resetEventDetails()
     confirmedEventRef.current = null
     setTone('warm')
@@ -866,7 +881,7 @@ export const SmsFlow = ({
       surface.isServe &&
       carriedPurpose !== REPORT_BACK_PURPOSE &&
       (initialAsksToJoinCivicPanel ||
-        (!initialScript && carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE))
+        carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE)
     const seeded = initialScript
       ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
       : ''
@@ -1128,7 +1143,8 @@ export const SmsFlow = ({
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
     create: surface.endpoints.create,
-    setStepId,
+    // Changing who gets a card's text returns to its message.
+    setStepId: (step) => setStepId(fromProposal ? 'compose' : step),
     setDraftOutreachId,
     setDraftCreateError,
     setRecipientCounts: setPhoneList,
@@ -1722,7 +1738,9 @@ export const SmsFlow = ({
     await onScheduled()
   }
 
-  const stepIndex = stepOrder.indexOf(stepId)
+  // The audience detour counts as the message step it returns to.
+  const stepIndex =
+    fromProposal && stepId === 'audience' ? 0 : stepOrder.indexOf(stepId)
 
   const handleBack = () => {
     if (stepId === 'audience' && audience.mode === 'name') {
@@ -1734,6 +1752,10 @@ export const SmsFlow = ({
     }
     if (stepId === 'audience' && audience.mode === 'filters') {
       audience.resetBuilder()
+      return
+    }
+    if (fromProposal && stepId === 'audience') {
+      setStepId('compose')
       return
     }
     // Resume converts the saved row rather than creating a throwaway one, so
@@ -1767,10 +1789,11 @@ export const SmsFlow = ({
   // A card that answered the purpose opens on its audience with nothing behind
   // it: Back would clear the card's seeded draw and reopen the question the
   // card answered, so there it leaves the flow instead.
-  const atCardStart =
-    initialPurpose !== undefined &&
-    stepId === 'audience' &&
-    audience.mode !== 'name'
+  const atCardStart = fromProposal
+    ? stepId === 'compose'
+    : initialPurpose !== undefined &&
+      stepId === 'audience' &&
+      audience.mode !== 'name'
 
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = !scheduled && purpose !== null && savedDraft === null
@@ -1867,7 +1890,7 @@ export const SmsFlow = ({
                         void handleResumeScheduleContinue()
                         return
                       }
-                      setStepId('compose')
+                      setStepId(fromProposal ? 'review' : 'compose')
                     },
                     disabled:
                       name.trim().length === 0 ||
@@ -1884,7 +1907,9 @@ export const SmsFlow = ({
                   ? {
                       label: 'Continue',
                       onClick: () =>
-                        setStepId(buildMode ? 'schedule' : 'review'),
+                        setStepId(
+                          buildMode || fromProposal ? 'schedule' : 'review',
+                        ),
                       disabled:
                         !hasWrittenBody ||
                         !standards.passed ||
@@ -1966,7 +1991,10 @@ export const SmsFlow = ({
         // and compose were settled when the draft was saved, and compose
         // could never advance again (its Continue needs a local image file
         // the saved row cannot supply).
-        !scheduled && !gateOpen && !resumed && stepIndex > 0
+        !scheduled &&
+        !gateOpen &&
+        !resumed &&
+        (stepIndex > 0 || fromProposal || atCardStart)
           ? handleBack
           : undefined
       }
@@ -2225,42 +2253,50 @@ export const SmsFlow = ({
           </>
         )
       ) : stepId === 'compose' ? (
-        <SmsComposeStep
-          isServe={surface.isServe}
-          tone={tone}
-          onToneChange={handleToneChange}
-          standardsFailures={standards.failures}
-          unfilledBrackets={bracketsToFill}
-          identificationExample={introFor(tone)}
-          message={message}
-          onMessageChange={handleMessageChange}
-          protectedParts={protectedParts}
-          mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
-          hasWrittenBody={hasWrittenBody}
-          composedLength={composedLength}
-          aiAction={aiAction}
-          onAiAction={handleAiAction}
-          isDrafting={draftMutation.isPending}
-          isDraftError={draftMutation.isError}
-          canUndo={undoText !== null}
-          onUndo={handleUndo}
-          imagePreviewUrl={imagePreviewUrl}
-          onImageChange={setImage}
-          imageError={imageError}
-          onImageError={setImageError}
-          civicPanelAsk={
-            surface.isServe && citizenPanelsEnabled && !isReportBack
-              ? {
-                  checked: asksToJoin,
-                  locked: civicPanelAskLocked,
-                  onChange: (checked) => {
-                    setAsksToJoinCivicPanel(checked)
-                    loadMessage(withCivicPanelJoin(message, checked))
-                  },
-                }
-              : undefined
-          }
-        />
+        <>
+          {fromProposal && audienceSummary && (
+            <ProposalAudienceSummary
+              summary={audienceSummary}
+              onChange={() => setStepId('audience')}
+            />
+          )}
+          <SmsComposeStep
+            isServe={surface.isServe}
+            tone={tone}
+            onToneChange={handleToneChange}
+            standardsFailures={standards.failures}
+            unfilledBrackets={bracketsToFill}
+            identificationExample={introFor(tone)}
+            message={message}
+            onMessageChange={handleMessageChange}
+            protectedParts={protectedParts}
+            mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
+            hasWrittenBody={hasWrittenBody}
+            composedLength={composedLength}
+            aiAction={aiAction}
+            onAiAction={handleAiAction}
+            isDrafting={draftMutation.isPending}
+            isDraftError={draftMutation.isError}
+            canUndo={undoText !== null}
+            onUndo={handleUndo}
+            imagePreviewUrl={imagePreviewUrl}
+            onImageChange={setImage}
+            imageError={imageError}
+            onImageError={setImageError}
+            civicPanelAsk={
+              surface.isServe && citizenPanelsEnabled && !isReportBack
+                ? {
+                    checked: asksToJoin,
+                    locked: civicPanelAskLocked,
+                    onChange: (checked) => {
+                      setAsksToJoinCivicPanel(checked)
+                      loadMessage(withCivicPanelJoin(message, checked))
+                    },
+                  }
+                : undefined
+            }
+          />
+        </>
       ) : (
         <CheckoutSessionProvider
           key={draftOutreachId ?? 'pending'}

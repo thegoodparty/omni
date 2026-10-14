@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Editor } from '@tiptap/react'
@@ -108,9 +108,31 @@ const navigatedToOutreach = () =>
     .map(([path]) => String(path))
     .filter((path) => path.includes('outreach'))
 
+// Lists saved so far, so the flow's own list read finds the one the card
+// saved, the way the server would return it.
+const mockSavedLists = () => {
+  const lists: Record<string, unknown>[] = []
+  api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+    lists.push(body)
+    return { status: 200, data: { id: 88, name: 'Flood block renters' } }
+  })
+  api.mock('GET /v1/voters/voter-file/filters', () => ({
+    status: 200,
+    data: lists.map(() => ({ id: 88, name: 'Flood block renters' })),
+  }))
+  return lists
+}
+
 describe('ProposalFlowsProvider', () => {
-  it('opens phone banking over the conversation, never moving the page', async () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
+  // The card already settled who gets this, so the flow saves the list and
+  // opens on the script with one line saying who, never on the builder.
+  it('opens phone banking on the script over the conversation, the list saved once', async () => {
     mockAudience()
+    const lists = mockSavedLists()
 
     render(
       <ProposalFlowsProvider>
@@ -120,27 +142,51 @@ describe('ProposalFlowsProvider', () => {
 
     await user.click(screen.getByRole('button', { name: 'Start' }))
 
+    await screen.findAllByText('Write your call script')
     expect(
-      (await screen.findAllByText('Who do you want to reach?')).length,
-    ).toBeGreaterThan(0)
+      screen.getByText('Renters on the flood blocks: 260 constituents'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Who do you want to reach?')).toBeNull()
+    expect(lists).toHaveLength(1)
     expect(navigatedToOutreach()).toEqual([])
 
-    // Dismissing it (Escape, then discarding the prefilled draft) stays put.
-    await user.keyboard('{Escape}')
-    const discard = screen.queryByRole('button', { name: /Discard/ })
-    if (discard) await user.click(discard)
+    // Back on the first step leaves through the discard confirm.
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(await screen.findByRole('button', { name: /Discard/ }))
+    await waitFor(() =>
+      expect(screen.queryByText('Write your call script')).toBeNull(),
+    )
+
+    // Opening the card again reuses the list it saved.
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await screen.findAllByText('Write your call script')
+    expect(lists).toHaveLength(1)
     expect(navigatedToOutreach()).toEqual([])
   })
 
-  // The agent counts but does not save. The list is saved where the flow
-  // always saves one: when the official confirms the audience and names it.
-  it('saves the counted audience only when the official confirms it', async () => {
+  it('opens the list picker from Change who gets this, and comes back to the script', async () => {
     mockAudience()
-    const lists: Record<string, unknown>[] = []
-    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
-      lists.push(body)
-      return { status: 200, data: { id: 88, name: 'Flood block renters' } }
-    })
+    mockSavedLists()
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener card={proposal()} />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await screen.findAllByText('Write your call script')
+
+    await user.click(
+      screen.getByRole('button', { name: 'Change who gets this' }),
+    )
+    await screen.findAllByText('Who do you want to reach?')
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findAllByText('Write your call script')
+  })
+
+  it('sends the calls on the list the card saved', async () => {
+    mockAudience()
+    const lists = mockSavedLists()
     const creates: ServePhoneBankingCreate[] = []
     api.mock('POST /v1/phone-banking/serve/lists', ({ body }) => {
       creates.push(body)
@@ -166,20 +212,6 @@ describe('ProposalFlowsProvider', () => {
       </ProposalFlowsProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'Start' }))
-
-    const confirm = await screen.findByRole('button', {
-      name: /Continue \(\d+\)/,
-    })
-    // Opened, not yet confirmed: nothing saved.
-    expect(lists).toHaveLength(0)
-    await waitFor(() => expect(confirm).toBeEnabled())
-    await user.click(confirm)
-
-    await screen.findAllByText('Name your list')
-    expect(screen.getByLabelText('List name')).toHaveValue(
-      'Flood block renters',
-    )
-    await user.click(screen.getByRole('button', { name: 'Create list' }))
     await screen.findAllByText('Write your call script')
 
     expect(lists).toHaveLength(1)
@@ -280,15 +312,11 @@ describe('ProposalFlowsProvider', () => {
     )
   })
 
-  // A check asks a sample, so the list the drawer saves is the draw, not the
-  // live filter, and the count it promises is the sample's.
+  // A check asks a sample, so the list the card saves is the draw, not the
+  // live filter, and the line above the script says so.
   it('saves a sampled proposal as that fixed sample', async () => {
     mockAudience()
-    const lists: Record<string, unknown>[] = []
-    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
-      lists.push(body)
-      return { status: 200, data: { id: 88, name: 'Flood block renters' } }
-    })
+    const lists = mockSavedLists()
 
     render(
       <ProposalFlowsProvider>
@@ -296,16 +324,13 @@ describe('ProposalFlowsProvider', () => {
       </ProposalFlowsProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'Start' }))
-
-    const confirm = await screen.findByRole('button', {
-      name: 'Continue (80)',
-    })
-    await waitFor(() => expect(confirm).toBeEnabled())
-    await user.click(confirm)
-    await screen.findAllByText('Name your list')
-    await user.click(screen.getByRole('button', { name: 'Create list' }))
     await screen.findAllByText('Write your call script')
 
+    expect(
+      screen.getByText(
+        'Renters on the flood blocks: up to 80 of the 260 not asked yet',
+      ),
+    ).toBeInTheDocument()
     expect(lists).toHaveLength(1)
     expect(lists[0]).toMatchObject({
       name: 'Flood block renters',

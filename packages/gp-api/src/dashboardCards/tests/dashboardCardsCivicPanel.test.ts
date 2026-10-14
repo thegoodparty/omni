@@ -92,8 +92,7 @@ const buildCard = {
   type: 'civic_panel',
   title: 'Build your civic panel',
   ctaLabel: 'Get started',
-  ctaHref:
-    '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+  ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
 }
 
 describe('GET /v1/dashboard/cards: the civic panel build card', () => {
@@ -125,6 +124,26 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       ctaLabel: 'Open priority',
       ctaHref: `/dashboard/priorities/${housing.id}`,
     })
+  })
+
+  // Get started used to drop the official into the outreach page with no
+  // context. It now opens the Chief of Staff chat on the home, so a card
+  // made with the old link follows on the next read.
+  it("moves a card made with the outreach link onto the home's chat", async () => {
+    const eo = await seedElectedOffice('eo-civic-build-relink')
+    await listCards('eo-civic-build-relink')
+    await service.prisma.dashboardCard.updateMany({
+      where: { electedOfficeId: eo.id, type: DashboardCardType.civic_panel },
+      data: {
+        ctaHref:
+          '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+      },
+    })
+
+    const cards = await listCards('eo-civic-build-relink')
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.ctaHref).toBe(buildCard.ctaHref)
   })
 
   it('makes no second build card on a repeat read', async () => {

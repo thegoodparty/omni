@@ -14,7 +14,7 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
-  BUILD_CITIZENS_PANEL_PURPOSE,
+  CIVIC_PANEL_BUILD_CARD_HREF,
   civicPanelBuildCardSourceId,
   DASHBOARD_CARD_SNOOZE_DAYS,
   DashboardCardBucket,
@@ -93,10 +93,6 @@ const reportBackCardContent = (
   ctaHref: reportBackCardHref(priorityId, outreachId),
 })
 
-// The outreach page opens its text flow on the panel purpose with a random
-// draw of the district already chosen (ConstituentOutreachPage).
-export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/constituent-outreach?compose=text&purpose=${BUILD_CITIZENS_PANEL_PURPOSE}`
-
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   title: 'Build your civic panel',
   // A paid send, so the card says so and roughly what it costs before the
@@ -107,7 +103,8 @@ const CIVIC_PANEL_BUILD_CARD_CONTENT = {
 }
 
 // A text past checkout. The same statuses the priority flow counts as sent.
-const UNSENT_OUTREACH_STATUSES = [
+// The Chief of Staff reads the build card's invite as sent off this same list.
+export const UNSENT_OUTREACH_STATUSES = [
   OutreachStatus.pending_payment,
   OutreachStatus.draft,
   OutreachStatus.canceled,

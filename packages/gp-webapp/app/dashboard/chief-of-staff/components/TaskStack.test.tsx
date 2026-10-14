@@ -192,8 +192,7 @@ describe('<TaskStack>', () => {
     summary:
       'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
     ctaLabel: 'Get started',
-    ctaHref:
-      '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+    ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
     dueDate: '2026-10-21T18:00:00.000Z',
     sourceExternalId: 'build:eo-1',
   })
@@ -209,9 +208,11 @@ describe('<TaskStack>', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(ONBOARDING_CARDS.meet.title)).toBeNull()
+    // Get started stays on the home: it opens the chat there, never the
+    // outreach page.
     expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
       'href',
-      '/dashboard/constituent-outreach?compose=text&purpose=build_citizens_panel',
+      '/dashboard/chief-of-staff?chat=build_citizens_panel',
     )
   })
 

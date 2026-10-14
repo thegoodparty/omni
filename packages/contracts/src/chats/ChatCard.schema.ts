@@ -6,6 +6,7 @@ import {
   PriorityStepIdSchema,
 } from '../priorities/PriorityStatus.schema'
 import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
+import { ServeSmsPurposeSchema } from '../outreach/OutreachPurpose.schema'
 
 /**
  * Anchored views: the cards an agent can leave in a chat.
@@ -125,6 +126,12 @@ export const OutreachProposalSchema = z.object({
         'The flow adds the ask and what it means; never write it into the ' +
         'message.',
     ),
+  /**
+   * Text only, Serve only: the purpose the text flow opens on, past its
+   * purpose picker. Only the civic panel invite sets it, so the flow
+   * locks the join line and the build card closes once it is paid for.
+   */
+  purpose: ServeSmsPurposeSchema.optional(),
   /**
    * Nothing shows this: the agent says why in its message. Kept so cards
    * already persisted with it still parse.

@@ -497,6 +497,104 @@ describe('SmsFlow (Serve surface)', () => {
     )
   })
 
+  // The Chief of Staff's invite card carries its own words and the build
+  // purpose. The words are kept, not drafted over, and the send is still the
+  // build purpose's: the ask locked on and the purpose on the draft.
+  it("keeps a card's invite on the civic panel purpose, the JOIN ask locked on", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const draftCalls: ServeSmsDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted body' } }
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialPurpose="build_citizens_panel"
+        initialAsksToJoinCivicPanel
+        initialScript="this is Jane, your Council Member. I am starting a civic panel to hear from all of you."
+      />,
+    )
+
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/I am starting a civic panel/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Reply JOIN to join my civic panel/),
+    ).toBeInTheDocument()
+    const ask = screen.getByRole('checkbox', {
+      name: /join your civic panel/i,
+    })
+    expect(ask).toBeChecked()
+    expect(ask).toBeDisabled()
+    expect(draftCalls).toHaveLength(0)
+  })
+
+  // A chat card that saved its list opens on the message, then the date,
+  // and the steps it shows are the only ones counted.
+  it('opens a ready card on the message, then the date', async () => {
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSummary="Northside residents: 1,200 constituents"
+        initialScript="this is Jane, your Council Member. The library opens Saturday."
+      />,
+    )
+
+    expect(
+      await screen.findByText('Northside residents: 1,200 constituents'),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText(/The library opens Saturday/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('What do you want to say?').length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('What do you want to do?')).toBeNull()
+
+    // The header image is still asked for here, on the message.
+    expect(screen.getByText('Add your header image')).toBeInTheDocument()
+    const next = screen.getByRole('button', { name: 'Continue' })
+    expect(next).toBeDisabled()
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() => expect(next).toBeEnabled())
+    await userEvent.click(next)
+    expect(
+      (await screen.findAllByText('When do you want to send?')).length,
+    ).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByText('Northside residents: 1,200 constituents'),
+    ).toBeInTheDocument()
+  })
+
   // The reviewer's path: opened from the card, Back, Back. The purpose the
   // card answered must never come back; Back leaves through the confirm.
   it("leaves through the confirm on Back, never reopening the card's purpose", async () => {

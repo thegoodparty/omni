@@ -96,8 +96,11 @@ generation services, the spine scoping — are in
   and `POST /v1/outreach/serve/sms` on the same key, so the surface and the
   API roll out together — but the flag gates UX, not authz:
   `@UseElectedOffice()` is still the real check.
-- **`?compose=text&purpose=build_citizens_panel` is the Chief of Staff's
-  "Build your civic panel" card.** Once both `serve-sms-outreach` and
+- **`?compose=text&purpose=build_citizens_panel` opens the panel invite
+  directly.** The Chief of Staff's "Build your civic panel" card no
+  longer links here (it opens the Chief of Staff chat on the home, whose
+  proposal card opens the same flow over the conversation), but the link
+  still works for anything that sends it. Once both `serve-sms-outreach` and
   `serve-citizen-panels` have resolved, the page strips the params and opens
   the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
   district's cell phones (`hasCellPhone`, the one filter, which is also what
