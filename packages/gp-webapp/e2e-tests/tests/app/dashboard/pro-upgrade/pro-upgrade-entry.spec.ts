@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
@@ -54,4 +55,26 @@ test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
     await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/)
     await expect(page).toHaveURL(/\/dashboard\/pro-upgrade\/value-prop$/)
   })
+})
+
+// Inside the SMS compliance cutoff the default order has no filing steps left
+// to resume, so the index sends a free candidate straight to payment. Stops
+// there without paying, so no Stripe. Isolated: it moves the election date.
+test('sends a free candidate inside the SMS cutoff straight to payment', async ({
+  page,
+}) => {
+  await blockSlowScripts(page)
+  const { client } = await authenticateTestUser(page, { isolated: true })
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: format(addDays(new Date(), 10), 'yyyy-MM-dd') },
+  })
+
+  await page.goto('/dashboard/pro-upgrade')
+  await NavigationHelper.dismissOverlays(page)
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/payment$/, {
+    timeout: 60_000,
+  })
+  await expect(
+    page.getByRole('heading', { name: 'Complete your upgrade' }),
+  ).toBeVisible()
 })

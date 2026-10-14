@@ -224,6 +224,22 @@ describe('OutreachProposalCard', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
+  it('says texting is closed for the race on Win once the window has closed', async () => {
+    mockNotSent()
+    flows.mode = 'win'
+    flows.textAvailable = false
+
+    renderCard(proposalCard({ channel: 'text' }))
+
+    expect(
+      await screen.findByText("Texting isn't available for this race."),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Texting is not available for your office yet'),
+    ).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
   it('reads as sent once its key resolves, and leads to that send', async () => {
     api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
       status: 200,

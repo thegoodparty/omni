@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
 import { Button, ProBadge, Spinner } from '@styleguide'
+import { CalendarClockIcon } from '@styleguide/components/ui/icons'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { APP_BASE } from 'appEnv'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
@@ -53,6 +59,31 @@ const OrderSummary = (): React.JSX.Element => {
   )
 }
 
+// Verification starts at payment, so a texting or standalone launch says so
+// under the price. In the closing week it names the cutoff instead, and once
+// texting has closed there is nothing to verify, so it says nothing.
+const SmsVerificationLine = (): React.JSX.Element | null => {
+  const { channel } = useProUpgradeWizard()
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  if (channel !== 'sms' && channel !== null) return null
+  if (smsCompliance === 'open') {
+    return (
+      <p className="mt-2 text-sm text-base-muted-foreground">
+        {SMS_CUTOFF_COPY.paymentVerificationStarts}
+      </p>
+    )
+  }
+  if (smsCompliance === 'closing' && smsCutoffDate) {
+    return (
+      <p className="mt-2 flex items-center gap-2 text-sm font-medium text-warning-dark">
+        <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
+        {SMS_CUTOFF_COPY.paymentClosing(formatSmsCutoffDate(smsCutoffDate))}
+      </p>
+    )
+  }
+  return null
+}
+
 // One column, as the design draws it on every width: title, the
 // subscription card, the payment card, the terms line, and Back pinned to
 // the bottom of the host's column.
@@ -71,6 +102,7 @@ const PaymentFrame = ({
       <p className="text-base text-base-muted-foreground">
         Pro is $10/mo, cancel anytime.
       </p>
+      <SmsVerificationLine />
     </div>
     {summary}
     <div className="rounded-xl border border-base-border bg-card p-4">

@@ -4,7 +4,11 @@ import { useEffect } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
-import { CreditCardIcon, FileBadgeIcon } from '@styleguide/components/ui/icons'
+import {
+  CalendarClockIcon,
+  CreditCardIcon,
+  FileBadgeIcon,
+} from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -12,7 +16,11 @@ import {
   CONTACT_DETAILS_ROW,
   FILING_DETAILS_ROW,
   PIN_TIMING_ROW,
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
+import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -33,6 +41,12 @@ const GATHER_STEPS = [
 // overview. Every launch now gathers the filing details before payment, so
 // the list carries campaign verification's own rows around the EIN and
 // payment ones, with the wait for the PIN last.
+const PAYMENT_ROW = {
+  icon: CreditCardIcon,
+  title: 'Payment',
+  body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
+}
+
 const PURCHASE_ONLY_ROWS = [
   {
     icon: FileBadgeIcon,
@@ -41,13 +55,13 @@ const PURCHASE_ONLY_ROWS = [
   },
   FILING_DETAILS_ROW,
   CONTACT_DETAILS_ROW,
-  {
-    icon: CreditCardIcon,
-    title: 'Payment',
-    body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
-  },
+  PAYMENT_ROW,
   PIN_TIMING_ROW,
 ]
+
+// Once the SMS compliance window has closed the wizard skips the filing
+// steps, so payment is the only thing left to gather.
+const SMS_CLOSED_ROWS = [PAYMENT_ROW]
 
 // Mirrors gp-api's buildFilingInstructionsContent / formatFilingWindow
 // (filingInstructions.util.ts) so the date shown here can't drift from the
@@ -76,6 +90,13 @@ const GuidanceStep = (): React.JSX.Element => {
   const { purchaseOnly, channel, goToStep, goToPreviousStep, exit } =
     useProUpgradeWizard()
   const [campaign] = useCampaign()
+  const { smsCompliance, smsCutoffDate, generalElectionDate } =
+    useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
+  const smsCountdown =
+    smsCompliance === 'closing' && smsCutoffDate
+      ? SMS_CUTOFF_COPY.guidanceClosing(formatSmsCutoffDate(smsCutoffDate))
+      : null
 
   const filingWindow = formatFilingWindow(
     campaign?.details?.filingPeriodsStart,
@@ -86,8 +107,27 @@ const GuidanceStep = (): React.JSX.Element => {
     trackEvent(EVENTS.ProUpgrade.Compliance.GuidanceViewed)
   }, [])
 
+  const cutoffSource = channel ?? 'generic'
+  useEffect(() => {
+    if (!smsClosed) return
+    trackEvent(EVENTS.ProUpgrade.SmsCutoff.NoticeViewed, {
+      source: cutoffSource,
+      cutoffDate: smsCutoffDate,
+      generalElectionDate,
+    })
+  }, [smsClosed, cutoffSource, smsCutoffDate, generalElectionDate])
+
   const handleContinue = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.GuidanceContinue)
+    if (smsClosed) {
+      trackEvent(EVENTS.ProUpgrade.SmsCutoff.NoticeCompleted, {
+        source: cutoffSource,
+        cutoffDate: smsCutoffDate,
+        generalElectionDate,
+      })
+      goToStep(PRO_UPGRADE_STEP.PAYMENT)
+      return
+    }
     // GUIDANCE is off the linear step order (the router can't derive an
     // interstitial with no persisted "seen" state), so advance explicitly to
     // the EIN step rather than via goToNextStep. In the purchase-only order
@@ -95,21 +135,39 @@ const GuidanceStep = (): React.JSX.Element => {
     goToStep(purchaseOnly ? PRO_UPGRADE_STEP.STATUS : PRO_UPGRADE_STEP.EIN)
   }
 
-  if (purchaseOnly) {
+  if (purchaseOnly || smsClosed) {
+    const rows = smsClosed ? SMS_CLOSED_ROWS : PURCHASE_ONLY_ROWS
     return (
       // min-h-full + flex-col: inside the outreach sheet the footer row pins
       // to the bottom (design: renderSgModal's footerRow); in the route
       // shell's card the parent has no height to fill and this is inert.
       <div className="flex min-h-full flex-1 flex-col">
         <h1 className="mb-2 text-xl font-semibold">
-          Let&apos;s gather a few things to unlock Pro
+          {smsClosed
+            ? SMS_CUTOFF_COPY.guidanceClosedTitle
+            : "Let's gather a few things to unlock Pro"}
         </h1>
         <p className="mb-6 text-base text-base-muted-foreground">
-          Have this information available to verify your campaign.
+          {smsClosed
+            ? SMS_CUTOFF_COPY.guidanceClosedBody
+            : 'Have this information available to verify your campaign.'}
         </p>
 
+        {smsClosed && (
+          <div className="mb-4 rounded-xl border border-base-border bg-card p-4">
+            <SmsCutoffNotice variant="card" surface="pro_upgrade_guidance" />
+          </div>
+        )}
+
+        {smsCountdown && (
+          <p className="mb-4 flex items-center gap-2 text-sm font-medium text-warning-dark">
+            <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
+            {smsCountdown}
+          </p>
+        )}
+
         <ul className="rounded-xl border border-base-border">
-          {PURCHASE_ONLY_ROWS.map(({ icon: Icon, title, body }) => (
+          {rows.map(({ icon: Icon, title, body }) => (
             <li
               key={title}
               className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"

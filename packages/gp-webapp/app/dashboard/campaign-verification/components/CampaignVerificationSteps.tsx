@@ -8,6 +8,8 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
 import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { VerificationIntro } from './VerificationIntro'
 import { hasVerificationDraft } from '../verificationDraft'
 import {
@@ -49,6 +51,7 @@ const CampaignVerificationSteps = ({
   completeLabel = 'Done',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
   const [campaign] = useCampaign()
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
   // `null` until mounted when the caller gives no step: the draft lives in
   // localStorage, which the server render cannot read, so choosing during
   // render would hydrate the intro over a client that wants the form.
@@ -76,10 +79,10 @@ const CampaignVerificationSteps = ({
   // counted twice; the ref lives here, where it survives that.
   const introViewedRef = useRef(false)
   useEffect(() => {
-    if (step !== 'intro' || introViewedRef.current) return
+    if (smsClosed || step !== 'intro' || introViewedRef.current) return
     introViewedRef.current = true
     trackEvent(EVENTS.ProUpgrade.Verification.IntroViewed)
-  }, [step])
+  }, [smsClosed, step])
 
   // Same guard for the submitted screen: a refresh of the submitted URL
   // mounts straight onto it, and the effect must not count that twice.
@@ -89,6 +92,16 @@ const CampaignVerificationSteps = ({
     submittedViewedRef.current = true
     trackEvent(EVENTS.ProUpgrade.Verification.SubmittedViewed)
   }, [step])
+
+  // gp-api refuses a new filing once the window has closed, so the steps give
+  // way to the notice. The host's chrome keeps its own way out.
+  if (smsClosed) {
+    return (
+      <div className="flex min-h-full flex-1 flex-col">
+        <SmsCutoffNotice variant="screen" surface="campaign_verification" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-full flex-1 flex-col">

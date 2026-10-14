@@ -78,6 +78,12 @@ export const SMS_CUTOFF_COPY = {
   seeOtherWays: 'See other ways to reach voters',
   closedLabel: 'Texting closed',
   backToOutreach: 'Back to outreach',
+  backToDashboard: 'Back to dashboard',
+  backToChat: 'Back to chat',
+  complianceCardClosingBody: (generalElectionDate: string | null): string =>
+    generalElectionDate
+      ? `Register your campaign so you can text voters before your ${generalElectionDate} election.`
+      : 'Register your campaign so you can text voters before your election.',
   countdown: (cutoff: string): string =>
     `Start texting verification by ${cutoff}.`,
   countdownTitle: (cutoff: string): string =>
