@@ -2471,6 +2471,32 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
     })
 
+    it("shows gp-api's reason when the retry itself is rejected", async () => {
+      vi.mocked(createP2pPhoneList)
+        .mockReset()
+        .mockResolvedValueOnce({ ok: true, token: 'tok-1', buildId: 'build-1' })
+        .mockResolvedValueOnce({
+          ok: false,
+          message: 'Audience too large for an interactive build.',
+        })
+      vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
+        buildStatus: 'failed',
+        buildError: 'No contacts matched the filter.',
+      })
+      openFlow()
+      await runToReview()
+
+      expect(
+        await screen.findByText('No contacts matched the filter.'),
+      ).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+      expect(
+        await screen.findByText('Audience too large for an interactive build.'),
+      ).toBeInTheDocument()
+    })
+
     it('rebuilds automatically on Back from a failed build, so re-entering review is not stuck on the stale failure', async () => {
       vi.mocked(createP2pPhoneList)
         .mockReset()

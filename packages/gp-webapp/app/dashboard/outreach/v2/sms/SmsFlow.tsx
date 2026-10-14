@@ -1439,6 +1439,11 @@ export const SmsFlow = ({
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
+      setPhoneListBuildError(
+        !result.ok && typeof result.message === 'string' && result.message
+          ? result.message
+          : null,
+      )
       setPhoneListBuildFailed(true)
       return
     }
