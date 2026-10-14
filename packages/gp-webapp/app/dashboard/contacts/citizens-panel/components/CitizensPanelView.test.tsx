@@ -4,7 +4,12 @@ import type { CivicPanelRepresentation } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { CitizensPanelView } from './CitizensPanelView'
 
-const SUMMARY = { members: 40, reachedRecently: 15, askableNow: 25 }
+const SUMMARY = {
+  members: 40,
+  reachedRecently: 15,
+  askableNow: 25,
+  lastOutreachAt: null,
+}
 
 const REPRESENTATION: CivicPanelRepresentation = {
   representation: {
@@ -45,7 +50,12 @@ describe('CitizensPanelView', () => {
   it('withholds the comparison below the minimum number of members', () => {
     render(
       <CitizensPanelView
-        summary={{ members: 4, reachedRecently: 0, askableNow: 4 }}
+        summary={{
+          members: 4,
+          reachedRecently: 0,
+          askableNow: 4,
+          lastOutreachAt: null,
+        }}
         representation={{ representation: null }}
       />,
     )
@@ -60,7 +70,12 @@ describe('CitizensPanelView', () => {
   it('says when too few members can be placed on the map', () => {
     render(
       <CitizensPanelView
-        summary={{ members: 14, reachedRecently: 0, askableNow: 14 }}
+        summary={{
+          members: 14,
+          reachedRecently: 0,
+          askableNow: 14,
+          lastOutreachAt: null,
+        }}
         representation={{ representation: null }}
       />,
     )
@@ -86,7 +101,12 @@ describe('CitizensPanelView', () => {
   it('offers no such list when nobody can be asked now', () => {
     render(
       <CitizensPanelView
-        summary={{ members: 12, reachedRecently: 12, askableNow: 0 }}
+        summary={{
+          members: 12,
+          reachedRecently: 12,
+          askableNow: 0,
+          lastOutreachAt: null,
+        }}
         representation={REPRESENTATION}
       />,
     )
@@ -112,7 +132,12 @@ describe('CitizensPanelView', () => {
   it('points to the Chief of Staff when nobody has joined yet', () => {
     render(
       <CitizensPanelView
-        summary={{ members: 0, reachedRecently: 0, askableNow: 0 }}
+        summary={{
+          members: 0,
+          reachedRecently: 0,
+          askableNow: 0,
+          lastOutreachAt: null,
+        }}
         representation={{ representation: null }}
       />,
     )

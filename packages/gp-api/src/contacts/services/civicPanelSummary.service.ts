@@ -35,20 +35,36 @@ export class CivicPanelSummaryService {
   async summaryFor(organization: Organization): Promise<CivicPanelSummary> {
     const members = await this.memberIds(organization)
     if (members.length === 0) {
-      return { members: 0, reachedRecently: 0, askableNow: 0 }
+      return {
+        members: 0,
+        reachedRecently: 0,
+        askableNow: 0,
+        lastOutreachAt: null,
+      }
     }
     // The notContactedRecently list filter's rule, so askableNow is exactly
     // who a "Not contacted in the last 30 days" panel list holds.
-    const reachedRecently =
-      await this.contactsMadeResolutionService.countContactedSinceAmong(
+    const [reachedRecently, [lastOutreach]] = await Promise.all([
+      this.contactsMadeResolutionService.countContactedSinceAmong(
         organization.slug,
         subDays(new Date(), CONTACT_REST_DAYS),
         members,
-      )
+      ),
+      // The built-in list's history, cut to its newest row, so the list
+      // row's "Last outreach" matches the sheet without its aggregates.
+      this.contactsService.civicPanelOutreachHistory(
+        organization.slug,
+        members,
+        1,
+      ),
+    ])
     return {
       members: members.length,
       reachedRecently,
       askableNow: members.length - reachedRecently,
+      lastOutreachAt: lastOutreach
+        ? (lastOutreach.date ?? lastOutreach.createdAt)
+        : null,
     }
   }
 

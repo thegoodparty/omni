@@ -84,7 +84,12 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ members: 0, reachedRecently: 0, askableNow: 0 })
+    expect(res.data).toEqual({
+      members: 0,
+      reachedRecently: 0,
+      askableNow: 0,
+      lastOutreachAt: null,
+    })
   })
 
   it('counts a member reached 10 days ago as reached and 40 days ago as askable', async () => {
@@ -106,7 +111,12 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ members: 3, reachedRecently: 1, askableNow: 2 })
+    expect(res.data).toEqual({
+      members: 3,
+      reachedRecently: 1,
+      askableNow: 2,
+      lastOutreachAt: null,
+    })
   })
 
   it("does not count another office's outreach as reaching a member", async () => {
@@ -118,7 +128,12 @@ describe('GET /v1/contacts/civic-panel', () => {
 
     const res = await summary(slug)
 
-    expect(res.data).toEqual({ members: 1, reachedRecently: 0, askableNow: 1 })
+    expect(res.data).toEqual({
+      members: 1,
+      reachedRecently: 0,
+      askableNow: 1,
+      lastOutreachAt: null,
+    })
   })
 
   it("still counts when the office's contacted set is past the list filter's cap", async () => {
@@ -141,7 +156,12 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ members: 2, reachedRecently: 1, askableNow: 1 })
+    expect(res.data).toEqual({
+      members: 2,
+      reachedRecently: 1,
+      askableNow: 1,
+      lastOutreachAt: null,
+    })
   })
 
   it('400s for a Win org', async () => {
