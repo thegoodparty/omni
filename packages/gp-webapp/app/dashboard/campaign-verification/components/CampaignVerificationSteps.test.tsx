@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { renderToString } from 'react-dom/server'
 import { render } from 'helpers/test-utils/render'
 import CampaignVerificationSteps from './CampaignVerificationSteps'
+import type { Campaign } from 'helpers/types'
 import { saveVerificationDraft } from '../verificationDraft'
 
 interface MockElectionFilingFormProps {
@@ -43,8 +44,11 @@ vi.mock(
   }),
 )
 
+const mockUseCampaign = vi.fn<() => [Partial<Campaign> | null]>(() => [
+  { id: 7 },
+])
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ id: 7 }],
+  useCampaign: () => mockUseCampaign(),
 }))
 
 const SUBMITTED_TITLE = 'Submitted for verification'
@@ -63,6 +67,7 @@ describe('CampaignVerificationSteps', () => {
     onExit = vi.fn<() => void>()
     onComplete = vi.fn<() => void>()
     window.localStorage.clear()
+    mockUseCampaign.mockReturnValue([{ id: 7 }])
   })
 
   it('reopens on the form when this browser holds a draft', () => {
@@ -231,5 +236,46 @@ describe('CampaignVerificationSteps', () => {
     expect(
       screen.getByRole('button', { name: 'Back to my text' }),
     ).toBeInTheDocument()
+  })
+
+  describe('SMS compliance window', () => {
+    const smsCampaign = (smsCompliance: 'closing' | 'closed') => ({
+      id: 7,
+      smsCompliance,
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+
+    it('shows the cutoff notice instead of the steps once texting has closed', () => {
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      saveVerificationDraft(7, { filing: { candidateName: 'Sarah Chen' } })
+      render(
+        <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
+      )
+
+      expect(
+        screen.getByRole('heading', {
+          name: "Texting isn't available for this race",
+        }),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(INTRO_TITLE)).not.toBeInTheDocument()
+      expect(screen.queryByTestId('filing-form')).not.toBeInTheDocument()
+    })
+
+    it('puts the cutoff date on the intro while closing', () => {
+      mockUseCampaign.mockReturnValue([smsCampaign('closing')])
+      render(
+        <CampaignVerificationSteps
+          initialStep="intro"
+          onExit={onExit}
+          onComplete={onComplete}
+        />,
+      )
+
+      expect(screen.getByText(INTRO_TITLE)).toBeInTheDocument()
+      expect(
+        screen.getByText('Start texting verification by Oct 15.'),
+      ).toBeInTheDocument()
+    })
   })
 })

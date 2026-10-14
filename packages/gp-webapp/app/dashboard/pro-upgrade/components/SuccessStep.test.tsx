@@ -13,6 +13,7 @@ import {
   ProUpgradeWizardContext,
   type ProUpgradeWizardContextValue,
 } from './proUpgradeWizardContext'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import SuccessStep from './SuccessStep'
 
 // The confetti overlay paints to a <canvas>, which jsdom can't render — stub it
@@ -39,6 +40,11 @@ vi.mock(
     getTcrCompliance: () => mockGetTcrCompliance(),
   }),
 )
+
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: vi.fn(),
+}))
+const mockUseSmsCompliance = vi.mocked(useSmsCompliance)
 
 const submittedTcr = { status: 'submitted' } as TcrCompliance
 
@@ -87,6 +93,11 @@ describe('SuccessStep', () => {
       data: {},
     })
     mockGetTcrCompliance.mockResolvedValue(null)
+    mockUseSmsCompliance.mockReturnValue({
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    })
   })
 
   it('renders the Welcome-to-Pro messaging and fires the viewed event', () => {
@@ -430,6 +441,92 @@ describe('SuccessStep', () => {
         screen.getByText('Still to do: build your walk list'),
       ).toBeInTheDocument()
       expect(mockGetTcrCompliance).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('with the SMS compliance window closed', () => {
+    beforeEach(() => {
+      mockUseSmsCompliance.mockReturnValue({
+        smsCompliance: 'closed',
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      })
+    })
+
+    // Closed wins over the filing: saved details without a kickoff never
+    // started verification, so there is no PIN coming either.
+    it.each([
+      ['no filing', null],
+      ['a saved filing', submittedTcr],
+    ])(
+      'swaps verification for the cutoff notice and goes to outreach (%s)',
+      async (_label, tcr) => {
+        api.mock('GET /v1/campaigns/mine', {
+          status: 200,
+          data: campaign(true),
+        })
+        mockGetTcrCompliance.mockResolvedValue(tcr)
+
+        render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+        expect(
+          screen.getByText(
+            'Payment successful. Your next step is to pick a way to reach voters.',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText("Texting isn't available for this race"),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByText('Still to do: verification'),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByText('A PIN is on its way'),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Start verification' }),
+        ).not.toBeInTheDocument()
+        expect(mockGetTcrCompliance).not.toHaveBeenCalled()
+
+        const goToOutreach = screen.getByRole('button', {
+          name: 'Go to outreach',
+        })
+        await waitFor(() => expect(goToOutreach).toBeEnabled())
+        goToOutreach.click()
+
+        expect(complete).toHaveBeenCalledTimes(1)
+        expect(exit).not.toHaveBeenCalled()
+      },
+    )
+
+    it('drops the PIN promise from the default-order screen too', () => {
+      render(withWizard(<SuccessStep />))
+
+      expect(
+        screen.getByRole('heading', { name: 'Welcome to Pro' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/your PIN will be sent/i),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByText("Texting isn't available for this race"),
+      ).toBeInTheDocument()
+    })
+
+    it('keeps a robocall launch on its next outreach step', () => {
+      render(
+        withWizard(<SuccessStep />, {
+          purchaseOnly: true,
+          channel: 'robocall',
+        }),
+      )
+
+      expect(
+        screen.getByText('Still to do: schedule your robocall'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText("Texting isn't available for this race"),
+      ).not.toBeInTheDocument()
     })
   })
 })

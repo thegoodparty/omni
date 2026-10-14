@@ -5,6 +5,7 @@ import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import { getServerUser } from 'helpers/userServerHelper'
 import { fetchUserWebsite } from 'helpers/fetchUserWebsite'
 import { redirect } from 'next/navigation'
+import SmsCutoffPage from 'app/dashboard/campaign-verification/components/SmsCutoffPage'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,12 @@ export const metadata = meta
 const Page = async (): Promise<React.JSX.Element> => {
   await candidateAccess()
   const campaign = await fetchUserCampaign()
+
+  // Before the domain redirect below, so a candidate who can no longer text
+  // is never sent to buy a domain for it.
+  if (campaign?.smsCompliance === 'closed') {
+    return <SmsCutoffPage surface="legacy_register" />
+  }
 
   if (!campaign || !campaign.isPro) {
     redirect('/dashboard/pro-upgrade')

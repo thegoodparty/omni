@@ -60,7 +60,9 @@ const AccountProfilePage = ({
             <NotificationSection showCampaignChannels={!isElectedOffice} />
           )}
 
-          {!!campaign && isPro && <ProUpgrade3Compliance />}
+          {!!campaign && isPro && (
+            <ProUpgrade3Compliance surface="account_compliance_card" />
+          )}
 
           <DeleteAccountPage />
         </div>

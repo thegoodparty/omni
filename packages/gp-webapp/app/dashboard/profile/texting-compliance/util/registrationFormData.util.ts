@@ -75,6 +75,7 @@ export const toRegistrationFormData = (
 const errorBodySchema = z.object({
   message: z.string().optional(),
   errors: z.array(z.object({ message: z.string() })).optional(),
+  errorCode: z.string().optional(),
 })
 
 const extractServerMessage = (data: unknown): string | null => {
@@ -91,7 +92,22 @@ const extractServerMessage = (data: unknown): string | null => {
 // office level), so callers can show the candidate the actual reason instead
 // of a generic "try again later" (ENG-11043). Callers must still fall back to
 // their generic copy for anything that isn't this error.
-export class TcrComplianceSubmitError extends Error {}
+export class TcrComplianceSubmitError extends Error {
+  constructor(
+    message: string,
+    readonly errorCode: string | null = null,
+  ) {
+    super(message)
+  }
+}
+
+// gp-api refuses a new filing once the SMS compliance window has closed. The
+// campaign it answered from may predate the close, so callers refetch it.
+export const SMS_COMPLIANCE_CUTOFF_ERROR_CODE = 'SMS_COMPLIANCE_CUTOFF'
+
+export const isSmsComplianceCutoffError = (error: unknown): boolean =>
+  error instanceof TcrComplianceSubmitError &&
+  error.errorCode === SMS_COMPLIANCE_CUTOFF_ERROR_CODE
 
 export const submitTcrCompliance = async (
   route: ApiRoute,
@@ -101,8 +117,12 @@ export const submitTcrCompliance = async (
   const mappedData = mapFormData(formData)
   const response = await clientFetch(route, mappedData)
   if (!response.ok) {
+    const parsed = errorBodySchema.safeParse(response.data)
     throw new TcrComplianceSubmitError(
       extractServerMessage(response.data) ?? errorMessage,
+      response.status === 409 && parsed.success
+        ? (parsed.data.errorCode ?? null)
+        : null,
     )
   }
   return response.data

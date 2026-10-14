@@ -145,7 +145,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
           : isCandidateProfileComplete(website),
         pinComplete,
       },
-      { purchaseOnly },
+      { purchaseOnly, smsClosed: campaign?.smsCompliance === 'closed' },
     )
 
     // An already-Pro candidate is routed to success, not into a purchase.

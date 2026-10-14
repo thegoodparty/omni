@@ -35,11 +35,13 @@ import {
   FILING_CONTACT_TITLE,
   FILING_DETAILS_CAPTION,
   FILING_DETAILS_TITLE,
-  SUBMITTED_BODY,
-  SUBMITTED_TITLE,
+  DETAILS_SAVED_BODY,
+  DETAILS_SAVED_TITLE,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import {
+  isSmsComplianceCutoffError,
   submitTcrCompliance,
   TcrComplianceSubmitError,
   toRegistrationFormData,
@@ -470,6 +472,11 @@ const DefaultFilingDetailsStep = (): React.JSX.Element => {
       ])
       goToNextStep()
     } catch (error) {
+      // The window closed since the campaign was read: refetch it so the
+      // wizard swaps to the closed order and leaves this step.
+      if (isSmsComplianceCutoffError(error)) {
+        await queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
+      }
       trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {
         email: getStringValue(formData.email),
       })
@@ -536,9 +543,9 @@ const PurchaseOnlyFilingDetailsStep = (): React.JSX.Element => {
     return (
       <div className="flex min-h-full flex-1 flex-col">
         <div className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold">{SUBMITTED_TITLE}</h1>
+          <h1 className="text-xl font-semibold">{DETAILS_SAVED_TITLE}</h1>
           <p className="text-base text-base-muted-foreground">
-            {SUBMITTED_BODY}
+            {DETAILS_SAVED_BODY}
           </p>
         </div>
         <StepFooter>

@@ -50,7 +50,10 @@ const { submitTcrCompliance } = vi.hoisted(() => ({
 }))
 vi.mock(
   'app/dashboard/profile/texting-compliance/util/registrationFormData.util',
-  () => ({
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('app/dashboard/profile/texting-compliance/util/registrationFormData.util')
+    >()),
     submitTcrCompliance,
     toRegistrationFormData: (data: Record<string, unknown>) => data,
   }),

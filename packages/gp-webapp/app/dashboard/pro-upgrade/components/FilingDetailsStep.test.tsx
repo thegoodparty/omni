@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor, within } from '@testing-library/react'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { apiRoutes } from 'gpApi/routes'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { submitTcrCompliance } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { TcrComplianceSubmitError } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { MIN_BIO_LENGTH } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { readVerificationDraft } from 'app/dashboard/campaign-verification/verificationDraft'
 import FilingDetailsStep, {
@@ -666,6 +667,43 @@ describe('FilingDetailsStep', () => {
     expect(goToNextStep).not.toHaveBeenCalled()
   })
 
+  it('refetches the campaign when gp-api refuses the filing for the SMS cutoff', async () => {
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    mockSubmit.mockRejectedValue(
+      new TcrComplianceSubmitError(
+        'Texting compliance is closed for this race',
+        'SMS_COMPLIANCE_CUTOFF',
+      ),
+    )
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: CAMPAIGN_QUERY_KEY,
+      }),
+    )
+    expect(goToNextStep).not.toHaveBeenCalled()
+    invalidate.mockRestore()
+  })
+
+  it('leaves the campaign alone for any other refusal', async () => {
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    mockSubmit.mockRejectedValue(new TcrComplianceSubmitError('Bad link'))
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(errorSnackbar).toHaveBeenCalledWith('Bad link'))
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: CAMPAIGN_QUERY_KEY,
+    })
+    invalidate.mockRestore()
+  })
+
   it('hides the office-level select when onboarding recorded a ballot level', () => {
     render(<FilingDetailsStep />)
     expect(screen.queryByText('Office level *')).not.toBeInTheDocument()
@@ -920,7 +958,7 @@ describe('FilingDetailsStep (purchase-only)', () => {
     )
     // The form stays on screen until the wizard moves; a record that lands
     // mid-submit must not swap in the already-submitted notice.
-    expect(screen.queryByText('Submitted for verification')).toBeNull()
+    expect(screen.queryByText('Your details are saved')).toBeNull()
   })
 
   it('stays on the step when the submit fails', async () => {
@@ -939,6 +977,29 @@ describe('FilingDetailsStep (purchase-only)', () => {
     )
     expect(goToNextStep).not.toHaveBeenCalled()
     expect(errorSnackbar).toHaveBeenCalled()
+  })
+
+  it('refetches the campaign when gp-api refuses the filing for the SMS cutoff', async () => {
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    mockSubmit.mockRejectedValue(
+      new TcrComplianceSubmitError(
+        'Texting compliance is closed for this race',
+        'SMS_COMPLIANCE_CUTOFF',
+      ),
+    )
+    render(<FilingDetailsStep />)
+    await screen.findByText('What are your campaign filing details?')
+    fillVerificationForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: CAMPAIGN_QUERY_KEY,
+      }),
+    )
+    expect(goToNextStep).not.toHaveBeenCalled()
+    invalidate.mockRestore()
   })
 
   it('goes back to the EIN step from the form', async () => {
@@ -979,16 +1040,21 @@ describe('FilingDetailsStep (purchase-only)', () => {
 
   // createAgentic hands back an existing record unchanged, so a candidate
   // who submitted, left at payment and came back is not asked to retype it.
-  it('confirms an earlier submission instead of asking again', async () => {
+  // Verification only starts at payment, so the saved details are not yet
+  // "submitted for verification".
+  it('confirms saved details instead of asking again', async () => {
     getTcrCompliance.mockResolvedValue({ status: 'submitted' })
     render(<FilingDetailsStep />)
 
     expect(
-      await screen.findByText('Submitted for verification'),
+      await screen.findByText('Your details are saved'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Your campaign has been submitted for verification.'),
+      screen.getByText('Verification starts when you finish your upgrade.'),
     ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Submitted for verification'),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByText('What are your campaign filing details?'),
     ).not.toBeInTheDocument()

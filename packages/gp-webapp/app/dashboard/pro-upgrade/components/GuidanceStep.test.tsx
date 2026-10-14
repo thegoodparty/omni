@@ -4,6 +4,7 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import type { Campaign } from 'helpers/types'
 import GuidanceStep from './GuidanceStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -235,6 +236,90 @@ describe('GuidanceStep', () => {
       render(<GuidanceStep />)
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ProUpgrade.Compliance.GuidanceViewed,
+      )
+    })
+  })
+
+  describe('SMS compliance window', () => {
+    const smsCampaign = (smsCompliance: 'closing' | 'closed') =>
+      ({
+        smsCompliance,
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      }) as Campaign
+
+    it.each([true, false])(
+      'shows the cutoff notice and only the payment row when closed (purchase-only %s)',
+      (purchaseOnly) => {
+        if (purchaseOnly) enablePurchaseOnly()
+        mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+        render(<GuidanceStep />)
+
+        expect(
+          screen.getByRole('heading', {
+            name: "Here's what you need to unlock Pro",
+          }),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText("Texting isn't available for this race"),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText(
+            "Texting needs campaign verification, which can't finish before your general election on Nov 3.",
+          ),
+        ).toBeInTheDocument()
+        const rows = screen
+          .getAllByRole('listitem')
+          .map((row) => row.textContent)
+        expect(rows).toEqual([
+          'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
+        ])
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.ProUpgrade.SmsCutoff.NoticeViewed,
+          {
+            source: 'generic',
+            cutoffDate: '2026-10-15',
+            generalElectionDate: '2026-11-03',
+          },
+        )
+      },
+    )
+
+    it('continues to payment when closed and records the notice as completed', () => {
+      enablePurchaseOnly()
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      render(<GuidanceStep />)
+
+      screen.getByRole('button', { name: 'Continue' }).click()
+
+      expect(goToStep).toHaveBeenCalledWith('payment')
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.SmsCutoff.NoticeCompleted,
+        {
+          source: 'generic',
+          cutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        },
+      )
+    })
+
+    it('keeps every row and adds the cutoff date while closing', () => {
+      enablePurchaseOnly()
+      mockUseCampaign.mockReturnValue([smsCampaign('closing')])
+      render(<GuidanceStep />)
+
+      expect(
+        screen.getByText(
+          'Finish these by Oct 15 to text before your election.',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.getAllByRole('listitem')).toHaveLength(5)
+      expect(
+        screen.queryByText("Texting isn't available for this race"),
+      ).not.toBeInTheDocument()
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.SmsCutoff.NoticeViewed,
+        expect.anything(),
       )
     })
   })
