@@ -14,6 +14,7 @@ import {
   type ProUpgradeWizardContextValue,
 } from './proUpgradeWizardContext'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import SuccessStep from './SuccessStep'
 
 // The confetti overlay paints to a <canvas>, which jsdom can't render — stub it
@@ -459,7 +460,7 @@ describe('SuccessStep', () => {
       ['no filing', null],
       ['a saved filing', submittedTcr],
     ])(
-      'swaps verification for the cutoff notice and goes to outreach (%s)',
+      'swaps verification for a closed banner and goes to the dashboard (%s)',
       async (_label, tcr) => {
         api.mock('GET /v1/campaigns/mine', {
           status: 200,
@@ -470,13 +471,11 @@ describe('SuccessStep', () => {
         render(withWizard(<SuccessStep />, { purchaseOnly: true }))
 
         expect(
-          screen.getByText(
-            'Payment successful. Your next step is to pick a way to reach voters.',
-          ),
+          screen.getByText('Your payment went through.'),
         ).toBeInTheDocument()
-        expect(
-          screen.getByText("Texting isn't available for this race"),
-        ).toBeInTheDocument()
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          `The ${formatSmsCutoffDate('2026-10-15')} deadline to get verified for texting has passed.`,
+        )
         expect(
           screen.queryByText('Still to do: verification'),
         ).not.toBeInTheDocument()
@@ -488,11 +487,11 @@ describe('SuccessStep', () => {
         ).not.toBeInTheDocument()
         expect(mockGetTcrCompliance).not.toHaveBeenCalled()
 
-        const goToOutreach = screen.getByRole('button', {
-          name: 'Go to outreach',
+        const goToDashboard = screen.getByRole('button', {
+          name: 'Go to dashboard',
         })
-        await waitFor(() => expect(goToOutreach).toBeEnabled())
-        goToOutreach.click()
+        await waitFor(() => expect(goToDashboard).toBeEnabled())
+        goToDashboard.click()
 
         expect(complete).toHaveBeenCalledTimes(1)
         expect(exit).not.toHaveBeenCalled()
@@ -508,9 +507,7 @@ describe('SuccessStep', () => {
       expect(
         screen.queryByText(/your PIN will be sent/i),
       ).not.toBeInTheDocument()
-      expect(
-        screen.getByText("Texting isn't available for this race"),
-      ).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toBeInTheDocument()
     })
 
     it('keeps a robocall launch on its next outreach step', () => {
@@ -524,9 +521,7 @@ describe('SuccessStep', () => {
       expect(
         screen.getByText('Still to do: schedule your robocall'),
       ).toBeInTheDocument()
-      expect(
-        screen.queryByText("Texting isn't available for this race"),
-      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
   })
 })

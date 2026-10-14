@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import {
-  isSmsComplianceCutoffError,
   submitTcrCompliance,
   TcrComplianceSubmitError,
   toRegistrationFormData,
@@ -98,34 +97,6 @@ describe('submitTcrCompliance', () => {
   it('falls back to the caller copy for a non-JSON error body', async () => {
     respondWith(false, '<html>Bad Gateway</html>')
     await expectSubmitError('Fallback copy')
-  })
-
-  it('carries the SMS cutoff reason code from a 409', async () => {
-    mockClientFetch.mockResolvedValue({
-      ok: false,
-      status: 409,
-      statusText: 'Conflict',
-      data: {
-        message: 'Texting compliance is closed for this race',
-        errorCode: 'SMS_COMPLIANCE_CUTOFF',
-      },
-    })
-    const error = await submit().catch((thrown: unknown) => thrown)
-
-    expect(isSmsComplianceCutoffError(error)).toBe(true)
-    expect((error as TcrComplianceSubmitError).message).toBe(
-      'Texting compliance is closed for this race',
-    )
-  })
-
-  it('does not read a reason code off a non-409 refusal', async () => {
-    respondWith(false, {
-      message: 'Nope',
-      errorCode: 'SMS_COMPLIANCE_CUTOFF',
-    })
-    const error = await submit().catch((thrown: unknown) => thrown)
-
-    expect(isSmsComplianceCutoffError(error)).toBe(false)
   })
 })
 

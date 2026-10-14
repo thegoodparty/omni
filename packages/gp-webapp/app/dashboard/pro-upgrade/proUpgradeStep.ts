@@ -71,29 +71,11 @@ export const PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY: ProUpgradeStep[] = [
   PRO_UPGRADE_STEP.SUCCESS,
 ]
 
-// Once gp-api reports the SMS compliance window closed, verification cannot
-// finish before the general election and gp-api refuses a new filing, so the
-// wizard skips straight from guidance to payment. This holds for both flag
-// states and for a candidate who saved filing details but never paid.
-export const PRO_UPGRADE_STEP_ORDER_SMS_CLOSED: ProUpgradeStep[] = [
-  PRO_UPGRADE_STEP.GUIDANCE,
-  PRO_UPGRADE_STEP.PAYMENT,
-  PRO_UPGRADE_STEP.SUCCESS,
-]
-
-export const proUpgradeStepOrder = (
-  purchaseOnly: boolean,
-  smsClosed = false,
-): ProUpgradeStep[] => {
-  if (smsClosed) return PRO_UPGRADE_STEP_ORDER_SMS_CLOSED
-  return purchaseOnly
-    ? PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY
-    : PRO_UPGRADE_STEP_ORDER
-}
+export const proUpgradeStepOrder = (purchaseOnly: boolean): ProUpgradeStep[] =>
+  purchaseOnly ? PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY : PRO_UPGRADE_STEP_ORDER
 
 export interface DeriveProUpgradeStepOptions {
   purchaseOnly?: boolean
-  smsClosed?: boolean
 }
 
 // The candidate's answer to "have you already filed to run for this office?".
@@ -136,7 +118,7 @@ export interface ProUpgradeStepInputs {
  */
 export const deriveProUpgradeStep = (
   inputs: ProUpgradeStepInputs,
-  { purchaseOnly = false, smsClosed = false }: DeriveProUpgradeStepOptions = {},
+  { purchaseOnly = false }: DeriveProUpgradeStepOptions = {},
 ): ProUpgradeStep => {
   const { isPro, filingStatus, hasEin, filingComplete, profileComplete } =
     inputs
@@ -151,10 +133,6 @@ export const deriveProUpgradeStep = (
   // filing — so a returning candidate walks prefilled screens rather than
   // being dropped onto Payment by a resume they cannot see the reason for.
   if (purchaseOnly) return PRO_UPGRADE_STEP.GUIDANCE
-
-  // The default order has no filing steps left to resume once texting has
-  // closed, so a returning candidate goes straight to payment.
-  if (smsClosed) return PRO_UPGRADE_STEP.PAYMENT
 
   // Brand-new candidate with nothing collected yet lands on the value-prop
   // intro. A "not filed" answer is NOT progress: on its own it must restart a

@@ -5,6 +5,7 @@ import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import type { Campaign } from 'helpers/types'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import GuidanceStep from './GuidanceStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -247,52 +248,53 @@ describe('GuidanceStep', () => {
         smsCutoffDate: '2026-10-15',
         generalElectionDate: '2026-11-03',
       }) as Campaign
+    const cutoff = formatSmsCutoffDate('2026-10-15')
+    const closedReason = `The ${cutoff} deadline to get verified for texting has passed.`
 
-    it.each([true, false])(
-      'shows the cutoff notice and only the payment row when closed (purchase-only %s)',
-      (purchaseOnly) => {
-        if (purchaseOnly) enablePurchaseOnly()
-        mockUseCampaign.mockReturnValue([smsCampaign('closed')])
-        render(<GuidanceStep />)
+    it('keeps the purchase-only rows minus the PIN wait under a closed banner', () => {
+      enablePurchaseOnly()
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      render(<GuidanceStep />)
 
-        expect(
-          screen.getByRole('heading', {
-            name: "Here's what you need to unlock Pro",
-          }),
-        ).toBeInTheDocument()
-        expect(
-          screen.getByText("Texting isn't available for this race"),
-        ).toBeInTheDocument()
-        expect(
-          screen.getByText(
-            "Texting needs campaign verification, which can't finish before your general election on Nov 3.",
-          ),
-        ).toBeInTheDocument()
-        const rows = screen
-          .getAllByRole('listitem')
-          .map((row) => row.textContent)
-        expect(rows).toEqual([
-          'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
-        ])
-        expect(trackEvent).toHaveBeenCalledWith(
-          EVENTS.ProUpgrade.SmsCutoff.NoticeViewed,
-          {
-            source: 'generic',
-            cutoffDate: '2026-10-15',
-            generalElectionDate: '2026-11-03',
-          },
-        )
-      },
-    )
+      expect(screen.getByRole('alert')).toHaveTextContent(closedReason)
+      expect(
+        screen.getByRole('heading', {
+          name: "Let's gather a few things to unlock Pro",
+        }),
+      ).toBeInTheDocument()
+      const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
+      expect(rows).toEqual([
+        'Your campaign EINYour campaign EIN helps verify your candidacy and comply with texting regulations.',
+        'Your filing detailsThe committee name and filing link or document from your election authority',
+        'Contact detailsThe email, phone or address exactly as it appears on your filing',
+        'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
+      ])
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.SmsCutoff.NoticeViewed,
+        {
+          source: 'generic',
+          cutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        },
+      )
+    })
 
-    it('continues to payment when closed and records the notice as completed', () => {
+    it('keeps the default screen and its four items under a closed banner', () => {
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      render(<GuidanceStep />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(closedReason)
+      expect(screen.getAllByRole('listitem')).toHaveLength(4)
+    })
+
+    it('continues to the filing-status step when closed and records the banner as completed', () => {
       enablePurchaseOnly()
       mockUseCampaign.mockReturnValue([smsCampaign('closed')])
       render(<GuidanceStep />)
 
       screen.getByRole('button', { name: 'Continue' }).click()
 
-      expect(goToStep).toHaveBeenCalledWith('payment')
+      expect(goToStep).toHaveBeenCalledWith('status')
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ProUpgrade.SmsCutoff.NoticeCompleted,
         {
@@ -310,13 +312,11 @@ describe('GuidanceStep', () => {
 
       expect(
         screen.getByText(
-          'Finish these by Oct 15 to text before your election.',
+          `In order to send SMS, you must finish these steps by ${cutoff}.`,
         ),
       ).toBeInTheDocument()
       expect(screen.getAllByRole('listitem')).toHaveLength(5)
-      expect(
-        screen.queryByText("Texting isn't available for this race"),
-      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
       expect(trackEvent).not.toHaveBeenCalledWith(
         EVENTS.ProUpgrade.SmsCutoff.NoticeViewed,
         expect.anything(),

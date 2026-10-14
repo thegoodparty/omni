@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { getChannelLabel } from 'app/dashboard/outreach/v2/channelMeta'
-import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 import { shortOutreachDate } from 'app/dashboard/outreach/v2/outreachDate.util'
 import {
   CompactCardLink,
@@ -28,12 +27,6 @@ export const SERVE_OUTREACH_PROPOSAL_COPY = {
 
 export const WIN_OUTREACH_PROPOSAL_COPY = {
   sentTo: 'Sent to',
-  textUnavailable: SMS_CUTOFF_COPY.short,
-}
-
-const TEXT_UNAVAILABLE: Record<CardMode, string> = {
-  win: WIN_OUTREACH_PROPOSAL_COPY.textUnavailable,
-  serve: SERVE_OUTREACH_PROPOSAL_COPY.textUnavailable,
 }
 
 const SENT_TO: Record<CardMode, string> = {
@@ -94,17 +87,19 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
       .join(' · ')
 
   // The text flow is not mounted while SMS is off (Serve), or texting has
-  // closed for this race (Win), so there is nothing to open. Say so rather
-  // than offer a button that does nothing.
+  // closed for this race (Win), so there is nothing to open. Serve says so
+  // rather than offer a button that does nothing; Win drops the card, so the
+  // manager never points a candidate at a channel they cannot use.
   if (
     proposal.channel === 'text' &&
     flows?.textResolved &&
     !flows.textAvailable
   ) {
+    if (mode === 'win') return null
     return (
       <CompactCardStatic
         title={proposal.audience}
-        subtitle={TEXT_UNAVAILABLE[mode]}
+        subtitle={SERVE_OUTREACH_PROPOSAL_COPY.textUnavailable}
       />
     )
   }

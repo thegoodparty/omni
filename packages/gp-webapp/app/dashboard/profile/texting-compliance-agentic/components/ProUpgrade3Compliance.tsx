@@ -5,12 +5,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import {
-  SMS_CUTOFF_COPY,
-  formatSmsCutoffDate,
-} from 'app/dashboard/campaign-verification/verificationCopy'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import {
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
@@ -35,6 +31,9 @@ import TextingComplianceInReview from './TextingComplianceInReview'
 const FREE_TEXTS_APPROVED_DESCRIPTION =
   'Claim up to 5,000 free texts in your first campaign. Schedule your introduction text message today.'
 
+const smsClosingTitle = (cutoff: string): string =>
+  `Get verified to send SMS by the ${cutoff} deadline`
+
 // Post-payment compliance surface for the Pro-upgrade flow. The agent
 // provisions the domain/site and submits TCR to Peerly after payment; this
 // card only reflects the TCR record's status, it does not drive the agent.
@@ -50,33 +49,21 @@ const LoadingShell = (): React.JSX.Element => (
   </Card>
 )
 
-interface ProUpgrade3ComplianceProps {
-  // Where the card is mounted, for the SMS cutoff notice's events.
-  surface?: 'home_compliance_card' | 'account_compliance_card'
-}
-
-export default function ProUpgrade3Compliance({
-  surface = 'home_compliance_card',
-}: ProUpgrade3ComplianceProps): React.JSX.Element {
+export default function ProUpgrade3Compliance(): React.JSX.Element | null {
   const { data: tcrCompliance, isPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
   })
   const [campaign] = useCampaign()
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
-  const { smsCompliance, smsCutoffDate, generalElectionDate } =
-    useSmsCompliance()
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
 
   const pinGate = useCvPinGate(tcrCompliance, { isTcrPending: isPending })
 
   // gp-api reports closed only for a campaign whose verification never
-  // started, so the notice wins over whatever the record says.
+  // started, so there is no status to show and nothing left to set up.
   if (smsCompliance === 'closed') {
-    return (
-      <Card className="mt-4 p-4 md:p-6" id="texting-compliance">
-        <SmsCutoffNotice variant="card" surface={surface} />
-      </Card>
-    )
+    return null
   }
 
   // Hold a placeholder shell while loading so we don't flash the neutral
@@ -146,17 +133,12 @@ export default function ProUpgrade3Compliance({
         <div className="flex flex-col gap-1">
           <p className="text-lg font-semibold">
             {closingCutoff
-              ? SMS_CUTOFF_COPY.countdownTitle(closingCutoff)
+              ? smsClosingTitle(closingCutoff)
               : 'Set up texting compliance'}
           </p>
           <p className="text-sm text-muted-foreground">
-            {closingCutoff
-              ? SMS_CUTOFF_COPY.complianceCardClosingBody(
-                  generalElectionDate
-                    ? formatSmsCutoffDate(generalElectionDate)
-                    : null,
-                )
-              : 'Register your campaign for 10DLC texting compliance so you can send text messages to voters.'}
+            Register your campaign for 10DLC texting compliance so you can send
+            text messages to voters.
           </p>
         </div>
         <Button asChild>

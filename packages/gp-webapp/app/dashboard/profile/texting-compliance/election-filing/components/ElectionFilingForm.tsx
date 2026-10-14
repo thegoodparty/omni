@@ -8,13 +8,11 @@ import {
 } from '@shared/hooks/useFormData'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { apiRoutes } from 'gpApi/routes'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { Website } from 'helpers/types'
 import { TCR_COMPLIANCE_QUERY_KEY } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import {
-  isSmsComplianceCutoffError,
   submitTcrCompliance,
   toRegistrationFormData,
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
@@ -195,10 +193,7 @@ const ElectionFilingFormBody = ({
         queryClient.invalidateQueries({ queryKey: TCR_COMPLIANCE_QUERY_KEY }),
       ])
       onSubmitted()
-    } catch (error) {
-      if (isSmsComplianceCutoffError(error)) {
-        await queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
-      }
+    } catch {
       setHasSubmissionError(true)
       trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {
         email: formData.email,

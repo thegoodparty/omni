@@ -27,17 +27,6 @@ const mockUsePathname = vi.mocked(usePathname)
 const mockUseFlag = vi.mocked(useOutreachProGatingV2Flag)
 const mockUseSmsCompliance = vi.mocked(useSmsCompliance)
 
-const SMS_OPEN = {
-  smsCompliance: 'open' as const,
-  smsCutoffDate: null,
-  generalElectionDate: null,
-}
-const SMS_CLOSED = {
-  smsCompliance: 'closed' as const,
-  smsCutoffDate: '2026-10-15',
-  generalElectionDate: '2026-11-03',
-}
-
 // Context probe: the wizard chrome no longer renders Back itself (steps own
 // their footer Back buttons), so navigation behavior is exercised through the
 // context the steps consume.
@@ -79,7 +68,11 @@ describe('ProUpgradeWizard', () => {
     vi.spyOn(window, 'scrollTo').mockImplementation(noop)
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
     mockUseFlag.mockReturnValue({ ready: true, enabled: false })
-    mockUseSmsCompliance.mockReturnValue(SMS_OPEN)
+    mockUseSmsCompliance.mockReturnValue({
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    })
   })
 
   it('renders the step children', () => {
@@ -287,6 +280,49 @@ describe('ProUpgradeWizard', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard/campaign-verification')
   })
 
+  it('returns to the dashboard on complete in purchase-only mode once texting has closed', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseSmsCompliance.mockReturnValue({
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
+
+    render(
+      <ProUpgradeWizard>
+        <CompleteProbe />
+      </ProUpgradeWizard>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-complete' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('keeps the filing steps in the order once texting has closed', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseSmsCompliance.mockReturnValue({
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
+
+    render(
+      <ProUpgradeWizard>
+        <NextProbe />
+      </ProUpgradeWizard>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-next' }))
+
+    expect(router.replace).not.toHaveBeenCalled()
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/filing-details',
+    )
+  })
+
   it('returns to the dashboard on complete when the flag is off', () => {
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
 
@@ -333,85 +369,5 @@ describe('ProUpgradeWizard', () => {
       expect(screen.queryByText('Campaign EIN')).not.toBeInTheDocument()
       unmount()
     }
-  })
-
-  describe('with the SMS compliance window closed', () => {
-    beforeEach(() => {
-      mockUseSmsCompliance.mockReturnValue(SMS_CLOSED)
-    })
-
-    it('goes to outreach on complete, not campaign verification', () => {
-      mockUseFlag.mockReturnValue({ ready: true, enabled: true })
-      mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
-
-      render(
-        <ProUpgradeWizard>
-          <CompleteProbe />
-        </ProUpgradeWizard>,
-      )
-
-      fireEvent.click(screen.getByRole('button', { name: 'probe-complete' }))
-
-      expect(router.push).toHaveBeenCalledWith('/dashboard/outreach')
-    })
-
-    it('goes from guidance straight to payment and back', () => {
-      mockUseFlag.mockReturnValue({ ready: true, enabled: true })
-      mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/guidance')
-
-      const { unmount } = render(
-        <ProUpgradeWizard>
-          <NextProbe />
-        </ProUpgradeWizard>,
-      )
-      fireEvent.click(screen.getByRole('button', { name: 'probe-next' }))
-      expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade/payment')
-      unmount()
-
-      mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
-      render(
-        <ProUpgradeWizard>
-          <BackProbe />
-        </ProUpgradeWizard>,
-      )
-      fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
-      expect(router.push).toHaveBeenCalledWith(
-        '/dashboard/pro-upgrade/guidance',
-      )
-    })
-
-    it.each([true, false])(
-      'sends a filing step back to guidance (purchase-only %s)',
-      (enabled) => {
-        mockUseFlag.mockReturnValue({ ready: true, enabled })
-        mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/filing-details')
-
-        render(
-          <ProUpgradeWizard>
-            <div>step-content</div>
-          </ProUpgradeWizard>,
-        )
-
-        expect(router.replace).toHaveBeenCalledWith(
-          '/dashboard/pro-upgrade/guidance',
-        )
-      },
-    )
-
-    it('counts the bar stepper over the closed order', () => {
-      mockUseFlag.mockReturnValue({ ready: true, enabled: true })
-      mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
-
-      render(
-        <ProUpgradeWizard>
-          <div>step-content</div>
-        </ProUpgradeWizard>,
-      )
-
-      expect(screen.getByRole('progressbar')).toHaveAttribute(
-        'aria-valuetext',
-        'Step 2 of 3',
-      )
-    })
   })
 })

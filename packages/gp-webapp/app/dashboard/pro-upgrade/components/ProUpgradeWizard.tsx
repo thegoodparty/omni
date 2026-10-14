@@ -48,19 +48,9 @@ const STEPPER_STEPS_PURCHASE_ONLY: { step: ProUpgradeStep; label: string }[] = [
   { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
 ]
 
-// SMS compliance window closed: the filing steps are skipped, so payment is
-// the only step left to show.
-const STEPPER_STEPS_SMS_CLOSED: { step: ProUpgradeStep; label: string }[] = [
-  { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
-]
-
 const STEPPER_LABELS = STEPPER_STEPS.map(({ label }) => label)
 
 const STEPPER_LABELS_PURCHASE_ONLY = STEPPER_STEPS_PURCHASE_ONLY.map(
-  ({ label }) => label,
-)
-
-const STEPPER_LABELS_SMS_CLOSED = STEPPER_STEPS_SMS_CLOSED.map(
   ({ label }) => label,
 )
 
@@ -143,18 +133,19 @@ const WizardChrome = ({
 // (FullScreenStepChrome), with the bar stepper over the six ordered steps.
 // The filing-instructions dead end reads as the status step it branches
 // from, and the success screen draws no header at all.
+const PURCHASE_ONLY_ORDER = proUpgradeStepOrder(true)
+
 const purchaseOnlyPosition = (
   step: ProUpgradeStep | null,
-  stepOrder: ProUpgradeStep[],
 ): StepPosition | null => {
   if (step === null || step === PRO_UPGRADE_STEP.SUCCESS) return null
   const anchor =
     step === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS
       ? PRO_UPGRADE_STEP.STATUS
       : step
-  const index = stepOrder.indexOf(anchor)
+  const index = PURCHASE_ONLY_ORDER.indexOf(anchor)
   if (index < 0) return null
-  return { currentStep: index + 1, totalSteps: stepOrder.length }
+  return { currentStep: index + 1, totalSteps: PURCHASE_ONLY_ORDER.length }
 }
 
 interface ProUpgradeWizardProps {
@@ -172,9 +163,8 @@ const ProUpgradeWizard = ({
   // step children (not the chrome) until the flag has an answer, the same way
   // ProUpgradeEntry folds flagReady into its own `ready`.
   const purchaseOnly = flagReady && enabled
-  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
 
-  const stepOrder = proUpgradeStepOrder(purchaseOnly, smsClosed)
+  const stepOrder = proUpgradeStepOrder(purchaseOnly)
   const currentStep = stepFromPathname(pathname, stepOrder)
   const orderIndex = currentStep ? stepOrder.indexOf(currentStep) : -1
 
@@ -182,16 +172,6 @@ const ProUpgradeWizard = ({
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [currentStep])
-
-  // The window can close while a candidate is on a filing step (a stale tab,
-  // or gp-api refusing the filing and the campaign refetching), and gp-api
-  // would refuse that filing. Guidance explains why and leads to payment.
-  const offClosedOrder = smsClosed && currentStep !== null && orderIndex < 0
-  useEffect(() => {
-    if (offClosedOrder) {
-      router.replace(proUpgradeStepPath(PRO_UPGRADE_STEP.GUIDANCE))
-    }
-  }, [offClosedOrder, router])
 
   const goToStep = useCallback(
     (step: ProUpgradeStep) => router.push(proUpgradeStepPath(step)),
@@ -212,7 +192,7 @@ const ProUpgradeWizard = ({
     // so it falls through to router.back() instead.
     if (
       currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS ||
-      (currentStep === PRO_UPGRADE_STEP.GUIDANCE && !purchaseOnly && !smsClosed)
+      (currentStep === PRO_UPGRADE_STEP.GUIDANCE && !purchaseOnly)
     ) {
       router.push(proUpgradeStepPath(PRO_UPGRADE_STEP.STATUS))
     } else if (orderIndex > 0) {
@@ -220,7 +200,7 @@ const ProUpgradeWizard = ({
     } else {
       router.back()
     }
-  }, [currentStep, orderIndex, purchaseOnly, smsClosed, stepOrder, router])
+  }, [currentStep, orderIndex, purchaseOnly, stepOrder, router])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
   const handleChromeExit = useCallback(() => {
@@ -231,15 +211,16 @@ const ProUpgradeWizard = ({
   // Purchase-only hands off to campaign verification instead of the
   // dashboard: an already-Pro candidate who never submitted their filing is
   // routed to the success step, and finishes it there. The success step
-  // exits instead once a filing is in. Once texting has closed there is
-  // nothing to verify, so the candidate goes on to the other channels.
-  const complete = useCallback(() => {
-    if (smsClosed) {
-      router.push('/dashboard/outreach')
-      return
-    }
-    router.push(purchaseOnly ? CAMPAIGN_VERIFICATION_PATH : '/dashboard')
-  }, [purchaseOnly, smsClosed, router])
+  // exits instead once a filing is in. Once texting has closed there is no
+  // verification to finish, so the candidate goes to the dashboard.
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
+  const complete = useCallback(
+    () =>
+      router.push(
+        purchaseOnly && !smsClosed ? CAMPAIGN_VERIFICATION_PATH : '/dashboard',
+      ),
+    [purchaseOnly, smsClosed, router],
+  )
 
   const contextValue = useMemo<ProUpgradeWizardContextValue>(
     () => ({
@@ -263,16 +244,12 @@ const ProUpgradeWizard = ({
     ],
   )
 
-  const stepperSteps = smsClosed
-    ? STEPPER_STEPS_SMS_CLOSED
-    : purchaseOnly
-      ? STEPPER_STEPS_PURCHASE_ONLY
-      : STEPPER_STEPS
-  const stepperLabels = smsClosed
-    ? STEPPER_LABELS_SMS_CLOSED
-    : purchaseOnly
-      ? STEPPER_LABELS_PURCHASE_ONLY
-      : STEPPER_LABELS
+  const stepperSteps = purchaseOnly
+    ? STEPPER_STEPS_PURCHASE_ONLY
+    : STEPPER_STEPS
+  const stepperLabels = purchaseOnly
+    ? STEPPER_LABELS_PURCHASE_ONLY
+    : STEPPER_LABELS
   const isPayment = currentStep === PRO_UPGRADE_STEP.PAYMENT
   const stepperStep = isPayment
     ? 0
@@ -283,7 +260,7 @@ const ProUpgradeWizard = ({
       {purchaseOnly ? (
         <FullScreenStepChrome
           overline="Upgrade to Pro"
-          position={purchaseOnlyPosition(currentStep, stepOrder)}
+          position={purchaseOnlyPosition(currentStep)}
           onExit={handleChromeExit}
         >
           {children}

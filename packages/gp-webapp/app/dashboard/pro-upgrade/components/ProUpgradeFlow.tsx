@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { ProUpgradeAttribution } from '../proUpgradeAttribution'
 import {
   PRO_UPGRADE_STEP,
+  PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY,
   proUpgradeStepOrder,
   type ProUpgradeStep,
 } from '../proUpgradeStep'
@@ -57,17 +57,8 @@ export const ProUpgradeFlow = ({
     flowStartedRef.current = true
     trackEvent(EVENTS.ProUpgrade.Compliance.FlowStarted, attribution)
   }, [attribution])
-  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
-  const stepOrder = proUpgradeStepOrder(true, smsClosed)
+  const stepOrder = proUpgradeStepOrder(true)
   const orderIndex = stepOrder.indexOf(currentStep)
-
-  // Same as the route wizard: a filing step left open when the window
-  // closes goes back to guidance, which explains why and leads to payment.
-  const offClosedOrder =
-    smsClosed && orderIndex < 0 && currentStep !== PRO_UPGRADE_STEP.INTERSTITIAL
-  useEffect(() => {
-    if (offClosedOrder) setCurrentStep(PRO_UPGRADE_STEP.GUIDANCE)
-  }, [offClosedOrder])
 
   useEffect(() => {
     if (!onPositionChange) return
@@ -85,10 +76,10 @@ export const ProUpgradeFlow = ({
         ? PRO_UPGRADE_STEP.STATUS
         : currentStep
     onPositionChange({
-      currentStep: stepOrder.indexOf(anchor) + 1,
-      totalSteps: stepOrder.length,
+      currentStep: PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY.indexOf(anchor) + 1,
+      totalSteps: PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY.length,
     })
-  }, [currentStep, onPositionChange, stepOrder])
+  }, [currentStep, onPositionChange])
 
   const goToNextStep = useCallback(() => {
     // INTERSTITIAL has no place in the purchase-only order (it's only ever

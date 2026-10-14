@@ -8,9 +8,11 @@ import {
   Card,
 } from '@styleguide'
 import { CheckCircleIcon, InfoIcon } from '@styleguide/components/ui/icons'
+import { DETAILS_SAVED_TITLE } from 'app/dashboard/campaign-verification/verificationCopy'
 
 interface VerificationSubmittedContentProps {
   primaryAction?: React.ReactNode
+  smsClosed?: boolean
 }
 
 const defaultPrimaryAction = (
@@ -21,7 +23,25 @@ const defaultPrimaryAction = (
 
 export default function VerificationSubmittedContent({
   primaryAction = defaultPrimaryAction,
+  smsClosed = false,
 }: VerificationSubmittedContentProps): React.JSX.Element {
+  if (smsClosed) {
+    return (
+      <div className="space-y-6">
+        <Card className="items-center gap-3 p-8 text-center">
+          <span className="flex size-16 items-center justify-center rounded-full bg-success-light">
+            <CheckCircleIcon className="size-8 text-success" />
+          </span>
+          <h1 className="text-2xl font-semibold text-foreground">
+            {DETAILS_SAVED_TITLE}
+          </h1>
+        </Card>
+
+        {primaryAction}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <Badge
