@@ -58,7 +58,6 @@ import {
   FREE_TEXTS_OFFER,
 } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
-import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -2304,25 +2303,20 @@ export const SmsFlow = ({
             surface.isServe ? PURCHASE_TYPES.SERVE_TEXT : PURCHASE_TYPES.TEXT
           }
           purchaseMetaData={{
-            // Pay-before-ready: the estimate stands in for leads_loaded (gp-api
-            // re-derives the billed amount from the phone-list token, so this is
-            // only a non-zero hint that passes the contactCount guard).
+            // Pay-before-ready: the estimate stands in for leads_loaded. gp-api
+            // re-derives the billed amount from the draft's phone list, so
+            // this is only a hint.
             contactCount:
               phoneList?.leadsLoaded ??
               (payBeforeReady ? (reachableCount ?? 0) : 0),
-            pricePerContact: dollarsToCents(PRICE_PER_MESSAGE) || 0,
             outreachType: surface.isServe
               ? OUTREACH_TYPES.text
               : OUTREACH_TYPES.p2p,
             campaignId: campaign?.id,
             outreachId: draftOutreachId ?? undefined,
-            phoneListToken: phoneListToken ?? undefined,
-            // Async build (slice G): with no token the hold bills/links off the
-            // build id. Sent only when the token is absent, so the sync path's
-            // checkout metadata is unchanged.
-            ...(phoneListToken
-              ? {}
-              : { phoneListBuildId: phoneListBuildId ?? undefined }),
+            // gp-api prices the draft's own list; the build id is read only
+            // for a draft paid before its build finished.
+            phoneListBuildId: phoneListBuildId ?? undefined,
           }}
         >
           <SmsReviewStep
@@ -2341,7 +2335,6 @@ export const SmsFlow = ({
             }
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
-            phoneListToken={phoneListToken}
             phoneListBuildId={phoneListBuildId}
             excludedOptedOutCount={phoneList?.excludedOptedOutCount ?? null}
             excludedDuplicatePhoneCount={

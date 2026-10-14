@@ -76,6 +76,14 @@ describe('a Win text carrying a proposal key', () => {
         aiContent: {},
       },
     })
+    await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: orgSlug,
+        campaignId: campaign.id,
+        token: 'phone-list-token',
+        peerlyListId: 3180213,
+      },
+    })
   })
 
   const headers = (slug = orgSlug) => ({ 'x-organization-slug': slug })

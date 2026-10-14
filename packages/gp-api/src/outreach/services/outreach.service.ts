@@ -219,6 +219,22 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // becomes a scheduled campaign. Admin approval stays advisory-only.
     await this.requireCompliantScript(campaign, resolvedScriptText)
 
+    // The list id is what the send goes out to and what the purchase is
+    // priced from, so it has to name a list THIS campaign uploaded. Checked
+    // before anything is written, so a rejected create leaves no row.
+    if (createOutreachDto.phoneListId !== undefined) {
+      const phoneList = await this.client.peerlyPhoneList.findFirst({
+        where: {
+          peerlyListId: createOutreachDto.phoneListId,
+          campaignId: campaign.id,
+        },
+        select: { id: true },
+      })
+      if (!phoneList) {
+        throw new BadRequestException('Phone list not found for this campaign')
+      }
+    }
+
     let resolvedGeography: P2pJobGeographyResult
     try {
       resolvedGeography = await this.resolveP2pJobGeography(campaign)

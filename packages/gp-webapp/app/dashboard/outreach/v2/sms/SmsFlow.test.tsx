@@ -398,8 +398,12 @@ describe('SmsFlow', () => {
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
-      expect.objectContaining({ outreachId: 55, phoneListToken: 'tok-1' }),
+      expect.objectContaining({ outreachId: 55, phoneListBuildId: 'build-1' }),
     )
+    // gp-api prices the draft's own list and never read a client price.
+    const freeMeta = completeFreePurchase.mock.calls[0]?.[1]
+    expect(freeMeta).not.toHaveProperty('phoneListToken')
+    expect(freeMeta).not.toHaveProperty('pricePerContact')
     expect(onScheduled).toHaveBeenCalledTimes(1)
 
     // Free path: design subtitle, but no receipt — there is no charge, and

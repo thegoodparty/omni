@@ -163,6 +163,10 @@ describe('OutreachService', () => {
       // cancelOutreach probes for a hold-model satellite before the shared body;
       // no satellite here, so these tests stay on the immediate-charge path.
       outreachP2pSms: { findUnique: vi.fn().mockResolvedValue(null) },
+      // A p2p create's phoneListId names a list this campaign uploaded.
+      peerlyPhoneList: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'list-1' }),
+      },
     }
 
     const module: TestingModule = await Test.createTestingModule({
