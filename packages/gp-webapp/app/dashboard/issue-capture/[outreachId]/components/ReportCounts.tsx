@@ -16,9 +16,18 @@ const ReportCounts = ({
 }) => {
   const copy = whatWeHeardCopy(isServe)
   const tiles: Array<[string, number]> = [
-    [copy.countAnswered(channel), denominators.conversations],
-    [copy.countNoted(channel), denominators.memos],
+    [copy.countAnswered, denominators.conversations],
+    [copy.countNoted, denominators.memos],
   ]
+
+  // A text send keeps the one-line caption it shipped with.
+  if (channel === 'text') {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {copy.replyCounts(denominators)}
+      </p>
+    )
+  }
 
   return (
     // `block` because globals.css makes every `li` under a data-slot

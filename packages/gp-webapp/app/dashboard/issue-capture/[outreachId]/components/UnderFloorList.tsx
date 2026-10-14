@@ -9,11 +9,13 @@ import MemoList, { type MemoListItem } from './MemoList'
 // to avoid, so the Summarize button is off, and its tooltip says when themes
 // will appear.
 const UnderFloorList = ({
+  floor,
   memos,
   channel,
   outreachId,
   isServe,
 }: {
+  floor: number
   memos: MemoListItem[]
   channel: FeedbackReportChannel
   outreachId: number
@@ -25,9 +27,18 @@ const UnderFloorList = ({
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
-        <h2 id={headingId} className="text-lg font-semibold text-foreground">
-          {copy.soFarHeading}
-        </h2>
+        <div>
+          <h2 id={headingId} className="text-lg font-semibold text-foreground">
+            {copy.soFarHeading}
+          </h2>
+          {/* A text send says when themes appear under the heading, as it
+              shipped; the door and the phone say it on the button. */}
+          {channel === 'text' && (
+            <p className="text-sm text-muted-foreground">
+              {copy.floorLine(floor, channel)}
+            </p>
+          )}
+        </div>
         {/* The export is the canvassers' notes; a text send's replies are
             already a file on the results page that received them. */}
         {channel !== 'text' && (

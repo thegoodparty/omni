@@ -69,9 +69,12 @@ fires on the press, refused or not.
 ## Rules
 
 - **Two counts head the report** (`ReportCounts`, under the title): people
-  answered and left a note (on a text send, people replied and replies),
-  each its own small `Card` on the gray canvas, a number over its label like
-  the theme cards' `StanceSplit` tiles. Only confirmed notes enter a theme.
+  answered and left a note, each its own small `Card` on the gray canvas, a
+  number over its label like the theme cards' `StanceSplit` tiles. Only
+  confirmed notes enter a theme. **A text send keeps what it shipped with**
+  and is not redesigned here: the caption "14 replies from 12 people.",
+  "Every reply" listing every reply in its own divided list, and the floor
+  line under the heading.
 - **Cards rank by `conversationCount`**, the run's `rank` breaking ties: the
   issue several people raised rises. A count is "conversations that touched
   this theme", never a share, since one note can sit in two themes. The stance

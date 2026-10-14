@@ -754,16 +754,13 @@ describe('WhatWeHeardPage', () => {
       mockReport(TEXT_REPORT)
       const { container } = renderPage(true)
 
-      const counts = await screen.findByRole('list', { name: 'Notes so far' })
       expect(
-        within(counts)
-          .getAllByRole('listitem')
-          .map((tile) => tile.textContent),
-      ).toEqual(['6People replied', '7Replies'])
-      expect(
-        screen.getByRole('heading', { name: 'All replies' }),
+        await screen.findByText('7 replies from 6 people.'),
       ).toBeInTheDocument()
-      expect(screen.getByText(/Their reply/)).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Every reply' }),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Their reply')).toBeInTheDocument()
       expect(
         screen.getByText('Please fix the potholes on Elm before winter.'),
       ).toBeInTheDocument()
@@ -782,7 +779,9 @@ describe('WhatWeHeardPage', () => {
       })
       renderPage(true)
 
-      await expectReason('Themes appear after 5 replies.')
+      expect(
+        await screen.findByText('Themes appear after 5 replies.'),
+      ).toBeInTheDocument()
       expect(screen.queryByRole('link', { name: 'Download notes' })).toBeNull()
     })
 
@@ -812,7 +811,7 @@ describe('WhatWeHeardPage', () => {
       mockReport(TEXT_REPORT)
       renderPage(true)
 
-      await screen.findByText('People replied')
+      await screen.findByText('7 replies from 6 people.')
       await waitFor(() =>
         expect(trackEvent).toHaveBeenCalledWith(
           EVENTS.IssueCapture.ReportViewed,

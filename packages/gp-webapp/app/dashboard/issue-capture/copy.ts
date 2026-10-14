@@ -30,10 +30,12 @@ export const WHAT_WE_HEARD_COPY = {
     // waiting clause follows as a link to the review list, and the
     // sentence ends after whichever comes last.
     countsLabel: 'Notes so far',
-    countAnswered: (channel: FeedbackReportChannel): string =>
-      isText(channel) ? 'People replied' : 'People answered',
-    countNoted: (channel: FeedbackReportChannel): string =>
-      isText(channel) ? 'Replies' : 'Left a note',
+    countAnswered: 'People answered',
+    countNoted: 'Left a note',
+    // A text send keeps its own caption: every reply counts and nothing waits
+    // for review, so it is the replies and the people they came from.
+    replyCounts: (d: Denominators): string =>
+      `${count(d.memos, 'reply', 'replies')} from ${count(d.conversations, 'person', 'people')}.`,
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
@@ -45,11 +47,9 @@ export const WHAT_WE_HEARD_COPY = {
     showMoreThemes: (hidden: number): string =>
       `Show ${count(hidden, 'more theme', 'more themes')}`,
     everyNoteHeading: (channel: FeedbackReportChannel): string =>
-      isText(channel) ? 'All replies' : 'All notes',
-    showMoreNotes: (hidden: number, channel: FeedbackReportChannel): string =>
-      isText(channel)
-        ? `Show ${count(hidden, 'more reply', 'more replies')}`
-        : `Show ${count(hidden, 'more note', 'more notes')}`,
+      isText(channel) ? 'Every reply' : 'All notes',
+    showMoreNotes: (hidden: number): string =>
+      `Show ${count(hidden, 'more note', 'more notes')}`,
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
@@ -102,10 +102,12 @@ export const WHAT_WE_HEARD_COPY = {
   serve: {
     title: 'What we heard',
     countsLabel: 'Notes so far',
-    countAnswered: (channel: FeedbackReportChannel): string =>
-      isText(channel) ? 'People replied' : 'People answered',
-    countNoted: (channel: FeedbackReportChannel): string =>
-      isText(channel) ? 'Replies' : 'Left a note',
+    countAnswered: 'People answered',
+    countNoted: 'Left a note',
+    // A text send keeps its own caption: every reply counts and nothing waits
+    // for review, so it is the replies and the people they came from.
+    replyCounts: (d: Denominators): string =>
+      `${count(d.memos, 'reply', 'replies')} from ${count(d.conversations, 'person', 'people')}.`,
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
@@ -117,11 +119,9 @@ export const WHAT_WE_HEARD_COPY = {
     showMoreThemes: (hidden: number): string =>
       `Show ${count(hidden, 'more theme', 'more themes')}`,
     everyNoteHeading: (channel: FeedbackReportChannel): string =>
-      isText(channel) ? 'All replies' : 'All notes',
-    showMoreNotes: (hidden: number, channel: FeedbackReportChannel): string =>
-      isText(channel)
-        ? `Show ${count(hidden, 'more reply', 'more replies')}`
-        : `Show ${count(hidden, 'more note', 'more notes')}`,
+      isText(channel) ? 'Every reply' : 'All notes',
+    showMoreNotes: (hidden: number): string =>
+      `Show ${count(hidden, 'more note', 'more notes')}`,
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',

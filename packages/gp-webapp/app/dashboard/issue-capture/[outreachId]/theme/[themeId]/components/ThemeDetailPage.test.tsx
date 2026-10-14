@@ -264,7 +264,7 @@ describe('ThemeDetailPage', () => {
     expect(
       screen.getByText('The lanes slow down my deliveries every morning.'),
     ).toBeInTheDocument()
-    expect(screen.getByText(/Their reply/)).toBeInTheDocument()
+    expect(screen.getByText('Their reply')).toBeInTheDocument()
     expect(screen.getByText(/By text/)).toBeInTheDocument()
     expect(screen.queryByText(/Summary by/)).toBeNull()
     expect(

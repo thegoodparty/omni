@@ -44,6 +44,48 @@ const MemoList = ({
     return <EmptyState message={copy.noNotes(channel)} />
   }
 
+  // A text send's replies keep the list they shipped with: they are the
+  // person's own words, with their own rules, and are not redesigned here.
+  if (channel === 'text') {
+    return (
+      <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+        {memos.map((memo) => (
+          <li key={memo.id} className="flex flex-col gap-1 px-4 py-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              {copy.theirReply}
+            </p>
+            {memo.transcript !== null && (
+              <p className="text-sm text-foreground">{memo.transcript}</p>
+            )}
+            {memo.issues.length > 0 && (
+              <ul aria-label={copy.issues} className="flex flex-col gap-0.5">
+                {memo.issues.map((issue) => (
+                  // `block`: globals.css makes every li under a data-slot a
+                  // flex row, which drops the space before each " · ".
+                  <li
+                    key={issue.position}
+                    className="block text-sm text-foreground"
+                  >
+                    <span className="font-medium">{issue.issueLabel}</span>
+                    {issue.stance !== null &&
+                      ` · ${stanceLabels[issue.stance]}`}
+                    {issue.desiredOutcome !== null &&
+                      ` · ${copy.wantsHeading}: ${issue.desiredOutcome}`}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {CHANNEL_LABELS[memo.channel]}
+              {' · '}
+              {formatDate(memo.occurredAt)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
   return (
     // A card per note, the theme cards' own frame and padding, so each
     // conversation reads as its own record rather than a row of one long
@@ -60,9 +102,7 @@ const MemoList = ({
               {' · '}
               {formatDate(memo.occurredAt)}
               {' · '}
-              {memo.channel === 'text'
-                ? copy.theirReply
-                : copy.summaryBy(memo.actorName)}
+              {copy.summaryBy(memo.actorName)}
             </p>
             {/* The note as written, set apart the way a field shows its
               value and in the muted colour, so it reads as the source and

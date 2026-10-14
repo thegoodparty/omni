@@ -62,7 +62,9 @@ const EveryNote = ({
   const copy = whatWeHeardCopy(isServe)
   const headingId = useId()
   const [expanded, setExpanded] = useState(false)
-  const shown = expanded ? memos : memos.slice(0, VISIBLE_NOTES)
+  // A text send lists every reply, as it shipped.
+  const shown =
+    expanded || channel === 'text' ? memos : memos.slice(0, VISIBLE_NOTES)
   const hidden = memos.length - shown.length
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -84,7 +86,7 @@ const EveryNote = ({
       {hidden > 0 && (
         <div className="mt-1 flex justify-center">
           <Button variant="outline" onClick={() => setExpanded(true)}>
-            {copy.showMoreNotes(hidden, channel)}
+            {copy.showMoreNotes(hidden)}
           </Button>
         </div>
       )}
@@ -126,6 +128,7 @@ const ReportBody = ({
   if (report.denominators.confirmed < report.floor) {
     return (
       <UnderFloorList
+        floor={report.floor}
         memos={memos}
         channel={report.channel}
         outreachId={outreachId}
