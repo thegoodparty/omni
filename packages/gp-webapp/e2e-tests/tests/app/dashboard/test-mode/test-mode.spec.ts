@@ -86,6 +86,14 @@ test.describe('staff test mode', () => {
       sheet.getByRole('combobox').first(),
       'Elected Office',
     )
+    await sheet.getByPlaceholder('12345').fill('82001')
+    await sheet.getByRole('button', { name: 'Search' }).click()
+    const office = sheet
+      .getByRole('combobox')
+      .filter({ hasText: 'Select office' })
+    await expect(office).toBeVisible({ timeout: 30_000 })
+    await office.click()
+    await page.getByRole('option').first().click()
     await sheet.getByRole('button', { name: 'Create' }).click()
 
     await expect
