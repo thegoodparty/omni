@@ -275,9 +275,12 @@ describe('<TaskStack>', () => {
     expect(snoozeMock).not.toHaveBeenCalled()
   })
 
-  it("reads a priority card as the priority's next step, with Mark done", () => {
+  // It stays until its priority is resolved, so it offers no Mark done.
+  it("reads a priority card as the priority's next step, with no Mark done", async () => {
+    const user = userEvent.setup()
     withCards([
       card({
+        id: 'p1-card',
         type: 'civic_panel',
         title: 'Affordable housing',
         summary: 'Draft two options for the council.',
@@ -292,13 +295,23 @@ describe('<TaskStack>', () => {
         name: 'Next steps on your priorities',
       }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('Draft two options for the council.'),
+    ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open priority' })).toHaveAttribute(
       'href',
       '/dashboard/priorities/p1',
     )
     expect(
-      screen.getByRole('button', { name: /mark done/i }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    )
+    expect(snoozeMock).toHaveBeenCalledWith('p1-card')
+    expect(completeMock).not.toHaveBeenCalled()
   })
 
   describe('the report back card', () => {
