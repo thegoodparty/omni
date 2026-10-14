@@ -200,7 +200,7 @@ describe('POST /v1/test-mode/organizations', () => {
     })
     expect(org.testModeCreatedAt).not.toBeNull()
     expect(org.positionId).toBe('pos_internal_1')
-    expect(org.customPositionName).toBeNull()
+    expect(org.customPositionName).toBe(RACE.position.name)
     expect(org.electedOffice?.onboardingCompletedAt).not.toBeNull()
     expect(org.electedOffice?.termEndDate).not.toBeNull()
     expect(created.type).toBe('elected_office')

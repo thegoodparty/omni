@@ -473,7 +473,7 @@ export class TestModeService {
     const term = onboarded ? termDates(body.term, startOfDay(now)) : null
     return this.insertElectedOfficeOrganization(user, {
       positionId,
-      customPositionName: null,
+      customPositionName: match.position.name,
       termStartDate: term?.termStartDate ?? null,
       termEndDate: term?.termEndDate ?? null,
       onboardingCompletedAt: onboarded ? now : null,
