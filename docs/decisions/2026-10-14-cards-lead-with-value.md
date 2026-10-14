@@ -3,7 +3,7 @@ title: A card's headline is the value, its body is why, and mechanics stay off t
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-14
-code: ['#TBD']
+code: ['#2762']
 scope:
   - docs/product-copy.md
   - packages/gp-api/src/dashboardCards/**
