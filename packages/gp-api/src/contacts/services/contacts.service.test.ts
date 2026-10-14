@@ -128,6 +128,7 @@ describe('ContactsService', () => {
     }
     let mockContactsMadeResolutionService: {
       resolveContactsMade: ReturnType<typeof vi.fn>
+      lastReachedAt: ReturnType<typeof vi.fn>
     }
 
     beforeEach(() => {

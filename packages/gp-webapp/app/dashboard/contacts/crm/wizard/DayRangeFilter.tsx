@@ -1,5 +1,3 @@
-'use client'
-
 import { Input, Label } from '@styleguide'
 import type { DayRangeField } from '../shared/recommendedListFilters.config'
 import type { VoterFileFilters } from '../shared/voterFileFilterTransform.util'
