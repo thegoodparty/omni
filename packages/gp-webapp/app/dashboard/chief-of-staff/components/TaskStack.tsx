@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   ExternalLinkIcon,
+  MessagesSquareIcon,
   cn,
 } from '@styleguide'
 import {
@@ -88,15 +89,30 @@ const formatDueDate = (iso: string | null): string | null => {
   }
 }
 
+// Sent as the official's first message, so the chief of staff answers about
+// this task instead of opening on its greeting. Same shape as the Campaign
+// Manager's discussTaskMessage.
+const discussCardMessage = (card: DeckCard, dueLine: string | null): string =>
+  [
+    `Help me with this task from my dashboard: "${card.title}".`,
+    card.summary,
+    dueLine ? `It is due ${dueLine}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
 /**
  * The Serve home's one thing to do: the get-started cards, then the week's
  * task cards by due date, as a stack with only the front card actionable.
  */
 const TaskStack = ({
   onOpenCard,
+  onDiscussCard,
   briefingInFlight = false,
 }: {
   onOpenCard: (key: OnboardingCardKey) => void
+  // Opens a fresh chat seeded with a message about the front card.
+  onDiscussCard?: (message: string) => void
   // True while a briefing is generating, so the empty state stays hidden.
   briefingInFlight?: boolean
 }): React.JSX.Element | null => {
@@ -234,6 +250,7 @@ const TaskStack = ({
     else dismissCard.mutate(front.id)
   }
   const skipClassName = cn(QUIET_ON_PHONE, 'sm:ml-auto')
+  const offersMarkDone = !front.onboardingKey && front.kind !== 'civic_panel'
 
   return (
     <section className="flex w-full flex-col gap-6">
@@ -331,7 +348,7 @@ const TaskStack = ({
                 {/* Get-started and civic panel cards close themselves once
                     their goal is met (a priority card, once the priority is
                     resolved), so they offer no manual Mark done. */}
-                {!front.onboardingKey && front.kind !== 'civic_panel' && (
+                {offersMarkDone && (
                   <Button
                     type="button"
                     variant="outline"
@@ -351,6 +368,36 @@ const TaskStack = ({
                     Mark done
                   </Button>
                 )}
+                {/* Get-started and civic panel cards already open a
+                    conversation from their own button. */}
+                {onDiscussCard &&
+                  !front.onboardingKey &&
+                  front.kind !== 'civic_panel' && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="medium"
+                      className={QUIET_ON_PHONE}
+                      onClick={() => {
+                        trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
+                          ...cardProps,
+                          action: 'ask',
+                        })
+                        onDiscussCard(discussCardMessage(front, dueLine))
+                      }}
+                    >
+                      {/* On the narrowest phones a third quiet button leaves
+                        no room for the icon. */}
+                      <MessagesSquareIcon
+                        className={cn(
+                          'size-4',
+                          offersMarkDone && 'max-[399px]:hidden',
+                        )}
+                        aria-hidden
+                      />
+                      Ask about this
+                    </Button>
+                  )}
                 {!leaving &&
                   (front.kind === 'civic_panel' ||
                   front.kind === 'report_back' ? (

@@ -32,6 +32,8 @@ export const PACK_HEARTBEAT_MS = 15_000
 // holding a request that was never answerable is told so.
 export const PACK_BUILD_FAILED_EVENT = 'DoorKnockingPackBuildFailed'
 
+export const PACK_BUILD_REJECTED_EVENT = 'DoorKnockingPackBuildRejected'
+
 const PACK_BUILD_FAILED_MESSAGE =
   'The voter map could not be built. Please try again.'
 

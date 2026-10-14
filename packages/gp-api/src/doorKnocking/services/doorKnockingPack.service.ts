@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream'
-import { Injectable } from '@nestjs/common'
+import { HttpException, Injectable } from '@nestjs/common'
 import {
   DoorKnockingPackRequest,
   PACK_CONTACTS_MADE_MAX,
@@ -22,7 +22,11 @@ import {
   deriveKnockStatus,
   firmestAnswerPerPerson,
 } from '../utils/knockStatus.util'
-import { PACK_BUILD_FAILED_EVENT, streamPack } from '../utils/packStream.util'
+import {
+  PACK_BUILD_FAILED_EVENT,
+  PACK_BUILD_REJECTED_EVENT,
+  streamPack,
+} from '../utils/packStream.util'
 
 @Injectable()
 export class DoorKnockingPackService extends createPrismaBase(
@@ -65,7 +69,20 @@ export class DoorKnockingPackService extends createPrismaBase(
       // plan and succeeds immediately after it is reassigned. Without this
       // field that pattern is invisible and each firing reads as a fresh
       // unexplained failure.
-      onFailure: (err, elapsedMs) =>
+      onFailure: (err, elapsedMs) => {
+        if (err instanceof HttpException && err.getStatus() < 500) {
+          this.logger.warn(
+            {
+              event: PACK_BUILD_REJECTED_EVENT,
+              organizationSlug: organization.slug,
+              districtId,
+              elapsedMs,
+              err,
+            },
+            'door-knocking pack could not be built for this district',
+          )
+          return
+        }
         this.logger.error(
           {
             event: PACK_BUILD_FAILED_EVENT,
@@ -75,7 +92,8 @@ export class DoorKnockingPackService extends createPrismaBase(
             err,
           },
           'door-knocking pack build failed after the response had started',
-        ),
+        )
+      },
     })
   }
 

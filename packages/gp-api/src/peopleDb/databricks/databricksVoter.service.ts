@@ -616,7 +616,7 @@ export class DatabricksVoterService {
     })
   }
 
-  private missingDistrictType(err: unknown): string | null {
+  missingDistrictType(err: unknown): string | null {
     if (!(err instanceof Error)) return null
     const column = UNRESOLVED_COLUMN_PATTERN.exec(err.message)?.[1]
     if (!column) return null

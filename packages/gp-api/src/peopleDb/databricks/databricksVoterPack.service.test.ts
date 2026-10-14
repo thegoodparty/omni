@@ -1,4 +1,8 @@
-import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  GatewayTimeoutException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DoorKnockingPackManifestSchema } from '@goodparty_org/contracts'
 import { DatabricksVoterPackService } from './databricksVoterPack.service'
@@ -81,6 +85,10 @@ describe('DatabricksVoterPackService', () => {
       logger as never,
       client as never,
       {
+        missingDistrictType: (err: Error) =>
+          /`Congressional_District_2026`/.test(err.message)
+            ? 'Congressional_District_2026'
+            : null,
         resolveDistrict: vi.fn().mockResolvedValue({
           districtId: DISTRICT_ID,
           state: 'IL',
@@ -161,6 +169,24 @@ describe('DatabricksVoterPackService', () => {
     client.startCsvExport.mockRejectedValue(new PeopleDbxTimeoutError(1))
     await expect(service.build(request as never, 'voters')).rejects.toThrow(
       GatewayTimeoutException,
+    )
+  })
+
+  it('answers 422 when the district type is not a column on the voter table', async () => {
+    client.startCsvExport.mockRejectedValue(
+      new Error(
+        'Databricks statement FAILED: [UNRESOLVED_COLUMN.WITH_SUGGESTION] A column with name `v`.`Congressional_District_2026` cannot be resolved. SQLSTATE: 42703',
+      ),
+    )
+    await expect(service.build(request as never, 'voters')).rejects.toThrow(
+      UnprocessableEntityException,
+    )
+  })
+
+  it('leaves an unrelated SQL failure as an error', async () => {
+    client.startCsvExport.mockRejectedValue(new Error('syntax error'))
+    await expect(service.build(request as never, 'voters')).rejects.toThrow(
+      'syntax error',
     )
   })
 

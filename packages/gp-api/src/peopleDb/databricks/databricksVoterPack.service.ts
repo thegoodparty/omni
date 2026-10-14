@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   GatewayTimeoutException,
   Injectable,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Readable } from 'node:stream'
@@ -148,6 +149,16 @@ export class DatabricksVoterPackService {
           message: UNAVAILABLE_MESSAGE,
           errorCode: VOTER_DATA_UNREACHABLE_ERROR_CODE,
         })
+      }
+      const missingDistrictType = this.voters.missingDistrictType(err)
+      if (missingDistrictType) {
+        this.logger.error(
+          { err, districtType: missingDistrictType },
+          'district type is not a column on the voter table',
+        )
+        throw new UnprocessableEntityException(
+          `Voter data is not available for district type ${missingDistrictType}.`,
+        )
       }
       throw err
     }
