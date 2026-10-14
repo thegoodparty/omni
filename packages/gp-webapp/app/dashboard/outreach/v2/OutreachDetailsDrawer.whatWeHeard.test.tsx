@@ -164,7 +164,6 @@ describe('OutreachDetailsDrawer: what we heard', () => {
       'href',
       `/dashboard/issue-capture/${OUTREACH_ID}`,
     )
-    expect(action).toHaveTextContent('Notes from conversations with voters.')
   })
 
   it('links a list still being called too', async () => {
@@ -188,9 +187,6 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     )
 
     const action = await screen.findByRole('link', { name: /What we heard/ })
-    expect(action).toHaveTextContent(
-      'Notes from conversations with constituents.',
-    )
     expect(action.textContent).not.toMatch(/voter/i)
   })
 

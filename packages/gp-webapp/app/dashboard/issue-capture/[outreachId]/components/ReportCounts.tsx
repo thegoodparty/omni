@@ -1,5 +1,5 @@
 import type { FeedbackReportResponse } from '@goodparty_org/contracts'
-import { Card } from '@styleguide'
+import { Card, CardContent } from '@styleguide'
 import { whatWeHeardCopy } from '../../copy'
 
 // Who answered and who left a note, so a theme's count can be read against
@@ -35,11 +35,13 @@ const ReportCounts = ({
     <ul aria-label={copy.countsLabel} className="grid grid-cols-2 gap-3">
       {tiles.map(([label, value]) => (
         <li key={label} className="block">
-          <Card className="h-full gap-0 px-4 py-3">
-            <span className="text-base font-semibold tabular-nums text-foreground">
-              {value.toLocaleString()}
-            </span>
-            <span className="text-xs text-muted-foreground">{label}</span>
+          <Card className="h-full">
+            <CardContent className="flex flex-col">
+              <span className="text-base font-semibold tabular-nums text-foreground">
+                {value.toLocaleString()}
+              </span>
+              <span className="text-xs text-muted-foreground">{label}</span>
+            </CardContent>
           </Card>
         </li>
       ))}

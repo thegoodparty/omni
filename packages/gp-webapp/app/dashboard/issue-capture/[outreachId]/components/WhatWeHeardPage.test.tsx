@@ -9,6 +9,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { reportQueryKey } from '../queries'
+import { useSearchParams } from 'next/navigation'
 import WhatWeHeardPage from './WhatWeHeardPage'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -252,6 +253,43 @@ describe('WhatWeHeardPage', () => {
       'href',
       `/dashboard/outreach?outreachId=${OUTREACH_ID}`,
     )
+  })
+
+  // Opened from a phone list or a turf, Back returns there rather than to
+  // the hub; a path off this dashboard is ignored.
+  afterEach(() => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams() as ReturnType<typeof useSearchParams>,
+    )
+  })
+
+  it('goes back to the page the report was opened from', async () => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams({
+        from: '/dashboard/outreach/phone-banking/42?outreachId=41',
+      }) as ReturnType<typeof useSearchParams>,
+    )
+    mockReport(report())
+    renderPage()
+
+    expect(await screen.findByRole('link', { name: 'Back' })).toHaveAttribute(
+      'href',
+      '/dashboard/outreach/phone-banking/42?outreachId=41',
+    )
+  })
+
+  it('ignores a return path off the dashboard', async () => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams({
+        from: 'https://example.com',
+      }) as ReturnType<typeof useSearchParams>,
+    )
+    mockReport(report())
+    renderPage()
+
+    expect(
+      await screen.findByRole('link', { name: 'Back to Voter Outreach' }),
+    ).toBeInTheDocument()
   })
 
   it('links a Serve official back to Constituent Outreach', async () => {

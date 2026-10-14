@@ -109,7 +109,9 @@ export const ListDetailsFooter = ({
           </p>
         ) : (
           canvasActions && (
-            <div className="flex gap-3">
+            // Wraps rather than overflowing: a leading control too wide to sit
+            // beside the primary on a phone takes its own line above it.
+            <div className="flex flex-wrap gap-3">
               {leading}
               {destructive}
               {primary && <PrimaryAction action={primary} />}

@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import type {
   FeedbackReportMemo,
@@ -24,6 +25,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ANALYTICS_CHANNEL } from '../../analytics'
 import { whatWeHeardCopy } from '../../copy'
+import { RETURN_PARAM, safeReturnPath } from '../../returnPath'
 import { reportQueryOptions } from '../queries'
 import DownloadNotesLink from './DownloadNotesLink'
 import MemoList, { type MemoListItem } from './MemoList'
@@ -170,6 +172,8 @@ interface WhatWeHeardPageProps {
 
 const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
   const copy = whatWeHeardCopy(isServe)
+  // Where the link that opened the report was pressed, if it said.
+  const from = safeReturnPath(useSearchParams()?.get(RETURN_PARAM) ?? null)
   const reportQuery = useQuery(reportQueryOptions(outreachId))
   // The bar names the outreach the report is about, read and worded the way
   // the hub's history row and drawer name it.
@@ -213,19 +217,21 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
           and the page's action, so the report below floats on the gray
           canvas. */}
       <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-4 md:-mx-4 md:-mt-4 md:px-6">
-        {/* The CRM sheet's own Back. The Win hub reopens this effort's details when it is named in the
-            URL, so the way back lands on the drawer the reader came from
-            rather than the top of the list. Serve's hub takes no such
-            parameter. */}
-        <Button asChild variant="ghost" size="small" className="gap-1 px-2">
+        {/* The CRM sheet's own Back, to the page the report was opened from
+            when the link said (a phone list, a turf). Otherwise the hub: the
+            Win hub reopens this effort's details when it is named in the
+            URL, so the way back lands on the drawer the reader came from.
+            Serve's hub takes no such parameter. */}
+        <Button asChild variant="ghost" size="small">
           {/* Reads "Back" like the CRM sheet's, and names the hub it
               returns to for a screen reader. */}
           <Link
-            aria-label={copy.backToOutreach}
+            aria-label={from === null ? copy.backToOutreach : copy.backLabel}
             href={
-              isServe
+              from ??
+              (isServe
                 ? '/dashboard/constituent-outreach'
-                : `/dashboard/outreach?outreachId=${outreachId}`
+                : `/dashboard/outreach?outreachId=${outreachId}`)
             }
           >
             <ArrowLeftIcon className="size-4" aria-hidden />

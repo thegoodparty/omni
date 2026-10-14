@@ -49,8 +49,6 @@ import {
   outreachProduct,
 } from '../../util/outreachAnalytics'
 import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
-import { parsePositiveListId } from '../../util/parsePositiveListId.util'
-import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
 import type { CallDraft } from './PhoneBankingOutcomeForm'
 import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
@@ -155,14 +153,6 @@ export default function PhoneBankingCallerPage({
   const hubLabel =
     surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
   const showDeleteAction = surface?.showDeleteAction ?? true
-  // The list payload carries no envelope, so the surfaces that open this
-  // page with one in hand (the outreach drawer, the create flow) pass it on
-  // `?outreachId=`. The report it links to is the manager's, so the
-  // volunteer surface never offers it.
-  const effortOutreachId = surface
-    ? null
-    : (parsePositiveListId(searchParams?.get('outreachId')) ?? null)
-
   // Removal-mid-session is an expected flow for a volunteer (a manager can
   // unassign them at any point) — gp-api 404s the now-unassigned list, and
   // that reads as "no longer assigned" rather than the generic load failure
@@ -462,15 +452,6 @@ export default function PhoneBankingCallerPage({
           )}
           {list && counts && (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-              {/* What the answered calls said, first in the column as a
-                  section of its own, framed like the cards below it. The
-                  frame is the link's own, so it goes when the link renders
-                  nothing. */}
-              <WhatWeHeardLink
-                outreachId={effortOutreachId}
-                isServe={isServe}
-                className="rounded-xl border border-border bg-card p-4"
-              />
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium text-foreground">
                   {sheetIndexes.length > 1

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
@@ -587,6 +587,34 @@ export const OutreachDetailsDrawer = ({
   // their own footer below instead of the mode machine.
   const selfServe = isPhoneBanking || isDoorKnocking
   const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
+  // What we heard rides the sticky footer beside the campaign's own action
+  // rather than heading the body: it is somewhere to go next. A live phone
+  // list puts it in the CTA row beside Continue calling; everywhere else it
+  // shares the second row with Mark campaign done or the archive shelf.
+  // Side by side on a desktop, one under the other on a phone.
+  const heardAction = (size?: 'large', className?: string) =>
+    reportOutreachId === null ? null : (
+      <WhatWeHeardAction
+        outreachId={reportOutreachId}
+        isServe={isServe}
+        size={size}
+        className={className}
+        onNavigate={() => onOpenChange(false)}
+      />
+    )
+  const withHeard = (secondary: ReactNode) => {
+    const heard =
+      footerMode === 'continue' && !isDoorKnocking
+        ? null
+        : heardAction(undefined, 'w-full')
+    if (!heard) return secondary
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {heard}
+        {secondary}
+      </div>
+    )
+  }
   // Phone banking's alone. Door knocking used to build one here too, into
   // the campaign's next unfinished turf — and picking a turf for the
   // candidate is exactly what a campaign's drawer should not do now that
@@ -754,6 +782,16 @@ export const OutreachDetailsDrawer = ({
             : (smsFooter ?? (
                 <ListDetailsFooter
                   mode={footerMode}
+                  leading={
+                    // Beside Continue calling, the list's one live action:
+                    // what the calls so far have said.
+                    footerMode === 'continue' && !isDoorKnocking
+                      ? // Half the row each, as the CTA is `flex-1`, and after it:
+                        // to its right on a desktop, under it on a phone, where
+                        // the minimum width is what makes it wrap.
+                        heardAction('large', 'order-last min-w-48 flex-1')
+                      : undefined
+                  }
                   destructive={
                     // Delete stays phone-banking-only: it calls the phone list's
                     // own delete endpoint, and no other channel has one.
@@ -817,7 +855,7 @@ export const OutreachDetailsDrawer = ({
                             }
                           : null
                   }
-                  secondary={
+                  secondary={withHeard(
                     // Archive now applies to every finished row the history's
                     // Archive toggle can hide, door knocking included. What used to
                     // block it was reach, not policy: this row is the projection of
@@ -834,10 +872,12 @@ export const OutreachDetailsDrawer = ({
                     // offered when nothing is unfinished, because then the
                     // campaign is already done and the row reads `done` anyway.
                     footerMode === 'continue' &&
-                    isDoorKnocking &&
-                    unfinished.length > 0 ? (
+                      isDoorKnocking &&
+                      unfinished.length > 0 ? (
                       <Button
-                        variant="outline"
+                        // Ghost beside What we heard: two outlines side by side read
+                        // as two equal choices, and this is the quieter one.
+                        variant="ghost"
                         className="w-full"
                         disabled={campaignLifecycle.pendingAction !== null}
                         onClick={() => setMarkCampaignDoneOpen(true)}
@@ -867,21 +907,21 @@ export const OutreachDetailsDrawer = ({
                       // its underlying lifecycle here, which is what already keeps
                       // Restore reachable — so neither is affected.
                       (footerMode === 'done' || footerMode === 'none') &&
-                      (!isDoorKnocking || campaignTurfs.length > 0) && (
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          disabled={archivePending}
-                          onClick={toggleArchive}
-                        >
-                          <ArchiveIcon className="size-4" />
-                          {isArchived
-                            ? 'Restore from archive'
-                            : 'Move to archive'}
-                        </Button>
-                      )
-                    )
-                  }
+                        (!isDoorKnocking || campaignTurfs.length > 0) && (
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            disabled={archivePending}
+                            onClick={toggleArchive}
+                          >
+                            <ArchiveIcon className="size-4" />
+                            {isArchived
+                              ? 'Restore from archive'
+                              : 'Move to archive'}
+                          </Button>
+                        )
+                    ),
+                  )}
                   note={
                     // The turf is still the object, and the rail is still where a
                     // walk is managed — so the line stays, saying where this act
@@ -900,13 +940,6 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
-            {reportOutreachId !== null && (
-              <WhatWeHeardAction
-                outreachId={reportOutreachId}
-                isServe={isServe}
-              />
-            )}
-
             {(audienceName || audienceLabels.length > 0) && (
               // "Applied filters" describes what BUILT the audience, which is
               // the right title for a send composed out of voter-file

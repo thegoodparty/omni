@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   Alert,
   AlertDescription,
@@ -11,6 +12,11 @@ import {
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { whatWeHeardCopy } from '../../../../copy'
+import {
+  RETURN_PARAM,
+  safeReturnPath,
+  withReturnPath,
+} from '../../../../returnPath'
 import { reportQueryOptions, themeQueryOptions } from '../../../queries'
 import { rankThemes } from '../../../components/ThemeGrid'
 import ThemeDetails from './ThemeDetails'
@@ -30,6 +36,7 @@ const ThemeDetailPage = ({
 }: ThemeDetailPageProps) => {
   const copy = whatWeHeardCopy(isServe)
   const themeQuery = useQuery(themeQueryOptions(themeId))
+  const from = safeReturnPath(useSearchParams()?.get(RETURN_PARAM) ?? null)
   const theme = themeQuery.data
   // The report is cached from the page this was opened from; read off it,
   // the circle shows the card's number. Opened cold, the run's own rank
@@ -52,11 +59,14 @@ const ThemeDetailPage = ({
       {/* The report's own top bar and way back, the same as What we heard's,
           so the theme floats on the gray canvas below. */}
       <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center border-b border-border bg-background px-4 md:-mx-4 md:-mt-4 md:px-6">
-        <Button asChild variant="ghost" size="small" className="gap-1 px-2">
+        <Button asChild variant="ghost" size="small">
           {/* Reads "Back", and names the report it returns to for a screen
               reader. */}
           <Link
-            href={`/dashboard/issue-capture/${outreachId}`}
+            href={withReturnPath(
+              `/dashboard/issue-capture/${outreachId}`,
+              from,
+            )}
             aria-label={copy.back}
           >
             <ArrowLeftIcon className="size-4" aria-hidden />

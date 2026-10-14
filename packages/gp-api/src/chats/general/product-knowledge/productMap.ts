@@ -445,7 +445,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     modes: ['win', 'serve'],
     does: 'Read what people said on one door knocking turf, phone banking list or, for an elected official, text send, grouped into themes ranked by how many conversations raised them.',
     inside: [
-      'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top. An elected official’s text send shows it once constituents have replied',
+      'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. An elected official’s text send shows it once constituents have replied',
       'On a text send the notes are the replies themselves, listed as each person’s own words with no review step. Themes appear after enough replies, and a theme made of replies shows no Where people stand split',
       'Two counts under the title: how many people answered and how many left a note. A text send says how many replies came from how many people instead',
       'A note is confirmed at the door or on the call: Looks right saves the issues it found, and Skip saves the note with no issues. Either way its words go into the summary',

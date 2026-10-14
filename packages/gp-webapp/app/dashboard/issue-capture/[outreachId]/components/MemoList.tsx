@@ -2,7 +2,7 @@ import type {
   ConstituentFeedbackIssue,
   FeedbackReportChannel,
 } from '@goodparty_org/contracts'
-import { Badge, Card, EmptyState, Overline } from '@styleguide'
+import { Badge, Card, CardContent, EmptyState } from '@styleguide'
 import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
 
 export interface MemoListItem {
@@ -94,77 +94,81 @@ const MemoList = ({
     <ul className="flex flex-col gap-3">
       {memos.map((memo) => (
         <li key={memo.id} className="block">
-          <Card className="gap-3 p-4 md:p-6">
-            {/* Who, where and when on one line, so the note under it is the
+          <Card>
+            <CardContent className="flex flex-col gap-3">
+              {/* Who, where and when on one line, so the note under it is the
               first thing read. */}
-            <p className="text-xs text-muted-foreground">
-              {CHANNEL_LABELS[memo.channel]}
-              {' · '}
-              {formatDate(memo.occurredAt)}
-              {' · '}
-              {copy.summaryBy(memo.actorName)}
-            </p>
-            {/* The note as written, set apart the way a field shows its
-              value and in the muted colour, so it reads as the source and
-              the labelled issues under it as what was taken from it. */}
-            {memo.transcript !== null && (
-              <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-                {memo.transcript}
+              <p className="text-xs text-muted-foreground">
+                {CHANNEL_LABELS[memo.channel]}
+                {' · '}
+                {formatDate(memo.occurredAt)}
+                {' · '}
+                {copy.summaryBy(memo.actorName)}
               </p>
-            )}
-            {memo.issues.length > 0 && (
-              // One grid for every issue on the note, each `li` a subgrid row
-              // of it, so the labels share one column and every value starts
-              // at the same x however long "Issue 2" or "Wants" is. A phone
-              // stacks each label over its value instead: a label column there
-              // would leave the value a sliver of a 340px card. More space
-              // between issues than inside one, so an issue and what the
-              // person wants about it read as one entry.
-              <ul
-                aria-label={copy.issues}
-                className="flex flex-col gap-5 sm:grid sm:grid-cols-[auto_1fr] sm:gap-x-4 sm:gap-y-5"
-              >
-                {memo.issues.map((issue, index) => (
-                  // `flex-col` because globals.css makes every `li` under a
-                  // data-slot ancestor a row flex box. Numbered once a note
-                  // names more than one, the confirm form's own names for them.
-                  <li
-                    key={issue.position}
-                    className="flex flex-col gap-2 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:items-baseline sm:gap-y-1"
-                  >
-                    <div className="flex flex-col gap-1 sm:contents">
-                      <Overline emphasis={false}>
+              {/* The note as written, on the card itself and in the muted
+              colour, so it reads as the source and the labelled issues in
+              the panel under it as what was taken from it. */}
+              {memo.transcript !== null && (
+                <p className="text-sm text-muted-foreground">
+                  {memo.transcript}
+                </p>
+              )}
+              {memo.issues.length > 0 && (
+                // One muted block per issue, 4px of the card between them and the
+                // outer corners rounded, so each reads as its own item at any
+                // width: what it is about and where the person stands on one line,
+                // what they want under it, each value after its own quiet label.
+                // On a phone each label sits on its own line with the stance
+                // beside the issue's, and the value takes the full width under
+                // it: beside a label column the values were a sliver. No stance
+                // reads as Unclear, as the report counts it.
+                <ul
+                  aria-label={copy.issues}
+                  className="flex flex-col gap-1 sm:grid sm:grid-cols-[auto_1fr_auto]"
+                >
+                  {memo.issues.map((issue, index) => (
+                    // From `sm`, a subgrid row of the list's one grid of label,
+                    // value and stance, so every "Issue:" and "Wants:" on the note share a
+                    // column and every value starts at the same x, whichever
+                    // issues have a want. `grid` also because globals.css makes
+                    // every `li` under a data-slot ancestor a row flex box.
+                    <li
+                      key={issue.position}
+                      className="grid grid-cols-[1fr_auto] items-baseline gap-x-2 gap-y-1 bg-muted px-3 py-2 text-sm first:rounded-t-md last:rounded-b-md sm:col-span-3 sm:grid-cols-subgrid"
+                    >
+                      {/* Numbered once a note names more than one, the confirm
+                        form's own names for them. */}
+                      <span className="order-1 text-muted-foreground sm:order-none">
                         {memo.issues.length > 1
                           ? copy.issueNumber(index + 1)
                           : copy.issueHeading}
-                      </Overline>
-                      {/* The stance leads, so where the person stands is read
-                          first and lines up down the card. No stance reads
-                          as Unclear, as the report counts it: the same state
-                          should not look like two. */}
-                      <span className="flex flex-wrap items-center gap-2">
+                        :
+                      </span>
+                      <span className="order-3 col-span-2 text-foreground sm:order-none sm:col-span-1">
+                        {issue.issueLabel}
+                      </span>
+                      {/* Right-aligned in its column, so badges of different
+                        widths share the card's right edge. */}
+                      <span className="order-2 justify-self-end sm:order-none">
                         <Badge variant="soft" shape="pill">
                           {stanceLabels[issue.stance ?? 'unclear']}
                         </Badge>
-                        <span className="text-sm text-foreground">
-                          {issue.issueLabel}
-                        </span>
                       </span>
-                    </div>
-                    {issue.desiredOutcome !== null && (
-                      <div className="flex flex-col gap-1 sm:contents">
-                        <Overline emphasis={false}>
-                          {copy.wantsHeading}
-                        </Overline>
-                        <span className="text-sm text-foreground">
-                          {issue.desiredOutcome}
-                        </span>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+                      {issue.desiredOutcome !== null && (
+                        <>
+                          <span className="order-4 col-span-2 mt-1 text-muted-foreground sm:order-none sm:col-span-1 sm:mt-0">
+                            {copy.wantsHeading}:
+                          </span>
+                          <span className="order-5 col-span-2 text-foreground sm:order-none">
+                            {issue.desiredOutcome}
+                          </span>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
           </Card>
         </li>
       ))}

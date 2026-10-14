@@ -1,11 +1,13 @@
 // No 'use client' of its own: every surface that mounts it (the turf row, the
 // turf sheet, the phone caller) is already inside a client boundary.
 import Link from 'next/link'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRightIcon, MessageSquareIcon, cn } from '@styleguide'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { whatWeHeardCopy } from './copy'
 import { reportQueryOptions } from './[outreachId]/queries'
+import { safeReturnPath, withReturnPath } from './returnPath'
 
 interface WhatWeHeardLinkProps {
   // The effort's Outreach envelope. Null where the surface has none, which
@@ -24,6 +26,10 @@ export const WhatWeHeardLink = ({
   className,
 }: WhatWeHeardLinkProps) => {
   const copy = whatWeHeardCopy(isServe)
+  // The page it was pressed on, so the report's Back returns here.
+  const pathname = usePathname()
+  const search = useSearchParams()?.toString() ?? ''
+  const here = search ? `${pathname}?${search}` : pathname
   // Not the treatment surface (the capture card is), so no exposure.
   const { enabled } = useIssueCaptureFlag(false)
   const { data } = useQuery({
@@ -39,17 +45,22 @@ export const WhatWeHeardLink = ({
 
   return (
     <Link
-      href={`/dashboard/issue-capture/${outreachId}`}
+      href={withReturnPath(
+        `/dashboard/issue-capture/${outreachId}`,
+        safeReturnPath(here),
+      )}
       className={cn(
         'group flex items-center justify-between gap-3 text-sm no-underline',
         className,
       )}
     >
-      <span className="flex items-center gap-2 font-medium text-foreground underline-offset-4 group-hover:underline">
+      {/* The title never wraps; on a narrow card the counts take the line
+          break instead, right-aligned. */}
+      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap font-medium text-foreground underline-offset-4 group-hover:underline">
         <MessageSquareIcon size={16} aria-hidden="true" />
         {copy.title}
       </span>
-      <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
+      <span className="flex min-w-0 items-center justify-end gap-1 text-right tabular-nums text-muted-foreground">
         {copy.entryCounts(data.denominators, data.channel)}
         <ChevronRightIcon size={16} aria-hidden="true" />
       </span>

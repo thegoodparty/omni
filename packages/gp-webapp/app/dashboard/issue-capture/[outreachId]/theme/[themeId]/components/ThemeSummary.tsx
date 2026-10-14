@@ -1,5 +1,5 @@
 import type { FeedbackThemeDetail } from '@goodparty_org/contracts'
-import { Card } from '@styleguide'
+import { Avatar, Card, CardContent } from '@styleguide'
 import { whatWeHeardCopy } from '../../../../copy'
 import StanceSplit from '../../../components/StanceSplit'
 
@@ -19,34 +19,37 @@ const ThemeSummary = ({
   const copy = whatWeHeardCopy(isServe)
 
   return (
-    <Card className="p-4 md:p-6">
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center">
-          {/* The badge is a picture of the rank; the heading says it, so a
+    <Card>
+      <CardContent>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-4">
+            {/* The badge is a picture of the rank; the heading says it, so a
               screen reader hears "Rank 1: Street flooding" once. */}
-          <div
-            aria-hidden="true"
-            className="mr-4 flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary-light text-sm font-semibold text-secondary-dark"
-          >
-            #{position}
+            <Avatar size="large" aria-hidden="true">
+              {/* The secondary family's tint, with no ring: Avatar has no colour
+                  variant, so its fallback takes the theme token here. */}
+              <Avatar.Fallback className="border-0 bg-secondary-light text-secondary-dark">
+                #{position}
+              </Avatar.Fallback>
+            </Avatar>
+            <div className="min-w-0">
+              <h2 className="font-semibold text-foreground">
+                <span className="sr-only">{copy.rank(position)}:</span>{' '}
+                {theme.title}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {copy.conversations(theme.conversationCount)}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h2 className="font-semibold text-foreground">
-              <span className="sr-only">{copy.rank(position)}:</span>{' '}
-              {theme.title}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {copy.conversations(theme.conversationCount)}
-            </p>
-          </div>
-        </div>
-        <p className="text-sm text-foreground">{theme.summary}</p>
-        {/* Null when every member is a text reply, which carries no stance:
+          <p className="text-sm text-foreground">{theme.summary}</p>
+          {/* Null when every member is a text reply, which carries no stance:
             four zeros would read as a finding. */}
-        {theme.stanceCounts !== null && (
-          <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
-        )}
-      </div>
+          {theme.stanceCounts !== null && (
+            <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+          )}
+        </div>
+      </CardContent>
     </Card>
   )
 }
