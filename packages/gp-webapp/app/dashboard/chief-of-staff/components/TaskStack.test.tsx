@@ -223,6 +223,14 @@ describe('<TaskStack>', () => {
     sourceExternalId: 'build:eo-1',
   })
 
+  it('offers no Ask about this on a civic panel card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+  })
+
   it("leads with the citizens' panel build card, ahead of get-started cards", () => {
     onboardingRef.current = [{ key: 'meet', status: 'active' }]
     withCards([card({}), buildCard])

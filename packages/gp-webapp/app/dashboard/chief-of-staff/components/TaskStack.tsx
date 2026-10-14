@@ -368,33 +368,36 @@ const TaskStack = ({
                     Mark done
                   </Button>
                 )}
-                {/* A get-started card's own button already opens the chat. */}
-                {onDiscussCard && !front.onboardingKey && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="medium"
-                    className={QUIET_ON_PHONE}
-                    onClick={() => {
-                      trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
-                        ...cardProps,
-                        action: 'ask',
-                      })
-                      onDiscussCard(discussCardMessage(front, dueLine))
-                    }}
-                  >
-                    {/* On the narrowest phones a third quiet button leaves
+                {/* Get-started and civic panel cards already open a
+                    conversation from their own button. */}
+                {onDiscussCard &&
+                  !front.onboardingKey &&
+                  front.kind !== 'civic_panel' && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="medium"
+                      className={QUIET_ON_PHONE}
+                      onClick={() => {
+                        trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
+                          ...cardProps,
+                          action: 'ask',
+                        })
+                        onDiscussCard(discussCardMessage(front, dueLine))
+                      }}
+                    >
+                      {/* On the narrowest phones a third quiet button leaves
                         no room for the icon. */}
-                    <MessagesSquareIcon
-                      className={cn(
-                        'size-4',
-                        offersMarkDone && 'max-[399px]:hidden',
-                      )}
-                      aria-hidden
-                    />
-                    Ask about this
-                  </Button>
-                )}
+                      <MessagesSquareIcon
+                        className={cn(
+                          'size-4',
+                          offersMarkDone && 'max-[399px]:hidden',
+                        )}
+                        aria-hidden
+                      />
+                      Ask about this
+                    </Button>
+                  )}
                 {!leaving &&
                   (front.kind === 'civic_panel' ||
                   front.kind === 'report_back' ? (
