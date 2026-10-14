@@ -665,7 +665,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     vi.useRealTimers()
   })
 
-  it('runs the panel card through the sample, the locked JOIN ask and the priced review', async () => {
+  it('runs the panel card through the sample, the locked JOIN ask, the date and the priced review', async () => {
     mockPhoneBankingAudience()
     // The district's cell phones, of which the panel text reaches a draw.
     api.mock('POST /v1/contacts/count', {
@@ -723,11 +723,6 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
       hasCellPhone: true,
       sample: { size: 3334 },
     })
-    await user.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
     expect(
       await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
@@ -742,6 +737,12 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     )
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The date comes after the message.
+    await user.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     // Review prices the draw. The live total is Stripe's, which jsdom

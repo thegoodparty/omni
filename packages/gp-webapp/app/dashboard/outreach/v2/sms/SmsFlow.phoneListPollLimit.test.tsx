@@ -168,13 +168,13 @@ it('surfaces the build-failed retry card once the poll exhausts its ceiling, rat
   await userEvent.click(
     await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
   )
+  await screen.findByRole('textbox', { name: 'Message body' })
+  await attachImage()
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue' }))
   await screen.findByText('When do you want to send it?')
   await userEvent.click(screen.getByText('Pick a date'))
   await userEvent.click(await screen.findByRole('button', { name: dayName(4) }))
   await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  await screen.findByRole('textbox', { name: 'Message body' })
-  await attachImage()
-  await userEvent.click(await screen.findByRole('button', { name: 'Continue' }))
 
   expect(
     await screen.findByText(

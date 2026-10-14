@@ -116,7 +116,7 @@ describe("a priority's text card to the panel and new residents", () => {
     expect(props?.surface).toEqual({ isServe: true })
     expect(props?.preselectedListId).toBe(501)
     expect(props).not.toHaveProperty('proposedAudience')
-    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
     expect(props?.initialAsksToJoinCivicPanel).toBe(true)
     expect(props?.initialScript).toBe(MESSAGE)
@@ -134,7 +134,7 @@ describe("a priority's text card to the panel and new residents", () => {
       sample: { size: 84, seedKey: PROPOSAL_KEY },
     })
     expect(saved[0]?.sample).not.toHaveProperty('panelSize')
-    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
   })
 })
@@ -169,7 +169,7 @@ describe("the Chief of Staff's civic panel invite", () => {
     expect(props?.initialPurpose).toBe('build_citizens_panel')
     expect(props?.initialAsksToJoinCivicPanel).toBe(true)
     expect(props?.initialScript).toBe(MESSAGE)
-    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
   })
 
@@ -218,7 +218,7 @@ describe('a report back card', () => {
     expect(props?.initialPurpose).toBe('report_back')
     expect(props?.reportBackForOutreachId).toBe(77)
     expect(props?.initialAsksToJoinCivicPanel).toBe(false)
-    expect(smsFlow.props?.openOnMessage).toBe(true)
+    expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
     // Linked through the send it answers, never as another ask on the
     // priority.

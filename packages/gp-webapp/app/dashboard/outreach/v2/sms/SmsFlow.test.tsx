@@ -312,7 +312,7 @@ describe('SmsFlow', () => {
     vi.useRealTimers()
   })
 
-  it('runs purpose → audience → schedule → compose → review and schedules free', async () => {
+  it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
     const draftCalls = mockDraft()
     let receiptCalls = 0
     api.mock('GET /v1/outreach/:id/receipt', () => {
@@ -339,16 +339,6 @@ describe('SmsFlow', () => {
     await userEvent.click(
       screen.getByRole('button', { name: /Continue \(1,200\)/ }),
     )
-
-    // Schedule: a date 4 days out clears the 48-hour floor.
-    expect(
-      await screen.findByText('When do you want to send it?'),
-    ).toBeInTheDocument()
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Compose: initial AI draft fires; body arrives with the intro region.
     expect(
@@ -381,6 +371,16 @@ describe('SmsFlow', () => {
       expect(
         screen.queryByText('Add your headshot or logo to continue.'),
       ).toBeNull(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Schedule: a date 4 days out clears the 48-hour floor.
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -429,7 +429,69 @@ describe('SmsFlow', () => {
     expect(receiptCalls).toBe(0)
   })
 
-  // Drives purpose → audience → schedule → compose → review for a PAID send
+  it('walks purpose → audience → compose → schedule → review and back the same way', async () => {
+    mockDraft()
+    vi.mocked(createP2pPhoneList).mockClear()
+    openFlow()
+    const stepOf = () =>
+      screen.getByRole('progressbar').getAttribute('aria-valuetext')
+
+    expect(stepOf()).toBe('Step 1 of 5')
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    expect(vi.mocked(createP2pPhoneList)).not.toHaveBeenCalled()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+
+    // The phone list build starts on the audience advance, before compose.
+    await screen.findByRole('textbox', { name: 'Message body' })
+    expect(stepOf()).toBe('Step 3 of 5')
+    expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    expect(stepOf()).toBe('Step 4 of 5')
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Review and send' }),
+    ).toBeInTheDocument()
+    expect(stepOf()).toBe('Step 5 of 5')
+    expect(await screen.findByText('1,200')).toBeInTheDocument()
+    expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      (await screen.findAllByText('Who do you want to reach?')).length,
+    ).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByText('Introduce myself to voters'),
+    ).toBeInTheDocument()
+    expect(stepOf()).toBe('Step 1 of 5')
+  })
+
+  // Drives purpose → audience → compose → schedule → review for a PAID send
   // (no free-texts offer), leaving the phone-list build still 'building'.
   const reachReviewWhileBuilding = async () => {
     // Shared module mock — clear so a prior test's call doesn't leak in.
@@ -447,15 +509,15 @@ describe('SmsFlow', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
     )
-    await userEvent.click(await screen.findByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(/AI body \(warm\) for introduce_myself/)
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await userEvent.click(await screen.findByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
   }
@@ -539,7 +601,7 @@ describe('SmsFlow', () => {
       )
 
       expect(
-        await screen.findByText('When do you want to send it?'),
+        await screen.findByRole('textbox', { name: 'Message body' }),
       ).toBeInTheDocument()
       expect(
         screen.queryByText("We couldn't prepare this audience. Try again."),
@@ -601,11 +663,6 @@ describe('SmsFlow', () => {
       await userEvent.click(
         await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
       )
-      await userEvent.click(screen.getByText('Pick a date'))
-      await userEvent.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
-      await userEvent.click(continueButton())
 
       expect(
         await screen.findByText(/📍 Georgetown Public Library/),
@@ -623,6 +680,13 @@ describe('SmsFlow', () => {
         null,
       )
       await attachImage()
+      await waitFor(() => expect(continueButton()).toBeEnabled())
+      await userEvent.click(continueButton())
+
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
       await waitFor(() => expect(continueButton()).toBeEnabled())
     })
 
@@ -684,12 +748,6 @@ describe('SmsFlow', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
     )
-    await userEvent.click(await screen.findByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
@@ -701,6 +759,11 @@ describe('SmsFlow', () => {
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await userEvent.click(await screen.findByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -730,12 +793,6 @@ describe('SmsFlow', () => {
     await userEvent.click(
       screen.getByRole('button', { name: /Continue \(1,200\)/ }),
     )
-    await screen.findByText('When do you want to send it?')
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(
@@ -765,12 +822,6 @@ describe('SmsFlow', () => {
     await userEvent.click(
       screen.getByRole('button', { name: /Continue \(1,200\)/ }),
     )
-    await screen.findByText('When do you want to send it?')
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(
@@ -807,12 +858,6 @@ describe('SmsFlow', () => {
       await userEvent.click(
         screen.getByRole('button', { name: /Continue \(1,200\)/ }),
       )
-      await screen.findByText('When do you want to send it?')
-      await userEvent.click(screen.getByText('Pick a date'))
-      await userEvent.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
       const box = await screen.findByRole('textbox', { name: 'Message body' })
       await waitFor(() => expect(box).toHaveTextContent(/AI body \(warm\)/))
       const editor = (box as HTMLElement & { editor: Editor }).editor
@@ -1064,12 +1109,6 @@ describe('SmsFlow', () => {
       await userEvent.click(
         screen.getByRole('button', { name: /Continue \(1,200\)/ }),
       )
-      await screen.findByText('When do you want to send it?')
-      await userEvent.click(screen.getByText('Pick a date'))
-      await userEvent.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
       expect(
         await screen.findByText(/We couldn.t draft your message just now/),
@@ -1098,12 +1137,6 @@ describe('SmsFlow', () => {
       await userEvent.click(
         screen.getByRole('button', { name: /Continue \(1,200\)/ }),
       )
-      await screen.findByText('When do you want to send it?')
-      await userEvent.click(screen.getByText('Pick a date'))
-      await userEvent.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
       expect(
         await screen.findByText(/We couldn.t draft your message just now/),
@@ -1320,12 +1353,6 @@ describe('SmsFlow', () => {
     await userEvent.click(
       screen.getByRole('button', { name: /Continue \(1,200\)/ }),
     )
-    await screen.findByText('When do you want to send it?')
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(
@@ -1346,7 +1373,7 @@ describe('SmsFlow', () => {
         campaignPlanDueDate: string
         proposalLink: { proposalKey: string }
         onProposalCreateFailed: () => void
-        openOnMessage: boolean
+        audienceSettled: boolean
       }>,
     ) =>
       render(
@@ -1398,7 +1425,7 @@ describe('SmsFlow', () => {
       openSeeded({
         initialScript: 'Hello {first_name}, vote Tuesday.',
         preselectedListId: 41,
-        openOnMessage: true,
+        audienceSettled: true,
         proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
       })
 
@@ -1449,8 +1476,8 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
     })
 
-    // Build mode already puts the message right after the list, so a card
-    // lands there in the build order, and nothing goes to Peerly yet.
+    // Build mode orders its steps the same way, so a card lands on the
+    // message there too, and nothing goes to Peerly yet.
     it("opens a card's flow on the message in build mode, building no phone list", async () => {
       vi.mocked(createP2pPhoneList).mockClear()
       gateRef.set({
@@ -1469,7 +1496,7 @@ describe('SmsFlow', () => {
       openSeeded({
         initialScript: 'Hello {first_name}, vote Tuesday.',
         preselectedListId: 41,
-        openOnMessage: true,
+        audienceSettled: true,
       })
 
       await screen.findByRole('textbox', { name: 'Message body' })
@@ -1495,15 +1522,15 @@ describe('SmsFlow', () => {
       await userEvent.click(
         await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
       )
-      await userEvent.click(await screen.findByText('Pick a date'))
-      await userEvent.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
       await screen.findByRole('textbox', { name: 'Message body' })
       await attachImage()
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
       )
       await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -1528,15 +1555,15 @@ describe('SmsFlow', () => {
       await userEvent.click(
         await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
       )
-      await userEvent.click(await screen.findByText('Pick a date'))
-      await userEvent.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
       await screen.findByRole('textbox', { name: 'Message body' })
       await attachImage()
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
       )
       await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -1578,11 +1605,6 @@ describe('SmsFlow', () => {
         await userEvent.click(
           await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
         )
-        await userEvent.click(await screen.findByText('Pick a date'))
-        await userEvent.click(
-          await screen.findByRole('button', { name: dayName(4) }),
-        )
-        await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
         return screen.findByRole('textbox', { name: 'Message body' })
       }
 
@@ -1647,11 +1669,6 @@ describe('SmsFlow', () => {
         await userEvent.click(
           await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
         )
-        await userEvent.click(await screen.findByText('Pick a date'))
-        await userEvent.click(
-          await screen.findByRole('button', { name: dayName(4) }),
-        )
-        await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
         const box = await screen.findByRole('textbox', {
           name: 'Message body',
         })
@@ -1722,20 +1739,20 @@ describe('SmsFlow', () => {
     )
 
     expect(
-      await screen.findByText('When do you want to send it?'),
-    ).toBeInTheDocument()
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    expect(
       await screen.findByText(/AI body \(warm\) for introduce_myself/),
     ).toBeInTheDocument()
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -1748,7 +1765,7 @@ describe('SmsFlow', () => {
     expect(screen.queryByText('Scheduled!')).not.toBeInTheDocument()
   })
 
-  it('builds a new list in-flow and continues into scheduling', async () => {
+  it('builds a new list in-flow and continues into the message, then scheduling', async () => {
     mockDraft()
     api.mock('POST /v1/contacts/count', { status: 200, data: { count: 875 } })
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => ({
@@ -1790,7 +1807,16 @@ describe('SmsFlow', () => {
     await userEvent.type(screen.getByLabelText('List name'), 'Super voters TX')
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // Created + phone list derived (mocked) → schedule step.
+    // Created + phone list derived (mocked) → compose step, then schedule.
+    expect(
+      await screen.findByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
+    expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalled()
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(
       await screen.findByText('When do you want to send it?'),
     ).toBeInTheDocument()
@@ -2462,7 +2488,7 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
     })
 
-    it('renders no banner and keeps the schedule step with the flag off', async () => {
+    it('renders no banner and keeps the message step with the flag off', async () => {
       mockDraft()
       openFlow()
 
@@ -2474,7 +2500,7 @@ describe('SmsFlow', () => {
       )
 
       expect(
-        await screen.findByText('When do you want to send it?'),
+        await screen.findByRole('textbox', { name: 'Message body' }),
       ).toBeInTheDocument()
       expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
     })
@@ -2513,16 +2539,16 @@ describe('SmsFlow', () => {
       await userEvent.click(
         screen.getByRole('button', { name: /Continue \(1,200\)/ }),
       )
-      await screen.findByText('When do you want to send it?')
-      await userEvent.click(screen.getByText('Pick a date'))
-      await userEvent.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
       await screen.findByRole('textbox', { name: 'Message body' })
       await attachImage()
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
       )
       await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     }
@@ -2612,7 +2638,7 @@ describe('SmsFlow', () => {
       ).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-      await screen.findByRole('textbox', { name: 'Message body' })
+      await screen.findByText('When do you want to send it?')
 
       // Back already re-requested a fresh build in the background -- the
       // candidate doesn't have to notice the stale failure and press retry
@@ -2640,7 +2666,7 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
 
       await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-      await screen.findByRole('textbox', { name: 'Message body' })
+      await screen.findByText('When do you want to send it?')
       await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
       expect(await screen.findByText('1,200')).toBeInTheDocument()

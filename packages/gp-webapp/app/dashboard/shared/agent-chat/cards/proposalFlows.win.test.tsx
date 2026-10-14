@@ -217,7 +217,7 @@ describe('a Campaign Manager text card', () => {
     expect(props?.source).toBe('campaign_manager')
     expect(props?.tcrCompliance).toEqual(APPROVED)
     expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
-    expect(props?.openOnMessage).toBe(true)
+    expect(props?.audienceSettled).toBe(true)
     expect(props?.preselectedListId).toBe(501)
     expect(props).not.toHaveProperty('proposedAudience')
     expect(saved).toHaveLength(1)
@@ -226,6 +226,23 @@ describe('a Campaign Manager text card', () => {
       homeownerNo: true,
       sample: { size: 4_000, seedKey: PROPOSAL_KEY },
     })
+  })
+
+  // Nothing settled who gets it, so the flow lands on the audience step with
+  // the message held for compose.
+  it('opens on the audience step when the card carries no audience', async () => {
+    campaign.current = { id: 9, isPro: true }
+    tcr.current = APPROVED
+    const { audienceFilters: _filters, ...noAudience } = card
+
+    await openCard(noAudience)
+
+    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+    const props = smsFlow.props
+    expect(props?.initialScript).toBe(MESSAGE)
+    expect(props?.audienceSettled).toBe(false)
+    expect(props).not.toHaveProperty('preselectedListId')
+    expect(saved).toHaveLength(0)
   })
 
   it('reuses the list it saved when the card is opened again', async () => {
