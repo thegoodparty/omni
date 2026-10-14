@@ -25,6 +25,14 @@ vi.mock('../shared/useContactsDownload', () => ({
 vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
   useOpenChannelPicker: () => vi.fn(),
 }))
+// deck.gl and maplibre don't run in jsdom; the stub reports how many people
+// it was handed.
+vi.mock('../map/ContactListMap', () => ({
+  __esModule: true,
+  default: ({ people }: { people: unknown[] }) => (
+    <div data-testid="contact-map-stub" data-people={people.length} />
+  ),
+}))
 
 const selectList = vi.fn()
 const selectPerson = vi.fn()
@@ -74,6 +82,7 @@ describe('CitizensPanelListCard', () => {
 
     expect(await screen.findByText('Civic panel')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('No outreach yet')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Details' }))
     expect(selectList).toHaveBeenCalledWith('civicPanel')
@@ -163,12 +172,8 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
     return { detailBodies, segments }
   }
 
-  it('shows exactly the members, read live with no saved list', async () => {
-    const savedLists = vi.fn()
-    api.mock('GET /v1/voters/voter-file/filters', () => {
-      savedLists()
-      return { status: 200, data: [] }
-    })
+  it('renders the same sections a saved list does, read live with no saved list', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
     const { detailBodies, segments } = mockPanel()
     render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
 
@@ -176,25 +181,62 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
     expect(
       within(dialog).getByRole('heading', { name: 'Civic panel' }),
     ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('heading', { name: 'Constituent list details' }),
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText('List filters')).toBeInTheDocument()
     expect(within(dialog).getByText('On your civic panel.')).toBeInTheDocument()
     expect(
-      await within(dialog).findByRole('button', { name: 'Ada Lovelace' }),
+      within(dialog).getByRole('link', {
+        name: 'Make a list of who can be asked now',
+      }),
     ).toBeInTheDocument()
+    expect(within(dialog).getByText('Where they are')).toBeInTheDocument()
     expect(
-      within(dialog).getByRole('button', { name: 'Grace Hopper' }),
-    ).toBeInTheDocument()
+      await within(dialog).findByTestId('contact-map-stub'),
+    ).toHaveAttribute('data-people', '2')
+    expect(within(dialog).getByText('List demographics')).toBeInTheDocument()
     expect(await within(dialog).findByText('$95,592')).toBeInTheDocument()
+    expect(within(dialog).getByText('Last outreach')).toBeInTheDocument()
+    expect(within(dialog).getByText('Last method')).toBeInTheDocument()
+    expect(within(dialog).getByText('Reachable by channel')).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('heading', {
+        name: 'Outreach campaign history',
+      }),
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText('No outreach yet.')).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'Download list' }),
+    ).toBeInTheDocument()
 
     expect(segments).toEqual(['civicPanel'])
     expect(detailBodies).toEqual([{ civicPanelMember: true }])
     expect(
       within(dialog).queryByText(/couldn.t be found/),
     ).not.toBeInTheDocument()
+  })
 
-    await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Ada Lovelace' }),
-    )
-    expect(selectPerson).toHaveBeenCalledWith('p-1')
+  it('lists no member names and offers no shape drawing or list actions', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    mockPanel()
+    render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
+
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByTestId('contact-map-stub')
+    expect(within(dialog).queryByText('Members')).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByText(/Lovelace|Hopper/),
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: /shapes/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: 'More actions' }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: 'Edit list' }),
+    ).not.toBeInTheDocument()
   })
 
   it('is an unknown list with the flag off', async () => {
