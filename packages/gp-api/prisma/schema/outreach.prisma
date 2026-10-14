@@ -12,6 +12,9 @@ enum OutreachType {
   socialMedia
   robocall
   p2p
+  // Serve self-serve poll: the question lives in `message`, the rest on
+  // the OutreachPoll satellite.
+  poll
 }
 
 enum OutreachStatus {
@@ -178,6 +181,7 @@ model Outreach {
   campaignSiblings                  Outreach[]                         @relation("OutreachCampaign")
   social                            OutreachSocial?
   robocall                          OutreachRobocall?
+  pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
