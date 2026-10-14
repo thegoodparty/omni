@@ -6,7 +6,7 @@ import {
   type ComplianceStateOutput,
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import { api } from 'helpers/test-utils/api-mocking'
 import type {
   Campaign,
@@ -14,12 +14,6 @@ import type {
   TcrComplianceStatus,
 } from 'helpers/types'
 import ProUpgrade3Compliance from './ProUpgrade3Compliance'
-
-vi.mock('helpers/analyticsHelper', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('helpers/analyticsHelper')>()
-  return { ...actual, trackEvent: vi.fn() }
-})
 
 const mockGetTcrCompliance = vi.fn<() => Promise<TcrCompliance | null>>()
 const mockGetComplianceState =
@@ -489,47 +483,32 @@ describe('ProUpgrade3Compliance — SMS compliance window', () => {
     smsCutoffDate: '2026-10-15',
     generalElectionDate: '2026-11-03',
   })
+  const closingTitle = `Get verified to send SMS by the ${formatSmsCutoffDate('2026-10-15')} deadline`
 
   it.each<[TcrComplianceStatus | null]>([[null], ['error'], ['submitted']])(
-    'shows the cutoff notice when closed, whatever the record says (%s)',
+    'renders nothing when closed, whatever the record says (%s)',
     async (status) => {
       mockUseCampaign.mockReturnValue([smsCampaign('closed')])
       mockGetTcrCompliance.mockResolvedValue(
         status === null ? null : tcrWith(status),
       )
-      render(<ProUpgrade3Compliance surface="account_compliance_card" />)
+      const { container } = render(<ProUpgrade3Compliance />)
 
-      expect(
-        screen.getByText("Texting isn't available for this race"),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText(
-          "Texting needs campaign verification, which can't finish before your general election on Nov 3.",
-        ),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: 'Door knocking' }),
-      ).toHaveAttribute('href', '/dashboard/door-knocking?create=1')
+      expect(container).toBeEmptyDOMElement()
       expect(screen.queryByRole('link', { name: 'Get started' })).toBeNull()
       expect(getPinInput()).toBeNull()
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.Outreach.SmsCutoff.NoticeViewed,
-        expect.objectContaining({ surface: 'account_compliance_card' }),
-      )
     },
   )
 
-  it('puts the cutoff date on the set-up card while closing', async () => {
+  it('puts the cutoff date in the set-up card title while closing', async () => {
     mockUseCampaign.mockReturnValue([smsCampaign('closing')])
     mockGetTcrCompliance.mockResolvedValue(null)
     render(<ProUpgrade3Compliance />)
 
-    expect(
-      await screen.findByText('Start texting verification by Oct 15'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(closingTitle)).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Register your campaign so you can text voters before your Nov 3 election.',
+        'Register your campaign for 10DLC texting compliance so you can send text messages to voters.',
       ),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
@@ -546,8 +525,6 @@ describe('ProUpgrade3Compliance — SMS compliance window', () => {
     expect(
       await screen.findByText('Your candidate profile is being reviewed'),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByText('Start texting verification by Oct 15'),
-    ).toBeNull()
+    expect(screen.queryByText(closingTitle)).toBeNull()
   })
 })

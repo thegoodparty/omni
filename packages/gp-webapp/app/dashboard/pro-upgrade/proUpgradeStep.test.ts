@@ -5,7 +5,6 @@ import {
   PRO_UPGRADE_STEP,
   PRO_UPGRADE_STEP_ORDER,
   PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY,
-  PRO_UPGRADE_STEP_ORDER_SMS_CLOSED,
   proUpgradeStepOrder,
   type FilingStatus,
   type ProUpgradeStepInputs,
@@ -268,70 +267,5 @@ describe('deriveProUpgradeStep purchase-only mode', () => {
     ])
     expect(proUpgradeStepOrder(false)).toBe(PRO_UPGRADE_STEP_ORDER)
     expect(proUpgradeStepOrder(true)).toBe(PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY)
-  })
-})
-
-describe('deriveProUpgradeStep with the SMS compliance window closed', () => {
-  const noProgress: ProUpgradeStepInputs = {
-    isPro: false,
-    filingStatus: 'unanswered',
-    hasEin: false,
-    filingComplete: false,
-    profileComplete: false,
-    pinComplete: false,
-  }
-
-  it('skips the filing steps: guidance, then payment, then success', () => {
-    expect(PRO_UPGRADE_STEP_ORDER_SMS_CLOSED).toEqual([
-      PRO_UPGRADE_STEP.GUIDANCE,
-      PRO_UPGRADE_STEP.PAYMENT,
-      PRO_UPGRADE_STEP.SUCCESS,
-    ])
-    expect(proUpgradeStepOrder(true, true)).toBe(
-      PRO_UPGRADE_STEP_ORDER_SMS_CLOSED,
-    )
-    expect(proUpgradeStepOrder(false, true)).toBe(
-      PRO_UPGRADE_STEP_ORDER_SMS_CLOSED,
-    )
-    expect(proUpgradeStepOrder(true, false)).toBe(
-      PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY,
-    )
-  })
-
-  it('sends a default-order candidate straight to payment', () => {
-    expect(deriveProUpgradeStep(noProgress, { smsClosed: true })).toBe(
-      PRO_UPGRADE_STEP.PAYMENT,
-    )
-    expect(
-      deriveProUpgradeStep(
-        { ...noProgress, filingStatus: 'has-filed', hasEin: true },
-        { smsClosed: true },
-      ),
-    ).toBe(PRO_UPGRADE_STEP.PAYMENT)
-  })
-
-  // Saved details without payment never started verification, so gp-api
-  // reports them closed like anyone else.
-  it('sends a candidate who saved filing details but never paid to payment', () => {
-    expect(
-      deriveProUpgradeStep(
-        {
-          ...noProgress,
-          filingStatus: 'has-filed',
-          hasEin: true,
-          filingComplete: true,
-        },
-        { smsClosed: true },
-      ),
-    ).toBe(PRO_UPGRADE_STEP.PAYMENT)
-  })
-
-  it('keeps purchase-only on guidance and Pro on success', () => {
-    expect(
-      deriveProUpgradeStep(noProgress, { purchaseOnly: true, smsClosed: true }),
-    ).toBe(PRO_UPGRADE_STEP.GUIDANCE)
-    expect(
-      deriveProUpgradeStep({ ...noProgress, isPro: true }, { smsClosed: true }),
-    ).toBe(PRO_UPGRADE_STEP.SUCCESS)
   })
 })

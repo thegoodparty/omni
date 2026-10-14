@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button, ProBadge, Spinner } from '@styleguide'
+import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import {
   CheckCircleIcon,
   CheckIcon,
   ClipboardListIcon,
+  InfoIcon,
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
@@ -24,10 +26,9 @@ import {
 import {
   PIN_NOTICE_BODY,
   PIN_NOTICE_TITLE,
-  SMS_CUTOFF_COPY,
   SUBMITTED_BODY,
+  formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
-import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfettiField } from './ConfettiField'
@@ -51,6 +52,13 @@ const UNLOCKED_ROWS = [
 
 const VERIFICATION_BODY =
   'Your payment went through. One step left before you can send.'
+
+const SMS_CLOSED_BODY = 'Your payment went through.'
+
+const smsClosedReason = (cutoff: string | null): string =>
+  cutoff
+    ? `The ${cutoff} deadline to get verified for texting has passed.`
+    : 'The deadline to get verified for texting has passed.'
 
 const NEXT_NOUN = {
   robocall: 'schedule your robocall',
@@ -104,9 +112,9 @@ const SuccessStep = (): React.JSX.Element => {
   const verificationNext = channel === 'sms' || channel === null
 
   // gp-api's word is final once the window has closed: whatever the filing
-  // says, texting will not open for this race, so the notice replaces the
+  // says, texting will not open for this race, so a banner replaces the
   // verification row in either flag state.
-  const { smsCompliance } = useSmsCompliance()
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsCutoff = verificationNext && smsCompliance === 'closed'
 
   // Whether this campaign's filing is already in: the wizard collects it
@@ -164,7 +172,7 @@ const SuccessStep = (): React.JSX.Element => {
               {nextStep
                 ? `Payment successful. Your next step is to ${nextStep.noun}.`
                 : smsCutoff
-                  ? SMS_CUTOFF_COPY.successClosedBody
+                  ? SMS_CLOSED_BODY
                   : filingSubmitted
                     ? SUBMITTED_BODY
                     : VERIFICATION_BODY}
@@ -196,11 +204,7 @@ const SuccessStep = (): React.JSX.Element => {
               </ul>
             </div>
           </div>
-          {smsCutoff ? (
-            <div className="border-t border-base-border px-4 py-3.5">
-              <SmsCutoffNotice variant="card" surface="pro_upgrade_success" />
-            </div>
-          ) : (
+          {!smsCutoff && (
             <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
               {nextStep ? (
                 <ClipboardListIcon
@@ -233,6 +237,16 @@ const SuccessStep = (): React.JSX.Element => {
           )}
         </div>
 
+        {smsCutoff && (
+          <Alert variant="info" icon={<InfoIcon />}>
+            <AlertTitle>
+              {smsClosedReason(
+                smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+              )}
+            </AlertTitle>
+          </Alert>
+        )}
+
         <ProReceiptCard enabled={Boolean(data?.isPro)} />
 
         {smsCutoff ? (
@@ -243,7 +257,7 @@ const SuccessStep = (): React.JSX.Element => {
               onClick={handleContinue}
               disabled={!data?.isPro && !pollExpired}
             >
-              {SMS_CUTOFF_COPY.successClosedCta}
+              Go to dashboard
             </Button>
           </StepFooter>
         ) : !nextStep && filingSubmitted ? (
