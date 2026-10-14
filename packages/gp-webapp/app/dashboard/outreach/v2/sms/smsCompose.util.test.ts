@@ -332,6 +332,35 @@ describe('openWithSmsIdentification', () => {
       expect(ensureSmsIdentification(once, context)).toBe(once)
     },
   )
+
+  describe('with a name longer than two words', () => {
+    const long = {
+      intro: identificationIntro('direct', 'Mary Ann Smith', 'City Council'),
+      senderName: 'Mary Ann Smith',
+      candidateNames: ['Mary Ann Smith'],
+    }
+
+    it("replaces the model's own name-first introduction", () => {
+      expect(
+        openWithSmsIdentification(
+          'Mary Ann Smith here, running for City Council. Vote early.',
+          long,
+        ),
+      ).toBe('Mary Ann Smith here, candidate for City Council. Vote early.')
+    })
+
+    it.each(SOCIAL_TONE_VALUES)(
+      'never stacks a second intro on a repeat pass (%s)',
+      (tone) => {
+        const context = {
+          ...long,
+          intro: identificationIntro(tone, 'Mary Ann Smith', 'City Council'),
+        }
+        const once = openWithSmsIdentification('Vote early.', context)
+        expect(openWithSmsIdentification(once, context)).toBe(once)
+      },
+    )
+  })
 })
 
 describe('restoreSmsSystemRegions', () => {

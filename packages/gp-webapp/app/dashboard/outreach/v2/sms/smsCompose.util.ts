@@ -308,9 +308,20 @@ const identify = (
     return body
   }
 
+  // NAME_HERE stops at two words before "here", which a longer full name
+  // overruns ("Mary Ann Smith here, ...", Win's direct and urgent intros), so
+  // a sentence that opens on one of the sender's own names counts too.
+  const opensOnNameHere = (sentence: string): boolean =>
+    names.some(
+      (name) =>
+        sentence.slice(0, name.length).toLowerCase() === name.toLowerCase() &&
+        /^\s+here\b/i.test(sentence.slice(name.length)),
+    )
   const isOpener = (sentence: string): boolean =>
     sentence.length <= 160 &&
-    (SELF_INTRO.test(sentence) || NAME_HERE.test(sentence)) &&
+    (SELF_INTRO.test(sentence) ||
+      NAME_HERE.test(sentence) ||
+      opensOnNameHere(sentence)) &&
     (hasSenderPlaceholder(sentence) ||
       namesSender(sentence) ||
       INSTITUTION_INTRO.test(sentence))
