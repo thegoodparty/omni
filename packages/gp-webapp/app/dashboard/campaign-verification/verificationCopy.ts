@@ -97,6 +97,8 @@ export const SMS_CUTOFF_COPY = {
     `Get verified to send SMS by the ${cutoff} deadline`,
   guidanceClosing: (cutoff: string): string =>
     `In order to send SMS, you must finish these steps by ${cutoff}.`,
+  successClosedBody: 'Your payment went through.',
+  goToDashboard: 'Go to dashboard',
   paymentVerificationStarts:
     'Verification starts when you pay. Texting usually opens 1 to 2 weeks later.',
   paymentClosing: (cutoff: string): string =>

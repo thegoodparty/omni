@@ -9,7 +9,10 @@ import Link from 'next/link'
 import type { SmsComplianceWindow } from '@goodparty_org/contracts'
 import { CalendarClockIcon } from '@styleguide/components/ui/icons'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
-import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
 import type { TcrCompliance } from 'helpers/types'
 
 export const SUBMIT_PIN_PATH =
@@ -21,9 +24,6 @@ export const SUBMIT_PIN_PATH =
 // matching ProUpgrade3Compliance's no-record branch.
 export const ELECTION_FILING_PATH =
   '/dashboard/profile/texting-compliance/election-filing'
-
-const smsClosingCountdown = (cutoff: string): string =>
-  `Get verified to send SMS by the ${cutoff} deadline`
 
 interface ComplianceModalProps {
   open: boolean
@@ -148,7 +148,9 @@ export function ComplianceModal({
       cta = 'Start Registration'
       ctaHref = ELECTION_FILING_PATH
       if (smsCompliance === 'closing' && smsCutoffDate) {
-        countdown = smsClosingCountdown(formatSmsCutoffDate(smsCutoffDate))
+        countdown = SMS_CUTOFF_COPY.countdownDeadline(
+          formatSmsCutoffDate(smsCutoffDate),
+        )
       }
       break
   }

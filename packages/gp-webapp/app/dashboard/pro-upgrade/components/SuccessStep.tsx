@@ -26,6 +26,7 @@ import {
 import {
   PIN_NOTICE_BODY,
   PIN_NOTICE_TITLE,
+  SMS_CUTOFF_COPY,
   SUBMITTED_BODY,
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
@@ -52,13 +53,6 @@ const UNLOCKED_ROWS = [
 
 const VERIFICATION_BODY =
   'Your payment went through. One step left before you can send.'
-
-const SMS_CLOSED_BODY = 'Your payment went through.'
-
-const smsClosedReason = (cutoff: string | null): string =>
-  cutoff
-    ? `The ${cutoff} deadline to get verified for texting has passed.`
-    : 'The deadline to get verified for texting has passed.'
 
 const NEXT_NOUN = {
   robocall: 'schedule your robocall',
@@ -172,7 +166,7 @@ const SuccessStep = (): React.JSX.Element => {
               {nextStep
                 ? `Payment successful. Your next step is to ${nextStep.noun}.`
                 : smsCutoff
-                  ? SMS_CLOSED_BODY
+                  ? SMS_CUTOFF_COPY.successClosedBody
                   : filingSubmitted
                     ? SUBMITTED_BODY
                     : VERIFICATION_BODY}
@@ -240,7 +234,7 @@ const SuccessStep = (): React.JSX.Element => {
         {smsCutoff && (
           <Alert variant="info" icon={<InfoIcon />}>
             <AlertTitle>
-              {smsClosedReason(
+              {SMS_CUTOFF_COPY.closedReason(
                 smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
               )}
             </AlertTitle>
@@ -257,7 +251,7 @@ const SuccessStep = (): React.JSX.Element => {
               onClick={handleContinue}
               disabled={!data?.isPro && !pollExpired}
             >
-              Go to dashboard
+              {SMS_CUTOFF_COPY.goToDashboard}
             </Button>
           </StepFooter>
         ) : !nextStep && filingSubmitted ? (

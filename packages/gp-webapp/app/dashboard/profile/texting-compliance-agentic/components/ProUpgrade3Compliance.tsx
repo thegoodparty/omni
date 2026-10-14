@@ -6,7 +6,10 @@ import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
 import {
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
@@ -30,9 +33,6 @@ import TextingComplianceInReview from './TextingComplianceInReview'
 // the same column so the two surfaces can never disagree (ENG-10440).
 const FREE_TEXTS_APPROVED_DESCRIPTION =
   'Claim up to 5,000 free texts in your first campaign. Schedule your introduction text message today.'
-
-const smsClosingTitle = (cutoff: string): string =>
-  `Get verified to send SMS by the ${cutoff} deadline`
 
 // Post-payment compliance surface for the Pro-upgrade flow. The agent
 // provisions the domain/site and submits TCR to Peerly after payment; this
@@ -133,7 +133,7 @@ export default function ProUpgrade3Compliance(): React.JSX.Element | null {
         <div className="flex flex-col gap-1">
           <p className="text-lg font-semibold">
             {closingCutoff
-              ? smsClosingTitle(closingCutoff)
+              ? SMS_CUTOFF_COPY.countdownDeadline(closingCutoff)
               : 'Set up texting compliance'}
           </p>
           <p className="text-sm text-muted-foreground">

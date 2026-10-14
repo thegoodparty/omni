@@ -18,6 +18,7 @@ import {
   CONTACT_DETAILS_ROW,
   FILING_DETAILS_ROW,
   PIN_TIMING_ROW,
+  SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
@@ -36,14 +37,6 @@ const GATHER_STEPS = [
   'Your candidate profile',
   'Payment',
 ]
-
-const smsClosedReason = (cutoff: string | null): string =>
-  cutoff
-    ? `The ${cutoff} deadline to get verified for texting has passed.`
-    : 'The deadline to get verified for texting has passed.'
-
-const smsClosingGuidance = (cutoff: string): string =>
-  `In order to send SMS, you must finish these steps by ${cutoff}.`
 
 // The purchase-only flow (outreach-pro-gating-v2), design: sgBody's
 // overview. Every launch now gathers the filing details before payment, so
@@ -136,14 +129,14 @@ const GuidanceStep = (): React.JSX.Element => {
   // PIN that would unlock texting is not coming.
   const smsBanner = smsClosed ? (
     <Alert variant="info" icon={<InfoIcon />} className="mb-6">
-      <AlertTitle>{smsClosedReason(cutoff)}</AlertTitle>
+      <AlertTitle>{SMS_CUTOFF_COPY.closedReason(cutoff)}</AlertTitle>
     </Alert>
   ) : null
   const smsCountdown =
     smsCompliance === 'closing' && cutoff ? (
       <p className="mb-4 flex items-center gap-2 text-sm font-medium text-warning-dark">
         <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
-        {smsClosingGuidance(cutoff)}
+        {SMS_CUTOFF_COPY.guidanceClosing(cutoff)}
       </p>
     ) : null
 

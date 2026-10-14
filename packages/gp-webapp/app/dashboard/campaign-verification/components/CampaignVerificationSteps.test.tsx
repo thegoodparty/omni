@@ -247,6 +247,27 @@ describe('CampaignVerificationSteps', () => {
     expect(onComplete).toHaveBeenCalledTimes(1)
   })
 
+  it('puts the cutoff date on the intro while closing', () => {
+    mockCampaign.current = {
+      id: 7,
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    render(
+      <CampaignVerificationSteps
+        initialStep="intro"
+        onExit={onExit}
+        onComplete={onComplete}
+      />,
+    )
+
+    expect(screen.getByText(INTRO_TITLE)).toBeInTheDocument()
+    expect(
+      screen.getByText('Get verified to send SMS by the Oct. 15 deadline'),
+    ).toBeInTheDocument()
+  })
+
   it('uses the caller-provided complete label', () => {
     render(
       <CampaignVerificationSteps
