@@ -76,6 +76,9 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       throw new BadRequestException('contactCount is required')
     }
 
+    // Win text purchases always carry a campaign (Serve texts use
+    // SERVE_TEXT). An organization without one has no general election date,
+    // which the SMS cutoff rule reads as open, so there is nothing to check.
     if (!campaignId) {
       return
     }

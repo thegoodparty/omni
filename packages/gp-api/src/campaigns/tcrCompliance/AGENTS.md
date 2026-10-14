@@ -842,15 +842,17 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.
 - **SMS compliance cutoff.** `smsComplianceWindow` (`campaigns/util/eligibility.util.ts`)
-  closes texting setup 19 days before `details.electionDate`, unless the record has
+  closes texting setup 19 days before `details.electionDate`, at the end of the cutoff
+  day in Eastern time (`EASTERN_TIMEZONE`), unless the record has
   `kickoffSentAt` (filed and paid in time, `not_applicable`). A record saved without
   payment does not count. When closed, `createAgentic` (right after
   `fetchByCampaignId`, before the details write) and the legacy `POST /` (top of the
-  controller) 409 with `errorCode: 'SMS_COMPLIANCE_CUTOFF'`; the payment webhook
+  controller) 409 with `errorCode: 'SMS_COMPLIANCE_CUTOFF'`, and so does the agent's
+  `submit-to-peerly` (it only runs after a kickoff, so this is a backstop); the payment webhook
   (`enqueueAgenticKickoffIfNeeded`) skips the kickoff; the stranded sweep skips with a
   debug log; and a `PurchaseType.TEXT` checkout 409s in `outreachPurchase.service.ts`.
-  The three non-sweep paths fire `10DLC - Compliance Submission Blocked` with `path`
-  `agentic | legacy | kickoff` (`isPastSmsCutoff`). The sweep does not fire it because
+  The non-sweep paths fire `10DLC - Compliance Submission Blocked` with `path`
+  `agentic | legacy | kickoff | submit_to_peerly` (`isPastSmsCutoff`). The sweep does not fire it because
   it would repeat every 10 minutes per record. `internal-testing-approval` is exempt.
   The window rides on `GET campaigns/mine` and both compliance-state routes; the
   webapp reads it and never does its own date math.

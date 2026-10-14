@@ -1522,6 +1522,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
 
+    if (
+      await this.isPastSmsCutoff({
+        userId: user.id,
+        campaign,
+        tcrCompliance: existing,
+        path: 'submit_to_peerly',
+      })
+    ) {
+      throw smsComplianceCutoffException()
+    }
+
     // Billing-outage hold: a prior submission hit Peerly's unrecoverable
     // "No payment method available" billing error. Retrying re-fails and spams
     // Peerly, so an agent resume / kickoff re-dispatch that lands here during
@@ -2097,7 +2108,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       TcrCompliance,
       'kickoffSentAt' | 'internalTestingAt'
     > | null
-    path: 'agentic' | 'legacy' | 'kickoff'
+    path: 'agentic' | 'legacy' | 'kickoff' | 'submit_to_peerly'
   }): Promise<boolean> {
     const now = new Date()
     const { smsCompliance, generalElectionDate } = smsComplianceWindow({

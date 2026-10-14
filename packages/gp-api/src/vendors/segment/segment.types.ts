@@ -69,7 +69,8 @@ export const EVENTS = {
     ComplianceRejected: 'Voter Outreach - 10DLC Compliance Rejected',
     // Fired when gp-api refuses to start texting compliance because the
     // campaign is past the SMS compliance cutoff (19 days before the general
-    // election). `path` is agentic | legacy | kickoff (the Pro payment).
+    // election). `path` is agentic | legacy | kickoff (the Pro payment) |
+    // submit_to_peerly.
     ComplianceSubmissionBlocked: '10DLC - Compliance Submission Blocked',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',

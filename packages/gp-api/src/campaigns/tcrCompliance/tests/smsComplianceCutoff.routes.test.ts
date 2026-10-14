@@ -216,6 +216,31 @@ describe('POST /v1/campaigns/tcr-compliance', () => {
   })
 })
 
+describe('POST /v1/campaigns/tcr-compliance/submit-to-peerly', () => {
+  it('rejects a Peerly submission for a record that never got a kickoff past the cutoff', async () => {
+    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
+    await seedRecord(campaign.id)
+    const track = spyOnTrack()
+
+    const res = await service.client.post(
+      '/v1/campaigns/tcr-compliance/submit-to-peerly',
+      {},
+      orgHeaders(campaign.slug),
+    )
+
+    expect(res.status).toBe(409)
+    expect(res.data.errorCode).toBe('SMS_COMPLIANCE_CUTOFF')
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Outreach.ComplianceSubmissionBlocked,
+      expect.objectContaining({
+        path: 'submit_to_peerly',
+        campaignId: campaign.id,
+      }),
+    )
+  })
+})
+
 describe('Pro payment webhook', () => {
   // Signing-only client; generateTestHeaderString is a local HMAC.
   const signer = new Stripe('sk_test_signing_only')

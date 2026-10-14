@@ -1,9 +1,11 @@
 import { isAfter, isValid } from 'date-fns'
+import { toZonedTime } from 'date-fns-tz'
 import {
   OrganizationStatus,
   SmsComplianceWindow,
 } from '@goodparty_org/contracts'
 import {
+  EASTERN_TIMEZONE,
   getMidnightForDate,
   parseIsoDateAsUTC,
   toDateOnlyString,
@@ -77,9 +79,11 @@ export const smsComplianceWindow = ({
     return { smsCompliance: 'open', smsCutoffDate, generalElectionDate }
   }
 
-  const daysToElection = Math.round(
-    (election.getTime() - getMidnightForDate(now).getTime()) / DAY_MS,
-  )
+  // The cutoff day lasts until midnight Eastern, so "today" is the calendar
+  // day in ET, set at UTC midnight to compare with the election date.
+  const nowEt = toZonedTime(now, EASTERN_TIMEZONE)
+  const today = Date.UTC(nowEt.getFullYear(), nowEt.getMonth(), nowEt.getDate())
+  const daysToElection = Math.round((election.getTime() - today) / DAY_MS)
   const smsCompliance: SmsComplianceWindow =
     daysToElection < SMS_CUTOFF_LEAD_DAYS
       ? 'closed'
