@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   ExternalLinkIcon,
+  MessagesSquareIcon,
   cn,
 } from '@styleguide'
 import {
@@ -88,15 +89,30 @@ const formatDueDate = (iso: string | null): string | null => {
   }
 }
 
+// Sent as the official's first message, so the chief of staff answers about
+// this task instead of opening on its greeting. Same shape as the Campaign
+// Manager's discussTaskMessage.
+const discussCardMessage = (card: DeckCard, dueLine: string | null): string =>
+  [
+    `Help me with this task from my dashboard: "${card.title}".`,
+    card.summary,
+    dueLine ? `It is due ${dueLine}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
 /**
  * The Serve home's one thing to do: the get-started cards, then the week's
  * task cards by due date, as a stack with only the front card actionable.
  */
 const TaskStack = ({
   onOpenCard,
+  onDiscussCard,
   briefingInFlight = false,
 }: {
   onOpenCard: (key: OnboardingCardKey) => void
+  // Opens a fresh chat seeded with a message about the front card.
+  onDiscussCard?: (message: string) => void
   // True while a briefing is generating, so the empty state stays hidden.
   briefingInFlight?: boolean
 }): React.JSX.Element | null => {
@@ -234,6 +250,7 @@ const TaskStack = ({
     else dismissCard.mutate(front.id)
   }
   const skipClassName = cn(QUIET_ON_PHONE, 'sm:ml-auto')
+  const offersMarkDone = !front.onboardingKey && !front.buildsPanel
 
   return (
     <section className="flex w-full flex-col gap-6">
@@ -330,7 +347,7 @@ const TaskStack = ({
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
                 {/* A get-started card and the build card close themselves
                     once their goal is met, so they offer no manual Mark done. */}
-                {!front.onboardingKey && !front.buildsPanel && (
+                {offersMarkDone && (
                   <Button
                     type="button"
                     variant="outline"
@@ -348,6 +365,33 @@ const TaskStack = ({
                       <CheckIcon className="size-4" aria-hidden />
                     </ConfettiBurst>
                     Mark done
+                  </Button>
+                )}
+                {/* A get-started card's own button already opens the chat. */}
+                {onDiscussCard && !front.onboardingKey && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="medium"
+                    className={QUIET_ON_PHONE}
+                    onClick={() => {
+                      trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
+                        ...cardProps,
+                        action: 'ask',
+                      })
+                      onDiscussCard(discussCardMessage(front, dueLine))
+                    }}
+                  >
+                    {/* On the narrowest phones a third quiet button leaves
+                        no room for the icon. */}
+                    <MessagesSquareIcon
+                      className={cn(
+                        'size-4',
+                        offersMarkDone && 'max-[399px]:hidden',
+                      )}
+                      aria-hidden
+                    />
+                    Ask about this
                   </Button>
                 )}
                 {!leaving &&
