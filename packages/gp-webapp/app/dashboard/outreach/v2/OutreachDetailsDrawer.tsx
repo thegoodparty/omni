@@ -51,6 +51,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { VoterFileFilters } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { FetchError } from 'ofetch'
+import { MessageSquareOff } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
@@ -81,6 +82,7 @@ import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 import {
   CONTINUE_LABELS,
+  DRAFT_FOOTER_LABELS,
   continueLabel,
   draftFooterAction,
   listDetailsFooterMode,
@@ -640,9 +642,11 @@ export const OutreachDetailsDrawer = ({
               onResumeDraft?.(row)
             }}
           >
-            {draftAction.disabled ? (
+            {draftAction.label === DRAFT_FOOTER_LABELS.closed ? (
+              <MessageSquareOff className="size-4" />
+            ) : draftAction.disabled ? (
               <Loader2Icon className="size-4 animate-spin" />
-            ) : draftAction.label === 'Start verification' ? (
+            ) : draftAction.label === DRAFT_FOOTER_LABELS.verification ? (
               <ShieldCheckIcon className="size-4" />
             ) : null}
             {draftAction.label}

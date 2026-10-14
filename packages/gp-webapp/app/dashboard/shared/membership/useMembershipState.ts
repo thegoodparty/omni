@@ -12,6 +12,7 @@ import {
   getTcrCompliance,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrCompliance } from 'helpers/types'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   deriveMembershipState,
   type MembershipState,
@@ -40,6 +41,7 @@ export const useMembershipState = ({
   enabled = true,
 }: { enabled?: boolean } = {}): UseMembershipStateResult => {
   const [campaign] = useCampaign()
+  const { smsCompliance } = useSmsCompliance()
   const { data: electedOffice, isPending: electedOfficePending } =
     useElectedOffice()
   const { data: tcrCompliance, isPending: tcrPending } = useQuery({
@@ -75,7 +77,7 @@ export const useMembershipState = ({
   // Derived on every call otherwise, so `state` was a NEW object on every
   // render of every consumer — and a consumer that keys anything on its
   // identity (the outreach history table's status filters) reset itself on
-  // every unrelated re-render. The derivation is pure over these six.
+  // every unrelated re-render. The derivation is pure over these seven.
   const state = useMemo(
     () =>
       deriveMembershipState({
@@ -85,6 +87,7 @@ export const useMembershipState = ({
         hasPeerlyIdentity,
         peerlyCvStatus,
         pinDelivery,
+        smsCompliance,
       }),
     [
       isPro,
@@ -93,6 +96,7 @@ export const useMembershipState = ({
       hasPeerlyIdentity,
       peerlyCvStatus,
       pinDelivery,
+      smsCompliance,
     ],
   )
 

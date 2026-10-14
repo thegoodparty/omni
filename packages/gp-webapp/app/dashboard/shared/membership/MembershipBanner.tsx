@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { MessageSquareOff } from 'lucide-react'
 import { ProBadge } from '@styleguide'
 import {
   ArrowRightIcon,
@@ -14,18 +15,26 @@ import {
   useOutreachProGatingV2Flag,
 } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
 import { MEMBERSHIP_COPY } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 
-export type MembershipAction = 'pitch' | 'verify' | 'pin' | null
+export type MembershipAction = 'pitch' | 'verify' | 'pin' | 'notice' | null
 
 // The unit rotates through these asks, so each press is its own event: the
-// upgrade belongs to the Pro funnel, the other two to 10DLC.
+// upgrade belongs to the Pro funnel, the other two to 10DLC. The cutoff
+// notice reports itself (`Outreach - SMS Cutoff Notice Viewed`, with the
+// banner or chip as its surface), so its press has no event here.
 export const MEMBERSHIP_CLICK_EVENTS: Record<
-  Exclude<MembershipAction, null>,
+  Exclude<MembershipAction, null | 'notice'>,
   string
 > = {
   pitch: EVENTS.ProUpgrade.Membership.BannerClicked,
@@ -38,6 +47,7 @@ export const resolveMembershipAction = (
 ): MembershipAction => {
   if (state.isElectedOffice) return null
   if (state.tier === 'free') return 'pitch'
+  if (state.texting === 'closed') return 'notice'
   if (state.texting === 'needs_verification') return 'verify'
   if (state.texting === 'awaiting_pin') return 'pin'
   return null
@@ -58,13 +68,31 @@ export const isMembershipSurfaceVisible = (
 const BANNER_CLASS_NAME =
   'mb-2 flex w-full flex-col items-start gap-1.5 rounded-lg bg-info-50 p-3 text-left'
 
-const bannerCopy = (state: MembershipState) => {
+// `countdownCutoff` is the last open day while gp-api reports the window
+// closing. A cleared Pro campaign never shows the banner
+// (isMembershipSurfaceVisible), so it has no copy.
+const bannerCopy = (
+  state: MembershipState,
+  countdownCutoff: string | null,
+): { body: string; cta: string | null } | null => {
   if (state.tier === 'free') return MEMBERSHIP_COPY.banner.free
-  if (state.texting === 'awaiting_pin') {
-    return MEMBERSHIP_COPY.banner.awaitingPin
+  switch (state.texting) {
+    case 'needs_verification':
+      return countdownCutoff
+        ? {
+            body: SMS_CUTOFF_COPY.countdown(countdownCutoff),
+            cta: MEMBERSHIP_COPY.banner.needsVerification.cta,
+          }
+        : MEMBERSHIP_COPY.banner.needsVerification
+    case 'in_review':
+      return MEMBERSHIP_COPY.banner.inReview
+    case 'awaiting_pin':
+      return MEMBERSHIP_COPY.banner.awaitingPin
+    case 'closed':
+      return MEMBERSHIP_COPY.banner.closed
+    case 'cleared':
+      return null
   }
-  if (state.texting === 'in_review') return MEMBERSHIP_COPY.banner.inReview
-  return MEMBERSHIP_COPY.banner.needsVerification
 }
 
 export const MembershipBanner = (): React.JSX.Element | null => {
@@ -73,8 +101,10 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   const { enabled } = useOutreachProGatingV2Flag(false)
   const { exposure } = useFeatureFlags()
   const { ready, state, tcrCompliance } = useMembershipState({ enabled })
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
+  const [noticeOpen, setNoticeOpen] = useState(false)
 
   const visible = Boolean(enabled && ready && isMembershipSurfaceVisible(state))
 
@@ -90,19 +120,30 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   if (!visible || !state) return null
 
   const action = resolveMembershipAction(state)
-  const copy = bannerCopy(state)
+  const copy = bannerCopy(
+    state,
+    smsCompliance === 'closing' && smsCutoffDate
+      ? formatSmsCutoffDate(smsCutoffDate)
+      : null,
+  )
+  if (!copy) return null
 
   const handleClick = () => {
-    if (action) trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
+    if (action && action !== 'notice') {
+      trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
+    }
     if (action === 'pitch') setPitchOpen(true)
     else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
+    else if (action === 'notice') setNoticeOpen(true)
   }
 
   const body = (
     <>
       {state.tier === 'free' ? (
         <ProBadge size="small" />
+      ) : state.texting === 'closed' ? (
+        <MessageSquareOff className="size-4 text-primary" aria-hidden />
       ) : (
         <ShieldCheckIcon className="size-4 text-primary" aria-hidden />
       )}
@@ -148,6 +189,13 @@ export const MembershipBanner = (): React.JSX.Element | null => {
           open
           onOpenChange={setPinOpen}
           tcrCompliance={tcrCompliance}
+        />
+      )}
+      {noticeOpen && (
+        <SmsCutoffNoticeDialog
+          open
+          onOpenChange={setNoticeOpen}
+          surface="membership_banner"
         />
       )}
     </>
