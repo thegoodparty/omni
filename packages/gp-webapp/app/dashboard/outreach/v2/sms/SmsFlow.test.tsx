@@ -364,11 +364,23 @@ describe('SmsFlow', () => {
       screen.getByRole('textbox', { name: 'Message body' }),
     ).toHaveTextContent(/Paid for by Friends of Jane\./)
 
-    // Continue blocked until the required image is attached.
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    // Continue stays pressable without the required image, and a press
+    // asks for it next to the dropzone instead of going on.
+    expect(
+      screen.queryByText('Add your headshot or logo to continue.'),
+    ).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      await screen.findByText('Add your headshot or logo to continue.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
     await attachImage()
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      expect(
+        screen.queryByText('Add your headshot or logo to continue.'),
+      ).toBeNull(),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -1334,6 +1346,7 @@ describe('SmsFlow', () => {
         campaignPlanDueDate: string
         proposalLink: { proposalKey: string }
         onProposalCreateFailed: () => void
+        openOnMessage: boolean
       }>,
     ) =>
       render(
@@ -1375,6 +1388,98 @@ describe('SmsFlow', () => {
       // The audience step reads back the selected list by name rather than
       // leaving the picker on its placeholder.
       expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
+    })
+
+    // A Campaign Manager card saved its list, so the standard flow opens on
+    // the message with the purpose and the list behind it, and derives the
+    // phone list the list's Continue would have, once.
+    it("opens a card's flow on the message and builds its phone list once", async () => {
+      vi.mocked(createP2pPhoneList).mockClear()
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+        openOnMessage: true,
+        proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
+      })
+
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await waitFor(() =>
+        expect(
+          screen.getByRole('textbox', { name: 'Message body' }),
+        ).toHaveTextContent(/Vote Tuesday/),
+      )
+      expect(screen.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuetext',
+        'Step 3 of 5',
+      )
+      await waitFor(() =>
+        expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1),
+      )
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 41 }),
+        41,
+      )
+
+      // Back to the list, picked, and forward again reuses the build.
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+      expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByRole('textbox', { name: 'Message body' })
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+
+      await attachImage()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'Review and send',
+        }),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuetext',
+        'Step 5 of 5',
+      )
+      expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(1)
+    })
+
+    // Build mode already puts the message right after the list, so a card
+    // lands there in the build order, and nothing goes to Peerly yet.
+    it("opens a card's flow on the message in build mode, building no phone list", async () => {
+      vi.mocked(createP2pPhoneList).mockClear()
+      gateRef.set({
+        enabled: true,
+        resolved: true,
+        requirement: 'pro',
+        twoStep: true,
+        membership: {
+          tier: 'free',
+          texting: 'needs_verification',
+          pinDelivery: null,
+          isElectedOffice: false,
+        },
+        tcrCompliance: null,
+      })
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+        openOnMessage: true,
+      })
+
+      await screen.findByRole('textbox', { name: 'Message body' })
+      expect(screen.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuetext',
+        'Step 3 of 4',
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+      expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
+      expect(vi.mocked(createP2pPhoneList)).not.toHaveBeenCalled()
     })
 
     // A Campaign Manager card's key rides the create, so the server marks
@@ -1561,7 +1666,7 @@ describe('SmsFlow', () => {
         await waitFor(() => expect(bodyOf(box)).toBe(direct))
       })
 
-      it('flags brackets left to fill and holds Continue', async () => {
+      it('flags brackets left to fill and holds the message step', async () => {
         await reachCompose('Rally at [Location] on [Date].')
         await attachImage()
 
@@ -1570,7 +1675,22 @@ describe('SmsFlow', () => {
             'Your message still has [Location], [Date]. Replace them with the real details before you send.',
           ),
         ).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+        const box = screen.getByRole('textbox', { name: 'Message body' })
+        // Focusing the editor scrolls to its cursor, which jsdom cannot
+        // measure.
+        Object.defineProperty(Range.prototype, 'getClientRects', {
+          configurable: true,
+          value: () => [],
+        })
+        Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+          configurable: true,
+          value: () => new DOMRect(),
+        })
+        await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+        expect(screen.getByRole('textbox', { name: 'Message body' })).toBe(box)
+        await waitFor(() =>
+          expect(box.contains(document.activeElement)).toBe(true),
+        )
       })
     })
 

@@ -756,9 +756,9 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     expect(created[0]?.message).toContain(CIVIC_PANEL_JOIN_LINE)
   })
 
-  // The card answered the purpose, so Back on its first step leaves the
-  // flow rather than reopening that question or dropping the draw.
-  it('leaves the flow on Back from the first step, never showing the purpose', async () => {
+  // Back from the seeded draw goes to the purpose picker like any flow, and
+  // the draw is still there on the way forward again.
+  it('goes back to the purpose picker from the first step, keeping the draw', async () => {
     mockPhoneBankingAudience()
     api.mock('POST /v1/contacts/count', {
       status: 200,
@@ -772,13 +772,10 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
 
     await screen.findByRole('button', { name: 'Continue (3,334)' })
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
-      await screen.findByRole('button', { name: 'Continue (3,334)' }),
-    ).toBeEnabled()
-    expect(screen.queryByText('Explain a recent decision')).toBeNull()
-    expect(screen.queryByText('Build your civic panel')).toBeNull()
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('opens a plain text flow with serve-citizen-panels off', async () => {

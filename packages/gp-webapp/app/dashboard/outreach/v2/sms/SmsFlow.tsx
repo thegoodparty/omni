@@ -87,7 +87,6 @@ import {
   serveSmsPurposeNameSuggestion,
 } from '../serveSmsPurposes'
 import { EventDetailsStep } from '../EventDetailsStep'
-import { ProposalAudienceSummary } from '../ProposalAudienceSummary'
 import {
   EVENT_DETAILS_TITLE,
   isEventInvite,
@@ -153,9 +152,16 @@ const PRO_BUILD_STEP_ORDER: StepId[] = [
 ]
 const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
 
-// A chat card settled the purpose and who gets it, so the official starts on
-// the words. Changing who gets it is a detour back to the message, not a step.
-const PROPOSAL_STEP_ORDER: StepId[] = ['compose', 'schedule', 'review']
+// A chat card opens on its message with the purpose and list behind it
+// already done, so the message comes before the date: Back reaches the list
+// and the purpose, and Continue goes on to the date and payment.
+const CARD_STEP_ORDER: StepId[] = [
+  'purpose',
+  'audience',
+  'compose',
+  'schedule',
+  'review',
+]
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -348,10 +354,10 @@ interface SmsFlowProps {
   proposalLink?: ProposalLink
   // Serve: open with the civic panel ask on, as a chat card asked for.
   initialAsksToJoinCivicPanel?: boolean
-  // Serve: a chat card already settled who gets this and saved the list
-  // (preselectedListId). The flow opens on the message with this line about
-  // who, then the date, then payment.
-  audienceSummary?: string
+  // A chat card already settled the purpose and saved its list
+  // (preselectedListId), so the flow opens on the message with both steps
+  // behind it done.
+  openOnMessage?: boolean
   // Serve: the earlier text a report back card answers. Rides on the create,
   // which marks the send as a report back rather than a new ask.
   reportBackForOutreachId?: number
@@ -571,7 +577,7 @@ export const SmsFlow = ({
   proposedAudience,
   proposalLink,
   initialAsksToJoinCivicPanel = false,
-  audienceSummary,
+  openOnMessage = false,
   reportBackForOutreachId,
   onProposalCreateFailed,
   preselectedListId,
@@ -682,6 +688,9 @@ export const SmsFlow = ({
   const [image, setImage] = useState<File | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  // Presses of the message step's Continue while something was missing. The
+  // step shows what is missing only after the first, and moves to it on each.
+  const [composeContinueAttempts, setComposeContinueAttempts] = useState(0)
 
   const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
   const [draftCreateError, setDraftCreateError] = useState(false)
@@ -750,17 +759,16 @@ export const SmsFlow = ({
       ? PRO_BUILD_STEP_ORDER
       : VERIFY_BUILD_STEP_ORDER
   const fromProposal =
-    surface.isServe &&
-    audienceSummary !== undefined &&
-    preselectedListId !== undefined &&
-    !resumeDraft
-  const stepOrder: StepId[] = fromProposal
-    ? PROPOSAL_STEP_ORDER
-    : isEventInvite(purpose)
-      ? baseStepOrder.flatMap((id) =>
-          id === 'purpose' ? ['purpose', 'details'] : [id],
-        )
-      : baseStepOrder
+    openOnMessage && preselectedListId !== undefined && !resumeDraft
+  // Build mode already puts the message right after the list.
+  const flowStepOrder =
+    fromProposal && !buildMode ? CARD_STEP_ORDER : baseStepOrder
+  const afterAudience: StepId = fromProposal ? 'compose' : 'schedule'
+  const stepOrder: StepId[] = isEventInvite(purpose)
+    ? flowStepOrder.flatMap((id) =>
+        id === 'purpose' ? ['purpose', 'details'] : [id],
+      )
+    : flowStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -907,6 +915,7 @@ export const SmsFlow = ({
     setCustomTime('10:00')
     setImage(null)
     setImageError(null)
+    setComposeContinueAttempts(0)
     setDraftOutreachId(null)
     setDraftCreateError(false)
     setScheduled(false)
@@ -1142,7 +1151,7 @@ export const SmsFlow = ({
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
     create: surface.endpoints.create,
-    // Changing who gets a card's text returns to its message.
+    // A card's flow puts the message right after who gets it.
     setStepId: (step) => setStepId(fromProposal ? 'compose' : step),
     setDraftOutreachId,
     setDraftCreateError,
@@ -1382,7 +1391,7 @@ export const SmsFlow = ({
       }
       setPhoneListToken(result.token)
       setPhoneListBuildId(result.buildId)
-      setStepId('schedule')
+      setStepId(afterAudience)
     } catch {
       setPhoneListCreating(false)
       // audience.createListError renders the inline message below.
@@ -1426,7 +1435,7 @@ export const SmsFlow = ({
     }
     setPhoneListToken(result.token)
     setPhoneListBuildId(result.buildId)
-    setStepId('schedule')
+    setStepId(afterAudience)
   }
 
   const handleSelectedRecommendationContinue = async () => {
@@ -1453,7 +1462,7 @@ export const SmsFlow = ({
       return
     }
     if (phoneListToken) {
-      setStepId('schedule')
+      setStepId(afterAudience)
       return
     }
     setPhoneListCreating(true)
@@ -1467,8 +1476,39 @@ export const SmsFlow = ({
     }
     setPhoneListToken(result.token)
     setPhoneListBuildId(result.buildId)
-    setStepId('schedule')
+    setStepId(afterAudience)
   }
+
+  // A Win card's flow opens past the audience step, so it derives the phone
+  // list there the way that step's Continue would have, once per open. A
+  // failure goes back to the audience step, where the error and its retry
+  // live.
+  const cardPhoneListStartedRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      cardPhoneListStartedRef.current = false
+      return
+    }
+    if (!fromProposal || surface.isServe || buildMode) return
+    if (cardPhoneListStartedRef.current || !selectedList) return
+    if (selectedList.id !== preselectedListId) return
+    cardPhoneListStartedRef.current = true
+    void (async () => {
+      setPhoneListCreating(true)
+      setPhoneListError(false)
+      setPhoneListBuildFailed(false)
+      const result = await createP2pPhoneList(selectedList, selectedList.id)
+      setPhoneListCreating(false)
+      if (!phoneListResultUsable(result)) {
+        setPhoneListError(true)
+        setStepId('audience')
+        return
+      }
+      setPhoneListToken(result.token)
+      setPhoneListBuildId(result.buildId)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per open, when the card's list resolves
+  }, [open, fromProposal, buildMode, selectedList, preselectedListId])
 
   // A resumed row's image lives on the server, so there is no local File to
   // build an object URL from.
@@ -1737,9 +1777,7 @@ export const SmsFlow = ({
     await onScheduled()
   }
 
-  // The audience detour counts as the message step it returns to.
-  const stepIndex =
-    fromProposal && stepId === 'audience' ? 0 : stepOrder.indexOf(stepId)
+  const stepIndex = stepOrder.indexOf(stepId)
 
   const handleBack = () => {
     if (stepId === 'audience' && audience.mode === 'name') {
@@ -1751,10 +1789,6 @@ export const SmsFlow = ({
     }
     if (stepId === 'audience' && audience.mode === 'filters') {
       audience.resetBuilder()
-      return
-    }
-    if (fromProposal && stepId === 'audience') {
-      setStepId('compose')
       return
     }
     // Resume converts the saved row rather than creating a throwaway one, so
@@ -1784,15 +1818,6 @@ export const SmsFlow = ({
     const previous = stepOrder[stepIndex - 1]
     if (previous) setStepId(previous)
   }
-
-  // A card that answered the purpose opens on its audience with nothing behind
-  // it: Back would clear the card's seeded draw and reopen the question the
-  // card answered, so there it leaves the flow instead.
-  const atCardStart = fromProposal
-    ? stepId === 'compose'
-    : initialPurpose !== undefined &&
-      stepId === 'audience' &&
-      audience.mode !== 'name'
 
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = !scheduled && purpose !== null && savedDraft === null
@@ -1905,20 +1930,27 @@ export const SmsFlow = ({
                 : stepId === 'compose'
                   ? {
                       label: 'Continue',
-                      onClick: () =>
+                      // Stays pressable while something is missing: a press
+                      // shows what (design rule 4) instead of a dead button.
+                      onClick: () => {
+                        const ready =
+                          hasWrittenBody &&
+                          standards.passed &&
+                          bracketsToFill.length === 0 &&
+                          composedLength <= SMS_COMPOSED_MAX_LENGTH &&
+                          // Both surfaces send MMS: the image lifts the text
+                          // past single-SMS segment limits, and Peerly
+                          // rejects an imageless Win text/p2p send.
+                          image !== null
+                        if (!ready) {
+                          setComposeContinueAttempts((n) => n + 1)
+                          return
+                        }
                         setStepId(
                           buildMode || fromProposal ? 'schedule' : 'review',
-                        ),
-                      disabled:
-                        !hasWrittenBody ||
-                        !standards.passed ||
-                        bracketsToFill.length > 0 ||
-                        composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                        // Both surfaces send MMS: the image lifts the text past
-                        // single-SMS segment limits, and Peerly rejects an
-                        // imageless Win text/p2p send.
-                        image === null ||
-                        draftMutation.isPending,
+                        )
+                      },
+                      disabled: draftMutation.isPending,
                     }
                   : // Build mode's review has nothing to pay for: the CTA saves
                     // the draft and hands the flow to the gate, named for
@@ -1990,14 +2022,10 @@ export const SmsFlow = ({
         // and compose were settled when the draft was saved, and compose
         // could never advance again (its Continue needs a local image file
         // the saved row cannot supply).
-        !scheduled &&
-        !gateOpen &&
-        !resumed &&
-        (stepIndex > 0 || fromProposal || atCardStart)
+        !scheduled && !gateOpen && !resumed && stepIndex > 0
           ? handleBack
           : undefined
       }
-      backExits={atCardStart}
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
@@ -2252,50 +2280,43 @@ export const SmsFlow = ({
           </>
         )
       ) : stepId === 'compose' ? (
-        <>
-          {fromProposal && audienceSummary && (
-            <ProposalAudienceSummary
-              summary={audienceSummary}
-              onChange={() => setStepId('audience')}
-            />
-          )}
-          <SmsComposeStep
-            isServe={surface.isServe}
-            tone={tone}
-            onToneChange={handleToneChange}
-            standardsFailures={standards.failures}
-            unfilledBrackets={bracketsToFill}
-            identificationExample={introFor(tone)}
-            message={message}
-            onMessageChange={handleMessageChange}
-            protectedParts={protectedParts}
-            mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
-            hasWrittenBody={hasWrittenBody}
-            composedLength={composedLength}
-            aiAction={aiAction}
-            onAiAction={handleAiAction}
-            isDrafting={draftMutation.isPending}
-            isDraftError={draftMutation.isError}
-            canUndo={undoText !== null}
-            onUndo={handleUndo}
-            imagePreviewUrl={imagePreviewUrl}
-            onImageChange={setImage}
-            imageError={imageError}
-            onImageError={setImageError}
-            civicPanelAsk={
-              surface.isServe && citizenPanelsEnabled && !isReportBack
-                ? {
-                    checked: asksToJoin,
-                    locked: civicPanelAskLocked,
-                    onChange: (checked) => {
-                      setAsksToJoinCivicPanel(checked)
-                      loadMessage(withCivicPanelJoin(message, checked))
-                    },
-                  }
-                : undefined
-            }
-          />
-        </>
+        <SmsComposeStep
+          isServe={surface.isServe}
+          tone={tone}
+          onToneChange={handleToneChange}
+          standardsFailures={standards.failures}
+          unfilledBrackets={bracketsToFill}
+          identificationExample={introFor(tone)}
+          message={message}
+          onMessageChange={handleMessageChange}
+          protectedParts={protectedParts}
+          mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
+          hasWrittenBody={hasWrittenBody}
+          composedLength={composedLength}
+          aiAction={aiAction}
+          onAiAction={handleAiAction}
+          isDrafting={draftMutation.isPending}
+          isDraftError={draftMutation.isError}
+          canUndo={undoText !== null}
+          onUndo={handleUndo}
+          imagePreviewUrl={imagePreviewUrl}
+          onImageChange={setImage}
+          imageError={imageError}
+          onImageError={setImageError}
+          continueAttempts={composeContinueAttempts}
+          civicPanelAsk={
+            surface.isServe && citizenPanelsEnabled && !isReportBack
+              ? {
+                  checked: asksToJoin,
+                  locked: civicPanelAskLocked,
+                  onChange: (checked) => {
+                    setAsksToJoinCivicPanel(checked)
+                    loadMessage(withCivicPanelJoin(message, checked))
+                  },
+                }
+              : undefined
+          }
+        />
       ) : (
         <CheckoutSessionProvider
           key={draftOutreachId ?? 'pending'}
