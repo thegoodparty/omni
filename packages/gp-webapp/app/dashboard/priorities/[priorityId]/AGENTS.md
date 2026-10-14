@@ -212,9 +212,9 @@ separately.
 
 Behind `serve-citizen-panels`, once a priority text's replies are in (gp-api
 `OutreachReportBackService`: the results upload has landed and no summary of
-them is still running), the Chief of Staff home shows "Report back on" the
-priority, linking here with `?reportBack=<outreachId>`. `page.tsx` reads the
-param and the workspace sends `reportBackMessage(id)` (contracts,
+them is still running), the Chief of Staff home shows a report back card
+("Show people their voice counted on" the priority), linking here with
+`?reportBack=<outreachId>`. `page.tsx` reads the param and the workspace sends `reportBackMessage(id)` (contracts,
 `REPORT_BACK_MARKER`) as one hidden turn: the opener on a fresh thread instead
 of the kickoff, otherwise queued behind any turn in flight, never twice for a
 send already in the transcript, and the param is dropped from the address.

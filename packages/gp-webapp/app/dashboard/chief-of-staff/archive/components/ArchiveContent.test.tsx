@@ -42,7 +42,7 @@ beforeEach(() => {
     card({
       id: 'build',
       type: 'civic_panel',
-      title: 'Build your civic panel',
+      title: 'Hear from more than the loudest voices',
       sourceExternalId: 'build:eo-1',
     }),
   ]
@@ -67,7 +67,7 @@ describe('<ArchiveContent>', () => {
       card({
         id: 'build',
         type: 'civic_panel',
-        title: 'Build your civic panel',
+        title: 'Hear from more than the loudest voices',
         sourceExternalId: 'build:eo-1',
       }),
       card({
@@ -80,7 +80,9 @@ describe('<ArchiveContent>', () => {
     ]
     render(<ArchiveContent />)
 
-    expect(screen.getByText('Build your civic panel')).toBeInTheDocument()
+    expect(
+      screen.getByText('Hear from more than the loudest voices'),
+    ).toBeInTheDocument()
     expect(screen.getByText('Affordable housing')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Bring it back' }),
@@ -98,7 +100,7 @@ describe('<ArchiveContent>', () => {
       card({
         id: 'rb',
         type: 'report_back',
-        title: 'Report back on Downtown parking',
+        title: 'Show people their voice counted on Downtown parking',
         sourceExternalId: '77',
       }),
     ]
