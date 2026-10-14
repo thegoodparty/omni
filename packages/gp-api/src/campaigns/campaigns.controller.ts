@@ -129,7 +129,7 @@ export class CampaignsController {
       positionName,
       raceTargetMetrics: liveMetrics,
       ownerName: (owner && getUserFullName(owner)) || null,
-      ownerAvatar: owner?.avatar || null,
+      ownerAvatar: owner?.avatar?.trim() || null,
     }
   }
 
