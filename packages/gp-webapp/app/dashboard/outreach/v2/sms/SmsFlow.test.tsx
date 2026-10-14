@@ -348,7 +348,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for City Council\./),
     )
     expect(
       screen.getByRole('textbox', { name: 'Message body' }),
@@ -797,7 +797,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jared, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jared Smith, candidate for City Council\./),
     )
     expect(
       screen.getByRole('textbox', { name: 'Message body' }),
@@ -826,7 +826,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for Mayor\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for Mayor\./),
     )
     expect(screen.queryByText(/local office/)).not.toBeInTheDocument()
   })
@@ -875,7 +875,7 @@ describe('SmsFlow', () => {
     }
 
     const COMPOSED_DRAFT =
-      'Hello {first_name}, this is Jane, candidate for City Council. ' +
+      'Hello {first_name}, this is Jane Doe, candidate for City Council. ' +
       'AI body (warm) for introduce_myself\n\n' +
       'Paid for by Friends of Jane. Reply STOP to opt out.'
 
@@ -1166,7 +1166,7 @@ describe('SmsFlow', () => {
         status: 200,
         data: {
           draft: body.currentDraft
-            ? 'this is Jane, candidate for City Council. Please vote soon!'
+            ? 'this is Jane Doe, candidate for City Council. Please vote soon!'
             : `AI body (${body.tone}) for ${body.purpose}`,
         },
       }))
@@ -1183,7 +1183,7 @@ describe('SmsFlow', () => {
 
       await waitFor(() =>
         expect(editor.getText({ blockSeparator: '\n' })).toBe(
-          'Hello {first_name}, this is Jane, candidate for City Council. ' +
+          'Hello {first_name}, this is Jane Doe, candidate for City Council. ' +
             'Please vote soon!\n\n' +
             'Paid for by Friends of Jane. Reply STOP to opt out.',
         ),
@@ -1357,7 +1357,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for City Council\./),
     )
   })
 
@@ -1576,7 +1576,7 @@ describe('SmsFlow', () => {
     // name before the compose step shows them; words the candidate typed
     // never are.
     describe('identification', () => {
-      const INTRO = 'this is Jane, candidate for City Council.'
+      const INTRO = 'this is Jane Doe, candidate for City Council.'
 
       // The field holds the whole message; these cases are about the body
       // between its greeting and its footer, which is what the repair edits.
@@ -1658,7 +1658,7 @@ describe('SmsFlow', () => {
           data: {
             draft:
               body.tone === 'direct'
-                ? 'Hi, this is Jane, running for City Council. Vote early.'
+                ? 'Hi, this is Jane Doe, running for City Council. Vote early.'
                 : 'Vote Tuesday.',
           },
         }))
@@ -1672,7 +1672,7 @@ describe('SmsFlow', () => {
         const box = await screen.findByRole('textbox', {
           name: 'Message body',
         })
-        const direct = 'Jane here, candidate for City Council. Vote early.'
+        const direct = 'Jane Doe here, candidate for City Council. Vote early.'
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
@@ -1920,7 +1920,7 @@ describe('SmsFlow', () => {
     }
 
     const DRAFT_SCRIPT =
-      'Hello, this is Jane, candidate for City Council. Vote Tuesday.\n\n' +
+      'Hello, this is Jane Doe, candidate for City Council. Vote Tuesday.\n\n' +
       'Paid for by Friends of Jane. Reply STOP to opt out.'
 
     const draftDetail = (
@@ -2301,7 +2301,7 @@ describe('SmsFlow', () => {
     it('upgrades a pre-verification draft footer at resume', async () => {
       gateRef.set(CLEARED_GATE)
       const preVerificationScript =
-        'Hello {first_name}, this is Jane, candidate for City Council. ' +
+        'Hello {first_name}, this is Jane Doe, candidate for City Council. ' +
         'Vote Tuesday.\n\nReply STOP to opt out.'
       render(
         <SmsFlow
@@ -2328,7 +2328,7 @@ describe('SmsFlow', () => {
           expect.objectContaining({
             draftOutreachId: 88,
             script:
-              'Hello {first_name}, this is Jane, candidate for City Council. ' +
+              'Hello {first_name}, this is Jane Doe, candidate for City Council. ' +
               'Vote Tuesday.\n\nPaid for by Friends of Jane. ' +
               'Reply STOP to opt out.',
           }),

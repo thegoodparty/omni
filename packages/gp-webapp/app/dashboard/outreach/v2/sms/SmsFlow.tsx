@@ -961,7 +961,10 @@ export const SmsFlow = ({
       ? serveIntroFor(t)
       : identificationIntro(
           t,
-          candidateFirstName,
+          // Full name, not first: the intro is the compliance
+          // identification (ENG-11296). Falls back to the first-name-less
+          // default inside identificationIntro when no name is known.
+          candidateFullName,
           campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
   const identificationNames = [

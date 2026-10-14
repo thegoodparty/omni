@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  checkSmsStandards,
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
   deriveSmsProtectedParts,
@@ -88,6 +89,29 @@ describe('identificationIntro (Win, unchanged)', () => {
 
   it.each(SOCIAL_TONE_VALUES)('still frames a candidacy (%s)', (tone) => {
     expect(identificationIntro(tone, 'Jane', 'City Council')).toBe(cases[tone])
+  })
+})
+
+describe('identification with the full candidate name (ENG-11296)', () => {
+  const context = {
+    intro: identificationIntro('warm', 'Eric Claunch', 'Ward 2'),
+    firstName: 'Eric',
+    candidateNames: ['Eric Claunch'],
+  }
+
+  it('opens on the full name', () => {
+    expect(context.intro).toBe('this is Eric Claunch, candidate for Ward 2.')
+    expect(openWithSmsIdentification('Vote early.', context)).toBe(
+      'this is Eric Claunch, candidate for Ward 2. Vote early.',
+    )
+  })
+
+  it('passes the standards check with the full-name intro', () => {
+    expect(
+      checkSmsStandards(`${context.intro} Vote early.`, {
+        candidateNames: context.candidateNames,
+      }).failures,
+    ).not.toContain('candidate_name')
   })
 })
 
