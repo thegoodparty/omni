@@ -13,6 +13,7 @@ import {
   ListCampaignsPaginationSchema,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
+  SmsComplianceWindowSchema,
   UpdateCampaignM2MSchema,
 } from '@goodparty_org/contracts'
 import {
@@ -74,6 +75,9 @@ class ListCampaignsPaginationDto extends createZodDto(
 // — never absent — so nullable, not nullish.
 const CampaignMineSchema = CampaignWithLiveContextSchema.extend({
   ownerName: z.string().nullable(),
+  smsCompliance: SmsComplianceWindowSchema.optional(),
+  smsCutoffDate: z.string().nullable().optional(),
+  generalElectionDate: z.string().nullable().optional(),
 })
 
 class UpdateCampaignM2MDto extends createZodDto(UpdateCampaignM2MSchema) {}

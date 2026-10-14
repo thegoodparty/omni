@@ -133,3 +133,16 @@ export const PIN_DELIVERY_METHOD_VALUES = [
 export type PinDeliveryMethod = (typeof PIN_DELIVERY_METHOD_VALUES)[number]
 export const PinDeliveryMethodSchema = z.enum(PIN_DELIVERY_METHOD_VALUES)
 export const PinDeliveryMethod = toEnumObject(PIN_DELIVERY_METHOD_VALUES)
+
+// Whether a campaign can still start texting compliance before its general
+// election. Computed only in gp-api (smsComplianceWindow); `not_applicable`
+// means the candidate already filed and paid, so the cutoff does not apply.
+export const SMS_COMPLIANCE_WINDOW_VALUES = [
+  'open',
+  'closing',
+  'closed',
+  'not_applicable',
+] as const
+export type SmsComplianceWindow = (typeof SMS_COMPLIANCE_WINDOW_VALUES)[number]
+export const SmsComplianceWindowSchema = z.enum(SMS_COMPLIANCE_WINDOW_VALUES)
+export const SmsComplianceWindow = toEnumObject(SMS_COMPLIANCE_WINDOW_VALUES)

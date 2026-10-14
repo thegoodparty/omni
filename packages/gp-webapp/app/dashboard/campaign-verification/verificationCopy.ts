@@ -49,3 +49,57 @@ export const VERIFICATION_INTRO_ROWS = [
   CONTACT_DETAILS_ROW,
   PIN_TIMING_ROW,
 ]
+
+// The SMS compliance cutoff. gp-api decides the window; these strings only
+// render it. Dates arrive as ISO days and go through formatSmsCutoffDate.
+// Never call it a legal or carrier deadline, and never promise refunds.
+export const formatSmsCutoffDate = (isoDate: string): string =>
+  new Date(`${isoDate.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
+
+export const SMS_CUTOFF_COPY = {
+  title: "Texting isn't available for this race",
+  body: (generalElectionDate: string | null): string =>
+    generalElectionDate
+      ? `Texting needs campaign verification, which can't finish before your general election on ${generalElectionDate}.`
+      : "Texting needs campaign verification, which can't finish before your general election.",
+  short: "Texting isn't available for this race.",
+  channelsQuestion: 'How else do you want to reach voters?',
+  channels: {
+    doorKnocking: 'Door knocking',
+    robocalls: 'Robocalls',
+    phoneBanking: 'Phone banking',
+    socialMedia: 'Social media',
+  },
+  support: 'Questions? Email support@goodparty.org.',
+  seeOtherWays: 'See other ways to reach voters',
+  closedLabel: 'Texting closed',
+  backToOutreach: 'Back to outreach',
+  countdown: (cutoff: string): string =>
+    `Start texting verification by ${cutoff}.`,
+  countdownTitle: (cutoff: string): string =>
+    `Start texting verification by ${cutoff}`,
+  countdownChip: (cutoff: string): string => `Verify by ${cutoff}`,
+  guidanceClosing: (cutoff: string): string =>
+    `Finish these by ${cutoff} to text before your election.`,
+  guidanceClosedTitle: "Here's what you need to unlock Pro",
+  guidanceClosedBody:
+    'Pro unlocks voter data, door knocking, robocalls and phone banking.',
+  paymentVerificationStarts:
+    'Verification starts when you pay. Texting usually opens 1 to 2 weeks later.',
+  paymentClosing: (cutoff: string): string =>
+    `Finish your upgrade by ${cutoff} to text before your election.`,
+  successClosedBody:
+    'Payment successful. Your next step is to pick a way to reach voters.',
+  successClosedCta: 'Go to outreach',
+}
+
+// The filing step for a candidate who saved their details but has not paid.
+// Verification only starts at payment, so SUBMITTED_* above stays for the
+// post-payment success step.
+export const DETAILS_SAVED_TITLE = 'Your details are saved'
+export const DETAILS_SAVED_BODY =
+  'Verification starts when you finish your upgrade.'
