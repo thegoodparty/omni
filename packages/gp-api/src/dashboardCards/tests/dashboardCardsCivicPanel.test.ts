@@ -90,7 +90,7 @@ const titles = (cards: { title: string }[]) =>
 
 const buildCard = {
   type: 'civic_panel',
-  title: 'Build your civic panel',
+  title: 'Hear from more than the loudest voices',
   ctaLabel: 'Get started',
   ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
 }
@@ -112,7 +112,8 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       completedAt: null,
     })
     expect(build?.summary).toBe(
-      'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
+      'Decisions land better when you know what the whole community ' +
+        'thinks, not just who shows up.',
     )
     expect(build?.summary.split(' ').length).toBeLessThanOrEqual(20)
     expect(

@@ -13,6 +13,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   reachedRecently: 'Reached in the last 30 days',
   reachedRecentlyDetail: 'Texted, called or visited by your office.',
   askableNow: 'Can be asked now',
+  askableNowList: 'Make a list of who can be asked now',
   seePanel: 'See your panel',
   empty: 'Nobody has joined your civic panel yet.',
   emptyAction: 'Your Chief of Staff can help you build it.',

@@ -49,7 +49,7 @@ test.describe('Chief of Staff', () => {
     // the static get-started onboarding cards (briefing task cards need the
     // async pipeline). The "meet" card is active until the user chats, which
     // this isolated user has not done.
-    const cardTitle = 'Meet your virtual chief of staff'
+    const cardTitle = 'Get the staff your office never had'
     const homeCard = page
       .locator('[data-slot="card"]')
       .filter({ hasText: cardTitle })

@@ -141,6 +141,23 @@ describe('describeFilter', () => {
       describeFilter(filter({ precincts: ['travis|0104'] }), { isServe: true }),
     ).toBe('Everyone in your file — no filters applied.')
   })
+
+  it('describes the civic panel history dimensions for a serve org', () => {
+    expect(
+      describeFilter(
+        filter({
+          civicPanelMember: true,
+          civicPanelJoinedByText: true,
+          civicPanelJoinedFrom: '2026-10-01',
+          civicPanelJoinedTo: '2026-10-09',
+          lastReachedTo: '2026-09-30',
+        }),
+        { isServe: true },
+      ),
+    ).toBe(
+      'Civic panel On your civic panel, How they joined By text, When they joined between Oct 1, 2026 and Oct 9, 2026, and Last asked on or before Sep 30, 2026.',
+    )
+  })
 })
 
 describe('describeFilterForTalkingPoints', () => {

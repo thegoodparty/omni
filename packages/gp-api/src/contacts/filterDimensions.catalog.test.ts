@@ -39,16 +39,25 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   'homeownerLikely',
 ])
 
+const valueKeysOf = (key: string): string[] => {
+  const dimension = FILTER_DIMENSIONS.find((d) => d.key === key)
+  return dimension && 'values' in dimension
+    ? dimension.values.map((value) => value.key)
+    : []
+}
+
 const schemaFieldKeys = new Set(Object.keys(voterFilterBaseSchema.shape))
 
-// Every schema field the catalog claims to cover: boolean-group value keys
-// plus multi-value/activity dimension keys (those dimensions' keys ARE the
+// Every schema field the catalog claims to cover: boolean-group value keys,
+// date-range from/to keys, plus multi-value/activity dimension keys (those dimensions' keys ARE the
 // schema array fields).
 const catalogSchemaFields = new Set(
   FILTER_DIMENSIONS.flatMap((dimension) =>
     dimension.kind === 'boolean-group'
       ? dimension.values.map((value) => value.key)
-      : [dimension.key],
+      : dimension.kind === 'date-range'
+        ? [dimension.fromKey, dimension.toKey]
+        : [dimension.key],
   ),
 )
 
@@ -96,10 +105,7 @@ describe('FILTER_DIMENSIONS catalog', () => {
   // (override-only, ENG-10833) alongside the four derivable ones, so the
   // assistant/wizard can safely build a filter on any of them.
   it('sources supportStatus values from the full SupportStatusRollup vocabulary', () => {
-    const supportStatus = FILTER_DIMENSIONS.find(
-      (d) => d.key === 'supportStatus',
-    )
-    expect(supportStatus?.values.map((value) => value.key)).toEqual([
+    expect(valueKeysOf('supportStatus')).toEqual([
       'supporter',
       'non_supporter',
       'unknown',
@@ -109,12 +115,10 @@ describe('FILTER_DIMENSIONS catalog', () => {
   })
 
   it('sources income and language values from the conversion maps', () => {
-    const income = FILTER_DIMENSIONS.find((d) => d.key === 'incomeRanges')
-    expect(income?.values.map((value) => value.key)).toEqual(
+    expect(valueKeysOf('incomeRanges')).toEqual(
       Object.keys(INCOME_RANGE_MAPPING),
     )
-    const language = FILTER_DIMENSIONS.find((d) => d.key === 'languageCodes')
-    expect(language?.values.map((value) => value.key)).toEqual(
+    expect(valueKeysOf('languageCodes')).toEqual(
       Object.keys(LANGUAGE_CODE_TO_LABEL),
     )
   })
@@ -214,6 +218,7 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -235,7 +240,10 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(on).toEqual(expect.arrayContaining(['civicPanel', 'contactHistory']))
     expect(on.filter((key) => !off.includes(key)).sort()).toEqual([
       'civicPanel',
+      'civicPanelJoinedBy',
+      'civicPanelJoinedWhen',
       'contactHistory',
+      'lastAsked',
     ])
   })
 

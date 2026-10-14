@@ -14,6 +14,7 @@ import {
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
+import { newListHref } from '../../crm/wizard/newListPresets'
 
 export const CitizensPanelView = ({
   summary,
@@ -45,9 +46,18 @@ export const CitizensPanelView = ({
       {hasMembers ? (
         <>
           <CitizensPanelStats summary={summary} />
-          <Button asChild className="self-start">
-            <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
+            </Button>
+            {summary.askableNow > 0 && (
+              <Button asChild variant="outline">
+                <Link href={newListHref('askableNow')}>
+                  {COPY.askableNowList}
+                </Link>
+              </Button>
+            )}
+          </div>
           <section className="flex flex-col gap-3 rounded-xl border border-border bg-background p-5">
             <div>
               <h2 className="text-base font-semibold text-foreground">

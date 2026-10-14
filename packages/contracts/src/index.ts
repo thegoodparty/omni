@@ -128,6 +128,8 @@ export {
   isLegacyDoorKnockingUnitKey,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
+  CivicPanelActivitySchema,
+  type CivicPanelActivity,
 } from './people/Person.schema'
 
 export {

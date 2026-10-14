@@ -67,6 +67,9 @@ interface CreateListWizardProps {
   // a saved list, collapsed to its conditions step, saving with PUT instead
   // of POST. Null/absent = the create flow.
   editingSegment?: SegmentResponse | null
+  // The create flow's starting pills (a `?newList=` preset). Ignored in
+  // edit mode, which seeds from the saved list.
+  initialFilters?: VoterFileFilters
 }
 
 // The list creation wizard (ENG-10708 locked design): branch chooser ->
@@ -79,6 +82,7 @@ export default function CreateListWizard({
   open,
   onOpenChange,
   editingSegment = null,
+  initialFilters,
 }: CreateListWizardProps) {
   const {
     isElectedOfficial,
@@ -161,7 +165,9 @@ export default function CreateListWizard({
     setStepIndex(0)
     setBranch(null)
     setDemographicFilters(
-      editingSegment ? segmentToVoterFileFilters(editingSegment) : {},
+      editingSegment
+        ? segmentToVoterFileFilters(editingSegment)
+        : (initialFilters ?? {}),
     )
     setSupportStatus(editingSegment?.supportStatus ?? [])
     setPrecincts(

@@ -82,7 +82,7 @@ describe("the Chief of Staff's report back card", () => {
 
     expect(rest).toHaveLength(0)
     expect(card).toMatchObject({
-      title: 'Report back on Downtown parking',
+      title: 'Show people their voice counted on Downtown parking',
       ctaLabel: 'Report back',
       ctaHref: `/dashboard/priorities/${priority.id}?reportBack=${send.id}`,
       sourceExternalId: String(send.id),

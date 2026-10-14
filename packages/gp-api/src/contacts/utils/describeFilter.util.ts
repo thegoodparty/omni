@@ -45,6 +45,24 @@ const capitalizeFirst = (label: string): string =>
 const sentenceCase = (name: string): string =>
   name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
 
+// A stored YYYY-MM-DD day as "Oct 2, 2026", read in UTC like the filter.
+const formatDay = (day: string): string =>
+  new Date(`${day}T00:00:00.000Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+
+const describeDaySpan = (from: string | null, to: string | null) =>
+  from && to
+    ? `between ${formatDay(from)} and ${formatDay(to)}`
+    : from
+      ? `on or after ${formatDay(from)}`
+      : to
+        ? `on or before ${formatDay(to)}`
+        : null
+
 // The webapp's sentence style, transcribed: "Age 18-24 or 25-34, Language
 // Spanish, and Support status Supporter."
 const joinAsSentence = (clauses: string[]): string => {
@@ -182,6 +200,17 @@ const catalogClauses = (
         )
         clauses.push({ label: dimension.label, values: labels })
       }
+      continue
+    }
+
+    if (dimension.kind === 'date-range') {
+      const from = row[dimension.fromKey]
+      const to = row[dimension.toKey]
+      const span = describeDaySpan(
+        typeof from === 'string' ? from : null,
+        typeof to === 'string' ? to : null,
+      )
+      if (span) clauses.push({ label: dimension.label, values: [span] })
       continue
     }
 

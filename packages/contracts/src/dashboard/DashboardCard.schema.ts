@@ -48,7 +48,7 @@ export const DASHBOARD_CARD_SNOOZE_DAYS = 3
 
 const CIVIC_PANEL_BUILD_CARD_PREFIX = 'build:'
 
-// The office's one "Build your civic panel" card. Its source is the office
+// The office's one card that builds its civic panel. Its source is the office
 // rather than a priority, which is what tells it apart from the per-priority
 // panel cards that share its type.
 export const civicPanelBuildCardSourceId = (electedOfficeId: string): string =>

@@ -72,8 +72,9 @@ const HEADLINES: Record<DeckKind, string> = {
   report_back: 'Tell people what you heard',
 }
 
-// The build card shares its type with the per-priority panel cards.
-const BUILD_PANEL_HEADLINE = 'Build your civic panel'
+// The build card shares its type with the per-priority panel cards, and
+// leads the deck ahead of the get-started cards.
+const BUILD_PANEL_HEADLINE = 'Start here'
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||
@@ -221,7 +222,9 @@ const TaskStack = ({
     )
   }
 
-  const dueLine = formatDueDate(front.dueDate)
+  // The build card's due date only keeps it from sitting forever; it is not
+  // a deadline the official has.
+  const dueLine = front.buildsPanel ? null : formatDueDate(front.dueDate)
 
   const cardProps = {
     cardId: front.id,

@@ -43,6 +43,22 @@ describe('buildFilterSummary — demographic-only filters', () => {
     expect(buildFilterSummary(segment, false)).not.toContain('panel')
   })
 
+  it('names the civic panel history filters on a Serve list', () => {
+    const segment = baseSegment({
+      civicPanelMember: true,
+      civicPanelLeft: true,
+      civicPanelJoinedByText: true,
+      civicPanelJoinedByHand: true,
+      civicPanelJoinedFrom: '2026-10-01',
+      civicPanelJoinedTo: '2026-10-09',
+      lastReachedTo: '2026-09-30',
+    })
+    expect(buildFilterSummary(segment, true)).toBe(
+      'On your civic panel or Left your civic panel, Joined by text or by you, Joined between Oct 1, 2026 and Oct 9, 2026, and Last asked on or before Sep 30, 2026.',
+    )
+    expect(buildFilterSummary(segment, false)).not.toContain('Joined')
+  })
+
   it('excludes political party for an elected official (Serve never shows party)', () => {
     const summary = buildFilterSummary(
       baseSegment({ partyDemocrat: true }),

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { subDays } from 'date-fns'
+import { addDays, subDays } from 'date-fns'
 import {
   CIVIC_PANEL_SEGMENT,
   CONTACT_REST_DAYS,
@@ -13,6 +13,7 @@ import {
   type FollowUpStatusResponse,
   CivicPanelStatusSchema,
   type CivicPanelStatusResponse,
+  type CivicPanelActivity,
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
   type ContactStatuses,
@@ -53,6 +54,12 @@ import {
   type ContactsMadeBucket,
 } from 'src/contactInteraction/services/contactsMadeResolution.service'
 import { ContactStatusService } from 'src/contactInteraction/services/contactStatus.service'
+import {
+  CivicPanelHistoryService,
+  type DayRange,
+  dayStart,
+  hasDayRange,
+} from 'src/contactInteraction/services/civicPanelHistory.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
@@ -126,6 +133,32 @@ const ALL_CONTACTS_SEGMENT = 'all'
 // path as a saved list holding only the panel filter, so it matches what
 // the `civicPanelMember` dimension selects and is always the current members.
 const CIVIC_PANEL_FILTER: Partial<VoterFileFilter> = { civicPanelMember: true }
+
+// Every Serve-only civic panel dimension, so the Win gate refuses all of
+// them rather than whichever one was remembered.
+const CIVIC_PANEL_FILTER_KEYS = [
+  'civicPanelMember',
+  'civicPanelLeft',
+  'civicPanelNeverInvited',
+  'civicPanelJoinedByText',
+  'civicPanelJoinedByDoor',
+  'civicPanelJoinedByPhone',
+  'civicPanelJoinedByHand',
+  'civicPanelJoinedFrom',
+  'civicPanelJoinedTo',
+  'lastReachedFrom',
+  'lastReachedTo',
+] as const satisfies readonly (keyof VoterFileFilter)[]
+
+const JOINED_BY_SOURCE = [
+  ['civicPanelJoinedByText', ContactStatusSource.sms],
+  ['civicPanelJoinedByDoor', ContactStatusSource.door_knock],
+  ['civicPanelJoinedByPhone', ContactStatusSource.phone_banking],
+  ['civicPanelJoinedByHand', ContactStatusSource.manual],
+] as const satisfies readonly (readonly [
+  keyof VoterFileFilter,
+  ContactStatusSource,
+])[]
 
 // The pro gate message shared by every filter-resolution path. Exported so
 // the assistant's count_contacts tool can recognize the rejection and suggest
@@ -305,6 +338,7 @@ export class ContactsService {
     private readonly peopleStatsService: StatsService,
     private readonly peopleDataset: PeopleDatasetService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
+    private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -486,7 +520,7 @@ export class ContactsService {
     }
     if (
       !this.hasElectedOfficeAccess(organization) &&
-      filterInput.civicPanelMember
+      CIVIC_PANEL_FILTER_KEYS.some((key) => Boolean(filterInput[key]))
     ) {
       throw new BadRequestException(
         'Civic panel filtering is not available for this organization',
@@ -804,26 +838,101 @@ export class ContactsService {
   // Serve's civic panel: people whose standing civic_panel status is member.
   // The same positive membership set as follow-up, and the same rule that
   // nobody on the panel is an empty audience, never the whole district.
+  //
+  // The status group's three options OR together: member and left are
+  // standing rows, never invited is everyone outside invitedPersonIds. Left
+  // only ever comes from an event, so someone who was never on the panel
+  // (no row, seeded `left`) counts as never invited, never as left. The
+  // joined and last-reached groups each AND on after it.
   private async resolveCivicPanelMember(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
     idResolution: IdFilterResolution,
   ): Promise<IdFilterResolution> {
-    if (!filterInput.civicPanelMember || idResolution.kind === 'empty') {
-      return idResolution
+    let resolution = idResolution
+    for (const step of [
+      () => this.resolveCivicPanelStatus(organization, filterInput),
+      () => this.resolveCivicPanelJoined(organization, filterInput),
+      () => this.resolveLastReached(organization, filterInput),
+    ]) {
+      if (resolution.kind === 'empty') return resolution
+      resolution = intersectIdFilterResolutions(resolution, await step())
     }
-    const personIds = await this.contactStatusService.personIdsByFieldValue(
+    return resolution
+  }
+
+  private async resolveCivicPanelStatus(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const statuses = [
+      ...(filterInput.civicPanelMember ? [CivicPanelStatus.member] : []),
+      ...(filterInput.civicPanelLeft ? [CivicPanelStatus.left] : []),
+    ]
+    if (statuses.length === 0 && !filterInput.civicPanelNeverInvited) {
+      return { kind: 'none' }
+    }
+    const selected = await this.contactStatusService.personIdsByFieldValue(
       organization.slug,
       ContactStatusField.civic_panel,
-      [CivicPanelStatus.member],
+      statuses,
     )
-    if (personIds.length === 0) {
-      return { kind: 'empty' }
+    if (!filterInput.civicPanelNeverInvited) {
+      return selected.length === 0
+        ? { kind: 'empty' }
+        : { kind: 'filter', idFilter: { in: selected } }
     }
-    return intersectIdFilterResolutions(idResolution, {
-      kind: 'filter',
-      idFilter: { in: personIds },
-    })
+    const keep = new Set(selected)
+    const excluded = (
+      await this.civicPanelHistory.invitedPersonIds(organization.slug)
+    ).filter((personId) => !keep.has(personId))
+    return excluded.length === 0
+      ? { kind: 'none' }
+      : { kind: 'filter', idFilter: { notIn: excluded } }
+  }
+
+  private async resolveCivicPanelJoined(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const sources = JOINED_BY_SOURCE.filter(([key]) => filterInput[key]).map(
+      ([, source]) => source,
+    )
+    const joined: DayRange = {
+      from: filterInput.civicPanelJoinedFrom,
+      to: filterInput.civicPanelJoinedTo,
+    }
+    if (sources.length === 0 && !hasDayRange(joined)) return { kind: 'none' }
+    const personIds = await this.civicPanelHistory.memberIdsByLatestJoin(
+      organization.slug,
+      sources,
+      joined,
+    )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
+  // "Last asked" on a list: when the office last reached the person on any
+  // channel, the rule CivicPanelSummaryService's reachedRecently counts by.
+  private async resolveLastReached(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const range: DayRange = {
+      from: filterInput.lastReachedFrom,
+      to: filterInput.lastReachedTo,
+    }
+    if (!hasDayRange(range)) return { kind: 'none' }
+    const personIds =
+      await this.contactsMadeResolutionService.personIdsLastReachedBetween(
+        organization.slug,
+        range.from ? dayStart(range.from) : null,
+        range.to ? addDays(dayStart(range.to), 1) : null,
+      )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
   }
 
   // Everything a saved list needs before it can be queried: the FilterObject
@@ -2211,6 +2320,7 @@ export class ContactsService {
       voterLikelihoodOrNull,
       followUpOrNull,
       civicPanelOrNull,
+      civicPanelActivityOrNull,
     ] = await Promise.all([
       this.contactInteractionTextService.latestOptOutAt(
         organization.slug,
@@ -2241,6 +2351,9 @@ export class ContactsService {
       this.hasElectedOfficeAccess(organization)
         ? this.effectiveCivicPanel(organization.slug, person.id)
         : Promise.resolve(null),
+      this.hasElectedOfficeAccess(organization)
+        ? this.civicPanelActivity(organization.slug, person.id)
+        : Promise.resolve(null),
     ])
     const base = {
       ...this.stripWinOnlyFieldsIfElectedOffice(organization, person),
@@ -2251,13 +2364,41 @@ export class ContactsService {
       voterLikelihoodOrNull === null
         ? base
         : { ...base, voterLikelihood: voterLikelihoodOrNull }
-    return followUpOrNull === null || civicPanelOrNull === null
+    return followUpOrNull === null ||
+      civicPanelOrNull === null ||
+      civicPanelActivityOrNull === null
       ? withLikelihood
       : {
           ...withLikelihood,
           followUp: followUpOrNull,
           civicPanel: civicPanelOrNull,
+          civicPanelActivity: civicPanelActivityOrNull,
         }
+  }
+
+  // The line under the record's civic panel toggle: the latest join or
+  // leave, and when the office last reached them by the rest window's rule.
+  private async civicPanelActivity(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<CivicPanelActivity> {
+    const [latest, lastReachedAt] = await Promise.all([
+      this.civicPanelHistory.latestEvent(organizationSlug, personId),
+      this.contactsMadeResolutionService.lastReachedAt(
+        organizationSlug,
+        personId,
+      ),
+    ])
+    return {
+      latestChange: latest
+        ? {
+            value: latest.toValue,
+            source: latest.source,
+            at: latest.createdAt.toISOString(),
+          }
+        : null,
+      lastReachedAt: lastReachedAt ? lastReachedAt.toISOString() : null,
+    }
   }
 
   // Both editable statuses (ENG-10833) are Win-only. Rejects `eo-` orgs
