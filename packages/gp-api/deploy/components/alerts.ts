@@ -832,6 +832,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // than every minute. Pinned to the vector's width so Grafana shows the
     // window that is read (5x ingest).
     timeRangeSeconds: 300,
+    // One read of the stream per window rather than five: a 5m window on the
+    // 60s default re-read each line five times (17 GB/day on 2026-10-12).
+    evaluationIntervalSeconds: 300,
     message: [
       "gp-api has been unable to read subjects' contact addresses from election-api for 15 minutes.",
       "Every profile-completion nudge in this window was skipped for want of an address, which is indistinguishable from ordinary thin coverage in the metric — this log line is the only thing that separates the two. Visitors' asks are unaffected and remain stored in `person_profile_claim_request`.",
@@ -965,6 +968,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the denominator in place gives the same series (verified against prod
     // on 2026-10-09) for two thirds of the bytes, 20x ingest.
     timeRangeSeconds: 600,
+    // Evaluate once per window, not ten times: 66 GB/day each on 2026-10-12,
+    // the two top fixed readers. Costs up to ten minutes of extra latency on
+    // a rule that already waits `for: 10m`.
+    evaluationIntervalSeconds: 600,
     message: [
       'More than 10% of the campaign lookups that resolved to a claimed candidate returned a server error in the last 10 minutes.',
       'This endpoint backs the public candidate profiles on the marketing site: while it fails, claimed candidates render as unclaimed. 404s are excluded — most requests legitimately miss, because the caller asks about every candidate, not only claimed ones.',
@@ -1000,12 +1007,16 @@ export const GLOBAL_ALERTS: Alert[] = [
     type: 'log',
     expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [10m]))',
     threshold: 5,
-    for: '5m',
+    for: '10m',
     // >5 events in 10 minutes, which is what this rule has always said it
     // does. It actually counted [15m] as a range query over a 600s fetch, so
     // it read 25 minutes of logs every minute and counted 15 of them; as an
     // instant query it reads exactly the ten its message quotes (10x ingest).
     timeRangeSeconds: 600,
+    // Evaluate once per window: on the 60s default this rule re-read each line
+    // ten times (33 GB/day on 2026-10-12, the top fixed reader). `for` is a
+    // whole multiple of the interval.
+    evaluationIntervalSeconds: 600,
     message: [
       'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 10 minutes.',
       "This means actorEmail lookups against gp-api's Clerk instance returned no match for those impersonation requests. Possible causes:",
@@ -1238,6 +1249,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // in place instead of counting it again in an `and` leg. `sum by` on both
     // sides keeps the division one-to-one per route. 20x ingest.
     timeRangeSeconds: 600,
+    // Evaluate once per window, not ten times: 66 GB/day each on 2026-10-12,
+    // the two top fixed readers. Costs up to ten minutes of extra latency on
+    // a rule that already waits `for: 10m`.
+    evaluationIntervalSeconds: 600,
     summaryDetail: '`{{ $labels.request_endpoint }}`',
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',

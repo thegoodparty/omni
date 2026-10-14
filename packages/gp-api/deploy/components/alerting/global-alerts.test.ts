@@ -281,12 +281,15 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 92 today: 7 for the seven event rules at the floor of 1, 5
- * for the five route rules, 1 for the door-knocking recording rule, and 79
- * for the six that need a window wider than their interval (the two ratio
- * rules at 20 each, admin impersonation at 10, the two 6h rules at 12 each,
- * the email lookup at 5). Before the move to instant queries and the removal
- * of dev alerting the same rules cost about 340 per environment, twice over.
+ * The set totals 43 today: 7 for the seven event rules at the floor of 1, 5
+ * for the five route rules, 1 for the door-knocking recording rule, and 30
+ * for the rules that read a window wider than their interval or twice per
+ * window (the two ratio rules at 2 each, the two 6h rules at 12 each, admin
+ * impersonation and the email lookup at 1 each). Before 2026-10-12 the
+ * ratio rules ran every 60s at 20 each, impersonation at 10 and the email
+ * lookup at 5. Before the move to instant
+ * queries and the removal of dev alerting the same rules cost about 340 per
+ * environment, twice over.
  *
  * A rule that fires on any occurrence of a line belongs at the floor: a [1m]
  * window every minute with `keepFiringFor` (EVENT RULES in alerts.ts). A rule
