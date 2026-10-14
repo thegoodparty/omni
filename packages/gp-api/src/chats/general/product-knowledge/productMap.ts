@@ -260,7 +260,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Campaign filing details: the committee name, the filing link, and where to send the PIN',
       'Carrier review takes about 1 to 2 weeks, then a PIN arrives to finish it',
-      'Texting setup closes 19 days before the general election. A candidate who has not filed and paid for Pro by then cannot start it for this race. Door knocking, robocalls, phone banking and social posts stay open',
+      'The deadline to get verified for texting is 19 days before the general election. A candidate who has not filed and paid for Pro by then cannot get verified for this race. They can still save their filing details. Door knocking, robocalls, phone banking and social media stay open',
     ],
     gate: 'No tab, and not every candidate is offered it. Filing details can be submitted before paying, but carrier registration only starts once Pro is paid for.',
   },

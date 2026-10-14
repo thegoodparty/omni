@@ -109,9 +109,10 @@ beforeEach(() => {
 })
 
 describe('POST /v1/campaigns/tcr-compliance/agentic', () => {
-  it('rejects a new submission past the cutoff and writes nothing', async () => {
+  it('saves a free candidate submission past the cutoff without a kickoff', async () => {
     const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
     const track = spyOnTrack()
+    const queue = spyOnQueue()
 
     const res = await service.client.post(
       '/v1/campaigns/tcr-compliance/agentic',
@@ -119,17 +120,49 @@ describe('POST /v1/campaigns/tcr-compliance/agentic', () => {
       orgHeaders(campaign.slug),
     )
 
-    expect(res.status).toBe(409)
-    expect(res.data.errorCode).toBe('SMS_COMPLIANCE_CUTOFF')
-    expect(
-      await service.prisma.tcrCompliance.findUnique({
-        where: { campaignId: campaign.id },
-      }),
-    ).toBeNull()
+    expect(res.status).toBe(202)
+    const record = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(record.kickoffSentAt).toBeNull()
     const after = await service.prisma.campaign.findUniqueOrThrow({
       where: { id: campaign.id },
     })
-    expect(after.details.einNumber).toBeUndefined()
+    expect(after.details.einNumber).toBe(submission.ein)
+    expect(queue).not.toHaveBeenCalled()
+    expect(track).not.toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Outreach.ComplianceSubmissionBlocked,
+      expect.anything(),
+    )
+
+    const state = await service.client.get(
+      '/v1/campaigns/tcr-compliance/mine/compliance-state',
+      orgHeaders(campaign.slug),
+    )
+    expect(state.data.smsCompliance).toBe('closed')
+  })
+
+  it('saves a Pro submission past the cutoff but skips the kickoff', async () => {
+    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT), {
+      isPro: true,
+    })
+    const track = spyOnTrack()
+    const queue = spyOnQueue()
+
+    const res = await service.client.post(
+      '/v1/campaigns/tcr-compliance/agentic',
+      submission,
+      orgHeaders(campaign.slug),
+    )
+
+    expect(res.status).toBe(202)
+    const record = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(record.kickoffSentAt).toBeNull()
+    expect(record.status).not.toBe(TcrComplianceStatus.error)
+    expect(queue).not.toHaveBeenCalled()
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Outreach.ComplianceSubmissionBlocked,
@@ -137,11 +170,14 @@ describe('POST /v1/campaigns/tcr-compliance/agentic', () => {
     )
   })
 
-  it('rejects a resubmission when the saved record never got a kickoff', async () => {
-    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
+  it('recreates a rejected record past the cutoff without a kickoff', async () => {
+    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT), {
+      isPro: true,
+    })
     const record = await seedRecord(campaign.id, {
       status: TcrComplianceStatus.rejected,
     })
+    const queue = spyOnQueue()
 
     const res = await service.client.post(
       '/v1/campaigns/tcr-compliance/agentic',
@@ -149,11 +185,13 @@ describe('POST /v1/campaigns/tcr-compliance/agentic', () => {
       orgHeaders(campaign.slug),
     )
 
-    expect(res.status).toBe(409)
-    const kept = await service.prisma.tcrCompliance.findUniqueOrThrow({
+    expect(res.status).toBe(202)
+    const recreated = await service.prisma.tcrCompliance.findUniqueOrThrow({
       where: { campaignId: campaign.id },
     })
-    expect(kept.id).toBe(record.id)
+    expect(recreated.id).not.toBe(record.id)
+    expect(recreated.kickoffSentAt).toBeNull()
+    expect(queue).not.toHaveBeenCalled()
   })
 
   it('accepts a new submission while the window is open', async () => {
