@@ -59,6 +59,7 @@ describe('P2pController', () => {
   }
   let mockPeerlyPhoneListCapture: {
     stampPeerlyListId: ReturnType<typeof vi.fn>
+    markBuildFailed: ReturnType<typeof vi.fn>
     findFirst: ReturnType<typeof vi.fn>
     isLeadsLoadedStable: ReturnType<typeof vi.fn>
   }
@@ -78,6 +79,7 @@ describe('P2pController', () => {
     }
     mockPeerlyPhoneListCapture = {
       stampPeerlyListId: vi.fn().mockResolvedValue(undefined),
+      markBuildFailed: vi.fn().mockResolvedValue(undefined),
       findFirst: vi.fn().mockResolvedValue({
         id: 1,
         excludedOptedOutCount: 0,
@@ -104,6 +106,32 @@ describe('P2pController', () => {
   })
 
   describe('checkPhoneListStatus', () => {
+    it('still returns failed when marking a stale build failed throws', async () => {
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue(null)
+      mockPeerlyPhoneListCapture.findFirst.mockResolvedValue({
+        id: 1,
+        peerlyListId: null,
+        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      })
+      mockPeerlyPhoneListCapture.markBuildFailed.mockRejectedValue(
+        new Error('db down'),
+      )
+
+      const result = await controller.checkPhoneListStatus(
+        mockCampaign,
+        'test-token',
+        mockRes,
+      )
+
+      expect(mockPeerlyPhoneListCapture.markBuildFailed).toHaveBeenCalledWith(
+        1,
+        expect.any(String),
+      )
+      expect(result).toMatchObject({ buildStatus: 'failed' })
+    })
+
     it('returns 202 with message when service returns null (transient error)', async () => {
       vi.mocked(
         mockPeerlyPhoneListService.checkPhoneListStatus,

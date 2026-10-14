@@ -208,7 +208,16 @@ export class P2pController {
           { buildId: row.id, token },
           `Phone list build ${row.id} never became available in Peerly; marking failed`,
         )
-        await this.peerlyPhoneListCapture.markBuildFailed(row.id, buildError)
+        // Best-effort: a transient DB failure must not 502 the poll; the
+        // next poll re-evaluates the timeout and retries the write.
+        await this.peerlyPhoneListCapture
+          .markBuildFailed(row.id, buildError)
+          .catch((err: Error) =>
+            this.logger.warn(
+              { err, buildId: row.id },
+              'Failed to mark stale build failed; will retry on next poll',
+            ),
+          )
         return { buildStatus: 'failed', buildError }
       }
       res.status(HttpStatus.ACCEPTED)
