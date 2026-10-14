@@ -274,21 +274,21 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     // How a CURRENT member last joined (the source of the event that most
     // recently made them a member). Values OR together; only members match.
     key: 'civicPanelJoinedBy',
-    label: 'Joined by',
+    label: 'How they joined',
     kind: 'boolean-group',
     modes: 'serve',
     provenance: 'observed',
     values: [
-      { key: 'civicPanelJoinedByText', label: 'Text' },
-      { key: 'civicPanelJoinedByDoor', label: 'Door' },
-      { key: 'civicPanelJoinedByPhone', label: 'Phone' },
-      { key: 'civicPanelJoinedByHand', label: 'By hand' },
+      { key: 'civicPanelJoinedByText', label: 'By text' },
+      { key: 'civicPanelJoinedByDoor', label: 'At the door' },
+      { key: 'civicPanelJoinedByPhone', label: 'On a call' },
+      { key: 'civicPanelJoinedByHand', label: 'Added by you' },
     ],
   },
   {
     // When a current member last joined, on that same event.
     key: 'civicPanelJoinedWhen',
-    label: 'Joined',
+    label: 'When they joined',
     kind: 'date-range',
     modes: 'serve',
     provenance: 'observed',

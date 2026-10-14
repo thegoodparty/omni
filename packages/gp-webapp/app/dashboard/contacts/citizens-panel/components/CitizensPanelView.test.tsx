@@ -73,6 +73,31 @@ describe('CitizensPanelView', () => {
     expect(screen.queryByText(/Once your panel has/)).not.toBeInTheDocument()
   })
 
+  it('links who can be asked now into a new list already filtered to them', () => {
+    render(
+      <CitizensPanelView summary={SUMMARY} representation={REPRESENTATION} />,
+    )
+
+    expect(
+      screen.getByRole('link', { name: 'Make a list of who can be asked now' }),
+    ).toHaveAttribute('href', '/dashboard/contacts?newList=askableNow')
+  })
+
+  it('offers no such list when nobody can be asked now', () => {
+    render(
+      <CitizensPanelView
+        summary={{ members: 12, reachedRecently: 12, askableNow: 0 }}
+        representation={REPRESENTATION}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('link', {
+        name: 'Make a list of who can be asked now',
+      }),
+    ).not.toBeInTheDocument()
+  })
+
   it('opens the built-in panel list, saving nothing', () => {
     render(
       <CitizensPanelView summary={SUMMARY} representation={REPRESENTATION} />,

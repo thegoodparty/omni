@@ -183,6 +183,7 @@ describe('ContactsService', () => {
       }
       mockContactsMadeResolutionService = {
         resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+        lastReachedAt: vi.fn().mockResolvedValue(null),
       }
 
       service = new ContactsService(

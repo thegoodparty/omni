@@ -201,6 +201,7 @@ describe('ContactsService — people-db (sole path)', () => {
     }
     const mockContactsMadeResolutionService = {
       resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+      lastReachedAt: vi.fn().mockResolvedValue(null),
     }
 
     service = new ContactsService(

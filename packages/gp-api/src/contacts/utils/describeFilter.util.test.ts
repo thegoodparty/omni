@@ -155,7 +155,7 @@ describe('describeFilter', () => {
         { isServe: true },
       ),
     ).toBe(
-      'Civic panel On your civic panel, Joined by Text, Joined between Oct 1, 2026 and Oct 9, 2026, and Last asked on or before Sep 30, 2026.',
+      'Civic panel On your civic panel, How they joined By text, When they joined between Oct 1, 2026 and Oct 9, 2026, and Last asked on or before Sep 30, 2026.',
     )
   })
 })
