@@ -9,6 +9,10 @@ over the Statement Execution API (`databricks/`). No Prisma, no connection
 pool. The services under `services/` are the module's public surface; each one
 delegates to a `databricks/` service and logs the read.
 
+"people-db" elsewhere in the docs and logs (for example the `people-db voter read`
+log line) means these Databricks reads. The old people-db Postgres and the
+people-api service were retired on 2026-09-25; nothing reads them.
+
 The column contract is hand-maintained. `voter.types.ts` declares the `Voter`
 row shape the SQL builders and column shapes in `voter.select.ts` are written
 against — nothing generates it, so a column added to the mart has to be added

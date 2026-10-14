@@ -568,16 +568,14 @@ HubSpot, BallotReady, Amplitude, Stripe, gp-api PG, DDHQ (Google Drive), TechSpe
 | Intermediate | `dbt/project/models/intermediate/` | 52    | Views — ballotready, ballotready_to_hubspot, ddhq, general, gp_ai, l2, techspeed_to_hubspot                                                                     |
 | Marts        | `dbt/project/models/marts/`        | 23    | Tables (Liquid Clustering) — election_api (8), general (9), people_api (3), ballotready_internal (2), techspeed (1)                                             |
 | Load         | `dbt/project/models/load/`         | 3     | PySpark: L2 SFTP→S3, L2 S3→Databricks                                                                                                                           |
-| Write        | `dbt/project/models/write/`        | 4     | PySpark, JDBC to PG — see below                                                                                                                                 |
 
-### dbt Write Models — What They Write
+### How the marts reach the apps
 
-| Model                                | Target DB               | Tables Written                                                               | Logic                                                                                                                                                    |
-| ------------------------------------ | ----------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `write__election_api_db`             | election-api PG         | Place, Race, Candidacy, Issue, Stance, District, Position, Projected_Turnout | FK-safe order. Incremental by `updated_at`. Filters races to 1 day past → 2 years future. Cleans old races + orphaned candidacies.                       |
-| `write__people_api_db`               | people-db PG            | Voter, District, DistrictVoter                                               | State-by-state ascending by row count. Incremental by `updated_at`. Non-prod downsampled to 6 small states (WY, ND, VT, DC, AK, SD). ~375 voter columns. |
-| `write__l2_databricks_to_gp_api`     | Retired voter datastore | `Voter{STATE}` (per-state tables)                                            | No consumer left in gp-api — pending retirement in gp-data-platform, ahead of the cluster teardown.                                                      |
-| `write__l2_databricks_to_people_api` | people-db PG            | Voter                                                                        | Similar to write\_\_people_api_db, different upsert strategy. Non-prod: WY, ND, VT only. 2-second buffer for microsecond rounding.                       |
+The dbt write models were removed in gp-data-platform #816 (August 2026). Nothing writes to Postgres from dbt now.
+
+- **election-api Postgres** is loaded from the `m_election_api__*` marts by the `sync_election_api` Airflow DAG (daily at 22:00 UTC). It swaps all tables at once, so one failed table blocks every update.
+- **gp-api** reads voter data live from Databricks (`mart_gp_api.gp_api_voters`) over the Statement Execution API. See `packages/gp-api/src/peopleDb/AGENTS.md`.
+- **people-db Postgres** and the people-api service were retired on 2026-09-25 (gp-data-platform DATA-2529). Nothing loads or reads it.
 
 ### District → Voter Mapping Pipeline
 
@@ -588,7 +586,7 @@ L2 voter records in Databricks have 200+ district columns (`City_Ward`, `County`
 1. `m_people_api__district` — unpivots L2 district columns into distinct District records (type + name + state). UUID generated from `(state, type, name)`.
 2. `m_people_api__districtvoter` — creates junction rows linking each voter to their districts based on the L2 column values.
 3. `m_people_api__districtstats` — pre-computes per-district aggregates (total constituents, cell phone counts, demographic buckets) to avoid `COUNT(*)` on 200M+ rows.
-4. `write__people_api_db` — writes all three tables to people-db PG, state-by-state.
+4. gp-api reads the voter mart directly; it does not query the district tables above. Contacts scope voters by the wide district columns on `gp_api_voters`.
 
 **How the app uses districts**:
 
