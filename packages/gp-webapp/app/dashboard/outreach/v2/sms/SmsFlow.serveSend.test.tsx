@@ -160,7 +160,7 @@ const openServeFlow = (
   return { onScheduled }
 }
 
-// Drives purpose -> audience -> schedule -> compose -> review on Serve.
+// Drives purpose -> audience -> compose -> schedule -> review on Serve.
 const runServeToReview = async () => {
   await userEvent.click(await screen.findByText('Explain a recent decision'))
   await userEvent.click(await screen.findByText('Choose a constituent list'))
@@ -168,14 +168,14 @@ const runServeToReview = async () => {
   await userEvent.click(
     await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
   )
-  await userEvent.click(
-    await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-  )
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await screen.findByText(/drafted body/)
   await attachImage()
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await userEvent.click(
+    await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
   )
   await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }
@@ -355,10 +355,6 @@ describe('SmsFlow serve send path', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(/Most of you named parking/)
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
     expect(
@@ -367,6 +363,10 @@ describe('SmsFlow serve send path', () => {
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -514,10 +514,6 @@ describe('SmsFlow serve send path', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // "City Council - District 3" -> "City Council Member": the district
     // suffix is dropped and the noun is made a person, by polls' own
@@ -619,9 +615,6 @@ describe('SmsFlow win send path (unchanged)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(
@@ -632,6 +625,9 @@ describe('SmsFlow win send path (unchanged)', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled())

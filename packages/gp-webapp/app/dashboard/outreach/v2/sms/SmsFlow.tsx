@@ -75,6 +75,7 @@ import {
   type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
+import { outreachLandingStep } from '../landingStep'
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { GateBanner } from '../gate/GateBanner'
@@ -131,11 +132,13 @@ type StepId =
   | 'schedule'
   | 'compose'
   | 'review'
+// The message before the date, on every entry (docs/decisions/
+// 2026-10-14-outreach-flow-order-and-deep-links.md).
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
-  'schedule',
   'compose',
+  'schedule',
   'review',
 ]
 
@@ -151,17 +154,6 @@ const PRO_BUILD_STEP_ORDER: StepId[] = [
   'schedule',
 ]
 const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
-
-// A chat card opens on its message with the purpose and list behind it
-// already done, so the message comes before the date: Back reaches the list
-// and the purpose, and Continue goes on to the date and payment.
-const CARD_STEP_ORDER: StepId[] = [
-  'purpose',
-  'audience',
-  'compose',
-  'schedule',
-  'review',
-]
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -354,10 +346,9 @@ interface SmsFlowProps {
   proposalLink?: ProposalLink
   // Serve: open with the civic panel ask on, as a chat card asked for.
   initialAsksToJoinCivicPanel?: boolean
-  // A chat card already settled the purpose and saved its list
-  // (preselectedListId), so the flow opens on the message with both steps
-  // behind it done.
-  openOnMessage?: boolean
+  // The caller saved and picked the list (preselectedListId), as a chat card
+  // does, so with a seeded message the flow lands on the message.
+  audienceSettled?: boolean
   // Serve: the earlier text a report back card answers. Rides on the create,
   // which marks the send as a report back rather than a new ask.
   reportBackForOutreachId?: number
@@ -577,7 +568,7 @@ export const SmsFlow = ({
   proposedAudience,
   proposalLink,
   initialAsksToJoinCivicPanel = false,
-  openOnMessage = false,
+  audienceSettled = false,
   reportBackForOutreachId,
   onProposalCreateFailed,
   preselectedListId,
@@ -758,17 +749,27 @@ export const SmsFlow = ({
     : gate.requirement === 'pro'
       ? PRO_BUILD_STEP_ORDER
       : VERIFY_BUILD_STEP_ORDER
-  const fromProposal =
-    openOnMessage && preselectedListId !== undefined && !resumeDraft
-  // Build mode already puts the message right after the list.
-  const flowStepOrder =
-    fromProposal && !buildMode ? CARD_STEP_ORDER : baseStepOrder
-  const afterAudience: StepId = fromProposal ? 'compose' : 'schedule'
+  // A seeded message opens past the purpose picker on `custom`: the words
+  // are already chosen, so asking what the candidate wants to do and then
+  // drafting over them would throw the seed away. A carried-in
+  // recommendation opens past it too, on the purpose its intent maps onto:
+  // the candidate answered that question by picking the card.
+  const carriedPurpose =
+    initialPurpose ??
+    (preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null)
+  const landing = outreachLandingStep({
+    purposeSettled: carriedPurpose !== null,
+    audienceSettled: audienceSettled && preselectedListId !== undefined,
+    messageSettled: Boolean(initialScript),
+  })
+  const opensOnMessage = landing === 'message' && !resumeDraft
   const stepOrder: StepId[] = isEventInvite(purpose)
-    ? flowStepOrder.flatMap((id) =>
+    ? baseStepOrder.flatMap((id) =>
         id === 'purpose' ? ['purpose', 'details'] : [id],
       )
-    : flowStepOrder
+    : baseStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -851,30 +852,18 @@ export const SmsFlow = ({
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
-    // A seeded message opens past the purpose picker on `custom`: the words
-    // are already chosen, so asking what the candidate wants to do and then
-    // drafting over them would throw the seed away. A carried-in
-    // recommendation opens past it too, on the purpose its intent maps onto:
-    // the candidate answered that question by picking the card.
-    const carriedPurpose =
-      initialPurpose ??
-      (preselectedRecommendedVariant
-        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-        : null)
     // A resumed draft answered purpose, audience and compose when it was
     // built, so it opens on the one thing still missing.
     setStepId(
       resumeDraft
         ? 'schedule'
-        : fromProposal
+        : landing === 'message'
           ? 'compose'
-          : initialScript
-            ? 'audience'
-            : carriedPurpose
-              ? isEventInvite(carriedPurpose)
-                ? 'details'
-                : 'audience'
-              : 'purpose',
+          : landing === 'purpose'
+            ? 'purpose'
+            : !initialScript && isEventInvite(carriedPurpose)
+              ? 'details'
+              : 'audience',
     )
     // A card that names its purpose as well as its words (the Chief of
     // Staff's panel invite, a report back) keeps that purpose, so the flow
@@ -932,6 +921,8 @@ export const SmsFlow = ({
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
+    landing,
+    carriedPurpose,
   ])
 
   // Object URL lifecycle for the image preview.
@@ -1151,8 +1142,7 @@ export const SmsFlow = ({
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
     create: surface.endpoints.create,
-    // A card's flow puts the message right after who gets it.
-    setStepId: (step) => setStepId(fromProposal ? 'compose' : step),
+    setStepId,
     setDraftOutreachId,
     setDraftCreateError,
     setRecipientCounts: setPhoneList,
@@ -1364,7 +1354,7 @@ export const SmsFlow = ({
 
   // Name-step continue: create the list through the shared audience hook
   // (same endpoint the CRM wizard uses; the hook selects it and refreshes
-  // both list caches), derive its phone list, and land on the schedule step —
+  // both list caches), derive its phone list, and land on the compose step —
   // the prototype's build-and-keep-going path.
   const handleCreateListContinue = async () => {
     if (surface.isServe) return serveSend.createListContinue()
@@ -1391,7 +1381,7 @@ export const SmsFlow = ({
       }
       setPhoneListToken(result.token)
       setPhoneListBuildId(result.buildId)
-      setStepId(afterAudience)
+      setStepId('compose')
     } catch {
       setPhoneListCreating(false)
       // audience.createListError renders the inline message below.
@@ -1399,7 +1389,7 @@ export const SmsFlow = ({
   }
 
   // Recommendation flow: create the saved filter, derive its phone list,
-  // and advance to schedule in one atomic gesture. Reached from the naming
+  // and advance to compose in one atomic gesture. Reached from the naming
   // drawer (a tapped card, the candidate's own name) and from the shell's
   // Continue over a selected card (the recommendation's own title). Only
   // the create may throw. Past it the list exists under that name and is
@@ -1418,7 +1408,7 @@ export const SmsFlow = ({
       return
     }
     // Same reset as onSelect: a token left over from a previously picked
-    // list would let a retry skip straight to schedule with the wrong
+    // list would let a retry skip straight to compose with the wrong
     // audience.
     setPhoneListToken(null)
     setPhoneListBuildId(null)
@@ -1435,7 +1425,7 @@ export const SmsFlow = ({
     }
     setPhoneListToken(result.token)
     setPhoneListBuildId(result.buildId)
-    setStepId(afterAudience)
+    setStepId('compose')
   }
 
   const handleSelectedRecommendationContinue = async () => {
@@ -1462,7 +1452,7 @@ export const SmsFlow = ({
       return
     }
     if (phoneListToken) {
-      setStepId(afterAudience)
+      setStepId('compose')
       return
     }
     setPhoneListCreating(true)
@@ -1476,20 +1466,20 @@ export const SmsFlow = ({
     }
     setPhoneListToken(result.token)
     setPhoneListBuildId(result.buildId)
-    setStepId(afterAudience)
+    setStepId('compose')
   }
 
-  // A Win card's flow opens past the audience step, so it derives the phone
-  // list there the way that step's Continue would have, once per open. A
-  // failure goes back to the audience step, where the error and its retry
-  // live.
+  // A flow that lands on the message opens past the audience step, so on Win
+  // it derives the phone list there the way that step's Continue would have,
+  // once per open. A failure goes back to the audience step, where the error
+  // and its retry live.
   const cardPhoneListStartedRef = useRef(false)
   useEffect(() => {
     if (!open) {
       cardPhoneListStartedRef.current = false
       return
     }
-    if (!fromProposal || surface.isServe || buildMode) return
+    if (!opensOnMessage || surface.isServe || buildMode) return
     if (cardPhoneListStartedRef.current || !selectedList) return
     if (selectedList.id !== preselectedListId) return
     cardPhoneListStartedRef.current = true
@@ -1508,7 +1498,7 @@ export const SmsFlow = ({
       setPhoneListBuildId(result.buildId)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per open, when the card's list resolves
-  }, [open, fromProposal, buildMode, selectedList, preselectedListId])
+  }, [open, opensOnMessage, buildMode, selectedList, preselectedListId])
 
   // A resumed row's image lives on the server, so there is no local File to
   // build an object URL from.
@@ -1806,7 +1796,7 @@ export const SmsFlow = ({
       // same failure card from before the edit instead of giving the edited
       // campaign its own shot. Re-request it the same way the review step's
       // own retry does, rather than only clearing the flags: nothing else
-      // triggers a build between compose and review, so clearing without
+      // triggers a build between the audience step and review, so clearing without
       // rebuilding would strand review on a permanent "preparing" spinner. A
       // build still in flight or one that already succeeded is untouched —
       // the audience didn't change, so a completed phoneList survives
@@ -1914,7 +1904,7 @@ export const SmsFlow = ({
                         void handleResumeScheduleContinue()
                         return
                       }
-                      setStepId(fromProposal ? 'review' : 'compose')
+                      setStepId('review')
                     },
                     disabled:
                       name.trim().length === 0 ||
@@ -1946,9 +1936,7 @@ export const SmsFlow = ({
                           setComposeContinueAttempts((n) => n + 1)
                           return
                         }
-                        setStepId(
-                          buildMode || fromProposal ? 'schedule' : 'review',
-                        )
+                        setStepId('schedule')
                       },
                       disabled: draftMutation.isPending,
                     }
