@@ -47,6 +47,8 @@ import type {
   UpdateOrdinanceRequest,
   Priority,
   CreatePriorityInput,
+  OnboardingPriorityOptions,
+  SetOnboardingPrioritiesInput,
   UpdatePriorityInput,
   PriorityStatus,
   ChatAnchor,
@@ -112,6 +114,9 @@ import type {
   TestModeState,
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
+  PriorityResults,
+  CivicPanelSummary,
+  CivicPanelRepresentation,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1054,6 +1059,16 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'PUT /v1/dashboard/cards/:id/snooze': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/cards/:id/restore': {
+    Request: {}
+    Response: void
+  }
+
   'GET /v1/dashboard/onboarding-cards': {
     Request: {}
     Response: OnboardingCardsResponse
@@ -1217,6 +1232,16 @@ export type APIEndpoints = {
     Response: Priority
   }
 
+  'GET /v1/priorities/onboarding': {
+    Request: {}
+    Response: OnboardingPriorityOptions
+  }
+
+  'PUT /v1/priorities/onboarding': {
+    Request: SetOnboardingPrioritiesInput
+    Response: void
+  }
+
   'GET /v1/priorities/:id': {
     Request: {}
     Response: Priority
@@ -1239,6 +1264,11 @@ export type APIEndpoints = {
       currentStep: string | null
       nextAction: string | null
     }
+  }
+
+  'GET /v1/priorities/:id/results': {
+    Request: {}
+    Response: PriorityResults
   }
 
   // A proposal key names the outreach a chat card WOULD create. A 404 is the
@@ -1463,6 +1493,16 @@ export type APIEndpoints = {
   'PATCH /v1/contacts/:personId/civic-panel': {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
+  }
+  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
+  // off and 400 for a Win org.
+  'GET /v1/contacts/civic-panel': {
+    Request: {}
+    Response: CivicPanelSummary
+  }
+  'GET /v1/contacts/civic-panel/representation': {
+    Request: {}
+    Response: CivicPanelRepresentation
   }
   'GET /v1/contacts/:id': {
     Request: {}
@@ -2063,6 +2103,11 @@ export type APIEndpoints = {
         title: string
       }>
     }
+  }
+
+  'POST /v1/community-issues/onboarding': {
+    Request: {}
+    Response: { starterIssueCount: number }
   }
 
   // Self-serve landing catch-up: called client-side after landing on the

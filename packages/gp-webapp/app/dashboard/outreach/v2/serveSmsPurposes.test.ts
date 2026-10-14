@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import { SERVE_SMS_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import {
   SERVE_SMS_PURPOSE_LABELS,
   SERVE_SMS_PURPOSE_NAME_SUGGESTIONS,
@@ -11,9 +11,11 @@ import {
 describe('SERVE_SMS_PURPOSES', () => {
   it('renders the shared serve purpose vocabulary, in contract order', () => {
     expect(SERVE_SMS_PURPOSES.map((p) => p.id)).toEqual([
-      ...SERVE_OUTREACH_PURPOSE_VALUES,
+      ...SERVE_SMS_PURPOSE_VALUES,
     ])
     expect(SERVE_SMS_PURPOSES).toEqual([
+      { id: 'build_citizens_panel', label: 'Build your civic panel' },
+      { id: 'report_back', label: 'Report back to the people you asked' },
       { id: 'introduce_myself', label: 'Introduce myself to constituents' },
       { id: 'explain_decision', label: 'Explain a recent decision' },
       { id: 'event_invite', label: 'Invite constituents to a local event' },
@@ -47,7 +49,7 @@ describe('SERVE_SMS_PURPOSE_NAME_SUGGESTIONS', () => {
   // The bug this file guards against: a card-copy correction reaching the
   // outreach history through a shared record.
   it('shares no wording with the card labels', () => {
-    for (const purpose of SERVE_OUTREACH_PURPOSE_VALUES) {
+    for (const purpose of SERVE_SMS_PURPOSE_VALUES) {
       expect(SERVE_SMS_PURPOSE_NAME_SUGGESTIONS[purpose]).not.toBe(
         SERVE_SMS_PURPOSE_LABELS[purpose],
       )

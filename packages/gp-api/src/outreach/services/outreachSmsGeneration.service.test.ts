@@ -1,6 +1,6 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import { SERVE_SMS_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { LlmService } from '@/llm/services/llm.service'
 import { SERVE_SMS_VOICE } from '../util/serveSmsVoice.util'
@@ -113,7 +113,7 @@ describe('OutreachSmsGenerationService — Win entry point', () => {
   })
 })
 
-const freshServePurposes = SERVE_OUTREACH_PURPOSE_VALUES.filter(
+const freshServePurposes = SERVE_SMS_PURPOSE_VALUES.filter(
   (purpose) => purpose !== 'custom',
 )
 
@@ -150,6 +150,27 @@ describe('OutreachSmsGenerationService — SERVE_SMS_VOICE', () => {
       expect(userPrompt).not.toMatch(BANNED_IN_SERVE)
     },
   )
+
+  // The flow appends the locked JOIN line; a second ask in the body would be
+  // one the reply reader does not recognize.
+  it('leaves the civic panel JOIN ask to the flow', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraftWithVoice(
+      { purpose: 'build_citizens_panel', tone: 'warm' },
+      'Alex Rivera',
+      'City Council',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+    )
+
+    const { userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('what their civic panel is')
+    expect(userPrompt).toContain('not a campaign')
+    expect(userPrompt).toContain('Do NOT ask the reader to reply JOIN')
+    expect(userPrompt).toContain('the app adds the line that asks them')
+  })
 
   it('polishes with the official subject and never injects a structure', async () => {
     const { service, jsonCompletion } = buildService()

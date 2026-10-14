@@ -53,6 +53,26 @@ export const SERVE_OUTREACH_PURPOSE_VALUES = [
 export const ServeOutreachPurposeSchema = z.enum(SERVE_OUTREACH_PURPOSE_VALUES)
 export type ServeOutreachPurpose = z.infer<typeof ServeOutreachPurposeSchema>
 
+// A text that introduces the official and asks residents to join their
+// civic panel. SMS only: the panel is seeded by a random draw of the
+// district, which a door or a call list cannot reach the same way, so it is
+// not in the list the other Serve channels share.
+export const BUILD_CITIZENS_PANEL_PURPOSE = 'build_citizens_panel'
+
+// A text back to the people an earlier text asked: what the official heard,
+// then what they will do next. SMS only, and only ever opened from a chat
+// card, because its audience is exactly who that send reached. It never
+// carries the civic panel join line.
+export const REPORT_BACK_PURPOSE = 'report_back'
+
+export const SERVE_SMS_PURPOSE_VALUES = [
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  REPORT_BACK_PURPOSE,
+  ...SERVE_OUTREACH_PURPOSE_VALUES,
+] as const
+export const ServeSmsPurposeSchema = z.enum(SERVE_SMS_PURPOSE_VALUES)
+export type ServeSmsPurpose = z.infer<typeof ServeSmsPurposeSchema>
+
 // The one purpose that asks a question rather than delivering a message, and
 // therefore the only one that has to record what the question IS. Lives here
 // rather than in either channel's schema because door knocking and phone

@@ -480,6 +480,9 @@ interface TextingComplianceRegistrationFormProps {
   variant?: FormVariant
   // The 'verification' variant's inline footer Back.
   onBack?: () => void
+  // The 'verification' variant's footer submit. The Pro wizard passes
+  // Continue so the step reads like the rest of the flow.
+  submitLabel?: string
 }
 
 const TextingComplianceRegistrationForm = ({
@@ -496,6 +499,7 @@ const TextingComplianceRegistrationForm = ({
   contactCaption,
   variant = 'default',
   onBack,
+  submitLabel = 'Submit for verification',
 }: TextingComplianceRegistrationFormProps): React.JSX.Element => {
   const design = variant === 'verification'
   const { formData, handleChange } = useFormData()
@@ -901,7 +905,7 @@ const TextingComplianceRegistrationForm = ({
             loading={loading}
             onClick={handleOnSubmit}
           >
-            Submit for verification
+            {submitLabel}
           </Button>
         </StepFooter>
       ) : (

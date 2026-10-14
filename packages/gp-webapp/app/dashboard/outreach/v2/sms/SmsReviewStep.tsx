@@ -71,10 +71,8 @@ interface SmsReviewStepProps {
   contactCount: number | null
   pricePerContact: number
   outreachId: number | null
-  phoneListToken: string | null
-  // The PeerlyPhoneList row id, carried alongside the token so an async build
-  // (no token yet) can still complete a free send off the build id. Sent to
-  // gp-api only when there is no token — the token path is unchanged.
+  // The PeerlyPhoneList row id. gp-api reads it only for a draft paid before
+  // its build finished; a draft that names its list is billed for that list.
   phoneListBuildId: string | null
   excludedOptedOutCount: number | null
   excludedDuplicatePhoneCount: number | null
@@ -114,7 +112,6 @@ export const SmsReviewStep = ({
   contactCount,
   pricePerContact,
   outreachId,
-  phoneListToken,
   phoneListBuildId,
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
@@ -181,15 +178,9 @@ export const SmsReviewStep = ({
     try {
       const response = await completeFreePurchase(PURCHASE_TYPES.TEXT, {
         contactCount: contactCount ?? 0,
-        pricePerContact,
         outreachType: 'p2p',
         outreachId: outreachId ?? undefined,
-        phoneListToken: phoneListToken ?? undefined,
-        // Async build: with no token the server resolves the list by build id.
-        // Sent only when the token is absent, so the token path is unchanged.
-        ...(phoneListToken
-          ? {}
-          : { phoneListBuildId: phoneListBuildId ?? undefined }),
+        phoneListBuildId: phoneListBuildId ?? undefined,
       })
       if (!response.ok) {
         const parsed = purchaseErrorSchema.safeParse(response.data)

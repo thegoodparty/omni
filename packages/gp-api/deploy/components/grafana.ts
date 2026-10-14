@@ -27,6 +27,11 @@ import {
   recordingRuleExpression,
 } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
+import {
+  CLOUDWATCH_DATASOURCE_UID,
+  electionApiDbDashboardConfigJson,
+  GRAFANA_CLOUDWATCH_ROLE_ARN,
+} from './electionApiDbDashboard'
 
 export interface GrafanaConfig {
   environment: 'dev' | 'prod'
@@ -533,6 +538,32 @@ export const createGrafanaResources = async ({
   // Removing them from a dev deploy deletes the DEV folder's rules, their
   // history and any silence on them; prod is untouched.
   if (environment !== 'prod') return
+
+  // One data source for the stack, so only the prod deploy owns it. It reads
+  // the production AWS account through a role Grafana Cloud assumes; no AWS
+  // keys are stored in Grafana.
+  const cloudwatch = new grafana.oss.DataSource('cloudwatch', {
+    type: 'cloudwatch',
+    name: 'CloudWatch (production account)',
+    uid: CLOUDWATCH_DATASOURCE_UID,
+    jsonDataEncoded: JSON.stringify({
+      authType: 'grafana_assume_role',
+      assumeRoleArn: GRAFANA_CLOUDWATCH_ROLE_ARN,
+      defaultRegion: 'us-west-2',
+    }),
+  })
+
+  new grafana.oss.Dashboard(
+    'election-api-db-dashboard',
+    {
+      folder: folder.uid,
+      overwrite: true,
+      configJson: electionApiDbDashboardConfigJson({
+        lokiDatasourceUid: LOKI_DATASOURCE_UID,
+      }),
+    },
+    { dependsOn: [cloudwatch] },
+  )
 
   const alertFolder = new grafana.oss.Folder('alerts-folder', {
     title: `${environment.toUpperCase()} Alerts (provisioned via gp-api)`,

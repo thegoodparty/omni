@@ -108,5 +108,9 @@ export const ENGAGEMENT_QUESTION = 'Did they engage?'
 export const SUPPORT_QUESTION = 'Do they support you?'
 export const WILL_VOTE_QUESTION = 'Will they vote this election?'
 export const FOLLOW_UP_QUESTION = 'Do they need follow-up?'
-export const CIVIC_PANEL_QUESTION = "Do they want to join your citizens' panel?"
+export const CIVIC_PANEL_QUESTION = 'Do they want to join your civic panel?'
+// Asked instead on a turf of panel members only, where everyone is already on
+// it: a No takes them off the panel, which the join question's No never does.
+export const CIVIC_PANEL_STAY_QUESTION =
+  'Do they want to stay on your civic panel?'
 export const NOTE_QUESTION = 'Note'

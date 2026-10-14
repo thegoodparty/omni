@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { Campaign, User } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
+import { FeaturesService } from '@/features/services/features.service'
 import Stripe from 'stripe'
 import {
   beforeEach,
@@ -123,15 +124,18 @@ describe('PurchaseService', () => {
     freeTextsOfferRedeemedAt: null,
   }
 
+  // Defaults OFF (pre-feature behavior, matching the old env var's default);
+  // the hold-billing tests below flip it to true per-call.
+  const mockIsFeatureEnabled = vi.fn()
+
   beforeEach(async () => {
-    // Clear any WIN_SMS_HOLD_BILLING stub a prior test left set.
-    vi.unstubAllEnvs()
     mockStripeService = {
       createCustomCheckoutSession: vi.fn(),
       retrieveCheckoutSession: vi.fn(),
       retrievePaymentIntent: vi.fn(),
       updatePaymentIntentMetadata: vi.fn(),
     }
+    mockIsFeatureEnabled.mockReset().mockResolvedValue(false)
 
     mockCheckoutSessionPostPurchaseHandler = vi.fn().mockResolvedValue({
       success: true,
@@ -144,6 +148,10 @@ describe('PurchaseService', () => {
         {
           provide: StripeService,
           useValue: mockStripeService,
+        },
+        {
+          provide: FeaturesService,
+          useValue: { isFeatureEnabled: mockIsFeatureEnabled },
         },
       ],
     }).compile()
@@ -177,7 +185,6 @@ describe('PurchaseService', () => {
           type: PurchaseType.TEXT,
           metadata: {
             contactCount: 500,
-            pricePerContact: 3.5,
           },
         },
         metadata: { campaignId: mockCampaign.id },
@@ -207,7 +214,7 @@ describe('PurchaseService', () => {
     // Win SMS hold billing: a p2p TEXT checkout under the flag asks the Stripe
     // layer to authorize a manual-capture hold instead of charging.
     it('requests a manual-capture hold for a Win p2p checkout when the flag is on', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      mockIsFeatureEnabled.mockResolvedValue(true)
       const mockHandler: PurchaseHandler<unknown> = {
         validatePurchase: vi.fn().mockResolvedValue(undefined),
         calculateAmount: vi.fn().mockResolvedValue(10500),
@@ -239,6 +246,16 @@ describe('PurchaseService', () => {
           manualCapture: true,
           allowPromoCodes: false,
         }),
+      )
+      // ENTRY: evaluated once for the paying user against the managed flag,
+      // and threaded into calculateAmount's metadata (the SAME value reused
+      // for manualCapture above — never a second read).
+      expect(mockIsFeatureEnabled).toHaveBeenCalledWith({
+        user: mockUser,
+        feature: 'win_sms_hold_billing',
+      })
+      expect(mockHandler.calculateAmount).toHaveBeenCalledWith(
+        expect.objectContaining({ winSmsHoldBillingEnabled: true }),
       )
     })
 
@@ -277,7 +294,7 @@ describe('PurchaseService', () => {
     })
 
     it('does not request a hold for a non-p2p TEXT checkout even when the flag is on', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+      mockIsFeatureEnabled.mockResolvedValue(true)
       const mockHandler: PurchaseHandler<unknown> = {
         validatePurchase: vi.fn().mockResolvedValue(undefined),
         calculateAmount: vi.fn().mockResolvedValue(3500),
@@ -305,6 +322,9 @@ describe('PurchaseService', () => {
         expect.anything(),
         expect.objectContaining({ manualCapture: false }),
       )
+      // Scoped BEFORE the Amplitude round-trip: a non-p2p TEXT checkout never
+      // even evaluates the flag.
+      expect(mockIsFeatureEnabled).not.toHaveBeenCalled()
     })
 
     // getPaymentType's default branch THROWS, so an unmapped PurchaseType
@@ -416,7 +436,6 @@ describe('PurchaseService', () => {
           type: PurchaseType.TEXT,
           metadata: {
             contactCount: 298,
-            pricePerContact: 3.5,
             campaignId: 111,
           },
         },
@@ -456,7 +475,7 @@ describe('PurchaseService', () => {
         user: mockUser,
         dto: {
           type: PurchaseType.TEXT,
-          metadata: { contactCount: 200, pricePerContact: 3.5 },
+          metadata: { contactCount: 200 },
         },
         metadata: {},
       })
@@ -670,7 +689,12 @@ describe('PurchaseService', () => {
       expect(result.deferred).toBe(true)
       expect(result.result).toBeUndefined()
       expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
-      expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
+      // The live PI IS read (to durably check capture_method, never a flag) —
+      // it comes back with no capture_method (the mock's default), so this
+      // correctly falls through to the ACH-style defer below.
+      expect(mockStripeService.retrievePaymentIntent).toHaveBeenCalledWith(
+        'pi_test_payment',
+      )
       expect(
         mockStripeService.updatePaymentIntentMetadata,
       ).not.toHaveBeenCalled()
@@ -678,8 +702,12 @@ describe('PurchaseService', () => {
 
     // A Win SMS hold completes the session 'unpaid' (funds authorized, not
     // captured). Unlike ACH, it is ready to fulfill now, so it must NOT defer.
-    it('fulfills an unpaid session whose PI is an authorized manual-capture hold (flag on)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+    // Detected off the live PI's capture_method — NOT a flag read, and NOT
+    // reset between this call and session-creation — so a flag flip after
+    // entry can never make an already-placed hold fall through to the ACH
+    // deferral below (which would strand it: a manual-capture hold has no
+    // async_payment_succeeded follow-up to ever retrigger fulfillment).
+    it('fulfills an unpaid session whose PI is an authorized manual-capture hold', async () => {
       const sessionId = 'cs_test_hold_unpaid'
       service.registerCheckoutSessionPostPurchaseHandler(
         PurchaseType.TEXT,
@@ -696,7 +724,11 @@ describe('PurchaseService', () => {
         }),
       )
       mockStripeService.retrievePaymentIntent.mockResolvedValue(
-        mockPaymentIntent({ id: 'pi_hold', status: 'requires_capture' }),
+        mockPaymentIntent({
+          id: 'pi_hold',
+          status: 'requires_capture',
+          capture_method: 'manual',
+        }),
       )
 
       const result = await service.completeCheckoutSession({
@@ -708,14 +740,17 @@ describe('PurchaseService', () => {
         sessionId,
         expect.objectContaining({ purchaseType: PurchaseType.TEXT }),
       )
+      // NO-STRAND GUARANTEE: this suite's FeaturesService mock defaults to
+      // OFF (see beforeEach) and is never flipped on here — proving the
+      // fulfillment above happened WITHOUT consulting the flag at all.
+      expect(mockIsFeatureEnabled).not.toHaveBeenCalled()
     })
 
     // A manual-capture hold has no async follow-up event, so deferring would
     // strand the send forever. While the PI is not yet requires_capture, THROW
     // (not defer) so checkout.session.completed redelivers and fulfills once the
     // synchronous authorization lands.
-    it('throws (forcing retry) for a Win-SMS hold whose PI is not yet requires_capture (flag on)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+    it('throws (forcing retry) for a Win-SMS hold whose PI is not yet requires_capture', async () => {
       const sessionId = 'cs_test_hold_pending'
       service.registerCheckoutSessionPostPurchaseHandler(
         PurchaseType.TEXT,
@@ -732,7 +767,11 @@ describe('PurchaseService', () => {
         }),
       )
       mockStripeService.retrievePaymentIntent.mockResolvedValue(
-        mockPaymentIntent({ id: 'pi_pending', status: 'processing' }),
+        mockPaymentIntent({
+          id: 'pi_pending',
+          status: 'processing',
+          capture_method: 'manual',
+        }),
       )
 
       await expect(
@@ -744,7 +783,7 @@ describe('PurchaseService', () => {
     // A genuine delayed-notification (ACH) session is a non-hold unpaid session:
     // it must keep deferring (an async_payment_succeeded re-enters later), never
     // throw. Flag off keeps it out of the hold branch entirely.
-    it('still defers a non-hold unpaid session (ACH / flag off), never throws', async () => {
+    it('still defers a non-hold (automatic-capture, e.g. ACH) unpaid session, never throws', async () => {
       const sessionId = 'cs_test_ach_unpaid'
       service.registerCheckoutSessionPostPurchaseHandler(
         PurchaseType.TEXT,
@@ -760,6 +799,13 @@ describe('PurchaseService', () => {
           metadata: { purchaseType: PurchaseType.TEXT, userId: '1' },
         }),
       )
+      mockStripeService.retrievePaymentIntent.mockResolvedValue(
+        mockPaymentIntent({
+          id: 'pi_ach',
+          status: 'processing',
+          capture_method: 'automatic',
+        }),
+      )
 
       const result = await service.completeCheckoutSession({
         checkoutSessionId: sessionId,
@@ -767,7 +813,46 @@ describe('PurchaseService', () => {
 
       expect(result.deferred).toBe(true)
       expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
-      // Non-hold path never re-reads the PI to probe for a hold.
+      // The live PI IS read (durable capture_method check, not a flag) — an
+      // automatic-capture PI correctly still defers like any other ACH-style
+      // pending payment.
+      expect(mockStripeService.retrievePaymentIntent).toHaveBeenCalledWith(
+        'pi_ach',
+      )
+    })
+
+    // manualCapture is only ever set for PurchaseType.TEXT at session
+    // creation, so no other purchase type can ever carry a manual-capture
+    // PI — checking capture_method for a domain/poll/pro-plan purchase would
+    // be a wasted Stripe round trip and a new failure mode (a transient read
+    // error throwing instead of deferring) for every ACH-paid purchase of
+    // every other type.
+    it('defers a non-TEXT unpaid session (e.g. an ACH-paid domain) without reading the PI at all', async () => {
+      const sessionId = 'cs_test_domain_unpaid'
+      service.registerCheckoutSessionPostPurchaseHandler(
+        PurchaseType.DOMAIN_REGISTRATION,
+        mockCheckoutSessionPostPurchaseHandler,
+      )
+
+      mockStripeService.retrieveCheckoutSession.mockResolvedValue(
+        mockCheckoutSession({
+          id: sessionId,
+          status: 'complete',
+          payment_status: 'unpaid',
+          payment_intent: 'pi_domain_ach',
+          metadata: {
+            purchaseType: PurchaseType.DOMAIN_REGISTRATION,
+            userId: '1',
+          },
+        }),
+      )
+
+      const result = await service.completeCheckoutSession({
+        checkoutSessionId: sessionId,
+      })
+
+      expect(result.deferred).toBe(true)
+      expect(mockCheckoutSessionPostPurchaseHandler).not.toHaveBeenCalled()
       expect(mockStripeService.retrievePaymentIntent).not.toHaveBeenCalled()
     })
 
@@ -1038,7 +1123,6 @@ describe('PurchaseService', () => {
           purchaseType: PurchaseType.TEXT,
           metadata: {
             contactCount: 298,
-            pricePerContact: 3.5,
             outreachType: 'p2p',
             audienceSize: 500,
           },
@@ -1081,7 +1165,6 @@ describe('PurchaseService', () => {
             purchaseType: PurchaseType.TEXT,
             metadata: {
               contactCount: 100,
-              pricePerContact: 3.5,
               outreachType: 'p2p',
               audienceSize: 200,
             },
@@ -1114,7 +1197,6 @@ describe('PurchaseService', () => {
             purchaseType: PurchaseType.TEXT,
             metadata: {
               contactCount: 100,
-              pricePerContact: 3.5,
               outreachType: 'p2p',
               audienceSize: 200,
             },
@@ -1135,7 +1217,6 @@ describe('PurchaseService', () => {
           purchaseType: PurchaseType.TEXT,
           metadata: {
             contactCount: 50,
-            pricePerContact: 3.5,
             outreachType: 'p2p',
             audienceSize: 100,
           },
@@ -1174,7 +1255,6 @@ describe('PurchaseService', () => {
             purchaseType: PurchaseType.TEXT,
             metadata: {
               contactCount: 6000,
-              pricePerContact: 3.5,
               outreachType: 'p2p',
               audienceSize: 10000,
             },

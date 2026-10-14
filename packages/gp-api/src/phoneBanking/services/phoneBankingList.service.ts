@@ -11,6 +11,7 @@ import {
 } from '@/priorities/util/proposalLink.util'
 import {
   IdOverrides,
+  isCivicPanelOnlyList,
   PHONE_BANKING_SHEET_SIZE,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
@@ -23,6 +24,7 @@ import {
   type ProposalLink,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 import {
   ContactsFilterResolutionInput,
   ContactsService,
@@ -86,6 +88,7 @@ const LIST_WITH_ENTRIES_INCLUDE = {
     orderBy: { seq: Prisma.SortOrder.asc },
     include: { persons: true },
   },
+  voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT },
 } as const satisfies Prisma.PhoneBankingListInclude
 
 type ListWithEntries = Prisma.PhoneBankingListGetPayload<{
@@ -679,6 +682,9 @@ export class PhoneBankingListService extends createPrismaBase(
       // signal (src/contacts/AGENTS.md), not derived from the Outreach
       // envelope: a Win list can exist with none at all (continueIfNotFound).
       isServe: organization.slug.startsWith('eo-'),
+      civicPanelOnly:
+        organization.slug.startsWith('eo-') &&
+        isCivicPanelOnlyList(list.voterFileFilter),
     }
   }
 
@@ -726,6 +732,7 @@ export class PhoneBankingListService extends createPrismaBase(
           willVote: interaction.willVote,
           followUp: interaction.followUp,
           joinCivicPanel: interaction.joinCivicPanel,
+          stayOnCivicPanel: interaction.stayOnCivicPanel,
           occurredAt: interaction.occurredAt,
         },
       ]),

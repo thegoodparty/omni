@@ -9,6 +9,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
+import { isToolRefusal } from '@goodparty_org/contracts'
 import {
   type LlmFilePart,
   type LlmMessage,
@@ -52,7 +53,12 @@ export type ChatStreamChunk =
       args: unknown
       toolCallId: string
     }
-  | { type: 'tool_result'; toolName: string; result: unknown }
+  | {
+      type: 'tool_result'
+      toolName: string
+      result: unknown
+      toolCallId: string
+    }
   | {
       type: 'citation'
       attachmentId: string
@@ -848,10 +854,19 @@ export class ChatStreamService {
         },
         onToolCallEnd: ({ name, output, toolCallId }) => {
           settleToolEvent(toolCallId, name, { result: output })
+          if (isToolRefusal(output)) {
+            const segment = segments.find(
+              (s) =>
+                s.kind === ChatMessageSegmentKind.tool &&
+                s.toolCallId === toolCallId,
+            )
+            if (segment) segment.payload = null
+          }
           void queue.push({
             type: 'tool_result',
             toolName: name,
             result: output,
+            toolCallId,
           })
         },
         onToolCallError: ({ name, toolCallId, error }) => {

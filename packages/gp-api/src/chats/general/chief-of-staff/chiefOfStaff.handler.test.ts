@@ -21,6 +21,7 @@ import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -95,6 +96,9 @@ describe('ChiefOfStaffHandler', () => {
           districtFilters: null,
           constituentToolEnabled: false,
         }),
+      ),
+      civicPanelBuildState: vi.fn((_slug: string, textingEnabled: boolean) =>
+        Promise.resolve({ members: 0, inviteSent: false, textingEnabled }),
       ),
     } as unknown as ChiefOfStaffContextService
   })
@@ -644,6 +648,201 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
+  describe('building the civic panel', () => {
+    const buildPanelHandler = (flags: {
+      panels: boolean
+      texting: boolean
+    }) => {
+      const features = {
+        isFeatureEnabled: vi.fn(({ feature }: { feature: string }) =>
+          Promise.resolve(
+            feature === 'serve-citizen-panels'
+              ? flags.panels
+              : feature === 'serve-sms-outreach'
+                ? flags.texting
+                : false,
+          ),
+        ),
+      }
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        NO_TABLES,
+        undefined,
+        undefined,
+        undefined,
+        {
+          getFilterDimensions: vi.fn(() => []),
+          countContacts: vi.fn(),
+        } as unknown as ContactsService,
+        {
+          findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
+        } as unknown as VoterFileFilterService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        features as never,
+      )
+      return { handler, features }
+    }
+
+    const withPanel = (state: { members: number; inviteSent: boolean }) => {
+      context.civicPanelBuildState = vi.fn(
+        (_slug: string, textingEnabled: boolean) =>
+          Promise.resolve({ ...state, textingEnabled }),
+      )
+    }
+
+    const proposalTool = (tools: Record<string, LlmTool>) => {
+      const tool = tools.present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable proposal tool')
+      }
+      return tool
+    }
+
+    const inputKeys = (tool: { inputSchema: unknown }): string[] =>
+      Object.keys((tool.inputSchema as { shape: object }).shape)
+
+    const invite = {
+      audience: 'Residents with a cell phone',
+      count: 12_000,
+      channel: 'text' as const,
+      audienceFilters: { hasCellPhone: true },
+      listName: 'Civic panel invite',
+      message:
+        'Hi, this is Jordan, your Council Member. I am starting a citizens ' +
+        'panel so I hear from all of you before I decide.',
+      purpose: 'build_citizens_panel' as const,
+      civicPanelAsk: true,
+      sampleSize: 3334,
+      deepLinkOnly: false,
+    }
+
+    it('counts the district and proposes one invite card on the build turn', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(Object.keys(tools)).toContain('size_panel_invite')
+
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain(
+        "CIVIC PANEL (apply when the user's message is exactly " +
+          `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
+      )
+      expect(prompt).toContain('`count_contacts` with { hasCellPhone: true }')
+      expect(prompt).toContain('about 100 members')
+      expect(prompt).toContain('about 3 in 100 people reply JOIN')
+      expect(prompt).toContain('a random group of sendTo residents')
+      expect(prompt).toContain(
+        'channel text, purpose build_citizens_panel, civicPanelAsk true',
+      )
+      expect(prompt).toContain('Never write the line asking people to reply')
+
+      expect(await proposalTool(tools).execute(invite)).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+    })
+
+    it('texts all of a district smaller than the random group', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      const result = await proposalTool(tools).execute({
+        ...invite,
+        count: 1200,
+        sampleSize: 1200,
+      })
+      expect(result).toMatchObject({ presented: true })
+      expect(result).toHaveProperty('wholeAudience')
+    })
+
+    it('refuses an invite sized, aimed or asked any other way', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const tool = proposalTool(
+        handler.buildTools(await handler.loadContext('c1', USER_ID)),
+      )
+      expect(
+        await tool.execute({ ...invite, sampleSize: 2767 }),
+      ).toHaveProperty(
+        'error',
+        expect.stringContaining('Set sampleSize to 3334'),
+      )
+      expect(
+        await tool.execute({
+          ...invite,
+          audienceFilters: { hasCellPhone: true, homeowner: true },
+        }),
+      ).toHaveProperty('error')
+      expect(
+        await tool.execute({ ...invite, civicPanelAsk: false }),
+      ).toHaveProperty('error')
+      // A saved list would replace the counted and priced district draw.
+      expect(
+        await tool.execute({ ...invite, savedFilterId: 41 }),
+      ).toHaveProperty('error', expect.stringContaining('never a saved list'))
+      expect(
+        await tool.execute({ ...invite, purpose: undefined }),
+      ).toHaveProperty('error')
+    })
+
+    it('says the panel exists instead of proposing a second invite', async () => {
+      withPanel({ members: 42, inviteSent: true })
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(handler.buildSystemPrompt(ctx)).toContain(
+        'They already have 42 people on their civic panel',
+      )
+      expect(
+        await proposalTool(handler.buildTools(ctx)).execute(invite),
+      ).toHaveProperty('error', expect.stringContaining('do not invite again'))
+    })
+
+    it('says the invite is out instead of proposing another', async () => {
+      withPanel({ members: 0, inviteSent: true })
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(handler.buildSystemPrompt(ctx)).toContain(
+        'Their panel invite already went out',
+      )
+      expect(
+        await proposalTool(handler.buildTools(ctx)).execute(invite),
+      ).toHaveProperty('error')
+    })
+
+    it('explains texting is not set up yet, and offers no invite', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: false })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(Object.keys(tools)).not.toContain('size_panel_invite')
+      expect(inputKeys(proposalTool(tools))).not.toContain('purpose')
+      expect(handler.buildSystemPrompt(ctx)).toContain(
+        'Texting is not set up for their office yet',
+      )
+    })
+
+    it('is unchanged with serve-citizen-panels off', async () => {
+      const { handler, features } = buildPanelHandler({
+        panels: false,
+        texting: true,
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(ctx.civicPanel).toBeUndefined()
+      expect(context.civicPanelBuildState).not.toHaveBeenCalled()
+      expect(features.isFeatureEnabled).not.toHaveBeenCalledWith(
+        expect.objectContaining({ feature: 'serve-sms-outreach' }),
+      )
+      expect(Object.keys(tools)).not.toContain('size_panel_invite')
+      expect(inputKeys(proposalTool(tools))).toEqual(
+        Object.keys(buildPresentOutreachProposalTool().inputSchema.shape),
+      )
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('CIVIC PANEL')
+    })
+  })
+
   describe('shared cards and past outreach', () => {
     const buildPastOutreachHandler = (outreach?: PriorityFlowOutreachService) =>
       new ChiefOfStaffHandler(
@@ -676,6 +875,53 @@ describe('ChiefOfStaffHandler', () => {
       expect(await read.execute({})).toEqual({ priority: [], office: [] })
       expect(forPriority).not.toHaveBeenCalled()
       expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
+    })
+
+    it('reads outreach feedback only with serve-citizen-panels on for the user', async () => {
+      const outreach = {
+        forOffice: vi.fn(() => Promise.resolve([])),
+      } as unknown as PriorityFlowOutreachService
+      const build = (enabled: boolean) => {
+        const features = {
+          isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
+        }
+        const handler = new ChiefOfStaffHandler(
+          context,
+          buildBriefings(),
+          port,
+          NO_TABLES,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          outreach,
+          undefined,
+          undefined,
+          features as never,
+        )
+        return { handler, features }
+      }
+
+      const on = build(true)
+      const onCtx = await on.handler.loadContext('c1', USER_ID)
+      expect(on.features.isFeatureEnabled).toHaveBeenCalledWith({
+        user: USER_ID,
+        feature: 'serve-citizen-panels',
+      })
+      expect(Object.keys(on.handler.buildTools(onCtx))).toContain(
+        'read_outreach_feedback',
+      )
+
+      const off = build(false)
+      const offCtx = await off.handler.loadContext('c1', USER_ID)
+      expect(Object.keys(off.handler.buildTools(offCtx))).not.toContain(
+        'read_outreach_feedback',
+      )
+      expect(off.handler.buildSystemPrompt(offCtx)).not.toContain(
+        'read_outreach_feedback',
+      )
     })
 
     it('omits the past-outreach tools without the service', async () => {

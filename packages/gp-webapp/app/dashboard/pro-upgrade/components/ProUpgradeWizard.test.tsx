@@ -33,6 +33,15 @@ const BackProbe = (): React.JSX.Element => {
   )
 }
 
+const NextProbe = (): React.JSX.Element => {
+  const { goToNextStep } = useProUpgradeWizard()
+  return (
+    <button type="button" onClick={goToNextStep}>
+      probe-next
+    </button>
+  )
+}
+
 const CompleteProbe = (): React.JSX.Element => {
   const { complete } = useProUpgradeWizard()
   return (
@@ -186,7 +195,7 @@ describe('ProUpgradeWizard', () => {
 
   // Design (renderSgModal): the standalone route draws the same chrome the
   // outreach sheet does around the embedded flow — overline, bar stepper over
-  // the five ordered steps, an Exit button — instead of the card and the
+  // the six ordered steps, an Exit button — instead of the card and the
   // vertical stepper.
   it('draws the full-screen chrome with the bar stepper in purchase-only mode', () => {
     mockUseFlag.mockReturnValue({ ready: true, enabled: true })
@@ -201,11 +210,34 @@ describe('ProUpgradeWizard', () => {
     expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument()
     const bar = screen.getByRole('progressbar')
     expect(bar).toHaveAttribute('aria-valuenow', '3')
-    expect(bar).toHaveAttribute('aria-valuemax', '5')
+    expect(bar).toHaveAttribute('aria-valuemax', '6')
     expect(screen.queryByText('Campaign EIN')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /exit/i }))
     expect(router.push).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('places filing details between the EIN and payment in purchase-only mode', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/filing-details')
+
+    render(
+      <ProUpgradeWizard>
+        <NextProbe />
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '4',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-next' }))
+    expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade/payment')
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+    expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
   })
 
   it('hides the header on the success screen in purchase-only mode', () => {

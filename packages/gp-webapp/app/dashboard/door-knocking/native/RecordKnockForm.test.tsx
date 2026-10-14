@@ -73,7 +73,11 @@ const target: RoutePayloadTarget = {
 // next value for the field.
 const dictate = (text: string) => act(() => mocks.input.current?.onChange(text))
 
-const renderForm = (onRecorded = vi.fn(), serveMode = false) => {
+const renderForm = (
+  onRecorded = vi.fn(),
+  serveMode = false,
+  civicPanelOnly = false,
+) => {
   render(
     <DoorKnockingSurfaceProvider value={serveMode}>
       <RecordKnockForm
@@ -81,6 +85,7 @@ const renderForm = (onRecorded = vi.fn(), serveMode = false) => {
         target={target}
         clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
         onRecorded={onRecorded}
+        civicPanelOnly={civicPanelOnly}
       />
     </DoorKnockingSurfaceProvider>,
   )
@@ -658,15 +663,42 @@ describe('RecordKnockForm in serve mode', () => {
     walkToEngaged()
 
     expect(
-      screen.queryByText("Do they want to join your citizens' panel?"),
+      screen.queryByText('Do they want to join your civic panel?'),
     ).toBeNull()
     answer('Do they need follow-up?', 'No')
-    answer("Do they want to join your citizens' panel?", 'Yes')
+    answer('Do they want to join your civic panel?', 'Yes')
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({ followUp: 'no', joinCivicPanel: 'yes' })
+  })
+
+  // On a turf of panel members the door asks whether they want to stay on,
+  // and the answer goes out as that question's, so a No takes them off.
+  it('asks a panel member whether they want to stay on the civic panel', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'engaged' },
+      }
+    })
+    renderForm(vi.fn(), true, true)
+    walkToEngaged()
+    answer('Do they need follow-up?', 'No')
+
+    expect(
+      screen.queryByText('Do they want to join your civic panel?'),
+    ).toBeNull()
+    answer('Do they want to stay on your civic panel?', 'No')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ followUp: 'no', stayOnCivicPanel: 'no' })
+    expect(posted[0]).not.toHaveProperty('joinCivicPanel')
   })
 
   it('saves without a civic panel answer when the canvasser skips it', async () => {
@@ -688,7 +720,7 @@ describe('RecordKnockForm in serve mode', () => {
     expect(posted[0]).not.toHaveProperty('joinCivicPanel')
   })
 
-  it('never asks the citizens panel question with serve-citizen-panels off', async () => {
+  it('never asks the civic panel question with serve-citizen-panels off', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: false,
@@ -706,7 +738,7 @@ describe('RecordKnockForm in serve mode', () => {
     answer('Do they need follow-up?', 'No')
 
     expect(
-      screen.queryByText("Do they want to join your citizens' panel?"),
+      screen.queryByText('Do they want to join your civic panel?'),
     ).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -730,7 +762,7 @@ describe('RecordKnockForm in serve mode', () => {
 
     expect(screen.queryByText('Do they need follow-up?')).toBeNull()
     expect(
-      screen.queryByText("Do they want to join your citizens' panel?"),
+      screen.queryByText('Do they want to join your civic panel?'),
     ).toBeNull()
     answer('Do they support you?', 'Yes')
 

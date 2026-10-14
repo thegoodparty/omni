@@ -21,19 +21,19 @@ export const ONBOARDING_CARDS: Record<OnboardingCardKey, OnboardingCardConfig> =
   {
     meet: {
       overlineLabel: 'Get started',
-      title: 'Meet your virtual chief of staff',
+      title: 'Get the staff your office never had',
       summary:
-        'See how your Chief of Staff can help you prepare for meetings, ' +
-        'track priorities, and stay on top of your district.',
+        'Your Chief of Staff does the prep and follow-up, so your time goes ' +
+        'to the people you serve.',
       ctaLabel: 'Meet my Chief of Staff',
       opener: COS_INTRO_MESSAGES,
     },
     priorities: {
       overlineLabel: 'Get started',
-      title: "Tell us more about the most important issues you're facing",
+      title: 'Get help focused on what you care about',
       summary:
-        'Share the priorities that matter most so your Chief of Staff can ' +
-        'tailor its help to your district.',
+        'Your Chief of Staff keeps the right issues in front of you once it ' +
+        'knows your priorities.',
       ctaLabel: 'Personalize my Chief of Staff',
       opener: [
         "Let's make sure I'm focused on what matters most to you.",

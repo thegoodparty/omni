@@ -29,7 +29,12 @@ export interface SupportEstimate {
 // slice 2 — dashboard cards (GET /v1/dashboard/cards, PUT .../dismiss)
 // ---------------------------------------------------------------------------
 
-export type DashboardCardType = 'briefing' | 'agenda_item' | 'community_issue'
+export type DashboardCardType =
+  | 'briefing'
+  | 'agenda_item'
+  | 'community_issue'
+  | 'civic_panel'
+  | 'report_back'
 
 export type DashboardCardBucket =
   | 'active'

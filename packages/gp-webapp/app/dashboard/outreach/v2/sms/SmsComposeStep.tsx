@@ -59,8 +59,14 @@ const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
   opt_out_line:
     'Every text has to offer a way to opt out, but you can write around it.',
   civic_panel_join:
-    "This is how people join your citizens' panel. Uncheck the box below to remove it.",
+    'This is how people join your civic panel. Uncheck the box below to remove it.',
+  civic_panel_leave:
+    'This is how people leave your civic panel and keep getting your texts. You can write around it.',
 }
+
+// A text that builds the panel is its ask, so there is no box to uncheck.
+const LOCKED_JOIN_REASON =
+  'This is how people join your civic panel, but you can write around it.'
 
 const LOCKED_FALLBACK =
   'This part is required, but you can reword anything around it.'
@@ -94,8 +100,15 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 // right words for them.
 const IMAGE_DROPZONE_LABEL = {
   win: 'Add your campaign headshot or logo',
-  serve: 'Add a header image (optional)',
+  serve: 'Add your header image',
 } as const
+
+const IMAGE_REQUIRED_ERROR = {
+  win: 'Add your headshot or logo to continue.',
+  serve: 'Add a header image to continue.',
+} as const
+
+const MESSAGE_REQUIRED_ERROR = 'Write your message to continue.'
 
 interface SmsComposeStepProps {
   // Copy only. The surface config carries this for exactly the strings the
@@ -127,8 +140,16 @@ interface SmsComposeStepProps {
   onImageChange: (file: File | null) => void
   imageError: string | null
   onImageError: (message: string | null) => void
-  // Serve only: the "Reply JOIN" ask for the official's civic panel.
-  civicPanelAsk?: { checked: boolean; onChange: (checked: boolean) => void }
+  // Presses of Continue while something was missing. Nothing shows as missing
+  // before the first, and each one moves to the first field still missing.
+  continueAttempts: number
+  // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
+  // on a text whose purpose is the ask.
+  civicPanelAsk?: {
+    checked: boolean
+    locked?: boolean
+    onChange: (checked: boolean) => void
+  }
 }
 
 // Plain-language fix per failed compliance rule. The greeting, opt-out, and
@@ -175,10 +196,15 @@ export const SmsComposeStep = ({
   onImageChange,
   imageError,
   onImageError,
+  continueAttempts,
   civicPanelAsk,
 }: SmsComposeStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const dropzoneRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
+  const attempted = continueAttempts > 0
+  const imageMissing = attempted && !imagePreviewUrl
+  const messageMissing = attempted && !hasWrittenBody
   const [lockReason, setLockReason] = useState<string | null>(null)
   // Dictation lands at the cursor, not at the end: the end of the message is
   // the opt-out line, and nothing may follow it.
@@ -212,7 +238,10 @@ export const SmsComposeStep = ({
             text: part.text,
             // The copy the lock rules chose (the footer, not a quote of it).
             start: part.start,
-            reason: LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK,
+            reason:
+              part.rule === 'civic_panel_join' && civicPanelAsk?.locked
+                ? LOCKED_JOIN_REASON
+                : (LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK),
           },
         ]
       : [],
@@ -223,6 +252,22 @@ export const SmsComposeStep = ({
   }, [message])
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
   const segments = Math.max(1, Math.ceil(composedLength / 160))
+
+  // Moves to the first field still missing, top to bottom: the image, then
+  // the message. Keyed on the press count alone so typing never steals focus.
+  useEffect(() => {
+    if (continueAttempts === 0) return
+    if (!imagePreviewUrl) {
+      dropzoneRef.current?.scrollIntoView?.({
+        behavior: 'smooth',
+        block: 'center',
+      })
+      dropzoneRef.current?.focus({ preventScroll: true })
+      return
+    }
+    fieldRef.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per press, not per edit
+  }, [continueAttempts])
 
   const handleFile = (file: File | null) => {
     if (!file) return
@@ -295,22 +340,39 @@ export const SmsComposeStep = ({
             // globals.css forces flex-row on data-slot-less flex buttons
             // (legacy link/button normalization); the slot opts out so
             // the dropzone stacks like the design.
-            <button
-              type="button"
-              data-slot="sms-image-dropzone"
-              onClick={() => fileInputRef.current?.click()}
-              className="mb-4 flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 transition-colors hover:border-primary/50 hover:bg-muted"
-            >
-              <ImageIcon className="size-6 text-muted-foreground" />
-              <span className="text-sm font-medium text-foreground">
-                {isServe
-                  ? IMAGE_DROPZONE_LABEL.serve
-                  : IMAGE_DROPZONE_LABEL.win}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Recipients see this in the message preview
-              </span>
-            </button>
+            <div className="mb-4 space-y-2">
+              <button
+                ref={dropzoneRef}
+                type="button"
+                data-slot="sms-image-dropzone"
+                onClick={() => fileInputRef.current?.click()}
+                aria-invalid={imageMissing || undefined}
+                aria-describedby={
+                  imageMissing ? 'sms-image-required' : undefined
+                }
+                className={cn(
+                  'flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 transition-colors hover:border-primary/50 hover:bg-muted',
+                  imageMissing && 'border-destructive',
+                )}
+              >
+                <ImageIcon className="size-6 text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">
+                  {isServe
+                    ? IMAGE_DROPZONE_LABEL.serve
+                    : IMAGE_DROPZONE_LABEL.win}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Recipients see this in the message preview
+                </span>
+              </button>
+              {imageMissing && (
+                <p id="sms-image-required" className="text-xs text-destructive">
+                  {isServe
+                    ? IMAGE_REQUIRED_ERROR.serve
+                    : IMAGE_REQUIRED_ERROR.win}
+                </p>
+              )}
+            </div>
           )}
           <input
             ref={fileInputRef}
@@ -365,6 +427,9 @@ export const SmsComposeStep = ({
           <p role="status" className="mt-1 min-h-4 text-xs text-foreground">
             {lockReason}
           </p>
+          {messageMissing && (
+            <p className="text-xs text-destructive">{MESSAGE_REQUIRED_ERROR}</p>
+          )}
 
           <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
             {canUndo && (
@@ -425,6 +490,7 @@ export const SmsComposeStep = ({
             <Checkbox
               id="civic-panel-ask"
               checked={civicPanelAsk.checked}
+              disabled={civicPanelAsk.locked}
               onCheckedChange={(value) =>
                 civicPanelAsk.onChange(value === true)
               }
@@ -432,7 +498,7 @@ export const SmsComposeStep = ({
             />
             <Label htmlFor="civic-panel-ask" className="block">
               <span className="block text-sm font-medium">
-                Ask them to join your citizens&apos; panel
+                Ask them to join your civic panel
               </span>
               <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
                 People who reply JOIN are added to your panel for future

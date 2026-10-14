@@ -67,6 +67,57 @@ const ALL_TOOLS = [
 ]
 
 describe('buildChiefOfStaffSystemPrompt', () => {
+  describe('reporting back, behind serve-citizen-panels', () => {
+    const send = {
+      outreachId: 77,
+      priorityId: 'pri-1',
+      priorityTitle: 'Downtown parking',
+      sentOn: '2026-10-05',
+      audience: 'Everyone you texted about Downtown parking on October 5',
+      reached: 240,
+      canReach: 236,
+      answered: 31,
+      themes: [],
+      reportBack: null,
+    }
+
+    it('knows a report back is due and points into the priority', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ reportBacks: [send] }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        'Priority pri-1 (Downtown parking), outreach 77: 240 texted on 2026-10-05, 31 answered. Not reported back yet.',
+      )
+      expect(prompt).toContain(
+        '/dashboard/priorities/PRIORITY_ID?reportBack=OUTREACH_ID',
+      )
+      expect(prompt).toContain('Never draft the report back here')
+      expect(prompt).toContain('Never ask them whether they reported back')
+    })
+
+    it('knows a report back already went out', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          reportBacks: [
+            { ...send, reportBack: { outreachId: 90, sentOn: '2026-10-12' } },
+          ],
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('Reported back 2026-10-12.')
+    })
+
+    it('says nothing about reporting back with the flag off', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: TOOLS,
+      })
+      expect(prompt).not.toContain('REPORTING BACK')
+      expect(prompt).not.toContain('<report_backs>')
+    })
+  })
+
   it('frames the assistant as a governance chief of staff', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

@@ -5,7 +5,11 @@ import { useState } from 'react'
 import { FilterPill, FilterPillGroup, IconButton } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffHref } from '../../routes'
-import { useDashboardCards, useOnboardingCards } from '../../data/use-dashboard'
+import {
+  useDashboardCards,
+  useOnboardingCards,
+  useRestoreCard,
+} from '../../data/use-dashboard'
 import DashboardTaskCard from '../../components/DashboardTaskCard'
 import TaskCard from '../../components/TaskCard'
 import {
@@ -36,6 +40,7 @@ const EMPTY_COPY: Record<ArchiveBucket, string> = {
 function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   const { data: cards, isPending, isError } = useDashboardCards(bucket)
   const { data: onboarding } = useOnboardingCards()
+  const restoreCard = useRestoreCard()
 
   // Skipped onboarding cards live in the Skipped bucket alongside task cards.
   const skippedOnboarding =
@@ -65,7 +70,20 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       {cards?.map((card) => (
-        <DashboardTaskCard key={card.id} card={card} />
+        <DashboardTaskCard
+          key={card.id}
+          card={card}
+          // "Not for me" is how the civic panel and report back cards are
+          // set aside, so they are the ones a skipped card can be brought
+          // back from.
+          onRestore={
+            bucket === 'skipped' &&
+            (card.type === 'civic_panel' || card.type === 'report_back')
+              ? restoreCard.mutate
+              : undefined
+          }
+          restoreDisabled={restoreCard.isPending}
+        />
       ))}
       {skippedOnboarding.map((key) => {
         const config = ONBOARDING_CARDS[key]

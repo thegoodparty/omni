@@ -1,6 +1,9 @@
 enum SynthesisScope {
   effort
   organization
+  // Every send for one priority pooled, so what came back reads as one
+  // answer across texts, calls and doors.
+  priority
 }
 
 enum SynthesisRunStatus {
@@ -11,30 +14,38 @@ enum SynthesisRunStatus {
 }
 
 model FeedbackSynthesisRun {
-  id                 String             @id @default(uuid(7))
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
-  completedAt        DateTime?          @map("completed_at")
-  organizationSlug   String             @map("organization_slug")
-  organization       Organization       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
-  scope              SynthesisScope
+  id                String             @id @default(uuid(7))
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  completedAt       DateTime?          @map("completed_at")
+  organizationSlug  String             @map("organization_slug")
+  organization      Organization       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  scope             SynthesisScope
   // Set for effort scope, null for organization scope. Enforced in code,
   // the same call the knock contract makes about its two answer vocabularies.
-  outreachId         Int?               @map("outreach_id")
-  outreach           Outreach?          @relation(fields: [outreachId], references: [id], onDelete: Cascade)
-  status             SynthesisRunStatus @default(running)
-  // "<org>:<outreachId or org>" while running, null otherwise. The unique
+  outreachId        Int?               @map("outreach_id")
+  outreach          Outreach?          @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  // Set for priority scope only.
+  priorityId        String?            @map("priority_id")
+  priority          Priority?          @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  status            SynthesisRunStatus @default(running)
+  // "<org>:<outreachId or org>", or "<org>:priority:<priorityId>", while
+  // running, null otherwise. The unique
   // index is what makes "one run in flight per scope" true under a race
   // between the report's button and the completion trigger.
-  activeKey          String?            @unique @map("active_key")
+  activeKey         String?            @unique @map("active_key")
+  // A priority run that another send finished under while it ran. That
+  // send's answers are not in it, so the stale-run sweep starts a fresh
+  // pooled run once this one is done.
+  repoolOwed        Boolean            @default(false) @map("repool_owed")
   // Denominators as of the run, so the caption cannot drift from the themes.
-  conversations      Int
-  memos              Int
-  confirmed          Int
-  engine             String
-  error              String?
-  requestedByUserId  Int?               @map("requested_by_user_id")
-  requestedBy        User?              @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  conversations     Int
+  memos             Int
+  confirmed         Int
+  engine            String
+  error             String?
+  requestedByUserId Int?               @map("requested_by_user_id")
+  requestedBy       User?              @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
 
   themes       FeedbackTheme[]
   tagsApplied  ConstituentFeedbackTag[]
@@ -42,6 +53,7 @@ model FeedbackSynthesisRun {
 
   @@index([organizationSlug, outreachId, createdAt])
   @@index([organizationSlug, scope, createdAt])
+  @@index([organizationSlug, priorityId, createdAt])
   @@map("feedback_synthesis_run")
 }
 
@@ -49,15 +61,15 @@ model FeedbackTheme {
   id        String               @id @default(uuid(7))
   createdAt DateTime             @default(now()) @map("created_at")
   runId     String               @map("run_id")
-  run     FeedbackSynthesisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  rank    Int
-  title   String
-  summary String               @db.Text
-  details String               @db.Text
+  run       FeedbackSynthesisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  rank      Int
+  title     String
+  summary   String               @db.Text
+  details   String               @db.Text
   // The tag this theme matched or proposed, linked at ingest. A proposed tag
   // becomes accepted through curation; the link does not change.
-  tagId   String?              @map("tag_id")
-  tag     IssueTag?            @relation(fields: [tagId], references: [id], onDelete: SetNull)
+  tagId     String?              @map("tag_id")
+  tag       IssueTag?            @relation(fields: [tagId], references: [id], onDelete: SetNull)
 
   members FeedbackThemeMember[]
 

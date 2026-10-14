@@ -358,25 +358,29 @@ const ResidentRow = ({
 const HeadRow = ({
   isServe,
   asksCivicPanel,
+  civicPanelOnly,
 }: {
   isServe: boolean
   asksCivicPanel: boolean
+  civicPanelOnly: boolean
 }) => (
   <View style={styles.headRow} fixed>
-    {walkColumns(isServe, asksCivicPanel).map(({ key, label }, index) => (
-      <Text
-        key={key}
-        style={[
-          styles.headCell,
-          index === 0 ? styles.firstCell : {},
-          key === 'support' ? styles.supportCell : {},
-          index === WALK_COLUMNS.length - 1 ? styles.lastCell : {},
-          { width: COLUMN[key] },
-        ]}
-      >
-        {label}
-      </Text>
-    ))}
+    {walkColumns(isServe, asksCivicPanel, civicPanelOnly).map(
+      ({ key, label }, index) => (
+        <Text
+          key={key}
+          style={[
+            styles.headCell,
+            index === 0 ? styles.firstCell : {},
+            key === 'support' ? styles.supportCell : {},
+            index === WALK_COLUMNS.length - 1 ? styles.lastCell : {},
+            { width: COLUMN[key] },
+          ]}
+        >
+          {label}
+        </Text>
+      ),
+    )}
   </View>
 )
 
@@ -463,7 +467,11 @@ export const WalkListPdf = ({
           <Text style={styles.empty}>This route has no stops.</Text>
         ) : (
           <>
-            <HeadRow isServe={isServe} asksCivicPanel={asksCivicPanel} />
+            <HeadRow
+              isServe={isServe}
+              asksCivicPanel={asksCivicPanel}
+              civicPanelOnly={Boolean(payload.civicPanelOnly)}
+            />
             {rows.map((row) => (
               <ResidentRow
                 key={row.key}

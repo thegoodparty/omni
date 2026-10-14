@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import Link from 'next/link'
 import {
   Badge,
   Button,
@@ -28,7 +29,9 @@ import {
   Trash2Icon,
   UsersRoundIcon,
 } from '@styleguide'
+import { CIVIC_PANEL_SEGMENT } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
@@ -47,6 +50,8 @@ import ReachabilityGrid from './ReachabilityGrid'
 import DeleteListDialog from './DeleteListDialog'
 import DuplicateListDialog from './DuplicateListDialog'
 import { SectionLabel, StatTile } from './ListDetailSection'
+import { newListHref } from '../wizard/newListPresets'
+import { SERVE_CITIZENS_PANEL_COPY as PANEL_COPY } from '../../citizens-panel/citizensPanelCopy'
 
 interface ListDetailSheetProps {
   listId: string | null
@@ -86,6 +91,16 @@ export default function ListDetailSheet({
   const openChannelPicker = useOpenChannelPicker()
 
   const isUniverse = listId === ALL_SEGMENTS
+  // Serve's built-in civic panel list (CitizensPanelListCard): the
+  // `civicPanelMember` filter with no saved row, so it reads the same
+  // unsaved-filter detail a recommended list does. Flag off, the path is an
+  // unknown list like any other.
+  const panelFlag = useServeCitizenPanelsFlag(false)
+  const isPanelPath = listId === CIVIC_PANEL_SEGMENT
+  const panelPending = isPanelPath && (!isWinContextReady || !panelFlag.ready)
+  const isPanel =
+    isPanelPath && !isWinContext && !panelPending && panelFlag.enabled
+  const isBuiltIn = isUniverse || isPanel
 
   // Fetched directly (not via the provider's customSegments) for its
   // loading/error states: a deep link can open the sheet before the
@@ -111,12 +126,21 @@ export default function ListDetailSheet({
     queryKey: [
       'list-detail',
       orgSlug,
-      isUniverse ? ALL_SEGMENTS : segmentIdNumber,
+      isUniverse
+        ? ALL_SEGMENTS
+        : isPanel
+          ? CIVIC_PANEL_SEGMENT
+          : segmentIdNumber,
     ],
     queryFn: () =>
-      clientRequest(
-        'GET /v1/contacts/list-detail',
-        isUniverse ? {} : { segment: segmentIdNumber },
+      (isPanel
+        ? clientRequest('POST /v1/contacts/list-detail', {
+            civicPanelMember: true,
+          })
+        : clientRequest(
+            'GET /v1/contacts/list-detail',
+            isUniverse ? {} : { segment: segmentIdNumber },
+          )
       ).then((res) => res.data),
     // getListDetail's own pro check runs before its segment branch, so a non-pro
     // request can only 400 — including the direct-URL path, which has no upsell
@@ -125,7 +149,7 @@ export default function ListDetailSheet({
       canUseProFeatures &&
       !voterDataUnavailable &&
       listId !== null &&
-      (isUniverse || Number.isFinite(segmentIdNumber)),
+      (isBuiltIn || Number.isFinite(segmentIdNumber)),
   })
 
   // A non-pro user reaching this URL directly has no upsell modal wired
@@ -203,7 +227,11 @@ export default function ListDetailSheet({
         if (!open) onClose()
       }}
       header={
-        isUniverse ? (
+        isPanel ? (
+          <DrawerTitle className="text-base font-semibold">
+            {PANEL_COPY.listTitle}
+          </DrawerTitle>
+        ) : isUniverse ? (
           // No list to rename/duplicate/delete — the universe row's header
           // is just its mode-aware title, held to the neutral fallback
           // until isWinContextReady settles (ENG-10448: never flash the
@@ -277,7 +305,7 @@ export default function ListDetailSheet({
         )
       }
       footer={
-        isUniverse || segment ? (
+        isBuiltIn || segment ? (
           <div className="flex items-center gap-3">
             <Button
               variant="outline"
@@ -318,16 +346,16 @@ export default function ListDetailSheet({
         ) : undefined
       }
     >
-      {!isUniverse && segmentsQuery.isLoading ? (
+      {panelPending || (!isBuiltIn && segmentsQuery.isLoading) ? (
         <p className="text-sm text-muted-foreground">Loading list…</p>
-      ) : !isUniverse && segmentsQuery.isError ? (
+      ) : !isBuiltIn && segmentsQuery.isError ? (
         // A failed fetch must not be conflated with "no such list" — a
         // transient 5xx/network error would otherwise tell the user their
         // list was deleted when it's actually fine.
         <p className="text-sm text-muted-foreground">
           We couldn&apos;t load this list. Please try again.
         </p>
-      ) : !isUniverse && !segment ? (
+      ) : !isBuiltIn && !segment ? (
         <p className="text-sm text-muted-foreground">
           This list couldn&apos;t be found. It may have been deleted.
         </p>
@@ -344,7 +372,26 @@ export default function ListDetailSheet({
             </h2>
           )}
 
-          {!isUniverse && segment && (
+          {isPanel && (
+            <div className="flex flex-col gap-2">
+              <SectionLabel>List filters</SectionLabel>
+              <p className="text-sm text-muted-foreground">
+                {PANEL_COPY.listFilter}
+              </p>
+              <Button
+                asChild
+                variant="outline"
+                size="small"
+                className="self-start"
+              >
+                <Link href={newListHref('askableNow')}>
+                  {PANEL_COPY.askableNowList}
+                </Link>
+              </Button>
+            </div>
+          )}
+
+          {!isBuiltIn && segment && (
             <ListFilterSummary
               segment={segment}
               isElectedOfficial={isElectedOfficial}
@@ -354,8 +401,11 @@ export default function ListDetailSheet({
           {/* Same gate as the sheet's own query: a deep link opens the sheet
               for a non-Pro candidate, and the map's GET /v1/contacts is
               Pro-gated server-side. */}
-          {!isUniverse && segment && canUseProFeatures && (
+          {!isBuiltIn && segment && canUseProFeatures && (
             <ListMapSection segment={segment} />
+          )}
+          {isPanel && canUseProFeatures && (
+            <ListMapSection builtInListId={CIVIC_PANEL_SEGMENT} />
           )}
 
           <div className="flex flex-col gap-2">
@@ -396,7 +446,8 @@ export default function ListDetailSheet({
               />
               {/* Last outreach/method have no meaning for the universe row —
                   it isn't a saved list, so there's no outreachHistory to key
-                  them on (the API always returns [] for this mode). */}
+                  them on (the API always returns [] for this mode). The
+                  civic panel keeps them so it reads like every other list. */}
               {!isUniverse && (
                 <>
                   <StatTile

@@ -5,10 +5,16 @@ import { useTestService } from '@/test-service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
 import { RaceListItem } from '@goodparty_org/contracts'
-import { BadGatewayException, ForbiddenException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { format } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CreateTestFixtureUserSchema } from '../schemas/testFixtures.schema'
+import { ActivitySeedService } from './activitySeed.service'
 import { TestFixturesService } from './testFixtures.service'
 
 // The controller's env/guard gates are covered by testFixtures.controller.test.ts;
@@ -202,6 +208,63 @@ describe('createFixtureUser', () => {
     expect(
       campaign.details.electionDate! < format(new Date(), 'yyyy-MM-dd'),
     ).toBe(true)
+  })
+})
+
+describe('createFixtureUser with seeded activity', () => {
+  const stubSeed = () =>
+    vi.spyOn(service.app.get(ActivitySeedService), 'seed').mockResolvedValue({
+      organizationSlug: 'stub',
+      people: 0,
+      efforts: [],
+    })
+
+  it('seeds the pro campaign org once it is built', async () => {
+    const seed = stubSeed()
+
+    const result = await fixtures().createFixtureUser({
+      state: 'pro-win',
+      activity: 'seeded',
+    })
+
+    expect(seed).toHaveBeenCalledWith(result.orgSlug, {})
+  })
+
+  // The default Serve office has a custom position with no district, which
+  // the seed's voter sample would reject, so it takes the default race's seat.
+  it('puts a seeded Serve office on a seat with a district', async () => {
+    const seed = stubSeed()
+
+    const result = await fixtures().createFixtureUser({
+      state: 'serve',
+      activity: 'seeded',
+    })
+
+    const org = await service.prisma.organization.findUniqueOrThrow({
+      where: { slug: result.orgSlug },
+    })
+    expect(org.positionId).toBe('pos_internal_1')
+    expect(org.customPositionName).toBeNull()
+    expect(seed).toHaveBeenCalledWith(result.orgSlug, {})
+  })
+
+  it('surfaces a seed failure instead of returning an empty account', async () => {
+    vi.spyOn(service.app.get(ActivitySeedService), 'seed').mockRejectedValue(
+      new BadRequestException('no district'),
+    )
+
+    await expect(
+      fixtures().createFixtureUser({ state: 'serve', activity: 'seeded' }),
+    ).rejects.toThrow(BadRequestException)
+  })
+
+  it('refuses seeded activity on a free Win account', () => {
+    const parsed = CreateTestFixtureUserSchema.safeParse({
+      state: 'free-win',
+      activity: 'seeded',
+    })
+
+    expect(parsed.success).toBe(false)
   })
 })
 

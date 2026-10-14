@@ -13,6 +13,7 @@ import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { OutreachReportBackModule } from '@/outreach/outreachReportBack.module'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
@@ -60,6 +61,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     ContactsModule,
     VotersModule,
     PeopleQueryModule,
+    OutreachReportBackModule,
   ],
   providers: [
     PriorityFlowHandler,

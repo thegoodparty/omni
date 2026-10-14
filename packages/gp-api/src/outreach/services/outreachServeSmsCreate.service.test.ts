@@ -1,6 +1,9 @@
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { Test } from '@nestjs/testing'
 import {
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
+  CIVIC_PANEL_LEAVE_LINE,
   ServeSmsCreateRequestSchema,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
@@ -37,6 +40,7 @@ const request = (overrides: Record<string, unknown> = {}) => ({
   name: 'Budget hearing reminder',
   message:
     'The budget hearing is Thursday at 6pm at City Hall. Reply STOP to opt out.',
+  imageUrl: 'https://assets.test/header.png',
   scheduledLocalDate: VALID_DATE,
   voterFileFilterId: FILTER_ID,
   ...overrides,
@@ -109,6 +113,7 @@ describe('OutreachServeSmsCreateService', () => {
         { provide: OrganizationsService, useValue: organizations },
         { provide: VoterFileFilterService, useValue: filters },
         { provide: ContactInteractionTextService, useValue: texts },
+        { provide: OutreachReportBackService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -141,6 +146,23 @@ describe('OutreachServeSmsCreateService', () => {
       expect(createdData().asksToJoinCivicPanel).toBe(true)
     })
 
+    // Sends composed before the line was rewritten still carry an old one.
+    it.each(CIVIC_PANEL_JOIN_LINES.slice(1))(
+      'still marks a send carrying an earlier wording of the line: %s',
+      async (legacy) => {
+        await service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `The budget hearing is Thursday.\n\n${legacy}\n\nReply STOP to opt out.`,
+            }),
+          ),
+        )
+
+        expect(createdData().asksToJoinCivicPanel).toBe(true)
+      },
+    )
+
     it('leaves a send without the line unmarked', async () => {
       await service.createDraft(
         ORG,
@@ -148,6 +170,63 @@ describe('OutreachServeSmsCreateService', () => {
       )
 
       expect(createdData().asksToJoinCivicPanel).toBe(false)
+      expect(createdData().offersCivicPanelLeave).toBe(false)
+    })
+
+    const leaveMessage = `What do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`
+
+    it('marks a send to the panel alone as offering LEAVE', async () => {
+      filters.findByIdAndOrganizationSlug.mockResolvedValue({
+        id: FILTER_ID,
+        organizationSlug: ORG,
+        civicPanelMember: true,
+        notContactedRecently: true,
+      })
+
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(request({ message: leaveMessage })),
+      )
+
+      expect(createdData().offersCivicPanelLeave).toBe(true)
+      expect(createdData().asksToJoinCivicPanel).toBe(false)
+    })
+
+    it('refuses the LEAVE line on a list that reaches beyond the panel', async () => {
+      filters.findByIdAndOrganizationSlug.mockResolvedValue({
+        id: FILTER_ID,
+        organizationSlug: ORG,
+        civicPanelMember: true,
+        civicPanelNeverInvited: true,
+      })
+
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(request({ message: leaveMessage })),
+        ),
+      ).rejects.toThrow('Only a text to your civic panel')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
+    it('never takes a send carrying both civic panel lines', async () => {
+      filters.findByIdAndOrganizationSlug.mockResolvedValue({
+        id: FILTER_ID,
+        organizationSlug: ORG,
+        civicPanelMember: true,
+      })
+
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `What do you think?\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`,
+            }),
+          ),
+        ),
+      ).rejects.toThrow('join your civic panel and offer a way to leave')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
     })
   })
 

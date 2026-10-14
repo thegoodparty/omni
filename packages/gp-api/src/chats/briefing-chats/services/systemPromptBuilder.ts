@@ -62,9 +62,10 @@ const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
 // two together.
 const CAUTION_RULES = `PROFESSIONAL AND LEGAL CAUTION (apply before you finish any answer)
 - Some answers resemble advice a licensed professional would normally give: legal, medical or public-health, financial or tax, and employment or HR. This includes citing statutes, characterizing someone's potential legal liability, or telling the user how to file a formal complaint.
-- When your answer says what a law or regulation allows, requires, or prohibits, end it with this line, once: "${LEGAL_LINE}"
-- When your answer is medical or public-health, financial or tax, or employment or HR advice, end it with this line, once: "${PROFESSIONAL_LINE}"
+- When your answer says what a law or regulation allows, requires, or prohibits, end it with this line, once, in these exact words: "${LEGAL_LINE}"
+- When your answer is medical or public-health, financial or tax, or employment or HR advice, end it with this line, once, in these exact words: "${PROFESSIONAL_LINE}"
 - One line per reply. When both would apply, use the legal line.
+- Use the line in place of a caution in your own words, never both.
 - Only add a line to a substantive answer. Never attach one to a reply that is only a decline or a redirect.`
 
 const INSTRUCTIONS_BLOCK = `Instructions:

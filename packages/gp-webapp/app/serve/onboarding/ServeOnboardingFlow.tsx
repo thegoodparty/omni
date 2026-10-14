@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Label } from '@styleguide'
+import { Button, Checkbox, Input, Label, Textarea } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
 import { Check, LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
+import type { OnboardingPriorityOption } from '@goodparty_org/contracts'
 import { setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -15,6 +16,8 @@ import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographi
 import { WhyThisMatters } from 'app/onboarding/components/WhyThisMatters'
 import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
+import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
+import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import ServeOfficePicker from './ServeOfficePicker'
 import {
   buildDisabledRanges,
@@ -44,6 +47,8 @@ import {
   isServeMajorParty,
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
+  SERVE_CITIZEN_PANELS_STEP_COPY,
+  SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
   SERVE_PLEDGE_COMMITMENTS,
   SERVE_STEP_COPY,
   SERVE_WELCOME_VALUE_PROPS,
@@ -53,6 +58,19 @@ import {
 } from './serveOnboardingConfig'
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
+
+// Steps that come after the office is saved. Leaving for one of them is when
+// community issues can start, since they need the office to search.
+const STEPS_AFTER_OFFICE: ServeStepId[] = [
+  'confirm',
+  'term-dates',
+  'constituents',
+  'priorities',
+]
+
+// The priorities step waits this long for starter issues, then shows what it
+// has. The search usually finishes while the official is on earlier steps.
+const STARTER_ISSUES_WAIT_MS = 30_000
 
 // Screens whose "Viewed" event fires once on view (in a useEffect). The two
 // selection screens (`inOffice`, `party`) are deliberately absent: their
@@ -68,6 +86,10 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
+  // The load effect waits on `ready`, so the step list and resume target are
+  // chosen once with the real answer and the wrong welcome never flashes.
+  const { ready: flagReady, enabled: citizenPanels } =
+    useServeCitizenPanelsFlag()
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -106,6 +128,24 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   )
   const [termEndDate, setTermEndDate] = useState<Date | undefined>(undefined)
 
+  // Null until the priorities step loads them; reset on Back from the pledge
+  // so a return visit shows what was saved, including a typed issue as its
+  // own option.
+  const [priorityOptions, setPriorityOptions] = useState<
+    OnboardingPriorityOption[] | null
+  >(null)
+  const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
+  const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
+    new Set(),
+  )
+  const [otherPrioritySelected, setOtherPrioritySelected] = useState(false)
+  const [otherPriorityTitle, setOtherPriorityTitle] = useState('')
+  const [otherPriorityDescription, setOtherPriorityDescription] = useState('')
+  const otherPriorityComplete =
+    otherPrioritySelected &&
+    otherPriorityTitle.trim().length > 0 &&
+    otherPriorityDescription.trim().length > 0
+
   // Snapshot of the BallotReady-officeholder prefill the lead landed on, frozen
   // at load before the user edits anything. Null = net-new (no officeholder
   // record / personId), which makes the completion-time "BR Suggestion Changed"
@@ -114,6 +154,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [brPrefill, setBrPrefill] = useState<BrPrefillSnapshot | null>(null)
 
   useEffect(() => {
+    if (!flagReady) return
     void (async () => {
       try {
         const [currentRes, mineRes] = await Promise.all([
@@ -237,6 +278,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           resolvedBranch,
           eo?.onboardingStep as ServeStepId | null | undefined,
           { hasParty, hasOffice: officePrefilled, hasDates },
+          citizenPanels,
         )
         // Prompt-first confirm gating: a prefill that resumes onto the `confirm`
         // hub with a missing office or invalid/absent term dates is routed to
@@ -272,7 +314,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         setLoading(false)
       }
     })()
-  }, [])
+  }, [flagReady])
 
   // Disqualification event: picking a major party (Democrat/Republican) surfaces
   // the blocking alert and keeps Continue disabled. Dedupe to once per session
@@ -318,6 +360,41 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     })
   }, [loading, step, branch, currentEO?.id])
 
+  useEffect(() => {
+    if (
+      loading ||
+      step !== 'priorities' ||
+      priorityOptions !== null ||
+      priorityLoadFailed
+    ) {
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        await ensureElectedOffice()
+        const starting =
+          communityIssuesStartRef.current ?? startCommunityIssues()
+        await Promise.race([
+          starting,
+          new Promise((resolve) => setTimeout(resolve, STARTER_ISSUES_WAIT_MS)),
+        ])
+        const res = await clientRequest('GET /v1/priorities/onboarding', {})
+        if (cancelled) return
+        setPriorityOptions(res.data.options)
+        setSelectedPriorityKeys(
+          new Set(res.data.options.filter((o) => o.selected).map((o) => o.key)),
+        )
+      } catch (err) {
+        reportErrorToSentry(err, { context: 'serveOnboarding.loadPriorities' })
+        if (!cancelled) setPriorityLoadFailed(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loading, step, priorityOptions, priorityLoadFailed])
+
   // One-shot guards for the two selection screens whose "Viewed" event fires on
   // Continue (with the chosen card title) rather than on view, so re-advancing
   // after a Back doesn't double-count them.
@@ -331,6 +408,21 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     // never re-picked in this session.
     (branch === 'prefill' && officeLabel !== DEFAULT_OFFICE_LABEL),
   )
+
+  // A resumed official's office is already on the org, so the search starts
+  // as soon as they land past the office step, not only after a fresh pick.
+  const officeKnown = officeIsChosen || !!orgPositionId
+  useEffect(() => {
+    if (
+      loading ||
+      !citizenPanels ||
+      !officeKnown ||
+      !STEPS_AFTER_OFFICE.includes(step)
+    ) {
+      return
+    }
+    void startCommunityIssues()
+  }, [loading, citizenPanels, officeKnown, step])
 
   const datesValid =
     !!termStartDate &&
@@ -356,7 +448,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // uses — instead of campaign-scoped resolution an EO has no campaign for.
   const constituentsPositionId = office?.positionId ?? orgPositionId
 
-  const progress = getServeProgress(branch, step)
+  const progress = getServeProgress(branch, step, citizenPanels)
+  const afterConstituents: ServeStepId = citizenPanels ? 'priorities' : 'pledge'
 
   // Tracks which BR position id we've already written to the EO org so a
   // back-and-forth through the constituents step doesn't re-PATCH needlessly.
@@ -409,6 +502,25 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // Folding the checkpoint into the data PUT keeps them atomic — a failed write
   // leaves neither the answer nor a checkpoint that outruns it. onboardingCompletedAt
   // is never sent here, so the completion guard stays untouched.
+  // Writes quick starter issues for the office, then starts the full community
+  // issues research, so the priorities step can offer real local issues. Kept
+  // as a promise so that step can wait on it. A failed start stays in the ref
+  // so later steps never refire it; only the priorities step's Try again
+  // starts one fresh attempt.
+  const communityIssuesStartRef = useRef<Promise<void> | null>(null)
+  const communityIssuesFailedRef = useRef(false)
+  const startCommunityIssues = (): Promise<void> => {
+    if (communityIssuesStartRef.current) return communityIssuesStartRef.current
+    const started = clientRequest('POST /v1/community-issues/onboarding', {})
+      .then(() => undefined)
+      .catch((err: Error) => {
+        reportErrorToSentry(err, { context: 'serveOnboarding.communityIssues' })
+        communityIssuesFailedRef.current = true
+      })
+    communityIssuesStartRef.current = started
+    return started
+  }
+
   const saveProgress = async ({
     targetStep,
     eoFields,
@@ -466,6 +578,67 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       setSaving(false)
       applyNav()
     }
+  }
+
+  // Priorities are the point of this step, so unlike the other checkpoints a
+  // failed save keeps the user here to retry instead of advancing silently.
+  const savePrioritiesAndAdvance = async (): Promise<void> => {
+    if (priorityOptions === null) return
+    if (priorityOptions.length === 0 && !otherPriorityComplete) {
+      await persistAndAdvance(
+        { targetStep: 'pledge' },
+        () => setStep('pledge'),
+        'serveOnboarding.checkpoint.priorities',
+      )
+      return
+    }
+    setSaving(true)
+    try {
+      const eo = await ensureElectedOffice()
+      if (!eo) throw new Error('No elected office to save priorities to')
+      await clientRequest('PUT /v1/priorities/onboarding', {
+        shownKeys: priorityOptions.map((option) => option.key),
+        selectedKeys: [...selectedPriorityKeys],
+        other: otherPriorityComplete
+          ? [
+              {
+                title: otherPriorityTitle.trim(),
+                description: otherPriorityDescription.trim(),
+              },
+            ]
+          : [],
+      })
+    } catch (err) {
+      reportErrorToSentry(err, { context: 'serveOnboarding.savePriorities' })
+      errorSnackbar('We couldn’t save your priorities. Please try again.')
+      setSaving(false)
+      return
+    }
+    await persistAndAdvance(
+      { targetStep: 'pledge' },
+      () => setStep('pledge'),
+      'serveOnboarding.checkpoint.priorities',
+    )
+  }
+
+  const retryPriorities = () => {
+    if (communityIssuesFailedRef.current) {
+      communityIssuesFailedRef.current = false
+      communityIssuesStartRef.current = null
+    }
+    setPriorityLoadFailed(false)
+  }
+
+  const togglePriority = (key: string) => {
+    setSelectedPriorityKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
   }
 
   const persist = async (): Promise<void> => {
@@ -740,10 +913,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           { branch, electedOfficeId: currentEO?.id },
         )
         void persistAndAdvance(
-          { targetStep: 'pledge' },
-          () => setStep('pledge'),
+          { targetStep: afterConstituents },
+          () => setStep(afterConstituents),
           'serveOnboarding.checkpoint.constituents',
         )
+        return
+      case 'priorities':
+        void savePrioritiesAndAdvance()
         return
       case 'pledge':
         void persist()
@@ -787,8 +963,19 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       case 'constituents':
         setStep(branch === 'prefill' ? 'confirm' : 'term-dates')
         return
-      case 'pledge':
+      case 'priorities':
         setStep('constituents')
+        return
+      case 'pledge':
+        if (citizenPanels) {
+          setPriorityOptions(null)
+          setOtherPrioritySelected(false)
+          setOtherPriorityTitle('')
+          setOtherPriorityDescription('')
+          setStep('priorities')
+        } else {
+          setStep('constituents')
+        }
         return
       default:
         return
@@ -809,10 +996,29 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return datesValid
       case 'confirm':
         return officeIsChosen && datesValid
+      case 'priorities':
+        // A checked Other must be filled in, so it is never dropped silently.
+        // With nothing found to pick, the step can be skipped.
+        return (
+          priorityOptions !== null &&
+          (otherPrioritySelected
+            ? otherPriorityComplete
+            : selectedPriorityKeys.size > 0 || priorityOptions.length === 0)
+        )
       default:
         return true
     }
-  }, [step, inOffice, party, officeIsChosen, datesValid])
+  }, [
+    step,
+    inOffice,
+    party,
+    officeIsChosen,
+    datesValid,
+    priorityOptions,
+    selectedPriorityKeys,
+    otherPrioritySelected,
+    otherPriorityComplete,
+  ])
 
   if (loading) {
     return (
@@ -857,7 +1063,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           <section
             className={cn('space-y-8', step === 'welcome' && 'text-center')}
           >
-            {step === 'welcome' && <WelcomeStep />}
+            {step === 'welcome' && (
+              <WelcomeStep citizenPanels={citizenPanels} />
+            )}
             {step === 'inOffice' && (
               <InOfficeStep value={inOffice} onChange={setInOffice} />
             )}
@@ -909,7 +1117,22 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 state={office?.state ?? orgState}
               />
             )}
-            {step === 'pledge' && <PledgeStep />}
+            {citizenPanels && step === 'priorities' && (
+              <PrioritiesStep
+                options={priorityOptions}
+                loadFailed={priorityLoadFailed}
+                onRetry={retryPriorities}
+                selectedKeys={selectedPriorityKeys}
+                onToggle={togglePriority}
+                otherSelected={otherPrioritySelected}
+                onOtherSelectedChange={setOtherPrioritySelected}
+                otherTitle={otherPriorityTitle}
+                onOtherTitleChange={setOtherPriorityTitle}
+                otherDescription={otherPriorityDescription}
+                onOtherDescriptionChange={setOtherPriorityDescription}
+              />
+            )}
+            {step === 'pledge' && <PledgeStep citizenPanels={citizenPanels} />}
           </section>
 
           {whyThisMatters && (
@@ -991,8 +1214,17 @@ const StepHeading = ({
   </div>
 )
 
-const WelcomeStep = (): React.JSX.Element => {
-  const copy = SERVE_STEP_COPY.welcome
+const WelcomeStep = ({
+  citizenPanels,
+}: {
+  citizenPanels: boolean
+}): React.JSX.Element => {
+  const copy = citizenPanels
+    ? SERVE_CITIZEN_PANELS_STEP_COPY.welcome
+    : SERVE_STEP_COPY.welcome
+  const valueProps = citizenPanels
+    ? SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS
+    : SERVE_WELCOME_VALUE_PROPS
   return (
     <div>
       <h1
@@ -1006,7 +1238,7 @@ const WelcomeStep = (): React.JSX.Element => {
       </p>
 
       <div className="mt-10 grid gap-4 text-left sm:grid-cols-2">
-        {SERVE_WELCOME_VALUE_PROPS.map((prop) => {
+        {valueProps.map((prop) => {
           const Icon = prop.icon
           return (
             <Panel key={prop.title} className="p-5">
@@ -1352,8 +1584,171 @@ const ConstituentsStep = ({
   )
 }
 
-const PledgeStep = (): React.JSX.Element => {
-  const copy = SERVE_STEP_COPY.pledge
+const CheckboxCard = ({
+  id,
+  checked,
+  title,
+  desc,
+  disabled = false,
+  onCheckedChange,
+}: {
+  id: string
+  checked: boolean
+  title: string
+  desc?: string
+  disabled?: boolean
+  onCheckedChange: (checked: boolean) => void
+}): React.JSX.Element => (
+  <Label
+    htmlFor={id}
+    className={cn(
+      'flex w-full items-start gap-3 rounded-xl border border-base-border bg-card p-5 text-left transition-all',
+      disabled ? 'cursor-default' : 'cursor-pointer hover:border-primary/50',
+      checked && 'border-primary bg-primary/5 ring-2 ring-primary/20',
+    )}
+  >
+    <Checkbox
+      id={id}
+      checked={checked}
+      disabled={disabled}
+      onCheckedChange={(value) => onCheckedChange(value === true)}
+      className="mt-0.5"
+    />
+    <span className="block">
+      <span className="block font-semibold text-foreground">{title}</span>
+      {desc && (
+        <span className="mt-1 block text-sm font-normal text-muted-foreground">
+          {desc}
+        </span>
+      )}
+    </span>
+  </Label>
+)
+
+const PRIORITY_KIND_ORDER: OnboardingPriorityOption['kind'][] = [
+  'ran_on',
+  'community',
+  'other',
+]
+
+const PrioritiesStep = ({
+  options,
+  loadFailed,
+  onRetry,
+  selectedKeys,
+  onToggle,
+  otherSelected,
+  onOtherSelectedChange,
+  otherTitle,
+  onOtherTitleChange,
+  otherDescription,
+  onOtherDescriptionChange,
+}: {
+  options: OnboardingPriorityOption[] | null
+  loadFailed: boolean
+  onRetry: () => void
+  selectedKeys: Set<string>
+  onToggle: (key: string) => void
+  otherSelected: boolean
+  onOtherSelectedChange: (checked: boolean) => void
+  otherTitle: string
+  onOtherTitleChange: (value: string) => void
+  otherDescription: string
+  onOtherDescriptionChange: (value: string) => void
+}): React.JSX.Element => {
+  const copy = SERVE_STEP_COPY.priorities
+  return (
+    <div>
+      <StepHeading title={copy.title} description={copy.description} />
+
+      {loadFailed ? (
+        <div className="mt-8 flex flex-col items-center gap-3 text-sm text-muted-foreground">
+          <p>We couldn’t load issues for your community.</p>
+          <Button type="button" variant="outline" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
+      ) : options === null ? (
+        <div className="mt-8 flex flex-col items-center gap-3 text-sm text-muted-foreground">
+          <LoaderCircle className="animate-spin" />
+          Finding issues in your community
+        </div>
+      ) : (
+        <div className="mt-8 space-y-3">
+          {options.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              We couldn’t find issues for your area yet. Add one under Other, or
+              skip this for now.
+            </p>
+          )}
+          {PRIORITY_KIND_ORDER.flatMap((kind) =>
+            options
+              .filter((option) => option.kind === kind)
+              .map((option) => (
+                <CheckboxCard
+                  key={option.key}
+                  id={`priority-${option.key}`}
+                  checked={selectedKeys.has(option.key)}
+                  title={option.title}
+                  desc={option.description || undefined}
+                  disabled={kind === 'ran_on'}
+                  onCheckedChange={() => onToggle(option.key)}
+                />
+              )),
+          )}
+
+          <CheckboxCard
+            id="priority-other"
+            checked={otherSelected}
+            title="Other"
+            desc="Add an issue that isn't listed here."
+            onCheckedChange={onOtherSelectedChange}
+          />
+          {otherSelected && (
+            <div className="space-y-3 pt-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="priority-other-title">
+                  {PRIORITY_FORM_COPY.titleLabel}
+                </Label>
+                <Input
+                  id="priority-other-title"
+                  placeholder={PRIORITY_FORM_COPY.titlePlaceholder}
+                  maxLength={PRIORITY_FORM_COPY.titleMaxLength}
+                  value={otherTitle}
+                  onChange={(event) => onOtherTitleChange(event.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="priority-other-description">
+                  {PRIORITY_FORM_COPY.descriptionLabel}
+                </Label>
+                <Textarea
+                  id="priority-other-description"
+                  rows={3}
+                  placeholder={PRIORITY_FORM_COPY.descriptionPlaceholder}
+                  maxLength={PRIORITY_FORM_COPY.descriptionMaxLength}
+                  value={otherDescription}
+                  onChange={(event) =>
+                    onOtherDescriptionChange(event.target.value)
+                  }
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PledgeStep = ({
+  citizenPanels,
+}: {
+  citizenPanels: boolean
+}): React.JSX.Element => {
+  const copy = citizenPanels
+    ? SERVE_CITIZEN_PANELS_STEP_COPY.pledge
+    : SERVE_STEP_COPY.pledge
   return (
     <div>
       <StepHeading title={copy.title} description={copy.description} />

@@ -54,6 +54,8 @@ export const buildDescribeFilterDimensionsTool = (deps: {
   organization: Organization
   filterConsumers: readonly FilterConsumerToolName[]
   peopleDataset: PeopleDataset
+  // The user's serve-citizen-panels flag, resolved per turn by the handler.
+  citizenPanels: boolean
 }): LlmStreamTool<typeof describeFilterDimensionsInputSchema> => ({
   description:
     'List every contact-filter dimension available to this organization: ' +
@@ -67,6 +69,8 @@ export const buildDescribeFilterDimensionsTool = (deps: {
     dataSourceRoutingRules(deps.peopleDataset),
   inputSchema: describeFilterDimensionsInputSchema,
   execute: (): DescribeFilterDimensionsOutput => ({
-    dimensions: deps.contacts.getFilterDimensions(deps.organization),
+    dimensions: deps.contacts.getFilterDimensions(deps.organization, {
+      citizenPanels: deps.citizenPanels,
+    }),
   }),
 })

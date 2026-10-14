@@ -10,7 +10,11 @@ import { sentenceCase } from '../shared/labels.util'
 import {
   ANY_PHONE_FIELD,
   CIVIC_PANEL_FIELD,
+  CIVIC_PANEL_JOINED_BY_FIELD,
+  CIVIC_PANEL_JOINED_WHEN_FIELD,
   CONTACT_HISTORY_FIELD,
+  LAST_ASKED_FIELD,
+  LAST_ASKED_RANGE_FIELD,
   ANY_PHONE_FILTER_KEY,
   RECOMMENDED_LIST_FILTER_FIELDS,
   SPECIFIC_PHONE_FILTER_KEYS,
@@ -22,6 +26,7 @@ import {
   hasAnyVoterFileSelection,
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
+import DayRangeFilter from './DayRangeFilter'
 import PrecinctFilter from './PrecinctFilter'
 import type { PrecinctOptionsResult } from './usePrecinctOptions'
 
@@ -42,7 +47,7 @@ interface VoterFileStepProps {
   // so the surfaces that share this step and must NOT gain these groups
   // (door-knocking's WhoStep, TurfDetailsSheet) stay unchanged.
   showRecommendedListFilters?: boolean
-  // The Citizens' panel and Contact history groups, behind
+  // The civic panel groups (Serve) and Contact history (Win), behind
   // serve-citizen-panels. Resolved upstream for the same reason as
   // isElectedOfficial.
   showCitizenPanelFilters?: boolean
@@ -180,11 +185,14 @@ export default function VoterFileStep({
     onPrecinctsChange([])
   }
 
-  const renderField = (field: {
-    key: string
-    label: string
-    options: Array<{ key: string; label: string }>
-  }) => {
+  const renderField = (
+    field: {
+      key: string
+      label: string
+      options: Array<{ key: string; label: string }>
+    },
+    below?: React.ReactNode,
+  ) => {
     const selectedOptions = selectedOptionsForField(field.options)
     const allSelected = selectedOptions.length === field.options.length
 
@@ -230,6 +238,7 @@ export default function VoterFileStep({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+        {below}
       </div>
     )
   }
@@ -269,11 +278,33 @@ export default function VoterFileStep({
         contactsMadeField &&
         renderField(contactsMadeField)}
 
-      {/* Serve's own group, where Win's prior contacts sit: the people on
-          the official's citizens' panel. */}
-      {showCitizenPanelFilters &&
-        isElectedOfficial &&
-        renderField(CIVIC_PANEL_FIELD)}
+      {/* Serve's own groups, where Win's prior contacts sit: the official's
+          civic panel, how and when its members joined, and when the office
+          last asked anyone. */}
+      {showCitizenPanelFilters && isElectedOfficial && (
+        <>
+          {renderField(CIVIC_PANEL_FIELD)}
+          {renderField(CIVIC_PANEL_JOINED_BY_FIELD)}
+          <div className="flex flex-col gap-2">
+            <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
+              {CIVIC_PANEL_JOINED_WHEN_FIELD.label}
+            </h4>
+            <DayRangeFilter
+              field={CIVIC_PANEL_JOINED_WHEN_FIELD}
+              filters={filters}
+              onFiltersChange={onFiltersChange}
+            />
+          </div>
+          {renderField(
+            LAST_ASKED_FIELD,
+            <DayRangeFilter
+              field={LAST_ASKED_RANGE_FIELD}
+              filters={filters}
+              onFiltersChange={onFiltersChange}
+            />,
+          )}
+        </>
+      )}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -319,7 +350,10 @@ export default function VoterFileStep({
 
       {fieldsBelowSupportStatus.map(renderField)}
 
-      {showCitizenPanelFilters && renderField(CONTACT_HISTORY_FIELD)}
+      {/* Serve offers the same rest window as Last asked, above. */}
+      {showCitizenPanelFilters &&
+        !isElectedOfficial &&
+        renderField(CONTACT_HISTORY_FIELD)}
     </div>
   )
 }

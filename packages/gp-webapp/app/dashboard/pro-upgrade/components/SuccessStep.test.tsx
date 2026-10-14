@@ -5,8 +5,9 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
-import { Campaign } from 'helpers/types'
+import { Campaign, type TcrCompliance } from 'helpers/types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { saveVerificationDraft } from 'app/dashboard/campaign-verification/verificationDraft'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
 import {
   ProUpgradeWizardContext,
@@ -26,6 +27,20 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// The TCR read is the endpoint boundary that says whether the filing is in.
+const mockGetTcrCompliance = vi.fn<() => Promise<TcrCompliance | null>>()
+vi.mock(
+  'app/dashboard/profile/texting-compliance/util/tcrCompliance.util',
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('app/dashboard/profile/texting-compliance/util/tcrCompliance.util')
+    >()),
+    getTcrCompliance: () => mockGetTcrCompliance(),
+  }),
+)
+
+const submittedTcr = { status: 'submitted' } as TcrCompliance
 
 const mockTrackEvent = vi.mocked(trackEvent)
 
@@ -71,6 +86,7 @@ describe('SuccessStep', () => {
       status: 404,
       data: {},
     })
+    mockGetTcrCompliance.mockResolvedValue(null)
   })
 
   it('renders the Welcome-to-Pro messaging and fires the viewed event', () => {
@@ -173,7 +189,7 @@ describe('SuccessStep', () => {
       render(withWizard(<SuccessStep />, { purchaseOnly: true }))
 
       expect(
-        screen.getByRole('heading', { name: 'Welcome to Pro' }),
+        await screen.findByRole('heading', { name: 'Welcome to Pro' }),
       ).toBeInTheDocument()
       expect(
         screen.getByText(
@@ -237,7 +253,9 @@ describe('SuccessStep', () => {
         withWizard(<SuccessStep />, { purchaseOnly: true, channel: 'sms' }),
       )
 
-      expect(screen.getByText('Still to do: verification')).toBeInTheDocument()
+      expect(
+        await screen.findByText('Still to do: verification'),
+      ).toBeInTheDocument()
       await waitFor(() =>
         expect(
           screen.getByRole('button', { name: 'Start verification' }),
@@ -302,7 +320,7 @@ describe('SuccessStep', () => {
 
       render(withWizard(<SuccessStep />, { purchaseOnly: true }))
 
-      const continueButton = screen.getByRole('button', {
+      const continueButton = await screen.findByRole('button', {
         name: 'Start verification',
       })
       expect(continueButton).toBeDisabled()
@@ -311,6 +329,107 @@ describe('SuccessStep', () => {
         timeout: 5000,
       })
       expect(complete).not.toHaveBeenCalled()
+    })
+
+    // The wizard collects the filing before payment now, so a candidate who
+    // just walked it has nothing left to start. The notice is the same one
+    // campaign verification shows once a filing is in, and never a PIN box.
+    it('confirms a filing already submitted and returns to the dashboard', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+      mockGetTcrCompliance.mockResolvedValue(submittedTcr)
+
+      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+      expect(
+        await screen.findByText(
+          'Your campaign has been submitted for verification.',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.getByText('A PIN is on its way')).toBeInTheDocument()
+      expect(
+        screen.queryByText('Still to do: verification'),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Start verification' }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Finish later' }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+
+      const done = screen.getByRole('button', { name: 'Done' })
+      await waitFor(() => expect(done).toBeEnabled())
+      done.click()
+
+      expect(exit).toHaveBeenCalledTimes(1)
+      expect(complete).not.toHaveBeenCalled()
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.SuccessContinue,
+      )
+    })
+
+    // Inside an outreach flow the gate decides what comes after the upgrade,
+    // so the confirmation hands back to it rather than leaving the flow.
+    it('hands a texting flow back to its gate once the filing is in', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+      mockGetTcrCompliance.mockResolvedValue(submittedTcr)
+
+      render(
+        withWizard(<SuccessStep />, { purchaseOnly: true, channel: 'sms' }),
+      )
+
+      expect(await screen.findByText('A PIN is on its way')).toBeInTheDocument()
+      const continueButton = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueButton).toBeEnabled())
+      continueButton.click()
+
+      expect(complete).toHaveBeenCalledTimes(1)
+      expect(exit).not.toHaveBeenCalled()
+    })
+
+    // An already-Pro candidate who never got a filing through is routed here
+    // by the entry, and this is the screen that sends them on to finish it.
+    it('keeps the verification hand-off for a filing that was rejected', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+      mockGetTcrCompliance.mockResolvedValue({
+        status: 'rejected',
+      } as TcrCompliance)
+
+      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+      expect(
+        await screen.findByText('Still to do: verification'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+    })
+
+    // A draft lives in this browser only; nothing reached gp-api, so the
+    // candidate still has verification ahead of them.
+    it('does not read an unsubmitted verification draft as a filing', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+      saveVerificationDraft(1, { filing: { candidateName: 'Jane Smith' } })
+
+      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+      expect(
+        await screen.findByText('Still to do: verification'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+      window.localStorage.clear()
+    })
+
+    it('does not read the filing for a channel with no verification step', () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+      mockGetTcrCompliance.mockResolvedValue(submittedTcr)
+
+      render(
+        withWizard(<SuccessStep />, { purchaseOnly: true, channel: 'door' }),
+      )
+
+      expect(
+        screen.getByText('Still to do: build your walk list'),
+      ).toBeInTheDocument()
+      expect(mockGetTcrCompliance).not.toHaveBeenCalled()
     })
   })
 })

@@ -8,6 +8,11 @@ import {
   Wand2,
   type LucideIcon,
 } from 'lucide-react'
+import {
+  ListChecksIcon,
+  MegaphoneIcon,
+  UsersRoundIcon,
+} from '@styleguide/components/ui/icons'
 
 /**
  * Step set + per-branch ordering for the net-new elected-official ("serve")
@@ -33,6 +38,7 @@ export type ServeStepId =
   | 'term-dates'
   | 'confirm'
   | 'constituents'
+  | 'priorities'
   | 'pledge'
 
 export type ServeBranch = 'prefill' | 'net-new'
@@ -57,6 +63,7 @@ const PREFILL_STEPS: ServeStepId[] = [
   'party',
   'confirm',
   'constituents',
+  'priorities',
   'pledge',
 ]
 
@@ -67,11 +74,19 @@ const NET_NEW_STEPS: ServeStepId[] = [
   'office',
   'term-dates',
   'constituents',
+  'priorities',
   'pledge',
 ]
 
-export const getServeBranchSteps = (branch: ServeBranch): ServeStepId[] =>
-  branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
+// The `priorities` step ships behind the serve-citizen-panels flag; without it
+// the flow goes from `constituents` straight to `pledge`.
+export const getServeBranchSteps = (
+  branch: ServeBranch,
+  withPriorities = false,
+): ServeStepId[] => {
+  const steps = branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
+  return withPriorities ? steps : steps.filter((s) => s !== 'priorities')
+}
 
 /**
  * Which of the data-collecting answers are already persisted on the EO/org
@@ -193,9 +208,10 @@ export const resolveServeResumeStep = (
   branch: ServeBranch,
   checkpoint: ServeStepId | null | undefined,
   dataState: ServeResumeState,
+  withPriorities = false,
 ): ServeStepId => {
   if (!checkpoint) return computeServeResumeStep(branch, dataState)
-  const steps = getServeBranchSteps(branch)
+  const steps = getServeBranchSteps(branch, withPriorities)
   if (!steps.includes(checkpoint)) {
     return computeServeResumeStep(branch, dataState)
   }
@@ -251,8 +267,9 @@ export const shouldSeedInOfficeOnResume = (step: ServeStepId): boolean =>
 export const getServeProgress = (
   branch: ServeBranch,
   step: ServeStepId,
+  withPriorities = false,
 ): { current: number; total: number } => {
-  const steps = getServeBranchSteps(branch)
+  const steps = getServeBranchSteps(branch, withPriorities)
   const total = steps.length
   let index = steps.indexOf(step)
   if (index === -1) {
@@ -316,10 +333,34 @@ export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
     whyWeAsk:
       "Understanding your constituents' makeup and concerns helps you prioritize where to focus and how to communicate.",
   },
+  priorities: {
+    title: 'What issues are you prioritizing solving right now?',
+    description:
+      'These can be issues you ran on, or community issues that have surfaced since taking office.',
+    whyWeAsk:
+      'Your priorities shape your briefings and the questions we suggest asking your constituents.',
+  },
   pledge: {
     title: 'Take our pledge to get your chief of staff',
     description:
       'We only work with officials who are independent of both major parties, and the corrupting influence of big money.',
+  },
+}
+
+// With serve-citizen-panels on, the welcome and pledge reframe onboarding
+// around hearing from the community instead of the chief of staff.
+export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
+  Record<ServeStepId, ServeStepCopy>,
+  'welcome' | 'pledge'
+> = {
+  welcome: {
+    title: 'Hear from your whole community, not just the loudest voices',
+    description:
+      "Tell us what office you hold and where. We'll help you listen, act, and report back.",
+  },
+  pledge: {
+    title: 'Take our pledge to get started',
+    description: SERVE_STEP_COPY.pledge.description,
   },
 }
 
@@ -349,6 +390,24 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
     icon: Wand2,
     title: 'Draft legislation and get feedback directly from your community',
     desc: 'We help you draft legislation based on what works in communities like yours. Share with your constituents and get early feedback.',
+  },
+]
+
+export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
+  {
+    icon: UsersRoundIcon,
+    title: 'Build a civic panel you can ask before you vote',
+    desc: 'Invite residents who agree to give feedback, then hear from a random slice of them on each decision.',
+  },
+  {
+    icon: MegaphoneIcon,
+    title: 'Know what your community is talking about',
+    desc: 'We track local news, meetings, and constituent data to surface the issues residents raise most.',
+  },
+  {
+    icon: ListChecksIcon,
+    title: 'Follow through on the issues you were elected to solve',
+    desc: 'Get meeting briefings and a plan for each priority, then report back on what you did.',
   },
 ]
 

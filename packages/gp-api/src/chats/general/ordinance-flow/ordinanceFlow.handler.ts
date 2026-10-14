@@ -14,8 +14,10 @@ import {
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
   composeAppendix,
+  hasCanonicalCautionLine,
   legalAdviceBackstop,
 } from '../services/guardrailBackstops'
+import { ADVICE_SIGNALS } from '../services/professionalAdviceCheck'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   OrdinanceFlowContext,
@@ -173,13 +175,24 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   // confirmation names the section it touched without being a legal reading.
   // Only a call that returned counts, since a failed one produced no card.
   // The step is read from the tool trace because the hook sees no context.
+  // A caution in the model's own words does not count as the line here: the
+  // bench found it closing legal readings with "not legal advice" and
+  // skipping the line, and the draft lead-in whose wording the shared test
+  // was tuned for only appears on turns this hook already skips.
   finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
     const drafted = turn.toolEvents.some(
       (event) =>
         event.status === 'returned' && DRAFTING_TOOL_NAMES.has(event.name),
     )
     if (drafted) return null
-    return composeAppendix([legalAdviceBackstop(text, 'ordinance_flow')])
+    return composeAppendix([
+      legalAdviceBackstop(
+        text,
+        'ordinance_flow',
+        ADVICE_SIGNALS,
+        hasCanonicalCautionLine,
+      ),
+    ])
   }
 
   buildTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {

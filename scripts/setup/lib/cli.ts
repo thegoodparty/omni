@@ -42,6 +42,13 @@
 //     caller (setup.sh) decides how to react. Never writes anything else to
 //     stdout/stderr, so a credential can only ever reach the one line a
 //     caller explicitly captures.
+//
+//   npx tsx scripts/setup/lib/cli.ts seed-activity --org <slug>
+//   npx tsx scripts/setup/lib/cli.ts seed-activity --fixture <userState>
+//     Behind `npm run seed:activity`. Fills a local org with outreach,
+//     memos and synthesis, or mints a fresh fixture user that already has
+//     them and prints its login. The machine secret comes from the env var
+//     above, else from packages/gp-api/.env, where setup writes it.
 import { execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
@@ -66,7 +73,7 @@ import {
   serializeEnvFile,
   type EnvMap,
 } from './env'
-import { runSeedLogin } from './seedLogin'
+import { runSeedActivity, runSeedLogin } from './seedLogin'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -225,6 +232,42 @@ const runSeedLoginCommand = async (
   }
 }
 
+const runSeedActivityCommand = async (flag: string, value: string) => {
+  const machineSecret =
+    process.env.LOCAL_SETUP_CLERK_MACHINE_SECRET ||
+    (readEnvFile(resolve(REPO_ROOT, 'packages/gp-api/.env'))
+      .LOCAL_SETUP_CLERK_MACHINE_SECRET ??
+      '')
+  if (flag === '--org') {
+    const result = await runSeedActivity(machineSecret, value)
+    if (result.kind !== 'seeded') {
+      return fail(`Seeding ${value} ${result.kind}: ${result.reason}`)
+    }
+    process.stdout.write(
+      `Seeded ${value}: ${result.efforts} efforts, ${result.memos} memos ` +
+        `across ${result.people} people. Synthesis is running.\n`,
+    )
+    return
+  }
+  const result = await runSeedLogin(machineSecret, value, fetch, true)
+  if (result.kind !== 'minted') {
+    return fail(`Seeded fixture ${result.kind}: ${result.reason}`)
+  }
+  // Same rule as setup.sh's login step: credentials only ever reach a
+  // terminal, never a redirected file or a CI log.
+  process.stdout.write(
+    process.stdout.isTTY
+      ? [
+          `Seeded ${value} fixture ${result.orgSlug ?? ''}`,
+          '  url       http://localhost:4000',
+          `  email     ${result.email}`,
+          `  password  ${result.password}`,
+          '',
+        ].join('\n')
+      : `Seeded ${value} fixture (credentials suppressed, non-interactive)\n`,
+  )
+}
+
 // Best-effort only: a headless runner, a Linux box, or a sandboxed `open`
 // must never fail the flow — the human can still follow the printed URL.
 const tryOpen = (uri: string): void => {
@@ -360,6 +403,14 @@ const main = async () => {
     )
     return
   }
+  if (
+    command === 'seed-activity' &&
+    (argv[1] === '--org' || argv[1] === '--fixture') &&
+    argv[2]
+  ) {
+    await runSeedActivityCommand(argv[1], argv[2])
+    return
+  }
 
   fail(
     [
@@ -370,6 +421,7 @@ const main = async () => {
       '  cli.ts get-var <envFilePath> <varName>',
       '  cli.ts seed-login <userState>   (secret via env var',
       '    LOCAL_SETUP_CLERK_MACHINE_SECRET; empty/unset = skip)',
+      '  cli.ts seed-activity --org <slug> | --fixture <userState>',
     ].join('\n'),
   )
 }

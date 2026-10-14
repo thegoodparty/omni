@@ -54,7 +54,7 @@ export function TestModeSheet({ open, onOpenChange }: Props) {
   const { query, createMutation, applyMutation, deleteMutation } = useTestMode()
   const [type, setType] = useState<TestModeOrganizationType>('campaign')
 
-  // Campaign form state
+  // Race form state
   const [zip, setZip] = useState('')
   const [submittedZip, setSubmittedZip] = useState('')
   const [selectedOffice, setSelectedOffice] = useState('')
@@ -99,16 +99,16 @@ export function TestModeSheet({ open, onOpenChange }: Props) {
     } else {
       createMutation.mutate({
         type: 'elected_office',
+        race: { zip: submittedZip, office: selectedOffice },
         onboarding,
         term,
       })
     }
   }
 
-  const canCreate =
-    type === 'campaign'
-      ? Boolean(submittedZip && selectedOffice && !createMutation.isPending)
-      : !createMutation.isPending
+  const canCreate = Boolean(
+    submittedZip && selectedOffice && !createMutation.isPending,
+  )
 
   const testOrgs = query.data?.organizations ?? []
   const activeTestOrg = query.data?.active ?? null
@@ -147,61 +147,58 @@ export function TestModeSheet({ open, onOpenChange }: Props) {
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">
+                  Zip code
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    value={zip}
+                    onChange={(e) => setZip(e.target.value)}
+                    placeholder="12345"
+                    maxLength={5}
+                  />
+                  <Button
+                    variant="secondary"
+                    size="small"
+                    onClick={() => {
+                      if (isZipValid(zip)) {
+                        setSubmittedZip(zip)
+                        setSelectedOffice('')
+                      }
+                    }}
+                    disabled={!isZipValid(zip)}
+                  >
+                    Search
+                  </Button>
+                </div>
+              </div>
+
+              {races.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">
+                    Office
+                  </label>
+                  <Select
+                    value={selectedOffice}
+                    onValueChange={setSelectedOffice}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select office" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {races.map((race) => (
+                        <SelectItem key={race.id} value={race.position.name}>
+                          {race.position.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               {type === 'campaign' && (
                 <>
-                  <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">
-                      Zip code
-                    </label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={zip}
-                        onChange={(e) => setZip(e.target.value)}
-                        placeholder="12345"
-                        maxLength={5}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="small"
-                        onClick={() => {
-                          if (isZipValid(zip)) {
-                            setSubmittedZip(zip)
-                            setSelectedOffice('')
-                          }
-                        }}
-                        disabled={!isZipValid(zip)}
-                      >
-                        Search
-                      </Button>
-                    </div>
-                  </div>
-
-                  {races.length > 0 && (
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">
-                        Office
-                      </label>
-                      <Select
-                        value={selectedOffice}
-                        onValueChange={setSelectedOffice}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select office" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {races.map((race) => (
-                            <SelectItem
-                              key={race.id}
-                              value={race.position.name}
-                            >
-                              {race.position.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
                   <div className="space-y-2">
                     <label className="text-xs text-muted-foreground">
                       Onboarding

@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  DASHBOARD_CARD_SNOOZE_DAYS,
+  isCivicPanelBuildCard,
+} from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
 import {
   Button,
@@ -10,8 +14,13 @@ import {
   Card,
   CheckIcon,
   ConfettiBurst,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   EmptyState,
   ExternalLinkIcon,
+  MessagesSquareIcon,
   cn,
 } from '@styleguide'
 import {
@@ -20,6 +29,7 @@ import {
   useDismissCard,
   useOnboardingCards,
   useSkipOnboardingCard,
+  useSnoozeCard,
 } from '../data/use-dashboard'
 import {
   ONBOARDING_CARDS,
@@ -48,6 +58,9 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
+  // The civic panel build card: it leads the deck, and closes itself
+  // once its text has gone out.
+  buildsPanel: boolean
 }
 
 const HEADLINES: Record<DeckKind, string> = {
@@ -55,7 +68,13 @@ const HEADLINES: Record<DeckKind, string> = {
   briefing: 'Get ready for your next meeting',
   agenda_item: 'Know what is on the agenda',
   community_issue: 'Hear what your community is saying',
+  civic_panel: 'Next steps on your priorities',
+  report_back: 'Tell people what you heard',
 }
+
+// The build card shares its type with the per-priority panel cards, and
+// leads the deck ahead of the get-started cards.
+const BUILD_PANEL_HEADLINE = 'Start here'
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||
@@ -71,15 +90,30 @@ const formatDueDate = (iso: string | null): string | null => {
   }
 }
 
+// Sent as the official's first message, so the chief of staff answers about
+// this task instead of opening on its greeting. Same shape as the Campaign
+// Manager's discussTaskMessage.
+const discussCardMessage = (card: DeckCard, dueLine: string | null): string =>
+  [
+    `Help me with this task from my dashboard: "${card.title}".`,
+    card.summary,
+    dueLine ? `It is due ${dueLine}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
 /**
  * The Serve home's one thing to do: the get-started cards, then the week's
  * task cards by due date, as a stack with only the front card actionable.
  */
 const TaskStack = ({
   onOpenCard,
+  onDiscussCard,
   briefingInFlight = false,
 }: {
   onOpenCard: (key: OnboardingCardKey) => void
+  // Opens a fresh chat seeded with a message about the front card.
+  onDiscussCard?: (message: string) => void
   // True while a briefing is generating, so the empty state stays hidden.
   briefingInFlight?: boolean
 }): React.JSX.Element | null => {
@@ -87,6 +121,7 @@ const TaskStack = ({
   const { data: onboarding } = useOnboardingCards()
   const dismissCard = useDismissCard()
   const completeCard = useCompleteCard()
+  const snoozeCard = useSnoozeCard()
   const skipOnboarding = useSkipOnboardingCard()
   // The card just finished or skipped. It has already left the query data, so
   // it is held here and stays in front until it has finished leaving.
@@ -113,7 +148,19 @@ const TaskStack = ({
     return () => window.clearTimeout(timer)
   }, [leaving])
 
+  const dashboardCards: DeckCard[] = (cards.data ?? []).map((card) => ({
+    id: card.id,
+    kind: card.type,
+    title: card.title,
+    summary: card.summary,
+    dueDate: card.dueDate,
+    ctaLabel: card.ctaLabel,
+    ctaHref: card.ctaHref,
+    onboardingKey: null,
+    buildsPanel: isCivicPanelBuildCard(card),
+  }))
   const deck: DeckCard[] = [
+    ...dashboardCards.filter((card) => card.buildsPanel),
     ...ONBOARDING_CARD_ORDER.filter((key) =>
       onboarding?.some((c) => c.key === key && c.status === 'active'),
     ).map((key) => ({
@@ -125,17 +172,9 @@ const TaskStack = ({
       ctaLabel: ONBOARDING_CARDS[key].ctaLabel,
       ctaHref: null,
       onboardingKey: key,
+      buildsPanel: false,
     })),
-    ...(cards.data ?? []).map((card) => ({
-      id: card.id,
-      kind: card.type,
-      title: card.title,
-      summary: card.summary,
-      dueDate: card.dueDate,
-      ctaLabel: card.ctaLabel,
-      ctaHref: card.ctaHref,
-      onboardingKey: null,
-    })),
+    ...dashboardCards.filter((card) => !card.buildsPanel),
   ]
   const stack = leaving
     ? [leaving.card, ...deck.filter((card) => card.id !== leaving.card.id)]
@@ -183,7 +222,9 @@ const TaskStack = ({
     )
   }
 
-  const dueLine = formatDueDate(front.dueDate)
+  // The build card's due date only keeps it from sitting forever; it is not
+  // a deadline the official has.
+  const dueLine = front.buildsPanel ? null : formatDueDate(front.dueDate)
 
   const cardProps = {
     cardId: front.id,
@@ -201,20 +242,23 @@ const TaskStack = ({
     setLeaving({ card: front, stage: 'celebrate', direction: 'up' })
     completeCard.mutate(front.id)
   }
-  const skip = () => {
+  const skip = (putOff = false) => {
     trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
       ...cardProps,
       action: 'skip',
     })
     setLeaving({ card: front, stage: 'exit', direction: 'down' })
     if (front.onboardingKey) skipOnboarding.mutate(front.onboardingKey)
+    else if (putOff) snoozeCard.mutate(front.id)
     else dismissCard.mutate(front.id)
   }
+  const skipClassName = cn(QUIET_ON_PHONE, 'sm:ml-auto')
+  const offersMarkDone = !front.onboardingKey && front.kind !== 'civic_panel'
 
   return (
     <section className="flex w-full flex-col gap-6">
       <h2 className="text-center text-2xl font-semibold text-foreground">
-        {HEADLINES[front.kind]}
+        {front.buildsPanel ? BUILD_PANEL_HEADLINE : HEADLINES[front.kind]}
       </h2>
       <div
         className={cn(
@@ -304,9 +348,10 @@ const TaskStack = ({
                 )
               )}
               <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                {/* A get-started card closes itself once its goal is met,
-                    so it offers no manual Mark done. */}
-                {!front.onboardingKey && (
+                {/* Get-started and civic panel cards close themselves once
+                    their goal is met (a priority card, once the priority is
+                    resolved), so they offer no manual Mark done. */}
+                {offersMarkDone && (
                   <Button
                     type="button"
                     variant="outline"
@@ -326,17 +371,70 @@ const TaskStack = ({
                     Mark done
                   </Button>
                 )}
-                {!leaving && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="medium"
-                    className={cn(QUIET_ON_PHONE, 'sm:ml-auto')}
-                    onClick={skip}
-                  >
-                    Skip
-                  </Button>
-                )}
+                {/* Get-started and civic panel cards already open a
+                    conversation from their own button. */}
+                {onDiscussCard &&
+                  !front.onboardingKey &&
+                  front.kind !== 'civic_panel' && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="medium"
+                      className={QUIET_ON_PHONE}
+                      onClick={() => {
+                        trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
+                          ...cardProps,
+                          action: 'ask',
+                        })
+                        onDiscussCard(discussCardMessage(front, dueLine))
+                      }}
+                    >
+                      {/* On the narrowest phones a third quiet button leaves
+                        no room for the icon. */}
+                      <MessagesSquareIcon
+                        className={cn(
+                          'size-4',
+                          offersMarkDone && 'max-[399px]:hidden',
+                        )}
+                        aria-hidden
+                      />
+                      Ask about this
+                    </Button>
+                  )}
+                {!leaving &&
+                  (front.kind === 'civic_panel' ||
+                  front.kind === 'report_back' ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="medium"
+                          className={skipClassName}
+                        >
+                          Skip
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => skip(true)}>
+                          Show in {DASHBOARD_CARD_SNOOZE_DAYS} days
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => skip()}>
+                          Not for me
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="medium"
+                      className={skipClassName}
+                      onClick={() => skip()}
+                    >
+                      Skip
+                    </Button>
+                  ))}
               </div>
             </div>
           </div>

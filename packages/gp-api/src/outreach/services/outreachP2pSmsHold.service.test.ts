@@ -15,7 +15,9 @@ const SESSION_ID = 'cs_test_hold'
 const INTENT_ID = 'pi_test_hold'
 
 // A manual-capture hold completes at requires_capture; amount is the authorized
-// (undiscounted) estimate in cents.
+// (undiscounted) estimate in cents. capture_method defaults to 'manual' — the
+// durable, entry-time signal recordHold reads to decide this IS a hold-model
+// checkout, independent of any later flag read.
 const mockIntent = (
   overrides: Partial<Stripe.PaymentIntent> = {},
 ): Stripe.PaymentIntent =>
@@ -24,6 +26,7 @@ const mockIntent = (
     object: 'payment_intent',
     status: 'requires_capture',
     amount: 10500,
+    capture_method: 'manual',
     ...overrides,
   }) as Stripe.PaymentIntent
 
@@ -32,10 +35,6 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
   let model: {
     upsert: ReturnType<typeof vi.fn>
     updateMany: ReturnType<typeof vi.fn>
-  }
-  let peerlyPhoneList: {
-    findUnique: ReturnType<typeof vi.fn>
-    findFirst: ReturnType<typeof vi.fn>
   }
   let stripe: {
     retrieveCheckoutSession: ReturnType<typeof vi.fn>
@@ -52,7 +51,6 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
 
   beforeEach(async () => {
     model = { upsert: vi.fn(), updateMany: vi.fn() }
-    peerlyPhoneList = { findUnique: vi.fn(), findFirst: vi.fn() }
     stripe = {
       retrieveCheckoutSession: vi
         .fn()
@@ -65,7 +63,7 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
         OutreachP2pSmsHoldService,
         {
           provide: PrismaService,
-          useValue: { outreachP2pSms: model, peerlyPhoneList },
+          useValue: { outreachP2pSms: model },
         },
         { provide: StripeService, useValue: stripe },
         { provide: PinoLogger, useValue: createMockLogger() },
@@ -100,23 +98,18 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
     expect(stamp?.data?.captureBefore).toEqual(new Date('2026-02-01T00:00:00Z'))
   })
 
-  it('links the satellite to its building phone list from the upload token', async () => {
+  it('links the satellite to the phone list the caller resolved', async () => {
     model.updateMany.mockResolvedValue({ count: 1 })
-    peerlyPhoneList.findUnique.mockResolvedValue({ id: 'ppl-uuid-9' })
 
     await service.recordHold({
       outreachId: OUTREACH_ID,
       checkoutSessionId: SESSION_ID,
-      phoneListToken: 'tok-xyz',
+      peerlyPhoneListId: 'ppl-uuid-9',
     })
 
-    expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith({
-      where: { token: 'tok-xyz' },
-      select: { id: true },
-    })
     // The link is its OWN idempotent update (guarded on peerlyPhoneListId null),
-    // separate from the authorize CAS, so a replay whose token now resolves can
-    // backfill a link an earlier authorize left unset.
+    // separate from the authorize CAS, so a replay can backfill a link an
+    // earlier authorize left unset.
     const linkCall = model.updateMany.mock.calls
       .map((call) => call[0])
       .find((args) => args?.data?.peerlyPhoneListId === 'ppl-uuid-9')
@@ -130,14 +123,13 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
   it('backfills the link on a replay even when the authorize CAS no-ops (already authorized)', async () => {
     // Replay: the row is already past pending_payment, so the authorize CAS
     // matches nothing (count 0) — but the separate link update still backfills a
-    // peerlyPhoneListId an earlier, token-less authorize left null.
+    // peerlyPhoneListId an earlier authorize left null.
     model.updateMany.mockResolvedValue({ count: 0 })
-    peerlyPhoneList.findUnique.mockResolvedValue({ id: 'ppl-uuid-9' })
 
     await service.recordHold({
       outreachId: OUTREACH_ID,
       checkoutSessionId: SESSION_ID,
-      phoneListToken: 'tok-xyz',
+      peerlyPhoneListId: 'ppl-uuid-9',
     })
 
     const linkCall = model.updateMany.mock.calls
@@ -149,116 +141,24 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
     })
   })
 
-  it('leaves the satellite unlinked (no peerlyPhoneListId) when the token resolves to nothing', async () => {
+  it('still records the hold, unlinked, when no phone list was resolved', async () => {
     model.updateMany.mockResolvedValue({ count: 1 })
-    peerlyPhoneList.findUnique.mockResolvedValue(null)
 
     await service.recordHold({
       outreachId: OUTREACH_ID,
       checkoutSessionId: SESSION_ID,
-      phoneListToken: 'tok-unknown',
     })
 
-    // The hold is still authorized; peerlyPhoneListId is simply omitted so the
-    // CAS does not overwrite it with null.
+    // The hold is still authorized; no link write is made, and the CAS never
+    // overwrites peerlyPhoneListId with null.
     const stamp = authorizedCall()
     expect(stamp?.data?.settleState).toBe(P2pSmsSettleState.authorized)
     expect(stamp?.data).not.toHaveProperty('peerlyPhoneListId')
-  })
-
-  it('does not look up a phone list when no token is supplied', async () => {
-    model.updateMany.mockResolvedValue({ count: 1 })
-
-    await service.recordHold({
-      outreachId: OUTREACH_ID,
-      checkoutSessionId: SESSION_ID,
-    })
-
-    expect(peerlyPhoneList.findUnique).not.toHaveBeenCalled()
-    expect(authorizedCall()?.data).not.toHaveProperty('peerlyPhoneListId')
-  })
-
-  // --- ASYNC build (slice G): link by the build id when the async build had no
-  // token. The id is client-supplied, so the lookup is scoped to the campaign.
-
-  it('links the satellite by build id (scoped to the campaign) when there is no token', async () => {
-    model.updateMany.mockResolvedValue({ count: 1 })
-    peerlyPhoneList.findFirst.mockResolvedValue({ id: 'build-xyz' })
-
-    await service.recordHold({
-      outreachId: OUTREACH_ID,
-      checkoutSessionId: SESSION_ID,
-      phoneListBuildId: 'build-xyz',
-      campaignId: 111,
-    })
-
-    // Scoped to the campaign — a client-supplied id can only link its own
-    // campaign's list — and the token lookup is never attempted.
-    expect(peerlyPhoneList.findFirst).toHaveBeenCalledWith({
-      where: { id: 'build-xyz', campaignId: 111 },
-      select: { id: true },
-    })
-    expect(peerlyPhoneList.findUnique).not.toHaveBeenCalled()
-    const linkCall = model.updateMany.mock.calls
-      .map((call) => call[0])
-      .find((args) => args?.data?.peerlyPhoneListId === 'build-xyz')
-    expect(linkCall?.where).toMatchObject({
-      outreachId: OUTREACH_ID,
-      peerlyPhoneListId: null,
-    })
-  })
-
-  it('leaves the satellite unlinked when the build id does not belong to the campaign', async () => {
-    model.updateMany.mockResolvedValue({ count: 1 })
-    // The {id, campaignId} lookup finds nothing — an unowned id.
-    peerlyPhoneList.findFirst.mockResolvedValue(null)
-
-    await service.recordHold({
-      outreachId: OUTREACH_ID,
-      checkoutSessionId: SESSION_ID,
-      phoneListBuildId: 'build-foreign',
-      campaignId: 111,
-    })
-
-    const stamp = authorizedCall()
-    expect(stamp?.data?.settleState).toBe(P2pSmsSettleState.authorized)
-    expect(stamp?.data).not.toHaveProperty('peerlyPhoneListId')
-  })
-
-  it('does not link by build id when no campaign is supplied (no ownership proof)', async () => {
-    model.updateMany.mockResolvedValue({ count: 1 })
-
-    await service.recordHold({
-      outreachId: OUTREACH_ID,
-      checkoutSessionId: SESSION_ID,
-      phoneListBuildId: 'build-xyz',
-    })
-
-    expect(peerlyPhoneList.findFirst).not.toHaveBeenCalled()
-    expect(authorizedCall()?.data).not.toHaveProperty('peerlyPhoneListId')
-  })
-
-  it('prefers the token over a build id when both are supplied', async () => {
-    model.updateMany.mockResolvedValue({ count: 1 })
-    peerlyPhoneList.findUnique.mockResolvedValue({ id: 'ppl-from-token' })
-
-    await service.recordHold({
-      outreachId: OUTREACH_ID,
-      checkoutSessionId: SESSION_ID,
-      phoneListToken: 'tok-xyz',
-      phoneListBuildId: 'build-xyz',
-      campaignId: 111,
-    })
-
-    expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith({
-      where: { token: 'tok-xyz' },
-      select: { id: true },
-    })
-    expect(peerlyPhoneList.findFirst).not.toHaveBeenCalled()
-    const linkCall = model.updateMany.mock.calls
-      .map((call) => call[0])
-      .find((args) => args?.data?.peerlyPhoneListId === 'ppl-from-token')
-    expect(linkCall?.where).toMatchObject({ outreachId: OUTREACH_ID })
+    expect(
+      model.updateMany.mock.calls.some(
+        (call) => call[0]?.data?.peerlyPhoneListId !== undefined,
+      ),
+    ).toBe(false)
   })
 
   it('stamps straight from pending_payment via a single CAS (no hold_pending)', async () => {
@@ -326,7 +226,7 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
   it('records nothing when the completed session carries no PaymentIntent', async () => {
     stripe.retrieveCheckoutSession.mockResolvedValue({ payment_intent: null })
 
-    await service.recordHold({
+    const isHoldModel = await service.recordHold({
       outreachId: OUTREACH_ID,
       checkoutSessionId: SESSION_ID,
     })
@@ -334,5 +234,65 @@ describe('OutreachP2pSmsHoldService.recordHold', () => {
     expect(model.upsert).not.toHaveBeenCalled()
     expect(model.updateMany).not.toHaveBeenCalled()
     expect(stripe.retrievePaymentIntent).not.toHaveBeenCalled()
+    expect(isHoldModel).toBe(false)
+  })
+
+  // NO-STRAND GUARANTEE: the caller (the p2p post-purchase handler) invokes
+  // recordHold on every paid p2p checkout, never gated on a fresh flag read —
+  // so a flag flip between session-creation and this webhook can never skip
+  // recording a hold Stripe already placed. recordHold itself tells hold-model
+  // checkouts apart from immediate-charge ones durably, off the live PI's
+  // capture_method (set once, at session creation, and never changed after).
+  describe('durable hold-model detection (no-strand guarantee)', () => {
+    it('records the hold and returns true for a manual-capture PI even if the flag would now read off', async () => {
+      // Simulates: entry evaluated the flag ON and created a manual-capture
+      // session; by the time this webhook runs, the flag has flipped OFF for
+      // this user. The session Stripe already authorized must still be
+      // recorded — nothing here reads the flag at all.
+      model.updateMany.mockResolvedValue({ count: 1 })
+
+      const isHoldModel = await service.recordHold({
+        outreachId: OUTREACH_ID,
+        checkoutSessionId: SESSION_ID,
+      })
+
+      expect(isHoldModel).toBe(true)
+      expect(authorizedCall()?.data).toMatchObject({
+        settleState: P2pSmsSettleState.authorized,
+      })
+    })
+
+    it('is a no-op and returns false for an automatic-capture (immediate-charge) PI', async () => {
+      stripe.retrievePaymentIntent.mockResolvedValue(
+        mockIntent({ capture_method: 'automatic', status: 'succeeded' }),
+      )
+
+      const isHoldModel = await service.recordHold({
+        outreachId: OUTREACH_ID,
+        checkoutSessionId: SESSION_ID,
+      })
+
+      expect(isHoldModel).toBe(false)
+      // Never seeds or touches the satellite for a send that was never a hold.
+      expect(model.upsert).not.toHaveBeenCalled()
+      expect(model.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('returns true (hold-model) even when the manual-capture PI declined to hold_failed', async () => {
+      stripe.retrievePaymentIntent.mockResolvedValue(
+        mockIntent({ status: 'processing' }),
+      )
+      model.updateMany.mockResolvedValue({ count: 1 })
+
+      const isHoldModel = await service.recordHold({
+        outreachId: OUTREACH_ID,
+        checkoutSessionId: SESSION_ID,
+      })
+
+      expect(isHoldModel).toBe(true)
+      expect(firstOrThrow(model.updateMany.mock.calls)[0]).toMatchObject({
+        data: { settleState: P2pSmsSettleState.hold_failed },
+      })
+    })
   })
 })

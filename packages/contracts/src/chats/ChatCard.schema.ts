@@ -6,6 +6,7 @@ import {
   PriorityStepIdSchema,
 } from '../priorities/PriorityStatus.schema'
 import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
+import { ServeSmsPurposeSchema } from '../outreach/OutreachPurpose.schema'
 
 /**
  * Anchored views: the cards an agent can leave in a chat.
@@ -117,6 +118,20 @@ export const OutreachProposalSchema = z.object({
   listName: z.string().nullish(),
   /** What goes out under the official's name. */
   message: z.string().min(1),
+  civicPanelAsk: z
+    .boolean()
+    .optional()
+    .describe(
+      'Text only: true to ask the people texted to join the civic panel. ' +
+        'The flow adds the ask and what it means; never write it into the ' +
+        'message.',
+    ),
+  /**
+   * Text only, Serve only: the purpose the text flow opens on, past its
+   * purpose picker. Only the civic panel invite sets it, so the flow
+   * locks the join line and the build card closes once it is paid for.
+   */
+  purpose: ServeSmsPurposeSchema.optional(),
   /**
    * Nothing shows this: the agent says why in its message. Kept so cards
    * already persisted with it still parse.
@@ -139,6 +154,21 @@ export const OutreachProposalSchema = z.object({
    * whole audience.
    */
   sampleSize: z.number().int().positive().max(MAX_LIST_SAMPLE_SIZE).optional(),
+  /**
+   * Of `sampleSize`, how many are drawn from the official's civic panel.
+   * The rest are drawn from residents not on it, so one send asks the panel
+   * and invites new people to join. Absent, the sample ignores the panel.
+   */
+  panelSampleSize: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_LIST_SAMPLE_SIZE)
+    .optional()
+    .describe(
+      'Text only: how many of sampleSize are civic panel members. The ' +
+        'rest of sampleSize are residents not on the panel.',
+    ),
   /** The replies a text sample was sized to bring back. */
   targetResponses: z.number().int().positive().optional(),
   /** The reply rate it was sized with, as a fraction: 0.025 is 2.5%. */
@@ -148,6 +178,22 @@ export const OutreachProposalSchema = z.object({
    * left out of this one, so asking again reaches new people.
    */
   widensOutreachIds: z.array(z.number().int().positive()).max(20).optional(),
+  /**
+   * A report back: the text goes to everyone this earlier text send reached,
+   * minus anyone who has opted out since, and tells them what the official
+   * heard and will do next. The audience is that send's, so a card carrying
+   * it has no audienceFilters, sample, panel part or check.
+   */
+  reportBackForOutreachId: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Text only: the outreachId of the send this reports back on, from ' +
+        'read_report_back. The card goes to everyone it reached who has not ' +
+        'opted out since.',
+    ),
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
 
@@ -172,6 +218,36 @@ export type ProposalLink = z.infer<typeof ProposalLinkSchema>
  * leave it out. The proposal key follows it, so a reload sends it once.
  */
 export const PROPOSAL_SENT_MARKER = '[Sent from a card]'
+
+/**
+ * Opens the hidden turn the app sends when the official follows a "Report
+ * back" card into a priority, so the agent starts the report back on that
+ * send and the transcript can leave the turn out. It ends on the send's id,
+ * so a reload knows it was already asked.
+ */
+export const REPORT_BACK_MARKER = '[Report back]'
+
+export const reportBackMessage = (outreachId: number): string =>
+  `${REPORT_BACK_MARKER} Help me report back to the people I texted. ` +
+  `outreach:${outreachId}`
+
+// The whole message, not the marker alone: a turn the official typed that
+// merely starts with the marker is theirs, and stays on screen.
+export const isReportBackMessage = (content: string): boolean =>
+  /^outreach:\d+$/.test(content.split(' ').at(-1) ?? '') &&
+  content === reportBackMessage(Number(content.split(':').at(-1)))
+
+/**
+ * A tool that refuses its arguments returns `{ error }` so the model can fix
+ * them and call again. Its card must never show: the server drops the call's
+ * persisted arguments and the live surfaces drop its widget, so the refused
+ * card and the corrected one never appear side by side.
+ */
+export const isToolRefusal = (result: unknown): boolean =>
+  typeof result === 'object' &&
+  result !== null &&
+  'error' in result &&
+  typeof result.error === 'string'
 
 /** A prior send worth looking at, resolved live from the outreach history. */
 export const PastOutreachRefSchema = z.object({

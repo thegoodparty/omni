@@ -389,7 +389,7 @@ describe('WalkSheet', () => {
     )
 
     expect(screen.getAllByRole('columnheader')[6]?.textContent).toBe(
-      "Do they need follow-up? Do they want to join your citizens' panel?",
+      'Do they need follow-up? Do they want to join your civic panel?',
     )
     const offered = Array.from(
       rowFor('Dorian Fen').querySelectorAll('.ws-opt span:not(.ws-box)'),

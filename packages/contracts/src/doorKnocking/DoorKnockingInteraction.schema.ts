@@ -23,6 +23,9 @@ export const RecordDoorKnockInteractionSchema = z
     followUp: FollowUpAnswerSchema.optional(),
     // Serve's closing question, asked after follow-up. Same yes/no vocabulary.
     joinCivicPanel: FollowUpAnswerSchema.optional(),
+    // Asked in place of joinCivicPanel when the list is panel members only:
+    // "Do they want to stay on your civic panel?". A no takes them off it.
+    stayOnCivicPanel: FollowUpAnswerSchema.optional(),
     note: z.string().max(2_000).optional(),
   })
   .strict()
@@ -73,6 +76,33 @@ export const RecordDoorKnockInteractionSchema = z
     {
       message: 'joinCivicPanel belongs to the Serve surface',
       path: ['joinCivicPanel'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.stayOnCivicPanel === undefined ||
+      v.outcome === DoorKnockOutcomeSchema.enum.answered,
+    {
+      message: 'stayOnCivicPanel is only valid when outcome is answered',
+      path: ['stayOnCivicPanel'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.stayOnCivicPanel === undefined ||
+      (v.supportAnswer === undefined && v.willVote === undefined),
+    {
+      message: 'stayOnCivicPanel belongs to the Serve surface',
+      path: ['stayOnCivicPanel'],
+    },
+  )
+  // One panel question per conversation: a member is asked to stay, anyone
+  // else to join, and an answer to both would say two things at once.
+  .refine(
+    (v) => v.stayOnCivicPanel === undefined || v.joinCivicPanel === undefined,
+    {
+      message: 'joinCivicPanel and stayOnCivicPanel are never asked together',
+      path: ['stayOnCivicPanel'],
     },
   )
   // One surface's vocabulary per row. The two answer sets are alternatives, not

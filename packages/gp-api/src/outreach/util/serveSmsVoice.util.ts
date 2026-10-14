@@ -1,4 +1,4 @@
-import { ServeOutreachPurpose } from '@goodparty_org/contracts'
+import { ServeSmsPurpose } from '@goodparty_org/contracts'
 import { PROTECTED_MARKER_RULE } from './smsProtectedImprove.util'
 import {
   FRESH_DRAFT_TARGET_LENGTH,
@@ -33,7 +33,12 @@ import {
 //   decision / resource details -> not modeled; the prompts leave a missing
 //                            specific out rather than invent or bracket it
 
-const SERVE_PURPOSE_GOALS: Record<ServeOutreachPurpose, string> = {
+const SERVE_PURPOSE_GOALS: Record<ServeSmsPurpose, string> = {
+  build_citizens_panel:
+    "introduce the elected official and invite residents onto the official's civic panel",
+  report_back:
+    'tell the constituents an earlier text asked what the official heard ' +
+    'from them and what the official will do next',
   introduce_myself:
     'introduce the elected official to the constituents they serve',
   explain_decision:
@@ -51,7 +56,35 @@ const SERVE_PURPOSE_GOALS: Record<ServeOutreachPurpose, string> = {
 // three-bullet priorities formula is the Win intro structure carried over —
 // it is the shape Candidate Success validated, and nothing about it is
 // election-specific.
-const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
+const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
+  // The flow appends the locked JOIN line (contracts' CIVIC_PANEL_JOIN_LINE)
+  // after this body, and the reply reader only honors JOIN off those exact
+  // words, so the body must not write its own ask.
+  build_citizens_panel:
+    'Structure: one short line of who the official is, drawn from the ' +
+    'materials (what they do, community roots, why they serve); then ' +
+    'one or two sentences on what their civic panel is: residents ' +
+    'their office (not a campaign) texts about once a month to hear what ' +
+    'they think before the official makes decisions; then one sentence ' +
+    'on why that matters to the official, in plain words. Keep the whole ' +
+    'body under four sentences. Stop there. Do NOT ask the reader to ' +
+    'reply JOIN, sign up, or reply at all, and do not explain how to ' +
+    'join: the app adds the line that asks them, right after your text. ' +
+    'Never promise how many texts, what topics, or what the official ' +
+    'will do with the answers beyond hearing them.',
+  // Sent to the people an earlier text asked, so it never carries the
+  // civic panel JOIN line or a fresh ask of its own.
+  report_back:
+    'Structure: one short sentence thanking the people who answered the ' +
+    'earlier text; then one or two sentences on what the official heard, ' +
+    'as the main themes and roughly how many people raised each, never ' +
+    "quoting anyone's words or saying anything that could point to who " +
+    'said it; then one or two sentences on what the official will do ' +
+    'next. Both the themes and the next step come only from the ' +
+    'materials: if either is missing, leave that part out rather than ' +
+    'writing one. Keep the whole body under four sentences. Never ask ' +
+    'people to join a panel or reply JOIN, and never promise an outcome ' +
+    'the materials do not state.',
   introduce_myself:
     'FIRST decide which of two structures applies. If the materials ' +
     'contain no published priorities, use the NARRATIVE structure and ' +
@@ -173,7 +206,7 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
-export const SERVE_SMS_VOICE: SmsVoiceConfig<ServeOutreachPurpose> = {
+export const SERVE_SMS_VOICE: SmsVoiceConfig<ServeSmsPurpose> = {
   purposeGoals: SERVE_PURPOSE_GOALS,
   purposeStructures: SERVE_PURPOSE_STRUCTURES,
   draftSystemPrompt: SERVE_DRAFT_SYSTEM_PROMPT,

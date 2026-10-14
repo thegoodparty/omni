@@ -11,8 +11,11 @@ import {
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   PHONE_BANKING_NAME_MAX_LENGTH,
+  REPORT_BACK_PURPOSE,
   type ChatCard,
+  type ProposalChannel,
   type ProposalLink,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
@@ -54,7 +57,43 @@ import {
 
 type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
 
-type Opened = { proposal: OutreachProposal; priorityId?: string }
+type Opened = {
+  proposal: OutreachProposal
+  priorityId?: string
+  // The list the card's audience was saved as, when the flow opens on its
+  // message with that list picked rather than on the list builder.
+  listId?: number
+}
+
+// The list a card's audience was saved as, kept by the card's key so opening
+// the card again, even after a reload, reuses it instead of saving another.
+const STORED_LIST_PREFIX = 'proposal-list:'
+const readStoredList = (proposalKey: string): number | null => {
+  try {
+    const raw = window.localStorage.getItem(STORED_LIST_PREFIX + proposalKey)
+    const id = raw === null ? NaN : Number(raw)
+    return Number.isInteger(id) && id > 0 ? id : null
+  } catch {
+    return null
+  }
+}
+const storeList = (proposalKey: string, listId: number): void => {
+  try {
+    window.localStorage.setItem(
+      STORED_LIST_PREFIX + proposalKey,
+      String(listId),
+    )
+  } catch {
+    // Without storage a reopen after a reload saves the list again.
+  }
+}
+
+// The channels whose flow opens on the message with the card's list already
+// picked.
+const READY_CHANNELS: ReadonlySet<ProposalChannel> = new Set([
+  'text',
+  'phoneBanking',
+])
 
 type SentListener = (proposal: OutreachProposal) => void
 
@@ -90,16 +129,19 @@ export const useOnProposalSent = (listener: SentListener): void => {
 }
 
 // The check rides along only on a priority, where there is one to put out.
+// A report back is linked through the send it answers instead, so it is
+// never read as another ask on the priority.
 const linkOf = ({ proposal, priorityId }: Opened): ProposalLink => ({
   proposalKey: proposal.proposalKey,
-  ...(priorityId !== undefined && {
-    priorityId,
-    ...(proposal.stepId !== undefined &&
-      proposal.side !== undefined && {
-        stepId: proposal.stepId,
-        side: proposal.side,
-      }),
-  }),
+  ...(priorityId !== undefined &&
+    proposal.reportBackForOutreachId === undefined && {
+      priorityId,
+      ...(proposal.stepId !== undefined &&
+        proposal.side !== undefined && {
+          stepId: proposal.stepId,
+          side: proposal.side,
+        }),
+    }),
 })
 
 type WinProChannel = 'text' | 'phoneBanking' | 'doorKnocking'
@@ -269,6 +311,61 @@ export const ProposalFlowsProvider = ({
     [router, errorSnackbar],
   )
 
+  const savedLists = useRef(new Map<string, number>())
+  const savingLists = useRef(new Map<string, Promise<number | null>>())
+
+  // Saves the card's audience as a list once, the way the builder would have
+  // after the official confirmed it, so the flow can open on the message.
+  // The panel invite always goes to its seeded draw of the district, never a
+  // list a card named.
+  const saveProposalList = useCallback(
+    (proposal: OutreachProposal): Promise<number | null> => {
+      const key = proposal.proposalKey
+      const inFlight = savingLists.current.get(key)
+      if (inFlight) return inFlight
+      const run = (async () => {
+        const buildsPanel = proposal.purpose === BUILD_CITIZENS_PANEL_PURPOSE
+        if (!buildsPanel && proposal.savedFilterId) {
+          return proposal.savedFilterId
+        }
+        const known = savedLists.current.get(key) ?? readStoredList(key)
+        if (known !== null) {
+          const { data } = await clientRequest(
+            'GET /v1/voters/voter-file/filters',
+            {},
+          )
+          if ((data ?? []).some((list) => list?.id === known)) {
+            savedLists.current.set(key, known)
+            return known
+          }
+        }
+        const audience = proposedAudienceOf({
+          ...proposal,
+          savedFilterId: undefined,
+        })
+        if (!audience) return null
+        const { data } = await clientRequest(
+          'POST /v1/voters/voter-file/filter',
+          {
+            name: audience.name,
+            ...transformVoterFileFiltersForBackend(audience.filters),
+            supportStatus: audience.supportStatus,
+            precincts: audience.precincts,
+            ...(audience.sample && { sample: audience.sample }),
+          },
+        )
+        savedLists.current.set(key, data.id)
+        storeList(key, data.id)
+        return data.id
+      })()
+      savingLists.current.set(key, run)
+      const settle = () => savingLists.current.delete(key)
+      void run.then(settle, settle)
+      return run
+    },
+    [],
+  )
+
   const open = useCallback(
     (proposal: OutreachProposal, priorityId?: string) => {
       if (
@@ -285,9 +382,25 @@ export const ProposalFlowsProvider = ({
         })
         return
       }
-      setOpened({ proposal, ...(priorityId !== undefined && { priorityId }) })
+      const link = { ...(priorityId !== undefined && { priorityId }) }
+      if (READY_CHANNELS.has(proposal.channel)) {
+        void saveProposalList(proposal).then(
+          (listId) =>
+            setOpened({
+              proposal,
+              ...link,
+              ...(listId !== null && { listId }),
+            }),
+          () => {
+            // The card's button stays live, so pressing it again retries.
+            errorSnackbar("We couldn't save this list. Try again.")
+          },
+        )
+        return
+      }
+      setOpened({ proposal, ...link })
     },
-    [openDoorKnocking, mode],
+    [openDoorKnocking, mode, saveProposalList, errorSnackbar],
   )
 
   const value = useMemo(
@@ -311,8 +424,16 @@ export const ProposalFlowsProvider = ({
   )
 
   const proposal = opened?.proposal
-  const proposedAudience = proposal ? proposedAudienceOf(proposal) : undefined
-  const listId = proposal?.savedFilterId ?? undefined
+  // A text or phone banking card's list is saved before its flow opens, so
+  // the flow picks that list and, with the card's message, opens on the
+  // message (outreachLandingStep), never the builder. A card with no
+  // audience to save opens on the picker with the message held.
+  const readyListId = opened?.listId
+  const proposedAudience =
+    proposal && readyListId === undefined
+      ? proposedAudienceOf(proposal)
+      : undefined
+  const listId = readyListId ?? proposal?.savedFilterId ?? undefined
   // Stable across renders, since the Win text create effect depends on it.
   const winProposalLink = useMemo(
     () => (opened ? linkOf(opened) : undefined),
@@ -371,9 +492,16 @@ export const ProposalFlowsProvider = ({
           onScheduled={async () => settled()}
           surface={SERVE_SMS_SURFACE}
           initialScript={proposal.message}
+          initialAsksToJoinCivicPanel={proposal.civicPanelAsk === true}
+          {...(proposal.purpose && { initialPurpose: proposal.purpose })}
+          {...(proposal.reportBackForOutreachId !== undefined && {
+            initialPurpose: REPORT_BACK_PURPOSE,
+            reportBackForOutreachId: proposal.reportBackForOutreachId,
+          })}
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
+          audienceSettled={readyListId !== undefined}
           proposalLink={linkOf(opened)}
           source="deep_link"
         />
@@ -391,6 +519,7 @@ export const ProposalFlowsProvider = ({
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
+          audienceSettled={readyListId !== undefined}
           {...(winProposalLink && { proposalLink: winProposalLink })}
           onProposalCreateFailed={proposalCreateFailed}
           source="campaign_manager"

@@ -611,7 +611,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // the vendor job so a denied send can never go out. This is distinct from the
     // send-back-for-edits deny below: a non-satellite row keeps that behavior
     // byte-for-byte. SATELLITE-gated, not flag-gated — a captured/authorized hold
-    // is released even on a WIN_SMS_HOLD_BILLING rollback.
+    // is released even if win_sms_hold_billing is since turned off.
     const satellite = await this.client.outreachP2pSms.findUnique({
       where: { outreachId },
       select: { outreachId: true },

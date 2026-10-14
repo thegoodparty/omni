@@ -22,6 +22,7 @@ renamed onto this clean name once the dead module was removed.
 | `services/communityIssuePrioritize.service.ts` | Prioritize / de-prioritize an issue                            |
 | `services/communityIssueDispatch.service.ts`   | Dispatch AI experiment runs per org slug (cohort + self-serve) |
 | `services/communityIssueSeed.service.ts`       | Preview/dev-only deterministic seeding for e2e tests           |
+| `services/communityIssueStarter.service.ts`    | Quick starter top list for Serve onboarding (Gemini + search)  |
 | `communityIssueBucketing.ts`                   | FNV-1a bucket assignment (deterministic slug → list)           |
 | `communityIssueArtifact.validation.ts`         | Zod validation for S3 artifact JSON                            |
 
@@ -62,6 +63,30 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   the cron) never re-triggers on landing, and a returning user whose issues
   went stale while they were away regenerates immediately. Distinct from
   `self-dispatch`, which is staff-only and single-type.
+
+- `POST /onboarding` — `@UseElectedOffice()`; called by Serve onboarding once
+  the office is saved, only while the `serve-citizen-panels` flag is on (it
+  feeds the onboarding priorities step that flag gates). Writes up to 5
+  starter `top_community` issues from one Gemini Flash search (skipped if the
+  org already has a top list), then calls `onElectedOfficeCreated` to dispatch
+  the full runs. Onboarding creates the
+  office before it has a position, so the create-time dispatch finds no serve
+  context and skips; with the flag on, this is the dispatch that actually
+  fires for those users.
+
+## Starter issues
+
+Starter rows have `lastRefreshedRunId: null` and a minimal `detail` (sources +
+overview) that passes `DetailSchema`. The full `top_community_issues` run
+reads them back through `GET_community_issues`, carries the IDs it can
+verify, adds what the quick pass missed, re-ranks the whole list, and
+archives the rest by omission. A starter row the official prioritized in
+onboarding is kept, per the instruction's "never drop a prioritized issue".
+
+So a starter row is not a generation: `wasFirstGenerationForList` and the
+Initial Issues Generated check count only rows with a `lastRefreshedRunId`.
+The first agent run is still the first generation, which keeps the
+once-per-org email on agent output and keeps task cards off the first list.
 
 ## Activity gate
 

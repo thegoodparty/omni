@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -13,6 +13,14 @@ vi.mock('helpers/analyticsHelper', async (importActual) => {
   const actual = await importActual<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// Off by default so every pre-flag expectation keeps asserting the flow as it
+// ships without serve-citizen-panels; the flag-on block flips it per test.
+const citizenPanelsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
+  SERVE_CITIZEN_PANELS_FLAG_KEY: 'serve-citizen-panels',
+  useServeCitizenPanelsFlag: () => citizenPanelsFlag,
+}))
 
 import { trackEvent } from 'helpers/analyticsHelper'
 import ServeOnboardingFlow from './ServeOnboardingFlow'
@@ -117,6 +125,373 @@ const mockLoad = (eo: ElectedOffice, org: Organization) => {
   api.mock('GET /v1/elected-office/mine', { status: 200, data: [eo] })
   api.mock('GET /v1/organizations/:slug', { status: 200, data: org })
 }
+
+const mockPriorities = () => {
+  api.mock('GET /v1/priorities/onboarding', {
+    status: 200,
+    data: {
+      options: [
+        {
+          key: 'issue-1',
+          kind: 'community',
+          title: 'Housing costs',
+          description: 'Rents are rising fast.',
+          selected: false,
+        },
+      ],
+    },
+  })
+  api.mock('PUT /v1/priorities/onboarding', { status: 200, data: undefined })
+  api.mock('POST /v1/community-issues/onboarding', {
+    status: 200,
+    data: { starterIssueCount: 1 },
+  })
+}
+
+const resumedAt = (onboardingStep: string) =>
+  mockLoad(
+    buildEO({
+      party: 'independent',
+      termStartDate: '2026-01-01',
+      termEndDate: '2030-01-01',
+      selfReported: true,
+      onboardingStep,
+    }),
+    buildOrg({
+      positionName: 'Mayor',
+      position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+    }),
+  )
+
+describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    trackEventMock.mockClear()
+    citizenPanelsFlag.ready = true
+    citizenPanelsFlag.enabled = true
+    mockPriorities()
+  })
+
+  afterEach(() => {
+    citizenPanelsFlag.enabled = false
+  })
+
+  it('shows the reframed welcome with the civic panel and no subscribe promise', async () => {
+    mockLoad(buildEO(), buildOrg())
+    renderFlow()
+
+    expect(
+      await screen.findByText(
+        'Hear from your whole community, not just the loudest voices',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Build a civic panel you can ask before you vote'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Let residents opt in to hear from you'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('goes from constituents to the priorities step and starts community issues once', async () => {
+    resumedAt('constituents')
+    let communityStarts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return { status: 200, data: { starterIssueCount: 1 } }
+    })
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText(
+      'What issues are you prioritizing solving right now?',
+    )
+    await screen.findByLabelText(/Housing costs/)
+    expect(communityStarts).toBe(1)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText("Here's everything to know about your constituents")
+  })
+
+  it('saves the picked issues and a typed one as priorities', async () => {
+    resumedAt('priorities')
+    let savedBody: Record<string, unknown> | undefined
+    api.mock('PUT /v1/priorities/onboarding', (req) => {
+      savedBody = req.body as unknown as Record<string, unknown>
+      return { status: 200, data: undefined }
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText(
+      'What issues are you prioritizing solving right now?',
+    )
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    await user.click(await screen.findByLabelText(/Housing costs/))
+    await user.click(screen.getByLabelText(/Other/))
+    await user.type(
+      screen.getByLabelText('What do you want to get done?'),
+      'Library hours',
+    )
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await user.type(
+      screen.getByLabelText('Why does it matter?'),
+      'Open on Sundays',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get started')
+    expect(savedBody).toEqual({
+      shownKeys: ['issue-1'],
+      selectedKeys: ['issue-1'],
+      other: [{ title: 'Library hours', description: 'Open on Sundays' }],
+    })
+  })
+
+  it('starts community issues on landing for an official resumed past the office step', async () => {
+    resumedAt('constituents')
+    let communityStarts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return { status: 200, data: { starterIssueCount: 1 } }
+    })
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await waitFor(() => expect(communityStarts).toBe(1))
+  })
+
+  it('offers a retry and never saves when the issues fail to load', async () => {
+    resumedAt('priorities')
+    let failing = true
+    let saves = 0
+    api.mock('GET /v1/priorities/onboarding', () => {
+      return failing
+        ? { status: 500, data: {} }
+        : {
+            status: 200,
+            data: {
+              options: [
+                {
+                  key: 'issue-1',
+                  kind: 'community',
+                  title: 'Housing costs',
+                  description: 'Rents are rising fast.',
+                  selected: false,
+                },
+              ],
+            },
+          }
+    })
+    api.mock('PUT /v1/priorities/onboarding', () => {
+      saves += 1
+      return { status: 200, data: undefined }
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('We couldn’t load issues for your community.')
+    expect(screen.queryByLabelText(/Other/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(saves).toBe(0)
+
+    failing = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+  })
+
+  it('keeps the list on screen while saving and shows the saved picks on Back', async () => {
+    resumedAt('priorities')
+    let loads = 0
+    api.mock('GET /v1/priorities/onboarding', () => {
+      loads += 1
+      return {
+        status: 200,
+        data: {
+          options: [
+            {
+              key: 'issue-1',
+              kind: 'community',
+              title: 'Housing costs',
+              description: 'Rents are rising fast.',
+              selected: loads > 1,
+            },
+          ],
+        },
+      }
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await user.click(await screen.findByLabelText(/Housing costs/))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      screen.queryByText('Finding issues in your community'),
+    ).not.toBeInTheDocument()
+
+    await screen.findByText('Take our pledge to get started')
+    expect(loads).toBe(1)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByLabelText(/Housing costs/)).toBeChecked()
+    expect(loads).toBe(2)
+  })
+
+  it('lets the official skip the step when there are no issues to pick', async () => {
+    resumedAt('priorities')
+    let saves = 0
+    api.mock('GET /v1/priorities/onboarding', {
+      status: 200,
+      data: { options: [] },
+    })
+    api.mock('PUT /v1/priorities/onboarding', () => {
+      saves += 1
+      return { status: 200, data: undefined }
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText(/We couldn’t find issues for your area yet/)
+    expect(screen.getByLabelText(/Other/)).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get started')
+    expect(saves).toBe(0)
+  })
+
+  it('does not refire a failed community issues start on later steps, only on Try again', async () => {
+    resumedAt('term-dates')
+    let communityStarts = 0
+    let loadFails = true
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return { status: 500, data: {} }
+    })
+    api.mock('GET /v1/priorities/onboarding', () =>
+      loadFails
+        ? { status: 500, data: {} }
+        : { status: 200, data: { options: [] } },
+    )
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('When does your term run?')
+    await waitFor(() => expect(communityStarts).toBe(1))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText("Here's everything to know about your constituents")
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('We couldn’t load issues for your community.')
+    expect(communityStarts).toBe(1)
+
+    loadFails = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await screen.findByText(/We couldn’t find issues for your area yet/)
+    expect(communityStarts).toBe(2)
+  })
+})
+
+describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    trackEventMock.mockClear()
+    citizenPanelsFlag.ready = true
+    citizenPanelsFlag.enabled = false
+  })
+
+  afterEach(() => {
+    citizenPanelsFlag.ready = true
+  })
+
+  it('shows nothing from either welcome until the flag resolves', async () => {
+    citizenPanelsFlag.ready = false
+    mockLoad(buildEO(), buildOrg())
+    renderFlow()
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(
+      screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'Hear from your whole community, not just the loudest voices',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it('skips the priorities step, never starts community issues, and ignores a priorities checkpoint', async () => {
+    resumedAt('priorities')
+    let communityStarts = 0
+    let prioritiesLoads = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return { status: 200, data: { starterIssueCount: 1 } }
+    })
+    api.mock('GET /v1/priorities/onboarding', () => {
+      prioritiesLoads += 1
+      return { status: 200, data: { options: [] } }
+    })
+    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText("Here's everything to know about your constituents")
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get your chief of staff')
+    expect(
+      screen.queryByText('What issues are you prioritizing solving right now?'),
+    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText("Here's everything to know about your constituents")
+    expect(communityStarts).toBe(0)
+    expect(prioritiesLoads).toBe(0)
+  })
+})
 
 describe('ServeOnboardingFlow', () => {
   beforeEach(() => {

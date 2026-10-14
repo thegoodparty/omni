@@ -59,6 +59,32 @@ export const dashboardApi = {
     }
   },
 
+  async snoozeCard(id: string): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/cards/:id/snooze', { id })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'snooze-card',
+        cardId: id,
+      })
+      throw err
+    }
+  },
+
+  async restoreCard(id: string): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/cards/:id/restore', { id })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'restore-card',
+        cardId: id,
+      })
+      throw err
+    }
+  },
+
   async getOnboardingCards(): Promise<OnboardingCard[]> {
     const { data } = await clientRequest(
       'GET /v1/dashboard/onboarding-cards',

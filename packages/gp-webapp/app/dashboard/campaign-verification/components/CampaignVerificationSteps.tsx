@@ -10,23 +10,18 @@ import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiFiel
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { VerificationIntro } from './VerificationIntro'
 import { hasVerificationDraft } from '../verificationDraft'
+import {
+  FILING_CONTACT_CAPTION,
+  FILING_CONTACT_TITLE,
+  FILING_DETAILS_CAPTION,
+  FILING_DETAILS_TITLE,
+  PIN_NOTICE_BODY,
+  PIN_NOTICE_TITLE,
+  SUBMITTED_BODY,
+  SUBMITTED_TITLE,
+} from '../verificationCopy'
 
 export type VerificationStep = 'intro' | 'form' | 'submitted'
-
-// The design's filing-details/contact-information headings, only shown when
-// this component renders the filing form — the legacy standalone
-// election-filing page keeps its current (heading-less) look by not passing
-// them to ElectionFilingForm.
-const FILING_DETAILS_TITLE = 'What are your campaign filing details?'
-const FILING_DETAILS_CAPTION =
-  'If these do not match the details you submitted on your campaign filing or registration, it will take much longer before you can send text messages.'
-const FILING_CONTACT_TITLE = 'What is your campaign filing contact information?'
-const FILING_CONTACT_CAPTION =
-  'Enter the email, phone, or address exactly as it appears on your filing document. A PIN will be sent to one of these to verify your campaign.'
-
-const PIN_NOTICE_TITLE = 'A PIN is on its way'
-const PIN_NOTICE_BODY =
-  'After your campaign is verified, a PIN will be sent to the email, phone, or address that matches your election filing, usually 1 to 2 weeks. Entering the PIN unlocks texting.'
 
 interface CampaignVerificationStepsProps {
   // Lets a caller resume on a step other than the intro (e.g. a page wrapper
@@ -129,11 +124,9 @@ const CampaignVerificationSteps = ({
               <CheckCircleIcon className="size-8 text-primary" aria-hidden />
             </span>
             <div className="flex max-w-[440px] flex-col items-center gap-2">
-              <h1 className="text-2xl font-semibold">
-                Submitted for verification
-              </h1>
+              <h1 className="text-2xl font-semibold">{SUBMITTED_TITLE}</h1>
               <p className="text-[15px] leading-relaxed text-base-muted-foreground">
-                Your campaign has been submitted for verification.
+                {SUBMITTED_BODY}
               </p>
             </div>
           </div>

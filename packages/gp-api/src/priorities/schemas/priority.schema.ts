@@ -1,5 +1,6 @@
 import {
   CreatePriorityInputSchema,
+  SetOnboardingPrioritiesInputSchema,
   UpdatePriorityInputSchema,
 } from '@goodparty_org/contracts'
 import { createZodDto } from 'nestjs-zod'
@@ -15,4 +16,8 @@ export class UpdatePriorityDto extends createZodDto(
 
 export class PriorityIdParamDto extends createZodDto(
   z.object({ id: z.string() }),
+) {}
+
+export class SetOnboardingPrioritiesDto extends createZodDto(
+  SetOnboardingPrioritiesInputSchema,
 ) {}

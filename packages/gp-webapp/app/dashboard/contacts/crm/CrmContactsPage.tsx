@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Button, PlusIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
@@ -24,11 +25,16 @@ import { ChannelPickerProvider } from './shared/channelPicker/ChannelPickerProvi
 import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
+import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+import { NEW_LIST_PARAM, NEW_LIST_PRESETS } from './wizard/newListPresets'
+import type { VoterFileFilters } from './shared/voterFileFilterTransform.util'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
   const [showProModal, setShowProModal] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [wizardPreset, setWizardPreset] = useState<VoterFileFilters>()
   const {
     isWinContext,
     isWinContextReady,
@@ -38,7 +44,12 @@ export const CrmContactsPage = () => {
     editingSegment,
     closeEditList,
     voterDataUnavailable,
+    isElectedOfficial,
   } = useContactsTable()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const citizenPanelsFlag = useServeCitizenPanelsFlag(false)
   const organization = useOrganization()
   const labels = getContactsLabels(isWinContext)
   // gp-api's PeopleDatasetService reads the same key: with it on, a Serve
@@ -76,12 +87,51 @@ export const CrmContactsPage = () => {
     })
   }, [isWinContextReady, isWinContext, voterDataUnavailable])
 
+  // A `?newList=` link (the civic panel's "can be asked now") opens the
+  // wizard on its preset once the Serve context and the flag have settled,
+  // then drops the param so a refresh or Back doesn't reopen it.
+  const newListPreset = searchParams?.get(NEW_LIST_PARAM) ?? null
+  useEffect(() => {
+    if (!newListPreset || !isWinContextReady || !citizenPanelsFlag.ready) {
+      return
+    }
+    const preset = NEW_LIST_PRESETS[newListPreset]
+    if (
+      preset &&
+      !isWinContext &&
+      isElectedOfficial &&
+      citizenPanelsFlag.enabled &&
+      !voterDataUnavailable
+    ) {
+      closeEditList()
+      setWizardPreset(preset)
+      setWizardOpen(true)
+    }
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    params.delete(NEW_LIST_PARAM)
+    const query = params.toString()
+    const path = pathname ?? '/dashboard/contacts'
+    router.replace(query ? `${path}?${query}` : path, {
+      scroll: false,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    newListPreset,
+    isWinContextReady,
+    isWinContext,
+    isElectedOfficial,
+    citizenPanelsFlag.ready,
+    citizenPanelsFlag.enabled,
+    voterDataUnavailable,
+  ])
+
   const handleCreateList = () => {
     if (!canUseProFeatures) {
       setShowProModal(true)
       return
     }
     closeEditList()
+    setWizardPreset(undefined)
     setWizardOpen(true)
   }
 
@@ -191,6 +241,7 @@ export const CrmContactsPage = () => {
                     />
                   </div>
 
+                  <CitizensPanelSection />
                   <RecommendedListsSection />
                   <ListsIndex />
                 </>
@@ -213,9 +264,11 @@ export const CrmContactsPage = () => {
                 onOpenChange={(open) => {
                   if (open) return
                   setWizardOpen(false)
+                  setWizardPreset(undefined)
                   closeEditList()
                 }}
                 editingSegment={editingSegment}
+                initialFilters={wizardPreset}
               />
               <ListDetailSheet
                 listId={currentlySelectedListId}

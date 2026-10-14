@@ -12,7 +12,7 @@ is a bug.
 The voter outreach flows and onboarding are the reference implementations.
 When you need a model, read those and match them.
 
-## The nine rules
+## The ten rules
 
 ### 1. A step title is a question the user can answer
 
@@ -109,7 +109,8 @@ everywhere it appears, in the same change.
 
 The same question should read the same way in every channel. Before writing
 a new string, grep for the one that exists. Consistency beats freshness, and
-a new synonym for an old idea is a bug, not a flourish.
+a new synonym for an old idea is a bug, not a flourish. The panel residents
+join is the "civic panel" and nothing else (`product-vocabulary.md`).
 
 Copy that is shared lives in constants, not inline: see
 `outreach/v2/*Purposes.ts`, `outreach/v2/channelMeta.tsx`,
@@ -127,6 +128,22 @@ guess whether to wait or act.
 No claims we cannot support, no invented numbers, no urgency we did not
 earn. Nonpartisan, factual, plain. If a projection is a projection, call it
 one.
+
+### 10. A card sells the outcome, not the steps
+
+The headline names the value the user gets. The one-sentence body says why it
+matters to them. Cost, counts, channels and how it works belong in the flow
+the card opens, never on the card. Cards that show an item (a meeting, an
+agenda item, an issue, a priority's next step) keep the item as the headline.
+
+| Write this                             | Not this                                         |
+| -------------------------------------- | ------------------------------------------------ |
+| Hear from more than the loudest voices | A paid text to up to 3,334 residents, about $117 |
+
+Source of truth for the pattern: the Chief of Staff build card in
+`packages/gp-api/src/dashboardCards/services/dashboardCards.service.ts` and
+the get-started cards in
+`packages/gp-webapp/app/dashboard/chief-of-staff/components/onboardingCardsConfig.ts`.
 
 ## Mechanics
 
@@ -154,7 +171,9 @@ to", "Here you can", "We're excited to". Start with the point.
 3. Does anything in it describe how the system works? Cut it.
 4. Would you say it out loud on the phone?
 5. Does the phrase already exist somewhere in the repo? Use that one.
-6. Read it once more and delete the words doing no work.
+6. On a card, does the headline say what they get and the body say why?
+   Move any cost or mechanics into the flow.
+7. Read it once more and delete the words doing no work.
 
 ## AI-generated copy
 

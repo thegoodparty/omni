@@ -696,8 +696,8 @@ export const EVENTS = {
     // (onboarding, briefing, agenda_item, community_issue), `stackSize` how
     // many cards were in the stack when the official acted.
     TaskCompleted: 'Chief Of Staff - Task Completed',
-    // Every other choice on that card: `action` is start (its main button)
-    // or skip.
+    // Every other choice on that card: `action` is start (its main button),
+    // ask (open the chat about it), or skip.
     TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
   BriefingAssistant: {

@@ -77,6 +77,7 @@ import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { outreachLandingStep } from '../landingStep'
 
 type StepId =
   | 'purpose'
@@ -535,7 +536,17 @@ export const PhoneBankingFlow = ({
       !initialScript && preselectedRecommendedVariant
         ? purposeForRecommendedVariant(preselectedRecommendedVariant)
         : null
-    setStepId(initialScript || carriedPurpose ? 'who' : 'purpose')
+    // The list is not resolved yet, so this lands on the who step at most;
+    // the preselection below moves on to the script once it resolves.
+    setStepId(
+      outreachLandingStep({
+        purposeSettled: carriedPurpose !== null,
+        audienceSettled: false,
+        messageSettled: Boolean(initialScript),
+      }) === 'purpose'
+        ? 'purpose'
+        : 'who',
+    )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
     setScript(initialScript ?? '')
@@ -617,7 +628,12 @@ export const PhoneBankingFlow = ({
       // card's proposal) lands on the script, but only once the list really
       // resolved: a script with no audience behind it would strand the
       // official on a step whose Continue cannot pass.
-      if (initialScript) setStepId('script')
+      const landing = outreachLandingStep({
+        purposeSettled: false,
+        audienceSettled: true,
+        messageSettled: Boolean(initialScript),
+      })
+      if (landing === 'message') setStepId('script')
     }
   }, [
     open,

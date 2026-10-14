@@ -80,7 +80,7 @@ const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   do_not_knock: 'Do Not Knock',
   not_a_voter: 'Not A Voter',
   follow_up: 'Follow-up',
-  civic_panel: "Citizens' panel",
+  civic_panel: 'Civic panel',
 }
 
 // Who made a change nobody on the team made: the channel it came in on.
@@ -293,7 +293,7 @@ export const StatusChangeActivityRow: React.FC<{
     activity.data.field === 'civic_panel' && activity.data.source === 'sms'
       ? activity.data.toLabel === CIVIC_PANEL_STATUS_LABELS.member
         ? 'Joined by replying JOIN to a text'
-        : 'Left by replying STOP to a text'
+        : 'Left by replying LEAVE or STOP to a text'
       : `${actor} ${verb} ${fieldLabel} ${valueClause}`
 
   return (

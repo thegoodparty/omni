@@ -100,7 +100,7 @@ describe('<StatusChangeActivityRow>', () => {
 
     expect(
       screen.getByText(
-        "A door knock changed Citizens' panel from 'Not a member' to 'Member'",
+        "A door knock changed Civic panel from 'Not a member' to 'Member'",
       ),
     ).toBeInTheDocument()
   })

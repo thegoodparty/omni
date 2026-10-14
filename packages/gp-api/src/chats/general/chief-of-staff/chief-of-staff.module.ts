@@ -6,6 +6,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { Module } from '@nestjs/common'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { OutreachReportBackModule } from '@/outreach/outreachReportBack.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -67,6 +68,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     ContactsModule,
     VotersModule,
     PeopleQueryModule,
+    OutreachReportBackModule,
   ],
   providers: [
     ChiefOfStaffHandler,

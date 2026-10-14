@@ -534,7 +534,7 @@ describe('SmsFlow — recommended lists', () => {
     releaseListDetail?.()
     await waitFor(() => expect(retry).toBeEnabled())
     await userEvent.click(retry as HTMLButtonElement)
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
     expect(created).toHaveLength(1)
     expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
     expect(vi.mocked(createP2pPhoneList).mock.calls[1]?.[1]).toBe(88)
@@ -542,7 +542,7 @@ describe('SmsFlow — recommended lists', () => {
 
   // The drawer path must reset the phone-list token the way onSelect does.
   // Otherwise a token from a list picked earlier survives the failed upload,
-  // and "Try again" short-circuits to schedule with that list's audience.
+  // and "Try again" short-circuits to compose with that list's audience.
   it("does not reuse an earlier list's phone list when the drawer upload fails", async () => {
     const LIST_A = { id: 501, name: 'Undecided persuadables' }
     const created: { id: number; name: string }[] = []
@@ -589,7 +589,7 @@ describe('SmsFlow — recommended lists', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Continue/ }),
     )
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
     expect(vi.mocked(createP2pPhoneList).mock.calls[0]?.[1]).toBe(501)
 
     // Back to the audience, accept the recommendation, upload fails.
@@ -609,7 +609,7 @@ describe('SmsFlow — recommended lists', () => {
     const retry = (await screen.findByText('Try again')).closest('button')
     await waitFor(() => expect(retry).toBeEnabled())
     await userEvent.click(retry as HTMLButtonElement)
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
     expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(3)
     expect(vi.mocked(createP2pPhoneList).mock.calls[2]?.[1]).toBe(88)
     expect(created).toHaveLength(1)
@@ -666,7 +666,7 @@ describe('SmsFlow — recommended lists', () => {
   // The flow host stays mounted with `open` never going false between steps,
   // so without an active/mode gate this warehouse-backed query kept
   // refetching on window focus for screens that don't show it at all
-  // (schedule/compose/review) — caught by a live reviewer mutation test on
+  // (compose/schedule/review) — caught by a live reviewer mutation test on
   // the first round, now pinned here.
   it('stops refetching recommendations once the audience step is left behind', async () => {
     let requestCount = 0
@@ -700,7 +700,7 @@ describe('SmsFlow — recommended lists', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Continue/ }),
     )
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
 
     window.dispatchEvent(new Event('visibilitychange'))
     window.dispatchEvent(new Event('focus'))

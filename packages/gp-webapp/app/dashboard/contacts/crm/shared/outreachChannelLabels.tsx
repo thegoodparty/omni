@@ -20,6 +20,7 @@ export const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
   nativePhoneBanking: 'Called',
   robocall: 'Called',
   socialMedia: 'Digital',
+  poll: 'Texted',
 }
 
 // Channel NAMES for surfaces that answer "which channel is this" (the list
@@ -36,6 +37,7 @@ export const OUTREACH_CHANNEL_NOUNS: Record<OutreachChannel, string> = {
   nativePhoneBanking: 'Phone banking',
   robocall: 'Robocall',
   socialMedia: 'Social post',
+  poll: 'Poll',
 }
 
 export const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> =
@@ -58,4 +60,7 @@ export const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> =
     ),
     robocall: <PhoneIcon size={16} className="shrink-0 text-foreground" />,
     socialMedia: <Share2Icon size={16} className="shrink-0 text-foreground" />,
+    poll: (
+      <MessageSquareMoreIcon size={16} className="shrink-0 text-foreground" />
+    ),
   }

@@ -39,6 +39,7 @@ import {
   ElectedOfficeService,
 } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { electedOfficeToApi } from './util/electedOffice.util'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
@@ -53,6 +54,7 @@ export class ElectedOfficeController {
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly organizationsService: OrganizationsService,
     private readonly supportEstimateService: SupportEstimateService,
+    private readonly crmOfficeHolder: CrmOfficeHolderService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -365,6 +367,7 @@ export class ElectedOfficeController {
       where: { slug: orgSlug },
       data: { overrideDistrictId },
     })
+    await this.crmOfficeHolder.syncElectedOffice(id)
 
     return { electedOfficeId: id, overrideDistrictId }
   }

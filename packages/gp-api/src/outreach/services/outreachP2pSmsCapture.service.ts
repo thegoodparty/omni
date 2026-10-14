@@ -10,10 +10,7 @@ import {
   calcTextAmountInCents,
   maxTextsForAmountInCents,
 } from 'src/shared/util/textPricing.util'
-import {
-  isWinSmsHoldBillingEnabled,
-  WIN_SMS_HOLD_MIN_CENTS,
-} from 'src/shared/util/winSmsHold.util'
+import { WIN_SMS_HOLD_MIN_CENTS } from 'src/shared/util/winSmsHold.util'
 import {
   OutreachStatus,
   P2pSmsSettleState,
@@ -43,9 +40,10 @@ const P2P_SMS_CAPTURING_STALE_MINUTES = 15
 // A handful of synchronous queries complete far inside this window.
 const P2P_SMS_CAPTURE_MIN_AGE_MINUTES = 2
 // Deploys the sweep runs on: dev as well as prod (like the build finisher),
-// because it moves money only under the flag — the gate is the flag, not the
-// environment. Fail-closed: an absent/unexpected value (local, vitest) isn't in
-// the set, so it skips.
+// because it only ever acts on rows that carry an OutreachP2pSms satellite —
+// the gate is the satellite's existence/state, not an environment or a flag.
+// Fail-closed: an absent/unexpected value (local, vitest) isn't in the set, so
+// it skips.
 const P2P_SMS_CAPTURE_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
 
 const getDeployEnvironment = (): string =>
@@ -82,10 +80,13 @@ interface CaptureBilling {
 // `authorized → capturing` claim elects exactly one capturer across all three
 // entry points.
 //
-// Everything money-moving is gated on WIN_SMS_HOLD_BILLING (default off): the
-// trigger points no-op when the flag is off, so this ships inert in prod. The
-// @Cron runs on dev+prod (like the build finisher) because it reads/moves
-// money only under the flag — the gate is the flag, not the environment.
+// SATELLITE-gated, not flag-gated: every trigger point here acts only on rows
+// that already carry an OutreachP2pSms satellite in the right state (a
+// satellite only exists if ENTRY — checkout-session creation — decided to
+// place a hold), so a flag flip after a hold is placed can never stop it from
+// settling, and a user who never had the flag on has no satellite for any of
+// this to act on. The @Cron runs on dev+prod (like the build finisher)
+// because it reads/moves money only when a satellite says so.
 @Injectable()
 export class OutreachP2pSmsCaptureService extends createPrismaBase(
   MODELS.OutreachP2pSms,
@@ -197,10 +198,9 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // EDGE (a): called right after the hold is stamped `authorized`. If the
   // build is already `ready`, this captures now; if not, it no-ops and edge (b)
   // or the backstop fires once the list finishes. Safe to call unconditionally
-  // from the purchase handler — it gates itself on the flag and the state.
+  // from the purchase handler — SATELLITE-gated: resolveReadyBuild and the
+  // `authorized` claim below both no-op when no hold exists for this outreach.
   async captureHold(outreachId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     // READINESS GATE (before the claim): resolve the build and confirm it is
     // ready with a stable leads_loaded. A not-yet-ready build leaves the hold
     // `authorized` for a later edge/sweep. Reading the build here (not after
@@ -239,10 +239,10 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // cap was never persisted (e.g. a hold authorized by some path that skipped
   // session-creation persistence, or a reaper rebuild after the link exists);
   // capturing/captured are included there so a re-run after the money moved still
-  // caps. Returns null when the flag is off or no paid hold exists/was expected.
+  // caps. SATELLITE-gated: returns null when no persisted cap and no paid hold
+  // exist/were expected — never a flag read, so a flag flip can't un-cap a
+  // build whose hold already set one.
   async resolveSendCapForBuild(buildId: string): Promise<number | null> {
-    if (!isWinSmsHoldBillingEnabled()) return null
-
     const build = await this.client.peerlyPhoneList.findUnique({
       where: { id: buildId },
       select: { sendCapTexts: true },
@@ -278,9 +278,9 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // this same build-ready edge stamps it moments earlier, so the satellite link
   // is the order-independent handle; a build-before-pay draft is linked just the
   // same. Whichever of edge (a)/(b) runs second is the one that captures.
+  // SATELLITE-gated: the holds query below finds nothing when no hold was
+  // placed for this list, so this is a no-op without needing a flag check.
   async captureHoldsForReadyList(peerlyListId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     const build = await this.client.peerlyPhoneList.findUnique({
       where: { peerlyListId },
       select: { id: true },
@@ -313,11 +313,10 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // build finished was NOT submitted to Peerly at the payment webhook (finalize
   // deferred on a null phoneListId); now the list exists, so stamp its numeric
   // id onto the draft and submit it. Finds the drafts through the satellite link
-  // and defers each to finalizePreBuildDraft. Self-gated; a build-before-pay
-  // draft was already finalized at the webhook and is a no-op here.
+  // and defers each to finalizePreBuildDraft. SATELLITE-gated via the holds
+  // query below; a build-before-pay draft was already finalized at the
+  // webhook and is a no-op here.
   async finalizeDraftsForReadyList(peerlyListId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     const build = await this.client.peerlyPhoneList.findUnique({
       where: { peerlyListId },
       select: { id: true },
@@ -357,10 +356,11 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // actually completed checkout (a recorded Stripe session) and is still
   // pending_payment is submitted; an already-finalized or never-paid draft is a
   // no-op. Resolves readiness through the satellite link so it never trusts a
-  // not-yet-stamped Outreach.phoneListId.
+  // not-yet-stamped Outreach.phoneListId. Called only for outreachIds the
+  // caller already knows carry a satellite (the sweep's `authorized` query,
+  // or a satellite-linked holds list), so no flag/satellite check is needed
+  // here.
   private async finalizePreBuildDraft(outreachId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     const outreach = await this.client.outreach.findUnique({
       where: { id: outreachId },
       select: {
@@ -534,23 +534,11 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return
     }
 
-    // KILL-SWITCH on a live hold: everything below moves or releases money on a
-    // `requires_capture` hold. If the flag was flipped OFF after this row entered
-    // `capturing` (a rollback mid-settlement), do NOT issue a fresh Stripe call —
-    // revert to `authorized` and let a sweep settle it when the flag is back on.
-    // The `succeeded` reconcile above stays UNCONDITIONAL: it only records a
-    // capture that already happened, which must never be lost to a rollback.
-    if (!isWinSmsHoldBillingEnabled()) {
-      this.logger.warn(
-        { outreachId },
-        'win sms capture: flag off on a live hold; reverting to authorized',
-      )
-      await this.transitionFromCapturing(
-        outreachId,
-        P2pSmsSettleState.authorized,
-      )
-      return
-    }
+    // NO FLAG GATE HERE, DELIBERATELY: a hold already placed (this row exists
+    // and its PI is live `requires_capture`) always settles, regardless of the
+    // flag or rollout cohort — settlement is satellite/PI-driven, never a
+    // per-user flag read. A flag flip after entry can never strand this money
+    // mid-settlement.
 
     // ZERO / SUB-MINIMUM: Stripe refuses a capture under its 50c floor, so a
     // final amount below it is released, not captured — void the hold and park

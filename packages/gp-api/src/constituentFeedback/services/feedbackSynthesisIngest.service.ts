@@ -119,8 +119,12 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       if (claim.count === 0) return false
 
       const applied: Array<{ feedbackId: string; tagId: string }> = []
+      const pooled = run.scope === SynthesisScope.priority
       for (const { issue, members } of themes) {
-        const tagId = await this.resolveTag(tx, run, issue)
+        // The org's tag list and a memo's tags come from its own send's run.
+        // A priority run regroups the same memos, and tagging them again
+        // would propose a second vocabulary for one conversation.
+        const tagId = pooled ? null : await this.resolveTag(tx, run, issue)
         const theme = await tx.feedbackTheme.create({
           data: {
             runId: run.id,
@@ -140,11 +144,13 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
           skipDuplicates: true,
         })
         // A tag lands on a memo's record; a reply has no row to carry one.
-        applied.push(
-          ...members.flatMap(({ id, source }) =>
-            source === 'feedback' ? [{ feedbackId: id, tagId }] : [],
-          ),
-        )
+        if (tagId !== null) {
+          applied.push(
+            ...members.flatMap(({ id, source }) =>
+              source === 'feedback' ? [{ feedbackId: id, tagId }] : [],
+            ),
+          )
+        }
       }
 
       // Before this run's tag rows go in: a pair the old run applied and
@@ -233,13 +239,13 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
     run: FeedbackSynthesisRun,
     ids: string[],
   ): Promise<Map<string, MemberSource>> {
-    const effortScoped = run.scope === SynthesisScope.effort
+    const outreachScope = await this.outreachScope(run)
     const [memos, replies] = await Promise.all([
       this.client.constituentFeedback.findMany({
         where: {
           id: { in: ids },
           organizationSlug: run.organizationSlug,
-          ...(effortScoped ? { outreachId: run.outreachId } : {}),
+          ...outreachScope,
         },
         select: { id: true },
       }),
@@ -248,7 +254,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
           id: { in: ids },
           sender: PollIndividualMessageSender.CONSTITUENT,
           outreach: { organizationSlug: run.organizationSlug },
-          ...(effortScoped ? { outreachId: run.outreachId } : {}),
+          ...outreachScope,
         },
         select: { id: true },
       }),
@@ -259,6 +265,28 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
     ])
   }
 
+  // An effort run reads its own send; a priority run every send the office
+  // made for that priority; an organization run the whole org.
+  private async outreachScope(
+    run: FeedbackSynthesisRun,
+  ): Promise<{ outreachId?: number | null | { in: number[] } }> {
+    if (run.scope === SynthesisScope.effort) {
+      return { outreachId: run.outreachId }
+    }
+    if (run.scope !== SynthesisScope.priority || run.priorityId === null) {
+      return {}
+    }
+    const sends = await this.client.outreach.findMany({
+      where: {
+        priorityId: run.priorityId,
+        organizationSlug: run.organizationSlug,
+        campaignId: null,
+      },
+      select: { id: true },
+    })
+    return { outreachId: { in: sends.map((send) => send.id) } }
+  }
+
   // One tag per theme, matched on the normalized title.
   private async resolveTag(
     tx: Prisma.TransactionClient,
@@ -267,7 +295,25 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   ): Promise<string> {
     const name = cleanTagName(issue.theme)
     const normalizedName = normalizeTagName(issue.theme)
-    const existing = await tx.issueTag.findUnique({
+    // Equal timestamps mark a proposal no human has touched, which is
+    // what lets a superseding run delete it. Skipping a duplicate rather
+    // than reading first: another run in the org can insert the same name
+    // between a read and this write, and the conflict would abort the run.
+    const now = new Date()
+    const { count } = await tx.issueTag.createMany({
+      data: {
+        organizationSlug: run.organizationSlug,
+        name,
+        normalizedName,
+        status: IssueTagStatus.proposed,
+        source: IssueTagSource.synthesis,
+        proposedByRunId: run.id,
+        createdAt: now,
+        updatedAt: now,
+      },
+      skipDuplicates: true,
+    })
+    const existing = await tx.issueTag.findUniqueOrThrow({
       where: {
         organizationSlug_normalizedName: {
           organizationSlug: run.organizationSlug,
@@ -275,25 +321,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
         },
       },
     })
-
-    if (existing === null) {
-      // Equal timestamps mark a proposal no human has touched, which is
-      // what lets a superseding run delete it.
-      const now = new Date()
-      const created = await tx.issueTag.create({
-        data: {
-          organizationSlug: run.organizationSlug,
-          name,
-          normalizedName,
-          status: IssueTagStatus.proposed,
-          source: IssueTagSource.synthesis,
-          proposedByRunId: run.id,
-          createdAt: now,
-          updatedAt: now,
-        },
-      })
-      return created.id
-    }
+    if (count === 1) return existing.id
 
     // A person merged this name into another tag. The theme follows that
     // decision rather than reviving the merged-away name. A merge re-points
@@ -346,6 +374,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
         organizationSlug: run.organizationSlug,
         scope: run.scope,
         outreachId: run.outreachId,
+        priorityId: run.priorityId,
         status: SynthesisRunStatus.completed,
         id: { not: run.id },
       },

@@ -160,24 +160,22 @@ const openServeFlow = (
   return { onScheduled }
 }
 
-// Drives purpose -> audience -> schedule -> compose -> review on Serve.
-// `withImage` defaults to true because Win's gate is the norm every other
-// test here assumes; false exercises the Serve-only imageless path.
-const runServeToReview = async ({ withImage = true } = {}) => {
+// Drives purpose -> audience -> compose -> schedule -> review on Serve.
+const runServeToReview = async () => {
   await userEvent.click(await screen.findByText('Explain a recent decision'))
   await userEvent.click(await screen.findByText('Choose a constituent list'))
   await userEvent.click(await screen.findByText('Northside residents'))
   await userEvent.click(
     await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
   )
-  await userEvent.click(
-    await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-  )
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await screen.findByText(/drafted body/)
-  if (withImage) await attachImage()
+  await attachImage()
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await userEvent.click(
+    await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
   )
   await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }
@@ -328,10 +326,10 @@ describe('SmsFlow serve send path', () => {
     expect(await screen.findByText('15')).toBeInTheDocument()
   })
 
-  // The imageless Serve path, end to end. The compose gate opening is
-  // asserted in serveSurface.test.tsx; this pins what the open gate
-  // produces — a create with no imageUrl key at all, and no upload.
-  it('creates without an imageUrl when no image was attached', async () => {
+  // A report back card opens on its own purpose with its message written.
+  // The create marks the send as a report back, and nothing asks the people
+  // already asked to join the panel.
+  it('creates a report back on the send it answers, never asking to join', async () => {
     const bodies: Record<string, unknown>[] = []
     api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
       bodies.push(body as unknown as Record<string, unknown>)
@@ -339,22 +337,47 @@ describe('SmsFlow serve send path', () => {
         status: 200,
         data: {
           outreachId: 92,
-          recipientCount: 1180,
-          excludedOptedOutCount: 15,
-          excludedDuplicateCount: 5,
+          recipientCount: 236,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
         },
       }
     })
-    openServeFlow()
-    await runServeToReview({ withImage: false })
+    openServeFlow({
+      initialPurpose: 'report_back',
+      initialScript:
+        'this is Jane, your City Council Member. Thanks for answering. Most of you named parking near the school.',
+      initialAsksToJoinCivicPanel: true,
+      preselectedListId: 41,
+      reportBackForOutreachId: 77,
+      proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await screen.findByText(/Most of you named parking/)
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
+    ).toBeNull()
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
-    const body = bodies[0]!
-    // Absent, not null or empty string: the contract has imageUrl optional,
-    // and a null would fail its url() check.
-    expect(body).not.toHaveProperty('imageUrl')
-    expect(body.voterFileFilterId).toBe(41)
-    expect(uploadFileToS3).not.toHaveBeenCalled()
+    expect(bodies[0]).toMatchObject({
+      reportBackForOutreachId: 77,
+      voterFileFilterId: 41,
+      proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+    })
+    expect(bodies[0]?.message).not.toContain('Reply JOIN')
+    expect(bodies[0]?.name).toEqual(expect.stringContaining('Northside'))
   })
 
   // The one screen that promises a preview used to show the raw merge
@@ -461,7 +484,6 @@ describe('SmsFlow serve send path', () => {
         contactCount: 1180,
         outreachType: 'text',
         campaignId: undefined,
-        phoneListToken: undefined,
       }),
     )
   })
@@ -492,10 +514,6 @@ describe('SmsFlow serve send path', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // "City Council - District 3" -> "City Council Member": the district
     // suffix is dropped and the noun is made a person, by polls' own
@@ -597,9 +615,6 @@ describe('SmsFlow win send path (unchanged)', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(
@@ -610,6 +625,9 @@ describe('SmsFlow win send path (unchanged)', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled())

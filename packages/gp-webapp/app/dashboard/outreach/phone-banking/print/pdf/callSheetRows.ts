@@ -26,7 +26,7 @@ export interface CallSheetPerson {
   // Whichever question this surface asks; never both. Named for the slot
   // rather than for Win's question, since Serve fills the same slot.
   answer: CallSheetAnswer
-  // Serve's citizens' panel ask, its own column after follow-up. Null on Win,
+  // Serve's civic panel ask, its own column after follow-up. Null on Win,
   // which never asks it, and with serve-citizen-panels off.
   civicPanel: CallSheetAnswer | null
 }
@@ -122,7 +122,8 @@ const civicPanelAnswer = (
 ): CallSheetAnswer | null => {
   if (!asksCivicPanel) return null
   if (outcome.kind === 'skip') return outcome
-  const answer = person.interaction?.joinCivicPanel
+  const answer =
+    person.interaction?.stayOnCivicPanel ?? person.interaction?.joinCivicPanel
   return answer
     ? { kind: 'logged', label: FOLLOW_UP_LABELS[answer] }
     : { kind: 'form' }

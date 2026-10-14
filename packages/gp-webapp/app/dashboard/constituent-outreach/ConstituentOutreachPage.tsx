@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   ComposeHandoffPayloadSchema,
+  PANEL_SEED_SAMPLE_SIZE,
   type OutreachDetail,
 } from '@goodparty_org/contracts'
+import type { ProposedAudience } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
@@ -35,7 +38,20 @@ import {
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
+import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { clientRequest } from 'gpApi/typed-request'
+
+// The first civic panel text goes to a random draw of the whole district,
+// so the panel looks like the district rather than like any one list. The
+// one filter is the cell-phone reach a text needs, which is also what lets
+// the builder continue: it holds Continue until something is selected.
+const SERVE_PANEL_SEED_AUDIENCE: ProposedAudience = {
+  filters: { hasCellPhone: true },
+  supportStatus: [],
+  precincts: [],
+  name: 'Civic panel invite',
+  sample: { size: PANEL_SEED_SAMPLE_SIZE },
+}
 
 interface ConstituentOutreachPageProps {
   pathname?: string
@@ -111,6 +127,36 @@ const ConstituentOutreachContent = () => {
   // Until it resolves this surface is the pre-SMS one, unchanged.
   const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
   const smsMounted = smsFlagReady && smsFlagEnabled
+  const { ready: panelsFlagReady, enabled: panelsFlagEnabled } =
+    useServeCitizenPanelsFlag(false)
+  // The Chief of Staff's "Build your civic panel" card links here as
+  // `?compose=text&purpose=build_citizens_panel`, which opens the text flow
+  // on that purpose with the seed draw already picked.
+  const [smsSeedsPanel, setSmsSeedsPanel] = useState(false)
+  const smsDeepLinkRef = useRef(false)
+  const purposeParam = searchParams?.get('purpose')
+  useEffect(() => {
+    if (composeParam !== 'text') {
+      smsDeepLinkRef.current = false
+      return
+    }
+    if (smsDeepLinkRef.current || !smsFlagReady || !panelsFlagReady) return
+    smsDeepLinkRef.current = true
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (!smsMounted) return
+    setSmsSeedsPanel(
+      panelsFlagEnabled && purposeParam === BUILD_CITIZENS_PANEL_PURPOSE,
+    )
+    setSmsFlowOpen(true)
+  }, [
+    composeParam,
+    purposeParam,
+    smsFlagReady,
+    smsMounted,
+    panelsFlagReady,
+    panelsFlagEnabled,
+    router,
+  ])
   // The follow-up list the results drawer just saved, handed to the flow as
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
@@ -279,10 +325,19 @@ const ConstituentOutreachContent = () => {
       {smsMounted && (
         <SmsFlow
           open={smsFlowOpen}
-          onClose={() => setSmsFlowOpen(false)}
+          onClose={() => {
+            setSmsFlowOpen(false)
+            // Spent on close, like the follow-up list below: the tile opens
+            // a plain flow afterwards.
+            setSmsSeedsPanel(false)
+          }}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
-          source="outreach_page"
+          {...(smsSeedsPanel && {
+            initialPurpose: BUILD_CITIZENS_PANEL_PURPOSE,
+            proposedAudience: SERVE_PANEL_SEED_AUDIENCE,
+          })}
+          source={smsSeedsPanel ? 'deep_link' : 'outreach_page'}
         />
       )}
       <OutreachHistoryTable

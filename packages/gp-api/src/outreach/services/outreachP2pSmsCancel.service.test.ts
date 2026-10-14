@@ -57,7 +57,6 @@ const refundResult = (status: string): Stripe.Response<Stripe.Refund> =>
   ({ status }) as unknown as Stripe.Response<Stripe.Refund>
 
 beforeEach(async () => {
-  vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
   // Keep the in-flight `refunding` poll short so race/stranded tests resolve fast.
   vi.stubEnv('WIN_SMS_REFUND_POLL_MS', '40')
   cancel = service.app.get(OutreachP2pSmsCancelService)
@@ -498,8 +497,7 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     expect(campaignAfter.freeTextsOfferRedeemedAt).not.toBeNull()
   })
 
-  it('releases a satellite row even with the flag OFF (kill-switch principle)', async () => {
-    vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
+  it('releases a satellite row regardless of the flag (satellite-gated, never flag-gated)', async () => {
     retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.captured,

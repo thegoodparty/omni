@@ -74,8 +74,9 @@ replies come back as timestamps, never words, so it is not one).
   retired.
 - `ConstituentFeedbackTag`: a tag on a memo. `runId` null means a human
   applied it.
-- `FeedbackSynthesisRun`: one synthesis over an effort or the whole org.
-  `activeKey` is unique while running, so one run is in flight per scope.
+- `FeedbackSynthesisRun`: one synthesis over an effort, a priority, or the
+  whole org. `activeKey` is unique while running, so one run is in flight per
+  scope. A `priority` run sets `priorityId` and leaves `outreachId` null.
   Superseded runs are kept as history.
 - `FeedbackTheme`: one ranked grouping a run produced, linked to a tag.
 - `FeedbackThemeMember`: a memo in a theme, or on a text send a reply
@@ -195,6 +196,27 @@ from its `CampaignPosition`s first.
   `activeKey`. A run whose event never arrives is failed (`error: timeout`)
   after 30 minutes by the stale-run sweep, every ten minutes under
   `CronLockService`.
+
+### Priority runs
+
+`requestPriorityRun` pools every Serve send linked to one priority
+(`Outreach.priorityId`, `campaignId` null, gone out) into one run: each
+send's memos or replies, loaded exactly as its own effort run would load
+them, against the same floor. It has no route and no cooldown of its own.
+`requestRunOnEffortCompleted` starts it alongside the effort's own run
+whenever a send on a priority finishes, and the report's Summarize button
+starts it after the send's own run, so the priority's themes never trail a
+send's. Either way it runs whatever that send's own floor is, so a
+door walk after a text re-pools the same priority and the new run supersedes
+the last. The activeKey is `<org>:priority:<priorityId>`. A send that finishes
+while a pooled run is in flight marks that run `repoolOwed`, and the
+stale-run sweep starts a fresh pooled run once it is done, so that send's
+answers are never left out. The ingest scopes a
+priority run's members to that priority's sends, and writes its themes with
+no tag: the tag list and a memo's tags come from the send's own run, and a
+second vocabulary for the same conversation would only compete with it. The
+themes are read by gp-api `PriorityResultsService` and the priority agent's
+`read_outreach_feedback`.
 
 ## The ingest
 

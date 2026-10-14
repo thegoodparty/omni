@@ -20,6 +20,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 
 const dismissMock = vi.fn()
 const completeMock = vi.fn()
+const snoozeMock = vi.fn()
 const skipOnboardingMock = vi.fn()
 
 vi.mock('../data/use-dashboard', () => ({
@@ -27,6 +28,7 @@ vi.mock('../data/use-dashboard', () => ({
   useOnboardingCards: () => ({ data: onboardingRef.current }),
   useDismissCard: () => ({ mutate: dismissMock }),
   useCompleteCard: () => ({ mutate: completeMock }),
+  useSnoozeCard: () => ({ mutate: snoozeMock }),
   useSkipOnboardingCard: () => ({ mutate: skipOnboardingMock }),
 }))
 
@@ -56,6 +58,7 @@ beforeEach(() => {
   onboardingRef.current = []
   dismissMock.mockReset()
   completeMock.mockReset()
+  snoozeMock.mockReset()
   skipOnboardingMock.mockReset()
   vi.mocked(trackEvent).mockReset()
 })
@@ -144,6 +147,32 @@ describe('<TaskStack>', () => {
     expect(dismissMock).not.toHaveBeenCalled()
   })
 
+  it('asks the chief of staff about the front card', async () => {
+    const user = userEvent.setup()
+    const onDiscussCard = vi.fn()
+    withCards([card({})])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+    await user.click(screen.getByRole('button', { name: 'Ask about this' }))
+    expect(onDiscussCard).toHaveBeenCalledWith(
+      expect.stringContaining('"Prep for the zoning vote"'),
+    )
+    expect(onDiscussCard.mock.calls[0]?.[0]).toContain(
+      'Three items worth reading first.',
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      { cardId: 'c1', cardType: 'briefing', stackSize: 1, action: 'ask' },
+    )
+  })
+
+  it('offers no Ask about this on a get-started card', () => {
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('links the primary action to the card destination', () => {
     withCards([card({})])
     render(<TaskStack onOpenCard={vi.fn()} />)
@@ -180,6 +209,201 @@ describe('<TaskStack>', () => {
       EVENTS.ChiefOfStaff.TaskActionTaken,
       { cardId: 'c1', cardType: 'briefing', stackSize: 1, action: 'skip' },
     )
+  })
+
+  const buildCard = card({
+    id: 'build',
+    type: 'civic_panel',
+    title: 'Hear from more than the loudest voices',
+    summary:
+      'Decisions land better when you know what the whole community thinks, not just who shows up.',
+    ctaLabel: 'Get started',
+    ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
+    dueDate: '2026-10-21T18:00:00.000Z',
+    sourceExternalId: 'build:eo-1',
+  })
+
+  it('offers no Ask about this on a civic panel card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows no due date on the build card', () => {
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(screen.queryByText(/October 21/)).toBeNull()
+  })
+
+  it('leads with the civic panel build card, ahead of get-started cards', () => {
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    withCards([card({}), buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'Hear from more than the loudest voices',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(ONBOARDING_CARDS.meet.title)).toBeNull()
+    // Get started stays on the home: it opens the chat there, never the
+    // outreach page.
+    expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
+      'href',
+      '/dashboard/chief-of-staff?chat=build_citizens_panel',
+    )
+  })
+
+  // It is done when its text goes out, not when it is pressed.
+  it('offers no Mark done on the build card, with the priorities stacked under it', async () => {
+    const user = userEvent.setup()
+    withCards([
+      card({
+        id: 'p1-card',
+        type: 'civic_panel',
+        title: 'Affordable housing',
+        ctaLabel: 'Open priority',
+        ctaHref: '/dashboard/priorities/p1',
+        dueDate: '2026-10-01T18:00:00.000Z',
+        sourceExternalId: 'p1',
+      }),
+      buildCard,
+    ])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'Hear from more than the loudest voices',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Get started' }))
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      expect.objectContaining({ cardId: 'build', stackSize: 2 }),
+    )
+    expect(completeMock).not.toHaveBeenCalled()
+  })
+
+  it('puts the build card off for 3 days from Skip', async () => {
+    const user = userEvent.setup()
+    withCards([buildCard, card({})])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    )
+    expect(snoozeMock).toHaveBeenCalledWith('build')
+    expect(dismissMock).not.toHaveBeenCalled()
+  })
+
+  it('sets the build card aside with Not for me', async () => {
+    const user = userEvent.setup()
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Not for me' }),
+    )
+    expect(dismissMock).toHaveBeenCalledWith('build')
+    expect(snoozeMock).not.toHaveBeenCalled()
+  })
+
+  // It stays until its priority is resolved, so it offers no Mark done.
+  it("reads a priority card as the priority's next step, with no Mark done", async () => {
+    const user = userEvent.setup()
+    withCards([
+      card({
+        id: 'p1-card',
+        type: 'civic_panel',
+        title: 'Affordable housing',
+        summary: 'Draft two options for the council.',
+        ctaLabel: 'Open priority',
+        ctaHref: '/dashboard/priorities/p1',
+        sourceExternalId: 'p1',
+      }),
+    ])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(
+      screen.getByRole('heading', {
+        name: 'Next steps on your priorities',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Draft two options for the council.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open priority' })).toHaveAttribute(
+      'href',
+      '/dashboard/priorities/p1',
+    )
+    expect(
+      screen.queryByRole('button', { name: /mark done/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    )
+    expect(snoozeMock).toHaveBeenCalledWith('p1-card')
+    expect(completeMock).not.toHaveBeenCalled()
+  })
+
+  describe('the report back card', () => {
+    const reportBack = card({
+      id: 'rb',
+      type: 'report_back',
+      title: 'Show people their voice counted on Downtown parking',
+      summary: 'People keep answering when they see what came of it.',
+      ctaLabel: 'Report back',
+      ctaHref: '/dashboard/priorities/p1?reportBack=77',
+      sourceExternalId: '77',
+    })
+
+    it('opens the priority to report back, with Mark done', async () => {
+      const user = userEvent.setup()
+      withCards([reportBack])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+      expect(
+        screen.getByRole('heading', {
+          name: 'Show people their voice counted on Downtown parking',
+        }),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Report back' })).toHaveAttribute(
+        'href',
+        '/dashboard/priorities/p1?reportBack=77',
+      )
+      await user.click(screen.getByRole('button', { name: /mark done/i }))
+      expect(completeMock).toHaveBeenCalledWith('rb')
+    })
+
+    it('puts it off for 3 days from Skip', async () => {
+      const user = userEvent.setup()
+      withCards([reportBack, card({})])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+      await user.click(screen.getByRole('button', { name: 'Skip' }))
+      await user.click(
+        await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+      )
+      expect(snoozeMock).toHaveBeenCalledWith('rb')
+      expect(dismissMock).not.toHaveBeenCalled()
+    })
+
+    it('sets it aside with Not for me', async () => {
+      const user = userEvent.setup()
+      withCards([reportBack])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+      await user.click(screen.getByRole('button', { name: 'Skip' }))
+      await user.click(
+        await screen.findByRole('menuitem', { name: 'Not for me' }),
+      )
+      expect(dismissMock).toHaveBeenCalledWith('rb')
+    })
   })
 
   it('does not explain the system or use an em-dash', () => {
