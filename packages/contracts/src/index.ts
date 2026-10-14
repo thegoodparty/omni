@@ -1621,6 +1621,12 @@ export {
   type TestFixtureSessionResponse,
   DeleteTestFixtureUsersResponseSchema,
   type DeleteTestFixtureUsersResponse,
+  TEST_FIXTURE_ACTIVITY_MAX_PEOPLE,
+  SeedTestFixtureActivityRequestSchema,
+  type SeedTestFixtureActivityRequest,
+  TestFixtureActivityEffortSchema,
+  SeedTestFixtureActivityResponseSchema,
+  type SeedTestFixtureActivityResponse,
 } from './testFixtures/testFixtures.schema'
 
 export {
