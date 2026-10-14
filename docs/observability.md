@@ -83,13 +83,14 @@ whole of it:
 
 The plan includes log queries up to **100x** what we ingest. Ingest is the
 denominator, so cutting log volume also cuts the free query budget — reducing
-ingest is not a fix for a query overage. One rule pages before the vendor does:
-`loki-query-budget-half`, at 50% of that allowance.
+ingest is not a fix for a query overage. No alert rule watches the spend (the
+6h ratio is driven by ad-hoc Grafana reads, which no rule change bounds), so
+check it by hand.
 
 Live usage is on the `grafanacloud-usage` Prometheus datasource
 (`grafanacloud_logs_instance_query_bytes:rate5m` against
 `grafanacloud_logs_instance_billable_bytes_received_per_second`). When the
-budget alert fires, the question is _which query_ — that is the
+spend looks high, the question is _which query_ — that is the
 `grafanacloud-usage-insights` Loki datasource:
 
 ```logql
