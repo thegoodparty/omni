@@ -587,8 +587,25 @@ and `PhoneBankingCallService.emitCivicPanelEvents` (`source: phone_banking`,
 `sourceId` stable per call and answer, so re-saving a yes never re-enrolls
 someone who left). Both carry the `eo-` guard
 and `fallbackFromValue: left`. Unlike follow-up, **only a yes writes**: a no at
-one door is not leaving the panel, so it never demotes a member. Leaving is the
-contact card or a texted STOP.
+one door is not leaving the panel, so it never demotes a member.
+
+**Panel-only outreach asks to stay instead.** A saved list that can only hold
+current members is "panel-only" (contracts' `isCivicPanelOnlyList`:
+`civicPanelMember` without `civicPanelLeft` or `civicPanelNeverInvited`, which
+OR with it, or any joined-by / joined-when criterion, which matches members
+only; other criteria only narrow, and a panel-plus-fresh sample never asks for
+membership in its criteria). On a panel-only turf or call list the closing
+question is "Do they want to stay on your civic panel?", stored as
+`stay_on_civic_panel` (`FollowUpAnswer`) beside `join_civic_panel`, never both
+(the contracts refuse the pair). A no writes `left` (`source: door_knock` /
+`phone_banking`, `sourceId` `<knock or call>:stay:no`); a yes writes nothing,
+so it never re-enrolls someone who left since. The server decides panel-only
+from the turf's or list's own `VoterFileFilter` (`CIVIC_PANEL_ONLY_SELECT` in
+`src/voters/util/`) and drops a stay answer from any other list, so a no on a
+non-panel list still never demotes. The route payload and the phone banking
+list carry `civicPanelOnly` so the walk, the caller page and both paper
+formats ask the right question. Leaving otherwise is the contact card, a
+texted LEAVE, or a texted STOP.
 
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
 contracts: "Reply JOIN to join my civic panel. My office will text you
@@ -602,9 +619,21 @@ rewritten carry the first one; the composer only writes the current line. The re
 the reply's message id) writes `member` for a JOIN reply
 (`util/civicPanelJoin.util.ts`: the whole reply or a sentence of its own) on
 a send that asked, and `left` for any STOP on any Serve send, because panel
-membership is not consent to text. Replies apply in sent order, and a JOIN
+membership is not consent to text. A LEAVE reply
+(`util/civicPanelLeave.util.ts`, same matcher style) also writes `left` on any
+Serve send, whether or not it offered LEAVE, and is not an opt-out: the person
+keeps getting the office's texts. From someone not on the panel it writes
+nothing (`left -> left` is a no-op), and a reply saying both JOIN and LEAVE
+reads as LEAVE. Replies apply in sent order, and a JOIN
 from anyone who has opted out on any send is skipped, so a STOP stays the
 last word across uploads.
+
+A text to a panel-only list carries `CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to
+leave my civic panel.") instead of the JOIN line, appended and locked by the
+composer the same way, and the create stamps `Outreach.offersCivicPanelLeave`
+from the stored message. The create 400s a message carrying both lines, and
+the LEAVE line on a list that is not panel-only; the controller refuses it
+with `serve-citizen-panels` off, like the JOIN line.
 
 **The audience side.** `voter_file_filter.civic_panel_member` is the saved-
 filter dimension for the panel, built exactly like `follow_up_requested`:

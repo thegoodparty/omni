@@ -60,6 +60,8 @@ const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
     'Every text has to offer a way to opt out, but you can write around it.',
   civic_panel_join:
     'This is how people join your civic panel. Uncheck the box below to remove it.',
+  civic_panel_leave:
+    'This is how people leave your civic panel and keep getting your texts. You can write around it.',
 }
 
 // A text that builds the panel is its ask, so there is no box to uncheck.

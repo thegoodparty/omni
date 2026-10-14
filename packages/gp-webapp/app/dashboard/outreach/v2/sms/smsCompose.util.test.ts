@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
+  CIVIC_PANEL_LEAVE_LINE,
   deriveSmsProtectedParts,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -20,6 +21,8 @@ import {
   unfilledBrackets,
   upgradeScriptFooter,
   withCivicPanelJoin,
+  withCivicPanelLeave,
+  withCivicPanelLines,
   composeServeScript,
 } from './smsCompose.util'
 
@@ -422,5 +425,51 @@ describe('withCivicPanelJoin', () => {
       text: CIVIC_PANEL_JOIN_LINE,
       start: asked.indexOf(CIVIC_PANEL_JOIN_LINE),
     })
+  })
+})
+
+describe('withCivicPanelLeave', () => {
+  const base = composeServeScript('What do you think about the park?')
+
+  it('puts the LEAVE line in its own paragraph, above the opt-out', () => {
+    expect(withCivicPanelLeave(base, true)).toBe(
+      `Hello {{first_name}}, What do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('takes it back out and leaves the message as it was', () => {
+    expect(withCivicPanelLeave(withCivicPanelLeave(base, true), false)).toBe(
+      base,
+    )
+    const offered = withCivicPanelLeave(base, true)
+    expect(withCivicPanelLeave(offered, true)).toBe(offered)
+  })
+
+  it('never leaves both lines in a message', () => {
+    const asked = withCivicPanelJoin(base, true)
+    const offered = withCivicPanelLeave(asked, true)
+    expect(offered).not.toContain(CIVIC_PANEL_JOIN_LINE)
+    expect(offered).toContain(CIVIC_PANEL_LEAVE_LINE)
+    const backToJoin = withCivicPanelLines(offered, {
+      join: true,
+      leave: false,
+    })
+    expect(backToJoin).toBe(asked)
+    expect(withCivicPanelLines(offered, { join: true, leave: true })).toBe(
+      offered,
+    )
+  })
+
+  it('locks the line and counts it in the length', () => {
+    const offered = withCivicPanelLeave(base, true)
+    expect(
+      deriveSmsProtectedParts(offered, { channel: 'serve' }).find(
+        (candidate) => candidate.rule === 'civic_panel_leave',
+      ),
+    ).toMatchObject({
+      text: CIVIC_PANEL_LEAVE_LINE,
+      start: offered.indexOf(CIVIC_PANEL_LEAVE_LINE),
+    })
+    expect(offered.length).toBe(base.length + CIVIC_PANEL_LEAVE_LINE.length + 2)
   })
 })

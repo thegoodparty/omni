@@ -697,6 +697,91 @@ describe('OutreachTextIngestService civic panel', () => {
     ).toBe(1)
   })
 
+  const seedMember = (personId: string) =>
+    service.prisma.contactCurrentStatus.create({
+      data: {
+        organizationSlug: EO_SLUG,
+        personId,
+        field: 'civic_panel',
+        value: 'member',
+      },
+    })
+
+  it('takes a member who replies LEAVE off the panel without opting them out', async () => {
+    await seedServeSend(false)
+    await seedMember(PERSON_1.personId)
+
+    await upload([row(PERSON_1.phone, 'Leave please')])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+    const events = await service.prisma.contactStatusEvent.findMany({
+      where: { organizationSlug: EO_SLUG, field: 'civic_panel' },
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      personId: PERSON_1.personId,
+      fromValue: 'member',
+      toValue: 'left',
+      source: 'sms',
+    })
+    expect(
+      await textInteractions.latestOptOutAt(EO_SLUG, PERSON_1.personId),
+    ).toBeNull()
+    expect(
+      (await textInteractions.findOptedOutPersonIds(EO_SLUG)).includes(
+        PERSON_1.personId,
+      ),
+    ).toBe(false)
+  })
+
+  it('writes nothing for a LEAVE from someone not on the panel', async () => {
+    await seedServeSend(false)
+
+    await upload([row(PERSON_1.phone, 'LEAVE')])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+    expect(
+      await service.prisma.contactStatusEvent.count({
+        where: { organizationSlug: EO_SLUG, field: 'civic_panel' },
+      }),
+    ).toBe(0)
+  })
+
+  it('writes one leave when the same LEAVE is uploaded twice', async () => {
+    await seedServeSend(false)
+    await seedMember(PERSON_1.personId)
+
+    await upload([row(PERSON_1.phone, 'LEAVE')])
+    await upload([row(PERSON_1.phone, 'LEAVE')])
+
+    expect(
+      await service.prisma.contactStatusEvent.count({
+        where: { organizationSlug: EO_SLUG, field: 'civic_panel' },
+      }),
+    ).toBe(1)
+  })
+
+  it('still opts a member out of every text on STOP', async () => {
+    await seedServeSend(false)
+    await seedMember(PERSON_1.personId)
+
+    await upload([row(PERSON_1.phone, 'STOP')])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+    expect(
+      await textInteractions.latestOptOutAt(EO_SLUG, PERSON_1.personId),
+    ).not.toBeNull()
+  })
+
+  it('reads a reply that says JOIN and LEAVE as leaving', async () => {
+    await seedServeSend(true)
+    await seedMember(PERSON_1.personId)
+
+    await upload([row(PERSON_1.phone, 'JOIN. LEAVE')])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('left')
+  })
+
   it('never writes panel membership for a Win send', async () => {
     await service.prisma.outreach.update({
       where: { id: outreach.id },

@@ -51,6 +51,10 @@ model Outreach {
   // Set at create when the message carries the civic panel JOIN line, so the
   // reply ingest reads JOIN replies off this send and nothing else.
   asksToJoinCivicPanel              Boolean                            @default(false) @map("asks_to_join_civic_panel")
+  // Set at create when the message carries the civic panel LEAVE line, which
+  // only a send to panel members alone carries, never beside the JOIN line.
+  // A LEAVE reply is honored on any Serve send; this records the offer.
+  offersCivicPanelLeave             Boolean                            @default(false) @map("offers_civic_panel_leave")
   // Set on a Serve text that reports back to the people an earlier text
   // asked. It marks the send as not itself an ask (no report back is owed on
   // it) and completes the earlier send's "Report back" card once it goes out.

@@ -13,6 +13,7 @@ import {
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
   REPORT_BACK_PURPOSE,
   ServeSmsCreateRequest,
   ServeSmsCreateRequestSchema,
@@ -224,6 +225,17 @@ export class OutreachServeSmsController {
     ) {
       throw new BadRequestException(
         "This text asks people to join a civic panel, which isn't on for your office yet. Remove that line and try again.",
+      )
+    }
+    if (
+      findCivicPanelLeaveLine(input.message) &&
+      !(await this.features.isFeatureEnabled({
+        user,
+        feature: SERVE_CITIZEN_PANELS_FLAG,
+      }))
+    ) {
+      throw new BadRequestException(
+        "This text offers a way to leave a civic panel, which isn't on for your office yet. Remove that line and try again.",
       )
     }
     if (input.reportBackForOutreachId !== undefined) {
