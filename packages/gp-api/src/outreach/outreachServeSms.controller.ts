@@ -223,7 +223,7 @@ export class OutreachServeSmsController {
       }))
     ) {
       throw new BadRequestException(
-        "This text asks people to join a citizens' panel, which isn't on for your office yet. Remove that line and try again.",
+        "This text asks people to join a civic panel, which isn't on for your office yet. Remove that line and try again.",
       )
     }
     if (input.reportBackForOutreachId !== undefined) {

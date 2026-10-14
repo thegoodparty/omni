@@ -97,7 +97,7 @@ generation services, the spine scoping — are in
   API roll out together — but the flag gates UX, not authz:
   `@UseElectedOffice()` is still the real check.
 - **`?compose=text&purpose=build_citizens_panel` opens the panel invite
-  directly.** The Chief of Staff's "Build your citizens' panel" card no
+  directly.** The Chief of Staff's "Build your civic panel" card no
   longer links here (it opens the Chief of Staff chat on the home, whose
   proposal card opens the same flow over the conversation), but the link
   still works for anything that sends it. Once both `serve-sms-outreach` and

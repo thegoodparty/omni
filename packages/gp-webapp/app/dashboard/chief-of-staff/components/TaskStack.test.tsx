@@ -214,7 +214,7 @@ describe('<TaskStack>', () => {
   const buildCard = card({
     id: 'build',
     type: 'civic_panel',
-    title: "Build your citizens' panel",
+    title: 'Build your civic panel',
     summary:
       'A paid text to up to 3,334 residents, about $117, so you hear from more than the loudest voices.',
     ctaLabel: 'Get started',
@@ -231,14 +231,14 @@ describe('<TaskStack>', () => {
     ).not.toBeInTheDocument()
   })
 
-  it("leads with the citizens' panel build card, ahead of get-started cards", () => {
+  it('leads with the civic panel build card, ahead of get-started cards', () => {
     onboardingRef.current = [{ key: 'meet', status: 'active' }]
     withCards([card({}), buildCard])
     render(<TaskStack onOpenCard={vi.fn()} />)
     expect(
       screen.getByRole('heading', {
         level: 2,
-        name: "Build your citizens' panel",
+        name: 'Build your civic panel',
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(ONBOARDING_CARDS.meet.title)).toBeNull()
@@ -269,7 +269,7 @@ describe('<TaskStack>', () => {
     expect(
       screen.getByRole('heading', {
         level: 2,
-        name: "Build your citizens' panel",
+        name: 'Build your civic panel',
       }),
     ).toBeInTheDocument()
     expect(

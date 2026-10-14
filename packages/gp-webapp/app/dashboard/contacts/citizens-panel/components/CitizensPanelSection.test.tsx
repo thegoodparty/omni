@@ -48,7 +48,7 @@ describe('CitizensPanelSection', () => {
 
     expect(await screen.findByText('1,240')).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: "Your citizens' panel" }),
+      screen.getByRole('heading', { name: 'Your civic panel' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Members')).toBeInTheDocument()
     expect(screen.getByText('Reached in the last 30 days')).toBeInTheDocument()
@@ -69,10 +69,10 @@ describe('CitizensPanelSection', () => {
     render(<CitizensPanelSection />)
 
     expect(
-      await screen.findByText("Nobody has joined your citizens' panel yet."),
+      await screen.findByText('Nobody has joined your civic panel yet.'),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: "Build your citizens' panel" }),
+      screen.getByRole('link', { name: 'Build your civic panel' }),
     ).toHaveAttribute('href', '/dashboard/chief-of-staff')
     expect(
       screen.queryByRole('link', { name: 'See your panel' }),
@@ -86,7 +86,7 @@ describe('CitizensPanelSection', () => {
 
     expect(
       await screen.findByText(
-        "We couldn't load your citizens' panel. Refresh the page to try again.",
+        "We couldn't load your civic panel. Refresh the page to try again.",
       ),
     ).toBeInTheDocument()
   })

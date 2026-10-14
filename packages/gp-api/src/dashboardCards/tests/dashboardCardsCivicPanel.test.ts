@@ -90,12 +90,12 @@ const titles = (cards: { title: string }[]) =>
 
 const buildCard = {
   type: 'civic_panel',
-  title: "Build your citizens' panel",
+  title: 'Build your civic panel',
   ctaLabel: 'Get started',
   ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
 }
 
-describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
+describe('GET /v1/dashboard/cards: the civic panel build card', () => {
   it('starts an office on one build card, with a card per priority beside it', async () => {
     const eo = await seedElectedOffice('eo-civic-build-first')
     const housing = await seedPriority(eo.id, 'Affordable housing')
@@ -223,6 +223,47 @@ describe("GET /v1/dashboard/cards: the citizens' panel build card", () => {
     const [after] = await panelRows(eo.id)
     expect(after?.completedAt).not.toBeNull()
     expect(after?.dismissedAt).toBeNull()
+  })
+
+  it('gives a done build card the current title, and keeps it done', async () => {
+    const orgSlug = 'eo-civic-build-done-renamed'
+    const eo = await seedElectedOffice(orgSlug)
+    await listCards(orgSlug)
+    const [card] = await panelRows(eo.id)
+    if (!card) throw new Error('no card')
+    const completedAt = subDays(new Date(), 5)
+    await service.prisma.dashboardCard.update({
+      where: { id: card.id },
+      data: { title: "Build your citizens' panel", completedAt },
+    })
+
+    await listCards(orgSlug)
+
+    const [after] = await panelRows(eo.id)
+    expect(after).toMatchObject({
+      title: buildCard.title,
+      completedAt,
+      dueDate: card.dueDate,
+    })
+  })
+
+  it('renames the build card as the text that finishes it is read', async () => {
+    const orgSlug = 'eo-civic-build-sent-renamed'
+    const eo = await seedElectedOffice(orgSlug)
+    await listCards(orgSlug)
+    const [card] = await panelRows(eo.id)
+    if (!card) throw new Error('no card')
+    await service.prisma.dashboardCard.update({
+      where: { id: card.id },
+      data: { title: "Build your citizens' panel" },
+    })
+    await seedText(orgSlug, OutreachStatus.completed)
+
+    await listCards(orgSlug)
+
+    const [after] = await panelRows(eo.id)
+    expect(after?.title).toBe(buildCard.title)
+    expect(after?.completedAt).not.toBeNull()
   })
 
   it('keeps an open build card from lapsing into missed', async () => {
@@ -502,7 +543,7 @@ const OTHER_TITLES = [
   'Rezoning on Main Street',
 ]
 
-describe("The citizens' panel build card, with the priorities and the usual cards under it", () => {
+describe('The civic panel build card, with the priorities and the usual cards under it', () => {
   const ALL = [buildCard.title, 'Affordable housing', ...OTHER_TITLES].sort()
   const WITHOUT_BUILD = ['Affordable housing', ...OTHER_TITLES].sort()
 

@@ -294,7 +294,7 @@ describe('Serve SMS feature gate', () => {
     expect(createDraft).toHaveBeenCalledOnce()
   })
 
-  it("404s a citizens' panel draft while serve-citizen-panels is off", async () => {
+  it('404s a civic panel draft while serve-citizen-panels is off', async () => {
     isFeatureEnabled.mockImplementation(
       async ({ feature }: { feature: string }) =>
         feature !== 'serve-citizen-panels',
@@ -349,7 +349,7 @@ describe('Serve SMS feature gate', () => {
     expect(createDraft).toHaveBeenCalledOnce()
   })
 
-  it("drafts a citizens' panel text with serve-citizen-panels on", async () => {
+  it('drafts a civic panel text with serve-citizen-panels on', async () => {
     const res = await postDraft({
       purpose: 'build_citizens_panel',
       tone: 'warm',

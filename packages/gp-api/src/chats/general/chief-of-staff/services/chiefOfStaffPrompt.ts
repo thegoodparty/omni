@@ -257,7 +257,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
 }
 
 // What the agent does when the official presses Get started on the "Build
-// your citizens' panel" card: the home sends BUILD_CITIZENS_PANEL_MESSAGE as
+// your civic panel" card: the home sends BUILD_CITIZENS_PANEL_MESSAGE as
 // a hidden turn. Behind serve-citizen-panels (civicPanel is only read with it
 // on). The steps follow what is already true, so it never offers a second
 // invite or a text the office cannot send.

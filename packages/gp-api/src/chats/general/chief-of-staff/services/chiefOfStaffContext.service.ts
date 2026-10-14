@@ -56,7 +56,7 @@ export interface ChiefOfStaffContext {
   // Whether read_outreach_feedback registers: the serve-citizen-panels flag
   // for the chatting user, resolved per turn by the handler.
   outreachFeedbackEnabled?: boolean
-  // Where the citizens' panel stands, read per turn behind the same flag.
+  // Where the civic panel stands, read per turn behind the same flag.
   // Undefined while it is off, so nothing about building a panel reaches the
   // prompt or the proposal tool.
   civicPanel?: CivicPanelBuildState

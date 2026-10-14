@@ -122,10 +122,17 @@ describe('DashboardContent: Get started on the civic panel card', () => {
         expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
       ),
     )
-    // The real chat body mounts here, which is slow on a cold run.
-    expect(
-      await screen.findByText(REPLY, undefined, { timeout: 5000 }),
-    ).toBeInTheDocument()
+    // The real chat body mounts here, which is slow on a cold run. Found and
+    // checked in one callback: the streamed reply's node is swapped for the
+    // saved transcript's once it lands, so an element found a moment earlier
+    // can already be detached by the time a separate assertion reads it.
+    await waitFor(
+      () => {
+        expect(listMessagesMock).toHaveBeenCalled()
+        expect(screen.getByText(REPLY)).toBeInTheDocument()
+      },
+      { timeout: 5000 },
+    )
     expect(screen.queryByText(/Help me build my civic panel/)).toBeNull()
     expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff', {
       scroll: false,

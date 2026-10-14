@@ -294,16 +294,16 @@ describe('SmsFlow (Serve surface)', () => {
     await screen.findByText(OPT_OUT_FOOTER)
   }
 
-  it('offers no citizens panel ask with serve-citizen-panels off', async () => {
+  it('offers no civic panel ask with serve-citizen-panels off', async () => {
     await composeWithDraft()
 
     expect(
-      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
     ).toBeNull()
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
   })
 
-  it('adds the JOIN line when the citizens panel ask is checked', async () => {
+  it('adds the JOIN line when the civic panel ask is checked', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -311,7 +311,7 @@ describe('SmsFlow (Serve surface)', () => {
     await composeWithDraft()
 
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).not.toBeChecked()
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
@@ -319,7 +319,7 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(ask)
 
     expect(
-      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+      await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     expect(ask).toBeChecked()
   })
@@ -327,7 +327,7 @@ describe('SmsFlow (Serve surface)', () => {
   // A priority card that asks the panel and new residents in one send opens
   // with the ask on. The seed is signed with the official's name after the
   // flow opens, and that pass must not drop the ask.
-  it("keeps a chat card's citizens panel ask through the seed's signing", async () => {
+  it("keeps a chat card's civic panel ask through the seed's signing", async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -356,10 +356,10 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+      await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).toBeChecked()
     // Not a panel-building text, so the official can still take it off.
@@ -403,7 +403,7 @@ describe('SmsFlow (Serve surface)', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
     expect(
-      screen.queryByRole('checkbox', { name: /join your citizens' panel/i }),
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
     ).toBeNull()
   })
 
@@ -417,13 +417,13 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText('Report back to the people you asked')).toBeNull()
   })
 
-  it("hides building a citizens' panel with serve-citizen-panels off", async () => {
+  it('hides building a civic panel with serve-citizen-panels off', async () => {
     openServeFlow()
     await screen.findByText('Explain a recent decision')
-    expect(screen.queryByText("Build your citizens' panel")).toBeNull()
+    expect(screen.queryByText('Build your civic panel')).toBeNull()
   })
 
-  it("lists building a citizens' panel first with serve-citizen-panels on", async () => {
+  it('lists building a civic panel first with serve-citizen-panels on', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -431,13 +431,13 @@ describe('SmsFlow (Serve surface)', () => {
     openServeFlow()
 
     expect(
-      await screen.findByText("Build your citizens' panel"),
+      await screen.findByText('Build your civic panel'),
     ).toBeInTheDocument()
   })
 
   // The card already answered the purpose, and a panel text is its ask, so
   // the box is ticked and cannot be unticked.
-  it("opens on the citizens' panel purpose with the JOIN ask locked on", async () => {
+  it('opens on the civic panel purpose with the JOIN ask locked on', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -472,11 +472,11 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText(/Reply JOIN to join my citizens' panel/),
+      await screen.findByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()
@@ -493,14 +493,14 @@ describe('SmsFlow (Serve surface)', () => {
       editor.view.dispatch(editor.state.tr.delete(at - 1, at))
     })
     expect(await screen.findByRole('status')).toHaveTextContent(
-      "This is how people join your citizens' panel, but you can write around it.",
+      'This is how people join your civic panel, but you can write around it.',
     )
   })
 
   // The Chief of Staff's invite card carries its own words and the build
   // purpose. The words are kept, not drafted over, and the send is still the
   // build purpose's: the ask locked on and the purpose on the draft.
-  it("keeps a card's invite on the citizens' panel purpose, the JOIN ask locked on", async () => {
+  it("keeps a card's invite on the civic panel purpose, the JOIN ask locked on", async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -539,10 +539,10 @@ describe('SmsFlow (Serve surface)', () => {
       await screen.findByText(/I am starting a civic panel/),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/Reply JOIN to join my citizens' panel/),
+      screen.getByText(/Reply JOIN to join my civic panel/),
     ).toBeInTheDocument()
     const ask = screen.getByRole('checkbox', {
-      name: /join your citizens' panel/i,
+      name: /join your civic panel/i,
     })
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()

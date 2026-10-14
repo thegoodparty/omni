@@ -93,7 +93,7 @@ describe('CitizensPanelView', () => {
     )
 
     expect(
-      screen.getByRole('link', { name: "Build your citizens' panel" }),
+      screen.getByRole('link', { name: 'Build your civic panel' }),
     ).toHaveAttribute('href', '/dashboard/chief-of-staff')
     expect(
       screen.queryByRole('link', { name: 'See members' }),

@@ -58,7 +58,7 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
-  // The citizens' panel build card: it leads the deck, and closes itself
+  // The civic panel build card: it leads the deck, and closes itself
   // once its text has gone out.
   buildsPanel: boolean
 }
@@ -73,7 +73,7 @@ const HEADLINES: Record<DeckKind, string> = {
 }
 
 // The build card shares its type with the per-priority panel cards.
-const BUILD_PANEL_HEADLINE = "Build your citizens' panel"
+const BUILD_PANEL_HEADLINE = 'Build your civic panel'
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||

@@ -221,7 +221,7 @@ describe('ContactsService.getFilterDimensions', () => {
     ({ slug }) as Organization
   const PANELS_ON = { citizenPanels: true }
 
-  it("leaves the citizens' panel dimensions out while the flag is off", () => {
+  it('leaves the civic panel dimensions out while the flag is off', () => {
     const off = buildService()
       .getFilterDimensions(organization('eo-city-council'), {
         citizenPanels: false,

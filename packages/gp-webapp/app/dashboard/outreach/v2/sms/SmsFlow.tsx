@@ -332,7 +332,7 @@ interface SmsFlowProps {
   // a draft immediately overwrites.
   initialScript?: string
   // Opens past the purpose picker on this purpose, as a card that already
-  // answered it (the Chief of Staff's citizens' panel card).
+  // answered it (the Chief of Staff's civic panel card).
   initialPurpose?: SmsFlowPurpose
   // What an agent's proposal knows about the event it invites people to; the
   // details step opens on it.
@@ -347,7 +347,7 @@ interface SmsFlowProps {
   // paid one reads as sent and cannot be paid twice) and, on a priority, the
   // paid send puts its check out.
   proposalLink?: ProposalLink
-  // Serve: open with the citizens' panel ask on, as a chat card asked for.
+  // Serve: open with the civic panel ask on, as a chat card asked for.
   initialAsksToJoinCivicPanel?: boolean
   // Serve: a chat card already settled who gets this and saved the list
   // (preselectedListId). The flow opens on the message with this line about
@@ -399,14 +399,14 @@ const sendTimeLabel = (d: Date, timeZone?: string) =>
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
-// The first citizens' panel text ends on what it set in motion, and goes back
+// The first civic panel text ends on what it set in motion, and goes back
 // to the panel it is building rather than to the outreach page.
 const SERVE_PANEL_SEED_SUCCESS_COPY = {
   title: 'Your panel invite is scheduled',
   reach: (count: string, when: string) =>
     `It goes to ${count} residents${when}.`,
   next: 'Replies come in over the next few days. Anyone who replies JOIN is added to your panel.',
-  action: "See your citizens' panel",
+  action: 'See your civic panel',
 }
 
 // Exported for its component test — the paid branch is unreachable through
@@ -611,7 +611,7 @@ export const SmsFlow = ({
   // candidate is halfway through typing never locks under their cursor.
   const [lockSource, setLockSource] = useState('')
   // Serve only, behind serve-citizen-panels: whether this text asks people to
-  // reply JOIN for the official's citizens' panel. Every message the flow
+  // reply JOIN for the official's civic panel. Every message the flow
   // composes carries the line while it is on, and the toggle adds or removes
   // it from the current one.
   const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(
