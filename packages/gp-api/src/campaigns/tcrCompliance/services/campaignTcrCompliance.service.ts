@@ -1890,16 +1890,6 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     const existing = await this.fetchByCampaignId(campaign.id)
-    if (
-      await this.isPastSmsCutoff({
-        userId: user.id,
-        campaign,
-        tcrCompliance: existing,
-        path: 'agentic',
-      })
-    ) {
-      throw smsComplianceCutoffException()
-    }
     const isRetryableFailure =
       existing?.status === TcrComplianceStatus.error ||
       existing?.status === TcrComplianceStatus.rejected
@@ -2018,7 +2008,16 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // candidate. Already-Pro submissions (post-payment
     // resubmission) enqueue immediately, as before. Test-org rows skip
     // dispatch entirely — internalTestingAt marks them synthetic.
-    if (campaign.isPro && !record.internalTestingAt) {
+    if (
+      campaign.isPro &&
+      !record.internalTestingAt &&
+      !(await this.isPastSmsCutoff({
+        userId: user.id,
+        campaign,
+        tcrCompliance: record,
+        path: 'agentic',
+      }))
+    ) {
       try {
         await this.claimAndEnqueueKickoff(record, user.clerkId)
       } catch (err) {
