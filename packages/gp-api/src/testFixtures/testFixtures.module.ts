@@ -1,3 +1,4 @@
+import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { Module } from '@nestjs/common'
@@ -10,6 +11,7 @@ import { StateTransitionsModule } from './stateTransitions.module'
   imports: [
     ActivitySeedModule,
     ClerkModule,
+    ElectionsModule,
     OrganizationsModule,
     StateTransitionsModule,
   ],

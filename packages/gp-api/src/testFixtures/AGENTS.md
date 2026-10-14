@@ -50,6 +50,12 @@ starts a second run, and the robocall is written fully settled so no sweep
 treats it as live. Win orgs get support and will-vote answers; `eo-` orgs get
 follow-up and civic panel answers. Never wire this into Test mode.
 
+`POST /v1/test-fixtures/users` takes `activity: 'seeded'` to run the same
+seed on the new org (not with `free-win`, which has nothing to show). A
+seeded `serve` fixture is bound to the default race's seat instead of the
+custom position, because the custom position has no district to sample.
+Locally, `npm run seed:activity` drives both (`docs/development.md`).
+
 ## Gotchas
 
 - The env gate is `IS_NON_PROD_DEPLOY` (fail-closed) and it 404s, not 403s.

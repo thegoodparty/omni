@@ -23,11 +23,21 @@ export type FetchImpl = typeof fetch
 // Mirrors deviceFlow.ts: a stalled Clerk or localhost connection must not
 // hang the terminal at the final step of an otherwise-finished bootstrap.
 const FETCH_TIMEOUT_MS = 10_000
+// Seeding samples the district from Databricks and then writes a few hundred
+// interactions one by one, so it legitimately takes a minute or more.
+const SEED_TIMEOUT_MS = 300_000
 
 export type SeedLoginResult =
   | { kind: 'skipped'; reason: string }
-  | { kind: 'minted'; email: string; password: string }
+  | { kind: 'minted'; email: string; password: string; orgSlug?: string }
   | { kind: 'failed'; reason: string }
+
+export type SeedActivityResult =
+  | { kind: 'skipped'; reason: string }
+  | { kind: 'seeded'; people: number; memos: number; efforts: number }
+  | { kind: 'failed'; reason: string }
+
+const MISSING_SECRET = 'LOCAL_SETUP_CLERK_MACHINE_SECRET not set'
 
 const mintM2MToken = async (
   machineSecret: string,
@@ -57,24 +67,35 @@ const mintFixtureUser = async (
   m2mToken: string,
   userState: string,
   fetchImpl: FetchImpl,
-): Promise<{ email: string; password: string }> => {
+  withActivity: boolean,
+): Promise<{ email: string; password: string; orgSlug?: string }> => {
   const res = await fetchImpl(`${GP_API_BASE_URL}/v1/test-fixtures/users`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${m2mToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ state: userState }),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    body: JSON.stringify(
+      withActivity
+        ? { state: userState, activity: 'seeded' }
+        : { state: userState },
+    ),
+    signal: AbortSignal.timeout(
+      withActivity ? SEED_TIMEOUT_MS : FETCH_TIMEOUT_MS,
+    ),
   })
   if (res.status !== 201) {
     throw new Error(`test-fixtures/users failed: HTTP ${res.status}`)
   }
-  const body = (await res.json()) as { email?: string; password?: string }
+  const body = (await res.json()) as {
+    email?: string
+    password?: string
+    orgSlug?: string
+  }
   if (!body.email || !body.password) {
     throw new Error('test-fixtures/users response missing email/password')
   }
-  return { email: body.email, password: body.password }
+  return { email: body.email, password: body.password, orgSlug: body.orgSlug }
 }
 
 // Orchestrates the skip/mint/fail paths setup.sh's final step needs. A
@@ -85,21 +106,65 @@ export const runSeedLogin = async (
   machineSecret: string,
   userState: string,
   fetchImpl: FetchImpl = fetch,
+  withActivity = false,
 ): Promise<SeedLoginResult> => {
   if (!machineSecret) {
-    return {
-      kind: 'skipped',
-      reason: 'LOCAL_SETUP_CLERK_MACHINE_SECRET not set',
-    }
+    return { kind: 'skipped', reason: MISSING_SECRET }
   }
   try {
     const m2mToken = await mintM2MToken(machineSecret, fetchImpl)
-    const { email, password } = await mintFixtureUser(
+    const user = await mintFixtureUser(
       m2mToken,
       userState,
       fetchImpl,
+      withActivity,
     )
-    return { kind: 'minted', email, password }
+    return { kind: 'minted', ...user }
+  } catch (error) {
+    return {
+      kind: 'failed',
+      reason: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+// Backs `npm run seed:activity -- --org <slug>`: fills an org that already
+// exists in the local database with outreach, memos and synthesis.
+export const runSeedActivity = async (
+  machineSecret: string,
+  orgSlug: string,
+  fetchImpl: FetchImpl = fetch,
+): Promise<SeedActivityResult> => {
+  if (!machineSecret) {
+    return { kind: 'skipped', reason: MISSING_SECRET }
+  }
+  try {
+    const m2mToken = await mintM2MToken(machineSecret, fetchImpl)
+    const res = await fetchImpl(
+      `${GP_API_BASE_URL}/v1/test-fixtures/organizations/${encodeURIComponent(orgSlug)}/activity`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${m2mToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(SEED_TIMEOUT_MS),
+      },
+    )
+    if (res.status !== 201) {
+      throw new Error(`test-fixtures activity failed: HTTP ${res.status}`)
+    }
+    const body = (await res.json()) as {
+      people: number
+      efforts: Array<{ memos: number }>
+    }
+    return {
+      kind: 'seeded',
+      people: body.people,
+      efforts: body.efforts.length,
+      memos: body.efforts.reduce((total, effort) => total + effort.memos, 0),
+    }
   } catch (error) {
     return {
       kind: 'failed',

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { runSeedLogin } from './seedLogin'
+import { runSeedActivity, runSeedLogin } from './seedLogin'
 
 const jsonResponse = (status: number, body: unknown): Response =>
   ({
@@ -102,6 +102,88 @@ describe('runSeedLogin', () => {
     expect(result).toEqual({
       kind: 'failed',
       reason: 'test-fixtures/users response missing email/password',
+    })
+  })
+
+  it('asks for seeded activity and returns the fixture org', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { token: 'mt_abc' }))
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          email: 'qa-123@goodparty.org',
+          password: 'correct-horse',
+          orgSlug: 'eo-abc',
+        }),
+      )
+
+    const result = await runSeedLogin('secret_123', 'serve', fetchImpl, true)
+
+    expect(result).toEqual({
+      kind: 'minted',
+      email: 'qa-123@goodparty.org',
+      password: 'correct-horse',
+      orgSlug: 'eo-abc',
+    })
+    const [, fixtureInit] = fetchImpl.mock.calls[1]
+    expect(JSON.parse(fixtureInit.body)).toEqual({
+      state: 'serve',
+      activity: 'seeded',
+    })
+  })
+})
+
+describe('runSeedActivity', () => {
+  it('skips cleanly when the machine secret is absent', async () => {
+    const fetchImpl = vi.fn()
+
+    const result = await runSeedActivity('', 'eo-abc', fetchImpl)
+
+    expect(result).toEqual({
+      kind: 'skipped',
+      reason: 'LOCAL_SETUP_CLERK_MACHINE_SECRET not set',
+    })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('seeds the org and totals what it wrote', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { token: 'mt_abc' }))
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          organizationSlug: 'eo-abc',
+          people: 250,
+          efforts: [{ memos: 90 }, { memos: 150 }, { memos: 50 }, { memos: 0 }],
+        }),
+      )
+
+    const result = await runSeedActivity('secret_123', 'eo-abc', fetchImpl)
+
+    expect(result).toEqual({
+      kind: 'seeded',
+      people: 250,
+      efforts: 4,
+      memos: 290,
+    })
+    const [url, init] = fetchImpl.mock.calls[1]
+    expect(url).toBe(
+      'http://localhost:3000/v1/test-fixtures/organizations/eo-abc/activity',
+    )
+    expect(init.headers.Authorization).toBe('Bearer mt_abc')
+  })
+
+  it('fails when gp-api refuses the org', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { token: 'mt_abc' }))
+      .mockResolvedValueOnce(jsonResponse(400, {}))
+
+    const result = await runSeedActivity('secret_123', 'eo-abc', fetchImpl)
+
+    expect(result).toEqual({
+      kind: 'failed',
+      reason: 'test-fixtures activity failed: HTTP 400',
     })
   })
 })
