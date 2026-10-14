@@ -338,7 +338,14 @@ const LOKI_ATTRIBUTION_PROSE = [
   '  | unwrap total_bytes [24h]',
   ')))',
   '```',
-  'Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the rules.',
+  'When the rules are not the offender, the reader is a person or an agent. Rules were about 0.1 of the allowance on 2026-10-13 and a few `query_range` calls over 5-20 day windows (80-175 GB each, from Explore and the Grafana MCP) pushed the 6h ratio past 15. List the biggest single reads:',
+  '```',
+  'topk(10, sum by (grafana_username, user_agent, query_hash) (',
+  '  sum_over_time({instance_type="logs"} | logfmt | __error__="" | source!="grafana-alert"',
+  '  | unwrap total_bytes [24h])',
+  '))',
+  '```',
+  'Nothing in the repo can bound those. Ask whoever it names to keep ad-hoc windows to hours and to run `query_loki_stats` first; the 6h average takes about six hours to clear after the last big read.',
 ].join('\n')
 
 /*
