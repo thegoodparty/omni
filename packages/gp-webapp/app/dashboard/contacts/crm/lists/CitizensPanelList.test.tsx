@@ -72,7 +72,7 @@ describe('CitizensPanelListCard', () => {
     mockSummary(2)
     render(<CitizensPanelListCard />)
 
-    expect(await screen.findByText("Citizens' panel")).toBeInTheDocument()
+    expect(await screen.findByText('Civic panel')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Details' }))
@@ -91,7 +91,7 @@ describe('CitizensPanelListCard', () => {
     render(<CitizensPanelListCard />)
 
     await waitFor(() => expect(summary).toHaveBeenCalled())
-    expect(screen.queryByText("Citizens' panel")).not.toBeInTheDocument()
+    expect(screen.queryByText('Civic panel')).not.toBeInTheDocument()
   })
 
   it('stays hidden with the flag off, without asking for the panel', () => {
@@ -106,7 +106,7 @@ describe('CitizensPanelListCard', () => {
     })
     render(<CitizensPanelListCard />)
 
-    expect(screen.queryByText("Citizens' panel")).not.toBeInTheDocument()
+    expect(screen.queryByText('Civic panel')).not.toBeInTheDocument()
     expect(summary).not.toHaveBeenCalled()
   })
 
@@ -115,11 +115,11 @@ describe('CitizensPanelListCard', () => {
     mockSummary(2)
     render(<CitizensPanelListCard />)
 
-    expect(screen.queryByText("Citizens' panel")).not.toBeInTheDocument()
+    expect(screen.queryByText('Civic panel')).not.toBeInTheDocument()
   })
 })
 
-describe('ListDetailSheet — the built-in citizens panel list', () => {
+describe('ListDetailSheet — the built-in civic panel list', () => {
   const mockPanel = () => {
     const detailBodies: unknown[] = []
     const segments: (string | undefined)[] = []
@@ -174,11 +174,9 @@ describe('ListDetailSheet — the built-in citizens panel list', () => {
 
     const dialog = await screen.findByRole('dialog')
     expect(
-      within(dialog).getByRole('heading', { name: "Citizens' panel" }),
+      within(dialog).getByRole('heading', { name: 'Civic panel' }),
     ).toBeInTheDocument()
-    expect(
-      within(dialog).getByText("On your citizens' panel."),
-    ).toBeInTheDocument()
+    expect(within(dialog).getByText('On your civic panel.')).toBeInTheDocument()
     expect(
       await within(dialog).findByRole('button', { name: 'Ada Lovelace' }),
     ).toBeInTheDocument()

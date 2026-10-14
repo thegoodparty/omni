@@ -23,8 +23,8 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   pageCaption:
     'How many people are on it, and how they compare with your district.',
   seeMembers: 'See members',
-  listTitle: "Citizens' panel",
-  listFilter: "On your citizens' panel.",
+  listTitle: 'Civic panel',
+  listFilter: 'On your civic panel.',
   listMembersError: "We couldn't load your panel members. Try again later.",
   unnamedMember: 'Name not on file',
   representationTitle: "Who's on your panel",

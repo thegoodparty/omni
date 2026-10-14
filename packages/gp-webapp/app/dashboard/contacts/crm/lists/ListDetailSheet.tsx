@@ -90,7 +90,7 @@ export default function ListDetailSheet({
   const openChannelPicker = useOpenChannelPicker()
 
   const isUniverse = listId === ALL_SEGMENTS
-  // Serve's built-in citizens' panel list (CitizensPanelListCard): the
+  // Serve's built-in civic panel list (CitizensPanelListCard): the
   // `civicPanelMember` filter with no saved row, so it reads the same
   // unsaved-filter detail a recommended list does. Flag off, the path is an
   // unknown list like any other.

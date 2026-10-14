@@ -122,7 +122,7 @@ import { buildPreviewContacts } from '../utils/previewContacts.utils'
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
 
-// Serve's citizens' panel as a built-in list: resolved through the same
+// Serve's civic panel as a built-in list: resolved through the same
 // path as a saved list holding only the panel filter, so it matches what
 // the `civicPanelMember` dimension selects and is always the current members.
 const CIVIC_PANEL_FILTER: Partial<VoterFileFilter> = { civicPanelMember: true }

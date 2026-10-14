@@ -7,7 +7,7 @@ import { civicPanelSummaryQueryOptions } from '../../citizens-panel/civicPanelSu
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../../citizens-panel/citizensPanelCopy'
 import { useContactsTable } from '../ContactsTableProvider'
 
-// Serve's built-in "Citizens' panel" row: like All constituents, a view with
+// Serve's built-in "Civic panel" row: like All constituents, a view with
 // no saved list behind it, so it is always the current members and never
 // duplicated. Shown once the office has a member.
 export const CitizensPanelListCard = () => {
