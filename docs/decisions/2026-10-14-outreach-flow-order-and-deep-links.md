@@ -3,7 +3,7 @@ title: Text flows ask for the message before the date, and outreach from a chat 
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-14
-code: ['#2746']
+code: ['#2746', '#2752']
 scope:
   - packages/gp-webapp/app/dashboard/outreach/v2/**
   - packages/gp-webapp/app/dashboard/shared/agent-chat/cards/**
