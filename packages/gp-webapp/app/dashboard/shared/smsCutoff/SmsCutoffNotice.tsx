@@ -100,7 +100,9 @@ export const SmsCutoffNotice = ({
           </span>
           <div className="flex flex-col gap-1">
             <p className="text-lg font-semibold">{title}</p>
-            <p className="text-sm text-muted-foreground">{SMS_CUTOFF_COPY.body}</p>
+            <p className="text-sm text-muted-foreground">
+              {SMS_CUTOFF_COPY.body}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 sm:pl-13">
@@ -128,7 +130,9 @@ export const SmsCutoffNotice = ({
         </span>
         <div className="flex max-w-md flex-col gap-2">
           <h2 className="text-xl font-semibold">{title}</h2>
-          <p className="text-base text-muted-foreground">{SMS_CUTOFF_COPY.body}</p>
+          <p className="text-base text-muted-foreground">
+            {SMS_CUTOFF_COPY.body}
+          </p>
         </div>
       </div>
       <div className="flex flex-col gap-3">
