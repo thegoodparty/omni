@@ -202,6 +202,15 @@ export function DistrictPicker({
           </Box>
         </Flex>
 
+        {!loadingTypes && types.length === 0 && (
+          <Text size="2" color="gray">
+            No districts found for {state} {electionYear}
+            {excludeInvalid
+              ? '. Tick "Show all districts" below to include districts without projected turnout.'
+              : '. The district may not be loaded upstream yet.'}
+          </Text>
+        )}
+
         <Flex align="center" gap="2">
           <Checkbox
             checked={!excludeInvalid}
