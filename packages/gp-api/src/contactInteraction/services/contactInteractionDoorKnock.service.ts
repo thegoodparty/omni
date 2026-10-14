@@ -76,6 +76,7 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
         willVote: data.willVote,
         followUp: data.followUp,
         joinCivicPanel: data.joinCivicPanel,
+        stayOnCivicPanel: data.stayOnCivicPanel,
         note: data.note,
         outreachId: data.outreachId,
       },
@@ -166,25 +167,38 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
     })
   }
 
-  // Serve-only, like follow-up. Only a yes writes: declining at one door is
-  // not leaving the panel, so a "no" must never demote an existing member.
+  // Serve-only, like follow-up. On the join question only a yes writes:
+  // declining at one door is not leaving the panel, so a "no" must never
+  // demote an existing member. The stay question is the one a no answers:
+  // it is only asked at a door on a turf of panel members (the interaction
+  // service drops it anywhere else), and a no there takes them off. A yes to
+  // staying writes nothing, so it never re-enrolls someone who left since.
   private async emitCivicPanelEvent(row: ContactInteractionDoorKnock) {
-    if (row.joinCivicPanel !== FollowUpAnswer.yes) {
+    if (!row.organizationSlug.startsWith('eo-')) {
       return
     }
-    if (!row.organizationSlug.startsWith('eo-')) {
+    const toValue =
+      row.joinCivicPanel === FollowUpAnswer.yes
+        ? CivicPanelStatus.member
+        : row.stayOnCivicPanel === FollowUpAnswer.no
+          ? CivicPanelStatus.left
+          : null
+    if (!toValue) {
       return
     }
     await this.contactStatus.changeStatus({
       organizationSlug: row.organizationSlug,
       personId: row.personId,
       field: ContactStatusField.civic_panel,
-      toValue: CivicPanelStatus.member,
+      toValue,
       source: ContactStatusSource.door_knock,
       actorUserId: row.actorUserId,
-      // Stable per knock, so a replayed offline sync no-ops even if the
-      // person has since left the panel by another route.
-      sourceId: `${row.sourceId ?? row.id}:${row.joinCivicPanel}`,
+      // Stable per knock and answer, so a replayed offline sync no-ops even
+      // if the person has since joined or left the panel by another route.
+      sourceId:
+        toValue === CivicPanelStatus.member
+          ? `${row.sourceId ?? row.id}:${row.joinCivicPanel}`
+          : `${row.sourceId ?? row.id}:stay:${row.stayOnCivicPanel}`,
       fallbackFromValue: CivicPanelStatus.left,
     })
   }

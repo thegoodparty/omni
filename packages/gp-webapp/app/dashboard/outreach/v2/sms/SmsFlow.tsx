@@ -23,6 +23,9 @@ import type { TcrCompliance } from 'helpers/types'
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   checkSmsStandards,
+  findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
+  isCivicPanelOnlyList,
   deriveSmsProtectedParts,
   mergeTagToken,
   PRICE_PER_TEXT,
@@ -108,6 +111,7 @@ import {
   composeScript,
   composeServeScript,
   withCivicPanelJoin,
+  withCivicPanelLines,
   ensureSmsIdentification,
   identificationIntro,
   provisionalCommitteeName,
@@ -639,8 +643,6 @@ export const SmsFlow = ({
       ? surface.purposes
       : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
   ).filter(({ id }) => id !== REPORT_BACK_PURPOSE)
-  const composeMessage = (body: string, committee: string | null) =>
-    withCivicPanelJoin(surface.composeMessage(body, committee), asksToJoin)
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
@@ -801,6 +803,20 @@ export const SmsFlow = ({
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
   const reachableCount = audience.reachableCount
+  // A text to civic panel members alone offers them a way off the panel in
+  // place of the JOIN ask: the locked LEAVE line. Read off the picked list's
+  // own criteria, the rule gp-api checks the create against.
+  const offersCivicPanelLeave =
+    surface.isServe &&
+    citizenPanelsEnabled &&
+    selectedList !== null &&
+    isCivicPanelOnlyList(selectedList)
+  const panelLines = {
+    join: asksToJoin && !offersCivicPanelLeave,
+    leave: offersCivicPanelLeave,
+  }
+  const composeMessage = (body: string, committee: string | null) =>
+    withCivicPanelLines(surface.composeMessage(body, committee), panelLines)
 
   // Win p2p SMS hold billing: the pay step can render on the pre-pay estimate
   // before the phone-list build is ready (gp-api runs the matching rollout
@@ -991,9 +1007,15 @@ export const SmsFlow = ({
     // Repaired as a body, then composed: the identification follows the
     // greeting. Composed without a committee; the footer effect below adds
     // the line the message should name.
-    const repaired = withCivicPanelJoin(
+    const repaired = withCivicPanelLines(
       surface.composeMessage(withIdentification(seed, 'warm'), null),
-      surface.isServe && asksToJoinCivicPanelRef.current,
+      {
+        join:
+          surface.isServe &&
+          asksToJoinCivicPanelRef.current &&
+          !offersCivicPanelLeave,
+        leave: offersCivicPanelLeave,
+      },
     )
     setMessage(repaired)
     setLockSource(repaired)
@@ -1028,6 +1050,21 @@ export const SmsFlow = ({
     setMessage(next)
     setLockSource(next)
   }
+  // The list can settle after the message was composed (a card's list
+  // resolving after its seed) or change under it (back to the audience step
+  // for another list), so the civic panel line follows the list.
+  const panelLeaveStale =
+    open &&
+    surface.isServe &&
+    message !== '' &&
+    (offersCivicPanelLeave
+      ? findCivicPanelLeaveLine(message) === null ||
+        findCivicPanelJoinLine(message) !== null
+      : findCivicPanelLeaveLine(message) !== null)
+  useEffect(() => {
+    if (panelLeaveStale) loadMessage(withCivicPanelLines(message, panelLines))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the message and the list disagree, not per keystroke
+  }, [panelLeaveStale])
   // The committee resolves after the flow opens, so a message composed
   // before it has the opt-out line alone. Same upgrade a resumed draft gets.
   useEffect(() => {
@@ -2293,7 +2330,10 @@ export const SmsFlow = ({
           onImageError={setImageError}
           continueAttempts={composeContinueAttempts}
           civicPanelAsk={
-            surface.isServe && citizenPanelsEnabled && !isReportBack
+            surface.isServe &&
+            citizenPanelsEnabled &&
+            !isReportBack &&
+            !offersCivicPanelLeave
               ? {
                   checked: asksToJoin,
                   locked: civicPanelAskLocked,

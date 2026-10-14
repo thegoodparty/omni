@@ -36,6 +36,24 @@ export const findCivicPanelJoinLine = (
   return found
 }
 
+// The way off the panel that is not STOP. STOP ends every text from the
+// office; a member who only wants off the panel replies LEAVE and still gets
+// the office's other texts. Carried, locked, by a send that goes only to
+// panel members (isCivicPanelOnlyList), and never beside the JOIN line. The
+// reply ingest honors LEAVE from a member on any Serve send, so this line is
+// an offer, not the only door: the words matter to the composer's lock and
+// to the stamp the create reads off the stored message.
+export const CIVIC_PANEL_LEAVE_KEYWORD = 'LEAVE'
+
+export const CIVIC_PANEL_LEAVE_LINE = `Reply ${CIVIC_PANEL_LEAVE_KEYWORD} to leave my civic panel.`
+
+export const findCivicPanelLeaveLine = (
+  message: string,
+): { text: string; start: number } | null => {
+  const start = message.lastIndexOf(CIVIC_PANEL_LEAVE_LINE)
+  return start === -1 ? null : { text: CIVIC_PANEL_LEAVE_LINE, start }
+}
+
 // A panelist said yes to being asked, so far more of them answer than a cold
 // text gets. The panel brief cites 40 to 52 percent on UK council panels; this
 // is the low end, until an office's own panel asks give it a measured rate.

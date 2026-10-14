@@ -399,7 +399,13 @@ contracts' `CIVIC_PANEL_JOIN_LINE` is created with `asksToJoinCivicPanel`
 (`util/civicPanelJoin.util.ts`) to such a send sets the person's
 `civic_panel` status to `member`, and a STOP to any Serve send sets it to
 `left`, both through `ContactStatusService` keyed on the reply's message id so
-a re-upload is a no-op. Win sends never write it.
+a re-upload is a no-op. A LEAVE reply (`util/civicPanelLeave.util.ts`) to any
+Serve send sets a member to `left` the same way without opting them out. A
+text to a panel-only list (contracts' `isCivicPanelOnlyList`) carries
+`CIVIC_PANEL_LEAVE_LINE` instead of the JOIN line and is created with
+`offersCivicPanelLeave`; the create 400s both lines together, and the LEAVE
+line on any other list. Win sends never write it. Detail in
+`src/contacts/AGENTS.md`, "Serve's civic panel".
 
 **Serve SMS has one purpose the other channels do not.** The draft schema
 takes contracts' `SERVE_SMS_PURPOSE_VALUES`: the shared Serve list plus

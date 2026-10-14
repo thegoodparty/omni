@@ -177,6 +177,10 @@ export {
   CivicPanelRepresentationSchema,
   type CivicPanelRepresentation,
 } from './people/CivicPanelSummary.schema'
+export {
+  isCivicPanelOnlyList,
+  type CivicPanelOnlyCriteria,
+} from './people/CivicPanelOnlyList'
 
 export {
   ContactNoteSchema,
@@ -1684,6 +1688,9 @@ export {
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
+  CIVIC_PANEL_LEAVE_KEYWORD,
+  CIVIC_PANEL_LEAVE_LINE,
+  findCivicPanelLeaveLine,
   PANEL_ASSUMED_REPLY_RATE,
   CONTACT_REST_DAYS,
   PANEL_SEED_TARGET_MEMBERS,

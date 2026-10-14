@@ -106,6 +106,17 @@ step's "Ask them to join your civic panel" and locks it
 composes carries the JOIN line, and the line's hover reason says they can
 write around it rather than to untick the box.
 
+A Serve text whose picked list is civic panel members only (contracts'
+`isCivicPanelOnlyList` on the list's criteria, behind `serve-citizen-panels`)
+carries `CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to leave my civic panel.") in
+the JOIN line's place: appended above the opt-out and locked
+(`withCivicPanelLeave` / `withCivicPanelLines` in `smsCompose.util.ts`), and
+the "Ask them to join" box is not shown. A message never carries both; when
+the list settles or changes under a composed message (a card's preselected
+list resolving, or going back for another list) the flow swaps the line to
+match. A chat card that asked to join on a panel-only list therefore opens
+with LEAVE.
+
 `report_back` is never in the picker: its audience is one earlier send, which
 only a priority's report back card names. That card opens the Serve `SmsFlow`
 with `initialPurpose: 'report_back'`, its message seeded (the purpose is kept

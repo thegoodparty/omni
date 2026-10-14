@@ -36,8 +36,8 @@ const SERVE_CIVIC_PANEL_ACTIVITY_COPY: {
   },
   left: {
     sms: 'Left by text',
-    door_knock: 'Left',
-    phone_banking: 'Left',
+    door_knock: 'Left at the door',
+    phone_banking: 'Left on a call',
     manual: 'Removed by you',
   },
   lastAsked: 'Last asked',

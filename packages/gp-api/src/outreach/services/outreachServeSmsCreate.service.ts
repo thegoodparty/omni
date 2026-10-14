@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
   findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
+  isCivicPanelOnlyList,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
@@ -273,6 +275,23 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const filterInput: ContactsFilterResolutionInput = { ...filter }
 
+    // The LEAVE line belongs to a send that reaches panel members alone, and
+    // a send never carries both civic panel lines: one asks people on, the
+    // other offers members a way off.
+    const asksToJoinCivicPanel = findCivicPanelJoinLine(input.message) !== null
+    const offersCivicPanelLeave =
+      findCivicPanelLeaveLine(input.message) !== null
+    if (asksToJoinCivicPanel && offersCivicPanelLeave) {
+      throw new BadRequestException(
+        "A text can't ask people to join your civic panel and offer a way to leave it. Remove one of those lines and try again.",
+      )
+    }
+    if (offersCivicPanelLeave && !isCivicPanelOnlyList(filter)) {
+      throw new BadRequestException(
+        'Only a text to your civic panel can offer a way to leave it. Remove that line and try again.',
+      )
+    }
+
     const optedOutPersonIds = await this.resolveOptOutScrub(organizationSlug)
     let excludedOptedOutCount = 0
 
@@ -341,7 +360,8 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       message: input.message,
       // Read off the message, never a request flag, so the stored text and
       // whether the ingest honors JOIN cannot disagree.
-      asksToJoinCivicPanel: findCivicPanelJoinLine(input.message) !== null,
+      asksToJoinCivicPanel,
+      offersCivicPanelLeave,
       imageUrl: input.imageUrl,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
       // null: Serve sends at a fixed 11am local, so there is no chosen
