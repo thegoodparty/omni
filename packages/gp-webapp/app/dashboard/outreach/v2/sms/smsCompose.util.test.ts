@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
@@ -10,6 +10,8 @@ import {
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
   composeScript,
+  IMAGE_MAX_BYTES,
+  profilePhotoFile,
   ensureSmsIdentification,
   identificationIntro,
   openWithSmsIdentification,
@@ -471,5 +473,41 @@ describe('withCivicPanelLeave', () => {
       start: offered.indexOf(CIVIC_PANEL_LEAVE_LINE),
     })
     expect(offered.length).toBe(base.length + CIVIC_PANEL_LEAVE_LINE.length + 2)
+  })
+})
+
+describe('profilePhotoFile', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('attaches a photo that already fits as-is', async () => {
+    const photo = new Blob(['jpeg-bytes'], { type: 'image/jpeg' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => photo }),
+    )
+
+    const file = await profilePhotoFile('https://assets.example/avatar.jpg')
+
+    expect(file?.type).toBe('image/jpeg')
+    expect(file?.size).toBe(photo.size)
+    expect(file?.size).toBeLessThanOrEqual(IMAGE_MAX_BYTES)
+  })
+
+  it('leaves the image blank when the photo cannot be loaded', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+
+    expect(
+      await profilePhotoFile('https://assets.example/avatar.jpg'),
+    ).toBeNull()
+  })
+
+  it('leaves the image blank when the request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('CORS')))
+
+    expect(
+      await profilePhotoFile('https://assets.example/avatar.jpg'),
+    ).toBeNull()
   })
 })

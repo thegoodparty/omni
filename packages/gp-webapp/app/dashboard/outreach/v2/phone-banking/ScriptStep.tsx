@@ -140,19 +140,6 @@ export const ScriptStep = ({
         </p>
       </div>
 
-      <FilterPillGroup
-        type="single"
-        value={tone}
-        onValueChange={(value) => value && onToneChange(value as SocialTone)}
-      >
-        {SOCIAL_TONE_VALUES.map((t) => (
-          <FilterPill key={t} value={t} className="gap-1.5">
-            {TONE_ICONS[t]}
-            {TONE_LABELS[t]}
-          </FilterPill>
-        ))}
-      </FilterPillGroup>
-
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">{captionText}</p>
@@ -265,6 +252,18 @@ export const ScriptStep = ({
             </IconButton>
           </div>
         </Card>
+        <FilterPillGroup
+          type="single"
+          value={tone}
+          onValueChange={(value) => value && onToneChange(value as SocialTone)}
+        >
+          {SOCIAL_TONE_VALUES.map((t) => (
+            <FilterPill key={t} value={t} className="gap-1.5">
+              {TONE_ICONS[t]}
+              {TONE_LABELS[t]}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your

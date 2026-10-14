@@ -318,6 +318,7 @@ describe('CampaignsController', () => {
         positionName: 'Mayor',
         raceTargetMetrics: null,
         ownerName: 'Jared Smith',
+        ownerAvatar: null,
       })
       expect(result).not.toHaveProperty('user')
     })
