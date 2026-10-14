@@ -39,6 +39,7 @@ const request = (overrides: Record<string, unknown> = {}) => ({
   name: 'Budget hearing reminder',
   message:
     'The budget hearing is Thursday at 6pm at City Hall. Reply STOP to opt out.',
+  imageUrl: 'https://assets.test/header.png',
   scheduledLocalDate: VALID_DATE,
   voterFileFilterId: FILTER_ID,
   ...overrides,

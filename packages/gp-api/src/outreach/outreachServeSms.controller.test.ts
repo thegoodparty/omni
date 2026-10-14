@@ -114,6 +114,7 @@ const getReplies = (id: number, query = '') =>
 const createInput = {
   name: 'Budget hearing reminder',
   message: 'The budget hearing is Thursday at 6pm at City Hall.',
+  imageUrl: 'https://assets.test/header.png',
   scheduledLocalDate: '2026-10-08',
   voterFileFilterId: 55,
 }
@@ -223,6 +224,13 @@ describe('POST /v1/outreach/serve/sms', () => {
 
   it('rejects a body the create schema does not accept', async () => {
     const res = await postCreate({ ...createInput, scheduledLocalDate: 12 })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(createDraft).not.toHaveBeenCalled()
+  })
+
+  it('rejects a send with no image', async () => {
+    const res = await postCreate({ ...createInput, imageUrl: undefined })
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(createDraft).not.toHaveBeenCalled()

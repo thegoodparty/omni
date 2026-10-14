@@ -90,6 +90,10 @@ vi.mock('@shared/organization-picker', () => ({
 // doc calls the top anti-pattern. Defaults to OFF so every pre-SMS
 // expectation in this file keeps asserting the pre-SMS page.
 const serveSmsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/utils/s3Upload', () => ({
+  uploadFileToS3: vi.fn().mockResolvedValue('https://assets.test/header.png'),
+}))
+
 vi.mock('@shared/experiments/serveSmsFlag', () => ({
   SERVE_SMS_FLAG_KEY: 'serve-sms-outreach',
   useServeSmsFlag: () => serveSmsFlag,
@@ -732,6 +736,13 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     })
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()
+    await user.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     // Review prices the draw. The live total is Stripe's, which jsdom
     // cannot mount, so the per-text price and the count stand in for it.

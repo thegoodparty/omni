@@ -44,7 +44,9 @@ export const ServeSmsCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(255),
     message: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
-    imageUrl: z.string().url().optional(),
+    // Required: the image makes every Serve text an MMS, which is what lets
+    // the message run to SMS_COMPOSED_MAX_LENGTH without segmenting.
+    imageUrl: z.string().url(),
     // The send day as a local calendar date. At least 2 business days out and
     // no more than 30, weekends excluded; enforced server-side, not just by the
     // picker.

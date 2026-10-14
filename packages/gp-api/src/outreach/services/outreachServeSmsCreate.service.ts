@@ -342,7 +342,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       // Read off the message, never a request flag, so the stored text and
       // whether the ingest honors JOIN cannot disagree.
       asksToJoinCivicPanel: findCivicPanelJoinLine(input.message) !== null,
-      imageUrl: input.imageUrl ?? null,
+      imageUrl: input.imageUrl,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
       // null: Serve sends at a fixed 11am local, so there is no chosen
       // time to store, and completion is derived as

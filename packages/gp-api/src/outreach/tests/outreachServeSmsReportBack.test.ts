@@ -99,6 +99,7 @@ describe('a Serve text that reports back', () => {
         name: 'Parking report back',
         message:
           'this is Bryan, your City Council Member. Thanks for answering.',
+        imageUrl: 'https://assets.test/header.png',
         scheduledLocalDate: format(
           addBusinessDays(new Date(), 5),
           'yyyy-MM-dd',

@@ -1890,11 +1890,10 @@ export const SmsFlow = ({
                         !standards.passed ||
                         bracketsToFill.length > 0 ||
                         composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                        // Win only: Peerly rejects an imageless text/p2p send.
-                        // Serve is fulfilled by the shared delivery layer, whose
-                        // create takes imageUrl as optional, so an official can
-                        // send text alone.
-                        (!surface.isServe && image === null) ||
+                        // Both surfaces send MMS: the image lifts the text past
+                        // single-SMS segment limits, and Peerly rejects an
+                        // imageless Win text/p2p send.
+                        image === null ||
                         draftMutation.isPending,
                     }
                   : // Build mode's review has nothing to pay for: the CTA saves

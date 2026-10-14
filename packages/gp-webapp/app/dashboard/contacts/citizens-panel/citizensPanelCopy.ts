@@ -1,4 +1,9 @@
+import { CIVIC_PANEL_SEGMENT } from '@goodparty_org/contracts'
+
 export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
+// The built-in list under Constituent lists. The segment doubles as the list
+// id in the path, the way "all" does for All constituents.
+export const CITIZENS_PANEL_LIST_PATH = `/dashboard/contacts/lists/${CIVIC_PANEL_SEGMENT}`
 export const CHIEF_OF_STAFF_PATH = '/dashboard/chief-of-staff'
 
 export const SERVE_CITIZENS_PANEL_COPY = {
@@ -18,8 +23,10 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   pageCaption:
     'How many people are on it, and how they compare with your district.',
   seeMembers: 'See members',
-  seeMembersError: "We couldn't open your panel list. Try again.",
-  listName: 'Civic panel',
+  listTitle: 'Civic panel',
+  listFilter: 'On your civic panel.',
+  listMembersError: "We couldn't load your panel members. Try again later.",
+  unnamedMember: 'Name not on file',
   representationTitle: "Who's on your panel",
   representationCaption:
     'Compares the neighborhoods members live in with your whole district.',

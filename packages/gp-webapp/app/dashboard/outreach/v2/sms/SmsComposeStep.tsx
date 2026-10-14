@@ -98,7 +98,7 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 // right words for them.
 const IMAGE_DROPZONE_LABEL = {
   win: 'Add your campaign headshot or logo',
-  serve: 'Add a header image (optional)',
+  serve: 'Add your header image',
 } as const
 
 interface SmsComposeStepProps {

@@ -225,3 +225,82 @@ describe('POST /v1/contacts/count — civic panel filter', () => {
     expect(findPeopleSpy).not.toHaveBeenCalled()
   })
 })
+
+// The built-in `civicPanel` segment: the panel as a list with no saved row
+// behind it, read through GET /v1/contacts like any other segment.
+describe('GET /v1/contacts?segment=civicPanel', () => {
+  const setupEoOrg = async (suffix: string) => {
+    const slug = `eo-civic-panel-segment-${suffix}-${Date.now()}`
+    await service.prisma.organization.create({
+      data: {
+        slug,
+        ownerId: service.user.id,
+        overrideDistrictId: randomUUID(),
+      },
+    })
+    return slug
+  }
+
+  const join = (organizationSlug: string, personId: string) =>
+    service.app.get(ContactStatusService).changeStatus({
+      organizationSlug,
+      personId,
+      field: ContactStatusField.civic_panel,
+      toValue: CivicPanelStatus.member,
+      source: ContactStatusSource.manual,
+      actorUserId: service.user.id,
+      fallbackFromValue: CivicPanelStatus.left,
+    })
+
+  const list = (slug: string) =>
+    service.client.get('/v1/contacts', {
+      params: { segment: 'civicPanel' },
+      headers: { [ORG_SLUG_HEADER]: slug },
+      validateStatus: () => true,
+    })
+
+  it('lists exactly the current members', async () => {
+    const slug = await setupEoOrg('members')
+    const member = randomUUID()
+    await join(slug, member)
+
+    const findPeopleSpy = vi
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockResolvedValue({
+        pagination: {
+          totalResults: 1,
+          currentPage: 1,
+          pageSize: 50,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+        people: [],
+      })
+    const res = await list(slug)
+
+    expect(res.status).toBe(200)
+    expect(
+      findPeopleSpy.mock.calls[0]?.[0]?.filters.filterOperators.id,
+    ).toEqual({ operator: 'in', values: [member], includeNull: false })
+    expect(
+      await service.prisma.voterFileFilter.count({
+        where: { organizationSlug: slug },
+      }),
+    ).toBe(0)
+  })
+
+  it('is empty, never the district, when nobody has joined', async () => {
+    const slug = await setupEoOrg('empty')
+
+    const findPeopleSpy = vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPeople',
+    )
+    const res = await list(slug)
+
+    expect(res.status).toBe(200)
+    expect(res.data.pagination.totalResults).toBe(0)
+    expect(findPeopleSpy).not.toHaveBeenCalled()
+  })
+})
