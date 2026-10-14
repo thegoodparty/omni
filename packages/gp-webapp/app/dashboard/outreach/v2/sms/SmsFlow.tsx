@@ -83,8 +83,12 @@ import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
-import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
 import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   SERVE_SMS_PURPOSES,
   serveSmsPurposeNameSuggestion,
@@ -583,6 +587,7 @@ export const SmsFlow = ({
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  const { smsCutoffDate } = useSmsCompliance()
   const lockedAtOpen = useLockedAtOpen(open, gate)
   // gp-api reads the picked wall-clock window in the campaign state's zone
   // (Peerly `requested_timezone`), so the step captions that zone rather
@@ -1976,7 +1981,9 @@ export const SmsFlow = ({
       <OutreachFlowShell
         open={open}
         onClose={onClose}
-        title={SMS_CUTOFF_COPY.title}
+        title={SMS_CUTOFF_COPY.closedReason(
+          smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+        )}
         currentStep={0}
         totalSteps={0}
         cta={null}

@@ -50,23 +50,35 @@ export const VERIFICATION_INTRO_ROWS = [
   PIN_TIMING_ROW,
 ]
 
+const AP_MONTHS = [
+  'Jan.',
+  'Feb.',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'Aug.',
+  'Sept.',
+  'Oct.',
+  'Nov.',
+  'Dec.',
+]
+
 // The SMS compliance cutoff. gp-api decides the window; these strings only
 // render it. Dates arrive as ISO days and go through formatSmsCutoffDate.
 // Never call it a legal or carrier deadline, and never promise refunds.
-export const formatSmsCutoffDate = (isoDate: string): string =>
-  new Date(`${isoDate.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  })
+export const formatSmsCutoffDate = (isoDate: string): string => {
+  const date = new Date(`${isoDate.slice(0, 10)}T00:00:00Z`)
+  return `${AP_MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`
+}
 
 export const SMS_CUTOFF_COPY = {
-  title: "Texting isn't available for this race",
-  body: (generalElectionDate: string | null): string =>
-    generalElectionDate
-      ? `Texting needs campaign verification, which can't finish before your general election on ${generalElectionDate}.`
-      : "Texting needs campaign verification, which can't finish before your general election.",
-  short: "Texting isn't available for this race.",
+  closedReason: (cutoff: string | null): string =>
+    cutoff
+      ? `The ${cutoff} deadline to get verified for texting has passed.`
+      : 'The deadline to get verified for texting has passed.',
+  body: 'You can still reach voters with door knocking, robocalls, phone banking and social media.',
   channelsQuestion: 'How else do you want to reach voters?',
   channels: {
     doorKnocking: 'Door knocking',
@@ -75,31 +87,20 @@ export const SMS_CUTOFF_COPY = {
     socialMedia: 'Social media',
   },
   support: 'Questions? Email support@goodparty.org.',
-  seeOtherWays: 'See other ways to reach voters',
   closedLabel: 'Texting closed',
   backToOutreach: 'Back to outreach',
   backToDashboard: 'Back to dashboard',
-  complianceCardClosingBody: (generalElectionDate: string | null): string =>
-    generalElectionDate
-      ? `Register your campaign so you can text voters before your ${generalElectionDate} election.`
-      : 'Register your campaign so you can text voters before your election.',
-  countdown: (cutoff: string): string =>
-    `Start texting verification by ${cutoff}.`,
-  countdownTitle: (cutoff: string): string =>
-    `Start texting verification by ${cutoff}`,
-  countdownChip: (cutoff: string): string => `Verify by ${cutoff}`,
+  countdownBanner: (cutoff: string): string =>
+    `Get verified to send SMS by ${cutoff}`,
+  countdownChip: (cutoff: string): string => `Verify to send SMS by ${cutoff}`,
+  countdownDeadline: (cutoff: string): string =>
+    `Get verified to send SMS by the ${cutoff} deadline`,
   guidanceClosing: (cutoff: string): string =>
-    `Finish these by ${cutoff} to text before your election.`,
-  guidanceClosedTitle: "Here's what you need to unlock Pro",
-  guidanceClosedBody:
-    'Pro unlocks voter data, door knocking, robocalls and phone banking.',
+    `In order to send SMS, you must finish these steps by ${cutoff}.`,
   paymentVerificationStarts:
     'Verification starts when you pay. Texting usually opens 1 to 2 weeks later.',
   paymentClosing: (cutoff: string): string =>
     `Finish your upgrade by ${cutoff} to text before your election.`,
-  successClosedBody:
-    'Payment successful. Your next step is to pick a way to reach voters.',
-  successClosedCta: 'Go to outreach',
 }
 
 // The filing step for a candidate who saved their details but has not paid.

@@ -509,7 +509,8 @@ describe('OutreachComposeDeepLink — flag on: the flows own the gate', () => {
 // Every link that opens a new text passes through here, so this is the one
 // place a closed texting window has to stop them, on both sides of the flag.
 describe('OutreachComposeDeepLink — texting closed for this race', () => {
-  const CUTOFF_TITLE = "Texting isn't available for this race"
+  const CUTOFF_TITLE =
+    'The Oct. 15 deadline to get verified for texting has passed.'
   const renderClosed = ({ isPro }: { isPro: boolean }) =>
     render(
       <CampaignContext.Provider
@@ -554,7 +555,7 @@ describe('OutreachComposeDeepLink — texting closed for this race', () => {
       ).toBeInTheDocument()
       expect(
         screen.getByText(
-          "Texting needs campaign verification, which can't finish before your general election on Nov 3.",
+          'You can still reach voters with door knocking, robocalls, phone banking and social media.',
         ),
       ).toBeInTheDocument()
       expect(onCompose).not.toHaveBeenCalled()

@@ -117,9 +117,9 @@ describe('resolveMembershipAction', () => {
     ).toBe(null)
   })
 
-  it('opens the cutoff notice for closed texting, and still pitches Pro to a free campaign', () => {
+  it('has no action for closed texting, and still pitches Pro to a free campaign', () => {
     expect(resolveMembershipAction(membership({ texting: 'closed' }))).toBe(
-      'notice',
+      null,
     )
     expect(
       resolveMembershipAction(membership({ tier: 'free', texting: 'closed' })),
@@ -265,13 +265,12 @@ describe('MembershipBanner', () => {
     setup({ state: membership({ texting: 'needs_verification' }) })
 
     expect(
-      screen.getByText('Start texting verification by Oct 15.'),
+      screen.getByText('Get verified to send SMS by Oct. 15'),
     ).toBeInTheDocument()
     expect(screen.getByRole('button')).toHaveTextContent('Start verification')
   })
 
-  it('opens the cutoff notice once texting is closed', async () => {
-    const user = userEvent.setup()
+  it('renders nothing, and fires nothing, once texting is closed for a Pro campaign', () => {
     mockSmsCompliance.current = {
       smsCompliance: 'closed',
       smsCutoffDate: '2026-10-15',
@@ -279,31 +278,23 @@ describe('MembershipBanner', () => {
     }
     setup({ state: membership({ texting: 'closed' }) })
 
-    expect(
-      screen.getByText(MEMBERSHIP_COPY.banner.closed.body),
-    ).toBeInTheDocument()
-    await user.click(
-      screen.getByRole('button', { name: /See other ways to reach voters/ }),
-    )
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(mockExposure).not.toHaveBeenCalled()
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('still pitches Pro to a free campaign once texting is closed', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ tier: 'free', texting: 'closed' }) })
 
     expect(
-      screen.getByRole('dialog', {
-        name: "Texting isn't available for this race",
-      }),
+      screen.getByText(MEMBERSHIP_COPY.banner.free.body),
     ).toBeInTheDocument()
-    expect(router.push).not.toHaveBeenCalled()
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.SmsCutoff.NoticeViewed,
-      {
-        surface: 'membership_banner',
-        cutoffDate: '2026-10-15',
-        generalElectionDate: '2026-11-03',
-      },
-    )
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.VerificationBannerClicked,
-      expect.anything(),
-    )
   })
 
   it('renders nothing once a Pro campaign is cleared to text', () => {

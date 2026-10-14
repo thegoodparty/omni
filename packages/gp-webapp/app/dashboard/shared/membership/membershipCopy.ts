@@ -1,5 +1,3 @@
-import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
-
 export const MEMBERSHIP_COPY = {
   banner: {
     free: {
@@ -18,10 +16,6 @@ export const MEMBERSHIP_COPY = {
       body: 'You will be sent a PIN within 7 business days to either your email, phone or address.',
       cta: 'Enter your PIN',
     },
-    closed: {
-      body: SMS_CUTOFF_COPY.short,
-      cta: SMS_CUTOFF_COPY.seeOtherWays,
-    },
   },
   chip: {
     // The free chip reads as three inline parts so the Pro badge sits between
@@ -31,7 +25,6 @@ export const MEMBERSHIP_COPY = {
     needsVerification: 'Verification needed',
     inReview: 'Verification in review',
     awaitingPin: 'Enter your PIN',
-    closed: SMS_CUTOFF_COPY.closedLabel,
   },
   pitch: {
     title: 'Join Pro to unlock voter data and outreach',

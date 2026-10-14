@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackEvent } from 'helpers/analyticsHelper'
 import { ChannelTileGrid } from './ChannelTileGrid'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -140,8 +140,6 @@ describe('ChannelTileGrid — SMS tile', () => {
   })
 })
 
-// ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
-// asserting open vs redirect.
 describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
   beforeEach(() => {
     mockRouterPush.mockClear()
@@ -163,7 +161,9 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     }
     renderGrid()
 
-    expect(screen.getByText('Verify by Oct 15')).toBeInTheDocument()
+    expect(
+      screen.getByText('Verify to send SMS by Oct. 15'),
+    ).toBeInTheDocument()
   })
 
   it.each([
@@ -171,8 +171,9 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     ['off', false, false],
     ['on', true, false],
   ])(
-    'opens the cutoff notice instead of the flow (flag %s, Pro %s)',
+    'explains the closed tile on hover and opens nothing (flag %s, Pro %s)',
     async (_label, flagOn, isPro) => {
+      const user = userEvent.setup()
       proGatingV2.enabled = flagOn
       mockCampaign = {
         id: 9,
@@ -185,27 +186,28 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
       renderGrid({ onCreateSms })
 
       expect(screen.getByText('Not available for this race')).toBeVisible()
-      await userEvent.click(screen.getByText('SMS'))
+      await user.hover(screen.getByText('SMS'))
 
       expect(
-        screen.getByRole('dialog', {
-          name: "Texting isn't available for this race",
-        }),
-      ).toBeInTheDocument()
+        (
+          await screen.findAllByText(
+            'The Oct. 15 deadline to get verified for texting has passed.',
+          )
+        ).length,
+      ).toBeGreaterThan(0)
+
+      await user.click(screen.getByText('SMS'))
+
+      expect(screen.queryByRole('dialog')).toBeNull()
       expect(onCreateSms).not.toHaveBeenCalled()
       expect(mockRouterPush).not.toHaveBeenCalled()
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.Outreach.SmsCutoff.NoticeViewed,
-        expect.objectContaining({ surface: 'sms_tile' }),
-      )
-      expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Outreach.ClickCreate,
-        expect.anything(),
-      )
+      expect(trackEvent).not.toHaveBeenCalled()
     },
   )
 })
 
+// ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
+// asserting open vs redirect.
 describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
   beforeEach(() => {
     mockCampaign = { id: 9, isPro: true }

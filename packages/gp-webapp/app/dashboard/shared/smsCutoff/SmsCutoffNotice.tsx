@@ -74,8 +74,8 @@ export const SmsCutoffNotice = ({
   onPick,
 }: SmsCutoffNoticeProps): React.JSX.Element => {
   const { smsCutoffDate, generalElectionDate } = useSmsCompliance()
-  const body = SMS_CUTOFF_COPY.body(
-    generalElectionDate ? formatSmsCutoffDate(generalElectionDate) : null,
+  const title = SMS_CUTOFF_COPY.closedReason(
+    smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
   )
 
   useEffect(() => {
@@ -99,8 +99,8 @@ export const SmsCutoffNotice = ({
             <MessageSquareOff className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col gap-1">
-            <p className="text-lg font-semibold">{SMS_CUTOFF_COPY.title}</p>
-            <p className="text-sm text-muted-foreground">{body}</p>
+            <p className="text-lg font-semibold">{title}</p>
+            <p className="text-sm text-muted-foreground">{SMS_CUTOFF_COPY.body}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 sm:pl-13">
@@ -127,8 +127,8 @@ export const SmsCutoffNotice = ({
           <CalendarClockIcon className="size-8" aria-hidden />
         </span>
         <div className="flex max-w-md flex-col gap-2">
-          <h2 className="text-xl font-semibold">{SMS_CUTOFF_COPY.title}</h2>
-          <p className="text-base text-muted-foreground">{body}</p>
+          <h2 className="text-xl font-semibold">{title}</h2>
+          <p className="text-base text-muted-foreground">{SMS_CUTOFF_COPY.body}</p>
         </div>
       </div>
       <div className="flex flex-col gap-3">

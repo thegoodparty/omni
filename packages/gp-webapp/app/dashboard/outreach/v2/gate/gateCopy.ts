@@ -129,7 +129,7 @@ export const BANNER_COPY = {
   door: 'Pro is needed to see voter names and addresses on this route.',
   phoneBank: 'Pro is needed to see voter names and phone numbers on this list.',
   robocall: 'Pro is needed before this call can go out.',
-  closed: SMS_CUTOFF_COPY.short,
+  closed: SMS_CUTOFF_COPY.closedLabel,
 }
 
 export const EXPLAINER_COPY = {
