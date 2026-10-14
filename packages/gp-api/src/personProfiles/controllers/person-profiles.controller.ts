@@ -287,8 +287,8 @@ export class PersonProfilesController {
   // The operator is a body field, not something the server derives. gp-admin
   // (the UI for these routes) authenticates with a shared M2M token and
   // authorizes the human in its own server action, so req.user is empty here
-  // and AdminAuditInterceptor — which keys off @Roles(admin) metadata — never
-  // fires. Switching these routes to @Roles(admin) is not the fix: RolesGuard
+  // and AdminAuditInterceptor can record only the machine that called.
+  // Switching these routes to @Roles(admin) is not the fix: RolesGuard
   // rejects M2M callers, which is exactly what gp-admin is.
   @Post('removals')
   @UseGuards(AdminOrM2MGuard)
