@@ -101,7 +101,20 @@ topk(10, sum by (rule_name) (sum_over_time(
 ```
 
 Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the
-alert rules. This datasource is Grafana's own usage stream and does not bill
+alert rules. To name the reader behind a spike, group the ad-hoc reads by who
+and what ran them:
+
+```logql
+topk(10, sum by (grafana_username, user_agent, query_hash) (
+  sum_over_time({instance_type="logs"} | logfmt | __error__="" | source!="grafana-alert"
+  | unwrap total_bytes [24h])
+))
+```
+
+On 2026-10-13 the alert rules sat near 0.1 of the allowance and the budget alert
+fired anyway: a few Explore and Grafana MCP `query_range` calls over 5-20 day
+windows scanned 80-175 GB each. The alert is right to page; the fix is a shorter
+window on the reader, not a change to a rule. This datasource is Grafana's own usage stream and does not bill
 against our allowance, so it is safe to query over 24h.
 
 ## Alerting reads a metric, not the logs
