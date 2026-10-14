@@ -3,6 +3,7 @@ import type { TurnToolEvent } from '@/chats/services/chatStream.service'
 import {
   composeAppendix,
   handoffDraftBackstop,
+  hasCanonicalCautionLine,
   hasCautionLine,
   legalAdviceBackstop,
   smallCountBackstop,
@@ -63,6 +64,20 @@ describe('legalAdviceBackstop', () => {
     ).toBe(guardrailLine('legal_advice', 'briefing_chat'))
   })
 
+  it('honors a stricter caution test from the caller', () => {
+    const paraphrased =
+      'Spokane faces civil liability under RCW 4.96. This is legal-risk analysis, not legal advice.'
+    expect(legalAdviceBackstop(paraphrased, 'ordinance_flow')).toBeNull()
+    expect(
+      legalAdviceBackstop(
+        paraphrased,
+        'ordinance_flow',
+        ADVICE_SIGNALS,
+        hasCanonicalCautionLine,
+      ),
+    ).toBe(guardrailLine('legal_advice', 'ordinance_flow'))
+  })
+
   it('appends the legal line on a statute citation with no caution', () => {
     expect(
       legalAdviceBackstop(
@@ -101,6 +116,26 @@ describe('legalAdviceBackstop', () => {
     expect(legalAdviceBackstop('See § 5.12.030.', 'campaign_assistant')).toBe(
       guardrailLine('legal_advice', 'campaign_assistant'),
     )
+  })
+})
+
+describe('hasCanonicalCautionLine', () => {
+  it.each([
+    ['the legal line', `x ${LEGAL}`, true],
+    ['the professional line', `x ${PROFESSIONAL}`, true],
+    [
+      'a sentence that opens like the lines',
+      'This is not a substitute for a lawyer.',
+      true,
+    ],
+    ['a coarse caution phrasing', 'Seek legal advice first.', false],
+    [
+      "a caution in the model's own words",
+      'This is legal-risk analysis, not legal advice.',
+      false,
+    ],
+  ])('sees %s', (_label, text, expected) => {
+    expect(hasCanonicalCautionLine(text, 'chief_of_staff')).toBe(expected)
   })
 })
 

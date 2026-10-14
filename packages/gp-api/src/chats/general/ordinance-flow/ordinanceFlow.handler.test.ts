@@ -123,10 +123,24 @@ describe('OrdinanceFlowHandler', () => {
       ).toBe(`\n\n${LEGAL_LINE}`)
     })
 
-    it('appends nothing when the reply already carries a caution', () => {
+    it("still appends the line after a caution in the model's own words", () => {
+      for (const closing of [
+        'This is legal-risk analysis, not legal advice; your city attorney needs to sign off.',
+        'This is a reading of the legal landscape, not legal advice.',
+      ]) {
+        expect(
+          build().finalizeAssistantText(
+            `Under RCW 35.21.766 you can. ${closing}`,
+            turn(),
+          ),
+        ).toBe(`\n\n${LEGAL_LINE}`)
+      }
+    })
+
+    it('appends nothing when the reply already carries the line or opens one like it', () => {
       expect(
         build().finalizeAssistantText(
-          'Under RCW 35.21.766 you can. This is a first draft, not final legal advice.',
+          'Under RCW 35.21.766 you can. This is not a substitute for advice from your city attorney.',
           turn(),
         ),
       ).toBe(null)
