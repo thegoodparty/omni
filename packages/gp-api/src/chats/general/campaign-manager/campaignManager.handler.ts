@@ -25,12 +25,16 @@ import {
   ResolveConversationParams,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
+import {
+  composeAppendix,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '../services/guardrailBackstops'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
   currentPageBlock,
-  LEGAL_LINE,
   type LiveRace,
 } from './campaignManagerPrompt'
 import { localDay } from '../services/todayLine'
@@ -662,12 +666,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   // The prompt's legal-and-compliance rules carry the caution. The shared
   // finish-time check decides whether a reply is shaped like legal advice (a
   // statute citation, liability language, complaint filing) and carries no
-  // caution; when it is, the candidate gets the same line the prompt asks
-  // for, so the wording does not depend on which path supplied it.
-  finalizeAssistantText(text: string): string | null {
-    return professionalAdviceDisclaimer(text) === null
-      ? null
-      : `\n\n${LEGAL_LINE}`
+  // caution; when it is, the candidate gets the same registry line the prompt
+  // asks for, so the wording does not depend on which path supplied it. The
+  // small-count line rides the same hook: a data result that reports
+  // suppressed rows gets the disclosure whether or not the model wrote it.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'campaign_assistant'),
+      smallCountBackstop(text, 'campaign_assistant', turn.toolEvents),
+    ])
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the

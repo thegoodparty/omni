@@ -760,13 +760,19 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('SUPPORT HANDOFFS')
   })
 
-  it('routes to the most specific response and keeps the decline terminal', () => {
+  it('routes to the most specific response and answers the in-scope part of a mixed request', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: TOOLS,
     })
     expect(prompt).toContain('most specific applicable response')
-    expect(prompt).toContain('it is your entire reply')
+    expect(prompt).toContain(
+      'If a request mixes their official work with something unrelated, answer the part that belongs here and give the line in place of the rest.',
+    )
+    expect(prompt).toContain('respond to the danger first')
+    expect(prompt).toContain('reply with the same line and nothing more')
+    expect(prompt).not.toContain('entire reply')
+    expect(prompt).not.toContain('exact line and nothing else')
   })
 
   it('pins the campaign-resource boundary and untrusted-link rule', () => {

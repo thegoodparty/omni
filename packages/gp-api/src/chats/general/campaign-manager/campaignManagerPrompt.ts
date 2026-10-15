@@ -11,6 +11,7 @@ import type { ProductArea } from '../product-knowledge/productMap'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { localDay, todayLine } from '../services/todayLine'
+import { guardrailLine } from '../services/guardrailLines'
 import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import {
   buildSampleSizingRules,
@@ -543,9 +544,8 @@ const filingWindowLine = (ctx: CampaignManagerContext): string => {
     'BallotReady, which is the best source available, so treat it as the ' +
     'deadline and do not go hunting for a different date. It is a snapshot ' +
     'taken when the candidate set up the race and can be thinner on very ' +
-    'small local races, so tell them to confirm it with the filing office ' +
-    'before they rely on it, and say that is a confirmation rather than a ' +
-    'reason to doubt the date.'
+    'small local races, so include the line from ELECTION RULES, as a ' +
+    'confirmation rather than a reason to doubt the date.'
   )
 }
 
@@ -659,7 +659,10 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
       'Party registration and modeled partisanship breakdowns ARE allowed ' +
       'for this campaign — being nonpartisan means you favor no party, not ' +
       'that party data is off-limits. Describe the people in these rows as ' +
-      'voters, never as constituents.'
+      'voters, never as constituents. If a result reports suppressed rows, ' +
+      'include this line, once, in these exact words: "' +
+      SMALL_COUNT_LINE +
+      '" Never guess at the groups left out.'
     : null
 
 // Advertised only when the CRM contact tools are actually registered
@@ -775,6 +778,31 @@ const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
       ].join('\n')
     : null
 
+const SEARCH_LINE = guardrailLine('search_provenance', 'campaign_assistant')
+const SMALL_COUNT_LINE = guardrailLine('small_count', 'campaign_assistant')
+const ELECTION_RULE_LINE = guardrailLine(
+  'election_rule_verify',
+  'campaign_assistant',
+)
+
+// One fixed closing line wherever the manager states a rule of this race, so
+// the candidate hears the same sentence every time and the bench can look for
+// it. The filing-office phrasings elsewhere in this prompt stay: they say who
+// to call in context, and this is the line that closes the answer.
+const ELECTION_RULE_RULES = [
+  'ELECTION RULES (apply whenever you state a rule of this race)',
+  '- When you tell the candidate a deadline, a signature count, a fee, a ' +
+    'filing step, or anything else the elections office requires for this ' +
+    'race, include this line, once, in these exact words: "' +
+    ELECTION_RULE_LINE +
+    '"',
+  '- Say it as a confirmation, not a doubt: the race record is the best ' +
+    'source available, and the line is there because records can be thin ' +
+    'on small local races.',
+  '- One line per answer, however many rules it carries. Never attach it to ' +
+    'a reply that only declines or redirects.',
+].join('\n')
+
 // Search is a tool, so results pass the "use only what a tool returns" rule
 // and read as settled fact once they land in a reply. This makes that
 // provenance explicit for every search, not only the ballot-access case
@@ -789,8 +817,7 @@ const SEARCH_RULES = [
   'If you draft something meant to be said or posted in public, such as ' +
     'a door script, text message, social post, statement, one-pager, or ' +
     'talking points, and it uses numbers or third-party names that came ' +
-    'from a search, end the draft with this line: "Double-check these ' +
-    'numbers and names before you use them."',
+    `from a search, include this line in the draft, in these exact words: "${SEARCH_LINE}"`,
 ].join('\n\n')
 
 // Advertised only when web_search is actually registered, the same way the
@@ -829,9 +856,7 @@ const COMPOSE_HANDOFF_RULES =
 // finish-time check (professionalAdviceCheck.ts) recognizes it as the caution
 // and does not stack a second one on the same reply, and so the handler can
 // append this same line when that check fires.
-export const LEGAL_LINE =
-  'This is not a substitute for legal advice. Confirm it with the relevant ' +
-  'election or regulatory authority, or an election attorney.'
+export const LEGAL_LINE = guardrailLine('legal_advice', 'campaign_assistant')
 
 const LEGAL_AND_COMPLIANCE_RULES = [
   "LEGAL AND COMPLIANCE (route by the user's underlying intent)",
@@ -856,7 +881,8 @@ const LEGAL_AND_COMPLIANCE_RULES = [
   'Keep product facts separate from legal requirements. What GoodParty ' +
     'does or requires does not establish what the law permits or requires.',
   'When you give a substantive answer to a legal or compliance question, ' +
-    'or to the legal part of a mixed request, include this line: "' +
+    'or to the legal part of a mixed request, include this line, once, in ' +
+    'these exact words and in place of any caution of your own: "' +
     LEGAL_LINE +
     '"',
 ].join('\n\n')
@@ -964,6 +990,7 @@ export const buildCampaignManagerSystemPrompt = (
     raceContext(ctx),
     liveRaceBlock(ctx),
     ballotStatusBlock(ctx),
+    ELECTION_RULE_RULES,
     storyBlock(ctx),
     planBlock(ctx),
     tasksBlock(ctx),
