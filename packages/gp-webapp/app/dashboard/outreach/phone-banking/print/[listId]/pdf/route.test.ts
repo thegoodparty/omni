@@ -11,8 +11,8 @@ vi.mock('app/dashboard/shared/candidateAccess', () => ({
   default: () => mockCandidateAccess(),
 }))
 vi.mock('gpApi/server-request', () => ({
-  serverRequest: (route: string, payload: unknown, overrides?: unknown) =>
-    mockServerRequest(route, payload, overrides),
+  serverRequest: (route: string, payload: unknown) =>
+    mockServerRequest(route, payload),
 }))
 
 import { GET } from './route'
@@ -137,18 +137,6 @@ describe('call sheet PDF route', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Disposition')).toMatch(
       /list-2-of-2\.pdf"$/,
-    )
-  }, 30_000)
-
-  it('asks gp-api to skip live enrichment the PDF never reads', async () => {
-    mockServerRequest.mockResolvedValue({ data: buildList() })
-
-    await get('7')
-
-    expect(mockServerRequest).toHaveBeenCalledWith(
-      ROUTE,
-      { id: '7' },
-      { query: { skipLiveEnrichment: 'true' } },
     )
   }, 30_000)
 

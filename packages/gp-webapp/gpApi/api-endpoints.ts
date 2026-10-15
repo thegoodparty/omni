@@ -2174,9 +2174,6 @@ export type APIEndpoints = {
   // The frozen phone-banking list plus its live per-person enrichment and
   // logged interactions (PhoneBankingController.get). 404 when the list
   // doesn't belong to the requester's organization.
-  // Pass `{ query: { skipLiveEnrichment: 'true' } }` as the request override
-  // to skip the Databricks voter lookup (age/party/address/live phones come back
-  // null); the print PDF does this because it never reads them.
   'GET /v1/phone-banking/lists/:id': {
     Request: {}
     Response: PhoneBankingList

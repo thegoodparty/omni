@@ -331,7 +331,6 @@ export class PhoneBankingListService extends createPrismaBase(
     organization: Organization,
     role: OrganizationRole,
     userId: number,
-    skipLiveEnrichment = false,
   ): Promise<PhoneBankingListResponse> {
     const list = await this.model.findFirst({
       where: { id, organizationSlug: organization.slug },
@@ -341,7 +340,7 @@ export class PhoneBankingListService extends createPrismaBase(
       throw new NotFoundException('Phone banking list not found')
     }
     await this.access.assertVolunteerAccess(id, role, userId)
-    return this.toResponse(list, organization, skipLiveEnrichment)
+    return this.toResponse(list, organization)
   }
 
   async delete(id: number, organizationSlug: string): Promise<void> {
@@ -631,7 +630,6 @@ export class PhoneBankingListService extends createPrismaBase(
   private async toResponse(
     list: ListWithEntries,
     organization: Organization,
-    skipLiveEnrichment = false,
   ): Promise<PhoneBankingListResponse> {
     const personIds = [
       ...new Set(
@@ -642,11 +640,7 @@ export class PhoneBankingListService extends createPrismaBase(
     ]
 
     const [liveByPersonId, interactionByPersonId] = await Promise.all([
-      // The print PDF only reads frozen name/phone and interactions; it opts
-      // out of the Databricks lookup, the variable-latency part.
-      skipLiveEnrichment
-        ? Promise.resolve(new Map<string, Person>())
-        : this.fetchLivePeople(personIds, organization),
+      this.fetchLivePeople(personIds, organization),
       this.fetchInteractions(list.id, personIds),
     ])
 

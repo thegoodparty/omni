@@ -984,43 +984,6 @@ describe('phone banking routes', () => {
       })
     })
 
-    it('skips the Databricks voter lookup when skipLiveEnrichment=true, keeping frozen name and phone', async () => {
-      const personId = randomUUID()
-      mockPeoplePage([
-        fakePerson({
-          id: personId,
-          firstName: 'Live',
-          lastName: 'One',
-          cellPhone: '3075559991',
-        }),
-      ])
-      const build = await service.client.post(
-        '/v1/phone-banking/lists',
-        buildBody(),
-        orgHeaders(),
-      )
-      const findPeople = mockPeoplePage([])
-      // The spy is shared with the build above; count only the read.
-      findPeople.mockClear()
-
-      const res = await service.client.get(
-        `/v1/phone-banking/lists/${build.data.id}?skipLiveEnrichment=true`,
-        orgHeaders(),
-      )
-
-      expect(res.status).toBe(200)
-      expect(findPeople).not.toHaveBeenCalled()
-      const [entry] = res.data.entries
-      expect(entry.phone).toBe('3075559991')
-      expect(entry.persons[0]).toMatchObject({
-        personId,
-        name: 'Live One',
-        age: null,
-        address: null,
-        cellPhone: null,
-      })
-    })
-
     it('serves a list frozen before firstName existed, falling back to null rather than 500ing', async () => {
       const personId = randomUUID()
       mockPeoplePage([

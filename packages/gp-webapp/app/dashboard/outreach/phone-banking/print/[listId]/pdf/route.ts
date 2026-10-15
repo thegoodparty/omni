@@ -18,22 +18,18 @@ export const dynamic = 'force-dynamic'
 // runtime.
 export const runtime = 'nodejs'
 // A multi-sheet request renders every sheet before it can zip them, so this
-// scales with sheet count rather than any single sheet's own cost. The
-// default 15s is close enough to a large list's worst case to be worth
-// raising, same as the walk-list PDF route.
-export const maxDuration = 60
+// scales with sheet count rather than any single sheet's own cost. A full
+// 20-sheet list takes 15-23s on a laptop and ran past 60s in prod (ENG-11122),
+// so this leaves room for a slower function CPU.
+export const maxDuration = 300
 
 const notFound = () => new Response('Not found', { status: 404 })
 
 const fetchList = async (listId: string): Promise<PhoneBankingList | null> => {
   try {
-    const response = await serverRequest(
-      'GET /v1/phone-banking/lists/:id',
-      { id: listId },
-      // The PDF reads only name, phone, and interaction (all frozen/Prisma
-      // data); skip the Databricks lookup it never uses.
-      { query: { skipLiveEnrichment: 'true' } },
-    )
+    const response = await serverRequest('GET /v1/phone-banking/lists/:id', {
+      id: listId,
+    })
     return response.data
   } catch (error) {
     // gp-api 404s a list that isn't yours, doesn't exist, or was deleted —
@@ -116,13 +112,10 @@ export const GET = async (
   }
 
   const zip = new JSZip()
-  // Rendering concurrently cuts a 20-sheet list from about 15-23s to 13s
-  // locally, at roughly twice the peak memory. The sheet count is capped at
-  // PHONE_BANKING_MAX_SHEET_COUNT, so that cost is bounded.
-  const pdfs = await Promise.all(sheets.map(renderSheet))
-  sheets.forEach((sheetIndex, i) => {
-    zip.file(callSheetFilename(list.name, sheetIndex, sheetTotal), pdfs[i])
-  })
+  for (const sheetIndex of sheets) {
+    const pdf = await renderSheet(sheetIndex)
+    zip.file(callSheetFilename(list.name, sheetIndex, sheetTotal), pdf)
+  }
   const archive = await zip.generateAsync({ type: 'nodebuffer' })
 
   return new Response(new Uint8Array(archive), {
