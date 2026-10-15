@@ -19,7 +19,6 @@ import {
   MAX_SEED_PAGE_BYTES,
   parseCaseList,
   SeedPageSchema,
-  usesSeededTranscript,
   type ChatCase,
 } from './cases'
 
@@ -303,11 +302,10 @@ describe('loadCaseList', () => {
   })
 })
 
-// The four new case capabilities, at the boundary where a malformed one can
-// still name the file it came from. Every field below is optional, so the
-// failure these guard against is not "a list stopped parsing" — it is "a
-// directive nobody could honour parsed cleanly and drove a paid sweep under a
-// condition nobody applied".
+// At the boundary where a malformed case can still name the file it came
+// from. Both spellings are optional, so the failure these guard against is
+// not "a list stopped parsing" — it is "a case nobody could honour parsed
+// cleanly and drove a paid sweep".
 describe('a chat case with several user turns', () => {
   const parse = (one: object): ChatCase[] => {
     const list = parseCaseList('a.json', chatList([one]), expected)
@@ -338,20 +336,23 @@ describe('a chat case with several user turns', () => {
     expect(() => parse({ caseId: 'none' })).toThrow(/exactly one of/)
   })
 
-  // THE DIRECTIVE'S OWN NAME, which the inner schemas cannot catch. A
-  // non-strict case object would strip `priorTranscipt`, run the case with no
-  // condition applied, and let the pair compare happily — and both arms would
-  // do it, so nothing downstream could notice either.
-  it('refuses a misspelled directive rather than dropping it', () => {
+  // A non-strict case object would strip a misspelled field and let both
+  // arms run a case nobody wrote.
+  it('refuses a misspelled field rather than dropping it', () => {
     expect(() =>
-      parse({
-        caseId: 'typo',
-        question: 'ask',
-        priorTranscipt: [{ role: 'user', content: 'earlier' }],
-      }),
+      parse({ caseId: 'typo', question: 'ask', turn: ['again'] }),
     ).toThrow(CaseListError)
+  })
+
+  // A black-box arm drives deployed gp-api over HTTP, so it can neither seed
+  // a transcript nor force a tool to fail. A list asking for one is refused
+  // rather than run without it.
+  it.each([
+    ['priorTranscript', [{ role: 'user', content: 'earlier' }]],
+    ['toolFailure', { tool: 'get_briefing', mode: 'error' }],
+  ])('refuses %s, which no arm can honour', (field, value) => {
     expect(() =>
-      parse({ caseId: 'typo2', question: 'ask', tool_failure: {} }),
+      parse({ caseId: 'condition', question: 'ask', [field]: value }),
     ).toThrow(CaseListError)
   })
 
@@ -365,154 +366,6 @@ describe('a chat case with several user turns', () => {
   // drive a conversation of no turns and record it as a run.
   it('refuses to read no turns at all out of a hand-built case', () => {
     expect(() => caseTurns({ caseId: 'empty' })).toThrow(CaseListError)
-  })
-})
-
-describe('a chat case with a seeded prior transcript', () => {
-  const parse = (transcript: object[]): ChatCase =>
-    parseCaseList(
-      'a.json',
-      chatList([
-        { caseId: 'mid', question: 'and now?', priorTranscript: transcript },
-      ]),
-      expected,
-    ).cases[0] as ChatCase
-
-  it('accepts user and assistant turns, with tool calls on the latter', () => {
-    const one = parse([
-      { role: 'user', content: 'how many priorities?' },
-      {
-        role: 'assistant',
-        content: 'Three.',
-        toolCalls: [{ tool: 'crud_priorities', input: { action: 'list' } }],
-      },
-    ])
-    expect(one.priorTranscript).toHaveLength(2)
-    expect(usesSeededTranscript(one)).toBe(true)
-  })
-
-  it('marks a case that seeded nothing as not having seeded one', () => {
-    expect(usesSeededTranscript({ caseId: 'plain', question: 'ask' })).toBe(
-      false,
-    )
-  })
-
-  // A user row carries no segments in production, so a seeded one that did
-  // would be a row no route could have written.
-  it('refuses tool calls on a user turn', () => {
-    expect(() =>
-      parse([
-        { role: 'user', content: 'x', toolCalls: [{ tool: 't', input: {} }] },
-      ]),
-    ).toThrow(/only an assistant turn/)
-  })
-
-  it('refuses a turn with neither content nor a tool call', () => {
-    expect(() => parse([{ role: 'assistant', content: '  ' }])).toThrow(
-      /empty row/,
-    )
-  })
-
-  // A widget-only assistant turn IS a production shape: it persists with
-  // empty content and its tool segments, and the replay drops it.
-  it('accepts a widget-only assistant turn', () => {
-    const one = parse([
-      { role: 'user', content: 'ask' },
-      { role: 'assistant', content: '', toolCalls: [{ tool: 't', input: {} }] },
-    ])
-    expect(one.priorTranscript?.[1]?.content).toBe('')
-  })
-
-  // Beside the two recognised keys, so stripping the unknown one leaves a
-  // legal call and only `.strict()` refuses it.
-  it('refuses a tool-call key nobody defined', () => {
-    expect(() =>
-      parse([
-        {
-          role: 'assistant',
-          content: 'done',
-          toolCalls: [{ tool: 't', input: {}, output: 'invented' }],
-        },
-      ]),
-    ).toThrow(CaseListError)
-  })
-
-  // A TRANSCRIPT PRODUCTION COULD HAVE PRODUCED, which is narrower than a
-  // list of individually valid rows. `toLlmMessages` folds only the FIRST
-  // leading assistant row into the system prompt, so either shape below
-  // leaves an assistant row where the provider requires a user one — and
-  // that arrives as a stream error after the conversation is open and a
-  // paid turn has been attempted.
-  it('refuses a transcript that opens on an assistant reply', () => {
-    expect(() =>
-      parse([
-        { role: 'assistant', content: 'Three.' },
-        { role: 'user', content: 'which?' },
-      ]),
-    ).toThrow(/open on a user turn/)
-  })
-
-  it('refuses two assistant turns in a row', () => {
-    expect(() =>
-      parse([
-        { role: 'user', content: 'ask' },
-        { role: 'assistant', content: 'Three.' },
-        { role: 'assistant', content: 'Also this.' },
-      ]),
-    ).toThrow(/both assistant turns/)
-  })
-
-  it('accepts the alternation a conversation actually produces', () => {
-    const one = parse([
-      { role: 'user', content: 'ask' },
-      { role: 'assistant', content: 'Three.' },
-      { role: 'user', content: 'which?' },
-      { role: 'assistant', content: 'Housing.' },
-    ])
-    expect(one.priorTranscript).toHaveLength(4)
-  })
-
-  it('refuses a transcript key nobody defined', () => {
-    expect(() =>
-      parse([{ role: 'user', content: 'x', tool_calls: [] }]),
-    ).toThrow(CaseListError)
-  })
-})
-
-describe('a chat case with a tool-failure directive', () => {
-  const parse = (failure: object): ChatCase =>
-    parseCaseList(
-      'a.json',
-      chatList([{ caseId: 'fail', question: 'ask', toolFailure: failure }]),
-      expected,
-    ).cases[0] as ChatCase
-
-  it('accepts a thrown error and a timeout', () => {
-    expect(parse({ tool: 'get_briefing', mode: 'error' }).toolFailure).toEqual({
-      tool: 'get_briefing',
-      mode: 'error',
-    })
-    expect(
-      parse({ tool: 'get_briefing', mode: 'timeout', afterMs: 25 }).toolFailure,
-    ).toEqual({ tool: 'get_briefing', mode: 'timeout', afterMs: 25 })
-  })
-
-  it('refuses a failure mode nobody implemented', () => {
-    expect(() => parse({ tool: 't', mode: 'flake' })).toThrow(CaseListError)
-  })
-
-  // An "error" step throws before the real execute is reached, so a delay on
-  // it is a field the author believed did something.
-  it('refuses afterMs on a thrown error', () => {
-    expect(() => parse({ tool: 't', mode: 'error', afterMs: 10 })).toThrow(
-      /only means something for mode "timeout"/,
-    )
-  })
-
-  it('refuses a tool-failure key nobody defined', () => {
-    expect(() => parse({ tool: 't', mode: 'error', retries: 2 })).toThrow(
-      CaseListError,
-    )
   })
 })
 

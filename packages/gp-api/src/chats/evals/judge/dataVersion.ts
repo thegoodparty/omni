@@ -7,14 +7,14 @@ import {
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
-import { assertDeltaVersion } from './runners/chatSeam'
+import { assertDeltaVersion } from './deltaVersion'
 
 // THE ONE DELTA VERSION BOTH ARMS READ, resolved before either of them runs.
 //
-// `JUDGE_DATA_VERSION` is what pins the voter mart: `pinDeltaVersion` rewrites
-// every allowlisted table reference to `VERSION AS OF <n>`, so a verdict can
-// never be an artifact of the voter data moving between the two captures.
-// That is the one input a comparison cannot hold still by re-running, because
+// `JUDGE_DATA_VERSION` names the voter mart snapshot a sweep ran against. A
+// background record carries it. A chat arm drives a deployed gp-api over HTTP
+// and cannot pin the SQL that deployment runs, so its records carry none.
+// The mart is the one input a comparison cannot hold still by re-running, because
 // the arms are two processes in two checkouts and the second can start an hour
 // after the first finished.
 //

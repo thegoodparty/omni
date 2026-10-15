@@ -1412,6 +1412,20 @@ describe('reading the budget an arm was handed', () => {
 // THE CHAT HALF, decided once like the background half: each arm reads its
 // own case lists and attempts, and two arms refusing different chat agents
 // pay for turns that pair with nothing.
+// The chat registry as it reads once every chat agent is driven against a
+// deployment. Four are blocked in agents.ts until then, and the rules below
+// are about several chat agents sharing one budget.
+const DRIVABLE: readonly AgentEntry[] = AGENTS.map((agent) =>
+  agent.shape === 'chat' && agent.status === 'blocked'
+    ? {
+        agentId: agent.agentId,
+        shape: agent.shape,
+        cases: agent.cases,
+        status: 'pending',
+      }
+    : agent,
+)
+
 describe('the chat agents refused for time', () => {
   const ALL_CHAT =
     'chief_of_staff,campaign_assistant,ordinance_flow,priority_flow'
@@ -1431,41 +1445,35 @@ describe('the chat agents refused for time', () => {
   const judgeDirOf = (root: string): string =>
     join(root, 'packages/gp-api/src/chats/evals/judge')
 
-  // Every chat agent at today's lists: 8 + 48 minutes fit the 65 the arm
-  // leaves chat, and the two after are refused by name. Read back through the
-  // arm's own loader, so the resolver is tied to what the arm refuses.
+  // Read back through the arm's own loader, so the resolver is tied to what
+  // the arm refuses: 200 base cases at 3 attempts cannot fit the arm.
   it('refuses what does not fit, and both arms refuse exactly that', () => {
     const { status, stderr, written } = runEntry({
-      BASE_DIR: chatTree(),
-      JUDGE_AGENTS: ALL_CHAT,
+      BASE_DIR: chatTree({ timeouts: {}, chatCases: { chief_of_staff: 200 } }),
+      JUDGE_AGENTS: 'chief_of_staff',
     })
     expect(status).toBe(0)
     expect(stderr).toMatch(
-      /refused ordinance_flow: would take about 48 minutes for 24 chat turns/,
+      /refused chief_of_staff: would take about 200 minutes for 600 chat turns/,
     )
     const arm = parseArmEnv(intoArmEnv(PARSE(written)))
     expect([...(arm.backgroundRefused?.keys() ?? [])]).toEqual([
-      'ordinance_flow',
-      'priority_flow',
+      'chief_of_staff',
     ])
     const { loadCases } = armDeps(arm, armConfigFor(arm))
-    const agent = (id: string): AgentEntry => {
-      const found = findAgent(id)
-      if (found === undefined) throw new Error(`${id} is not registered`)
-      return found
-    }
-    expect(() => loadCases(agent('ordinance_flow'))).toThrow(
-      /^ordinance_flow was not admitted to this sweep: would take about 48/,
+    const chiefOfStaff = findAgent('chief_of_staff')
+    if (chiefOfStaff === undefined) throw new Error('chief_of_staff is missing')
+    expect(() => loadCases(chiefOfStaff)).toThrow(
+      /^chief_of_staff was not admitted to this sweep: would take about 200/,
     )
-    expect(loadCases(agent('campaign_assistant')).cases).toHaveLength(8)
     expect(
       capturableAgents(
-        ALL_CHAT.split(','),
+        ['chief_of_staff'],
         arm,
         findAgent,
         DEFAULT_JUDGE_CONFIG,
       ),
-    ).toEqual(['chief_of_staff', 'campaign_assistant'])
+    ).toEqual([])
   })
 
   // Against a base that would walk them anyway, refusing on the candidate
@@ -1537,7 +1545,7 @@ describe('the chat agents refused for time', () => {
     ids: string[],
     over: Partial<NonNullable<Parameters<typeof resolveChatRefusals>[4]>> = {},
   ) =>
-    resolveChatRefusals(ids, '/no/base', DEFAULT_JUDGE_CONFIG, AGENTS, {
+    resolveChatRefusals(ids, '/no/base', DEFAULT_JUDGE_CONFIG, DRIVABLE, {
       candidate: () => 8,
       base: () => 8,
       baseAttempts: () => undefined,
@@ -1825,28 +1833,26 @@ describe('the chat agents the base ref cannot run', () => {
     ).toBeUndefined()
   })
 
-  // End to end, as judge.yml runs it: the refusal reaches both arms, the arm
-  // treats it as a refusal by design, and the candidate's other chat agents
-  // are still costed for time.
+  // End to end, as judge.yml runs it: the refusal reaches both arms and the
+  // arm treats it as a refusal by design.
   it('refuses it before spend, by name, and the arm stays green', () => {
     const { status, written } = runEntry({
       BASE_DIR: tree(blockedRegistry),
-      JUDGE_AGENTS: 'chief_of_staff,campaign_assistant',
+      JUDGE_AGENTS: 'chief_of_staff',
     })
     expect(status).toBe(0)
     const arm = parseArmEnv(intoArmEnv(PARSE(written)))
     expect(arm.backgroundRefused?.get('chief_of_staff')).toMatch(
       /^the base ref cannot run this agent \(it is blocked there\), so the candidate arm would pay for turns with nothing to compare/,
     )
-    expect(arm.backgroundRefused?.has('campaign_assistant')).toBe(false)
     expect(
       capturableAgents(
-        ['chief_of_staff', 'campaign_assistant'],
+        ['chief_of_staff'],
         arm,
         findAgent,
         DEFAULT_JUDGE_CONFIG,
       ),
-    ).toEqual(['campaign_assistant'])
+    ).toEqual([])
   })
 
   it('does not refuse it when the base can run it', () => {
@@ -1893,14 +1899,14 @@ describe('the chat agents the base ref cannot run', () => {
       ids,
       '/no/base',
       DEFAULT_JUDGE_CONFIG,
-      AGENTS,
+      DRIVABLE,
       { ...costs, baseCannotRun: () => undefined },
     )
     const unrunnable = resolveChatRefusals(
       ids,
       '/no/base',
       DEFAULT_JUDGE_CONFIG,
-      AGENTS,
+      DRIVABLE,
       {
         ...costs,
         baseCannotRun: (_dir, agent) =>
