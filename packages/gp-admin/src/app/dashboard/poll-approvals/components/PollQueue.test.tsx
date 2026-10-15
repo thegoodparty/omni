@@ -67,6 +67,7 @@ describe('PollQueue', () => {
       item({ outreachId: 9, approvalStatus: 'approved' }),
       item({ outreachId: 10, approvalStatus: 'sent' }),
       item({ outreachId: 11, approvalStatus: 'denied' }),
+      item({ outreachId: 12, approvalStatus: 'canceled' }),
     ])
 
     expect(
@@ -74,6 +75,7 @@ describe('PollQueue', () => {
     ).toBeTruthy()
     expect(screen.getByRole('tab', { name: /Approved \(2\)/ })).toBeTruthy()
     expect(screen.getByRole('tab', { name: /Denied \(1\)/ })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Canceled \(1\)/ })).toBeTruthy()
     expect(screen.getByText('Expansion')).toBeTruthy()
     expect(
       screen.getByText('Should the town fund the new library?')

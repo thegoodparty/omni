@@ -18,7 +18,7 @@ interface PollQueueProps {
   items: PollQueueItem[]
 }
 
-const TABS: QueueTab[] = ['awaiting', 'approved', 'denied']
+const TABS: QueueTab[] = ['awaiting', 'approved', 'denied', 'canceled']
 const EXCERPT_LENGTH = 90
 
 const excerpt = (question: string | null) => {

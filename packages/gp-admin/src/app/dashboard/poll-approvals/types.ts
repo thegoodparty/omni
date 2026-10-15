@@ -1,17 +1,19 @@
 import type { PollApprovalStatus } from '@goodparty_org/contracts'
 
-export type QueueTab = 'awaiting' | 'approved' | 'denied'
+export type QueueTab = 'awaiting' | 'approved' | 'denied' | 'canceled'
 
 export const TAB_LABELS: Record<QueueTab, string> = {
   awaiting: 'Awaiting review',
   approved: 'Approved',
   denied: 'Denied',
+  canceled: 'Canceled',
 }
 
 export const TAB_STATUSES: Record<QueueTab, PollApprovalStatus[]> = {
   awaiting: ['awaiting_review'],
   approved: ['approved', 'sent'],
   denied: ['denied'],
+  canceled: ['canceled'],
 }
 
 export const STATUS_LABELS: Record<PollApprovalStatus, string> = {

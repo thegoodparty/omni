@@ -39,9 +39,9 @@ export const getPollQueue = async (): Promise<PollQueueItem[]> => {
   await requireReader()
   const responses = await gpAction(async (client) =>
     Promise.all(
-      (['awaiting_review', 'approved', 'sent', 'denied'] as const).map(
-        (status) => client.pollOutreachAdmin.getQueue(status)
-      )
+      (
+        ['awaiting_review', 'approved', 'sent', 'denied', 'canceled'] as const
+      ).map((status) => client.pollOutreachAdmin.getQueue(status))
     )
   )
   return responses.flatMap(({ items }) => items)
