@@ -268,8 +268,7 @@ export const WIN_SMS_VOICE: SmsVoiceConfig<SmsPurpose> = {
 }
 
 const countOptOutLines = (message: string): number =>
-  message.match(/reply\s+["'“”‘’]?stop["'“”‘’]?\s+to\s+opt[\s-]?out/gi)
-    ?.length ?? 0
+  message.match(/reply\s+["'“”‘’]?stop\b/gi)?.length ?? 0
 
 const DraftSchema = z.object({
   draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),

@@ -645,7 +645,7 @@ describe('OutreachSmsGenerationService — locked lines and style', () => {
   it('refuses a polish that writes the JOIN or STOP line a second time', async () => {
     const { service, jsonCompletion } = replyWith(
       `Hello ⟦1⟧, this is ⟦2⟧, your mayor. ${CIVIC_PANEL_JOIN_LINE}\n\n⟦3⟧\n\n⟦4⟧`,
-      'Hello ⟦1⟧, this is ⟦2⟧. Reply STOP to opt out.\n\n⟦3⟧\n\n⟦4⟧',
+      'Hello ⟦1⟧, this is ⟦2⟧. Reply STOP.\n\n⟦3⟧\n\n⟦4⟧',
     )
     await expect(improvePanel(service)).rejects.toBeInstanceOf(
       BadGatewayException,
