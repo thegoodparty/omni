@@ -12,6 +12,7 @@ import { ContactNotesController } from './contactNotes.controller'
 import { ContactsController } from './contacts.controller'
 import { CensusCompositionModule } from '@/priorities/censusComposition.module'
 import { ContactsService } from './services/contacts.service'
+import { IndependentAffinityColumnService } from './services/independentAffinityColumn.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
 import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
 
@@ -38,7 +39,12 @@ import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.servi
     ContactsService,
     CivicPanelSummaryService,
     CivicPanelBuildPlanService,
+    IndependentAffinityColumnService,
   ],
-  exports: [ContactsService, CivicPanelBuildPlanService],
+  exports: [
+    ContactsService,
+    CivicPanelBuildPlanService,
+    IndependentAffinityColumnService,
+  ],
 })
 export class ContactsModule {}
