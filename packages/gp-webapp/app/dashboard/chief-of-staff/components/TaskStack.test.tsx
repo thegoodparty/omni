@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EXPLAIN_CIVIC_PANEL_MESSAGE } from '@goodparty_org/contracts'
 import TaskStack from './TaskStack'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import type { DashboardCard, OnboardingCard } from '../data/contracts'
@@ -232,10 +233,10 @@ describe('<TaskStack>', () => {
   const buildCard = card({
     id: 'build',
     type: 'civic_panel',
-    title: 'Hear from more than the loudest voices',
+    title: 'Start with the people you represent',
     summary:
-      'Decisions land better when you know what the whole community thinks, not only who shows up.',
-    ctaLabel: 'Get started',
+      'A civic panel is residents who agree to tell you what they think before you decide.',
+    ctaLabel: 'Build my panel',
     ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
     dueDate: '2026-10-21T18:00:00.000Z',
     sourceExternalId: 'build:eo-1',
@@ -246,6 +247,40 @@ describe('<TaskStack>', () => {
     render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
     expect(
       screen.queryByRole('button', { name: 'Ask about this' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('explains the panel from the build card without building or finishing anything', async () => {
+    const user = userEvent.setup()
+    const onDiscussCard = vi.fn()
+    onboardingRef.current = [{ key: 'meet', status: 'completed' }]
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+    // A quiet link beside the one primary action.
+    const explain = screen.getByRole('button', {
+      name: "What's a civic panel?",
+    })
+    await user.click(explain)
+    expect(onDiscussCard).toHaveBeenCalledWith(EXPLAIN_CIVIC_PANEL_MESSAGE)
+    expect(completeMock).not.toHaveBeenCalled()
+    expect(completeOnboardingMock).not.toHaveBeenCalled()
+    expect(dismissMock).not.toHaveBeenCalled()
+  })
+
+  it('offers What is a civic panel only on the build card', () => {
+    withCards([
+      card({
+        id: 'p1-card',
+        type: 'civic_panel',
+        title: 'Affordable housing',
+        ctaLabel: 'Open priority',
+        ctaHref: '/dashboard/priorities/p1',
+        sourceExternalId: 'p1',
+      }),
+    ])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+    expect(
+      screen.queryByRole('button', { name: "What's a civic panel?" }),
     ).not.toBeInTheDocument()
   })
 
@@ -274,13 +309,15 @@ describe('<TaskStack>', () => {
       { key: 'priorities', status: 'active' },
     ]
     rerender(<TaskStack onOpenCard={vi.fn()} />)
-    expect(frontTitle()).toBe('Hear from more than the loudest voices')
+    expect(frontTitle()).toBe('Start with the people you represent')
     expect(
-      screen.getByRole('heading', { level: 2, name: 'Start here' }),
+      screen.getByRole('heading', { level: 2, name: 'People first' }),
     ).toBeInTheDocument()
-    // Get started stays on the home: it opens the chat there, never the
+    // Build my panel stays on the home: it opens the chat there, never the
     // outreach page.
-    expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
+    expect(
+      screen.getByRole('link', { name: 'Build my panel' }),
+    ).toHaveAttribute(
       'href',
       '/dashboard/chief-of-staff?chat=build_citizens_panel',
     )
@@ -304,7 +341,7 @@ describe('<TaskStack>', () => {
     ]
     withCards([buildCard])
     render(<TaskStack onOpenCard={vi.fn()} />)
-    expect(frontTitle()).toBe('Hear from more than the loudest voices')
+    expect(frontTitle()).toBe('Start with the people you represent')
   })
 
   // It is done when its text goes out, not when it is pressed.
@@ -326,7 +363,7 @@ describe('<TaskStack>', () => {
     expect(
       screen.getByRole('heading', {
         level: 3,
-        name: 'Hear from more than the loudest voices',
+        name: 'Start with the people you represent',
       }),
     ).toBeInTheDocument()
     expect(
@@ -334,7 +371,7 @@ describe('<TaskStack>', () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('link', { name: 'Get started' }))
+    await user.click(screen.getByRole('link', { name: 'Build my panel' }))
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.TaskActionTaken,
       expect.objectContaining({ cardId: 'build', stackSize: 2 }),
