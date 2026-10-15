@@ -418,11 +418,14 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       })
       const fresh = await tx.civicPanelBuildPlan.findUniqueOrThrow({
         where: { id: plan.id },
-        select: { status: true },
+        select: { status: true, hoursPerWeek: true },
       })
+      // A weekly time changed since the sizing read leaves the wave to the
+      // next read, which sizes it from the new time.
       if (
         latest._max.wave !== currentWave ||
-        fresh.status !== CivicPanelBuildPlanStatus.active
+        fresh.status !== CivicPanelBuildPlanStatus.active ||
+        fresh.hoursPerWeek !== plan.hoursPerWeek
       ) {
         return
       }
