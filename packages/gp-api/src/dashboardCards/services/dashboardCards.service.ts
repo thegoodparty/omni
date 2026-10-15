@@ -95,7 +95,7 @@ const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   title: 'Hear from more than the loudest voices',
   summary:
     'Decisions land better when you know what the whole community ' +
-    'thinks, not just who shows up.',
+    'thinks, not only who shows up.',
   ctaLabel: 'Get started',
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }
@@ -157,11 +157,56 @@ export class DashboardCardsService extends createPrismaBase(
           electedOfficeId: electedOffice.id,
           type: DashboardCardType.report_back,
         },
-        select: { id: true, sourceExternalId: true, completedAt: true },
+        select: {
+          id: true,
+          sourceExternalId: true,
+          completedAt: true,
+          title: true,
+          summary: true,
+          ctaLabel: true,
+          ctaHref: true,
+        },
       })
       const carded = new Set(existing.map((card) => card.sourceExternalId))
       const now = new Date()
       const missing = sends.filter((send) => !carded.has(String(send.id)))
+      // Words follow the current copy in every state, as the build card's
+      // do. A card whose send no longer has replies in is looked up directly.
+      const sendById = new Map(sends.map((send) => [send.id, send]))
+      const unlisted = existing
+        .map((card) => Number(card.sourceExternalId))
+        .filter((id) => Number.isInteger(id) && !sendById.has(id))
+      if (unlisted.length > 0) {
+        const more = await tx.outreach.findMany({
+          where: { id: { in: unlisted } },
+          select: {
+            id: true,
+            priorityId: true,
+            priority: { select: { title: true } },
+          },
+        })
+        for (const send of more) sendById.set(send.id, send)
+      }
+      for (const card of existing) {
+        const send = sendById.get(Number(card.sourceExternalId))
+        if (!send) continue
+        const content = reportBackCardContent(
+          send.id,
+          send.priorityId ?? '',
+          send.priority?.title ?? '',
+        )
+        if (
+          card.title !== content.title ||
+          card.summary !== content.summary ||
+          card.ctaLabel !== content.ctaLabel ||
+          card.ctaHref !== content.ctaHref
+        ) {
+          await tx.dashboardCard.update({
+            where: { id: card.id },
+            data: content,
+          })
+        }
+      }
       if (missing.length > 0) {
         await tx.dashboardCard.createMany({
           data: missing.map((send) => ({

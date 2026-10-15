@@ -22,6 +22,7 @@ const dismissMock = vi.fn()
 const completeMock = vi.fn()
 const snoozeMock = vi.fn()
 const skipOnboardingMock = vi.fn()
+const completeOnboardingMock = vi.fn()
 
 vi.mock('../data/use-dashboard', () => ({
   useDashboardCards: () => cardsRef.current,
@@ -30,6 +31,7 @@ vi.mock('../data/use-dashboard', () => ({
   useCompleteCard: () => ({ mutate: completeMock }),
   useSnoozeCard: () => ({ mutate: snoozeMock }),
   useSkipOnboardingCard: () => ({ mutate: skipOnboardingMock }),
+  useCompleteOnboardingCard: () => ({ mutate: completeOnboardingMock }),
 }))
 
 const card = (overrides: Partial<DashboardCard>): DashboardCard => ({
@@ -60,6 +62,7 @@ beforeEach(() => {
   completeMock.mockReset()
   snoozeMock.mockReset()
   skipOnboardingMock.mockReset()
+  completeOnboardingMock.mockReset()
   vi.mocked(trackEvent).mockReset()
 })
 
@@ -136,6 +139,21 @@ describe('<TaskStack>', () => {
     expect(
       screen.queryByRole('button', { name: /mark done/i }),
     ).not.toBeInTheDocument()
+    // Priorities is done by stating one, not by opening it.
+    expect(completeOnboardingMock).not.toHaveBeenCalled()
+  })
+
+  // Any Chief of Staff conversation must not stand in for the intro.
+  it('completes the meet card when its button opens the intro', async () => {
+    const user = userEvent.setup()
+    const onOpenCard = vi.fn()
+    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+    render(<TaskStack onOpenCard={onOpenCard} />)
+    await user.click(
+      screen.getByRole('button', { name: ONBOARDING_CARDS.meet.ctaLabel }),
+    )
+    expect(completeOnboardingMock).toHaveBeenCalledWith('meet')
+    expect(onOpenCard).toHaveBeenCalledWith('meet')
   })
 
   it('skips a get-started card through its own mutation', async () => {
@@ -216,7 +234,7 @@ describe('<TaskStack>', () => {
     type: 'civic_panel',
     title: 'Hear from more than the loudest voices',
     summary:
-      'Decisions land better when you know what the whole community thinks, not just who shows up.',
+      'Decisions land better when you know what the whole community thinks, not only who shows up.',
     ctaLabel: 'Get started',
     ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
     dueDate: '2026-10-21T18:00:00.000Z',
@@ -237,23 +255,56 @@ describe('<TaskStack>', () => {
     expect(screen.queryByText(/October 21/)).toBeNull()
   })
 
-  it('leads with the civic panel build card, ahead of get-started cards', () => {
-    onboardingRef.current = [{ key: 'meet', status: 'active' }]
+  const frontTitle = () => screen.getByRole('heading', { level: 3 }).textContent
+
+  it('leads with meet, then the build card, then priorities, then the rest', () => {
+    onboardingRef.current = [
+      { key: 'meet', status: 'active' },
+      { key: 'priorities', status: 'active' },
+    ]
     withCards([card({}), buildCard])
-    render(<TaskStack onOpenCard={vi.fn()} />)
+    const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(frontTitle()).toBe(ONBOARDING_CARDS.meet.title)
     expect(
-      screen.getByRole('heading', {
-        level: 3,
-        name: 'Hear from more than the loudest voices',
-      }),
+      screen.getByRole('heading', { level: 2, name: 'Start here' }),
     ).toBeInTheDocument()
-    expect(screen.queryByText(ONBOARDING_CARDS.meet.title)).toBeNull()
+
+    onboardingRef.current = [
+      { key: 'meet', status: 'completed' },
+      { key: 'priorities', status: 'active' },
+    ]
+    rerender(<TaskStack onOpenCard={vi.fn()} />)
+    expect(frontTitle()).toBe('Hear from more than the loudest voices')
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Start here' }),
+    ).toBeInTheDocument()
     // Get started stays on the home: it opens the chat there, never the
     // outreach page.
     expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
       'href',
       '/dashboard/chief-of-staff?chat=build_citizens_panel',
     )
+
+    withCards([card({})])
+    rerender(<TaskStack onOpenCard={vi.fn()} />)
+    expect(frontTitle()).toBe(ONBOARDING_CARDS.priorities.title)
+
+    onboardingRef.current = [
+      { key: 'meet', status: 'completed' },
+      { key: 'priorities', status: 'skipped' },
+    ]
+    rerender(<TaskStack onOpenCard={vi.fn()} />)
+    expect(frontTitle()).toBe('Prep for the zoning vote')
+  })
+
+  it('puts the build card ahead of priorities once meet is skipped', () => {
+    onboardingRef.current = [
+      { key: 'meet', status: 'skipped' },
+      { key: 'priorities', status: 'active' },
+    ]
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} />)
+    expect(frontTitle()).toBe('Hear from more than the loudest voices')
   })
 
   // It is done when its text goes out, not when it is pressed.
