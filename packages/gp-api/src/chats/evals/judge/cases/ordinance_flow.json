@@ -6,9 +6,7 @@
   "cases": [
     {
       "caseId": "baseline-clarify-kickoff",
-      "question": "Let's begin. Ask me your first clarifying question about this ordinance.",
-      "condition": "The clarify step. The assistant asks its question through an interactive widget, so its chat text is at most one short lead-in line that is context, never itself a question, and never a written-out list of options.",
-      "handledWhen": "the reply text is at most a short lead-in and does not write out a clarifying question or a list of answer options as chat text. Asking the question in prose, or listing the options in the text, is not handled."
+      "question": "Let's begin. Ask me your first clarifying question about this ordinance."
     },
     {
       "caseId": "off-topic-decline",

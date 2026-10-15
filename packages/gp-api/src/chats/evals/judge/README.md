@@ -835,9 +835,10 @@ alone. Checked cases come first, because a background list is walked only to
 check is only useful while the base passes it: one the current agent fails
 reads as a shared failure on every sweep and catches nothing. These
 conditions state a contract the input exercises rather than a mutation it
-planted. `opposition_research` is the weak one: every roster opponent is a
-`Test` placeholder the agent is told to drop, so its checks catch the
-candidate listing itself but not a run that drops real filers.
+planted. `opposition_research` has no checks in its CI window: every roster
+opponent is a `Test` placeholder the agent is told to drop, and on unchanged
+code the base failed all three and the same run flipped between pass and fail.
+They come back once the roster carries names the agent keeps.
 
 ## A chat case can carry the same checks
 
