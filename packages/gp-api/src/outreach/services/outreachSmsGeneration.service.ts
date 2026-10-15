@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import {
   checkSmsStandards,
+  countCivicPanelLines,
   deriveSmsProtectedParts,
   type MergeTagChannel,
   type OutreachEventDetails,
@@ -91,19 +92,19 @@ const PURPOSE_STRUCTURES: Record<SmsPurpose, string> = {
   introduce_myself:
     'Structure (the three-bullet formula): one short line of who the ' +
     'candidate is, drawn from the materials (occupation, family, ' +
-    'community roots) — voters need a reason to trust before any ask; ' +
+    'community roots), since voters need a reason to trust before any ask; ' +
     'then one sentence of vision; then the line "My priorities:" ' +
     'followed by exactly three short bullet points, each on its own ' +
     'line starting with \"• \", drawn from the stated priorities in ' +
-    'the materials — each bullet names the concrete HOW, not just the ' +
+    'the materials. Each bullet names the concrete HOW, not only the ' +
     'topic (\"Fix our roads with a real maintenance plan, not ' +
-    'patchwork\", never just \"Fix our roads\"); then one closing ' +
+    'patchwork\", never a bare \"Fix our roads\"); then one closing ' +
     'line inviting a reply. If the materials contain no stated ' +
     'priorities, skip the bullets and instead write a short narrative ' +
     "of the candidate's experience and values from the materials.",
   persuade_voters:
     'Structure: one line on what sets the candidate apart (independent, ' +
-    'not beholden to special interests — only as supported by the ' +
+    'not beholden to special interests, only as supported by the ' +
     'materials); then "My priorities:" with up to three "• " ' +
     'bullet lines of stated priorities from the materials, each with ' +
     'its concrete HOW, at the same specificity an intro message would ' +
@@ -175,6 +176,19 @@ export const SMS_IMPROVE_IDENTIFICATION_RULE = [
   '  sign-off.',
 ].join('\n')
 
+// The app writes the reply-keyword lines (the opt-out, and on Serve the
+// civic panel JOIN or LEAVE line) and keeps exactly one of each, so a copy
+// the model writes is a second one. The style bans are product-copy rules
+// (docs/product-copy.md) the drafts kept breaking. Shared by Win and Serve,
+// draft and improve.
+export const SMS_LOCKED_LINES_AND_STYLE_RULE = [
+  '- Never write a reply-keyword line yourself: no "Reply JOIN", "Reply',
+  '  LEAVE" or "Reply STOP" line, and no invitation to join a panel. The',
+  '  app adds the one the message needs.',
+  '- Never use an em dash or an en dash. Use a period or a comma.',
+  '- Never use the word "just".',
+].join('\n')
+
 // The flow wraps the body in system-owned regions (identification intro
 // and opt-out footer), so the model must produce ONLY the middle and
 // leave headroom inside the composed cap. The structure and length rules
@@ -193,7 +207,7 @@ const DRAFT_SYSTEM_PROMPT = [
   '  include it once, as a plain domain, near the close. Never invent',
   '  or shorten a URL; with no website in the materials, include none.',
   '- Invite responses as replies to this message (\"You can reply here',
-  '  with questions\") — never \"text me back\" or \"call me\": the',
+  '  with questions\") and never \"text me back\" or \"call me\": the',
   '  message is sent from a temporary campaign number.',
   '- Never write a square-bracket placeholder. Logistics (poll hours,',
   '  dates, times, locations) come only from the event details or the',
@@ -206,6 +220,7 @@ const DRAFT_SYSTEM_PROMPT = [
   SMS_NO_NAME_PLACEHOLDER_RULE,
   '- Do NOT add any opt-out or paid-for-by language: the app appends',
   '  both.',
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
   "- Ground positions, issues, and specifics in the candidate's own",
   '  campaign materials when they are provided; never invent policy',
   '  positions, issue stances, endorsements, statistics, dates, places,',
@@ -232,9 +247,10 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  square-bracket placeholders like [time] exactly as written.',
   PROTECTED_MARKER_RULE,
   SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
   '- Never add policy positions, issue stances, endorsements,',
   '  statistics, dates, places, or events the original text does not',
-  '  contain — campaign materials, when provided, are context for tone',
+  '  contain. Campaign materials, when provided, are context for tone',
   '  and accuracy, not a source of new content in a polish.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone through word choice, not new content.',
@@ -250,6 +266,10 @@ export const WIN_SMS_VOICE: SmsVoiceConfig<SmsPurpose> = {
   subjectFallback: 'The candidate',
   customFreshRefusal: 'Custom-purpose messages are written by the candidate',
 }
+
+const countOptOutLines = (message: string): number =>
+  message.match(/reply\s+["'“”‘’]?stop["'“”‘’]?\s+to\s+opt[\s-]?out/gi)
+    ?.length ?? 0
 
 const DraftSchema = z.object({
   draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
@@ -427,6 +447,15 @@ export class OutreachSmsGenerationService {
       // would then fail the request with no message to show.
       if (restored.length > SMS_COMPOSED_MAX_LENGTH) {
         this.logger.warn({ attempt }, 'SMS improve came back over the limit')
+        continue
+      }
+      // A JOIN, LEAVE or opt-out line the model wrote beside its marker
+      // would text people the same line twice.
+      if (
+        countCivicPanelLines(restored) > countCivicPanelLines(currentDraft) ||
+        countOptOutLines(restored) > countOptOutLines(currentDraft)
+      ) {
+        this.logger.warn({ attempt }, 'SMS improve repeated a locked line')
         continue
       }
       const newlyFailing = standards(restored).filter(

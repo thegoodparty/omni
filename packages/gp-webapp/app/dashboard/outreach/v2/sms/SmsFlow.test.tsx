@@ -1613,7 +1613,7 @@ describe('SmsFlow', () => {
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         expect(
-          screen.queryByText(/messages must include your name/),
+          screen.queryByText(/Your text needs to say who it's from/),
         ).not.toBeInTheDocument()
       })
 

@@ -69,6 +69,62 @@ export const upgradeScriptFooter = (
   return script.slice(0, stale.index) + upgraded
 }
 
+// Removes one span of text, mending the gap it leaves: a line of its own
+// takes its paragraph break with it, words inside a sentence keep one space.
+const cutSpan = (text: string, start: number, end: number): string => {
+  const before = text.slice(0, start).replace(/[ \t]+$/, '')
+  const after = text.slice(end).replace(/^[ \t]+/, '')
+  if (after === '') return before.trimEnd()
+  if (before === '') return after.trimStart()
+  if (before.endsWith('\n') || after.startsWith('\n')) {
+    return `${before}${after}`.replace(/\n{3,}/g, '\n\n')
+  }
+  return `${before} ${after}`
+}
+
+const removeEvery = (text: string, patterns: RegExp[]): string => {
+  let result = text
+  for (const pattern of patterns) {
+    for (;;) {
+      const match = pattern.exec(result)
+      if (!match) break
+      result = cutSpan(result, match.index, match.index + match[0].length)
+    }
+  }
+  return result
+}
+
+// Every wording of a civic panel line, the stored ones and a model's echo of
+// one: the whole JOIN line through its sign-off, or the ask sentence alone.
+// The flow writes the one line a message should carry, so any other copy is
+// a duplicate.
+const JOIN_LINE_PATTERNS = [
+  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?Empowered by GoodParty\.org\./i,
+  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:[.!](?=\s|$)|(?=\n)|$)/i,
+]
+const LEAVE_LINE_PATTERNS = [
+  /Reply LEAVE to leave my (?:civic|citizens['’]) panel[^\n]*?(?:[.!](?=\s|$)|(?=\n)|$)/i,
+]
+
+const escapeRegExp = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// What a body must never carry, because the flow writes it around the body:
+// the civic panel lines, the opt-out line and the "Paid for by" disclaimer.
+// A model that echoes one would otherwise send it twice.
+const withoutLockedLines = (
+  body: string,
+  committeeName?: string | null,
+): string =>
+  removeEvery(body, [
+    ...JOIN_LINE_PATTERNS,
+    ...LEAVE_LINE_PATTERNS,
+    ...(committeeName
+      ? [new RegExp(escapeRegExp(paidForByLine(committeeName)))]
+      : []),
+    new RegExp(escapeRegExp(OPT_OUT_FOOTER)),
+  ])
+
 // Puts back what an Improve reply dropped of the parts the system writes:
 // the footer as the message's closing paragraph, and the greeting when the
 // merge token is gone. gp-api masks both, so a reply normally keeps them and
@@ -92,7 +148,17 @@ export const restoreSmsSystemRegions = (
       : // Only a closing paragraph that opens the way a footer does: one that
         // merely mentions "paid for by" or "reply STOP" is the candidate's.
         text.replace(/\n\n(?:Paid for by |Reply STOP\b)[^\n]*$/, '')
-    text = `${body.trimEnd()}\n\n${regions.footer}`
+    // The civic panel line is not part of the body either: the caller puts
+    // back the one the message should carry, so a copy the model kept or
+    // wrote would otherwise be a second one, and an exact copy of the footer
+    // inside the body would be a second opt-out.
+    const cleanBody = removeEvery(body, [
+      ...JOIN_LINE_PATTERNS,
+      ...LEAVE_LINE_PATTERNS,
+      new RegExp(escapeRegExp(regions.footer)),
+      new RegExp(escapeRegExp(OPT_OUT_FOOTER)),
+    ])
+    text = `${cleanBody.trimEnd()}\n\n${regions.footer}`
   }
   if (!text.includes(regions.token)) text = `${regions.greeting} ${text}`
   return text
@@ -367,7 +433,9 @@ const composeWithGreeting = (
   committeeName?: string | null,
 ): string =>
   [
-    [greeting, body.trim()].filter(Boolean).join(' '),
+    [greeting, withoutLockedLines(body, committeeName).trim()]
+      .filter(Boolean)
+      .join(' '),
     composeFooter(committeeName),
   ]
     .filter(Boolean)
@@ -388,49 +456,53 @@ export const composeScript = (
 export const composeServeScript = (body: string): string =>
   composeWithGreeting(SERVE_SMS_GREETING, body, null)
 
-// Adds or removes the civic panel ask. It is its own paragraph just above the
-// opt-out, so the explanation reads apart from both the body and STOP.
-export const withCivicPanelJoin = (script: string, on: boolean): string => {
-  // Any recognized wording counts as asked, so a message carrying the earlier
-  // line keeps it rather than gaining a second ask.
-  const join = findCivicPanelJoinLine(script)
-  if (on === (join !== null)) return script
-  if (join) {
-    const end = join.start + join.text.length
-    return (
-      script.slice(0, join.start) + script.slice(end).replace(/^(\n\n| )/, '')
-    )
-  }
+// The line in its own paragraph, just above the opt-out.
+const placeAboveOptOut = (script: string, line: string): string => {
   const optOutAt = script.lastIndexOf(OPT_OUT_FOOTER)
-  if (optOutAt === -1) return `${script.trimEnd()}\n\n${CIVIC_PANEL_JOIN_LINE}`
+  if (optOutAt === -1) return `${script.trimEnd()}\n\n${line}`
   const before = script.slice(0, optOutAt).trimEnd()
   const lead = before === '' ? '' : `${before}\n\n`
-  return `${lead}${CIVIC_PANEL_JOIN_LINE}\n\n${script.slice(optOutAt)}`
+  return `${lead}${line}\n\n${script.slice(optOutAt)}`
 }
+
+// Exactly one copy of the line, just above the opt-out. A message that
+// already carries one there (an earlier wording included) is left as it is;
+// any other copy, wherever it sits, goes.
+const withOnePanelLine = (
+  script: string,
+  line: string,
+  found: { text: string } | null,
+  patterns: RegExp[],
+): string => {
+  const stripped = removeEvery(script, patterns)
+  if (found && placeAboveOptOut(stripped, found.text) === script) return script
+  return placeAboveOptOut(stripped, line)
+}
+
+// Adds or removes the civic panel ask. It is its own paragraph just above the
+// opt-out, so the explanation reads apart from both the body and STOP.
+export const withCivicPanelJoin = (script: string, on: boolean): string =>
+  on
+    ? withOnePanelLine(
+        script,
+        CIVIC_PANEL_JOIN_LINE,
+        findCivicPanelJoinLine(script),
+        JOIN_LINE_PATTERNS,
+      )
+    : removeEvery(script, JOIN_LINE_PATTERNS)
 
 // Adds or removes the civic panel LEAVE line, which a text to panel members
 // alone carries in the JOIN line's place: its own paragraph just above the
-// opt-out. Removing it also drops any JOIN line, and adding it drops one, so
-// a message never carries both.
-export const withCivicPanelLeave = (script: string, on: boolean): string => {
-  const leave = findCivicPanelLeaveLine(script)
-  if (!on) {
-    if (!leave) return script
-    const end = leave.start + leave.text.length
-    return (
-      script.slice(0, leave.start) + script.slice(end).replace(/^(\n\n| )/, '')
-    )
-  }
-  const withoutJoin = withCivicPanelJoin(script, false)
-  if (leave) return withoutJoin
-  const optOutAt = withoutJoin.lastIndexOf(OPT_OUT_FOOTER)
-  if (optOutAt === -1) {
-    return `${withoutJoin.trimEnd()}\n\n${CIVIC_PANEL_LEAVE_LINE}`
-  }
-  const before = withoutJoin.slice(0, optOutAt).trimEnd()
-  const lead = before === '' ? '' : `${before}\n\n`
-  return `${lead}${CIVIC_PANEL_LEAVE_LINE}\n\n${withoutJoin.slice(optOutAt)}`
-}
+// opt-out. Adding it drops any JOIN line, so a message never carries both.
+export const withCivicPanelLeave = (script: string, on: boolean): string =>
+  on
+    ? withOnePanelLine(
+        removeEvery(script, JOIN_LINE_PATTERNS),
+        CIVIC_PANEL_LEAVE_LINE,
+        findCivicPanelLeaveLine(script),
+        LEAVE_LINE_PATTERNS,
+      )
+    : removeEvery(script, LEAVE_LINE_PATTERNS)
 
 // The civic panel line a message should carry: LEAVE on a text to panel
 // members alone, otherwise JOIN when the ask is on, otherwise neither.
@@ -441,6 +513,49 @@ export const withCivicPanelLines = (
   lines.leave
     ? withCivicPanelLeave(script, true)
     : withCivicPanelJoin(withCivicPanelLeave(script, false), lines.join)
+
+// --- Add it back ------------------------------------------------------------
+//
+// A required line the official deleted is put back where the flow writes it,
+// with one click, so nobody has to retype it to our punctuation.
+
+// The opt-out closes the message: after the civic panel line, and on the
+// "Paid for by" line when the message ends on one, as composeFooter writes it.
+export const addOptOutBack = (message: string): string => {
+  const kept = message.trimEnd()
+  if (kept === '') return OPT_OUT_FOOTER
+  const lastLine = kept.slice(kept.lastIndexOf('\n') + 1)
+  return /^Paid for by /i.test(lastLine)
+    ? `${kept} ${OPT_OUT_FOOTER}`
+    : `${kept}\n\n${OPT_OUT_FOOTER}`
+}
+
+// The greeting opens the message, so each person sees their own first name.
+export const addGreetingBack = (message: string, greeting: string): string =>
+  `${greeting} ${message.trimStart()}`
+
+// The disclaimer goes back just before the opt-out on the closing line.
+export const addPaidForByBack = (
+  message: string,
+  committeeName: string,
+): string => {
+  const line = paidForByLine(committeeName)
+  const optOut = [...message.matchAll(/reply\s+["'“”‘’]?stop\b/gi)].pop()
+  if (optOut?.index === undefined) return `${message.trimEnd()}\n\n${line}`
+  return `${message.slice(0, optOut.index)}${line} ${message.slice(optOut.index)}`
+}
+
+// The identification goes back as the first sentence, right after the
+// greeting when the message still opens with it.
+export const addIdentificationBack = (
+  message: string,
+  { greeting, intro }: { greeting: string; intro: string },
+): string => {
+  const text = message.trimStart()
+  if (!text.startsWith(greeting)) return `${intro} ${text}`
+  const rest = text.slice(greeting.length).trimStart()
+  return `${greeting} ${intro}${rest ? ` ${rest}` : ''}`
+}
 
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'

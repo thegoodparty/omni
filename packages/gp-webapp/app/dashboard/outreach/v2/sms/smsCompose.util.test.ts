@@ -9,6 +9,10 @@ import {
 } from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
+  addGreetingBack,
+  addIdentificationBack,
+  addOptOutBack,
+  addPaidForByBack,
   composeScript,
   IMAGE_MAX_BYTES,
   profilePhotoFile,
@@ -473,6 +477,173 @@ describe('withCivicPanelLeave', () => {
       start: offered.indexOf(CIVIC_PANEL_LEAVE_LINE),
     })
     expect(offered.length).toBe(base.length + CIVIC_PANEL_LEAVE_LINE.length + 2)
+  })
+})
+
+// Every path that rewrites a panel text ends in withCivicPanelLines, so its
+// output must hold exactly one panel line, above one opt-out, whatever the
+// model or an earlier bug left in the message.
+describe('the civic panel line after a rewrite', () => {
+  const body = 'Hello {{first_name}}, tell me what you think.'
+  const asked = `${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
+  const join = { join: true, leave: false }
+  const leave = { join: false, leave: true }
+
+  it('collapses a JOIN line sent twice into one, above the opt-out', () => {
+    expect(
+      withCivicPanelLines(
+        `${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it('moves a JOIN line the model left in the body down above the opt-out', () => {
+    expect(
+      withCivicPanelLines(
+        `Hello {{first_name}}, tell me what you think. ${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it('drops a partial echo of the ask', () => {
+    expect(
+      withCivicPanelLines(
+        `${body} Reply JOIN to join my civic panel!\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it.each(CIVIC_PANEL_JOIN_LINES.slice(1))(
+    'replaces an earlier wording sitting beside the current one: %s',
+    (legacy) => {
+      expect(
+        withCivicPanelLines(
+          `${body}\n\n${legacy}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+          join,
+        ),
+      ).toBe(asked)
+    },
+  )
+
+  it('swaps every JOIN copy for one LEAVE line on a panel-only list', () => {
+    expect(
+      withCivicPanelLines(
+        `${body} ${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        leave,
+      ),
+    ).toBe(`${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`)
+  })
+
+  it('collapses a LEAVE line sent twice', () => {
+    expect(
+      withCivicPanelLines(
+        `${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`,
+        leave,
+      ),
+    ).toBe(`${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`)
+  })
+
+  it('composes a fresh body that echoed the JOIN and STOP lines once each', () => {
+    expect(
+      withCivicPanelLines(
+        composeServeScript(
+          `tell me what you think.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        ),
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it('composes a Win body that echoed its footer with one footer', () => {
+    const footer = 'Paid for by Friends of Sarah Chen. Reply STOP to opt out.'
+    expect(
+      composeScript(`Vote Tuesday.\n\n${footer}`, 'Friends of Sarah Chen'),
+    ).toBe(`Hello {first_name}, Vote Tuesday.\n\n${footer}`)
+  })
+
+  // The reported bug: an Improve reply comes back whole, JOIN line included.
+  // Restored against the footer alone and then given its panel line, it
+  // keeps one ask and its opt-out.
+  it('restores a whole polish of a panel text with one ask and its opt-out', () => {
+    const reply = `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
+    const restored = restoreSmsSystemRegions(reply, {
+      greeting: 'Hello {{first_name}},',
+      footer: OPT_OUT_FOOTER,
+      token: '{{first_name}}',
+    })
+    expect(restored).not.toContain(CIVIC_PANEL_JOIN_LINE)
+    expect(withCivicPanelLines(restored, join)).toBe(reply)
+  })
+
+  it('restores a polish that dropped the opt-out but kept the ask', () => {
+    const restored = restoreSmsSystemRegions(
+      `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}`,
+      {
+        greeting: 'Hello {{first_name}},',
+        footer: OPT_OUT_FOOTER,
+        token: '{{first_name}}',
+      },
+    )
+    expect(withCivicPanelLines(restored, join)).toBe(
+      `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+})
+
+describe('add it back', () => {
+  it('puts the opt-out back as the last line, after the panel line', () => {
+    expect(
+      addOptOutBack(`Hello {{first_name}}, hi.\n\n${CIVIC_PANEL_JOIN_LINE}\n`),
+    ).toBe(
+      `Hello {{first_name}}, hi.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('puts the opt-out back on a closing "Paid for by" line', () => {
+    expect(
+      addOptOutBack('Hello {first_name}, hi.\n\nPaid for by Friends of Sarah.'),
+    ).toBe(
+      `Hello {first_name}, hi.\n\nPaid for by Friends of Sarah. ${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('puts the greeting back at the start', () => {
+    expect(addGreetingBack('  this is Jane.', 'Hello {{first_name}},')).toBe(
+      'Hello {{first_name}}, this is Jane.',
+    )
+  })
+
+  it('puts the disclaimer back just before the opt-out', () => {
+    expect(
+      addPaidForByBack(
+        `Hello {first_name}, hi.\n\n${OPT_OUT_FOOTER}`,
+        'Friends of Sarah',
+      ),
+    ).toBe(
+      `Hello {first_name}, hi.\n\nPaid for by Friends of Sarah. ${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('puts the disclaimer back as the last line when there is no opt-out', () => {
+    expect(
+      addPaidForByBack('Hello {first_name}, hi.', 'Friends of Sarah'),
+    ).toBe('Hello {first_name}, hi.\n\nPaid for by Friends of Sarah.')
+  })
+
+  it('puts the name back right after the greeting', () => {
+    const regions = {
+      greeting: 'Hello {{first_name}},',
+      intro: 'this is Jane, your Mayor.',
+    }
+    expect(
+      addIdentificationBack('Hello {{first_name}}, the park opens.', regions),
+    ).toBe('Hello {{first_name}}, this is Jane, your Mayor. the park opens.')
+    expect(addIdentificationBack('The park opens.', regions)).toBe(
+      'this is Jane, your Mayor. The park opens.',
+    )
   })
 })
 

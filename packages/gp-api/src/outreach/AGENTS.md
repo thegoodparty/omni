@@ -1142,8 +1142,15 @@ outreach proposal can carry the same details as `event` (contracts
   swaps each part contracts `deriveSmsProtectedParts` would lock for a `⟦n⟧`
   marker (`util/smsProtectedImprove.util.ts`), accepts a reply only if every
   marker comes back exactly once and in order, puts the text back, and refuses
-  a reply that fails a `checkSmsStandards` rule the original passed. Two
-  tries, then 502, which the webapp shows as its "try again". The controllers
+  a reply that fails a `checkSmsStandards` rule the original passed, or that
+  carries more civic panel lines (`countCivicPanelLines`) or opt-out lines than
+  the original did (a model that wrote its own beside the marker). Two
+  tries, then 502, which the webapp shows as its "try again". Every SMS
+  prompt, Win and Serve, draft and improve, carries
+  `SMS_LOCKED_LINES_AND_STYLE_RULE`: never write a JOIN, LEAVE or STOP line,
+  no em or en dashes, never "just". The Serve create refuses (400) a message
+  with no opt-out or a second civic panel line (`assertServeSmsLockedLines`).
+  The controllers
   pass the names and committee scheduling checks against (Win: the campaign
   owner plus `tcr_compliance`, as `requireCompliantScript` reads them; Serve:
   the official, paid-for-by ignored). A fresh draft is still the body only and
