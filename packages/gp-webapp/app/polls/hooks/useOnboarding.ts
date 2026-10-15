@@ -2,21 +2,22 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useUser } from '@shared/hooks/useUser'
 import {
-  personElectDemoMessageText as personElectDemoMessageTextPolls,
-  personElectMessageText as personElectMessageTextPolls,
-  demoMessageText as demoMessageTextPolls,
-  messageText as messageTextPolls,
+  personElectQuestion,
+  sworninQuestion,
 } from '../onboarding/components/DemoMessageText'
+import { composePollMessage } from 'app/dashboard/outreach/v2/poll/pollCompose.util'
 import { format, isBefore } from 'date-fns'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  mergeTagToken,
+  type ServePollCreateResponse,
+} from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from '../onboarding/utils/grammarizeOfficeName'
-import { Poll } from 'app/dashboard/polls/shared/poll-types'
 import { clientRequest } from 'gpApi/typed-request'
 import { usePositionName } from '@shared/hooks/usePositionName'
 
 interface FormData {
   imageUrl: string | null
-  textMessage: string | null
   scheduledDate: Date | null
   swornInDate: Date | null
   swornIn: boolean
@@ -34,7 +35,7 @@ export interface UseOnboardingReturn {
   setImageUrl: (imageUrl: string | null) => void
   setSwornInDate: (swornInDate: Date | undefined) => void
   setScheduledDate: (scheduledDate: Date | undefined) => void
-  submitOnboarding: () => Promise<Poll>
+  submitOnboarding: () => Promise<ServePollCreateResponse>
   resetFormData: () => void
   demoMessageText: string
   user: ReturnType<typeof useUser>[0]
@@ -47,7 +48,6 @@ export const useOnboarding = (): UseOnboardingReturn => {
 
   const [formData, setFormData] = useState<FormData>({
     imageUrl: null,
-    textMessage: null,
     scheduledDate: null,
     swornInDate: null,
     swornIn: false,
@@ -82,38 +82,17 @@ export const useOnboarding = (): UseOnboardingReturn => {
   }, [user])
 
   const isSwornIn = formData.swornIn
+  const question = isSwornIn ? sworninQuestion : personElectQuestion
+  const composedMessage = useMemo(
+    () => composePollMessage(question, userName, officeName),
+    [question, userName, officeName],
+  )
+  // The preview is the text constituents get, with a name where the merge tag
+  // goes.
   const demoMessageText = useMemo(
-    () =>
-      !isSwornIn
-        ? personElectDemoMessageTextPolls({
-            name: userName,
-            office: officeName,
-          })
-        : demoMessageTextPolls({
-            name: userName,
-            office: officeName,
-          }),
-    [userName, officeName, isSwornIn],
+    () => composedMessage.replace(mergeTagToken('first_name', 'serve'), 'Jane'),
+    [composedMessage],
   )
-  const messageText = useMemo(
-    () =>
-      !isSwornIn
-        ? personElectMessageTextPolls({
-            name: userName,
-            office: officeName,
-          })
-        : messageTextPolls({ name: userName, office: officeName }),
-    [userName, officeName, isSwornIn],
-  )
-
-  useEffect(() => {
-    if (messageText) {
-      setFormData((prev) => ({
-        ...prev,
-        textMessage: messageText,
-      }))
-    }
-  }, [messageText])
 
   const updateFormData = useCallback((updates: Partial<FormData>) => {
     setFormData((prev) => ({
@@ -162,15 +141,15 @@ export const useOnboarding = (): UseOnboardingReturn => {
       setIsSubmitting(true)
       setSubmitError(null)
 
-      if (!formData.textMessage || !formData.swornInDate) {
+      if (!formData.swornInDate || !formData.scheduledDate) {
         throw new Error('Missing required fields')
       }
 
       const res = await clientRequest('POST /v1/polls/initial-poll', {
-        message: formData.textMessage,
-        imageUrl: formData.imageUrl,
+        question,
+        imageUrl: formData.imageUrl ?? undefined,
         swornInDate: format(formData.swornInDate, 'yyyy-MM-dd'),
-        scheduledDate: formData.scheduledDate?.toISOString() ?? null,
+        scheduledLocalDate: format(formData.scheduledDate, 'yyyy-MM-dd'),
       })
       return res.data
     } catch (error) {
@@ -182,12 +161,11 @@ export const useOnboarding = (): UseOnboardingReturn => {
     } finally {
       setIsSubmitting(false)
     }
-  }, [formData])
+  }, [formData, question])
 
   const resetFormData = useCallback(() => {
     setFormData({
       imageUrl: null,
-      textMessage: null,
       scheduledDate: null,
       swornInDate: null,
       swornIn: false,

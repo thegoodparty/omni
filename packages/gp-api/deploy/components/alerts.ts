@@ -398,8 +398,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     name: '[Serve] Background job failed',
     type: 'log',
     // Poll-job failures only. The consumer logs the SQS message in
-    // message_Body; match its `type` (pollCreation / pollExpansion /
-    // pollAnalysisComplete) so sibling jobs that share the consumer (AI
+    // message_Body; match its `type` (pollAnalysisComplete) so sibling jobs that share the consumer (AI
     // content, websites) don't page the serve-bugs group.
     expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [1m])) or vector(0)',
     threshold: 0,

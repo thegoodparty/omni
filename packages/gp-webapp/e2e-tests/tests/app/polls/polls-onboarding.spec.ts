@@ -1,138 +1,16 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { SQS } from '@aws-sdk/client-sqs'
 import { expect, type Page, test } from '@playwright/test'
-import type { MessageElement } from '@slack/web-api/dist/types/response/ConversationsHistoryResponse'
-import { parse as parseCSV } from 'csv-parse/sync'
 import { addBusinessDays, format, subDays } from 'date-fns'
-import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-} from 'src/helpers/organizations'
-import { type AuthenticatedUser } from 'tests/utils/api-registration'
-import type { AxiosInstance } from 'axios'
-import {
-  type ContactsApiPerson,
-  openPersonViaTypeahead,
-} from 'src/helpers/crm-contacts-e2e'
-import { eventually } from 'tests/utils/eventually'
-import { downloadSlackFile, waitForSlackMessage } from 'tests/utils/slack'
+import { setupElectedOfficeUser } from 'src/helpers/organizations'
 
-type CsvRow = {
-  id: string
-  firstName: string
-  lastName: string
-  cellPhone: string
-}
-
-type PollResponseJsonRow = {
-  atomicId: string
-  phoneNumber: string
-  receivedAt: string
-  originalMessage: string
-  atomicMessage: string
-  pollId: string
-  clusterId: number | string
-  theme: string
-  category: string
-  summary: string
-  sentiment: string
-  isOptOut: boolean
-}
-
-const normalizePhoneNumber = (phoneNumber: string): string => {
-  let cleaned = phoneNumber
-    .replaceAll('+1', '')
-    .replaceAll(' ', '')
-    .replaceAll('-', '')
-    .replaceAll('(', '')
-    .replaceAll(')', '')
-  if (cleaned.length === 11 && cleaned.startsWith('1')) {
-    cleaned = cleaned.slice(1)
-  }
-  if (cleaned.length !== 10) {
-    throw new Error(`Phone number ${phoneNumber} could not be normalized`)
-  }
-  return `+1${cleaned}`
-}
-
-const buildPollResponseJson = (params: {
-  pollId: string
-  csvRows: CsvRow[]
-  issues: {
-    rank: number
-    clusterId: number
-    theme: string
-    summary: string
-    responseCount: number
-  }[]
-  totalResponses: number
-}): PollResponseJsonRow[] => {
-  const { pollId, csvRows, issues, totalResponses } = params
-
-  // Deduplicate phones and convert to 1XXXXXXXXXX format (no +) for JSON
-  const uniquePhones = Array.from(
-    new Set(csvRows.map((row) => normalizePhoneNumber(row.cellPhone))),
-  )
-  const phonesForJson = uniquePhones.map((p) => p.replace('+', ''))
-
-  const rows: PollResponseJsonRow[] = []
-  let phoneIndex = 0
-  const now = new Date()
-
-  // Allocate phones to issues based on responseCount
-  for (const issue of issues) {
-    for (
-      let i = 0;
-      i < issue.responseCount && phoneIndex < phonesForJson.length;
-      i++
-    ) {
-      rows.push({
-        atomicId: crypto.randomUUID(),
-        phoneNumber: phonesForJson[phoneIndex]!,
-        receivedAt: new Date(now.getTime() + phoneIndex * 1000).toISOString(),
-        originalMessage: `Response about ${issue.theme}`,
-        atomicMessage: `Response about ${issue.theme}`,
-        pollId,
-        clusterId: issue.clusterId,
-        theme: issue.theme,
-        category: 'General',
-        summary: issue.summary,
-        sentiment: 'negative',
-        isOptOut: false,
-      })
-      phoneIndex++
-    }
-  }
-
-  // Remaining phones become opt-outs
-  const issueTotalPhones = issues.reduce((sum, i) => sum + i.responseCount, 0)
-  const optOutCount = Math.max(0, totalResponses - issueTotalPhones)
-
-  for (let i = 0; i < optOutCount && phoneIndex < phonesForJson.length; i++) {
-    rows.push({
-      atomicId: crypto.randomUUID(),
-      phoneNumber: phonesForJson[phoneIndex]!,
-      receivedAt: new Date(now.getTime() + phoneIndex * 1000).toISOString(),
-      originalMessage: 'STOP',
-      atomicMessage: 'STOP',
-      pollId,
-      clusterId: '',
-      theme: 'Opt Out Request',
-      category: '',
-      summary: '',
-      sentiment: '',
-      isOptOut: true,
-    })
-    phoneIndex++
-  }
-
-  return rows
+type OutreachRow = {
+  id: number
+  outreachType: string
+  status: string
+  textCount: number | null
 }
 
 const district = {
@@ -150,51 +28,6 @@ const expectToBeWithin = (
   expect(value).toBeLessThanOrEqual(expected + plusOrMinus)
 }
 
-// The poll Slack message carries an `aws s3 cp` command, and both the results
-// bucket and the SQS queue used to be regexed out of the
-// `serve-analyze-data-<env>` string inside it. They now come from the e2e
-// environment instead, because polls upload through the same gp-admin page
-// Serve SMS does and that line is only a backup for a day the page is
-// unavailable — it may be reworded or dropped without warning, and parsing it
-// would fail post-merge on the train, where no PR would have caught it. They
-// are set in `release.yml`'s `e2e-shard` job, alongside BASE_URL.
-const requireEnv = (name: string): string => {
-  const value = process.env[name]
-  if (!value) {
-    throw new Error(
-      `${name} must be set to run the @dev-only poll spec ` +
-        `(see the e2e-shard job in .github/workflows/release.yml)`,
-    )
-  }
-  return value
-}
-
-const waitForPollSlackData = async (
-  matching: (message: MessageElement) => boolean,
-) => {
-  const slackMessage = await waitForSlackMessage({
-    // #tevyn-api-test
-    channel: 'C09KUHEUY95',
-    matching,
-  })
-
-  const pollId = slackMessage.text?.match(/\*Poll ID:\* `([a-z0-9-]+)`/)?.[1]
-  if (!pollId) {
-    throw new Error('No poll ID found in slack message')
-  }
-
-  const fileId = slackMessage.files?.at(0)?.id
-  if (!fileId) {
-    throw new Error('No file id found in slack message')
-  }
-
-  const csv = await downloadSlackFile(fileId)
-
-  const csvRows = parseCSV(csv.toString('utf8'), { columns: true })
-
-  return { pollId, csvRows }
-}
-
 const pickDateOnCalendar = async (page: Page, date: Date) => {
   const dateLocator = page.locator(`[data-day="${format(date, 'yyyy-MM-dd')}"]`)
 
@@ -206,131 +39,22 @@ const pickDateOnCalendar = async (page: Page, date: Date) => {
   await dateLocator.click()
 }
 
-const completePoll = async (params: {
-  queueName: string
-  pollId: string
-  totalResponses: number
-  bucketName: string
-  csvRows: CsvRow[]
-  issues: {
-    rank: number
-    theme: string
-    summary: string
-    analysis: string
-    responseCount: number
-    quotes: { quote: string; phone_number: string }[]
-  }[]
-}) => {
-  const sqs = new SQS({ region: 'us-west-2' })
-  const s3 = new S3Client({ region: 'us-west-2' })
-
-  const { QueueUrl } = await sqs.getQueueUrl({
-    QueueName: params.queueName,
-  })
-
-  // Build response JSON with real phone numbers from CSV
-  const responseRows = buildPollResponseJson({
-    pollId: params.pollId,
-    csvRows: params.csvRows,
-    issues: params.issues.map((issue) => ({
-      rank: issue.rank,
-      clusterId: Math.floor(Math.random() * 10) + 1,
-      theme: issue.theme,
-      summary: issue.summary,
-      responseCount: issue.responseCount,
-    })),
-    totalResponses: params.totalResponses,
-  })
-
-  // Upload JSON to S3
-  const responsesLocation = `e2e-test/${
-    params.pollId
-  }/${crypto.randomUUID()}.json`
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: params.bucketName,
-      Key: responsesLocation,
-      Body: JSON.stringify(responseRows),
-      ContentType: 'application/json',
-    }),
-  )
-
-  // Map quote phone_numbers to real phones from their respective clusters
-  const issuesWithRealPhones = params.issues.map((issue) => {
-    const clusterPhones = responseRows
-      .filter((r) => r.theme === issue.theme && !r.isOptOut)
-      .map((r) => `+${r.phoneNumber}`)
-
-    return {
-      pollId: params.pollId,
-      ...issue,
-      quotes: issue.quotes.map((quote, idx) => ({
-        quote: quote.quote,
-        phone_number:
-          clusterPhones[idx % clusterPhones.length] || quote.phone_number,
-      })),
-    }
-  })
-
-  const queueEvent = {
-    type: 'pollAnalysisComplete',
-    data: {
-      pollId: params.pollId,
-      totalResponses: params.totalResponses,
-      responsesLocation,
-      issues: issuesWithRealPhones,
-    },
-  }
-
-  await sqs.sendMessage({
-    QueueUrl: QueueUrl!,
-    MessageGroupId: `polls-${params.pollId}`,
-    MessageDeduplicationId: crypto.randomUUID(),
-    MessageBody: JSON.stringify(queueEvent),
-  })
-
-  return queueEvent
-}
-
-const with11AmLocalTime = (date: Date) => {
-  const copy = new Date(date)
-  copy.setHours(11, 0, 0, 0)
-  return copy
-}
-
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-// @dev-only: this whole serial block runs on merge to dev (the develop e2e run)
-// and on demand, never on PRs. The first test drives live pipelines — a
-// pollAnalysisComplete SQS round-trip and a ~240s Stripe-webhook wait — that an
-// ephemeral per-PR preview can't provide, and the later tests reuse its shared
-// state. Tag the describe so the whole block is excluded together. See
-// e2e-tests/CLAUDE.md ("@dev-only").
-test.describe.serial('poll onboarding @dev-only', () => {
-  // Shared state between tests
-  let sharedUser: AuthenticatedUser
-  let sharedClient: AxiosInstance
-  let sharedPollId: string
-  let sharedContact: CsvRow
-
-  test('poll onboarding and expansion', async ({ page }) => {
-    // Set this test's timeout to 15 minutes. The "marked as expanding"
-    // eventual check below can sleep up to ~240s waiting on the Stripe
-    // webhook, so the overall budget must exceed the default 10 minutes to
-    // accommodate that window plus the rest of the flow.
-    test.setTimeout(15 * 60 * 1000)
-    const { user, client } = await setupElectedOfficeUser(page, {
+// @dev-only: runs on merge to dev (the develop e2e run) and on demand, never
+// on PRs, because the constituent count comes from the live people database
+// an ephemeral per-PR preview can't provide. See e2e-tests/CLAUDE.md
+// ("@dev-only").
+test.describe('poll onboarding @dev-only', () => {
+  test('onboarding creates a poll held for staff review', async ({ page }) => {
+    const { client } = await setupElectedOfficeUser(page, {
       zip: district.zip,
       office: district.office,
     })
 
-    // Store for reuse in subsequent tests
-    sharedUser = user
-    sharedClient = client
-
-    // Elected office users now land on /dashboard/chief-of-staff after winning
+    // Elected office users land on /dashboard/chief-of-staff after winning
     // their race, so navigate to the polls welcome screen before onboarding.
     await page.goto('/polls/welcome')
     // Dismiss the cookie banner AFTER landing on /polls/welcome — it re-renders
@@ -340,26 +64,22 @@ test.describe.serial('poll onboarding @dev-only', () => {
     // an <a> (role=link), not a <button>.
     await page.getByRole('link', { name: "Let's get started" }).click()
 
-    // Confirm constituent count. The count comes from GET /v1/contacts/stats,
-    // a Databricks voter scan since the census-population change — a fresh
-    // org's first hit can sit behind a cold warehouse well past the old 25s
-    // budget, so wait out the skeleton rather than flake on latency.
+    // The count comes from GET /v1/contacts/stats, a Databricks voter scan — a
+    // fresh org's first hit can sit behind a cold warehouse, so wait out the
+    // skeleton rather than flake on latency.
     const constituentCount = await page
       .getByTestId('total-constituents')
       .textContent({ timeout: 120_000 })
 
     expect(constituentCount).toBeTruthy()
-
     expectToBeWithin(
       parseInt(constituentCount!.replace(/,/g, ''), 10),
       district.constituents,
       500,
     )
 
-    // Move through onboarding flow.
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Set sworn in date to yesterday
     const yesterday = subDays(new Date(), 1)
     await page
       .locator(`[data-day="${format(yesterday, 'yyyy-MM-dd')}"]`)
@@ -368,477 +88,21 @@ test.describe.serial('poll onboarding @dev-only', () => {
     await page.getByRole('button', { name: 'Create poll' }).click()
     await page.getByRole('button', { name: 'Pick Send Date' }).click()
 
-    // Find next available send date
-    const sendDate = addBusinessDays(new Date(), 6)
-    await pickDateOnCalendar(page, sendDate)
+    await pickDateOnCalendar(page, addBusinessDays(new Date(), 6))
 
     await page.getByRole('button', { name: 'Add Image' }).click()
-
-    // TODO: actually add an image
     await page.getByRole('button', { name: 'See Preview' }).click()
-
-    // Create poll.
     await page.getByRole('button', { name: 'Send SMS poll' }).click()
 
-    // Confirm the correct data shows up in the UI
-    await expect(page.getByText('Top Community Issues')).toBeVisible()
-
-    const scheduledDate = `${format(sendDate, 'MMM d, yyyy')} at 11:00 AM`
-    await expect(
-      page.getByText(`Scheduled Date: ${scheduledDate}`),
-    ).toBeVisible()
-    const estimatedCompletionDate = addBusinessDays(sendDate, 3)
-    await expect(
-      page.getByText(
-        `Estimated Completion Date: ${format(
-          estimatedCompletionDate,
-          'MMM d, yyyy',
-        )} at 11:00 AM`,
-      ),
-    ).toBeVisible()
-
-    await expect(
-      page.getByText(`This poll is scheduled to send on ${scheduledDate}.`),
-    ).toBeVisible()
-
-    const { pollId, csvRows } = await waitForPollSlackData(
-      (message) => !!message.text?.includes(user.email),
-    )
-
-    // Store for reuse in subsequent tests
-    sharedPollId = pollId
-    sharedContact = csvRows[0] as CsvRow
-
-    expect(csvRows).toHaveLength(500)
-
-    // Verify the poll exists in the API, and has the expected fields
-    const apiPoll = await client.get(`/v1/polls/${pollId}`)
-    expect(apiPoll.status).toBe(200)
-    expect(apiPoll.data).toMatchObject({
-      id: pollId,
-      scheduledDate: with11AmLocalTime(sendDate).toISOString(),
-      estimatedCompletionDate: with11AmLocalTime(
-        estimatedCompletionDate,
-      ).toISOString(),
-      audienceSize: 500,
-    })
-
-    const queueToUse = requireEnv('E2E_SQS_QUEUE_NAME')
-    const bucketToUse = requireEnv('SERVE_ANALYZE_S3_BUCKET')
-
-    const queuedEvent = await completePoll({
-      queueName: queueToUse,
-      pollId,
-      totalResponses: 45,
-      bucketName: bucketToUse,
-      csvRows: csvRows as CsvRow[],
-      issues: [
-        {
-          rank: 1,
-          responseCount: 25,
-          theme: 'Traffic Congestion',
-          summary:
-            'Traffic congestion is a major problem in the city. It is causing delays and frustration for residents.',
-          analysis:
-            'Traffic congestion is a major problem in the city. It is causing delays and frustration for residents. We need to do something about it.',
-          quotes: [
-            {
-              quote: "I hate traffic. It's so frustrating.",
-              phone_number: '',
-            },
-            {
-              quote: "I'm always late for work because of traffic.",
-              phone_number: '',
-            },
-          ],
-        },
-        {
-          rank: 2,
-          responseCount: 7,
-          theme: 'Crime',
-          summary:
-            'Crime is a major problem in the city. It is causing fear and frustration for residents.',
-          analysis:
-            'Crime is a major problem in the city. It is causing fear and frustration for residents. We need to do something about it.',
-          quotes: [
-            {
-              quote: "I'm scared to walk the streets at night.",
-              phone_number: '',
-            },
-          ],
-        },
-      ],
-    })
-
-    // Wait for results to come in.
-    await eventually(
-      {
-        that: 'the poll is updated with results',
-        minTimeout: 500,
-        maxTimeout: 5000,
-      },
-      async () => {
-        const res = await client.get(`/v1/polls/${pollId}`)
-
-        expect(res.status).toBe(200)
-
-        expect(res.data).toMatchObject({
-          status: 'completed',
-          name: 'Top Community Issues',
-          completedDate: expect.any(String),
-          audienceSize: 500,
-          responseCount: 45,
-          lowConfidence: true,
-        })
-      },
-    )
-
-    // Confirm the UI is updated according to results.
-    await page.reload()
-
-    // Dismiss the low confidence modal that appears on completed low-confidence polls
-    await page
-      .getByRole('button', { name: 'View partial results' })
-      .click({ timeout: 10_000 })
-
-    await expect(page.getByText('Poll Confidence: Low')).toBeVisible()
-    await expect(page.getByText('Top Themes')).toBeVisible()
-
-    for (const issue of queuedEvent.data.issues) {
-      await expect(page.getByText(issue.theme, { exact: true })).toBeVisible()
-      await expect(page.getByText(issue.summary)).toBeVisible()
-      await expect(
-        page.getByText(`${issue.responseCount} Mentions`),
-      ).toBeVisible()
-      await page
-        .getByRole('button', { name: 'View Details' })
-        .nth(issue.rank - 1)
-        .click()
-      await expect(page.getByText(issue.analysis)).toBeVisible()
-
-      for (const quote of issue.quotes) {
-        await expect(page.getByText(quote.quote)).toBeVisible()
-      }
-      await page.goBack()
-
-      // Dismiss the low confidence modal that reappears on navigation back
-      await page
-        .getByRole('button', { name: 'View partial results' })
-        .click({ timeout: 10_000 })
-    }
-
-    // Expand the poll.
-    await page.goto(`/dashboard/polls/${pollId}`)
-
-    // The low confidence modal appears again — click "Gather more feedback"
-    // which dismisses the modal and navigates to the expansion flow
-    await page
-      .getByRole('button', { name: 'Gather more feedback' })
-      .click({ timeout: 10_000 })
-
-    // Confirm recommendation.
-    await page.getByText('Recommended').click()
-    await page
-      .getByRole('button', { name: 'Pick Send Date' })
-      .click({ force: true })
-
-    // Pick the expansion send date
-    const expansionSendDate = addBusinessDays(new Date(), 7)
-    await pickDateOnCalendar(page, expansionSendDate)
-    await page.getByRole('button', { name: 'Review' }).click({ force: true })
-
-    const expansionCompletionDate = addBusinessDays(expansionSendDate, 3)
-    await expect(
-      page.getByText(
-        `Send Date: ${expansionSendDate.toDateString()} at 11:00am`,
-      ),
-    ).toBeVisible()
-    await expect(
-      page.getByText(
-        `Estimated Completion: ${expansionCompletionDate.toDateString()} at 11:00am`,
-      ),
-    ).toBeVisible()
-
-    await page
-      .getByRole('button', { name: 'Go to payment' })
-      .click({ force: true })
-
-    const stripeIframe = page
-      .locator('iframe[title="Secure payment input frame"]')
-      .first()
-    await expect(stripeIframe).toBeVisible({ timeout: 30_000 })
-
-    const stripeFrame = page
-      .frameLocator('iframe[title="Secure payment input frame"]')
-      .first()
-
-    // Target Stripe inputs directly by their stable IDs
-    const cardInput = stripeFrame.locator('#payment-numberInput')
-    const expiryInput = stripeFrame.locator('#payment-expiryInput')
-    const cvcInput = stripeFrame.locator('#payment-cvcInput')
-    const zipInput = stripeFrame.locator('#payment-postalCodeInput')
-
-    await expect(cardInput).toBeVisible({ timeout: 30_000 })
-    await expect(cardInput).toBeEditable({ timeout: 30_000 })
-    await page.waitForTimeout(2_000)
-
-    await cardInput.fill('4242424242424242')
-    await page.waitForTimeout(500)
-    await expiryInput.fill('0135')
-    await page.waitForTimeout(500)
-    await cvcInput.fill('123')
-    await page.waitForTimeout(500)
-    // Stripe geolocates the billing country from the client IP, and the card
-    // form renders a ZIP field only for countries that collect one. CI runners
-    // are sometimes geolocated outside the US (observed: Mexico, 2026-09-04),
-    // which drops #payment-postalCodeInput entirely - pin the country first.
-    await stripeFrame.locator('#payment-countryInput').selectOption('US')
-    await page.waitForTimeout(500)
-    await zipInput.fill('82001')
-    await page.waitForTimeout(500)
-
-    // Uncheck "Save my information for faster checkout" (Stripe Link) —
-    // when checked, it requires a phone number which blocks canConfirm.
-    const saveCheckbox = stripeFrame.getByLabel(
-      'Save my information for faster checkout',
-    )
-    if (await saveCheckbox.isChecked().catch(() => false)) {
-      await saveCheckbox.uncheck()
-    }
-    await page.waitForTimeout(1_000)
-
-    const purchaseButton = page.getByRole('button', {
-      name: 'Complete Purchase',
-    })
-
-    const completeCheckoutResponsePromise = page.waitForResponse(
-      (response) =>
-        response
-          .url()
-          .includes('/payments/purchase/complete-checkout-session') &&
-        response.request().method() === 'POST',
-      { timeout: 45_000 },
-    )
-
-    await expect(purchaseButton).toBeEnabled({ timeout: 30_000 })
-    await purchaseButton.click()
-
-    const completeCheckoutResponse = await completeCheckoutResponsePromise
-    expect(completeCheckoutResponse.ok()).toBeTruthy()
-
     await page.waitForURL(
-      (url) => new URL(url).pathname.includes('/expand-payment-success'),
-      {
-        timeout: 45_000,
-      },
+      (url) => new URL(url).pathname === '/polls/onboarding/success',
     )
 
-    // Confirm API resource updates.
-    const { newAudienceSize } = await eventually(
-      {
-        that: 'the poll is marked as expanding',
-        minTimeout: 500,
-        maxTimeout: 15_000,
-        // The Stripe webhook -> expansion processing occasionally runs past the
-        // default ~90s window (timed out at 92s in CI); widen it to ~240s.
-        retries: 20,
-      },
-      async () => {
-        const res = await client.get(`/v1/polls/${pollId}`)
-
-        expect(res.status).toBe(200)
-
-        expect(res.data).toMatchObject({
-          status: 'scheduled',
-          name: 'Top Community Issues',
-          completedDate: expect.any(String),
-          audienceSize: expect.any(Number),
-          responseCount: 45,
-          lowConfidence: true,
-          scheduledDate: with11AmLocalTime(expansionSendDate).toISOString(),
-          estimatedCompletionDate: with11AmLocalTime(
-            expansionCompletionDate,
-          ).toISOString(),
-        })
-
-        expect(res.data.audienceSize).toBeGreaterThan(500)
-
-        return { newAudienceSize: res.data.audienceSize as number }
-      },
-    )
-
-    // Confirm expansion Slack message is sent
-    const { csvRows: expansionCsvRows } = await waitForPollSlackData(
-      (message) =>
-        !!message.text?.includes(user.email) &&
-        message.text.includes('This is a poll _expansion_'),
-    )
-
-    expect(expansionCsvRows.length).toEqual(newAudienceSize - 500)
-
-    // Ensure the CSV does not contain duplicates
-    for (const row of expansionCsvRows) {
-      expect(
-        csvRows,
-        `Duplicate row found: ${JSON.stringify(row)}`,
-      ).not.toContainEqual(row)
-    }
-
-    // Simulate high-confidence results.
-    // Combine original and expansion CSV rows since all have ELECTED_OFFICIAL records
-    const allCsvRows = [
-      ...(csvRows as CsvRow[]),
-      ...(expansionCsvRows as CsvRow[]),
-    ]
-
-    const expansionIssues = await completePoll({
-      queueName: queueToUse,
-      pollId,
-      totalResponses: 100,
-      bucketName: bucketToUse,
-      csvRows: allCsvRows,
-      issues: [
-        {
-          rank: 1,
-          responseCount: 50,
-          theme: 'Traffic Congestion',
-          summary:
-            'Traffic congestion is a major problem in the city. It is causing delays and frustration for residents.',
-          analysis:
-            'Traffic congestion is a major problem in the city. It is causing delays and frustration for residents. We need to do something about it.',
-          quotes: [
-            {
-              quote: "I hate traffic. It's so frustrating.",
-              phone_number: '',
-            },
-            {
-              quote: "I'm always late for work because of traffic.",
-              phone_number: '',
-            },
-          ],
-        },
-      ],
-    })
-
-    await eventually(
-      {
-        that: 'the poll goes from expanding -> completed',
-        minTimeout: 500,
-        maxTimeout: 5000,
-      },
-      async () => {
-        const res = await client.get(`/v1/polls/${pollId}`)
-
-        expect(res.status).toBe(200)
-        expect(res.data).toMatchObject({
-          status: 'completed',
-          name: 'Top Community Issues',
-          completedDate: expect.any(String),
-          audienceSize: expect.any(Number),
-          responseCount: 100,
-          lowConfidence: false,
-          scheduledDate: with11AmLocalTime(expansionSendDate).toISOString(),
-          estimatedCompletionDate: with11AmLocalTime(
-            expansionCompletionDate,
-          ).toISOString(),
-        })
-        expect(res.data.audienceSize).toBeGreaterThan(500)
-      },
-    )
-
-    // Confirm the UI is updated according to the results.
-    await page.reload()
-    await expect(page.getByText('Poll Confidence: High')).toBeVisible()
-    await expect(page.getByText('Top Themes')).toBeVisible()
-
-    for (const issue of expansionIssues.data.issues) {
-      await expect(page.getByText(issue.theme, { exact: true })).toBeVisible()
-      await expect(page.getByText(issue.summary)).toBeVisible()
-    }
-
-    // Confirm that the removed issue is no longer visible.
-    await expect(page.getByText('Crime')).toHaveCount(0)
-  })
-
-  test('person overlay shows constituent issues and activities', async ({
-    page,
-  }) => {
-    test.setTimeout(2 * 60 * 1000)
-
-    await setupClerkTestingToken({ page })
-    await page.goto('/')
-    await clerkThrottle(
-      () => clerk.signIn({ page, emailAddress: sharedUser.email }),
-      5,
-    )
-
-    // Navigate to contacts page
-    await page.goto('/dashboard')
-    await switchOrganization(page, district.office)
-    await page.goto('/dashboard/contacts')
-    await NavigationHelper.dismissOverlays(page)
-
-    // The CRM contacts page has no member table by design (ENG-10756,
-    // unconditional since the serve-crm default-on) — resolve the poll
-    // respondent through the same GET /v1/contacts the legacy table read,
-    // then open their record via the persistent typeahead.
-    const { data } = await sharedClient.get<{ people: ContactsApiPerson[] }>(
-      '/v1/contacts',
-      {
-        params: {
-          page: 1,
-          resultsPerPage: 25,
-          segment: 'all',
-          search: `${sharedContact.firstName} ${sharedContact.lastName}`,
-        },
-      },
-    )
-    const person = data.people.find(
-      (candidate) =>
-        candidate.firstName?.toLowerCase() ===
-          sharedContact.firstName.toLowerCase() &&
-        candidate.lastName?.toLowerCase() ===
-          sharedContact.lastName.toLowerCase(),
-    )
-    expect(person).toBeTruthy()
-
-    const personSheet = await openPersonViaTypeahead(page, person!)
-
-    // Verify the correct person is displayed
-    await expect(
-      personSheet.getByText(sharedContact.firstName, { exact: false }),
-    ).toBeVisible({ timeout: 5_000 })
-
-    // Verify "Top Issues" section is visible and shows the poll issue.
-    // NOTE: Requires the 'serve-contacts-activities-and-issues' feature flag to be enabled.
-    await expect(personSheet.getByText('Top Issues')).toBeVisible({
-      timeout: 10_000,
-    })
-    // Use getByRole('link') to avoid strict mode violation — the summary
-    // paragraph also contains the text "Traffic congestion…" (lowercase).
-    const issueLink = personSheet
-      .getByRole('link', { name: 'Traffic Congestion' })
-      .first()
-    await expect(issueLink).toBeVisible()
-    await expect(issueLink).toHaveAttribute(
-      'href',
-      `/dashboard/polls/${sharedPollId}`,
-    )
-
-    // Verify "Activity Feed" section is visible with expected events
-    await expect(personSheet.getByText('Activity Feed')).toBeVisible({
-      timeout: 10_000,
-    })
-    await expect(personSheet.getByText('Sent').first()).toBeVisible()
-    await expect(personSheet.getByText('Responded').first()).toBeVisible()
-
-    // Verify the activity links to the poll
-    const activityLink = personSheet
-      .getByRole('link', { name: 'Top Community Issues' })
-      .first()
-    await expect(activityLink).toHaveAttribute(
-      'href',
-      `/dashboard/polls/${sharedPollId}`,
-    )
+    const { data: rows } = await client.get<OutreachRow[]>('/v1/outreach/serve')
+    const polls = rows.filter((row) => row.outreachType === 'poll')
+    expect(polls).toHaveLength(1)
+    expect(polls[0]).toMatchObject({ status: 'pending' })
+    expect(polls[0]!.textCount).toBeGreaterThan(0)
+    expect(polls[0]!.textCount).toBeLessThanOrEqual(500)
   })
 })

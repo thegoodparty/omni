@@ -315,8 +315,7 @@ export class OutreachModule {
     // Serve SMS is its own PurchaseType, not a branch inside TEXT: the TEXT
     // handler prices off Peerly's leads_loaded and its post-purchase step
     // returns early unless a campaignId is present and outreachType is p2p.
-    // A Serve row has neither. Registration mirrors TEXT above and POLL in
-    // polls.module.ts.
+    // A Serve row has neither. Registration mirrors TEXT above.
     //
     // PurchaseService.getPaymentType must also map SERVE_TEXT, or checkout
     // throws out of its default branch before any of this is reached.

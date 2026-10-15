@@ -5,7 +5,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfettiBurst } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
 
-export default function SuccessPage({ pollId }: { pollId: string }) {
+export default function SuccessPage() {
   const router = useRouter()
   const [celebrate, setCelebrate] = useState(false)
 
@@ -22,7 +22,7 @@ export default function SuccessPage({ pollId }: { pollId: string }) {
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      router.replace(`/dashboard/polls/${encodeURIComponent(pollId)}`)
+      router.replace('/dashboard/polls')
     }, 4000)
     return () => clearTimeout(timeoutId)
   }, [router])
@@ -39,14 +39,14 @@ export default function SuccessPage({ pollId }: { pollId: string }) {
               </ConfettiBurst>
             </div>
             <h1 className="text-left md:text-center font-semibold text-2xl md:text-4xl w-full mb-2">
-              Your first poll has been scheduled
+              Your first poll is in review
             </h1>
             <p className="text-left md:text-center mt-4 text-lg font-normal text-muted-foreground mb-2">
               You&apos;ve taken your first step toward shaping the future of
               your community — <br /> and that&apos;s something to be proud of.
             </p>
             <p className="text-left md:text-center mt-4 font-normal text-blue">
-              You will be taken to your poll momentarily...
+              You will be taken to your polls momentarily...
             </p>
           </div>
         </section>

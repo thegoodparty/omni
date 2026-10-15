@@ -56,17 +56,14 @@ a "run completed" message on SQS, and the queue consumer fetches the artifact
 from S3 and writes the row. The deployed e2e harness has no database connection,
 so it cannot insert one either.
 
-### Why not fake the briefing over SQS, like polls does?
+### Why not fake the briefing over SQS?
 
-The polls e2e (`polls-onboarding.spec.ts`) fakes its async analysis step by
-uploading a results JSON to S3 and sending a `pollAnalysisComplete` message to
-SQS. That plumbing is reusable, but it does not transfer to briefings, because
-of one structural difference:
+Faking the async step with an S3 artifact and an SQS message does not work for
+briefings, because of one structural difference:
 
 - The experiment-run queue consumer looks up an **existing** `ExperimentRun` by
   `runId` and bails if it is missing ("Experiment run not found"). The SQS
-  message _updates_ a run; it does not create one. The poll path works because
-  the poll row already exists from the UI flow the test drove.
+  message _updates_ a run; it does not create one.
 - The only API that creates a briefing run is `POST /meetings/briefings/dispatch`
   (`dispatchManual` -> `dispatchBriefing`). But it requires a resolvable meeting
   schedule for the office (itself a product of the async schedule pipeline) and

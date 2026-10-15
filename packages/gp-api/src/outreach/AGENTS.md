@@ -1131,6 +1131,16 @@ outreach proposal can carry the same details as `event` (contracts
 
 ## Gotchas / invariants
 
+- **The onboarding poll is a free poll outreach, not a checkout.**
+  `POST /polls/initial-poll` (`PollsController`, which is why `PollsModule`
+  imports `OutreachModule`) writes the row through
+  `OutreachServePollCreateService.createPoll` and then calls
+  `OutreachServeSmsPurchaseHandlerService.executePostPurchase` with a
+  `free_confirmed_*` session id, the same claim the zero-amount path makes. The
+  row lands at `pending` for CAS approval like any paid poll; it does not
+  auto-approve. It ignores the self-serve polls flag. `PollsService.hasPolls`
+  counts poll outreach rows past `pending_payment`, so a submitted onboarding
+  poll ends onboarding.
 - **A new `PurchaseType` needs THREE registrations, and the third one is the
   easy miss.** `registerPurchaseHandler` and
   `registerCheckoutSessionPostPurchaseHandler` in `OutreachModule`'s

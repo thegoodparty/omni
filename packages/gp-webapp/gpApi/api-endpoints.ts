@@ -1406,12 +1406,12 @@ export type APIEndpoints = {
 
   'POST /v1/polls/initial-poll': {
     Request: {
-      message: string
+      question: string
       swornInDate: string
-      imageUrl: string | null | undefined
-      scheduledDate: string | null | undefined
+      imageUrl: string | undefined
+      scheduledLocalDate: string
     }
-    Response: Poll
+    Response: ServePollCreateResponse
   }
 
   'GET /v1/polls/:pollId': {
