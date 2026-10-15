@@ -120,11 +120,13 @@ describe('CAS Slack posts once texting closes', () => {
     expect(schedule).toContain('TEXT: Early Voting Text')
   })
 
-  it('leaves text tasks out of the legacy plan post', async () => {
+  it('lists text tasks as their robocalls in the legacy plan post', async () => {
     const campaign = await makeProCampaign(CLOSED_ELECTION)
-    for (const [title, flowType] of [
-      ['Introduction Text', CampaignTaskType.text],
-      ['Introduction Robocall', CampaignTaskType.robocall],
+    for (const [title, flowType, date] of [
+      ['Introduction Text', CampaignTaskType.text, daysFromToday(2)],
+      ['Introduction Robocall', CampaignTaskType.robocall, daysFromToday(2)],
+      ['Persuasion Text', CampaignTaskType.text, daysFromToday(3)],
+      ['Election Day Reminder Text', CampaignTaskType.text, daysFromToday(10)],
     ] as const) {
       await service.prisma.campaignTask.create({
         data: {
@@ -133,7 +135,7 @@ describe('CAS Slack posts once texting closes', () => {
           description: '',
           flowType,
           week: 4,
-          date: daysFromToday(2),
+          date,
           isDefaultTask: true,
         },
       })
@@ -145,8 +147,9 @@ describe('CAS Slack posts once texting closes', () => {
       .notifySlackOnProUpgrade(campaign.id)
 
     const [plan] = texts()
-    expect(plan).toContain('*Outreach Tasks (1):*')
+    expect(plan).toContain('*Outreach Tasks (2):*')
     expect(plan).toContain('ROBOCALL: Introduction Robocall')
+    expect(plan).toContain('ROBOCALL: Early Persuasion Robocall')
     expect(plan).not.toContain('TEXT:')
   })
 })

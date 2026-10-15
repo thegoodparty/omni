@@ -149,8 +149,10 @@ overview: `docs/features/campaign-tracker-v3.md`.
   candidate's date and its skip state; only its channel and title change.
   Rows only swap on that read, so the two CAS posts run the same align first
   (the one-time schedule post would otherwise miss the swapped robocalls for
-  good) and list no text rows, and the weekly digest SQL and the legacy
-  `campaign_task` Pro-upgrade post leave text rows out for a closed race.
+  good) and list no text rows. The legacy `campaign_task` Pro-upgrade post
+  (`sendCampaignPlanSlackMessage`) lists each text as its swapped robocall by
+  the same rule without changing the legacy rows, and the weekly digest SQL
+  leaves text rows out for a closed race.
 
 - **A past election date anchors nothing.** `resolveElectionDate` takes the
   general date, falls back to the primary, and ignores whichever has already

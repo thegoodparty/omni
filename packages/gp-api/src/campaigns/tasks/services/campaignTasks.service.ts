@@ -37,7 +37,11 @@ import { CampaignTrackerTasksService } from '../../campaignTracker/services/camp
 
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
 import { smsComplianceWindow } from '../../util/eligibility.util'
-import { SmsComplianceWindow } from '@goodparty_org/contracts'
+import {
+  CAMPAIGN_TASK_CATALOG,
+  SmsComplianceWindow,
+  TEXT_SEND_ROBOCALL_SWAPS,
+} from '@goodparty_org/contracts'
 
 const SLACK_RETRY_BASE_DELAY_MS = 500
 
@@ -291,12 +295,42 @@ export class CampaignTasksService extends createPrismaBase(
       campaign.data.name ||
       'Unknown'
 
-    const outreachTasks = campaign.campaignTasks.filter(
+    const outreach = campaign.campaignTasks.filter(
       (task) =>
-        (task.flowType === CampaignTaskType.text &&
-          smsCompliance !== SmsComplianceWindow.closed) ||
+        task.flowType === CampaignTaskType.text ||
         task.flowType === CampaignTaskType.robocall,
     )
+    // Once texting is closed, each text send is listed as the tracker's
+    // swapped robocall on its date (dropped when a robocall already lands
+    // there), so CAS schedules the replacement. The legacy rows themselves
+    // are left as they are.
+    const robocallDates = new Set(
+      outreach
+        .filter((task) => task.flowType === CampaignTaskType.robocall)
+        .map((task) => task.date.getTime()),
+    )
+    const outreachTasks =
+      smsCompliance === SmsComplianceWindow.closed
+        ? outreach.flatMap((task) => {
+            if (task.flowType !== CampaignTaskType.text) return [task]
+            const catalogId = CAMPAIGN_TASK_CATALOG.find(
+              (entry) => entry.title === task.title,
+            )?.id
+            const swap = TEXT_SEND_ROBOCALL_SWAPS.find(
+              (candidate) => candidate.catalogId === catalogId,
+            )
+            const date = task.date.getTime()
+            if (!swap || robocallDates.has(date)) return []
+            robocallDates.add(date)
+            return [
+              {
+                ...task,
+                title: swap.title,
+                flowType: CampaignTaskType.robocall,
+              },
+            ]
+          })
+        : outreach
 
     const taskLines = outreachTasks.map((task) => {
       // Stored dates are UTC-midnight instants; format from UTC parts so the
