@@ -75,15 +75,11 @@ const PERSON_SPINE_INCLUDE = {
 // forbids — cannot spin.
 const MAX_MERGE_HOPS = 4
 
-// Many people share one district, and a district's cells are recomputed on a
-// daily cadence. The public page fans out one request per visitor, each of which
-// used to read the same (often thousands of) rows on its own pool connection;
-// a burst held all of them for the 20s pool timeout and surfaced as 500s. Reads
-// of one district now share a single in-flight query and its result for a
-// minute. A failed read is dropped at once so it is never replayed.
-const DENSITY_CACHE_TTL_MS = 60_000
-const DENSITY_CACHE_MAX_ENTRIES = 500
-
+// Many people share one district. The public page fans out one request per
+// visitor, each of which used to read the same (often thousands of) rows on its
+// own pool connection; a burst held all of them for the 20s pool timeout and
+// surfaced as 500s. Concurrent reads of one district now share a single query.
+// Nothing is kept once it settles, so results are never stale.
 type DensityRead = {
   coverage: number | null
   cells: VoterDensityCell[]
@@ -98,10 +94,7 @@ export interface VoterDensityCell {
 
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {
-  private readonly densityCache = new Map<
-    string,
-    { expiresAtMs: number; read: Promise<DensityRead> }
-  >()
+  private readonly inFlightDensity = new Map<string, Promise<DensityRead>>()
 
   async getPersons(filterDto: PersonFilterDto) {
     const {
@@ -332,25 +325,13 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     resolution: number,
   ): Promise<DensityRead> {
     const key = `${districtId}:${resolution}`
-    const now = Date.now()
-    const cached = this.densityCache.get(key)
-    if (cached && cached.expiresAtMs > now) return cached.read
+    const inFlight = this.inFlightDensity.get(key)
+    if (inFlight) return inFlight
 
-    if (this.densityCache.size >= DENSITY_CACHE_MAX_ENTRIES) {
-      for (const [k, entry] of this.densityCache) {
-        if (entry.expiresAtMs <= now) this.densityCache.delete(k)
-      }
-      if (this.densityCache.size >= DENSITY_CACHE_MAX_ENTRIES) {
-        this.densityCache.clear()
-      }
-    }
-
-    const read = this.queryDistrictDensity(districtId, resolution)
-    const entry = { expiresAtMs: now + DENSITY_CACHE_TTL_MS, read }
-    this.densityCache.set(key, entry)
-    read.catch(() => {
-      if (this.densityCache.get(key) === entry) this.densityCache.delete(key)
-    })
+    const read = this.queryDistrictDensity(districtId, resolution).finally(() =>
+      this.inFlightDensity.delete(key),
+    )
+    this.inFlightDensity.set(key, read)
     return read
   }
 

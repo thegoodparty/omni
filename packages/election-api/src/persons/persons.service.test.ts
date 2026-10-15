@@ -963,7 +963,7 @@ describe('PersonsService', () => {
       })
     })
 
-    it('reads a district once for people who share it', async () => {
+    it('reads a district once for concurrent requests that share it', async () => {
       findUnique
         .mockResolvedValueOnce(personInDistrict('d1'))
         .mockResolvedValueOnce(personInDistrict('d1'))
