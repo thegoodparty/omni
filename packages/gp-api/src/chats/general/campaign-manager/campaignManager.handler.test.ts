@@ -313,9 +313,15 @@ describe('CampaignManagerHandler.loadContext — public profile address', () => 
     user: { id: 9, firstName: 'Renee', lastName: 'Diaz', personProfile: GATE },
   }
 
+  type CampaignRow = Omit<typeof CAMPAIGN_ROW, 'user'> & {
+    user: Omit<(typeof CAMPAIGN_ROW)['user'], 'personProfile'> & {
+      personProfile: typeof GATE | null
+    }
+  }
+
   const buildAddressHandler = (
     publicProfiles?: PublicProfileAddressService,
-    campaignRow: unknown = CAMPAIGN_ROW,
+    campaignRow: CampaignRow | null = CAMPAIGN_ROW,
   ): CampaignManagerHandler => {
     const store = {
       findFirst: vi.fn(() =>
