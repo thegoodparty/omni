@@ -415,6 +415,43 @@ describe('OutreachTextIngestService.ingestReplies', () => {
     ).toBe(OutreachStatus.completed)
   })
 
+  it('completes an expansion delivered after the spine was already completed', async () => {
+    await service.prisma.outreachPoll.create({
+      data: {
+        outreachId: outreach.id,
+        topic: 'roads',
+        audienceKind: 'sample',
+        biasOverridden: false,
+      },
+    })
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { status: OutreachStatus.completed },
+    })
+    const expansion = await service.prisma.outreachPollExpansion.create({
+      data: {
+        outreachId: outreach.id,
+        sendSeq: 2,
+        textCount: 5,
+        status: OutreachStatus.in_progress,
+      },
+    })
+
+    await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows: [row('3035550101', 'A reply')],
+    })
+
+    expect(
+      (
+        await service.prisma.outreachPollExpansion.findUniqueOrThrow({
+          where: { id: expansion.id },
+        })
+      ).status,
+    ).toBe(OutreachStatus.completed)
+  })
+
   it('merges two phones that resolve to one person at one instant, keeping the opt-out', async () => {
     // A forwarded message answered from a second number: both resolve to
     // person-1, and the deterministic id is the same for both.
