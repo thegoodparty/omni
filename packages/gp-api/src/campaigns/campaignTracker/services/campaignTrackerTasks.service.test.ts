@@ -44,6 +44,7 @@ const makeService = () => {
         .mockResolvedValue({ id: 99, type: 'text', quantity: 5 }),
     },
     campaignStory: { findUnique: vi.fn().mockResolvedValue(null) },
+    tcrCompliance: { findUnique: vi.fn().mockResolvedValue(null) },
     website: { findUnique: vi.fn().mockResolvedValue(null) },
     campaignStrategy: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -500,6 +501,11 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
   })
 
   it('dates outreach off a future primary when the general election has passed', async () => {
+    // A passed general reads as texting closed unless they already filed.
+    h.prisma.tcrCompliance.findUnique.mockResolvedValueOnce({
+      kickoffSentAt: new Date(),
+      internalTestingAt: null,
+    })
     await h.service.bootstrapForCampaign(
       campaign({
         details: {

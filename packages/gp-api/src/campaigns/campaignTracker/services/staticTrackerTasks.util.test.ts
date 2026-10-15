@@ -143,7 +143,7 @@ describe('buildOutreachTrackerTaskRows', () => {
   const election = startOfDay(new Date('2026-11-03'))
 
   it('builds the 7 plan contact-schedule sends (4 text + 3 robocall)', () => {
-    const rows = buildOutreachTrackerTaskRows(7, start, election, false)
+    const rows = buildOutreachTrackerTaskRows(7, start, election, false, false)
     expect(rows).toHaveLength(7)
     expect(rows.filter((r) => r.flowType === 'text')).toHaveLength(4)
     expect(rows.filter((r) => r.flowType === 'robocall')).toHaveLength(3)
@@ -152,7 +152,7 @@ describe('buildOutreachTrackerTaskRows', () => {
   })
 
   it('dates each send per the canonical contact schedule', () => {
-    const rows = buildOutreachTrackerTaskRows(7, start, election, false)
+    const rows = buildOutreachTrackerTaskRows(7, start, election, false, false)
     const dates = rows.map((r) => r.date as Date)
     for (const send of VOTER_CONTACT_SCHEDULE) {
       expect(dates).toContainEqual(subDays(election, send.daysBeforeElection))
@@ -160,11 +160,51 @@ describe('buildOutreachTrackerTaskRows', () => {
   })
 
   it('suppresses all outreach when the candidate lost their primary', () => {
-    expect(buildOutreachTrackerTaskRows(7, start, election, true)).toEqual([])
+    expect(buildOutreachTrackerTaskRows(7, start, election, true, false)).toEqual([])
   })
 
   it('builds no outreach when there is no election date to anchor to', () => {
-    expect(buildOutreachTrackerTaskRows(7, start, null, false)).toEqual([])
+    expect(buildOutreachTrackerTaskRows(7, start, null, false, false)).toEqual([])
+  })
+
+  it('swaps each text send for a robocall on its date when texting is closed', () => {
+    const rows = buildOutreachTrackerTaskRows(7, start, election, false, true)
+    expect(rows.filter((r) => r.flowType === 'text')).toEqual([])
+    const dateOf = (title: string) =>
+      rows.find((r) => r.title === title)?.date
+    expect(dateOf('Early Introduction Robocall')).toEqual(subDays(election, 56))
+    expect(dateOf('Early Persuasion Robocall')).toEqual(subDays(election, 35))
+    expect(dateOf('Early Voting Robocall')).toEqual(subDays(election, 14))
+    expect(rows.every((r) => r.flowType === 'robocall')).toBe(true)
+    expect(rows.every((r) => r.proRequired === true)).toBe(true)
+  })
+
+  it('drops the election day text when texting is closed', () => {
+    const rows = buildOutreachTrackerTaskRows(7, start, election, false, true)
+    expect(rows).toHaveLength(6)
+    expect(rows.map((r) => r.date)).not.toContainEqual(election)
+  })
+
+  it('drops a text send that lands on a robocall date when texting is closed', () => {
+    // A late joiner: the past sends crowd onto the start day, robocalls
+    // included, so the texts there are dropped rather than doubled.
+    const lateStart = subDays(election, 3)
+    const rows = buildOutreachTrackerTaskRows(
+      7,
+      lateStart,
+      election,
+      false,
+      true,
+    )
+    expect(rows.map((r) => r.title)).toEqual([
+      'Introduction Robocall',
+      'Persuasion Robocall',
+      'Early Voting Robocall',
+      'Election Day Reminder Robocall',
+    ])
+    expect(
+      rows.find((r) => r.title === 'Early Voting Robocall')?.date,
+    ).toEqual(addDays(lateStart, 1))
   })
 })
 
@@ -238,6 +278,7 @@ describe('tracker row dates', () => {
         1,
         new Date('2026-10-05T00:00:00.000Z'),
         new Date('2026-11-26T00:00:00.000Z'),
+        false,
         false,
       ),
     ]

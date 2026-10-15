@@ -36,6 +36,8 @@ import { CampaignsService } from '../../services/campaigns.service'
 import { CampaignTrackerTasksService } from '../../campaignTracker/services/campaignTrackerTasks.service'
 
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
+import { smsComplianceWindow } from '../../util/eligibility.util'
+import { SmsComplianceWindow } from '@goodparty_org/contracts'
 
 const SLACK_RETRY_BASE_DELAY_MS = 500
 
@@ -268,7 +270,18 @@ export class CampaignTasksService extends createPrismaBase(
   private async sendCampaignPlanSlackMessage(campaignId: number) {
     const campaign = await this.client.campaign.findUniqueOrThrow({
       where: { id: campaignId },
-      include: { user: true, campaignTasks: true },
+      include: {
+        user: true,
+        campaignTasks: true,
+        tcrCompliance: {
+          select: { kickoffSentAt: true, internalTestingAt: true },
+        },
+      },
+    })
+    const { smsCompliance } = smsComplianceWindow({
+      electionDate: campaign.details?.electionDate,
+      tcrCompliance: campaign.tcrCompliance,
+      now: new Date(),
     })
 
     const candidateName =
@@ -280,7 +293,8 @@ export class CampaignTasksService extends createPrismaBase(
 
     const outreachTasks = campaign.campaignTasks.filter(
       (task) =>
-        task.flowType === CampaignTaskType.text ||
+        (task.flowType === CampaignTaskType.text &&
+          smsCompliance !== SmsComplianceWindow.closed) ||
         task.flowType === CampaignTaskType.robocall,
     )
 
