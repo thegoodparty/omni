@@ -52,6 +52,7 @@ const ctx = (
   isPro: null,
   story: null,
   plan: null,
+  publicProfile: { status: 'not-live' },
   ...over,
 })
 
@@ -1253,6 +1254,52 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).toContain('the candidate clearly wants')
       expect(prompt).not.toContain('the official')
     })
+  })
+})
+
+describe('public profile address', () => {
+  const URL = 'https://goodparty.org/people/renee-diaz-0189abcd'
+
+  it('hands over the live address verbatim and forbids building one', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'live', url: URL } }),
+    )
+    expect(prompt).toContain(
+      `The candidate's public profile is live at ${URL}. That is its only address`,
+    )
+    expect(prompt).toContain("never build one from the candidate's name")
+  })
+
+  it('withholds an address while the profile is not published, without claiming no page exists', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'not-live' } }),
+    )
+    expect(prompt).toContain(
+      "The candidate's public profile is not published. Do not give or print an address for it until it is live; they publish it from the Public Profile page.",
+    )
+    expect(prompt).not.toContain('no public address')
+    expect(prompt).not.toContain('/people/')
+  })
+
+  it('withholds an address while a removal is on record, without sending them to publish', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'removed' } }),
+    )
+    expect(prompt).toContain(
+      "The candidate's public profile page is not being served: a removal is on record. Do not give or print an address for it.",
+    )
+    expect(prompt).not.toContain('they publish it')
+    expect(prompt).not.toContain('/people/')
+  })
+
+  it('says the address could not be determined instead of guessing', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'unknown' } }),
+    )
+    expect(prompt).toContain(
+      "The address of the candidate's public profile could not be determined today. Do not give one",
+    )
+    expect(prompt).not.toContain('/people/')
   })
 })
 
