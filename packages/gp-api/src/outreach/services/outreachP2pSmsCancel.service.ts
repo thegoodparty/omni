@@ -148,14 +148,21 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       return { outreach: spine, refunded: false }
     }
     // Only a not-yet-sent row is cancelable, BEFORE any money moves — mirrors the
-    // shared immediate-charge body (status === pending), extended with
-    // pending_payment for a pre-build authorized draft whose finalize deferred.
-    // A completed (sent) or in_progress (sending / sweep-ratcheted) row is refused
-    // so release can never refund a delivered send or leave the spine active while
-    // the money is returned.
+    // shared immediate-charge body, extended with pending_payment for a
+    // pre-build authorized draft whose finalize deferred. An in_progress row is
+    // cancelable only when unbooked: the completion sweep ratchets it there on
+    // its send day whether or not it was booked, and nothing sends without a
+    // booking (prod outreach 85286). A completed (sent) or booked in_progress row
+    // is refused so release can never refund a delivered send or leave the spine
+    // active while the money is returned.
+    const bookedToSend =
+      spine.approvedAt !== null || spine.canvassRequestedAt !== null
+    const unbookedSendDay =
+      spine.status === OutreachStatus.in_progress && !bookedToSend
     if (
       spine.status !== OutreachStatus.pending &&
-      spine.status !== OutreachStatus.pending_payment
+      spine.status !== OutreachStatus.pending_payment &&
+      !unbookedSendDay
     ) {
       throw new BadRequestException('Only scheduled campaigns can be canceled')
     }
@@ -163,8 +170,6 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     // date may be mid-send, so deleting the vendor job then is a mess, not a
     // cancel (mirrors the immediate-charge guard). An unbooked row past its date
     // never sends and stays cancelable.
-    const bookedToSend =
-      spine.approvedAt !== null || spine.canvassRequestedAt !== null
     if (bookedToSend && spine.date && !isBefore(new Date(), spine.date)) {
       throw new BadRequestException(
         'This campaign has reached its send time and can no longer be canceled',
@@ -680,9 +685,18 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       await this.client.outreach.updateMany({
         where: {
           id: outreachId,
-          status: {
-            in: [OutreachStatus.pending, OutreachStatus.pending_payment],
-          },
+          OR: [
+            {
+              status: {
+                in: [OutreachStatus.pending, OutreachStatus.pending_payment],
+              },
+            },
+            {
+              status: OutreachStatus.in_progress,
+              approvedAt: null,
+              canvassRequestedAt: null,
+            },
+          ],
         },
         data: {
           status: OutreachStatus.canceled,

@@ -334,8 +334,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // the end. A read would not be enough and the trailing CAS was not
     // enough: a candidate can cancel between the check and the handoff, and
     // by then a human has the CSV and will send it. Claiming closes that
-    // window, because `cancelOutreach` is `pending`-only — once this row
-    // reads `in_progress` a cancel is refused rather than racing the send.
+    // window, because `cancelOutreach` refuses an `in_progress` text send
+    // (only an unbooked p2p row cancels from there) — once this row reads
+    // `in_progress` a cancel is refused rather than racing the send.
     //
     // The claim IS the spine advance; there is no separate "claimed" state to
     // add. A redelivered message, or a message for a canceled / unpaid /

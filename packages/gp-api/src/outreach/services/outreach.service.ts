@@ -1116,21 +1116,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
   /**
    * Cancel-before-send (product decision: permanent, vendor job deleted,
-   * automatic refund). Cancelable = status `pending` only: that is the
-   * scheduled-not-started state finalize leaves a paid campaign in;
-   * `in_progress`/`completed` rows have sent messages and are not
-   * refundable here.
+   * automatic refund). Cancelable = status `pending` (the
+   * scheduled-not-started state finalize leaves a paid campaign in), plus
+   * an UNBOOKED p2p row the completion sweep ratcheted to `in_progress` on
+   * its send day — nothing sends without a booking, so it is no more
+   * started than a pending row. A booked `in_progress` row and a
+   * `completed` row may have sent messages and are not refundable here.
    *
    * Ordering is the failure policy. The row is CLAIMED first (finalize's
-   * updateMany-as-CAS pattern, `pending` → `canceled`), so the hourly
-   * completion sweep can never advance it mid-cancel — canceled rows are
-   * outside the sweep's candidate set. The vendor delete runs second — if
-   * it fails, the claim is reverted and the user keeps their campaign. The
-   * refund runs third — if IT fails, the claim is reverted too, so the row
-   * deliberately reads `pending`: the cancel CTA stays live, and a retry
-   * re-runs every step safely (the claim is atomic, the vendor delete
-   * treats already-deleted as done, and the refund's idempotency key is
-   * stable per outreach, so it can neither be lost nor doubled).
+   * updateMany-as-CAS pattern, its current status → `canceled`), so the
+   * hourly completion sweep can never advance it mid-cancel — canceled rows
+   * are outside the sweep's candidate set. The vendor delete runs second —
+   * if it fails, the claim is reverted and the user keeps their campaign.
+   * The refund runs third — if IT fails, the claim is reverted too, so the
+   * row deliberately reads its original status: the cancel CTA stays live,
+   * and a retry re-runs every step safely (the claim is atomic, the vendor
+   * delete treats already-deleted as done, and the refund's idempotency key
+   * is stable per outreach, so it can neither be lost nor doubled).
    */
   async cancelOutreach(
     outreachId: number,
@@ -1173,7 +1175,18 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }
     }
-    if (outreach.status !== OutreachStatus.pending) {
+    const bookedToSend =
+      outreach.approvedAt !== null || outreach.canvassRequestedAt !== null
+    // The completion sweep moves a p2p row to `in_progress` at the UTC start
+    // of its send day whether or not it was booked, which would otherwise
+    // defeat the unbooked-row rule below on exactly the day staff need it
+    // (prod outreach 85286, 2026-10-15). Scoped to p2p: a Serve text reads
+    // `in_progress` once its delivery handoff has claimed the send.
+    const unbookedSendDay =
+      outreach.status === OutreachStatus.in_progress &&
+      outreach.outreachType === OutreachType.p2p &&
+      !bookedToSend
+    if (outreach.status !== OutreachStatus.pending && !unbookedSendDay) {
       throw new BadRequestException('Only scheduled campaigns can be canceled')
     }
     // Cancel is available up to the scheduled send, not through it: once the
@@ -1184,16 +1197,25 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // row past its date is dead, not mid-send, and must stay cancelable:
     // the guard otherwise strands it in Awaiting Review with the payment
     // unrefundable (QA 2026-09-10, prod outreach 81412).
-    const bookedToSend =
-      outreach.approvedAt !== null || outreach.canvassRequestedAt !== null
     if (bookedToSend && outreach.date && !isBefore(new Date(), outreach.date)) {
       throw new BadRequestException(
         'This campaign has reached its send time and can no longer be canceled',
       )
     }
 
+    const claimedFrom = unbookedSendDay
+      ? OutreachStatus.in_progress
+      : OutreachStatus.pending
+    // The booking guard keeps an approve that lands after the read above
+    // from being canceled out from under it mid-send.
     const claimed = await this.model.updateMany({
-      where: { id: outreachId, status: OutreachStatus.pending },
+      where: {
+        id: outreachId,
+        status: claimedFrom,
+        ...(unbookedSendDay
+          ? { approvedAt: null, canvassRequestedAt: null }
+          : {}),
+      },
       data: {
         status: OutreachStatus.canceled,
         canceledAt: new Date(),
@@ -1220,7 +1242,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         await this.model.update({
           where: { id: outreachId },
           data: {
-            status: OutreachStatus.pending,
+            status: claimedFrom,
             canceledAt: null,
             canceledBy: null,
             canceledByAdmin: false,

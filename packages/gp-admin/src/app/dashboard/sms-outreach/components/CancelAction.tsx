@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertDialog, Button, Flex } from '@radix-ui/themes'
+import * as Sentry from '@sentry/nextjs'
+import { AlertDialog, Button, Callout, Flex } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
+import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import { cancelSms } from '../actions'
 
 interface CancelActionProps {
@@ -20,11 +22,17 @@ export function CancelAction({ id, paid }: CancelActionProps) {
   const [isRefreshing, startTransition] = useTransition()
   const busy = submitting || isRefreshing
   const [open, setOpen] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
 
   async function handleCancel() {
     setSubmitting(true)
+    setFailure(null)
     try {
-      await cancelSms(id)
+      const { error } = await cancelSms(id)
+      if (error) {
+        setFailure(error)
+        return
+      }
       showToast(
         paid
           ? 'Canceled — the vendor job is deleted and the payment refunded'
@@ -33,9 +41,10 @@ export function CancelAction({ id, paid }: CancelActionProps) {
       setOpen(false)
       startTransition(() => router.refresh())
     } catch (error) {
-      showToast(
-        error instanceof Error ? error.message : 'Failed to cancel campaign'
-      )
+      // A rejection here never reached gp-api (deploy skew, expired session),
+      // so this catch is the failure's only trace anywhere — report it.
+      Sentry.captureException(error)
+      setFailure(describeActionFailure(error, 'Failed to cancel campaign'))
     } finally {
       setSubmitting(false)
     }
@@ -45,7 +54,9 @@ export function CancelAction({ id, paid }: CancelActionProps) {
     <AlertDialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (!busy) setOpen(next)
+        if (busy) return
+        setOpen(next)
+        setFailure(null)
       }}
     >
       <AlertDialog.Trigger>
@@ -63,6 +74,11 @@ export function CancelAction({ id, paid }: CancelActionProps) {
           and the campaign cannot be re-queued. The candidate is not notified
           automatically.
         </AlertDialog.Description>
+        {failure && (
+          <Callout.Root color="red" role="alert" mt="3">
+            <Callout.Text>{failure}</Callout.Text>
+          </Callout.Root>
+        )}
         <Flex gap="3" mt="4" justify="end">
           <AlertDialog.Cancel>
             <Button variant="soft" color="gray" disabled={busy}>

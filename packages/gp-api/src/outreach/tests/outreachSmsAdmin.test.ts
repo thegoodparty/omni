@@ -852,6 +852,27 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(item.approvalStatus).toBe('canceled')
     })
 
+    it('cancels an unbooked row the sweep moved to in_progress on its send day', async () => {
+      // Prod outreach 85286 (2026-10-15): the completion sweep ratchets a
+      // never-approved row to in_progress when its send day begins, and the
+      // console's cancel 400'd on it.
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        status: OutreachStatus.in_progress,
+        date: subDays(new Date(), 1),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('canceled')
+      expect(res.data.canceledByAdmin).toBe(true)
+      expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+    })
+
     it('still refuses to cancel a booked send past its send time', async () => {
       const row = await seedOutreach({
         stripeCheckoutSessionId: null,

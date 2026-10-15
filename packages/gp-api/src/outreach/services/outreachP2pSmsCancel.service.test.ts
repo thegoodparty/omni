@@ -532,6 +532,57 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     )
   })
 
+  it('refunds an unbooked hold row the sweep moved to in_progress on its send day', async () => {
+    // The completion sweep ratchets an unbooked row to in_progress at the UTC
+    // start of its send day; nothing sends without a booking, so it cancels and
+    // refunds like a pending row (prod outreach 85286, legacy-path twin).
+    retrieveSpy.mockResolvedValue(
+      mockIntent({ status: 'succeeded', latest_charge: CHARGE_ID }),
+    )
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+    })
+    await markOfferRedeemed(outreachId)
+
+    const { refunded } = await cancel.cancel(outreachId, campaign.id)
+
+    expect(refunded).toBe(true)
+    expect(deleteJobSpy).toHaveBeenCalledWith('peerly-job-1')
+    expect(refundChargeSpy).toHaveBeenCalledWith(
+      CHARGE_ID,
+      `p2p-sms-refund-${CHARGE_ID}`,
+    )
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.refunded,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+    const campaignAfter = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(campaignAfter.hasFreeTextsOffer).toBe(true)
+  })
+
+  it('refuses a booked in_progress hold row and moves no money', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+      approvedAt: new Date(),
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect(deleteJobSpy).not.toHaveBeenCalled()
+    expect((await readSpine(outreachId)).status).toBe(
+      OutreachStatus.in_progress,
+    )
+  })
+
   it('cancels a pending_payment satellite (no hold placed) without a 502', async () => {
     // The hold-recording webhook has not run yet: the satellite is seeded but
     // carries no authorization intent. Cancel must still complete (void the
