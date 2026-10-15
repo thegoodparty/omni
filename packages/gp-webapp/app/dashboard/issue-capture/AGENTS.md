@@ -79,10 +79,11 @@ fires on the press, refused or not.
 - **Cards rank by `conversationCount`**, the run's `rank` breaking ties: the
   issue several people raised rises. A count is "conversations that touched
   this theme", never a share, since one note can sit in two themes. The stance
-  split is four counts, not a chart, for the same reason. It counts every
-  issue raised in the theme's notes, so a note that raised two issues
-  contributes two and the split can sum past the conversation count (interim,
-  until membership is per issue; `packages/gp-api/src/constituentFeedback/AGENTS.md`).
+  split is four counts, not a chart, for the same reason. It counts only the
+  issues the run matched to that theme, each issue to one of its note's
+  themes, and every issue in the theme's notes when matching did not
+  complete (`packages/gp-api/src/constituentFeedback/AGENTS.md`, The report).
+  A theme none of whose issues matched has `stanceCounts: null`.
   A reply names no issue, so a theme of replies has `stanceCounts: null`
   and the card and the theme page show no split at all.
 - **Every note is labeled as the canvasser's summary** ("Summary by ..."),

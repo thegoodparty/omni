@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  onTestFinished,
+  vi,
+} from 'vitest'
 import { subMinutes } from 'date-fns'
 import {
   ConstituentFeedbackCaptureMethod,
@@ -11,8 +19,10 @@ import {
   Prisma,
   SynthesisRunStatus,
 } from '@/generated/prisma'
+import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { FeedbackSynthesisIngestService } from '../services/feedbackSynthesisIngest.service'
+import { FeedbackThemeIssueMatchService } from '../services/feedbackThemeIssueMatch.service'
 import { MockSynthesisEngine } from '../services/mockSynthesisEngine'
 import {
   completionEvent,
@@ -53,6 +63,7 @@ const REPLIES = [
 describe('feedback synthesis on a text send', () => {
   let slug: string
   let outreachId: number
+  let llm: MockInstance<LlmService['jsonCompletion']>
 
   beforeEach(async () => {
     scheduled = []
@@ -62,6 +73,12 @@ describe('feedback synthesis on a text send', () => {
         scheduled.push(args)
       })
     onTestFinished(() => spy.mockRestore())
+    // A completed run with memo issues asks the model to match them to
+    // themes. Unanswered, a theme counts every issue in its notes.
+    llm = vi
+      .spyOn(service.app.get(LlmService), 'jsonCompletion')
+      .mockRejectedValue(new Error('No model in this suite'))
+    onTestFinished(() => llm.mockRestore())
 
     slug = await createServeOrg(service)
     outreachId = (await seedTextEffort(service, slug)).id
@@ -373,12 +390,25 @@ describe('feedback synthesis on a text send', () => {
     // its conversations and has no split at all, rather than four zeros.
     it('counts a theme of replies with no stance split or outcomes', async () => {
       const replies = await seedReplies(REPLIES.slice(0, 5))
+      const match = vi.spyOn(
+        service.app.get(FeedbackThemeIssueMatchService),
+        'matchRun',
+      )
+      onTestFinished(() => match.mockRestore())
       const runId = await completeRun([
         {
           theme: 'Potholes on Elm',
           memberIds: replies.map((reply) => reply.id),
         },
       ])
+      await match.mock.results[0]!.value
+
+      // Replies raise no issue, so there is nothing to ask the model.
+      expect(llm).not.toHaveBeenCalled()
+      const run = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+        where: { id: runId },
+      })
+      expect(run.issuesMatchedAt).not.toBeNull()
 
       const res = await report()
 
