@@ -386,6 +386,32 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
     })
   })
 
+  // A text being worked is past checkout, which finishes the card, so the
+  // step a card can show in progress is a call list or a walk.
+  it('keeps the official going on a call list already started', async () => {
+    const orgSlug = 'eo-civic-build-plan-calling'
+    const eo = await seedElectedOffice(orgSlug)
+    const plan = await seedPlan(eo.id, orgSlug)
+    const text = plan.steps.find((step) => step.channel === 'text')
+    const calls = plan.steps.find((step) => step.channel === 'phone_banking')
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: text?.id },
+      data: { skippedAt: new Date() },
+    })
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: calls?.id },
+      data: { startedAt: new Date() },
+    })
+
+    const [card] = await listCards(orgSlug)
+
+    expect(card).toMatchObject({
+      title: 'Finish your civic panel calls',
+      ctaLabel: 'Keep calling',
+      ctaHref: `/dashboard/contacts/citizens-panel?step=${calls?.id}`,
+    })
+  })
+
   it('goes back to the start words when the plan ran out of people', async () => {
     const orgSlug = 'eo-civic-build-plan-exhausted'
     const eo = await seedElectedOffice(orgSlug)
