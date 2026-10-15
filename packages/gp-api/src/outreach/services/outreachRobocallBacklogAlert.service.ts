@@ -36,7 +36,7 @@ const envInt = (value: string | undefined, fallback: number): number => {
 const robocallDialEstimateBufferMinutes = () =>
   envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 180)
 const robocallDialSafetyRateDivisor = () =>
-  Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 3))
+  Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 2))
 
 // Proactively pages CAS when the strictly-serial send queue's backlog is
 // projected to push a robocall past its scheduled DAY — BEFORE it is late.

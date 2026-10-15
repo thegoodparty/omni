@@ -20,6 +20,10 @@ import {
   type ServePollCreateResponse,
   ServePollCreateResponseSchema,
   ServePollCreateSchema,
+  type ServePollExpansionCreate,
+  type ServePollExpansionCreateResponse,
+  ServePollExpansionCreateResponseSchema,
+  ServePollExpansionCreateSchema,
   type ServePollDraftRequest,
   ServePollDraftRequestSchema,
   type ServePollDraftResponse,
@@ -41,6 +45,7 @@ import { OutreachPollResultsService } from './services/outreachPollResults.servi
 import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
 import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
 import { OutreachServePollDraftService } from './services/outreachServePollDraft.service'
+import { OutreachServePollExpansionService } from './services/outreachServePollExpansion.service'
 import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 
 // Serve self-serve polls. Ownership is the ElectedOffice row the guard
@@ -57,6 +62,7 @@ export class OutreachServePollController {
     private readonly features: FeaturesService,
     private readonly draftService: OutreachServePollDraftService,
     private readonly createService: OutreachServePollCreateService,
+    private readonly expansionService: OutreachServePollExpansionService,
     private readonly profileContext: OutreachServeComposeContextService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
@@ -121,6 +127,33 @@ export class OutreachServePollController {
         tone: input.tone,
         source: input.audience.kind,
         biasOverridden: input.biasOverridden,
+      })
+      .catch(() => undefined)
+
+    return created
+  }
+
+  @Post('poll/:id/expansions')
+  @ResponseSchema(ServePollExpansionCreateResponseSchema)
+  async createExpansion(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(ServePollExpansionCreateSchema))
+    input: ServePollExpansionCreate,
+  ): Promise<ServePollExpansionCreateResponse> {
+    await this.assertFeatureEnabled(user)
+    const created = await this.expansionService.createExpansion(
+      electedOffice,
+      id,
+      input,
+    )
+
+    void this.analytics
+      .track(user.id, EVENTS.Polls.GatherMoreStarted, {
+        outreachId: id,
+        expansionId: created.expansionId,
+        recipientCount: created.recipientCount,
       })
       .catch(() => undefined)
 

@@ -79,6 +79,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import {
   OutreachTextDeliveryService,
   TextDeliveryAudience,
@@ -180,6 +181,7 @@ export class QueueConsumerService {
     private readonly chatAttachments: ChatAttachmentsService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
+    private readonly pollExpansion: OutreachServePollExpansionService,
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
@@ -599,11 +601,17 @@ export class QueueConsumerService {
       )
       return true
     }
-    if (isPoll && sendSeq > INITIAL_POLL_SEND_SEQ) {
-      throw new Error(
-        `outreachTextSend: poll expansion sends (sendSeq ${sendSeq}) are ` +
-          'not supported yet',
+    const expansion =
+      isPoll && sendSeq > INITIAL_POLL_SEND_SEQ
+        ? await this.pollExpansion.resolveDelivery(outreachId, sendSeq)
+        : null
+    if (isPoll && sendSeq > INITIAL_POLL_SEND_SEQ && !expansion) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: an expansion reached delivery without an ' +
+          'approved row, which should never happen; acking without sending',
       )
+      return true
     }
 
     const {
@@ -617,13 +625,19 @@ export class QueueConsumerService {
 
     const isSamplePoll =
       isPoll && outreach.pollDetails?.audienceKind === PollAudienceKind.sample
-    const audience: TextDeliveryAudience | null = isSamplePoll
-      ? textCount
-        ? { kind: 'sample', size: textCount }
-        : null
-      : voterFileFilterId
-        ? { kind: 'savedFilter', voterFileFilterId }
-        : null
+    const audience: TextDeliveryAudience | null = expansion
+      ? {
+          kind: 'sample',
+          size: expansion.textCount,
+          excludePersonIds: expansion.excludePersonIds,
+        }
+      : isSamplePoll
+        ? textCount
+          ? { kind: 'sample', size: textCount }
+          : null
+        : voterFileFilterId
+          ? { kind: 'savedFilter', voterFileFilterId }
+          : null
 
     if (!message || !scheduledLocalDate || !audience) {
       this.logger.error(
@@ -653,7 +667,7 @@ export class QueueConsumerService {
       // allowance, so a send fully covered by the offer carries 0. Capping
       // on that would truncate a legitimate send to nobody and hand
       // fulfilment an empty file.
-      paidRecipientCap: textCount ?? undefined,
+      paidRecipientCap: expansion?.textCount ?? textCount ?? undefined,
     })
 
     // `terminalReason` means nothing was handed off and nothing ever will be.

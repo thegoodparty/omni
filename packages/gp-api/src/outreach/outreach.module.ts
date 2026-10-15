@@ -72,6 +72,7 @@ import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service
 import { OutreachPollResultsService } from './services/outreachPollResults.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
+import { OutreachServePollExpansionService } from './services/outreachServePollExpansion.service'
 import { OutreachServePollDraftService } from './services/outreachServePollDraft.service'
 import { OutreachReportBackModule } from './outreachReportBack.module'
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
@@ -227,6 +228,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // handler its checkout runs through.
     OutreachServeSmsCreateService,
     OutreachServePollCreateService,
+    OutreachServePollExpansionService,
     OutreachServePollDraftService,
     OutreachServeSmsPurchaseHandlerService,
     OutreachRobocallGenerationService,
@@ -285,6 +287,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // poll outreach and claims it into the CAS queue through these two.
     OutreachServePollCreateService,
     OutreachServeSmsPurchaseHandlerService,
+    OutreachServePollExpansionService,
   ],
 })
 export class OutreachModule {
