@@ -187,7 +187,7 @@ describe('ThemeDetailPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
     expect(within(list).getAllByRole('listitem')).toHaveLength(7)
-    expect(screen.queryByRole('button', { name: /Show \d+ more/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Show \d+ more$/ })).toBeNull()
   })
 
   // The page opens with the top of the card it was opened from, so its
@@ -318,6 +318,26 @@ describe('ThemeDetailPage', () => {
       screen.queryByRole('heading', { name: 'Where people stand' }),
     ).toBeNull()
     expect(container.textContent).not.toMatch(/voter/i)
+  })
+
+  it('shows the newest five notes and the rest behind Show more', async () => {
+    mockTheme({
+      ...THEME,
+      members: Array.from({ length: 7 }, (_, index) => ({
+        ...THEME.members[0]!,
+        feedbackId: `memo-${index}`,
+        transcript: `Note ${index + 1}`,
+      })),
+    })
+    renderPage()
+
+    expect(await screen.findByText('Note 5')).toBeInTheDocument()
+    expect(screen.queryByText('Note 6')).toBeNull()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show 2 more notes' }),
+    )
+    expect(screen.getByText('Note 7')).toBeInTheDocument()
   })
 
   it('leaves out the asks when nobody named one', async () => {
