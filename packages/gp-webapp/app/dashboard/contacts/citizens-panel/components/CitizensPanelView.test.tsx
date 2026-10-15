@@ -13,7 +13,6 @@ const SUMMARY = {
 
 const REPRESENTATION: CivicPanelRepresentation = {
   representation: {
-    source: 'sample',
     respondentCount: 40,
     groups: [
       {

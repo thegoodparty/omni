@@ -118,8 +118,13 @@ The voter-data identity takes no hostname: there is one workspace, so
 `peopleDbx.config.ts` holds it as a constant. It keeps the warehouse in env so
 dev and prod can run on separate compute, and so moving off a saturated
 warehouse is a secret update and a task cycle rather than a deploy. It reads
-`mart_gp_api.gp_api_voters` and `gp_api_district_census_stats`, and is
-deliberately not interchangeable with the two agent identities above.
+`mart_gp_api.gp_api_voters` (or `gp_api_constituents`) and the census marts:
+`gp_api_district_census_stats` (2020 district population),
+`gp_api_district_census_demographics` (ACS 2024 5-year counts per district,
+plus one `State` row per state) and `gp_api_block_group_census_demographics`
+(the same per block group, with MOEs and medians, joined on the people
+tables' `Census_Block_Group_Geoid`). It is deliberately not interchangeable
+with the two agent identities above.
 
 Read the mart, never the `dbt` models underneath it. The data is the same, but
 the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the

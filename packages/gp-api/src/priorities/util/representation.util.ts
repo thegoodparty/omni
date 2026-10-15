@@ -2,73 +2,52 @@ import type {
   RepresentationDimension,
   RepresentationGroup,
 } from '@goodparty_org/contracts'
+import type { AcsCounts } from '@/peopleDb/databricks/districtCensusSql.util'
 
-// The ACS counts gp-data-platform publishes per district
-// (gp_api_district_census_stats, acs_*) and per block group
-// (gp_api_block_group_census_demographics), in camelCase. Both tables carry
-// the same columns, which is what lets a respondent's block group and the
-// district be read as one shape.
-export const ACS_COUNT_KEYS = [
-  'totalPopulation',
-  'populationUnder18',
-  'population65Plus',
-  'populationRaceUniverse',
-  'populationWhiteNh',
-  'populationBlackNh',
-  'populationNativeAmericanNh',
-  'populationAsianNh',
-  'populationOtherNh',
-  'populationHispanic',
-  'population25Plus',
-  'populationHsOrHigher',
-  'populationBachelorsOrHigher',
-  'households',
-  'ownerOccupiedHouseholds',
-  'populationPovertyUniverse',
-  'populationBelowPoverty',
-  'householdsIncomeUniverse',
-  'householdsIncomeUnder25k',
-  'householdsIncome25kTo50k',
-  'householdsIncome50kTo75k',
-  'householdsIncome75kTo100k',
-  'householdsIncome100kTo150k',
-  'householdsIncome150kPlus',
-] as const
-export type AcsCountKey = (typeof ACS_COUNT_KEYS)[number]
-export type AcsCounts = Record<AcsCountKey, number>
+type Figure = number | null
 
 interface GroupDefinition {
   dimension: RepresentationDimension
   key: string
   label: string
-  count: (c: AcsCounts) => number
-  universe: (c: AcsCounts) => number
+  count: (c: AcsCounts) => Figure
+  universe: (c: AcsCounts) => Figure
 }
 
-const ageWorking = (c: AcsCounts): number =>
-  c.totalPopulation - c.populationUnder18 - c.population65Plus
+// Any suppressed part makes the whole figure unknown, never a smaller one.
+const sum = (...values: Figure[]): Figure => {
+  let total = 0
+  for (const value of values) {
+    if (value === null) return null
+    total += value
+  }
+  return total
+}
+const minus = (a: Figure, b: Figure): Figure =>
+  a === null || b === null ? null : a - b
+const positive = (value: Figure): boolean => value !== null && value > 0
+
+// Age is read over adults (18 and over), the population respondents and
+// panel members are drawn from, so both rows are shares of the people who
+// could have answered. Over everyone, a neighborhood with many children
+// would read as having fewer adults of every age.
+const adults = (c: AcsCounts): Figure =>
+  minus(c.totalPopulation, c.populationUnder18)
 
 const GROUPS: GroupDefinition[] = [
   {
     dimension: 'age',
-    key: 'under18',
-    label: 'Under 18',
-    count: (c) => c.populationUnder18,
-    universe: (c) => c.totalPopulation,
-  },
-  {
-    dimension: 'age',
     key: '18to64',
     label: '18 to 64',
-    count: ageWorking,
-    universe: (c) => c.totalPopulation,
+    count: (c) => minus(adults(c), c.population65Plus),
+    universe: adults,
   },
   {
     dimension: 'age',
     key: '65plus',
     label: '65 and over',
     count: (c) => c.population65Plus,
-    universe: (c) => c.totalPopulation,
+    universe: adults,
   },
   {
     dimension: 'race',
@@ -116,7 +95,7 @@ const GROUPS: GroupDefinition[] = [
     dimension: 'education',
     key: 'noDiploma',
     label: 'No high school diploma',
-    count: (c) => c.population25Plus - c.populationHsOrHigher,
+    count: (c) => minus(c.population25Plus, c.populationHsOrHigher),
     universe: (c) => c.population25Plus,
   },
   {
@@ -126,32 +105,58 @@ const GROUPS: GroupDefinition[] = [
     count: (c) => c.populationBachelorsOrHigher,
     universe: (c) => c.population25Plus,
   },
+  // The mart publishes the 16 ACS brackets; these are the bands the page
+  // shows.
   {
     dimension: 'income',
     key: 'under25k',
     label: 'Under $25k',
-    count: (c) => c.householdsIncomeUnder25k,
+    count: (c) =>
+      sum(
+        c.householdsIncomeUnder10k,
+        c.householdsIncome10kTo15k,
+        c.householdsIncome15kTo20k,
+        c.householdsIncome20kTo25k,
+      ),
     universe: (c) => c.householdsIncomeUniverse,
   },
   {
     dimension: 'income',
     key: '25kTo50k',
     label: '$25k to $50k',
-    count: (c) => c.householdsIncome25kTo50k,
+    count: (c) =>
+      sum(
+        c.householdsIncome25kTo30k,
+        c.householdsIncome30kTo35k,
+        c.householdsIncome35kTo40k,
+        c.householdsIncome40kTo45k,
+        c.householdsIncome45kTo50k,
+      ),
     universe: (c) => c.householdsIncomeUniverse,
   },
   {
     dimension: 'income',
     key: '50kTo100k',
     label: '$50k to $100k',
-    count: (c) => c.householdsIncome50kTo75k + c.householdsIncome75kTo100k,
+    count: (c) =>
+      sum(
+        c.householdsIncome50kTo60k,
+        c.householdsIncome60kTo75k,
+        c.householdsIncome75kTo100k,
+      ),
     universe: (c) => c.householdsIncomeUniverse,
   },
   {
     dimension: 'income',
     key: '100kPlus',
     label: '$100k and over',
-    count: (c) => c.householdsIncome100kTo150k + c.householdsIncome150kPlus,
+    count: (c) =>
+      sum(
+        c.householdsIncome100kTo125k,
+        c.householdsIncome125kTo150k,
+        c.householdsIncome150kTo200k,
+        c.householdsIncome200kPlus,
+      ),
     universe: (c) => c.householdsIncomeUniverse,
   },
   {
@@ -165,7 +170,7 @@ const GROUPS: GroupDefinition[] = [
     dimension: 'housing',
     key: 'renters',
     label: 'Rent their home',
-    count: (c) => c.households - c.ownerOccupiedHouseholds,
+    count: (c) => minus(c.households, c.ownerOccupiedHouseholds),
     universe: (c) => c.households,
   },
   {
@@ -183,8 +188,10 @@ export const MIN_RESPONDENTS_FOR_RACE = 25
 // A group this small in the district swings on a handful of people.
 export const MIN_DISTRICT_SHARE_FOR_RACE_GROUP = 0.02
 
-const share = (count: number, universe: number): number | null =>
-  universe > 0 ? Math.max(0, Math.min(1, count / universe)) : null
+const share = (count: Figure, universe: Figure): number | null =>
+  count !== null && universe !== null && universe > 0
+    ? Math.max(0, Math.min(1, count / universe))
+    : null
 
 // Compares the places respondents live with the whole district. Each
 // respondent contributes their block group's composition, so a respondent
@@ -196,14 +203,17 @@ export const computeRepresentation = (
 ): RepresentationGroup[] => {
   if (respondentBlockGroups.length === 0) return []
   const showRace = respondentBlockGroups.length >= MIN_RESPONDENTS_FOR_RACE
-  // A dimension shows only when the census has it for every respondent's
-  // block group (a small one can have a figure suppressed). Otherwise two
-  // rows of one dimension would average over different sets of people.
+  // A dimension shows only when the census has it for the district and for
+  // every respondent's block group (a small one can have a figure
+  // suppressed). Otherwise two rows of one dimension would average over
+  // different sets of people.
+  const readable = (group: GroupDefinition, c: AcsCounts): boolean =>
+    positive(group.universe(c)) && group.count(c) !== null
   const covered = (dimension: RepresentationDimension): boolean =>
     GROUPS.filter((group) => group.dimension === dimension).every(
       (group) =>
-        group.universe(district) > 0 &&
-        respondentBlockGroups.every((bg) => group.universe(bg) > 0),
+        readable(group, district) &&
+        respondentBlockGroups.every((bg) => readable(group, bg)),
     )
   return GROUPS.flatMap((group) => {
     if (group.dimension === 'race' && !showRace) return []
@@ -218,7 +228,8 @@ export const computeRepresentation = (
     }
     const respondentShare =
       respondentBlockGroups.reduce(
-        (sum, bg) => sum + (share(group.count(bg), group.universe(bg)) ?? 0),
+        (total, bg) =>
+          total + (share(group.count(bg), group.universe(bg)) ?? 0),
         0,
       ) / respondentBlockGroups.length
     return [
