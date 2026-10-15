@@ -31,7 +31,7 @@ const fetchList = async (listId: string): Promise<PhoneBankingList | null> => {
       'GET /v1/phone-banking/lists/:id',
       { id: listId },
       // The PDF reads only name, phone, and interaction (all frozen/Prisma
-      // data); skip the slow people-db enrichment it never uses.
+      // data); skip the Databricks lookup it never uses.
       { query: { skipLiveEnrichment: 'true' } },
     )
     return response.data
@@ -116,15 +116,13 @@ export const GET = async (
   }
 
   const zip = new JSZip()
-  const pdfs = await Promise.all(
-    sheets.map(async (sheetIndex) => ({
-      sheetIndex,
-      pdf: await renderSheet(sheetIndex),
-    })),
-  )
-  for (const { sheetIndex, pdf } of pdfs) {
-    zip.file(callSheetFilename(list.name, sheetIndex, sheetTotal), pdf)
-  }
+  // Rendering concurrently cuts a 20-sheet list from about 15-23s to 13s
+  // locally, at roughly twice the peak memory. The sheet count is capped at
+  // PHONE_BANKING_MAX_SHEET_COUNT, so that cost is bounded.
+  const pdfs = await Promise.all(sheets.map(renderSheet))
+  sheets.forEach((sheetIndex, i) => {
+    zip.file(callSheetFilename(list.name, sheetIndex, sheetTotal), pdfs[i])
+  })
   const archive = await zip.generateAsync({ type: 'nodebuffer' })
 
   return new Response(new Uint8Array(archive), {

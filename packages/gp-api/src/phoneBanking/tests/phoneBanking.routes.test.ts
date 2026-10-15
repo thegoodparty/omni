@@ -984,7 +984,7 @@ describe('phone banking routes', () => {
       })
     })
 
-    it('skips the people-db lookup when skipLiveEnrichment=true, keeping frozen name and phone', async () => {
+    it('skips the Databricks voter lookup when skipLiveEnrichment=true, keeping frozen name and phone', async () => {
       const personId = randomUUID()
       mockPeoplePage([
         fakePerson({

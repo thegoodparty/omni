@@ -643,7 +643,7 @@ export class PhoneBankingListService extends createPrismaBase(
 
     const [liveByPersonId, interactionByPersonId] = await Promise.all([
       // The print PDF only reads frozen name/phone and interactions; it opts
-      // out of the people-db round trip, which is the slow, variable part.
+      // out of the Databricks lookup, the variable-latency part.
       skipLiveEnrichment
         ? Promise.resolve(new Map<string, Person>())
         : this.fetchLivePeople(personIds, organization),

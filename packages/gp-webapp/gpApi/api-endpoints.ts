@@ -2175,7 +2175,7 @@ export type APIEndpoints = {
   // logged interactions (PhoneBankingController.get). 404 when the list
   // doesn't belong to the requester's organization.
   // Pass `{ query: { skipLiveEnrichment: 'true' } }` as the request override
-  // to skip the people-db lookup (age/party/address/live phones come back
+  // to skip the Databricks voter lookup (age/party/address/live phones come back
   // null); the print PDF does this because it never reads them.
   'GET /v1/phone-banking/lists/:id': {
     Request: {}
