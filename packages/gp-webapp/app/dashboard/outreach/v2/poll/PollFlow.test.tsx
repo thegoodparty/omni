@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -300,5 +300,22 @@ describe('PollFlow', () => {
 
     await waitFor(() => expect(createBodies).toHaveLength(2))
     expect(createBodies[1]).toMatchObject({ topic: 'housing' })
+  })
+
+  it('does not count trailing whitespace against the question limit', async () => {
+    openFlow()
+    await pickTopic('Write my own')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue/ }),
+    )
+    fireEvent.change(await screen.findByLabelText('Poll question'), {
+      target: { value: `${'a'.repeat(480)} \n` },
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    ).toBeInTheDocument()
   })
 })

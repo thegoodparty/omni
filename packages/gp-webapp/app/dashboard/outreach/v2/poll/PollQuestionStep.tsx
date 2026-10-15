@@ -71,7 +71,7 @@ export const PollQuestionStep = ({
 }: PollQuestionStepProps) => {
   const trimmedLength = question.trim().length
   const tooShort = trimmedLength < POLL_QUESTION_MIN_LENGTH
-  const tooLong = question.length > POLL_QUESTION_MAX_LENGTH
+  const tooLong = trimmedLength > POLL_QUESTION_MAX_LENGTH
 
   return (
     <div className="space-y-6">

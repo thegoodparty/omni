@@ -370,7 +370,7 @@ export const PollFlow = ({
     const ready =
       !drafting &&
       trimmed >= POLL_QUESTION_MIN_LENGTH &&
-      question.length <= POLL_QUESTION_MAX_LENGTH &&
+      question.trim().length <= POLL_QUESTION_MAX_LENGTH &&
       composedLength <= SMS_COMPOSED_MAX_LENGTH
     if (!ready) {
       setQuestionContinueAttempts((n) => n + 1)

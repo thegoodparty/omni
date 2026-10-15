@@ -85,7 +85,7 @@ export default function PollsPage({
             </Button>
           )}
         </div>
-        {hasPolls ? (
+        {hasPolls || selfServe ? (
           <PollsTable polls={polls} outreachPolls={shownRows} />
         ) : (
           <PollWelcomePage />
