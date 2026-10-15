@@ -521,7 +521,7 @@ describe('SmsFlow serve send path', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, your City Council Member\./),
+      ).toHaveTextContent(/this is Jane Doe, your City Council Member\./),
     )
     expect(
       screen.getByRole('textbox', { name: 'Message body' }),
@@ -533,8 +533,33 @@ describe('SmsFlow serve send path', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/Jane here, your City Council Member\./),
+      ).toHaveTextContent(/Jane Doe here, your City Council Member\./),
     )
+  })
+
+  // The official asked to be named in full every time, so a carried-in body
+  // with a sender placeholder opens on the full-name intro, not "Jane".
+  it('opens a carried-in placeholder body on the full name', async () => {
+    openServeFlow({
+      initialPurpose: 'report_back',
+      initialScript:
+        'Hi, this is [Your Name] from the City. Thanks for answering.',
+      preselectedListId: 41,
+      reportBackForOutreachId: 77,
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'Message body' }),
+      ).toHaveTextContent(
+        /this is Jane Doe, your City Council Member\. Thanks for answering\./,
+      ),
+    )
+    expect(
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).not.toHaveTextContent(/\[Your Name\]/)
   })
 })
 

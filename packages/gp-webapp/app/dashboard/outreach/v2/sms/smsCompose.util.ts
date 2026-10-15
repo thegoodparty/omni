@@ -179,7 +179,9 @@ export const identificationIntro = (
 // as "I'm {name}, your {office}.", so the two Serve products introduce the
 // same person the same way. Urgent and direct converge on one line on
 // purpose — "running for" is what separated them on Win and it has no
-// elected-official equivalent.
+// elected-official equivalent. The name is the official's full name, as
+// polls use it: an official asked to be named in full every time
+// (2026-10-14).
 //
 // A SERVE_* record rather than a ternary so the Serve vocabulary gate can see
 // every string (docs/product-vocabulary.md).
@@ -208,11 +210,11 @@ export const SERVE_SMS_IDENTIFICATION_FALLBACK = {
 // re-derive that grammar.
 export const serveIdentificationIntro = (
   tone: SocialTone,
-  firstName: string,
+  fullName: string,
   office: string,
 ): string =>
   SERVE_SMS_IDENTIFICATION_INTRO[tone](
-    firstName || SERVE_SMS_IDENTIFICATION_FALLBACK.name,
+    fullName || SERVE_SMS_IDENTIFICATION_FALLBACK.name,
     office || SERVE_SMS_IDENTIFICATION_FALLBACK.office,
   )
 
@@ -285,8 +287,8 @@ export interface SmsIdentificationContext {
   // identificationIntro or Serve's useServeSmsIdentification.
   intro: string
   // What a sender-name placeholder is filled with: the name the intro uses,
-  // so a filled body names the sender the way the intro does (Win's full
-  // name, Serve's first name).
+  // so a filled body names the sender the way the intro does (the full name
+  // on both surfaces).
   senderName: string
   // The same names the compose step's candidate_name check matches against.
   candidateNames: string[]

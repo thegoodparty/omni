@@ -300,6 +300,12 @@ candidate-facing update route, so after registration only staff can change it
 Opt-out line only, double-brace `{{first_name}}`, `paid_for_by` rule ignored.
 **No server-side standards check exists on the Serve create path.**
 
+The identification sentence is `serveIdentificationIntro`'s: the official's
+full name and the office they hold ("this is Jane Doe, your City Council
+Member."), as polls introduce them. An official asked to be named in full
+every time, so the Chief of Staff, the priority flow and the Serve phone
+banking and door knocking prompts ask for the full name too.
+
 ### Robocall
 
 The disclosure is not a region at all. It is an instruction in the LLM prompt

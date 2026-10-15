@@ -136,8 +136,9 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: TOOLS,
     })
     expect(prompt).toContain(
-      'A text message you draft for the user to send to constituents must say who is sending it: their first name and the office they hold',
+      'A text message you draft for the user to send to constituents must say who is sending it: their full name and the office they hold',
     )
+    expect(prompt).toContain('never the first name alone')
     expect(prompt).toContain('never write a placeholder such as [Your Name]')
   })
 

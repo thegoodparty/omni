@@ -997,10 +997,9 @@ export const SmsFlow = ({
     (campaign == null
       ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
       : '')
-  const candidateFirstName = candidateFullName.split(' ')[0] ?? ''
   // Serve's office comes from the org's position name, not from a campaign
   // row it does not have; the hook owns that derivation.
-  const serveIntroFor = useServeSmsIdentification(candidateFirstName)
+  const serveIntroFor = useServeSmsIdentification(candidateFullName)
   // Win's office prefers positionName (the org's elections-DB position,
   // already on campaigns/mine) over details.normalizedOffice, which is empty
   // for org-era onboardings and read "candidate for local office" — the same
@@ -1023,7 +1022,7 @@ export const SmsFlow = ({
   // this, so the compose step never opens on a candidate_name failure.
   const identificationFor = (t: SocialTone) => ({
     intro: introFor(t),
-    senderName: surface.isServe ? candidateFirstName : candidateFullName,
+    senderName: candidateFullName,
     candidateNames: identificationNames,
   })
   const withIdentification = (text: string, t: SocialTone): string =>
