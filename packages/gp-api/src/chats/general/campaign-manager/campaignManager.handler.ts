@@ -68,6 +68,11 @@ import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
 import { areaForPath } from '../product-knowledge/productMap'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import {
+  PublicProfileAddressService,
+  type PublicProfileAddress,
+  type PublicProfileGate,
+} from '@/personProfiles/services/public-profile-address.service'
 import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
@@ -235,6 +240,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   webSearchEnabled: false,
   story: null,
   plan: null,
+  publicProfile: { status: 'unknown' },
 }
 
 @Injectable()
@@ -280,6 +286,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly pastOutreach?: PriorityFlowOutreachService,
     @Optional()
     private readonly logger?: PinoLogger,
+    @Optional()
+    private readonly publicProfiles?: PublicProfileAddressService,
   ) {
     this.logger?.setContext(CampaignManagerHandler.name)
   }
@@ -339,8 +347,17 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
 
     const campaign = await this.campaigns.client.campaign.findFirst({
       where: { organizationSlug },
+      // The public profile's publish gate rides along: three columns on the
+      // read that already fetches the user, so an ordinary turn learns the
+      // page is not live without a query of its own.
       include: {
-        user: true,
+        user: {
+          include: {
+            personProfile: {
+              select: { personId: true, publishedAt: true, deletedAt: true },
+            },
+          },
+        },
         tcrCompliance: {
           select: { kickoffSentAt: true, internalTestingAt: true },
         },
@@ -403,10 +420,17 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // on one signal, same as crmToolsEnabled itself.
     const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
-    const liveRace = await this.resolveLiveRace(
-      campaign,
-      localDay(details.state ?? null),
-    )
+    const day = localDay(details.state ?? null)
+    // Independent lookups on independent timers, so a slow day costs one
+    // timeout and not two in a row.
+    const [liveRace, publicProfile] = await Promise.all([
+      this.resolveLiveRace(campaign, day),
+      this.resolvePublicProfile(
+        campaign.user?.personProfile ?? null,
+        campaign.id,
+        day,
+      ),
+    ])
 
     return {
       candidateFirstName: campaign.user?.firstName ?? null,
@@ -448,6 +472,33 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       helpCenterToolEnabled: !!this.helpCenter,
       story,
       plan,
+      publicProfile,
+    }
+  }
+
+  // The gate read with the campaign decides not-live for free; a published
+  // profile costs the removal check and, once a day, the election-api read
+  // for its canonical address. That read races the same timer as the live
+  // race data, so a slow day reads as unknown instead of holding the turn.
+  // Unknown, not not-live: the prompt must never tell a candidate who
+  // published that they did not.
+  private async resolvePublicProfile(
+    gate: PublicProfileGate | null,
+    campaignId: number,
+    day: string,
+  ): Promise<PublicProfileAddress> {
+    if (!this.publicProfiles) return { status: 'unknown' }
+    try {
+      return await withTimeout(
+        this.publicProfiles.resolve(gate, day),
+        LIVE_RACE_TIMEOUT_MS,
+      )
+    } catch (error) {
+      this.logger?.warn(
+        { error, campaignId },
+        'campaign manager public profile lookup failed',
+      )
+      return { status: 'unknown' }
     }
   }
 

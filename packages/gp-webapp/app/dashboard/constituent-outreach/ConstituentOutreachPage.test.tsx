@@ -295,6 +295,37 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(table.getByText('SMS')).toBeInTheDocument()
   })
 
+  // Polls were left off the clickable list, so a paid poll sat in history as
+  // plain content with nowhere to read what it asked. Flag off on purpose, for
+  // the same reason as SMS above.
+  it('opens a poll row into a drawer that shows the question', async () => {
+    const outreaches: HistoryRow[] = [
+      {
+        id: 41,
+        date: '2026-08-20',
+        outreachType: 'poll',
+        name: 'Budget poll',
+        status: 'pending',
+        message: 'Hi there, this is Dana. Should we fund the pool? Reply STOP',
+      },
+    ]
+
+    render(<ConstituentOutreachPage outreaches={outreaches} />)
+
+    const row = within(desktopTable()).getByText('Budget poll').closest('tr')
+    expect(row).toHaveAttribute('role', 'button')
+
+    await user.click(row as HTMLElement)
+
+    const drawer = await screen.findByRole('dialog')
+    expect(
+      within(drawer).getByText(/Should we fund the pool\?/),
+    ).toBeInTheDocument()
+    expect(
+      within(drawer).queryByRole('link', { name: 'View full results' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders a clean empty state with no rows', () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 

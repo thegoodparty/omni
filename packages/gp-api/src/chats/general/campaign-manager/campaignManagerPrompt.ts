@@ -7,6 +7,7 @@ import {
 import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
+import type { PublicProfileAddress } from '@/personProfiles/services/public-profile-address.service'
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
 import type { ProductArea } from '../product-knowledge/productMap'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
@@ -157,6 +158,10 @@ export interface CampaignManagerContext {
   // opponents). Null until both plan sections have persisted, so the manager
   // never coaches from a partial plan.
   plan: StrategicLandscapeResult | null
+  // Where the candidate's public profile page can be reached today, decided
+  // by the same checks the page renders behind, so the block below hands
+  // over the exact address or says why there is none to give.
+  publicProfile: PublicProfileAddress
 }
 
 const ROLE = `You are the candidate's AI campaign manager for a first-time \
@@ -1013,6 +1018,39 @@ const clarifyQuestionBlock = (
       ].join('\n')
     : null
 
+// Asked for a link to print on a yard sign, the manager composed one from the
+// candidate's name and called it the standard format. The real address carries
+// a slug the manager cannot know, and the page serves the candidate's content
+// only once published. So the exact address is handed over when the page is
+// live, and every other state says not to give one and why.
+const publicProfileBlock = (ctx: CampaignManagerContext): string => {
+  const profile = ctx.publicProfile
+  if (profile.status === 'live') {
+    return (
+      `The candidate's public profile is live at ${profile.url}. That is its ` +
+      'only address: use it exactly as written wherever the profile is ' +
+      "linked or printed, and never build one from the candidate's name."
+    )
+  }
+  if (profile.status === 'not-live') {
+    return (
+      "The candidate's public profile is not published. Do not give or print " +
+      'an address for it until it is live; they publish it from the Public ' +
+      'Profile page.'
+    )
+  }
+  if (profile.status === 'removed') {
+    return (
+      "The candidate's public profile page is not being served: a removal " +
+      'is on record. Do not give or print an address for it.'
+    )
+  }
+  return (
+    "The address of the candidate's public profile could not be determined " +
+    'today. Do not give one; the Public Profile page shows whether it is live.'
+  )
+}
+
 export const buildCampaignManagerSystemPrompt = (
   ctx: CampaignManagerContext,
   toolNames: readonly string[] = [],
@@ -1039,6 +1077,7 @@ export const buildCampaignManagerSystemPrompt = (
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
     LEGAL_AND_COMPLIANCE_RULES,
+    publicProfileBlock(ctx),
     // What the product does and where it lives, plus the one support route.
     // A quarter of what candidates ask is a product question, and before this
     // the prompt had no description of the platform at all: the manager

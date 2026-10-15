@@ -289,7 +289,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     default: 'https://api-na1.callhub.io',
   },
   CALLHUB_HTTP_TIMEOUT: { tier: 'optional', default: '30000' },
-  CALLHUB_VB_CALLS_PER_MINUTE: { tier: 'optional', default: '10' },
+  CALLHUB_VB_CALLS_PER_MINUTE: { tier: 'optional', default: '120' },
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 

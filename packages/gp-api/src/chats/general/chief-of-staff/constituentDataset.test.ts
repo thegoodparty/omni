@@ -155,6 +155,7 @@ const winCtx = (): CampaignManagerContext => ({
   isPro: null,
   story: null,
   plan: null,
+  publicProfile: { status: 'not-live' },
 })
 
 describe('constituent data table per people dataset', () => {

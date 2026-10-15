@@ -43,6 +43,9 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   isPro: null,
   story: null,
   plan: null,
+  // Not live: a fictional candidate has nothing published, and the evals
+  // built on this fixture never ask for the address.
+  publicProfile: { status: 'not-live' },
 }
 
 // BallotReady returning a full filing record for the race.
