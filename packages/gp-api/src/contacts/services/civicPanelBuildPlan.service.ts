@@ -1,0 +1,713 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
+import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  PANEL_SEED_TARGET_MEMBERS,
+  PANEL_STEP_WINDOW_DAYS,
+  PANEL_TEXT_REPLY_BUSINESS_DAYS,
+  type CivicPanelBuildPlanResponse,
+  type PrepareCivicPanelBuildStepResponse,
+} from '@goodparty_org/contracts'
+import { addBusinessDays, addDays, isBefore, parseISO } from 'date-fns'
+import {
+  CivicPanelBuildChannel,
+  CivicPanelBuildPlanStatus,
+  CivicPanelStatus,
+  ContactStatusField,
+  Organization,
+  OutreachStatus,
+  OutreachType,
+  Prisma,
+} from '../../generated/prisma'
+import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
+import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import {
+  areaAround,
+  CHANNEL_ORDER,
+  nextStep,
+  pickWalkableArea,
+  sizePanelWave,
+  stepStatus,
+  waveIsDue,
+  type PanelWavePools,
+} from '../utils/civicPanelBuild.util'
+import { ContactsService } from './contacts.service'
+
+// Every list a step draws is never invited to the panel and not reached in
+// the rest window; the channel adds the reach it needs.
+const NOT_YET_ASKED = {
+  civicPanelNeverInvited: true,
+  notContactedRecently: true,
+} as const
+
+const LIST_NAMES: Record<CivicPanelBuildChannel, string> = {
+  text: 'Civic panel invite',
+  phone_banking: 'Civic panel calls',
+  door_knocking: 'Civic panel doors',
+}
+
+// The purpose the standard flow opens on. A text asks with the locked JOIN
+// line; a Serve call or door closes with the join question whatever its
+// purpose.
+const FLOW_PURPOSES: Record<CivicPanelBuildChannel, string> = {
+  text: BUILD_CITIZENS_PANEL_PURPOSE,
+  phone_banking: 'introduce_myself',
+  door_knocking: 'introduce_myself',
+}
+
+const STEP_SELECT = {
+  id: true,
+  wave: true,
+  channel: true,
+  position: true,
+  targetSize: true,
+  voterFileFilterId: true,
+  outreachId: true,
+  phoneBankingListId: true,
+  doorKnockingTurfId: true,
+  startedAt: true,
+  completedAt: true,
+  expectedRepliesBy: true,
+} satisfies Prisma.CivicPanelBuildStepSelect
+
+type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
+  select: typeof STEP_SELECT
+}>
+
+type PlanRow = Prisma.CivicPanelBuildPlanGetPayload<{
+  include: { steps: { select: typeof STEP_SELECT } }
+}>
+
+type Office = { id: string; organizationSlug: string }
+
+type StepLinks = Partial<
+  Pick<
+    StepRow,
+    | 'outreachId'
+    | 'phoneBankingListId'
+    | 'doorKnockingTurfId'
+    | 'startedAt'
+    | 'completedAt'
+    | 'expectedRepliesBy'
+  >
+>
+
+const LINK_KEYS = [
+  'outreachId',
+  'phoneBankingListId',
+  'doorKnockingTurfId',
+  'startedAt',
+  'completedAt',
+  'expectedRepliesBy',
+] as const
+
+// Serve's plan to build the civic panel across texts, calls and doors, in
+// waves. The official answers one question (hours this month); every size
+// and every status follows from it and from what has actually been sent,
+// called and knocked. See the contacts AGENTS.md, "Building the panel across
+// channels".
+@Injectable()
+export class CivicPanelBuildPlanService extends createPrismaBase(
+  MODELS.CivicPanelBuildPlan,
+) {
+  constructor(
+    private readonly contactsService: ContactsService,
+    private readonly contactStatusService: ContactStatusService,
+    private readonly contactInteractionTextService: ContactInteractionTextService,
+    private readonly voterFileFilterService: VoterFileFilterService,
+  ) {
+    super()
+  }
+
+  async create(
+    organization: Organization,
+    hoursPerMonth: number,
+  ): Promise<CivicPanelBuildPlanResponse> {
+    const office = await this.officeFor(organization)
+    if (await this.findActive(office.id)) {
+      throw new ConflictException('This office already has a panel plan')
+    }
+    const members = await this.memberCount(organization)
+    const gap = PANEL_SEED_TARGET_MEMBERS - members
+    if (gap <= 0) {
+      throw new ConflictException(
+        'Your civic panel has already reached its goal',
+      )
+    }
+    const steps = sizePanelWave({
+      gap,
+      hoursPerMonth,
+      pools: await this.pools(organization, hoursPerMonth),
+    })
+    if (steps.length === 0) {
+      throw new ConflictException(
+        'Everyone we can reach has already been invited',
+      )
+    }
+    try {
+      await this.client.$transaction(async (tx) => {
+        await this.lockOffice(tx, office.id)
+        const active = await tx.civicPanelBuildPlan.findFirst({
+          where: {
+            electedOfficeId: office.id,
+            status: CivicPanelBuildPlanStatus.active,
+          },
+          select: { id: true },
+        })
+        if (active) {
+          throw new ConflictException('This office already has a panel plan')
+        }
+        await tx.civicPanelBuildPlan.create({
+          data: {
+            electedOfficeId: office.id,
+            organizationSlug: office.organizationSlug,
+            goalMembers: PANEL_SEED_TARGET_MEMBERS,
+            hoursPerMonth,
+            steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
+          },
+        })
+      })
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ConflictException('This office already has a panel plan')
+      }
+      throw error
+    }
+    return this.read(organization)
+  }
+
+  // The plan as it stands. Reading it is what moves it: step links and
+  // dates are refreshed from the sends, call lists and walks, the plan
+  // closes once the panel reaches its goal, and the next wave is made once
+  // the current one is due.
+  async read(organization: Organization): Promise<CivicPanelBuildPlanResponse> {
+    const office = await this.officeFor(organization)
+    const members = await this.memberCount(organization)
+    const active = await this.findActive(office.id)
+    if (active) await this.advance(organization, office, active, members)
+    const plan = await this.model.findFirst({
+      where: { electedOfficeId: office.id },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      include: { steps: { select: STEP_SELECT } },
+    })
+    const progress = { members, goal: PANEL_SEED_TARGET_MEMBERS }
+    if (!plan) return { plan: null, next: null, progress }
+    const now = new Date()
+    const currentWave = Math.max(1, ...plan.steps.map((s) => s.wave))
+    const steps = plan.steps
+      .map((step) => ({
+        ...step,
+        status: stepStatus(step, step.wave < currentWave, now),
+      }))
+      .sort((a, b) => a.wave - b.wave || this.stepOrder(a, b))
+    return {
+      plan: {
+        id: plan.id,
+        status: plan.status,
+        goalMembers: plan.goalMembers,
+        hoursPerMonth: plan.hoursPerMonth,
+        currentWave,
+        createdAt: plan.createdAt,
+        completedAt: plan.completedAt,
+        steps,
+      },
+      next:
+        plan.status === CivicPanelBuildPlanStatus.active
+          ? nextStep(steps.filter((s) => s.wave === currentWave))
+          : null,
+      progress: { members, goal: plan.goalMembers },
+    }
+  }
+
+  // Draws the step's people and saves them as a list the standard flow
+  // opens on. Idempotent: a prepared step returns the list it already drew.
+  async prepare(
+    organization: Organization,
+    stepId: string,
+  ): Promise<PrepareCivicPanelBuildStepResponse> {
+    const office = await this.officeFor(organization)
+    const step = await this.client.civicPanelBuildStep.findFirst({
+      where: { id: stepId, plan: { electedOfficeId: office.id } },
+      select: {
+        ...STEP_SELECT,
+        plan: {
+          select: { status: true, steps: { select: { wave: true } } },
+        },
+      },
+    })
+    if (!step) throw new NotFoundException('Step not found')
+    if (step.voterFileFilterId !== null) {
+      return this.prepared(organization, step, step.voterFileFilterId)
+    }
+    const currentWave = Math.max(...step.plan.steps.map((s) => s.wave))
+    if (
+      step.plan.status !== CivicPanelBuildPlanStatus.active ||
+      step.wave < currentWave
+    ) {
+      throw new ConflictException('This step is no longer part of the plan')
+    }
+    const exclude = await this.excludedPersonIds(organization)
+    const personIds = await this.draw(organization, step, exclude)
+    if (personIds.length === 0) {
+      throw new ConflictException('Nobody is left to invite this way')
+    }
+    const list = await this.voterFileFilterService.create(
+      organization.slug,
+      {
+        ...this.criteriaFor(step.channel),
+        name: this.listName(step),
+        sample: { size: personIds.length },
+      },
+      null,
+      personIds,
+    )
+    const claimed = await this.client.civicPanelBuildStep.updateMany({
+      where: { id: step.id, voterFileFilterId: null },
+      data: { voterFileFilterId: list.id, preparedAt: new Date() },
+    })
+    if (claimed.count === 0) {
+      // A second press drew too; the first list is the step's.
+      await this.client.voterFileFilter.delete({ where: { id: list.id } })
+      const winner = await this.client.civicPanelBuildStep.findUniqueOrThrow({
+        where: { id: step.id },
+        select: STEP_SELECT,
+      })
+      if (winner.voterFileFilterId === null) {
+        throw new ConflictException('This step could not be prepared')
+      }
+      return this.prepared(organization, winner, winner.voterFileFilterId)
+    }
+    return this.prepared(organization, step, list.id)
+  }
+
+  private async prepared(
+    organization: Organization,
+    step: StepRow,
+    voterFileFilterId: number,
+  ): Promise<PrepareCivicPanelBuildStepResponse> {
+    const personIds = await this.samplePersonIds(voterFileFilterId)
+    const area =
+      step.channel === CivicPanelBuildChannel.door_knocking
+        ? areaAround(
+            (
+              await this.contactsService.pointsForPeople(
+                personIds,
+                organization,
+              )
+            ).points,
+          )
+        : null
+    return {
+      stepId: step.id,
+      channel: step.channel,
+      voterFileFilterId,
+      purpose: FLOW_PURPOSES[step.channel],
+      size: personIds.length,
+      area,
+    }
+  }
+
+  private async advance(
+    organization: Organization,
+    office: Office,
+    plan: PlanRow,
+    members: number,
+  ): Promise<void> {
+    const now = new Date()
+    for (const step of plan.steps) {
+      if (step.voterFileFilterId === null || step.completedAt) continue
+      await this.syncStep(organization, step, step.voterFileFilterId, now)
+    }
+    if (members >= plan.goalMembers) {
+      await this.model.updateMany({
+        where: { id: plan.id, status: CivicPanelBuildPlanStatus.active },
+        data: {
+          status: CivicPanelBuildPlanStatus.completed,
+          completedAt: now,
+        },
+      })
+      return
+    }
+    const synced = await this.client.civicPanelBuildStep.findMany({
+      where: { planId: plan.id },
+      select: STEP_SELECT,
+    })
+    const currentWave = Math.max(...synced.map((s) => s.wave))
+    const wave = synced
+      .filter((s) => s.wave === currentWave)
+      .map((s) => ({ ...s, status: stepStatus(s, false, now) }))
+    if (!waveIsDue(wave, now)) return
+    // Sized before the lock: the counts are people-db reads, too slow to
+    // hold a transaction open for. The lock only settles who writes.
+    const steps = sizePanelWave({
+      gap: plan.goalMembers - members,
+      hoursPerMonth: plan.hoursPerMonth,
+      pools: await this.pools(organization, plan.hoursPerMonth),
+    })
+    await this.client.$transaction(async (tx) => {
+      await this.lockOffice(tx, office.id)
+      const latest = await tx.civicPanelBuildStep.aggregate({
+        where: { planId: plan.id },
+        _max: { wave: true },
+      })
+      const fresh = await tx.civicPanelBuildPlan.findUniqueOrThrow({
+        where: { id: plan.id },
+        select: { status: true },
+      })
+      if (
+        latest._max.wave !== currentWave ||
+        fresh.status !== CivicPanelBuildPlanStatus.active
+      ) {
+        return
+      }
+      if (steps.length === 0) {
+        await tx.civicPanelBuildPlan.update({
+          where: { id: plan.id },
+          data: {
+            status: CivicPanelBuildPlanStatus.exhausted,
+            completedAt: now,
+          },
+        })
+        return
+      }
+      await tx.civicPanelBuildStep.createMany({
+        data: steps.map((step) => ({
+          ...step,
+          planId: plan.id,
+          wave: currentWave + 1,
+        })),
+      })
+    })
+  }
+
+  // Writes what the step's list has become: the send, call list or walk
+  // made from it, when it started, when replies are due, and once it is
+  // done, when.
+  private async syncStep(
+    organization: Organization,
+    step: StepRow,
+    voterFileFilterId: number,
+    now: Date,
+  ): Promise<void> {
+    const data =
+      step.channel === CivicPanelBuildChannel.text
+        ? await this.textTimeline(organization, voterFileFilterId, now)
+        : step.channel === CivicPanelBuildChannel.phone_banking
+          ? await this.callTimeline(organization, voterFileFilterId, now)
+          : await this.doorTimeline(voterFileFilterId, now)
+    if (!data) return
+    const changed = LINK_KEYS.some((key) => {
+      if (!(key in data)) return false
+      const before = step[key]
+      const after = data[key]
+      return before instanceof Date && after instanceof Date
+        ? before.getTime() !== after.getTime()
+        : before !== after
+    })
+    if (!changed) return
+    await this.client.civicPanelBuildStep.update({
+      where: { id: step.id },
+      data,
+    })
+  }
+
+  private async textTimeline(
+    organization: Organization,
+    voterFileFilterId: number,
+    now: Date,
+  ): Promise<StepLinks | null> {
+    const send = await this.client.outreach.findFirst({
+      where: {
+        organizationSlug: organization.slug,
+        voterFileFilterId,
+        outreachType: OutreachType.text,
+        status: { notIn: UNSENT_OUTREACH_STATUSES },
+      },
+      orderBy: { createdAt: Prisma.SortOrder.asc },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        date: true,
+        scheduledLocalDate: true,
+      },
+    })
+    if (!send) return null
+    const sendsOn = send.scheduledLocalDate
+      ? parseISO(send.scheduledLocalDate)
+      : (send.date ?? send.createdAt)
+    const expectedRepliesBy = addBusinessDays(
+      sendsOn,
+      PANEL_TEXT_REPLY_BUSINESS_DAYS,
+    )
+    const completedAt =
+      send.status === OutreachStatus.completed
+        ? now
+        : isBefore(now, expectedRepliesBy)
+          ? null
+          : expectedRepliesBy
+    return {
+      outreachId: send.id,
+      startedAt: send.createdAt,
+      expectedRepliesBy,
+      completedAt,
+    }
+  }
+
+  private async callTimeline(
+    organization: Organization,
+    voterFileFilterId: number,
+    now: Date,
+  ): Promise<StepLinks | null> {
+    const list = await this.client.phoneBankingList.findFirst({
+      where: { organizationSlug: organization.slug, voterFileFilterId },
+      orderBy: { createdAt: Prisma.SortOrder.asc },
+      select: {
+        id: true,
+        createdAt: true,
+        outreach: { select: { id: true, status: true } },
+      },
+    })
+    if (!list) return null
+    const [called, target] = await Promise.all([
+      this.client.contactInteractionPhoneBanking.count({
+        where: { phoneBankingListId: list.id },
+      }),
+      this.client.voterFileFilterSampleMember.count({
+        where: { voterFileFilterId },
+      }),
+    ])
+    const done =
+      list.outreach?.status === OutreachStatus.completed || called >= target
+    return {
+      phoneBankingListId: list.id,
+      outreachId: list.outreach?.id ?? null,
+      startedAt: list.createdAt,
+      completedAt: this.doneAt(done, list.createdAt, now),
+    }
+  }
+
+  private async doorTimeline(
+    voterFileFilterId: number,
+    now: Date,
+  ): Promise<StepLinks | null> {
+    const turfs = await this.client.doorKnockingTurf.findMany({
+      where: { voterFileFilterId, deletedAt: null },
+      orderBy: { createdAt: Prisma.SortOrder.asc },
+      select: {
+        id: true,
+        createdAt: true,
+        outreach: { select: { id: true, status: true } },
+      },
+    })
+    const [first] = turfs
+    if (!first) return null
+    const envelopes = turfs.flatMap((turf) =>
+      turf.outreach ? [turf.outreach] : [],
+    )
+    const [knocked, target] = await Promise.all([
+      this.client.contactInteractionDoorKnock.groupBy({
+        by: ['personId'],
+        where: { outreachId: { in: envelopes.map((e) => e.id) } },
+      }),
+      this.client.voterFileFilterSampleMember.count({
+        where: { voterFileFilterId },
+      }),
+    ])
+    const done =
+      (envelopes.length > 0 &&
+        envelopes.every((e) => e.status === OutreachStatus.completed)) ||
+      knocked.length >= target
+    return {
+      doorKnockingTurfId: first.id,
+      outreachId: first.outreach?.id ?? null,
+      startedAt: first.createdAt,
+      completedAt: this.doneAt(done, first.createdAt, now),
+    }
+  }
+
+  // Done now, or done when its window ran out, or not done yet.
+  private doneAt(done: boolean, startedAt: Date, now: Date): Date | null {
+    if (done) return now
+    const windowEnds = addDays(startedAt, PANEL_STEP_WINDOW_DAYS)
+    return isBefore(now, windowEnds) ? null : windowEnds
+  }
+
+  private async draw(
+    organization: Organization,
+    step: StepRow,
+    exclude: string[],
+  ): Promise<string[]> {
+    if (step.channel === CivicPanelBuildChannel.text) {
+      return (
+        (await this.contactsService.drawListSample(
+          organization,
+          this.criteriaFor(step.channel),
+          {
+            size: step.targetSize,
+            seedKey: step.id,
+            excludePersonIds: exclude,
+          },
+        )) ?? []
+      )
+    }
+    if (step.channel === CivicPanelBuildChannel.phone_banking) {
+      // Landlines first: the residents a text cannot reach. Anyone else
+      // with a phone fills what is left.
+      const landlines =
+        (await this.contactsService.drawListSample(
+          organization,
+          { ...NOT_YET_ASKED, hasLandline: true },
+          {
+            size: step.targetSize,
+            seedKey: `${step.id}:landline`,
+            excludePersonIds: exclude,
+          },
+        )) ?? []
+      const short = step.targetSize - landlines.length
+      if (short <= 0) return landlines
+      const others =
+        (await this.contactsService.drawListSample(
+          organization,
+          this.criteriaFor(step.channel),
+          {
+            size: short,
+            seedKey: `${step.id}:any`,
+            excludePersonIds: [...exclude, ...landlines],
+          },
+        )) ?? []
+      return [...landlines, ...others]
+    }
+    const points = await this.contactsService.doorPointsWithin(
+      organization,
+      this.criteriaFor(step.channel),
+      exclude,
+    )
+    return pickWalkableArea(points, step.targetSize).flatMap(
+      (household) => household.personIds,
+    )
+  }
+
+  private criteriaFor(channel: CivicPanelBuildChannel) {
+    return channel === CivicPanelBuildChannel.text
+      ? { ...NOT_YET_ASKED, hasCellPhone: true }
+      : channel === CivicPanelBuildChannel.phone_banking
+        ? { ...NOT_YET_ASKED, hasAnyPhone: true }
+        : { ...NOT_YET_ASKED }
+  }
+
+  private listName(step: StepRow): string {
+    const base = LIST_NAMES[step.channel]
+    const area = step.position > 1 ? ` ${step.position}` : ''
+    const round = step.wave > 1 ? `, round ${step.wave}` : ''
+    return `${base}${area}${round}`
+  }
+
+  // How many each channel can still reach. Calls and doors are only
+  // counted when there are hours to spend on them.
+  private async pools(
+    organization: Organization,
+    hoursPerMonth: number,
+  ): Promise<PanelWavePools> {
+    const exclude = await this.excludedPersonIds(organization)
+    const count = (channel: CivicPanelBuildChannel) =>
+      this.contactsService.countWithin(
+        organization,
+        this.criteriaFor(channel),
+        exclude,
+      )
+    const text = await count(CivicPanelBuildChannel.text)
+    if (hoursPerMonth === 0) return { text, phone: 0, door: 0 }
+    return {
+      text,
+      phone: await count(CivicPanelBuildChannel.phone_banking),
+      door: await count(CivicPanelBuildChannel.door_knocking),
+    }
+  }
+
+  // Who no step may draw: anyone an earlier step of any of the office's
+  // plans already drew, and anyone who opted out of the office's texts.
+  // Members, people who left, anyone already invited and anyone reached in
+  // the rest window are left out by every step list's own criteria.
+  private async excludedPersonIds(
+    organization: Organization,
+  ): Promise<string[]> {
+    const [drawn, optedOut] = await Promise.all([
+      this.client.voterFileFilterSampleMember.findMany({
+        where: {
+          voterFileFilter: {
+            organizationSlug: organization.slug,
+            civicPanelBuildStep: { isNot: null },
+          },
+        },
+        select: { personId: true },
+      }),
+      this.contactInteractionTextService.findOptedOutPersonIds(
+        organization.slug,
+      ),
+    ])
+    return [...new Set([...drawn.map((row) => row.personId), ...optedOut])]
+  }
+
+  private async samplePersonIds(voterFileFilterId: number): Promise<string[]> {
+    const rows = await this.client.voterFileFilterSampleMember.findMany({
+      where: { voterFileFilterId },
+      select: { personId: true },
+    })
+    return rows.map((row) => row.personId)
+  }
+
+  private async memberCount(organization: Organization): Promise<number> {
+    const members = await this.contactStatusService.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.civic_panel,
+      [CivicPanelStatus.member],
+    )
+    return members.length
+  }
+
+  private findActive(electedOfficeId: string): Promise<PlanRow | null> {
+    return this.model.findFirst({
+      where: { electedOfficeId, status: CivicPanelBuildPlanStatus.active },
+      include: { steps: { select: STEP_SELECT } },
+    })
+  }
+
+  private async officeFor(organization: Organization): Promise<Office> {
+    const office = organization.slug.startsWith('eo-')
+      ? await this.client.electedOffice.findUnique({
+          where: { organizationSlug: organization.slug },
+          select: { id: true, organizationSlug: true },
+        })
+      : null
+    if (!office) {
+      throw new BadRequestException(
+        'The civic panel is not available for this organization',
+      )
+    }
+    return office
+  }
+
+  private lockOffice(tx: Prisma.TransactionClient, electedOfficeId: string) {
+    const lockKey = `civic_panel_plan:${electedOfficeId}`
+    return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
+  }
+
+  private stepOrder(
+    a: { channel: CivicPanelBuildChannel; position: number },
+    b: { channel: CivicPanelBuildChannel; position: number },
+  ): number {
+    return (
+      CHANNEL_ORDER.indexOf(a.channel) - CHANNEL_ORDER.indexOf(b.channel) ||
+      a.position - b.position
+    )
+  }
+}

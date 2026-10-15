@@ -13,6 +13,7 @@ import { ContactsController } from './contacts.controller'
 import { CensusCompositionModule } from '@/priorities/censusComposition.module'
 import { ContactsService } from './services/contacts.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
+import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
 
 @Module({
   imports: [
@@ -33,7 +34,11 @@ import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
     ContactNotesController,
     ContactInteractionsController,
   ],
-  providers: [ContactsService, CivicPanelSummaryService],
+  providers: [
+    ContactsService,
+    CivicPanelSummaryService,
+    CivicPanelBuildPlanService,
+  ],
   exports: [ContactsService],
 })
 export class ContactsModule {}

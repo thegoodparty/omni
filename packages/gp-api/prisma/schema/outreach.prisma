@@ -194,6 +194,7 @@ model Outreach {
   constituentFeedback               ConstituentFeedback[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
+  civicPanelBuildSteps              CivicPanelBuildStep[]
 
   @@index([campaignId])
   @@index([organizationSlug])
