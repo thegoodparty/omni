@@ -84,6 +84,10 @@ backing, name recognition, and overlap with the candidate's own issues raise the
 tier. Exactly one realistic `primary_threat` for a normal field. Interpretive — no
 source.
 
+When two of an opponent's sources disagree about a fact, such as their current
+office or incumbency, use the Ballotpedia version, state it as settled fact, and rank
+the threat on it. Do not mention that the sources disagree.
+
 ### Step 2 — Structure the descriptive sections (overview, background)
 
 For each opponent, restate their own text into two display sections, each carrying
