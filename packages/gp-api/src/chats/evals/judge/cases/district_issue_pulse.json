@@ -2,7 +2,7 @@
   "agentId": "district_issue_pulse",
   "shape": "background",
   "placeholder": true,
-  "note": "PLACEHOLDER. Every params object here validates against the published district_issue_pulse manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: district population (a Minneapolis ward against a Bellefonte borough ward is two orders of magnitude of voter file rows); urban against rural; and district geometry, which is the shape that decides whether the L2 predicate is a ward string, a bare district number or a whole jurisdiction \u2014 City_Ward, City_Council_Commissioner_District, City, County_Commissioner_District and Borough_Ward each appear. How much local news exists to attach to a ranked issue tracks the same axis. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "note": "PLACEHOLDER. Every params object here validates against the published district_issue_pulse manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open — do not read the shortfall as a decision. Varied along: district population (a Minneapolis ward against a Bellefonte borough ward is two orders of magnitude of voter file rows); urban against rural; and district geometry, which is the shape that decides whether the L2 predicate is a ward string, a bare district number or a whole jurisdiction — City_Ward, City_Council_Commissioner_District, City, County_Commissioner_District and Borough_Ward each appear. How much local news exists to attach to a ranked issue tracks the same axis. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
   "cases": [
     {
       "caseId": "urban-large-ward",
@@ -11,16 +11,9 @@
         "city": "Minneapolis",
         "l2DistrictType": "City_Ward",
         "l2DistrictName": "MINNEAPOLIS WARD 3"
-      }
-    },
-    {
-      "caseId": "urban-numbered-council-district",
-      "params": {
-        "state": "AZ",
-        "city": "Phoenix",
-        "l2DistrictType": "City_Council_Commissioner_District",
-        "l2DistrictName": "8"
-      }
+      },
+      "condition": "Ordinary input with no planted stressor: Minneapolis Ward 3, Minnesota, district column City_Ward. The check is the core contract: five ranked issues from the voter file, each with its share of active voters and one news item.",
+      "handledWhen": "the run lists exactly five issues ranked 1 to 5 in descending voter_count, each voter_percentage equals its voter_count divided by total_active_voters times 100 within rounding, none is below 5 percent, and each carries a news item with a source name, an http URL and a summary. A percentage that does not match its count, an issue below 5 percent, or a missing news item is not handled."
     },
     {
       "caseId": "urban-citywide",
@@ -29,7 +22,9 @@
         "city": "Oakland",
         "l2DistrictType": "City",
         "l2DistrictName": "OAKLAND CITY"
-      }
+      },
+      "condition": "Whole-city input: Oakland, California, with l2DistrictType City and l2DistrictName OAKLAND CITY, so the district is the whole city. The check is the instruction's rule that the five issues span distinct policy areas.",
+      "handledWhen": "the run's five issues come from five distinct policy areas, with no two on the same topic (for example two crime or policing issues, or two housing issues). Two entries on one topic is not handled."
     },
     {
       "caseId": "midsize-ward",
@@ -38,7 +33,31 @@
         "city": "Fayetteville",
         "l2DistrictType": "City_Ward",
         "l2DistrictName": "FAYETTEVILLE CITY WARD 2"
-      }
+      },
+      "condition": "Ordinary mid-size input: Fayetteville, North Carolina, City_Ward FAYETTEVILLE CITY WARD 2, the example the instruction itself uses, in a city with active local news. The check is that each news item is local and about its own issue.",
+      "handledWhen": "each of the five news items comes from a local or North Carolina outlet and its summary ties the issue named in that entry to Fayetteville or North Carolina. One entry with a national or other-city story, or a summary about a different issue, is partly; two or more is not handled."
+    },
+    {
+      "caseId": "urban-numbered-council-district",
+      "params": {
+        "state": "AZ",
+        "city": "Phoenix",
+        "l2DistrictType": "City_Council_Commissioner_District",
+        "l2DistrictName": "8"
+      },
+      "condition": "The district value is a bare number: Phoenix, Arizona, l2DistrictType City_Council_Commissioner_District, l2DistrictName 8. A district match that fails leaves only the city scope, so the count becomes the whole city, which the instruction's spot-check names as the main failure. Phoenix has eight council districts.",
+      "handledWhen": "the run echoes state AZ, city Phoenix, l2_district_type City_Council_Commissioner_District and l2_district_name 8 exactly as given, and total_active_voters is on the scale of one of eight districts rather than the whole city. A changed district value, or a total near the whole city's electorate (more than about 300,000), is not handled."
+    },
+    {
+      "caseId": "rural-borough-ward",
+      "params": {
+        "state": "PA",
+        "city": "Bellefonte",
+        "l2DistrictType": "Borough_Ward",
+        "l2DistrictName": "BELLEFONTE BOROUGH WARD 2"
+      },
+      "condition": "Small rural input: Bellefonte, Pennsylvania, Borough_Ward BELLEFONTE BOROUGH WARD 2, a borough of a few thousand people with little local news. The check is the news half of the contract under thin coverage.",
+      "handledWhen": "every news item's summary describes coverage of the issue named in its own entry. A summary about a different topic, or a generic page summary with no stated tie to the issue, is not handled."
     },
     {
       "caseId": "midsize-citywide",
@@ -65,15 +84,6 @@
         "city": "Kalispell",
         "l2DistrictType": "County_Commissioner_District",
         "l2DistrictName": "2"
-      }
-    },
-    {
-      "caseId": "rural-borough-ward",
-      "params": {
-        "state": "PA",
-        "city": "Bellefonte",
-        "l2DistrictType": "Borough_Ward",
-        "l2DistrictName": "BELLEFONTE BOROUGH WARD 2"
       }
     }
   ]
