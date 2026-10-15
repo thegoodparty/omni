@@ -68,7 +68,7 @@ fixes track under ENG-10744.
   (`contactEngagement.service.ts`): a door-knock or phone-banking row's
   `supportAnswer`/`willVote` are Win facts about a person, so both read null
   for an `eo-` org. Stripped server-side rather than hidden per reader,
-  because that feed has two — the walk's person sheet and the Constituent Data
+  because that feed has two — the walk's person sheet and the Constituents
   overlay — and one null fixes both plus whatever reads it next. Precinct
   is NOT in that set — it is offered to both, because a precinct is an
   administrative subdivision of the district an official already serves.

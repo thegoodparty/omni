@@ -35,7 +35,7 @@ test.describe('CRM Contacts Page (Serve)', () => {
 
     // --- Chrome: mode header + universe column (ENG-10747/10746) ---
     await expect(
-      page.getByRole('heading', { name: 'Constituent Data' }),
+      page.getByRole('heading', { name: 'Constituents', exact: true }),
     ).toBeVisible({ timeout: 20_000 })
     await expect(
       page.getByRole('heading', { name: 'Your Constituent Universe' }),

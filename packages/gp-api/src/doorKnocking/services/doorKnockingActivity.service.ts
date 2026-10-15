@@ -195,7 +195,7 @@ export class DoorKnockingActivityService extends createPrismaBase(
         `),
       ])
 
-    // Same one-vocabulary-per-row rule the Constituent Data feed follows
+    // Same one-vocabulary-per-row rule the Constituents feed follows
     // (contactEngagement.service.ts): this history is read on a Serve walk's
     // person sheet, so it must not hand a canvasser the answer to a question
     // their surface never asked.

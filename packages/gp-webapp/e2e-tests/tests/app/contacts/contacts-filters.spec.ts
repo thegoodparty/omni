@@ -46,7 +46,7 @@ const setUpCrmContacts = async (page: Page): Promise<AxiosInstance> => {
   })
   await gotoCrmContacts(page)
   await expect(
-    page.getByRole('heading', { name: 'Constituent Data' }),
+    page.getByRole('heading', { name: 'Constituents', exact: true }),
   ).toBeVisible({ timeout: 20_000 })
   return client
 }
