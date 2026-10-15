@@ -1,5 +1,3 @@
-'use client'
-
 import {
   POLL_QUESTION_MAX_LENGTH,
   POLL_QUESTION_MIN_LENGTH,
