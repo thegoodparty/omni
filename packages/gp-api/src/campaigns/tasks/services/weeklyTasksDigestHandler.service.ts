@@ -306,7 +306,11 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
           )
           -- Once texting is closed for the race (smsComplianceWindow), no text
           -- send is emailed. The tracker only swaps the rows when it is read,
-          -- so a candidate who never opens it can still hold some.
+          -- so a candidate who never opens it can still hold some. Unlike the
+          -- GOTV window above, the cutoff counts only the general election
+          -- date, with no primary fallback: smsComplianceWindow treats a
+          -- campaign with no general date as open, and so does every other
+          -- surface.
           AND NOT (
             COALESCE(t.flow_type::text, '') = ${CampaignTaskType.text}
             AND CASE

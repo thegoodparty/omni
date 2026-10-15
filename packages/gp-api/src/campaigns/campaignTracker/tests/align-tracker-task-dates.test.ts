@@ -275,6 +275,7 @@ describe('Campaign tracker tasks - text sends once texting closes', () => {
       ['Get your EIN', null, sendDate(80)],
       ['Early Voting Text', CampaignTaskType.text, sendDate(14)],
     ])
+    if (!putOff) throw new Error('expected the put-off row')
     const pickedDate = daysFromToday(4)
     await service.prisma.campaignTrackerTask.update({
       where: { id: putOff.id },
