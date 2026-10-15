@@ -7,6 +7,8 @@ import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRe
 import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ProposalLinkSchema } from '@goodparty_org/contracts'
 import { parseTrackerOrigin } from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import { parseWalkableAreaParam } from './native/walkableAreaParam'
+import { SERVE_DOOR_KNOCKING_PURPOSE_VALUES } from './native/createFlow/serveDoorKnockingPurposes'
 
 // The surfaces that link here with `?create=1` and say where they are.
 // Allowlisted so the query string cannot put an arbitrary value into
@@ -42,6 +44,8 @@ interface PageParams {
     side?: string
     trackerTaskId?: string
     phase?: string
+    purpose?: string
+    area?: string
   }>
 }
 
@@ -65,6 +69,8 @@ export default async function Page({
       side,
       trackerTaskId,
       phase,
+      purpose,
+      area,
     },
     campaign,
   ] = await Promise.all([searchParams, fetchUserCampaign()])
@@ -121,6 +127,14 @@ export default async function Page({
     // The campaign-plan task whose button opened the flow, so the task is
     // marked done once the walk is created. Dropped unless both halves parse.
     trackerTaskId: parseTrackerOrigin(trackerTaskId, phase)?.trackerTaskId,
+    // A civic panel plan's door step: the purpose it already answered, and
+    // the walkable area it drew, which becomes the turf's boundary. A Serve
+    // purpose the flow does not know, or an area that is not a box, is
+    // dropped, and the flow asks as usual.
+    initialPurpose: SERVE_DOOR_KNOCKING_PURPOSE_VALUES.find(
+      (value) => value === purpose,
+    ),
+    prefillArea: parseWalkableAreaParam(area),
   }
 
   return <DoorKnockingPageGate {...childProps} />

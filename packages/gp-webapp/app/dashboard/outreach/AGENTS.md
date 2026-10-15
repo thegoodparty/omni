@@ -65,9 +65,12 @@ Win and Serve, the provider saves that audience itself and passes
 with the purpose and the list done behind it: every step in the stepper,
 Back to the list (picked in the picker) and then the purpose, Continue
 onward as usual. Where a flow opens is `v2/landingStep.ts`'s
-`outreachLandingStep`: the message when the audience and the message are
-both settled, the audience step when only the message (or the purpose) is,
-otherwise the purpose. A card's message is always there, so a card whose
+`outreachLandingStep`: the message when the audience is settled and so is
+the message, written or to be drafted for a settled purpose (a civic panel
+plan step: purpose and frozen list, the draft generating on arrival); the
+audience step when only the message (or the purpose) is; otherwise the
+purpose. An event invite with no message still asks its details first. A
+card's message is always there, so a card whose
 audience saved lands on the message, and one with no audience to save lands
 on the picker with its message held for compose. `SmsFlow` takes
 `audienceSettled` (the caller saved and picked the list) and otherwise runs
@@ -79,7 +82,8 @@ the card's list once per open, as the audience step's Continue would have;
 a failure goes back to the audience step, where the error and its retry
 live. `PhoneBankingFlow` asks the same function twice: on open (no list is
 resolved yet, so the who step at most) and once a preselected list matches
-a picker row, when a handed-over script moves it on to the script. `proposedAudience` (still accepted by both flows) opens the
+a picker row, when a handed-over script, or an `initialPurpose` with no
+script (not an event invite), moves it on to the script. `proposedAudience` (still accepted by both flows) opens the
 audience step
 in the builder already filled in (`useOutreachAudience`'s reset seeds it), so
 the list is saved where the flow always saves one: when the official confirms
@@ -104,7 +108,11 @@ offered only behind `serve-citizen-panels`, and picking it ticks the compose
 step's "Ask them to join your civic panel" and locks it
 (`civicPanelAsk.locked`): a panel text is its ask, so every message it
 composes carries the JOIN line, and the line's hover reason says they can
-write around it rather than to untick the box.
+write around it rather than to untick the box. Serve phone banking and door
+knocking carry the same slug as "Invite to your civic panel"
+(`servePhoneBankingPurposes.ts`, `serveDoorKnockingPurposes.ts`), offered
+behind the same flag; its script or talking points are a short invite whose
+ask is the join question the caller or canvasser records.
 
 A Serve text whose picked list is civic panel members only (contracts'
 `isCivicPanelOnlyList` on the list's criteria, behind `serve-citizen-panels`)
