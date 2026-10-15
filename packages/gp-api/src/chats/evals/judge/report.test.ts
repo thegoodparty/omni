@@ -544,7 +544,7 @@ describe('condition handling', () => {
     })
     expect(report).toContain(
       'Condition handling: 0 both handled, 1 shared failure(s), 0 ' +
-        'regression(s), 0 improvement(s), over 1 case pair(s).',
+        'regression(s), 0 improvement(s), 0 unsettled, over 1 case pair(s).',
     )
     expect(report).toContain(
       '- t2-conflict attempt 1: base yes / partly (orders disagree), ' +
