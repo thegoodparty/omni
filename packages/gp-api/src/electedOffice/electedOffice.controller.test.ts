@@ -233,6 +233,75 @@ describe('ElectedOfficeController', () => {
       expect(ids).not.toContain(theirs.id)
     })
 
+    it('says which offices have issues they ran on to offer in onboarding', async () => {
+      const issuesSlug = `campaign-issues-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: issuesSlug, ownerId: service.user.id },
+      })
+      const withIssues = await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: issuesSlug,
+          organizationSlug: issuesSlug,
+          details: {
+            customIssues: [{ title: 'Parks', position: 'More green space' }],
+          },
+        },
+      })
+      const unseeded = await createOfficeForUser(service.user.id, {
+        campaignId: withIssues.id,
+        termStartDate: new Date('2020-01-01T00:00:00.000Z'),
+      })
+      const seeded = await createOfficeForUser(service.user.id, {
+        campaignId: campaign.id,
+        termStartDate: new Date('2021-01-01T00:00:00.000Z'),
+      })
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: seeded.id,
+          title: 'Roads',
+          description: 'Fix potholes',
+          source: 'win_import',
+        },
+      })
+      const allRemoved = await createOfficeForUser(service.user.id, {
+        campaignId: withIssues.id,
+        termStartDate: new Date('2022-01-01T00:00:00.000Z'),
+      })
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: allRemoved.id,
+          title: 'Parks',
+          description: 'More green space',
+          source: 'win_import',
+          archivedAt: new Date(),
+        },
+      })
+      const emptyCampaign = await createOfficeForUser(service.user.id, {
+        campaignId: campaign.id,
+        termStartDate: new Date('2023-01-01T00:00:00.000Z'),
+      })
+      const noCampaign = await createOfficeForUser(service.user.id, {
+        termStartDate: new Date('2024-01-01T00:00:00.000Z'),
+      })
+
+      const result = await service.client.get('/v1/elected-office/mine')
+
+      expect(result.status).toBe(200)
+      expect(
+        (result.data as { id: string; hasWinIssues: boolean }[]).map((o) => [
+          o.id,
+          o.hasWinIssues,
+        ]),
+      ).toEqual([
+        [unseeded.id, true],
+        [seeded.id, true],
+        [allRemoved.id, false],
+        [emptyCampaign.id, false],
+        [noCampaign.id, false],
+      ])
+    })
+
     it('returns an empty array when the user holds no offices', async () => {
       const result = await service.client.get('/v1/elected-office/mine')
 

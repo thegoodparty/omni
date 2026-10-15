@@ -120,9 +120,16 @@ const fillTermDates = async (
 // Mocks the three GETs the load effect fires. `eo` is returned for both
 // `current` and `mine` so the flow adopts it (rather than treating the user as
 // net-new with no record).
-const mockLoad = (eo: ElectedOffice, org: Organization) => {
+const mockLoad = (
+  eo: ElectedOffice,
+  org: Organization,
+  { hasWinIssues = false }: { hasWinIssues?: boolean } = {},
+) => {
   api.mock('GET /v1/elected-office/current', { status: 200, data: eo })
-  api.mock('GET /v1/elected-office/mine', { status: 200, data: [eo] })
+  api.mock('GET /v1/elected-office/mine', {
+    status: 200,
+    data: [{ ...eo, hasWinIssues }],
+  })
   api.mock('GET /v1/organizations/:slug', { status: 200, data: org })
 }
 
@@ -304,6 +311,70 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText('Are you already in office?')
     expect(communityStarts).toBe(1)
+  })
+
+  describe('for an official with issues they ran on', () => {
+    let communityStarts = 0
+
+    beforeEach(() => {
+      communityStarts = 0
+      mockLoad(
+        buildEO({ campaignId: 7 }),
+        buildOrg({
+          positionName: 'Mayor',
+          position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+        }),
+        { hasWinIssues: true },
+      )
+      api.mock('POST /v1/community-issues/onboarding', () => {
+        communityStarts += 1
+        return { status: 200, data: { starterIssueCount: 1 } }
+      })
+      api.mock('PUT /v1/elected-office/:id', {
+        status: 200,
+        data: buildEO({ campaignId: 7 }),
+      })
+    })
+
+    const answerInOffice = async (
+      user: ReturnType<typeof userEvent.setup>,
+      answer: RegExp,
+    ) => {
+      await screen.findByText(
+        'Hear from your whole community, not just the loudest voices',
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(await screen.findByRole('button', { name: answer }))
+      expect(communityStarts).toBe(0)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+    }
+
+    it('waits past the welcome step and starts once they confirm they are in office', async () => {
+      const user = userEvent.setup()
+      renderFlow()
+
+      await answerInOffice(user, /I'm an elected official/)
+      await screen.findByText("What's your party designation?")
+      await waitFor(() => expect(communityStarts).toBe(1))
+    })
+
+    it('never starts for an official who is still campaigning', async () => {
+      const user = userEvent.setup()
+      renderFlow()
+
+      await answerInOffice(user, /I'm still campaigning/)
+      await screen.findByText("Let's switch you to campaign mode")
+      expect(communityStarts).toBe(0)
+    })
+
+    it('never starts for someone just testing the product', async () => {
+      const user = userEvent.setup()
+      renderFlow()
+
+      await answerInOffice(user, /I'm just testing out the product/)
+      await screen.findByText("What's your party designation?")
+      expect(communityStarts).toBe(0)
+    })
   })
 
   it('starts community issues for a net-new official right after the office is saved, and only once', async () => {
