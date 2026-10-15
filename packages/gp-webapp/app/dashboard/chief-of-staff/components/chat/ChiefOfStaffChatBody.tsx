@@ -132,6 +132,12 @@ interface Props {
    */
   showSuggestionsWithGreeting?: boolean
   /**
+   * Render the starter chips under the reply to `pendingKickoff` instead of
+   * on an empty transcript, until anything else is sent: the next step a
+   * kickoff's answer leads to.
+   */
+  showSuggestionsAfterKickoff?: boolean
+  /**
    * Short quick-prompt pills shown below the suggestions (above the composer),
    * each sending its own text as a visible message. Distinct from `suggestions`
    * (the larger action cards). Omit for CoS / Community Issues.
@@ -194,14 +200,16 @@ interface Props {
 
 /**
  * A starter chip. `kickoff` fires an on-demand hidden send of that string
- * (no user bubble); otherwise `onSelect` runs. `description` renders a
- * secondary line beneath the label.
+ * (no user bubble), `message` sends that string as the user's own message;
+ * otherwise `onSelect` runs. `description` renders a secondary line beneath
+ * the label.
  */
 export type ChatSuggestion = {
   label: string
   description?: string
   onSelect?: () => void
   kickoff?: string
+  message?: string
 }
 
 // Per scope, so seeing one assistant's intro never suppresses the other's.
@@ -324,6 +332,7 @@ function ChiefOfStaffChatThread({
   defaultIntro = COS_INTRO_MESSAGES,
   suggestions,
   showSuggestionsWithGreeting = false,
+  showSuggestionsAfterKickoff = false,
   quickPrompts,
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
@@ -375,10 +384,10 @@ function ChiefOfStaffChatThread({
     null,
   )
   const [introProgress, setIntroProgress] = useState(0)
-  // True once anything has been sent this session (visible OR hidden). Gates the
-  // with-greeting starter chips off after a hidden kickoff (which adds no user
-  // turn).
-  const [hasSent, setHasSent] = useState(false)
+  // Sends this session, visible OR hidden. Any send gates the with-greeting
+  // starter chips off, even a hidden kickoff (which adds no user turn).
+  const [sendCount, setSendCount] = useState(0)
+  const hasSent = sendCount > 0
   // Contents sent hidden this session; their persisted user turn is dropped from
   // the rendered transcript (the engine reconciles against the raw server
   // transcript, which includes the hidden turn).
@@ -1091,7 +1100,7 @@ function ChiefOfStaffChatThread({
       const trimmed = content.trim()
       if (!trimmed || sending || creatingRef.current) return false
       setStreamError(null)
-      setHasSent(true)
+      setSendCount((n) => n + 1)
       // A send mid-playback flushes the rest of the greeting into history so the
       // transcript stays ordered ahead of the user's message.
       if (playback) {
@@ -1297,6 +1306,10 @@ function ChiefOfStaffChatThread({
         void deliver(s.kickoff, { hidden: true })
         return
       }
+      if (s.message) {
+        void deliver(s.message, { hidden: false })
+        return
+      }
       s.onSelect?.()
     },
     [deliver],
@@ -1439,9 +1452,19 @@ function ChiefOfStaffChatThread({
   const isPristineGreeting =
     !hasSent && visibleMessages.length + (playback?.items.length ?? 0) <= 1
 
+  // The kickoff is this session's only send and its reply has landed.
+  const kickoffAnswered =
+    pendingKickoff !== undefined &&
+    sendCount === 1 &&
+    hiddenSent.includes(pendingKickoff.trim()) &&
+    visibleSegments.length === 0 &&
+    visibleMessages.some((m) => m.role === 'assistant')
+
   const showStarters =
-    ((visibleMessages.length === 0 && !playback) ||
-      (showSuggestionsWithGreeting && isPristineGreeting)) &&
+    (showSuggestionsAfterKickoff
+      ? kickoffAnswered
+      : (visibleMessages.length === 0 && !playback) ||
+        (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
     !streamError
   const suggestionsAsCards = effectiveSuggestions.some((s) =>

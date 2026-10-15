@@ -1,4 +1,4 @@
-import { COS_INTRO_MESSAGES } from './chat/chatConstants'
+import { buildChiefOfStaffIntro } from './chat/chatConstants'
 import type { OnboardingCardKey } from '../data/contracts'
 
 export interface OnboardingCardConfig {
@@ -11,7 +11,7 @@ export interface OnboardingCardConfig {
    * so the agent prompts the user (introduce itself / ask for priorities). Not
    * sent to the model; the real turn begins when the user replies.
    */
-  opener: string[]
+  opener: (firstName?: string) => string[]
 }
 
 // Render order on the dashboard.
@@ -26,7 +26,7 @@ export const ONBOARDING_CARDS: Record<OnboardingCardKey, OnboardingCardConfig> =
         'Your Chief of Staff does the prep and follow-up, so your time goes ' +
         'to the people you serve.',
       ctaLabel: 'Meet my Chief of Staff',
-      opener: COS_INTRO_MESSAGES,
+      opener: buildChiefOfStaffIntro,
     },
     priorities: {
       overlineLabel: 'Get started',
@@ -35,9 +35,9 @@ export const ONBOARDING_CARDS: Record<OnboardingCardKey, OnboardingCardConfig> =
         'Your Chief of Staff keeps the right issues in front of you once it ' +
         'knows your priorities.',
       ctaLabel: 'Personalize my Chief of Staff',
-      opener: [
+      opener: () => [
         "Let's make sure I'm focused on what matters most to you.",
-        'Tell me the top priorities you want me to keep front and center — ' +
+        'Tell me the top priorities you want me to keep front and center: ' +
           'the issues, projects, or commitments you care about most.',
         "I'll keep track of them and tailor my help around them.",
       ],

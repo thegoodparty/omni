@@ -235,7 +235,7 @@ describe('<TaskStack>', () => {
     type: 'civic_panel',
     title: 'Start with the people you represent',
     summary:
-      'A civic panel is residents who agree to tell you what they think before you decide.',
+      'A civic panel is a group of residents who agree to tell you what they think before you decide.',
     ctaLabel: 'Build my panel',
     ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
     dueDate: '2026-10-21T18:00:00.000Z',
