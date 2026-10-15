@@ -116,6 +116,7 @@ export const EVENTS = {
   Polls: {
     PollCreated: 'Polls - Poll Created',
     PollSubmitted: 'Polls - Poll Submitted For Review',
+    GatherMoreStarted: 'Polls - Gather More Started',
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
   // Meeting Briefings (Serve). Fires when the daily cron skips an
