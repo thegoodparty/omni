@@ -118,8 +118,22 @@ export type UpdateCivicPanelBuildPlanInput = z.infer<
   typeof UpdateCivicPanelBuildPlanInputSchema
 >
 
+// POST /v1/contacts/civic-panel/plan/steps/:id/mark: the official ticks a
+// call or door step done, or unticks it, over what its list says. A text
+// checks itself once it is sent.
+export const MarkCivicPanelBuildStepInputSchema = z.object({
+  done: z.boolean(),
+})
+export type MarkCivicPanelBuildStepInput = z.infer<
+  typeof MarkCivicPanelBuildStepInputSchema
+>
+
 // targetSize is residents to text, residents to call, or households to
-// knock, by channel.
+// knock, by channel. `markedDone` is the official's own tick (true) or
+// untick (false), null while the step reads off its list. `reached` is the
+// residents called or knocked (null for a text or before anything was
+// logged), `joined` the residents the step drew who are on the panel now
+// (null before its list is drawn).
 export const CivicPanelBuildStepSchema = z.object({
   id: z.string(),
   wave: z.number().int(),
@@ -134,6 +148,9 @@ export const CivicPanelBuildStepSchema = z.object({
   startedAt: zDate().nullable(),
   completedAt: zDate().nullable(),
   expectedRepliesBy: zDate().nullable(),
+  markedDone: z.boolean().nullable(),
+  reached: z.number().int().nullable(),
+  joined: z.number().int().nullable(),
 })
 export type CivicPanelBuildStep = z.infer<typeof CivicPanelBuildStepSchema>
 

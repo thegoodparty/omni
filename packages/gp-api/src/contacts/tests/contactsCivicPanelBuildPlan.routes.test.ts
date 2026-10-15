@@ -698,7 +698,16 @@ describe('step status and waves', () => {
       })),
     })
 
-    expect(stepOf(await readPlan(slug), 'phone_banking').status).toBe('done')
+    const [joiner] = await sampleIds(list.voterFileFilterId)
+    if (!joiner) throw new Error('no one drawn')
+    await setPanel(slug, joiner, CivicPanelStatus.member)
+
+    expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
+      status: 'done',
+      reached: 30,
+      joined: 1,
+      markedDone: null,
+    })
   })
 
   it('reads doors as done once the walk is marked done', async () => {
@@ -832,6 +841,58 @@ const skip = (slug: string, stepId: string) =>
     {},
     { headers: headers(slug), validateStatus: () => true },
   )
+
+const mark = (slug: string, stepId: string, done: boolean) =>
+  service.client.post<CivicPanelBuildPlanResponse>(
+    `/v1/contacts/civic-panel/plan/steps/${stepId}/mark`,
+    { done },
+    { headers: headers(slug), validateStatus: () => true },
+  )
+
+describe('POST /v1/contacts/civic-panel/plan/steps/:id/mark', () => {
+  it('ticks a call step done by hand, and unticks it', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 1)
+    const calls = stepOf(plan, 'phone_banking')
+
+    const ticked = await mark(slug, calls.id, true)
+
+    expect(ticked.status).toBe(HttpStatus.OK)
+    expect(stepOf(ticked, 'phone_banking')).toMatchObject({
+      status: 'done',
+      markedDone: true,
+    })
+
+    const unticked = await mark(slug, calls.id, false)
+
+    expect(stepOf(unticked, 'phone_banking')).toMatchObject({
+      status: 'not_started',
+      markedDone: false,
+    })
+  })
+
+  it('400s for a text, which is done once it is sent', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 1)
+
+    const res = await mark(slug, stepOf(plan, 'text').id, true)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('404s for another office’s step', async () => {
+    const theirs = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(theirs, 1)
+    const mine = await seedOffice()
+
+    const res = await mark(mine, stepOf(plan, 'phone_banking').id, true)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
 
 describe('PATCH /v1/contacts/civic-panel/plan', () => {
   it('keeps the current wave and sizes the next one from the new hours', async () => {

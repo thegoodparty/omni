@@ -212,6 +212,8 @@ export {
   type CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInputSchema,
   type UpdateCivicPanelBuildPlanInput,
+  MarkCivicPanelBuildStepInputSchema,
+  type MarkCivicPanelBuildStepInput,
   CivicPanelBuildStepSchema,
   type CivicPanelBuildStep,
   CivicPanelBuildNextSchema,

@@ -79,6 +79,8 @@ const STEP_SELECT = {
   completedAt: true,
   expectedRepliesBy: true,
   skippedAt: true,
+  markedDone: true,
+  markedAt: true,
 } satisfies Prisma.CivicPanelBuildStepSelect
 
 type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
@@ -111,6 +113,21 @@ const LINK_KEYS = [
   'completedAt',
   'expectedRepliesBy',
 ] as const
+
+// A step as its list reads, with the official's own tick or untick over
+// it: ticked, it is done when it was ticked (or when its list finished);
+// unticked, it is not done whatever its list says.
+const withMark = <
+  T extends Pick<StepRow, 'completedAt' | 'markedDone' | 'markedAt'>,
+>(
+  step: T,
+): T => {
+  if (step.markedDone === true) {
+    return { ...step, completedAt: step.completedAt ?? step.markedAt }
+  }
+  if (step.markedDone === false) return { ...step, completedAt: null }
+  return step
+}
 
 // Serve's plan to build the civic panel across texts, calls and doors, in
 // waves. The official answers one question (hours each week); every size
@@ -247,6 +264,32 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return this.read(organization)
   }
 
+  // The official ticks a call or door step done, or unticks it, over what
+  // its list says. A text checks itself once it is sent.
+  async mark(
+    organization: Organization,
+    stepId: string,
+    done: boolean,
+  ): Promise<CivicPanelBuildPlanResponse> {
+    const office = await this.officeFor(organization)
+    const step = await this.client.civicPanelBuildStep.findFirst({
+      where: { id: stepId, plan: { electedOfficeId: office.id } },
+      select: { id: true, channel: true, plan: { select: { status: true } } },
+    })
+    if (!step) throw new NotFoundException('Step not found')
+    if (step.plan.status !== CivicPanelBuildPlanStatus.active) {
+      throw new ConflictException('This step is no longer part of the plan')
+    }
+    if (step.channel === CivicPanelBuildChannel.text) {
+      throw new BadRequestException('A text step is done once it is sent')
+    }
+    await this.client.civicPanelBuildStep.update({
+      where: { id: step.id },
+      data: { markedDone: done, markedAt: new Date() },
+    })
+    return this.read(organization)
+  }
+
   // The plan as it stands. Reading it is what moves it: an active plan's
   // goal is brought to the district's (see goalFor), step links and dates
   // are refreshed from the sends, call lists and walks, the plan closes once
@@ -254,7 +297,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   // one is due.
   async read(organization: Organization): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
-    const members = await this.memberCount(organization)
+    const memberIds = await this.memberIds(organization)
+    const members = memberIds.size
     const population =
       await this.contactsService.getDistrictPopulation(organization)
     const needed = answersNeeded(population)
@@ -294,12 +338,16 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       return { plan: null, next: null, progress: progressToward(districtGoal) }
     const now = new Date()
     const currentWave = Math.max(1, ...plan.steps.map((s) => s.wave))
-    const steps = plan.steps
-      .map((step) => ({
-        ...step,
-        status: stepStatus(step, step.wave < currentWave, now),
-      }))
-      .sort((a, b) => a.wave - b.wave || this.stepOrder(a, b))
+    const steps = await Promise.all(
+      plan.steps
+        .map(withMark)
+        .sort((a, b) => a.wave - b.wave || this.stepOrder(a, b))
+        .map(async (step) => ({
+          ...step,
+          status: stepStatus(step, step.wave < currentWave, now),
+          ...(await this.reachOf(organization, step, memberIds)),
+        })),
+    )
     return {
       plan: {
         id: plan.id,
@@ -451,6 +499,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const currentWave = Math.max(...synced.map((s) => s.wave))
     const wave = synced
       .filter((s) => s.wave === currentWave)
+      .map(withMark)
       .map((s) => ({ ...s, status: stepStatus(s, false, now) }))
     if (!waveIsDue(wave, now)) return
     // Sized before the lock: the counts are people-db reads, too slow to
@@ -776,12 +825,56 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   }
 
   private async memberCount(organization: Organization): Promise<number> {
+    return (await this.memberIds(organization)).size
+  }
+
+  private async memberIds(organization: Organization): Promise<Set<string>> {
     const members = await this.contactStatusService.personIdsByFieldValue(
       organization.slug,
       ContactStatusField.civic_panel,
       [CivicPanelStatus.member],
     )
-    return members.length
+    return new Set(members)
+  }
+
+  // Who a step reached and who it brought in: the residents called or
+  // knocked (a text has no count of its own here), and the residents its
+  // list drew who are on the panel now.
+  private async reachOf(
+    organization: Organization,
+    step: StepRow,
+    memberIds: Set<string>,
+  ): Promise<{ reached: number | null; joined: number | null }> {
+    if (step.voterFileFilterId === null) return { reached: null, joined: null }
+    const drawn = await this.samplePersonIds(step.voterFileFilterId)
+    const joined = drawn.filter((id) => memberIds.has(id)).length
+    if (step.channel === CivicPanelBuildChannel.phone_banking) {
+      if (step.phoneBankingListId === null) return { reached: null, joined }
+      const called = await this.client.contactInteractionPhoneBanking.groupBy({
+        by: ['personId'],
+        where: {
+          organizationSlug: organization.slug,
+          phoneBankingListId: step.phoneBankingListId,
+        },
+      })
+      return { reached: called.length, joined }
+    }
+    if (step.channel === CivicPanelBuildChannel.door_knocking) {
+      const turfs = await this.client.doorKnockingTurf.findMany({
+        where: { voterFileFilterId: step.voterFileFilterId, deletedAt: null },
+        select: { outreach: { select: { id: true } } },
+      })
+      const envelopes = turfs.flatMap((t) =>
+        t.outreach ? [t.outreach.id] : [],
+      )
+      if (envelopes.length === 0) return { reached: null, joined }
+      const knocked = await this.client.contactInteractionDoorKnock.groupBy({
+        by: ['personId'],
+        where: { outreachId: { in: envelopes } },
+      })
+      return { reached: knocked.length, joined }
+    }
+    return { reached: null, joined }
   }
 
   // An active plan's goal follows the district's, so plans made before the
