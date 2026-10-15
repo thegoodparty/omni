@@ -842,7 +842,8 @@ for a step nobody started once a later wave exists, or that the official
 skipped (`POST …/steps/:id/skip`, current wave, not started, writes
 `skippedAt`; 409 once started). A skipped step is no longer synced, so it
 stays skipped even if its list is used elsewhere, and its drawn people (if
-it was prepared) are back in later draws. Skipping a whole wave makes the
+it was prepared) are back in later draws; `prepare` on a skipped step is a
+409. Skipping a whole wave makes the
 next one on the next read; its steps start as not started. A text that never got
 past checkout (`UNSENT_OUTREACH_STATUSES`) does not count.
 

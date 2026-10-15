@@ -802,6 +802,10 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/skip', () => {
     expect(notInIds(wave2Draw)).not.toEqual(
       expect.arrayContaining(skippedPeople.slice(0, 1)),
     )
+    // Nor can the skipped step hand its old list out again.
+    expect((await prepare(slug, stepOf(plan, 'text').id)).status).toBe(
+      HttpStatus.CONFLICT,
+    )
   })
 
   it('makes the next wave once every step was skipped', async () => {

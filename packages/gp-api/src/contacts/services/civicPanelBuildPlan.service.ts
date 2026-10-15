@@ -302,6 +302,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       },
     })
     if (!step) throw new NotFoundException('Step not found')
+    // Its people went back to later draws when it was skipped.
+    if (step.skippedAt) {
+      throw new ConflictException('This step was skipped')
+    }
     if (step.voterFileFilterId !== null) {
       return this.prepared(organization, step, step.voterFileFilterId)
     }
