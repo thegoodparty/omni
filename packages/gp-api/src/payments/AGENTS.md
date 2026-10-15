@@ -404,6 +404,13 @@ checked out twice, and its post-purchase step is the same
 `outreachTextSend` queue message rather than a Peerly submission. Full
 invariants: `outreach/AGENTS.md`, "Serve SMS purchase".
 
+A paid `outreachType: poll` row goes through the same handler but is held, not
+sent: the CAS claim moves it to `pending` and posts one "New poll awaiting
+review" Slack notice (only the claim winner, so a webhook redelivery posts
+nothing), and the claim's `outreachType` is read off the row. No
+`outreachTextSend` is enqueued; the admin approval does that. A lost claim on
+a `pending` poll returns without re-enqueuing.
+
 ## Gotchas
 
 - Stripe webhooks must be idempotent — events can replay. Preserve dedupe in `PaymentEventsService` when adding handlers.

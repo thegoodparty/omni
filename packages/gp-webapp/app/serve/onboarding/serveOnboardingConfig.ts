@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
+  CalendarCheckIcon,
   ListChecksIcon,
   MegaphoneIcon,
   UsersRoundIcon,
@@ -407,7 +408,12 @@ export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
     icon: ListChecksIcon,
     title: 'Follow through on the issues you were elected to solve',
-    desc: 'Get meeting briefings and a plan for each priority, then report back on what you did.',
+    desc: 'Get a plan for each priority, draft ordinances that work, and report back on what you did.',
+  },
+  {
+    icon: CalendarCheckIcon,
+    title: 'Walk into every meeting prepared',
+    desc: "Get a briefing before each meeting on what's on the agenda and what residents think.",
   },
 ]
 

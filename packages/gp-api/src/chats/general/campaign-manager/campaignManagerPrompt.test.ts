@@ -81,9 +81,27 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain(
       'A text message you draft for the candidate to send must say who is ' +
-        'sending it: their first name and the office they are running for',
+        'sending it: their full name and the office they are running for',
     )
+    expect(prompt).toContain('"this is Renee Diaz, running for City Council"')
     expect(prompt).toContain('never write a placeholder such as [Your Name]')
+  })
+
+  // The texting flow introduces the candidate by full name; a drafted text
+  // that names them already is carried in as written, so the manager needs
+  // the full name in front of it to write the same intro.
+  it('gives the manager the full name a text introduces the candidate by', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Candidate: Renee\nCandidate full name: Renee Diaz',
+    )
+  })
+
+  it('omits the full-name line when it adds nothing to the first name', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ candidateName: 'Renee' }),
+    )
+    expect(prompt).not.toContain('Candidate full name:')
   })
 
   // The product map's status line is the only place the prompt says whether
@@ -724,7 +742,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain(
       'Do not save a list for it with crud_saved_filters',
     )
-    expect(prompt).toContain('this is Renee, candidate for Asheville City')
+    expect(prompt).toContain(
+      'the candidate by full name and the office they are running for, ' +
+        'for example "this is Renee Diaz, candidate for Asheville City',
+    )
     expect(prompt).toContain('"Paid for by"')
     expect(prompt).not.toContain('sample.size set to the sampleSize')
     expect(prompt).not.toContain('/dashboard/outreach?compose=text')

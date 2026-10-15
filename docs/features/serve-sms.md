@@ -162,10 +162,8 @@ ingestReplies({
 }) → { matched, unmatched, optOuts }
 ```
 
-`audience` accepts a sample spec on day one even though only polls will pass
-one, and nothing calls it that way yet. That is the guard against the layer
-quietly becoming SMS-shaped: if the sample branch does not work, the layer is
-not shared.
+`audience` accepts a sample spec, which is what a self-serve poll passes. That
+is the guard against the layer quietly becoming SMS-shaped.
 
 `ingestReplies` is source-agnostic. One writer, two producers: both start from
 the same upload, but SMS's rows are parsed straight out of it while polls' rows
@@ -534,6 +532,26 @@ Serve SMS drawer links to the report once somebody has replied. Detail in
 send.
 
 ## Layer 3: Polls
+
+### Paid polls wait for review
+
+A poll pays through the same `SERVE_TEXT` handler as a text. The post-payment
+claim moves it `pending_payment → pending` and stops there: nothing is
+enqueued, and `pending` renders "In review". The claim winner posts one "New
+poll awaiting review" notice to the fulfilment channel, so a redelivered
+Stripe webhook, which loses the claim, posts nothing. The staff approval is what
+enqueues `outreachTextSend`.
+
+The consumer refuses a poll with no `approvedAt` (error log, ack, no send). An
+approved poll's first send (`sendSeq` 1) delivers a `sample` audience of
+`textCount` people for a sample poll, or the saved filter for a list poll.
+Expansions (`sendSeq` above 1) are not delivered yet.
+
+A sample is drawn after the opt-out scrub, so a draw of N returns N. If the
+pool shrank while the poll sat in review (someone opted out), the size is
+clamped to what is still reachable and the shortfall is logged at warn with
+`outreachId`, `requested` and `delivered`. The send is not failed, and the
+shortfall is not refunded automatically.
 
 Not built here. What it will add, once it moves in:
 
