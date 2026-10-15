@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { FREE_TEXTS_OFFER } from '@/shared/constants/freeTextsOffer'
+import { WIN_SMS_HOLD_MIN_CENTS } from '@/shared/util/winSmsHold.util'
 import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
 import {
   calcTextAmountInCents,
@@ -336,6 +337,83 @@ describe('OutreachPurchaseHandlerService', () => {
       })
 
       expect(amount).toBe(0)
+    })
+
+    it('forgives a sub-Stripe-minimum remainder just over the free allowance (1 text over)', async () => {
+      const contactCount = FREE_TEXTS_OFFER.COUNT + 1
+      mockServerLeadsLoaded(contactCount)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount,
+        campaignId: 1,
+      })
+
+      // Sanity: the undiscounted remainder really is non-zero and sub-floor,
+      // otherwise this test would pass without the fix.
+      expect(calcTextAmountInCents(1)).toBeGreaterThan(0)
+      expect(calcTextAmountInCents(1)).toBeLessThan(WIN_SMS_HOLD_MIN_CENTS)
+      expect(amount).toBe(0)
+    })
+
+    it('forgives a sub-Stripe-minimum remainder at the top of the forgiven range (14 texts over)', async () => {
+      const contactCount = FREE_TEXTS_OFFER.COUNT + 14
+      mockServerLeadsLoaded(contactCount)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount,
+        campaignId: 1,
+      })
+
+      expect(calcTextAmountInCents(14)).toBeGreaterThan(0)
+      expect(calcTextAmountInCents(14)).toBeLessThan(WIN_SMS_HOLD_MIN_CENTS)
+      expect(amount).toBe(0)
+    })
+
+    it('still bills normally once the remainder reaches the Stripe minimum (15 texts over)', async () => {
+      const contactCount = FREE_TEXTS_OFFER.COUNT + 15
+      mockServerLeadsLoaded(contactCount)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount,
+        campaignId: 1,
+      })
+
+      expect(calcTextAmountInCents(15)).toBeGreaterThanOrEqual(
+        WIN_SMS_HOLD_MIN_CENTS,
+      )
+      expect(amount).toBe(calcTextAmountInCents(15))
+    })
+
+    it('does not forgive a no-offer campaign priced below the Stripe minimum', async () => {
+      // No offer: a tiny send is priced (and billed) at its real sub-floor
+      // amount — forgiveness is a free-texts-only concession, not a general
+      // sub-50c waiver.
+      mockServerLeadsLoaded(1)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount: 1,
+        campaignId: 1,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(1))
+      expect(amount).toBeGreaterThan(0)
+      expect(amount).toBeLessThan(WIN_SMS_HOLD_MIN_CENTS)
     })
 
     it('charges full price when campaign has no offer', async () => {
