@@ -54,7 +54,7 @@ export const WHAT_WE_HEARD_COPY = {
     summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
-    downloadNotes: 'Download notes',
+    downloadNotes: 'Download',
     noNotes: (channel: FeedbackReportChannel): string =>
       isText(channel)
         ? 'No replies yet. Replies from voters show up here.'
@@ -85,6 +85,8 @@ export const WHAT_WE_HEARD_COPY = {
     backLabel: 'Back',
     details: 'Details',
     whatPeopleWant: 'What people want',
+    showMoreWants: (hidden: number): string =>
+      `Show ${hidden.toLocaleString()} more`,
     theNotes: (channel: FeedbackReportChannel): string =>
       isText(channel) ? 'The replies' : 'The notes',
     entryCounts: (
@@ -125,7 +127,7 @@ export const WHAT_WE_HEARD_COPY = {
     summarize: 'Summarize notes',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
-    downloadNotes: 'Download notes',
+    downloadNotes: 'Download',
     noNotes: (channel: FeedbackReportChannel): string =>
       isText(channel)
         ? 'No replies yet. Replies from constituents show up here.'
@@ -152,6 +154,8 @@ export const WHAT_WE_HEARD_COPY = {
     backLabel: 'Back',
     details: 'Details',
     whatPeopleWant: 'What people want',
+    showMoreWants: (hidden: number): string =>
+      `Show ${hidden.toLocaleString()} more`,
     theNotes: (channel: FeedbackReportChannel): string =>
       isText(channel) ? 'The replies' : 'The notes',
     entryCounts: (

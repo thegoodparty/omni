@@ -1,13 +1,7 @@
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { FeedbackThemeSummary } from '@goodparty_org/contracts'
-import {
-  Avatar,
-  Button,
-  Card,
-  CardContent,
-  ChevronRightIcon,
-} from '@styleguide'
+import { Avatar, Button, Card, CardContent } from '@styleguide'
 import { whatWeHeardCopy } from '../../copy'
 import { RETURN_PARAM, safeReturnPath, withReturnPath } from '../../returnPath'
 import StanceSplit from './StanceSplit'
@@ -57,14 +51,19 @@ const ThemeCard = ({
                 </p>
               </div>
             </div>
-            <p className="text-base text-foreground">{theme.summary}</p>
+            <p className="text-sm text-foreground">{theme.summary}</p>
             {/* Null when every member is a text reply, which carries no
               stance: four zeros would read as a finding. */}
             {theme.stanceCounts !== null && (
               <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
             )}
           </div>
-          <Button asChild variant="outline" className="w-full">
+          <Button
+            asChild
+            variant="outline"
+            size="small"
+            className="w-full sm:w-auto sm:self-start"
+          >
             <Link
               href={withReturnPath(
                 `/dashboard/issue-capture/${outreachId}/theme/${theme.id}`,
@@ -73,7 +72,6 @@ const ThemeCard = ({
               aria-label={copy.seeDetailsFor(theme.title)}
             >
               {copy.seeDetails}
-              <ChevronRightIcon />
             </Link>
           </Button>
         </div>

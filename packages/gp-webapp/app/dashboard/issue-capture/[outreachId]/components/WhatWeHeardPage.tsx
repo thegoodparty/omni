@@ -87,7 +87,11 @@ const EveryNote = ({
       <MemoList memos={shown} channel={channel} isServe={isServe} />
       {hidden > 0 && (
         <div className="mt-1 flex justify-center">
-          <Button variant="outline" onClick={() => setExpanded(true)}>
+          <Button
+            variant="outline"
+            size="small"
+            onClick={() => setExpanded(true)}
+          >
             {copy.showMoreNotes(hidden)}
           </Button>
         </div>

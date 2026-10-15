@@ -1,10 +1,10 @@
 import type { FeedbackReportResponse } from '@goodparty_org/contracts'
-import { Card, CardContent } from '@styleguide'
+import { Card } from '@styleguide'
 import { whatWeHeardCopy } from '../../copy'
 
 // Who answered and who left a note, so a theme's count can be read against
-// what it came from. Each count is its own card on the gray canvas, a number
-// over its label as on the theme cards' tiles.
+// what it came from. Voter Data's stat card (`DistrictStatCard`): one card,
+// a row per count with the label left and the number right.
 const ReportCounts = ({
   denominators,
   channel,
@@ -15,7 +15,7 @@ const ReportCounts = ({
   isServe: boolean
 }) => {
   const copy = whatWeHeardCopy(isServe)
-  const tiles: Array<[string, number]> = [
+  const rows: Array<[string, number]> = [
     [copy.countAnswered, denominators.conversations],
     [copy.countNoted, denominators.memos],
   ]
@@ -30,22 +30,21 @@ const ReportCounts = ({
   }
 
   return (
-    // `block` because globals.css makes every `li` under a data-slot
-    // ancestor a row flex box.
-    <ul aria-label={copy.countsLabel} className="grid grid-cols-2 gap-3">
-      {tiles.map(([label, value]) => (
-        <li key={label} className="block">
-          <Card className="h-full">
-            <CardContent className="flex flex-col">
-              <span className="text-base font-semibold tabular-nums text-foreground">
-                {value.toLocaleString()}
-              </span>
-              <span className="text-xs text-muted-foreground">{label}</span>
-            </CardContent>
-          </Card>
-        </li>
-      ))}
-    </ul>
+    <Card className="w-full gap-0 rounded-lg py-0">
+      <ul aria-label={copy.countsLabel}>
+        {rows.map(([label, value]) => (
+          <li
+            key={label}
+            className="flex items-center justify-between gap-4 border-border px-4 py-3 not-first:border-t"
+          >
+            <span className="text-sm font-normal">{label}</span>
+            <span className="text-lg font-semibold tabular-nums">
+              {value.toLocaleString()}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 

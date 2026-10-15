@@ -14,7 +14,10 @@ const StanceSplit = ({
   const labels = STANCE_LABELS[isServe ? 'serve' : 'win']
 
   return (
-    <ul aria-label={copy.stanceSplit} className="grid grid-cols-4 gap-2">
+    <ul
+      aria-label={copy.stanceSplit}
+      className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+    >
       {STANCE_ORDER.map((stance) => (
         <li
           key={stance}

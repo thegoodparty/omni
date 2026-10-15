@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { FeedbackThemeDetail } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -140,7 +141,53 @@ describe('ThemeDetailPage', () => {
       within(asks)
         .getAllByRole('listitem')
         .map((item) => item.textContent),
-    ).toEqual(['Move the loading zone', 'Keep the lanes'])
+    ).toEqual(['Move the loading zone1', 'Keep the lanes1'])
+  })
+
+  it('ranks the asks by how many named them and keeps five in view', async () => {
+    const asks = [
+      ['Fix the park gate'],
+      ['More patrols', 'More patrols'],
+      ['More lighting', 'more lighting', 'More lighting'],
+      ['Close the alley'],
+      ['Cameras on Elm'],
+      ['A crossing guard'],
+      ['Trim the hedges'],
+    ]
+    const issues = asks.flat().map((desiredOutcome, position) => ({
+      id: `issue-${position}`,
+      position: 0,
+      issueLabel: 'Safety',
+      stance: 'supports' as const,
+      desiredOutcome,
+    }))
+    mockTheme({
+      ...THEME,
+      desiredOutcomes: [...new Set(asks.flat())],
+      members: issues.map((issue, index) => ({
+        ...THEME.members[0]!,
+        feedbackId: `memo-${index}`,
+        issues: [issue],
+      })),
+    })
+    renderPage()
+
+    const list = await screen.findByRole('list', { name: 'What people want' })
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'More lighting3',
+      'More patrols2',
+      'Fix the park gate1',
+      'Close the alley1',
+      'Cameras on Elm1',
+    ])
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
+    expect(within(list).getAllByRole('listitem')).toHaveLength(7)
+    expect(screen.queryByRole('button', { name: /Show \d+ more/ })).toBeNull()
   })
 
   // The page opens with the top of the card it was opened from, so its

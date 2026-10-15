@@ -196,8 +196,8 @@ describe('WhatWeHeardPage', () => {
     expect(
       within(counts)
         .getAllByRole('listitem')
-        .map((tile) => tile.textContent),
-    ).toEqual(['84People answered', '61Left a note'])
+        .map((row) => row.textContent),
+    ).toEqual(['People answered84', 'Left a note61'])
   })
 
   it('names the outreach in the title bar, the way the hub names it', async () => {
@@ -805,7 +805,7 @@ describe('WhatWeHeardPage', () => {
       expect(screen.getByText(/By text/)).toBeInTheDocument()
       expect(screen.queryByText(/Summary by/)).toBeNull()
       expect(screen.queryByText(/waiting for review/)).toBeNull()
-      expect(screen.queryByRole('link', { name: 'Download notes' })).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
       expect(container.textContent).not.toMatch(/voter/i)
       expect(container.textContent).not.toMatch(FORBIDDEN)
     })
@@ -820,7 +820,7 @@ describe('WhatWeHeardPage', () => {
       expect(
         await screen.findByText('Themes appear after 5 replies.'),
       ).toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: 'Download notes' })).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
     })
 
     it('shows a theme of replies without a stance split', async () => {

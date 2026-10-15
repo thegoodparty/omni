@@ -69,8 +69,8 @@ fires on the press, refused or not.
 ## Rules
 
 - **Two counts head the report** (`ReportCounts`, under the title): people
-  answered and left a note, each its own small `Card` on the gray canvas, a
-  number over its label like the theme cards' `StanceSplit` tiles. Only
+  answered and left a note, in one `Card` laid out like Voter Data's
+  `DistrictStatCard`: a row per count, the label left and the number right. Only
   confirmed notes enter a theme. **A text send keeps what it shipped with**
   and is not redesigned here: the caption "14 replies from 12 people.",
   "Every reply" listing every reply in its own divided list, and the floor
@@ -101,12 +101,17 @@ fires on the press, refused or not.
   points straight at gp-api's `GET efforts/:outreachId/export` through the
   `/api/v1/...` proxy, with the `download` attribute, so the browser saves
   the CSV the same way `polls/[id]/components/DownloadResults.tsx` does for
-  poll responses. It names no product noun ("Download notes"), so it needs
+  poll responses. It names no product noun ("Download"), so it needs
   no Serve variant. Hidden when the effort has no notes yet; shown next to
   "All notes" once there is a summary, and next to the pre-summary note
   list (`UnderFloorList`) before there is one. The CSV holds every note on
   the effort, not the report's 200-note display cap.
 - **The report links back to the hub, not just the sidebar.** Polls' own back arrow is commented out, so the copy would have had none. Win's link carries `?outreachId=` so `/dashboard/outreach` reopens this effort's drawer; Serve's hub takes no such parameter and gets the plain path. The theme page links back to the report. **The report is laid out like Voter Data**: a title bar (`navHeader`) naming the outreach the report is about sits over everything, read through the hub's own `useOutreachDetail` (Serve's fetcher on Serve) and worded the way the hub's row and drawer word it, `name || title || 'Untitled campaign'`, empty until it loads; the way back is the CRM sheet's own Back (a ghost small `Button` with `ArrowLeftIcon` reading "Back", the hub named in its aria-label) in a full-bleed white top bar (Voter Data's own, negative margins and all), with Summarize at its right where Voter Data's Create new list sits, the report sits in its 560px column on the gray canvas, and only the note cards (`MemoList`, one styleguide `Card` per note) and the theme cards are white. The themes stack one per row, since a second card in a 560px column is a sliver. Only the top three show; any more wait behind "Show N more themes" (`ThemeGrid`), so the themes most people raised are not pushed down by the long tail. **The theme page is laid out the same way**: the theme's title is the title bar, the same top bar holds Back to the report, and every section in the 560px column is a white `Card` (`ThemeSummary`, the details, the asks) or the note cards. `ThemeSummary` is the theme's own card on the report, rank circle, title, conversation count, summary and the stance tiles with no heading of their own, so the page says which theme it is; the number is the report's order (`rankThemes`, read off the cached report), with the run's `rank` standing in until that report arrives. **The top bar is the title bar's own size**, `h-14` like `DashboardNavHeader` and `px-6` from `md`, and what sits in it is `size="small"`, so the two bars read as one height; a medium Summarize made the second bar 64px. On a phone the column adds `px-2` to the layout's `p-2`, 16px from the edge, and the top bar is `px-4` there (Voter Data's own bar), so the two line up; 8px read cramped and 24px wider than the rest of the app.
+- **What people want is ranked by mentions.** The theme page counts how
+  many issues in the theme's notes named each ask (the API sends the asks
+  deduplicated, so `ThemeDetails` counts them from `members`), merges
+  spellings that differ only in case, and lists the ask left and the count
+  right, most named first. Five show; the rest wait behind "Show N more".
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and
   `polls/[id]/issue/[issueIndex]/components/*`. Polls' providers are
