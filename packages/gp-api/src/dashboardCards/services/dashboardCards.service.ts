@@ -8,7 +8,6 @@ import {
   DashboardCardType,
   ElectedOffice,
   MeetingBriefing,
-  OutreachStatus,
   OutreachType,
   Prisma,
   Priority,
@@ -36,6 +35,7 @@ import {
   REPORT_BACK_DUE_DAYS,
 } from '@/outreach/services/outreachReportBack.service'
 import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 
 // Community issues have no natural deadline; give their cards a fixed window so
 // they ride the existing active/this_week/missed bucketing off dueDate.
@@ -139,16 +139,6 @@ export const civicPanelBuildCardContent = (
     ctaHref: next.href ?? CIVIC_PANEL_PAGE_HREF,
   }
 }
-
-// A text past checkout. The same statuses the priority flow counts as sent.
-// The Chief of Staff reads the build card's invite as sent off this same list.
-export const UNSENT_OUTREACH_STATUSES = [
-  OutreachStatus.pending_payment,
-  OutreachStatus.draft,
-  OutreachStatus.canceled,
-  OutreachStatus.denied,
-  OutreachStatus.failed,
-]
 
 type DesiredCard = {
   type: DashboardCardType

@@ -27,7 +27,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import {
   areaAround,
