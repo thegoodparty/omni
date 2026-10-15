@@ -309,6 +309,15 @@ Money invariants:
   in place — the row is paid, and a bare `pending_payment` with no session id
   would read as an unpaid draft.
 
+A paid `poll` row is held instead: the claim stops at `pending` ("In review"),
+enqueues nothing, and the claim winner alone posts a "New poll awaiting review"
+notice (`SlackChannel.botTevynApi`) and the `Polls - Poll Submitted For Review`
+event. The consumer maps an approved poll to a `sample` audience (sample poll)
+or the saved filter (list poll), refuses one with no `approvedAt`, and throws
+for `sendSeq` above 1 until expansions land. A sample is clamped to what the
+pool still holds, with a warn log of the shortfall, rather than failing the
+paid send.
+
 The enqueue is `outreachTextSend { outreachId, sendSeq }` on the FIFO queue,
 message group `outreachTextSend-<outreachId>` so two deliveries for one send
 serialize, `throwOnError: true` (the producer swallows failures by default, and
