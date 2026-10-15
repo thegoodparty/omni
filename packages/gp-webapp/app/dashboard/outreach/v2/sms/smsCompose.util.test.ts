@@ -654,6 +654,36 @@ describe('the civic panel line after a rewrite', () => {
   })
 })
 
+describe('a retyped opt-out with STOP in quotes', () => {
+  const quoted = 'Reply "STOP" to opt out.'
+  const body = 'Hello {{first_name}}, tell me what you think.'
+
+  it('takes the panel line above it, not below', () => {
+    expect(
+      withCivicPanelLines(`${body}\n\n${quoted}`, {
+        join: true,
+        leave: false,
+      }),
+    ).toBe(`${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${quoted}`)
+  })
+
+  it('is read as the footer of a polish, so no second opt-out is added', () => {
+    expect(
+      restoreSmsSystemRegions(`${body}\n\n${quoted}`, {
+        greeting: 'Hello {{first_name}},',
+        footer: OPT_OUT_FOOTER,
+        token: '{{first_name}}',
+      }),
+    ).toBe(`${body}\n\n${OPT_OUT_FOOTER}`)
+  })
+
+  it('is dropped from a drafted body like the exact line', () => {
+    expect(composeServeScript(`tell me what you think. ${quoted}`)).toBe(
+      `${body}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+})
+
 describe('add it back', () => {
   it('puts the opt-out back as the last line, after the panel line', () => {
     expect(

@@ -28,6 +28,12 @@ export const smsPurposeLabel = (purpose: string): string =>
 
 export const OPT_OUT_FOOTER = 'Reply STOP to opt out.'
 
+// The opt-out sentence however a person retyped it: the standards check
+// accepts STOP in quotes, so every rewrite must read that line as the
+// opt-out too, or it would add a second one below it.
+const OPT_OUT_SENTENCE =
+  /Reply\s+["'“”‘’]?STOP["'“”‘’]?\s+to\s+opt[\s-]?out\.?/i
+
 // Compliance: the "Paid for by <committee>" disclaimer, like the opt-out
 // line, is composed into every fresh message and then locked inside it: the
 // candidate writes around it, and Improve sends it masked so the model never
@@ -122,7 +128,7 @@ const withoutLockedLines = (
     ...(committeeName
       ? [new RegExp(escapeRegExp(paidForByLine(committeeName)))]
       : []),
-    new RegExp(escapeRegExp(OPT_OUT_FOOTER)),
+    OPT_OUT_SENTENCE,
   ])
 
 // Puts back what an Improve reply dropped of the parts the system writes:
@@ -147,7 +153,7 @@ export const restoreSmsSystemRegions = (
       ? text.slice(0, text.length - regions.footer.length)
       : // Only a closing paragraph that opens the way a footer does: one that
         // merely mentions "paid for by" or "reply STOP" is the candidate's.
-        text.replace(/\n\n(?:Paid for by |Reply STOP\b)[^\n]*$/, '')
+        text.replace(/\n\n(?:Paid for by |Reply\s+["'“”‘’]?STOP\b)[^\n]*$/i, '')
     // The civic panel line is not part of the body either: the caller puts
     // back the one the message should carry, so a copy the model kept or
     // wrote would otherwise be a second one, and an exact copy of the footer
@@ -156,7 +162,7 @@ export const restoreSmsSystemRegions = (
       ...JOIN_LINE_PATTERNS,
       ...LEAVE_LINE_PATTERNS,
       new RegExp(escapeRegExp(regions.footer)),
-      new RegExp(escapeRegExp(OPT_OUT_FOOTER)),
+      OPT_OUT_SENTENCE,
     ])
     text = `${cleanBody.trimEnd()}\n\n${regions.footer}`
   }
@@ -474,7 +480,9 @@ export const composeServeScript = (body: string): string =>
 
 // The line in its own paragraph, just above the opt-out.
 const placeAboveOptOut = (script: string, line: string): string => {
-  const optOutAt = script.lastIndexOf(OPT_OUT_FOOTER)
+  const optOutAt =
+    [...script.matchAll(new RegExp(OPT_OUT_SENTENCE.source, 'gi'))].pop()
+      ?.index ?? -1
   if (optOutAt === -1) return `${script.trimEnd()}\n\n${line}`
   const before = script.slice(0, optOutAt).trimEnd()
   const lead = before === '' ? '' : `${before}\n\n`
