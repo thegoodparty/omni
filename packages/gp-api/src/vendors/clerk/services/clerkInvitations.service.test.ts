@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClerkClient } from '@clerk/backend'
 import { BadGatewayException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { CLERK_LIST_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
+import {
+  CLERK_API_TIMEOUT_MS,
+  CLERK_LIST_TIMEOUT_MS,
+} from '@/vendors/clerk/clerk.consts'
 import { ClerkInvitationsService } from './clerkInvitations.service'
 
 // Stands in for a Clerk call that never settles, so the only way the
@@ -330,6 +333,26 @@ describe('ClerkInvitationsService', () => {
         metadata: null,
         verifiedEmails: [],
       })
+    })
+
+    it('retries once when the Clerk call times out', async () => {
+      const getUser = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValueOnce({ publicMetadata: metadata, emailAddresses })
+      const { service } = makeService({ getUser })
+      vi.useFakeTimers()
+      try {
+        const result = service.getTeamInviteState('user_1')
+        await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+        await expect(result).resolves.toEqual({
+          metadata,
+          verifiedEmails: ['verified@example.com'],
+        })
+        expect(getUser).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('throws BadGatewayException when Clerk fails to fetch the user', async () => {
