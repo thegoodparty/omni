@@ -110,7 +110,10 @@ export default function PollTextBiasInput({
     resetStates,
   ])
 
-  React.useEffect(() => {
+  // Layout effect, not passive: clicking Continue blurs the editor, which
+  // starts analysis, and PollFlow's click handler must already see
+  // isAnalyzing to hold the step (ENG-11305).
+  React.useLayoutEffect(() => {
     const currentState: BiasAnalysisState = {
       hasBias,
       hasGrammar,
