@@ -58,7 +58,7 @@ test.describe('Dashboard Regression with Elected Office', () => {
     await NavigationHelper.dismissOverlays(page)
 
     await expect(
-      page.getByRole('heading', { name: 'Constituent Data' }),
+      page.getByRole('heading', { name: 'Constituents', exact: true }),
     ).toBeVisible({ timeout: 10000 })
 
     // The CRM contacts surface has no member table by design, so "the page

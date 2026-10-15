@@ -29,6 +29,7 @@ model PollIndividualMessage {
   pollIssues      PollIssue[]
   // The themes a reply landed in when its text send was synthesized.
   themeMembers    FeedbackThemeMember[]
+  replyFlags      OutreachReplyFlag[]
 
   @@index([electedOfficeId, personId, sentAt])
   @@index([electedOfficeId, pollId, personCellPhone])

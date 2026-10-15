@@ -107,4 +107,19 @@ export const dashboardApi = {
       throw err
     }
   },
+
+  async completeOnboardingCard(key: OnboardingCardKey): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/onboarding-cards/:key/complete', {
+        key,
+      })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'complete-onboarding-card',
+        cardKey: key,
+      })
+      throw err
+    }
+  },
 }

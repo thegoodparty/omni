@@ -35,6 +35,7 @@ describe('PhoneBankingListSchema', () => {
         },
       ],
       isServe: false,
+      civicPanelOnly: false,
     }
     expect(() => PhoneBankingListSchema.parse(list)).not.toThrow()
   })
@@ -62,6 +63,7 @@ describe('PhoneBankingListSchema', () => {
                 willVote: null,
                 followUp: null,
                 joinCivicPanel: null,
+                stayOnCivicPanel: 'no',
                 occurredAt: '2026-08-20T12:05:00Z',
               },
             },
@@ -69,6 +71,7 @@ describe('PhoneBankingListSchema', () => {
         },
       ],
       isServe: true,
+      civicPanelOnly: true,
     }
     expect(() => PhoneBankingListSchema.parse(list)).not.toThrow()
   })

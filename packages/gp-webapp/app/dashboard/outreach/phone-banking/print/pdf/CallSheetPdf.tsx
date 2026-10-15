@@ -299,6 +299,7 @@ const CallRow = ({
 const headings = (
   isServe: boolean,
   asksCivicPanel: boolean,
+  civicPanelOnly: boolean,
 ): Array<[string, number]> => [
   ['#', COLUMN.seq],
   ['Name(s)', COLUMN.name],
@@ -310,7 +311,12 @@ const headings = (
   ['Refused', COLUMN.refused],
   [answerHeading(isServe), COLUMN.support],
   ...(asksCivicPanel
-    ? [['Civic panel Y N', COLUMN.civicPanel] as [string, number]]
+    ? [
+        [
+          civicPanelOnly ? 'Stay on panel Y N' : 'Civic panel Y N',
+          COLUMN.civicPanel,
+        ] as [string, number],
+      ]
     : []),
   ['Notes', notesWidth(asksCivicPanel)],
 ]
@@ -320,25 +326,30 @@ const headings = (
 const HeaderRow = ({
   isServe,
   asksCivicPanel,
+  civicPanelOnly,
 }: {
   isServe: boolean
   asksCivicPanel: boolean
+  civicPanelOnly: boolean
 }) => (
   <View style={styles.headerRow} fixed>
-    {headings(isServe, asksCivicPanel).map(([label, width], index) => (
-      <Text
-        key={label}
-        style={[
-          styles.headerCell,
-          { width },
-          index === headings(isServe, asksCivicPanel).length - 1
-            ? styles.lastCell
-            : {},
-        ]}
-      >
-        {label}
-      </Text>
-    ))}
+    {headings(isServe, asksCivicPanel, civicPanelOnly).map(
+      ([label, width], index) => (
+        <Text
+          key={label}
+          style={[
+            styles.headerCell,
+            { width },
+            index ===
+            headings(isServe, asksCivicPanel, civicPanelOnly).length - 1
+              ? styles.lastCell
+              : {},
+          ]}
+        >
+          {label}
+        </Text>
+      ),
+    )}
   </View>
 )
 
@@ -370,6 +381,9 @@ interface CallSheetPdfProps {
   isServe: boolean
   // serve-citizen-panels, resolved by the route.
   citizenPanelsEnabled?: boolean
+  // The list is civic panel members only, so the panel column asks whether
+  // they want to stay on rather than whether they want to join.
+  civicPanelOnly?: boolean
 }
 
 // The downloadable call sheet: the walk-list PDF's direct template, ruled
@@ -383,6 +397,7 @@ export const CallSheetPdf = ({
   rows,
   isServe,
   citizenPanelsEnabled = false,
+  civicPanelOnly = false,
 }: CallSheetPdfProps) => {
   const asksCivicPanel = isServe && citizenPanelsEnabled
   return (
@@ -417,7 +432,11 @@ export const CallSheetPdf = ({
           <Text style={styles.empty}>This sheet has no calls.</Text>
         ) : (
           <>
-            <HeaderRow isServe={isServe} asksCivicPanel={asksCivicPanel} />
+            <HeaderRow
+              isServe={isServe}
+              asksCivicPanel={asksCivicPanel}
+              civicPanelOnly={civicPanelOnly}
+            />
             {rows.map((row) => (
               <CallRow
                 key={row.key}

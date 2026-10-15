@@ -41,7 +41,12 @@ describe('CitizensPanelSection', () => {
   it("shows the panel's three numbers and links to its page", async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
-      data: { members: 1240, reachedRecently: 300, askableNow: 940 },
+      data: {
+        members: 1240,
+        reachedRecently: 300,
+        askableNow: 940,
+        lastOutreachAt: null,
+      },
     })
 
     render(<CitizensPanelSection />)
@@ -63,7 +68,12 @@ describe('CitizensPanelSection', () => {
   it('points to the Chief of Staff when nobody has joined yet', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
-      data: { members: 0, reachedRecently: 0, askableNow: 0 },
+      data: {
+        members: 0,
+        reachedRecently: 0,
+        askableNow: 0,
+        lastOutreachAt: null,
+      },
     })
 
     render(<CitizensPanelSection />)
@@ -98,7 +108,12 @@ describe('CitizensPanelSection', () => {
       calls()
       return {
         status: 200,
-        data: { members: 1, reachedRecently: 0, askableNow: 1 },
+        data: {
+          members: 1,
+          reachedRecently: 0,
+          askableNow: 1,
+          lastOutreachAt: null,
+        },
       }
     })
 

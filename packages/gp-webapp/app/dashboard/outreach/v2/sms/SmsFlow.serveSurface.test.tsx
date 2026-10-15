@@ -353,6 +353,107 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).not.toBeDisabled()
   })
 
+  // A text to the civic panel alone offers members a way off it, in place of
+  // the JOIN ask: locked like the JOIN line, and never beside it.
+  const panelOnlyLists = () =>
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        { id: 41, name: 'Northside residents' },
+        { id: 42, name: 'Panel not asked lately', civicPanelMember: true },
+      ],
+    })
+
+  it('offers LEAVE, locked, on a text to panel members alone', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    panelOnlyLists()
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Panel not asked lately'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    expect(
+      await screen.findByText(/Reply LEAVE to leave my civic panel\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
+    ).toBeNull()
+
+    const box = screen.getByRole('textbox', { name: 'Message body' })
+    const editor = (box as HTMLElement & { editor: Editor }).editor
+    let at = -1
+    editor.state.doc.descendants((node, pos) => {
+      const index = node.isText ? (node.text?.indexOf('Reply LEAVE') ?? -1) : -1
+      if (at === -1 && index !== -1) at = pos + index + 'Reply LEAVE'.length
+    })
+    act(() => {
+      editor.view.dispatch(editor.state.tr.delete(at - 1, at))
+    })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'This is how people leave your civic panel and keep getting your texts.',
+    )
+  })
+
+  it("swaps a card's JOIN ask for LEAVE when its list is the panel alone", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    panelOnlyLists()
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialScript="Has flooding damaged your home?"
+        initialAsksToJoinCivicPanel
+        preselectedListId={42}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    expect(
+      await screen.findByText(/Reply LEAVE to leave my civic panel\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+  })
+
+  it('offers no LEAVE line with serve-citizen-panels off', async () => {
+    panelOnlyLists()
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Panel not asked lately'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    expect(await screen.findByText(OPT_OUT_FOOTER)).toBeInTheDocument()
+    expect(screen.queryByText(/Reply LEAVE/)).toBeNull()
+  })
+
   // A report back goes to the people already asked: with the panel on, it
   // still never carries the join line or offers the box.
   it('keeps the join ask off a report back, whatever the card asked', async () => {

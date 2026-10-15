@@ -7,6 +7,7 @@ import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   CIVIC_PANEL_BUILD_CHAT_PARAM,
   CIVIC_PANEL_BUILD_CHAT_VALUE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
@@ -22,8 +23,8 @@ import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
-// The build card's turn, hidden again when its conversation is reopened.
-const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE]
+// The build card's turns, hidden again when their conversation is reopened.
+const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE, EXPLAIN_CIVIC_PANEL_MESSAGE]
 // A kickoff answers in place of the intro, so the first-chat intro must not
 // type in over it. Module-level so its identity is stable.
 const NO_INTRO: string[] = []
@@ -52,7 +53,7 @@ export default function DashboardContent(): React.JSX.Element {
 
   const firstName = user?.firstName || undefined
 
-  // The build card's Get started links back here with the param, so the
+  // The build card's Build my panel links back here with the param, so the
   // official stays on the home: the chat opens on the conversation that
   // builds the panel, started by a turn they never see.
   const router = useRouter()

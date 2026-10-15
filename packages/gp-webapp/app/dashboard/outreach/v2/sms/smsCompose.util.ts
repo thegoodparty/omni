@@ -6,7 +6,9 @@ import type {
 import {
   checkSmsStandards,
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_LEAVE_LINE,
   findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
   SMS_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import { SOCIAL_PURPOSE_LABELS } from '../socialPurposes'
@@ -422,5 +424,86 @@ export const withCivicPanelJoin = (script: string, on: boolean): string => {
   return `${lead}${CIVIC_PANEL_JOIN_LINE}\n\n${script.slice(optOutAt)}`
 }
 
+// Adds or removes the civic panel LEAVE line, which a text to panel members
+// alone carries in the JOIN line's place: its own paragraph just above the
+// opt-out. Removing it also drops any JOIN line, and adding it drops one, so
+// a message never carries both.
+export const withCivicPanelLeave = (script: string, on: boolean): string => {
+  const leave = findCivicPanelLeaveLine(script)
+  if (!on) {
+    if (!leave) return script
+    const end = leave.start + leave.text.length
+    return (
+      script.slice(0, leave.start) + script.slice(end).replace(/^(\n\n| )/, '')
+    )
+  }
+  const withoutJoin = withCivicPanelJoin(script, false)
+  if (leave) return withoutJoin
+  const optOutAt = withoutJoin.lastIndexOf(OPT_OUT_FOOTER)
+  if (optOutAt === -1) {
+    return `${withoutJoin.trimEnd()}\n\n${CIVIC_PANEL_LEAVE_LINE}`
+  }
+  const before = withoutJoin.slice(0, optOutAt).trimEnd()
+  const lead = before === '' ? '' : `${before}\n\n`
+  return `${lead}${CIVIC_PANEL_LEAVE_LINE}\n\n${withoutJoin.slice(optOutAt)}`
+}
+
+// The civic panel line a message should carry: LEAVE on a text to panel
+// members alone, otherwise JOIN when the ask is on, otherwise neither.
+export const withCivicPanelLines = (
+  script: string,
+  lines: { join: boolean; leave: boolean },
+): string =>
+  lines.leave
+    ? withCivicPanelLeave(script, true)
+    : withCivicPanelJoin(withCivicPanelLeave(script, false), lines.join)
+
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
+
+const PROFILE_PHOTO_MAX_EDGE = 1024
+const PROFILE_PHOTO_QUALITIES = [0.85, 0.7, 0.5]
+
+// The profile photo the SMS image starts from. Avatars are stored at up to
+// 5 MB, ten times what an MMS attachment allows, so anything over the cap or
+// in another format is redrawn as a JPEG. Null on any failure: the dropzone
+// is still there, so a missing prefill only costs the candidate one upload.
+export const profilePhotoFile = async (url: string): Promise<File | null> => {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    if (
+      IMAGE_ACCEPT.split(',').includes(blob.type) &&
+      blob.size <= IMAGE_MAX_BYTES
+    ) {
+      const extension = blob.type.split('/')[1] ?? 'jpeg'
+      return new File([blob], `profile-photo.${extension}`, {
+        type: blob.type,
+      })
+    }
+    const bitmap = await createImageBitmap(blob)
+    const scale = Math.min(
+      1,
+      PROFILE_PHOTO_MAX_EDGE / Math.max(bitmap.width, bitmap.height),
+    )
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    canvas
+      .getContext('2d')
+      ?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+    for (const quality of PROFILE_PHOTO_QUALITIES) {
+      const jpeg = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', quality),
+      )
+      if (jpeg && jpeg.size <= IMAGE_MAX_BYTES) {
+        return new File([jpeg], 'profile-photo.jpeg', { type: 'image/jpeg' })
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}

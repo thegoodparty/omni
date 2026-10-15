@@ -179,6 +179,8 @@ describe('civicPanelActivityLine', () => {
     ['member', 'manual', 'Added by you on Oct 2'],
     ['left', 'sms', 'Left by text on Oct 2'],
     ['left', 'manual', 'Removed by you on Oct 2'],
+    ['left', 'door_knock', 'Left at the door on Oct 2'],
+    ['left', 'phone_banking', 'Left on a call on Oct 2'],
   ] as const)('%s by %s reads "%s"', (value, source, line) => {
     expect(
       civicPanelActivityLine(

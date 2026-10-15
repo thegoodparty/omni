@@ -5,6 +5,7 @@ import {
   DoorKnockingResidentsResponse,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
+  isCivicPanelOnlyList,
   NotAVoterReason,
   RoutePayloadAddress,
   RoutePayloadRepresenting,
@@ -13,6 +14,7 @@ import {
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
@@ -47,6 +49,7 @@ const TURF_INCLUDE = {
   },
   outreach: { select: { id: true, script: true } },
   route: true,
+  voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT },
 } as const satisfies Prisma.DoorKnockingTurfInclude
 
 type LiveAddress = DoorKnockingResidentsResponse['addresses'][number]
@@ -260,6 +263,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       // static card on both, so absent and empty must not be distinguishable
       // — see the field's note on the payload schema.
       ...(turf.outreach.script ? { talkingPoints: turf.outreach.script } : {}),
+      civicPanelOnly: isServe && isCivicPanelOnlyList(turf.voterFileFilter),
     }
   }
 

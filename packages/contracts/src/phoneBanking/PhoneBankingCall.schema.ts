@@ -28,6 +28,9 @@ export const RecordPhoneBankingCallSchema = z
     followUp: FollowUpAnswerSchema.optional(),
     // Serve's closing question, asked after follow-up. Same yes/no vocabulary.
     joinCivicPanel: FollowUpAnswerSchema.optional(),
+    // Asked in place of joinCivicPanel when the list is panel members only:
+    // "Do they want to stay on your civic panel?". A no takes them off it.
+    stayOnCivicPanel: FollowUpAnswerSchema.optional(),
     note: z.string().max(PHONE_BANKING_CALL_NOTE_MAX_LENGTH).optional(),
     // After an answered upsert, log the entry's remaining un-logged
     // household members as answered too, in the same request.
@@ -113,6 +116,33 @@ export const RecordPhoneBankingCallSchema = z
     {
       message: 'joinCivicPanel belongs to the Serve surface',
       path: ['joinCivicPanel'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.stayOnCivicPanel === undefined ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'stayOnCivicPanel is only valid when outcome is answered',
+      path: ['stayOnCivicPanel'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.stayOnCivicPanel === undefined ||
+      (v.supportAnswer === undefined && v.willVote === undefined),
+    {
+      message: 'stayOnCivicPanel belongs to the Serve surface',
+      path: ['stayOnCivicPanel'],
+    },
+  )
+  // One panel question per conversation: a member is asked to stay, anyone
+  // else to join, and an answer to both would say two things at once.
+  .refine(
+    (v) => v.stayOnCivicPanel === undefined || v.joinCivicPanel === undefined,
+    {
+      message: 'joinCivicPanel and stayOnCivicPanel are never asked together',
+      path: ['stayOnCivicPanel'],
     },
   )
   .refine(

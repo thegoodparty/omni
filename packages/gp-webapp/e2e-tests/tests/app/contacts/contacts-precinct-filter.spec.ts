@@ -305,7 +305,7 @@ test('precinct filter: offered to an elected office too', async ({ page }) => {
   })
   await gotoCrmContacts(page)
   await expect(
-    page.getByRole('heading', { name: 'Constituent Data' }),
+    page.getByRole('heading', { name: 'Constituents', exact: true }),
   ).toBeVisible({ timeout: 20_000 })
 
   // Serve lands straight on the filters step (no branch chooser).

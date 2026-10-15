@@ -3,6 +3,7 @@ import {
   checkSmsStandards,
   deriveSmsProtectedParts,
 } from './SmsAdminConsole.schema'
+import { CIVIC_PANEL_LEAVE_LINE } from './CivicPanelJoin'
 
 const SCRIPT =
   "Hello {first_name}, it's Sarah Chen, running for city council. Can I count on your vote?\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out."
@@ -249,5 +250,20 @@ describe('deriveSmsProtectedParts', () => {
     }).map((part) => part.rule)
     expect(rules).not.toContain('paid_for_by')
     expect(rules).toContain('opt_out_line')
+  })
+
+  it('locks the civic panel LEAVE line where it stands', () => {
+    const script = `Hello {{first_name}}, Sarah Chen here. What do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`
+    const leave = deriveSmsProtectedParts(script, {
+      ...CONTEXT,
+      channel: 'serve',
+      ignoredRules: ['paid_for_by'],
+    }).find((part) => part.rule === 'civic_panel_leave')
+    expect(leave).toEqual({
+      rule: 'civic_panel_leave',
+      kind: 'phrase',
+      text: CIVIC_PANEL_LEAVE_LINE,
+      start: script.indexOf(CIVIC_PANEL_LEAVE_LINE),
+    })
   })
 })

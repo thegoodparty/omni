@@ -151,6 +151,8 @@ export interface PhoneBankingOutcomeDraft {
   followUp?: FollowUpAnswer
   // Serve's optional closing question, asked once follow-up is answered.
   joinCivicPanel?: FollowUpAnswer
+  // The same question on a list of panel members only, asked instead.
+  stayOnCivicPanel?: FollowUpAnswer
 }
 
 export const EMPTY_DRAFT: PhoneBankingOutcomeDraft = {}
@@ -171,6 +173,7 @@ export const draftWithOutcome = (
         willVote: undefined,
         followUp: undefined,
         joinCivicPanel: undefined,
+        stayOnCivicPanel: undefined,
       }
 
 export const draftWithEngagement = (
@@ -186,6 +189,7 @@ export const draftWithEngagement = (
         willVote: undefined,
         followUp: undefined,
         joinCivicPanel: undefined,
+        stayOnCivicPanel: undefined,
       }
 
 export const draftWithSupportAnswer = (
@@ -204,12 +208,22 @@ export const draftWithFollowUp = (
 ): PhoneBankingOutcomeDraft =>
   followUp
     ? { ...draft, followUp }
-    : { ...draft, followUp, joinCivicPanel: undefined }
+    : {
+        ...draft,
+        followUp,
+        joinCivicPanel: undefined,
+        stayOnCivicPanel: undefined,
+      }
 
 export const draftWithJoinCivicPanel = (
   draft: PhoneBankingOutcomeDraft,
   joinCivicPanel: FollowUpAnswer | undefined,
 ): PhoneBankingOutcomeDraft => ({ ...draft, joinCivicPanel })
+
+export const draftWithStayOnCivicPanel = (
+  draft: PhoneBankingOutcomeDraft,
+  stayOnCivicPanel: FollowUpAnswer | undefined,
+): PhoneBankingOutcomeDraft => ({ ...draft, stayOnCivicPanel })
 
 // Reading a persisted row back into the cascade: an answered row that
 // carries conversation answers must have come through the engaged path; a
@@ -258,6 +272,9 @@ export const draftFromInteraction = (
         followUp: isServe ? (interaction.followUp ?? undefined) : undefined,
         joinCivicPanel: isServe
           ? (interaction.joinCivicPanel ?? undefined)
+          : undefined,
+        stayOnCivicPanel: isServe
+          ? (interaction.stayOnCivicPanel ?? undefined)
           : undefined,
       }
     : EMPTY_DRAFT
@@ -314,6 +331,9 @@ export const buildRecordCallRequest = (
     ...(draft.willVote ? { willVote: draft.willVote } : {}),
     ...(draft.followUp ? { followUp: draft.followUp } : {}),
     ...(draft.joinCivicPanel ? { joinCivicPanel: draft.joinCivicPanel } : {}),
+    ...(draft.stayOnCivicPanel
+      ? { stayOnCivicPanel: draft.stayOnCivicPanel }
+      : {}),
     ...(markHouseholdDone ? { markHouseholdDone: true } : {}),
   }
 }

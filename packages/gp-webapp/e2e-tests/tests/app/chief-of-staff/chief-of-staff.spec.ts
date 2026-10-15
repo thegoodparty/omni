@@ -47,8 +47,8 @@ test.describe('Chief of Staff', () => {
 
     // A fresh elected office has no briefing yet, so the only cards present are
     // the static get-started onboarding cards (briefing task cards need the
-    // async pipeline). The "meet" card is active until the user chats, which
-    // this isolated user has not done.
+    // async pipeline). The "meet" card leads the stack until the user opens
+    // or skips it, which this isolated user has not done.
     const cardTitle = 'Get the staff your office never had'
     const homeCard = page
       .locator('[data-slot="card"]')
