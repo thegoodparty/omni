@@ -864,7 +864,7 @@ describe('ContactEngagementService', () => {
 
     // A support answer and a turnout intention are Win facts about a person,
     // and this feed is read on the Serve surface too — the walk's person sheet
-    // and the Constituent Data overlay. Nulled here rather than hidden per
+    // and the Constituents overlay. Nulled here rather than hidden per
     // reader, the same rule `politicalParty` follows: the `eo-` prefix decides
     // it, so a Serve row states its outcome, note and actor and nothing about
     // a question its canvasser never asked.

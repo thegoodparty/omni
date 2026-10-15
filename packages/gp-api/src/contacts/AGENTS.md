@@ -68,7 +68,7 @@ fixes track under ENG-10744.
   (`contactEngagement.service.ts`): a door-knock or phone-banking row's
   `supportAnswer`/`willVote` are Win facts about a person, so both read null
   for an `eo-` org. Stripped server-side rather than hidden per reader,
-  because that feed has two — the walk's person sheet and the Constituent Data
+  because that feed has two — the walk's person sheet and the Constituents
   overlay — and one null fixes both plus whatever reads it next. Precinct
   is NOT in that set — it is offered to both, because a precinct is an
   administrative subdivision of the district an official already serves.
@@ -687,8 +687,12 @@ contracts' `CIVIC_PANEL_BUILD_CARD_HREF`, the home itself with
 hidden turn `BUILD_CITIZENS_PANEL_MESSAGE`, and the agent explains the panel,
 counts the district's cell phones, sizes the invite with `size_panel_invite`
 and presents one text card with `purpose: build_citizens_panel` (see
-`chats/general/chief-of-staff`, `civicPanelBuildBlock`). A card still holding
-the old outreach link is rewritten on the next read. The card is done once any `text` row of the org with `asksToJoinCivicPanel` is past
+`chats/general/chief-of-staff`, `civicPanelBuildBlock`). The card's quiet
+What's a civic panel? opens the same chat with the hidden turn
+`EXPLAIN_CIVIC_PANEL_MESSAGE` instead: the agent explains the panel and
+builds nothing unless the official says yes (`civicPanelExplainLines`).
+Old words or the old outreach link on a card are rewritten on the next
+read. The card is done once any `text` row of the org with `asksToJoinCivicPanel` is past
 checkout (not `pending_payment`, `draft`, `canceled`, `denied` or `failed`):
 the purpose is not stored on the row, and the ask is what recruits. While it
 is open its due date rolls forward so it never lapses into missed. That sent

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   DASHBOARD_CARD_SNOOZE_DAYS,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
   isCivicPanelBuildCard,
 } from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
@@ -75,7 +76,7 @@ const HEADLINES: Record<DeckKind, string> = {
 
 // The build card shares its type with the per-priority panel cards, and
 // sits between the two get-started cards.
-const BUILD_PANEL_HEADLINE = 'Start here'
+const BUILD_PANEL_HEADLINE = 'People first'
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||
@@ -113,7 +114,8 @@ const TaskStack = ({
   briefingInFlight = false,
 }: {
   onOpenCard: (key: OnboardingCardKey) => void
-  // Opens a fresh chat seeded with a message about the front card.
+  // Opens a fresh chat seeded with a hidden first message: one about the
+  // front card, or the build card's explain turn.
   onDiscussCard?: (message: string) => void
   // True while a briefing is generating, so the empty state stays hidden.
   briefingInFlight?: boolean
@@ -411,6 +413,19 @@ const TaskStack = ({
                       Ask about this
                     </Button>
                   )}
+                {/* Explains the panel before asking for it: the chat builds
+                    nothing unless the official says yes. */}
+                {onDiscussCard && front.buildsPanel && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="medium"
+                    className={QUIET_ON_PHONE}
+                    onClick={() => onDiscussCard(EXPLAIN_CIVIC_PANEL_MESSAGE)}
+                  >
+                    What&apos;s a civic panel?
+                  </Button>
+                )}
                 {!leaving &&
                   (front.kind === 'civic_panel' ||
                   front.kind === 'report_back' ? (

@@ -90,6 +90,10 @@ const UPLOADABLE_STATUSES = [
   OutreachStatus.completed,
 ] as const
 
+// A Serve poll is a text send with a question, so its replies take the same
+// upload path.
+const RESULTS_OUTREACH_TYPES = [OutreachType.text, OutreachType.poll]
+
 // Only the delivery layer's own producer label reaches the ingest: A6 types
 // `sourceLabel` as a closed union of producers, and the request's free-text
 // label names a person, not a producer. The person is recorded in this
@@ -200,7 +204,7 @@ export class OutreachResultsAdminService extends createPrismaBase(
     const sends = await this.model.findMany({
       where: {
         status: OutreachStatus.in_progress,
-        outreachType: OutreachType.text,
+        outreachType: { in: RESULTS_OUTREACH_TYPES },
         textRecipients: { some: {} },
       },
       select: SEND_SELECT,
@@ -544,14 +548,14 @@ export class OutreachResultsAdminService extends createPrismaBase(
   }
 
   /**
-   * 404 rather than 400 for a poll: the results surface is SMS-only in this
-   * slice, so from its point of view a poll id names nothing. A 400 would
-   * read as "your file was wrong", which would send the operator looking at
-   * the file instead of at the link they followed.
+   * 404 rather than 400 for anything that is not a text or Serve poll send:
+   * from the results surface's point of view such an id names nothing. A 400
+   * would read as "your file was wrong", which would send the operator
+   * looking at the file instead of at the link they followed.
    */
   private async requireTextSend(outreachId: number): Promise<SendRow> {
     const send = await this.model.findFirst({
-      where: { id: outreachId, outreachType: OutreachType.text },
+      where: { id: outreachId, outreachType: { in: RESULTS_OUTREACH_TYPES } },
       select: SEND_SELECT,
     })
     if (!send) {

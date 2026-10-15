@@ -288,7 +288,7 @@ const SERVE_AREAS: ProductArea[] = [
       'The task in front has its main button, Mark done, Ask about this and Skip; finishing or skipping it brings the next task forward',
       'Ask about this opens a new chat with your Chief of Staff about that task. The civic panel cards do not have it, since their own button already opens a conversation',
       'Two get-started cards: Get the staff your office never had, which opens this chat to meet your Chief of Staff, and Get help focused on what you care about, which opens it to share your priorities. A new official always sees Get the staff your office never had first, until they open it or skip it; chatting from anywhere else does not count. They have no Mark done or Ask about this; they leave on their own once you have opened the first one, or shared your priorities',
-      'Where the civic panel is on, the card right after Get the staff your office never had (the first card once that one is done or skipped), under Start here, is Hear from more than the loudest voices, ahead of Get help focused on what you care about. It builds your civic panel, for every official, however long ago they joined. It shows no due date and no price; the cost comes in the chat and the pay step. Get started opens this chat on the home, where your Chief of Staff explains the panel and the numbers for your district, then offers the invite text as a card: a random group of residents with a cell phone, picked to reach about 100 members. Start the text opens it over the chat with the ask to reply JOIN locked on, and the price shown before it sends. It has no Mark done; it is done once that text is paid for. Skip offers Show in 3 days, which brings it back to the front three days later, or Not for me, which sets it aside until Bring it back on it under Archive, Skipped',
+      'Where the civic panel is on, the card right after Get the staff your office never had (the first card once that one is done or skipped), under People first, is Start with the people you represent, ahead of Get help focused on what you care about. It builds your civic panel, for every official, however long ago they joined. It shows no due date and no price; the cost comes in the chat and the pay step. What’s a civic panel? on it opens this chat on the home to explain the panel, and builds nothing unless you say yes. Build my panel opens this chat on the home, where your Chief of Staff explains the panel and the numbers for your district, then offers the invite text as a card: a random group of residents with a cell phone, picked to reach about 100 members. Start the text opens it over the chat with the ask to reply JOIN locked on, and the price shown before it sends. It has no Mark done; it is done once that text is paid for. Skip offers Show in 3 days, which brings it back to the front three days later, or Not for me, which sets it aside until Bring it back on it under Archive, Skipped',
       'Where the civic panel is on, Next steps on your priorities sit under the build card, whether it is open, put off, set aside or done: a card for each open priority with its next step, the same line as Next under Where this stands (or, with none, the step the Priorities page shows), and an Open priority button. It has no Mark done; it stays until the priority is archived or its plan is ready, and comes back if the priority is unarchived or a step opens up again. Skip offers Show in 3 days or Not for me, and Bring it back under Archive, Skipped. Meeting, agenda and community issue tasks show throughout, behind the build card while it leads',
       'Where the civic panel is on, once a priority’s text has its replies in, a Show people their voice counted on <priority> card appears, due two weeks later. Report back opens that priority’s conversation, which walks through what came back and drafts a text telling the same people what you heard and what you will do next. It is done once that text is paid for, or with Mark done. Skip offers Show in 3 days or Not for me, and Bring it back under Archive, Skipped',
       'Archive, in the page’s title bar, lists this week’s tasks, the ones marked done, the ones skipped and the ones missed',
@@ -392,7 +392,7 @@ const SERVE_AREAS: ProductArea[] = [
   },
   {
     navId: 'contacts-dashboard',
-    name: 'Constituent Data',
+    name: 'Constituents',
     path: '/dashboard/contacts',
     modes: ['serve'],
     does: 'Browse the district’s people, filter them, and save lists to use for outreach.',
@@ -531,7 +531,7 @@ export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   ],
   serve: [
     'Priorities I record are real and appear in the product.',
-    'Saved lists I create are real, and appear under Constituent Data.',
+    'Saved lists I create are real, and appear under Constituents.',
     'I cannot edit your public page, your account, or your billing, and I cannot export anything to a file.',
   ],
 }

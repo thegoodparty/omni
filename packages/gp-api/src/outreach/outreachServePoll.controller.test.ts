@@ -1,307 +1,528 @@
 import { HttpStatus } from '@nestjs/common'
-import { addDays, format, isWeekend } from 'date-fns'
+import { isHighConfidence } from '@goodparty_org/contracts'
+import { addDays, subDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { completionEvent } from '@/constituentFeedback/tests/issueCaptureFixtures'
+import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { FeaturesService } from '@/features/services/features.service'
-import { LlmService } from '@/llm/services/llm.service'
-import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { useTestService } from '@/test-service'
-import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
+import {
+  ContactStatusField,
+  OutreachStatus,
+  OutreachType,
+  PollIndividualMessageSender,
+  SynthesisRunStatus,
+  SynthesisScope,
+} from '../generated/prisma'
 
-// Driven over HTTP so the @UseElectedOffice() guard, the Zod body and
-// response parsing, and the flag gate run for real. Only the vendors are
-// stubbed: the LLM, people-api (through ContactsService) and the feature flag.
 const service = useTestService()
 
+const OTHER_ORG_SLUG = 'eo-other-poll-org'
+const PERSON_NAMED = '11111111-1111-4111-8111-111111111111'
+
 let orgSlug: string
+let outreachId: number
+let replyCount = 0
 const isFeatureEnabled = vi.fn()
-const jsonCompletion = vi.fn()
-const getDistrictStats = vi.fn()
-const sampleContacts = vi.fn()
-const findContactsForFilter = vi.fn()
-const findOptedOutPersonIds = vi.fn()
 
-const stub = <T>(token: new (...args: never[]) => T): T =>
-  service.app.get(token)
-
-const validDate = (): string => {
-  let date = addDays(new Date(), 14)
-  while (isWeekend(date)) date = addDays(date, 1)
-  return format(date, 'yyyy-MM-dd')
-}
-
-const people = (count: number) =>
-  Array.from({ length: count }, (_, index) => ({
-    id: `person-${index}`,
-    cellPhone: `512555${String(index).padStart(4, '0')}`,
-  }))
-
-const headers = () => ({ headers: { 'x-organization-slug': orgSlug } })
-const postDraft = (body: object) =>
-  service.client.post('/v1/outreach/serve/poll/draft', body, headers())
-const postCreate = (body: object) =>
-  service.client.post('/v1/outreach/serve/poll', body, headers())
-
-const createBody = (overrides: Record<string, unknown> = {}) => ({
-  topic: 'housing',
-  tone: 'Warm',
-  question: 'What would make housing easier for your family?',
-  audience: { kind: 'sample', size: 500 },
-  scheduledLocalDate: validDate(),
-  biasOverridden: false,
-  ...overrides,
+const eoHeaders = (slug = orgSlug) => ({
+  headers: { 'x-organization-slug': slug },
 })
+const getResults = (id = outreachId) =>
+  service.client.get(`/v1/outreach/serve/${id}/poll-results`, eoHeaders())
+const getReplies = (query = '', id = outreachId) =>
+  service.client.get(`/v1/outreach/serve/${id}/replies${query}`, eoHeaders())
+const putFlags = (replyId: string, body: object, id = outreachId) =>
+  service.client.put(
+    `/v1/outreach/serve/${id}/replies/${replyId}/flags`,
+    body,
+    eoHeaders(),
+  )
 
-beforeEach(async () => {
-  orgSlug = `eo-${Date.now()}-${Math.random().toString(36).slice(2)}`
+const createOrg = async (slug: string, ownerId: number) => {
   await service.prisma.organization.create({
-    data: { slug: orgSlug, ownerId: service.user.id },
+    data: { slug, ownerId, positionId: 'pos-1' },
   })
   await service.prisma.electedOffice.create({
-    data: { userId: service.user.id, organizationSlug: orgSlug },
+    data: { organizationSlug: slug, userId: ownerId },
   })
+}
 
-  isFeatureEnabled.mockReset().mockResolvedValue(true)
-  jsonCompletion
-    .mockReset()
-    .mockResolvedValue({ object: { question: 'What matters most to you?' } })
-  getDistrictStats
-    .mockReset()
-    .mockResolvedValue({ totalConstituentsWithCellPhone: 300 })
-  sampleContacts.mockReset().mockImplementation(({ size }) => people(size))
-  findContactsForFilter.mockReset().mockResolvedValue({
-    people: people(120),
-    pagination: { totalResults: 120 },
+const createPoll = async (slug: string, sent: number) => {
+  const outreach = await service.prisma.outreach.create({
+    data: {
+      organizationSlug: slug,
+      outreachType: OutreachType.poll,
+      status: OutreachStatus.in_progress,
+      name: 'Parks poll',
+      message: 'What should we fix first?',
+      pollDetails: {
+        create: { topic: 'parks_recreation', audienceKind: 'sample' },
+      },
+    },
   })
-  findOptedOutPersonIds.mockReset().mockResolvedValue([])
-
-  vi.spyOn(stub(FeaturesService), 'isFeatureEnabled').mockImplementation(
-    isFeatureEnabled,
-  )
-  vi.spyOn(stub(LlmService), 'jsonCompletion').mockImplementation(
-    jsonCompletion,
-  )
-  vi.spyOn(stub(ContactsService), 'getDistrictStats').mockImplementation(
-    getDistrictStats,
-  )
-  vi.spyOn(stub(ContactsService), 'sampleContacts').mockImplementation(
-    sampleContacts,
-  )
-  vi.spyOn(stub(ContactsService), 'findContactsForFilter').mockImplementation(
-    findContactsForFilter,
-  )
-  vi.spyOn(stub(ContactsService), 'resolvePeopleDataset').mockResolvedValue(
-    'constituents' as Awaited<
-      ReturnType<ContactsService['resolvePeopleDataset']>
-    >,
-  )
-  vi.spyOn(
-    stub(ContactInteractionTextService),
-    'findOptedOutPersonIds',
-  ).mockImplementation(findOptedOutPersonIds)
-  vi.spyOn(
-    stub(OrganizationsService),
-    'resolvePositionNameByOrganizationSlug',
-  ).mockResolvedValue('City Council Member')
-  vi.spyOn(
-    stub(OutreachServeComposeContextService),
-    'buildProfileContext',
-  ).mockResolvedValue([])
-})
-
-describe('POST /v1/outreach/serve/poll/draft', () => {
-  it('sends the topic and tone to the model and returns the parsed question', async () => {
-    const res = await postDraft({ topic: 'housing', tone: 'Warm' })
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data).toEqual({ question: 'What matters most to you?' })
-    const user = jsonCompletion.mock.calls[0]?.[0].messages[1].content
-    expect(user).toContain('Topic: Housing.')
-    expect(user).toContain('Tone: Warm:')
-    expect(user).toContain('Write the question.')
+  await service.prisma.outreachTextRecipient.createMany({
+    data: Array.from({ length: sent }, (_, i) => ({
+      outreachId: outreach.id,
+      organizationSlug: slug,
+      personId: `recipient-${outreach.id}-${i}`,
+      phone: `+1303555${String(i).padStart(4, '0')}`,
+    })),
   })
+  return outreach.id
+}
 
-  it('improves the current draft when one is passed', async () => {
-    jsonCompletion.mockResolvedValue({
-      object: { question: 'How could the city make housing easier to find?' },
-    })
-    const res = await postDraft({
-      topic: 'housing',
-      tone: 'Neutral',
-      currentDraft: 'Do you agree that housing costs too much?',
-    })
-
-    expect(res.data).toEqual({
-      question: 'How could the city make housing easier to find?',
-    })
-    const user = jsonCompletion.mock.calls[0]?.[0].messages[1].content
-    expect(user).toContain('Do you agree that housing costs too much?')
-    expect(user).toContain('Improve the draft.')
+const addReply = async (
+  overrides: {
+    personId?: string
+    content?: string
+    isOptOut?: boolean
+    createdAt?: Date
+    sentAt?: Date
+    outreachId?: number
+  } = {},
+) => {
+  replyCount += 1
+  return service.prisma.pollIndividualMessage.create({
+    data: {
+      id: `reply-${replyCount}`,
+      personId: overrides.personId ?? `recipient-${outreachId}-${replyCount}`,
+      personCellPhone: '+13035550101',
+      sentAt: overrides.sentAt ?? new Date('2026-09-01T12:00:00Z'),
+      createdAt: overrides.createdAt,
+      content: overrides.content ?? `Fix the park ${replyCount}`,
+      isOptOut: overrides.isOptOut ?? false,
+      sender: PollIndividualMessageSender.CONSTITUENT,
+      outreachId: overrides.outreachId ?? outreachId,
+    },
   })
+}
 
-  it('refuses to invent a question for a custom topic', async () => {
-    const res = await postDraft({ topic: 'custom', tone: 'Neutral' })
+const addReplies = async (count: number) =>
+  Promise.all(Array.from({ length: count }, () => addReply()))
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(jsonCompletion).not.toHaveBeenCalled()
-  })
-
-  it('returns 502 when the model fails', async () => {
-    jsonCompletion.mockRejectedValue(new Error('upstream'))
-    const res = await postDraft({ topic: 'housing', tone: 'Warm' })
-
-    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
-  })
-
-  it('returns 404 with the flag off', async () => {
-    isFeatureEnabled.mockResolvedValue(false)
-    const res = await postDraft({ topic: 'housing', tone: 'Warm' })
-
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
-    expect(jsonCompletion).not.toHaveBeenCalled()
-  })
-
-  it('returns 404 from the elected-office guard for an org the user does not hold', async () => {
-    const res = await service.client.post(
-      '/v1/outreach/serve/poll/draft',
-      { topic: 'housing', tone: 'Warm' },
-      { headers: { 'x-organization-slug': 'no-such-org' } },
-    )
-
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
-    expect(jsonCompletion).not.toHaveBeenCalled()
-  })
-})
-
-describe('POST /v1/outreach/serve/poll', () => {
-  it('clamps a sample to the eligible count and prices that count', async () => {
-    const res = await postCreate(createBody())
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data).toEqual({
-      outreachId: expect.any(Number),
-      recipientCount: 300,
-      amountCents: 1050,
-    })
-    expect(sampleContacts).toHaveBeenCalledWith(
-      { size: 300, excludeIds: [] },
-      expect.objectContaining({ slug: orgSlug }),
-    )
-
-    const row = await service.prisma.outreach.findUniqueOrThrow({
-      where: { id: res.data.outreachId },
-      include: { pollDetails: true },
-    })
-    expect(row).toMatchObject({
-      outreachType: 'poll',
-      status: 'pending_payment',
-      campaignId: null,
+const addCompletedRun = async (
+  completedAt: Date,
+  themes: { title: string; replyIds: string[] }[],
+  status: SynthesisRunStatus = SynthesisRunStatus.completed,
+) => {
+  const run = await service.prisma.feedbackSynthesisRun.create({
+    data: {
       organizationSlug: orgSlug,
-      textCount: 300,
-      voterFileFilterId: null,
+      scope: SynthesisScope.effort,
+      outreachId,
+      status,
+      completedAt,
+      conversations: 0,
+      memos: 0,
+      confirmed: 0,
+      engine: 'mock',
+    },
+  })
+  for (const [rank, theme] of themes.entries()) {
+    await service.prisma.feedbackTheme.create({
+      data: {
+        runId: run.id,
+        rank: rank + 1,
+        title: theme.title,
+        summary: `${theme.title} summary`,
+        details: '',
+        members: {
+          create: theme.replyIds.map((textReplyId) => ({ textReplyId })),
+        },
+      },
     })
-    expect(row.message).toBe(
-      'Hi {{first_name}}, this is Johnny Goodparty, City Council Member. ' +
-        'What would make housing easier for your family? ' +
-        'Reply STOP to opt out.',
-    )
-    expect(row.pollDetails).toMatchObject({
-      topic: 'housing',
-      tone: 'Warm',
-      audienceKind: 'sample',
-      biasOverridden: false,
+  }
+  return run
+}
+
+beforeEach(async () => {
+  orgSlug = `eo-poll-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  await createOrg(orgSlug, service.user.id)
+  outreachId = await createPoll(orgSlug, 100)
+  isFeatureEnabled.mockReset().mockResolvedValue(true)
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'isFeatureEnabled',
+  ).mockImplementation(isFeatureEnabled)
+  vi.spyOn(
+    service.app.get(ContactsService),
+    'resolveEligibleDistrict',
+  ).mockResolvedValue({
+    districtId: '33333333-3333-4333-8333-333333333333',
+    dataset: 'voters',
+  } as Awaited<ReturnType<ContactsService['resolveEligibleDistrict']>>)
+  vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockResolvedValue({
+    people: [{ id: PERSON_NAMED, firstName: 'Dana', lastName: 'Whitfield' }],
+  } as Awaited<ReturnType<VoterQueryService['findPeople']>>)
+})
+
+describe('GET /v1/outreach/serve/:id/poll-results', () => {
+  it('reports no themes and no confidence at 19 responses', async () => {
+    const replies = await addReplies(19)
+    await addCompletedRun(new Date(), [
+      { title: 'Parks', replyIds: replies.map((r) => r.id) },
+    ])
+
+    const res = await getResults()
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      outreachId,
+      sent: 100,
+      responses: 19,
+      notEnoughResponses: true,
+      confidence: null,
+      isHighConfidence: false,
+      themes: [],
+      nonClustered: { count: 0 },
     })
   })
 
-  it('draws the sample without opted-out people', async () => {
-    findOptedOutPersonIds.mockResolvedValue(['person-1', 'person-2'])
-    await postCreate(createBody())
+  it('returns themes at 20 responses and sizes confidence against sent', async () => {
+    const replies = await addReplies(20)
+    await addReply({ isOptOut: true, content: 'STOP' })
+    await addCompletedRun(new Date('2026-09-02T00:00:00Z'), [
+      { title: 'Parks', replyIds: replies.slice(0, 12).map((r) => r.id) },
+      { title: 'Roads', replyIds: replies.slice(12, 18).map((r) => r.id) },
+    ])
 
-    expect(sampleContacts).toHaveBeenCalledWith(
-      { size: 300, excludeIds: ['person-1', 'person-2'] },
-      expect.anything(),
+    const res = await getResults()
+
+    expect(res.data.notEnoughResponses).toBe(false)
+    expect(res.data.responses).toBe(20)
+    expect(res.data.responseRate).toBe(0.2)
+    expect(res.data.optOutRate).toBe(0.01)
+    expect(res.data.confidence).toBe(0.2)
+    // 20 replies of 100 sent clears the share bar; against a district of
+    // thousands it would not.
+    expect(res.data.isHighConfidence).toBe(
+      isHighConfidence({ replies: 20, population: 100 }),
     )
-  })
-
-  it('stores the saved list and list audience kind', async () => {
-    const filter = await service.prisma.voterFileFilter.create({
-      data: { name: 'Neighbors', organizationSlug: orgSlug },
-    })
-    const res = await postCreate(
-      createBody({
-        audience: { kind: 'list', voterFileFilterId: filter.id },
-        biasOverridden: true,
-      }),
-    )
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.recipientCount).toBe(120)
-    const row = await service.prisma.outreach.findUniqueOrThrow({
-      where: { id: res.data.outreachId },
-      include: { pollDetails: true },
-    })
-    expect(row.voterFileFilterId).toBe(filter.id)
-    expect(row.pollDetails).toMatchObject({
-      audienceKind: 'list',
-      biasOverridden: true,
-    })
-  })
-
-  it('refuses a list that belongs to another organization', async () => {
-    const otherSlug = `${orgSlug}-other`
-    await service.prisma.organization.create({
-      data: { slug: otherSlug, ownerId: service.user.id },
-    })
-    const filter = await service.prisma.voterFileFilter.create({
-      data: { name: 'Theirs', organizationSlug: otherSlug },
-    })
-    const res = await postCreate(
-      createBody({ audience: { kind: 'list', voterFileFilterId: filter.id } }),
-    )
-
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-  })
-
-  it('returns 400 and writes nothing under 25 eligible recipients', async () => {
-    getDistrictStats.mockResolvedValue({ totalConstituentsWithCellPhone: 24 })
-    const res = await postCreate(createBody())
-
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.isHighConfidence).toBe(true)
     expect(
-      await service.prisma.outreach.count({
-        where: { organizationSlug: orgSlug },
-      }),
-    ).toBe(0)
+      res.data.themes.map(
+        (t: { label: string; mentionCount: number }) =>
+          `${t.label}:${t.mentionCount}`,
+      ),
+    ).toEqual(['Parks:12', 'Roads:6'])
+    expect(res.data.themes[0].sampleQuotes).toHaveLength(3)
+    expect(res.data.analysis).toEqual({ status: 'completed' })
   })
 
-  it('returns 400 when the composed text is over the cap', async () => {
-    await service.prisma.user.update({
-      where: { id: service.user.id },
-      data: { firstName: 'A'.repeat(600), lastName: 'B'.repeat(100) },
-    })
-    const res = await postCreate(createBody({ question: 'Q'.repeat(480) }))
-
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-  })
-
-  it('returns 400 for a send date outside the allowed window', async () => {
-    const res = await postCreate(
-      createBody({ scheduledLocalDate: format(new Date(), 'yyyy-MM-dd') }),
+  it('counts a reply added after the previous run as a new mention', async () => {
+    const previousAt = new Date('2026-09-02T00:00:00Z')
+    const before = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        addReply({ createdAt: subDays(previousAt, 1) }),
+      ),
     )
+    await addCompletedRun(
+      previousAt,
+      [{ title: 'Parks', replyIds: before.map((r) => r.id) }],
+      SynthesisRunStatus.superseded,
+    )
+    const late = await Promise.all([
+      addReply({ createdAt: addDays(previousAt, 1) }),
+      addReply({ createdAt: addDays(previousAt, 2) }),
+    ])
+    await addCompletedRun(addDays(previousAt, 3), [
+      { title: 'Parks', replyIds: [...before, ...late].map((r) => r.id) },
+    ])
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const res = await getResults()
+
+    expect(res.data.themes[0]).toMatchObject({
+      mentionCount: 22,
+      newMentions: 2,
+    })
   })
 
-  it('returns 404 with the flag off and writes nothing', async () => {
+  it('counts only replies with no theme in the latest run as non-clustered', async () => {
+    const replies = await addReplies(24)
+    await addReply({ isOptOut: true, content: 'STOP' })
+    await addCompletedRun(new Date(), [
+      { title: 'Parks', replyIds: replies.slice(0, 20).map((r) => r.id) },
+    ])
+
+    const res = await getResults()
+
+    expect(res.data.nonClustered).toEqual({ count: 4 })
+  })
+
+  it('names a quote by the first name the CRM holds', async () => {
+    const named = await addReply({
+      personId: PERSON_NAMED,
+      content: 'The splash pad is broken',
+    })
+    const others = await addReplies(19)
+    await addCompletedRun(new Date(), [
+      { title: 'Parks', replyIds: [named, ...others].map((r) => r.id) },
+    ])
+
+    const res = await getResults()
+
+    expect(res.data.themes[0].sampleQuotes).toContainEqual({
+      text: 'The splash pad is broken',
+      firstName: 'Dana',
+    })
+  })
+
+  it('counts replies since the last analysis off the poll row', async () => {
+    const replies = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        addReply({ createdAt: subDays(new Date(), 2) }),
+      ),
+    )
+    const analyzedAt = subDays(new Date(), 1)
+    await addCompletedRun(analyzedAt, [
+      { title: 'Parks', replyIds: replies.map((r) => r.id) },
+    ])
+    await service.prisma.outreachPoll.update({
+      where: { outreachId },
+      data: { lastAnalysisAt: analyzedAt },
+    })
+    await addReply({ createdAt: new Date() })
+
+    const res = await getResults()
+
+    expect(res.data.newSinceLastAnalysis).toBe(1)
+    expect(new Date(res.data.lastAnalysisAt).getTime()).toBe(
+      analyzedAt.getTime(),
+    )
+  })
+
+  it('reports a run in flight and lists expansions', async () => {
+    await service.prisma.feedbackSynthesisRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        scope: SynthesisScope.effort,
+        outreachId,
+        status: SynthesisRunStatus.running,
+        activeKey: `${orgSlug}:${outreachId}`,
+        conversations: 0,
+        memos: 0,
+        confirmed: 0,
+        engine: 'mock',
+      },
+    })
+    await service.prisma.outreachPollExpansion.create({
+      data: {
+        outreachId,
+        sendSeq: 2,
+        textCount: 50,
+        status: OutreachStatus.pending_payment,
+      },
+    })
+
+    const res = await getResults()
+
+    expect(res.data.analysis).toEqual({ status: 'running' })
+    expect(res.data.expansions).toEqual([
+      { sendSeq: 2, textCount: 50, status: OutreachStatus.pending_payment },
+    ])
+  })
+
+  it('404s another office’s poll and a non-poll outreach', async () => {
+    await createOrg(OTHER_ORG_SLUG, (await otherUser()).id)
+    const theirs = await createPoll(OTHER_ORG_SLUG, 10)
+    const text = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: orgSlug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.in_progress,
+        name: 'A text',
+      },
+    })
+
+    expect((await getResults(theirs)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await getResults(text.id)).status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('404s with the rollout flag off', async () => {
     isFeatureEnabled.mockResolvedValue(false)
-    const res = await postCreate(createBody())
 
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
-    expect(
-      await service.prisma.outreach.count({
-        where: { organizationSlug: orgSlug },
-      }),
-    ).toBe(0)
+    expect((await getResults()).status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+let otherUserCount = 0
+const otherUser = () => {
+  otherUserCount += 1
+  return service.prisma.user.create({
+    data: { email: `teammate-${otherUserCount}-${Date.now()}@example.com` },
+  })
+}
+
+describe('PUT /v1/outreach/serve/:id/replies/:replyId/flags', () => {
+  it('upserts per user and clears favorited without touching read', async () => {
+    const reply = await addReply()
+
+    const first = await putFlags(reply.id, { favorited: true, read: true })
+    expect(first.status).toBe(HttpStatus.OK)
+    expect(first.data).toEqual({ favorited: true, read: true })
+
+    const second = await putFlags(reply.id, { favorited: false })
+    expect(second.data).toEqual({ favorited: false, read: true })
+    const row = await service.prisma.outreachReplyFlag.findUniqueOrThrow({
+      where: {
+        userId_replyId: { userId: service.user.id, replyId: reply.id },
+      },
+    })
+    expect(row.favoritedAt).toBeNull()
+    expect(row.readAt).not.toBeNull()
+  })
+
+  it('shows only the session user’s flags on the list', async () => {
+    const reply = await addReply()
+    const teammate = await otherUser()
+    await service.prisma.outreachReplyFlag.create({
+      data: {
+        userId: teammate.id,
+        replyId: reply.id,
+        favoritedAt: new Date(),
+        readAt: new Date(),
+      },
+    })
+
+    const res = await getReplies()
+
+    expect(res.data.replies[0]).toMatchObject({
+      id: reply.id,
+      favorited: false,
+      read: false,
+    })
+  })
+
+  it('filters the list to favorited and unread replies', async () => {
+    const [a, b, c] = await Promise.all([addReply(), addReply(), addReply()])
+    await putFlags(a.id, { favorited: true, read: true })
+    await putFlags(b.id, { read: true })
+
+    const favorited = await getReplies('?filter=favorited')
+    const unread = await getReplies('?filter=unread')
+
+    expect(favorited.data.replies.map((r: { id: string }) => r.id)).toEqual([
+      a.id,
+    ])
+    expect(favorited.data.total).toBe(1)
+    expect(unread.data.replies.map((r: { id: string }) => r.id)).toEqual([c.id])
+  })
+
+  it('404s a reply on another office’s poll', async () => {
+    await createOrg(OTHER_ORG_SLUG, (await otherUser()).id)
+    const theirs = await createPoll(OTHER_ORG_SLUG, 10)
+    const reply = await addReply({ outreachId: theirs })
+
+    expect((await putFlags(reply.id, { read: true }, theirs)).status).toBe(
+      HttpStatus.NOT_FOUND,
+    )
+    expect((await putFlags(reply.id, { read: true })).status).toBe(
+      HttpStatus.NOT_FOUND,
+    )
+    expect(await service.prisma.outreachReplyFlag.count()).toBe(0)
+  })
+
+  it('404s with the rollout flag off', async () => {
+    const reply = await addReply()
+    isFeatureEnabled.mockResolvedValue(false)
+
+    expect((await putFlags(reply.id, { read: true })).status).toBe(
+      HttpStatus.NOT_FOUND,
+    )
+  })
+})
+
+describe('GET /v1/outreach/serve/:id/replies on a poll', () => {
+  it('limits the list to a theme, or to replies the latest run left out', async () => {
+    const replies = await addReplies(5)
+    await addCompletedRun(new Date(), [
+      { title: 'Parks', replyIds: replies.slice(0, 3).map((r) => r.id) },
+    ])
+    const theme = await service.prisma.feedbackTheme.findFirstOrThrow({
+      where: { title: 'Parks' },
+    })
+
+    const inTheme = await getReplies(`?themeId=${theme.id}`)
+    const left = await getReplies('?nonClustered=true')
+
+    expect(inTheme.data.total).toBe(3)
+    expect(left.data.replies.map((r: { id: string }) => r.id).sort()).toEqual(
+      replies
+        .slice(3)
+        .map((r) => r.id)
+        .sort(),
+    )
+  })
+
+  it('returns the CRM contact id and the label the contact card shows', async () => {
+    const reply = await addReply({ personId: PERSON_NAMED })
+    await service.prisma.contactCurrentStatus.create({
+      data: {
+        organizationSlug: orgSlug,
+        personId: PERSON_NAMED,
+        field: ContactStatusField.civic_panel,
+        value: 'member',
+      },
+    })
+
+    const res = await getReplies()
+
+    expect(res.data.replies[0]).toMatchObject({
+      id: reply.id,
+      crm: { contactId: PERSON_NAMED, statusLabel: 'Civic panel member' },
+    })
+  })
+
+  it('still returns the list, without a crm block, when the CRM read fails', async () => {
+    await addReply({ personId: PERSON_NAMED })
+    vi.spyOn(
+      service.app.get(ContactStatusService),
+      'currentStatusForPeople',
+    ).mockRejectedValue(new Error('crm down'))
+
+    const res = await getReplies()
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.total).toBe(1)
+    expect(res.data.replies[0]).not.toHaveProperty('crm')
+  })
+})
+
+describe('synthesis completion on a poll', () => {
+  it('stamps lastAnalysisAt when an effort run completes', async () => {
+    const replies = await addReplies(3)
+    const run = await service.prisma.feedbackSynthesisRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        scope: SynthesisScope.effort,
+        outreachId,
+        status: SynthesisRunStatus.running,
+        activeKey: `${orgSlug}:${outreachId}`,
+        conversations: 3,
+        memos: 3,
+        confirmed: 3,
+        engine: 'mock',
+      },
+    })
+
+    await service.app
+      .get(FeedbackSynthesisIngestService)
+      .handle(
+        completionEvent(run.id, [
+          { theme: 'Parks', memberIds: replies.map((r) => r.id) },
+        ]),
+      )
+
+    const poll = await service.prisma.outreachPoll.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    const done = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow({
+      where: { id: run.id },
+    })
+    expect(poll.lastAnalysisAt).toEqual(done.completedAt)
   })
 })

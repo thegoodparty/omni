@@ -26,6 +26,7 @@ import {
   SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
   SMS_OUTREACH_REPLIES_MAX_LIMIT,
   SmsOutreachReplies,
+  SmsOutreachRepliesFilterSchema,
   SmsOutreachRepliesSchema,
   SmsOutreachResults,
   SmsOutreachResultsSchema,
@@ -283,18 +284,28 @@ export class OutreachServeSmsController {
     })
   }
 
-  // The read-only reply list. Same scope and the same ungated reasoning as
-  // the results read above. `limit`/`offset` rather than a page number
-  // because the client's only two states are the design's first ten and
-  // "Show all {n} responses".
+  // The reply list, carrying the session user's own favourite and read
+  // state. Same scope and the same ungated reasoning as the results read
+  // above. `limit`/`offset` rather than a page number because the client's
+  // only two states are the design's first ten and "Show all {n} responses".
   @Get(':id/replies')
   @ResponseSchema(SmsOutreachRepliesSchema)
   replies(
+    @ReqUser() user: User,
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Param('id', ParseIntPipe) id: number,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('themeId') themeId?: string,
+    @Query('nonClustered') nonClustered?: string,
+    @Query('filter') filter?: string,
   ): Promise<SmsOutreachReplies> {
+    const parsedFilter = SmsOutreachRepliesFilterSchema.safeParse(
+      filter ?? 'all',
+    )
+    if (!parsedFilter.success) {
+      throw new BadRequestException('filter must be all, unread or favorited')
+    }
     return this.repliesService.listReplies(
       id,
       {
@@ -304,6 +315,10 @@ export class OutreachServeSmsController {
       {
         limit: clampLimit(limit),
         offset: clampOffset(offset),
+        userId: user.id,
+        filter: parsedFilter.data,
+        themeId: themeId || undefined,
+        nonClustered: nonClustered === 'true',
       },
     )
   }

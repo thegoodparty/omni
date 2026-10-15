@@ -1,18 +1,28 @@
 import {
   Body,
   Controller,
+  Get,
   NotFoundException,
+  Param,
+  ParseIntPipe,
   Post,
+  Put,
   UseInterceptors,
 } from '@nestjs/common'
 import {
-  ServePollCreate,
-  ServePollCreateResponse,
+  type PollResults,
+  PollResultsSchema,
+  type ReplyFlag,
+  ReplyFlagSchema,
+  type ReplyFlagUpdate,
+  ReplyFlagUpdateSchema,
+  type ServePollCreate,
+  type ServePollCreateResponse,
   ServePollCreateResponseSchema,
   ServePollCreateSchema,
-  ServePollDraftRequest,
+  type ServePollDraftRequest,
   ServePollDraftRequestSchema,
-  ServePollDraftResponse,
+  type ServePollDraftResponse,
   ServePollDraftResponseSchema,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -28,26 +38,28 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { SERVE_SELF_SERVE_POLLS_FLAG } from '@/shared/util/serveSelfServePollsFlag.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ElectedOffice, User } from '../generated/prisma'
+import { OutreachPollResultsService } from './services/outreachPollResults.service'
 import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
 import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
 import { OutreachServePollDraftService } from './services/outreachServePollDraft.service'
+import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 
-// The bias check stays at POST /v1/polls/analyze-bias; the client calls it
-// directly, so nothing here re-runs it.
-//
-// Gates ROLLOUT, not authorization: @UseElectedOffice() is the access check,
-// and the flag 404s rather than 403s so an office it is off for cannot tell
-// the surface exists.
+// Serve self-serve polls. Ownership is the ElectedOffice row the guard
+// resolves, never a client-supplied org. The flag gates rollout, not access:
+// 404 rather than 403 when it is off, so a surface the user has not been
+// rolled out to does not advertise that it exists.
 @Controller('outreach/serve')
 @UseElectedOffice()
 @UseInterceptors(ZodResponseInterceptor)
 export class OutreachServePollController {
   constructor(
+    private readonly pollResultsService: OutreachPollResultsService,
+    private readonly repliesService: OutreachSmsRepliesService,
+    private readonly features: FeaturesService,
     private readonly draftService: OutreachServePollDraftService,
     private readonly createService: OutreachServePollCreateService,
     private readonly profileContext: OutreachServeComposeContextService,
     private readonly organizations: OrganizationsService,
-    private readonly features: FeaturesService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
   ) {
@@ -100,6 +112,8 @@ export class OutreachServePollController {
     )
   }
 
+  // The bias check stays at POST /v1/polls/analyze-bias; the client calls it
+  // directly, so nothing here re-runs it.
   @Post('poll')
   @ResponseSchema(ServePollCreateResponseSchema)
   async create(
@@ -128,5 +142,39 @@ export class OutreachServePollController {
       .catch(() => undefined)
 
     return created
+  }
+
+  @Get(':id/poll-results')
+  @ResponseSchema(PollResultsSchema)
+  async pollResults(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<PollResults> {
+    await this.assertFeatureEnabled(user)
+    return this.pollResultsService.getResults(id, {
+      organizationSlug: electedOffice.organizationSlug,
+      campaignId: null,
+    })
+  }
+
+  @Put(':id/replies/:replyId/flags')
+  @ResponseSchema(ReplyFlagSchema)
+  async updateReplyFlags(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('replyId') replyId: string,
+    @Body(new ZodValidationPipe(ReplyFlagUpdateSchema))
+    update: ReplyFlagUpdate,
+  ): Promise<ReplyFlag> {
+    await this.assertFeatureEnabled(user)
+    return this.repliesService.updateFlags(
+      id,
+      replyId,
+      { organizationSlug: electedOffice.organizationSlug, campaignId: null },
+      user.id,
+      update,
+    )
   }
 }
