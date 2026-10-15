@@ -1,4 +1,5 @@
 import {
+  TEXT_SEND_ROBOCALL_SWAPS,
   VOTER_CONTACT_SCHEDULE,
   voterContactSendDate,
 } from '@goodparty_org/contracts'
@@ -7,7 +8,6 @@ import type { StrategicLandscapeData } from 'gpApi/api-endpoints'
 import type { RaceCandidate, RaceMilestones } from 'helpers/types'
 import {
   computeBudget,
-  CONTINGENCY_RATE,
   LITERATURE_PACK_COST,
   LITERATURE_PACK_SIZE,
   MAIL_COST_PER_PIECE,
@@ -634,10 +634,8 @@ const buildContactSchedule = (
   if (!smsClosed) {
     return sends.map(({ date, tactic, purpose }) => ({ date, tactic, purpose }))
   }
-  // Past the texting cutoff each text send becomes a robocall on its date,
-  // unless a robocall already lands that day, matching the tracker's swap.
-  // The election day text is dropped, as the tracker does: its reminder
-  // robocall lands the day before.
+  // Past the texting cutoff each text send becomes the tracker's swapped
+  // robocall on its date, unless a robocall already lands that day.
   const robocallDates = new Set(
     sends.filter((send) => send.tactic === 'Robocall').map((send) => send.date),
   )
@@ -645,20 +643,12 @@ const buildContactSchedule = (
     if (send.tactic !== 'Text') {
       return [{ date: send.date, tactic: send.tactic, purpose: send.purpose }]
     }
-    if (
-      send.catalogId === 'election-day-reminder-text' ||
-      robocallDates.has(send.date)
-    ) {
-      return []
-    }
+    const swap = TEXT_SEND_ROBOCALL_SWAPS.find(
+      (candidate) => candidate.catalogId === send.catalogId,
+    )
+    if (!swap || robocallDates.has(send.date)) return []
     robocallDates.add(send.date)
-    return [
-      {
-        date: send.date,
-        tactic: 'Robocall',
-        purpose: send.purpose.replace('cellphones', 'landlines'),
-      },
-    ]
+    return [{ date: send.date, tactic: 'Robocall', purpose: swap.description }]
   })
 }
 
@@ -707,14 +697,12 @@ const buildBudgetBreakdown = (
   filingFee: number | null,
   smsClosed: boolean,
 ): BudgetBreakdown => {
-  const budget = computeBudget(contactGoal, projectedTurnout, filingFee)
-  const subtotal = smsClosed
-    ? budget.subtotal - budget.textCost
-    : budget.subtotal
-  const contingency = smsClosed
-    ? Math.round(subtotal * CONTINGENCY_RATE)
-    : budget.contingency
-  const totalBudget = subtotal + contingency
+  const budget = computeBudget(
+    contactGoal,
+    projectedTurnout,
+    filingFee,
+    smsClosed,
+  )
 
   const lineItems: BudgetRow[] = [
     ...(smsClosed
@@ -771,17 +759,17 @@ const buildBudgetBreakdown = (
     },
     {
       category: 'Contingency (5%)',
-      amount: formatDollars(contingency),
+      amount: formatDollars(budget.contingency),
       rationale: 'Reserve for last-week opportunities.',
     },
     {
       category: 'Total',
-      amount: formatDollars(totalBudget),
+      amount: formatDollars(budget.totalBudget),
       rationale: 'Sum of all budget line-items.',
     },
   ]
 
-  return { totalBudget, lineItems }
+  return { totalBudget: budget.totalBudget, lineItems }
 }
 
 const buildTimeBreakdown = (

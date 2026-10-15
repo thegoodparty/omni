@@ -132,7 +132,8 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (`campaigns/util/eligibility.util.ts`) reads `closed` for the campaign (it
   did not file and pay before the cutoff, 19 days before the general), each
   text send becomes a robocall on the same date, per
-  `TEXT_SEND_ROBOCALL_SWAPS`:
+  `TEXT_SEND_ROBOCALL_SWAPS` (contracts `VoterContactSchedule.data.ts`, which
+  the webapp plan document also reads):
   - Introduction Text -> Early Introduction Robocall
   - Persuasion Text -> Early Persuasion Robocall
   - Early Voting Text -> Early Voting Robocall

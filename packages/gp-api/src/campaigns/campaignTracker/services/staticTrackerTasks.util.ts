@@ -5,6 +5,7 @@ import {
   CAMPAIGN_TASK_CATALOG,
   campaignPhaseWindows,
   resolveTrackerTaskDate,
+  TEXT_SEND_ROBOCALL_SWAPS,
 } from '@goodparty_org/contracts'
 import { Campaign, CampaignTaskType, Prisma } from '../../../generated/prisma'
 import { CHANNEL_TO_FLOW_TYPE } from '../campaignTracker.consts'
@@ -17,32 +18,6 @@ import { getMidnightForDate } from 'src/shared/util/date.util'
 // — the CAP catalog attachment excludes these channels (see
 // scripts/generate-tracker-catalog.ts) and the persist drops any it returns.
 const OUTREACH_CHANNELS = new Set<string>(['text', 'robocall'])
-
-// Once texting is closed for the race, each text send becomes a robocall on
-// the same date. The catalog's robocall titles already belong to the sends on
-// other dates, and alignTrackerTaskDates finds a row's catalog entry by title,
-// so a swap gets its own title and is dated off the text send it replaces.
-// The election day text has no swap: the reminder robocall lands the day
-// before.
-export const TEXT_SEND_ROBOCALL_SWAPS = [
-  {
-    catalogId: 'introduction-text',
-    title: 'Early Introduction Robocall',
-    description: 'Introduce yourself to voters with an automated call.',
-  },
-  {
-    catalogId: 'persuasion-text',
-    title: 'Early Persuasion Robocall',
-    description:
-      'Build trust and make your case for why voters should pick you, by automated call.',
-  },
-  {
-    catalogId: 'early-voting-text',
-    title: 'Early Voting Robocall',
-    description:
-      'Encourage your supporters to vote early with an automated call.',
-  },
-] as const
 
 const toRow = (
   campaignId: number,

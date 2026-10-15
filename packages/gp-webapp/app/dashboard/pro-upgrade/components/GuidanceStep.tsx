@@ -142,11 +142,7 @@ const GuidanceStep = (): React.JSX.Element => {
 
   if (purchaseOnly) {
     const rows = smsClosed
-      ? PURCHASE_ONLY_ROWS.filter((row) => row !== PIN_TIMING_ROW).map((row) =>
-          row.title === 'Your campaign EIN'
-            ? { ...row, body: 'Your campaign EIN helps verify your candidacy.' }
-            : row,
-        )
+      ? PURCHASE_ONLY_ROWS.filter((row) => row !== PIN_TIMING_ROW)
       : PURCHASE_ONLY_ROWS
     return (
       // min-h-full + flex-col: inside the outreach sheet the footer row pins
@@ -214,14 +210,11 @@ const GuidanceStep = (): React.JSX.Element => {
     <div>
       {smsBanner}
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        {smsClosed
-          ? "Great! We'll need to gather a few things to get you set up"
-          : "Great! We'll need to gather a few things to get you set up for texting"}
+        Great! We&apos;ll need to gather a few things to get you set up for
+        texting
       </h1>
       <Body2 className="text-base-muted-foreground mb-6">
-        {smsClosed
-          ? 'This is required to access voter data.'
-          : 'This is required to access voter data and send texts.'}
+        This is required to access voter data and send texts.
       </Body2>
 
       {smsCountdown}

@@ -27,6 +27,7 @@ import {
   canSetTaskAsideForGood,
   resolveTrackerTaskDate,
   SmsComplianceWindow,
+  TEXT_SEND_ROBOCALL_SWAPS,
   timelineElectionDate,
   trackerTaskPutOffDate,
   trackerTimelineStart,
@@ -68,7 +69,6 @@ import {
   buildStaticTrackerTaskRows,
   CAMPAIGN_STORY_TASK_TITLES,
   needsBallotAccessTasks,
-  TEXT_SEND_ROBOCALL_SWAPS,
 } from './staticTrackerTasks.util'
 import {
   CAMPAIGN_TRACKER_EXPERIMENT_TYPE,

@@ -264,7 +264,7 @@ describe('GuidanceStep', () => {
       ).toBeInTheDocument()
       const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
       expect(rows).toEqual([
-        'Your campaign EINYour campaign EIN helps verify your candidacy.',
+        'Your campaign EINYour campaign EIN helps verify your candidacy and comply with texting regulations.',
         'Your filing detailsThe committee name and filing link or document from your election authority',
         'Contact detailsThe email, phone or address exactly as it appears on your filing',
         'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
@@ -285,15 +285,6 @@ describe('GuidanceStep', () => {
 
       expect(screen.getByRole('alert')).toHaveTextContent(closedReason)
       expect(screen.getAllByRole('listitem')).toHaveLength(4)
-      expect(
-        screen.getByRole('heading', {
-          name: "Great! We'll need to gather a few things to get you set up",
-        }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText('This is required to access voter data.'),
-      ).toBeInTheDocument()
-      expect(screen.queryByText(/send texts/)).not.toBeInTheDocument()
     })
 
     it('continues to the filing-status step when closed and records the banner as completed', () => {

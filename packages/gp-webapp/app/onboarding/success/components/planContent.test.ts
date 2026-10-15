@@ -393,12 +393,12 @@ describe('buildPlanData once texting is closed', () => {
   const closed = () =>
     buildPlanData(makeInput({ planStartIso: '2026-10-15', smsClosed: true }))
 
-  it('swaps each text send for a robocall on the same date', () => {
+  it('swaps each text send for the tracker robocall on the same date and drops election day', () => {
     expect(closed().contactSchedule).toEqual([
       {
         date: 'Oct 15, 2026',
         tactic: 'Robocall',
-        purpose: 'Introduce yourself to voters with landlines.',
+        purpose: 'Introduce yourself to voters with an automated call.',
       },
       {
         date: 'Oct 16, 2026',
@@ -409,7 +409,7 @@ describe('buildPlanData once texting is closed', () => {
         date: 'Oct 17, 2026',
         tactic: 'Robocall',
         purpose:
-          'Build trust and persuade voters with landlines to vote for you.',
+          'Build trust and make your case for why voters should pick you, by automated call.',
       },
       {
         date: 'Oct 18, 2026',
@@ -420,7 +420,8 @@ describe('buildPlanData once texting is closed', () => {
       {
         date: 'Oct 20, 2026',
         tactic: 'Robocall',
-        purpose: 'Encourage voters with landlines to vote early.',
+        purpose:
+          'Encourage your supporters to vote early with an automated call.',
       },
       {
         date: 'Nov 2, 2026',

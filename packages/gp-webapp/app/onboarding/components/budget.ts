@@ -64,15 +64,18 @@ export interface BudgetComputation {
 }
 
 // contactGoal is the voter contact goal (win number × 5); projectedTurnout
-// sizes the direct-mail universe (40% of likely voters).
+// sizes the direct-mail universe (40% of likely voters). Once gp-api reports
+// texting closed for the race (smsClosed), no budget goes to texts and their
+// share drops out of the total.
 export const computeBudget = (
   contactGoal: number,
   projectedTurnout: number,
   filingFee: number | null,
+  smsClosed = false,
 ): BudgetComputation => {
   // Every line item is rounded to whole dollars here so the displayed rows sum
   // exactly to the displayed total (the UI rounds each row for display).
-  const textCount = Math.round(contactGoal * TEXTS_PERCENT)
+  const textCount = smsClosed ? 0 : Math.round(contactGoal * TEXTS_PERCENT)
   const textCost = Math.round(textCount * TEXT_COST)
   const robocallCount = Math.round(contactGoal * ROBOCALLS_PERCENT)
   const robocallCost = Math.round(robocallCount * ROBOCALL_COST)
