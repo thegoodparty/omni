@@ -309,9 +309,8 @@ user_id = <id>`. Known traps:
    `details.primaryElectionDate` has passed re-opens the primary-result modal
    each session; independents with no primary answer "did not win" →
    `primary_result='lost'`. The modal is gone from the webapp, but rows it
-   wrote remain (46 non-demo campaigns with an upcoming election in
-   October 2026, all non-major-party). Re-picking a different office clears
-   them (trap 1); otherwise repair with both writes:
+   wrote remain. Picking a different office clears them (trap 1);
+   otherwise repair with both writes:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
 primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
