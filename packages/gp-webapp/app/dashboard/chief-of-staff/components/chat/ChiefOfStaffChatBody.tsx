@@ -60,6 +60,7 @@ import {
   COS_INTRO_MESSAGES,
   SAVED_FILTERS_TOOL,
   toolDisplayName,
+  type ChatSuggestion,
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
@@ -198,19 +199,9 @@ interface Props {
   scope?: ChatScope
 }
 
-/**
- * A starter chip. `kickoff` fires an on-demand hidden send of that string
- * (no user bubble), `message` sends that string as the user's own message;
- * otherwise `onSelect` runs. `description` renders a secondary line beneath
- * the label.
- */
-export type ChatSuggestion = {
-  label: string
-  description?: string
-  onSelect?: () => void
-  kickoff?: string
-  message?: string
-}
+// Defined beside the copy that builds the Chief of Staff's next steps, so the
+// two modules do not import each other.
+export type { ChatSuggestion }
 
 // Per scope, so seeing one assistant's intro never suppresses the other's.
 // Chief of Staff keeps its original key so officials who already saw it are

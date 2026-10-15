@@ -1,6 +1,5 @@
 import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
 import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
-import type { ChatSuggestion } from './ChiefOfStaffChatBody'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
  * conversation exists). These are display-only — they are not persisted and
@@ -14,6 +13,20 @@ export const COS_INTRO_MESSAGES: string[] = [
   'Ask me anything, or tell me what matters most to you so I can tailor my ' +
     'help.',
 ]
+
+/**
+ * A starter chip. `kickoff` fires an on-demand hidden send of that string
+ * (no user bubble), `message` sends that string as the user's own message;
+ * otherwise `onSelect` runs. `description` renders a secondary line beneath
+ * the label.
+ */
+export type ChatSuggestion = {
+  label: string
+  description?: string
+  onSelect?: () => void
+  kickoff?: string
+  message?: string
+}
 
 /**
  * What the Chief of Staff says when an official meets it on the Serve home:
