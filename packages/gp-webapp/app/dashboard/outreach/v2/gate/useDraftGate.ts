@@ -117,8 +117,16 @@ export const useDraftGate = ({
   // second open of the same draft found `resumed` already true and this
   // never re-ran — the reset above had just closed the gate, and the
   // candidate landed on the schedule step of a text they cannot send.
+  //
+  // Not for closed texting: the flow shows the cutoff notice instead, and
+  // there is no gate screen to finish.
   useEffect(() => {
-    if (open && resumed && gate.requirement !== null) {
+    if (
+      open &&
+      resumed &&
+      gate.requirement !== null &&
+      gate.requirement !== 'closed'
+    ) {
       setGateOpen(true)
       setGateOrigin('resume')
       setGateCta(resumeCta)

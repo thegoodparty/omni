@@ -260,6 +260,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Campaign filing details: the committee name, the filing link, and where to send the PIN',
       'Carrier review takes about 1 to 2 weeks, then a PIN arrives to finish it',
+      'The deadline to get verified for texting is 19 days before the general election. A candidate who has not filed and paid for Pro by then cannot get verified for this race. They can still save their filing details. Door knocking, robocalls, phone banking and social media stay open',
     ],
     gate: 'No tab, and not every candidate is offered it. Filing details can be submitted before paying, but carrier registration only starts once Pro is paid for.',
   },
@@ -370,7 +371,14 @@ const SERVE_AREAS: ProductArea[] = [
     path: '/dashboard/polls',
     modes: ['serve'],
     does: 'Commission a poll of the district and read the results.',
-    gate: 'Polls are paid for individually, and a poll’s reach can be extended by paying more.',
+    inside: [
+      'Each poll in the list opens its own results page. Until a poll goes out it shows its message and send date; after that it shows how many were texted, how many responded, the response rate and the opt-out rate, and refreshes by itself',
+      'Under 20 responses it says Not enough responses yet and shows no themes. From 20 up it shows up to 5 top themes with their mentions and an "N new" tag for responses since the last read, plus an Other responses card for replies that fit no theme. Poll confidence, high or low, is worked out by GoodParty.org',
+      'Opening a theme lists its responses. Filter them by All, Unread or Favorited, tap the heart to keep one, and open one to see when it arrived and, if the person is in your constituents, their status with a link to their record. A response counts as read once you open it',
+      'Gather more feedback is on the results page for a poll that has gone out, and in the low-confidence and Not enough responses alerts. It asks how many more constituents to text: the minimum for a reliable sample, everyone you have not messaged yet, or a dollar amount. It never texts anyone the poll already reached',
+      'Gather more feedback is paid at checkout, then held for review within 2 business days before it sends. Until then the results page lists it as In review, and only one request can be open at a time',
+    ],
+    gate: 'Polls are paid for individually, and a poll’s reach can be extended by paying more. Self-serve polls and Gather more feedback are being rolled out office by office.',
   },
   {
     navId: 'constituent-outreach-dashboard',
@@ -379,7 +387,8 @@ const SERVE_AREAS: ProductArea[] = [
     modes: ['serve'],
     does: 'Build and send outreach to constituents, and see what has gone out.',
     inside: [
-      'Four channels: Social media, SMS, Phone banking, and Door knocking',
+      'Four channels: Social media, SMS, Phone banking, and Door knocking. Where self-serve polls are on, a fifth, Poll / Survey, sits beside them',
+      'Poll / Survey walks topic, who, question, date, then review and pay. Picking a topic drafts the question; the tone (Neutral, Warm, Direct, Friendly) and Regenerate rewrite it, and Optimize message flags wording that leads people toward an answer. It goes to a random sample of constituents, sized for a reliable read, or to a saved list. The greeting and the opt-out line are fixed. It is paid per text at checkout and then held for review, within 2 business days, before it sends at 11am local on the date chosen',
       'Door knocking opens its own page rather than a flow here',
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
@@ -389,7 +398,7 @@ const SERVE_AREAS: ProductArea[] = [
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
       'Once a text send’s replies are in, its row in outreach history lists them under Responses and links to What we heard, where the replies are grouped into themes',
     ],
-    gate: 'Texting is being rolled out office by office, so the SMS channel is not on every account yet. It is paid for per message at checkout, with no subscription.',
+    gate: 'Texting and self-serve polls are being rolled out office by office, so the SMS and Poll / Survey channels are not on every account yet. Both are paid for per message at checkout, with no subscription.',
   },
   {
     navId: 'contacts-dashboard',

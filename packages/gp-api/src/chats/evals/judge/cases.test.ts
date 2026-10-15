@@ -269,14 +269,14 @@ describe('loadCaseList', () => {
 
     const list = loadCaseList(entry)
     expect(list.cases.map((c) => c.caseId)).toEqual([
-      'priorities-on-file',
-      'constituent-count',
-      'product-how-to',
-      'capability-inventory-from-context',
-      'action-the-agent-cannot-take',
       'individual-record-refusal',
-      'rambling-multipart-request',
+      'action-the-agent-cannot-take',
+      'priorities-on-file',
+      'product-how-to',
       'judgement-call-no-single-answer',
+      'constituent-count',
+      'capability-inventory-from-context',
+      'rambling-multipart-request',
     ])
     // Marked as a placeholder, which is what stops its verdict reading as a
     // claim about the agent.

@@ -71,6 +71,16 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServePollCreate,
+  ServePollExpansionCreate,
+  ServePollExpansionCreateResponse,
+  PollResults,
+  ReplyFlag,
+  ReplyFlagUpdate,
+  SmsOutreachRepliesFilter,
+  ServePollCreateResponse,
+  ServePollDraftRequest,
+  ServePollDraftResponse,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
   ServeSmsDraftRequest,
@@ -485,6 +495,20 @@ export type APIEndpoints = {
     Response: ServeSmsCreateResponse
   }
 
+  // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
+  // returns only the question: the greeting and opt-out line are composed by
+  // the create. The create writes the pending_payment row the SERVE_TEXT
+  // checkout then bills.
+  'POST /v1/outreach/serve/poll/draft': {
+    Request: ServePollDraftRequest
+    Response: ServePollDraftResponse
+  }
+
+  'POST /v1/outreach/serve/poll': {
+    Request: ServePollCreate
+    Response: ServePollCreateResponse
+  }
+
   // Persists the social campaign atomically (spine row + satellite +
   // assets). Response is the created row so the hub updates without a
   // refetch.
@@ -542,8 +566,35 @@ export type APIEndpoints = {
   // `total` is every reply on the send, so "Show all {n} responses" can name
   // a number it has not fetched.
   'GET /v1/outreach/serve/:id/replies': {
-    Request: { limit?: number; offset?: number }
+    Request: {
+      limit?: number
+      offset?: number
+      // Poll results: narrow to one theme, or to the replies no theme took.
+      themeId?: string
+      nonClustered?: boolean
+      filter?: SmsOutreachRepliesFilter
+    }
     Response: SmsOutreachReplies
+  }
+
+  // Serve poll results (ENG-11288): counts, confidence, themes and the
+  // expansions the official has paid for. Confidence is the server's call.
+  'GET /v1/outreach/serve/:id/poll-results': {
+    Request: {}
+    Response: PollResults
+  }
+
+  // The session user's own favourite and read marks on one reply.
+  'PUT /v1/outreach/serve/:id/replies/:replyId/flags': {
+    Request: ReplyFlagUpdate
+    Response: ReplyFlag
+  }
+
+  // Gather more feedback (ENG-11287): writes a pending_payment expansion the
+  // checkout then pays for by `expansionId`.
+  'POST /v1/outreach/serve/poll/:id/expansions': {
+    Request: ServePollExpansionCreate
+    Response: ServePollExpansionCreateResponse
   }
 
   // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows

@@ -826,6 +826,19 @@ their `control` as `scored: false`, every probe in all four carries a
 `condition` and two or three `dimensions`, and every probe that plants a
 mutation carries a `handledWhen`; the unmutated baseline carries none.
 
+The ten placeholder lists carry core-contract checks instead: three to five
+per agent, written from the agent's own prompt or `instruction.md`, on
+existing cases with their inputs unchanged. Each covers the agent's main job,
+its top guardrail or a fallback path, and is gradeable from the final output
+alone. Checked cases come first, because a background list is walked only to
+`maxCases` (3), so a background list's first three cases are its CI checks. A
+check is only useful while the base passes it: one the current agent fails
+reads as a shared failure on every sweep and catches nothing. These
+conditions state a contract the input exercises rather than a mutation it
+planted. `opposition_research` is the weak one: every roster opponent is a
+`Test` placeholder the agent is told to drop, so its checks catch the
+candidate listing itself but not a run that drops real filers.
+
 ## A chat case can carry the same checks
 
 A chat case takes the four judge-only fields a background case does, with the

@@ -9,7 +9,8 @@ const base = {
   hasPeerlyIdentity: false,
   peerlyCvStatus: null,
   pinDelivery: null,
-}
+  smsCompliance: 'open',
+} as const
 
 describe('deriveMembershipState', () => {
   it('is free and needs verification with no Pro and no TCR record', () => {
@@ -86,6 +87,49 @@ describe('deriveMembershipState', () => {
       deriveMembershipState({ ...base, isPro: true, tcrStatus: 'approved' })
         .texting,
     ).toBe('cleared')
+  })
+
+  it('is closed when gp-api reports the window closed, for free and Pro', () => {
+    expect(
+      deriveMembershipState({ ...base, smsCompliance: 'closed' }).texting,
+    ).toBe('closed')
+    expect(
+      deriveMembershipState({ ...base, isPro: true, smsCompliance: 'closed' })
+        .texting,
+    ).toBe('closed')
+  })
+
+  it('is closed over any TCR status, since gp-api only closes a campaign with no kickoff', () => {
+    for (const tcrStatus of [
+      'submitted',
+      'pending',
+      'approved',
+      'error',
+    ] as const) {
+      expect(
+        deriveMembershipState({
+          ...base,
+          isPro: true,
+          tcrStatus,
+          smsCompliance: 'closed',
+        }).texting,
+      ).toBe('closed')
+    }
+  })
+
+  it("keeps today's states while the window is closing or not applicable", () => {
+    expect(
+      deriveMembershipState({ ...base, isPro: true, smsCompliance: 'closing' })
+        .texting,
+    ).toBe('needs_verification')
+    expect(
+      deriveMembershipState({
+        ...base,
+        isPro: true,
+        tcrStatus: 'submitted',
+        smsCompliance: 'not_applicable',
+      }).texting,
+    ).toBe('in_review')
   })
 })
 

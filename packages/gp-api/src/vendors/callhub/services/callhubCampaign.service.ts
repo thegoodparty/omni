@@ -34,12 +34,23 @@ const CALLHUB_DATE_FORMAT = 'yyyy-MM-dd HH:mm:ss'
 // enough for a large landline list to drain.
 const EXPIRATION_WINDOW_DAYS = 7
 // Calls per minute to request on each created campaign. CallHub's account-wide
-// VB cap is ~60 calls/min SHARED across every scheduled/running campaign and a
-// new campaign defaults to `frequency: 60` (the whole pool), so a second
-// campaign cannot START (`over_cps_limit`, incident 2026-10-08). A low default
-// lets ~6 campaigns coexist under the cap; env-tunable (and raise the account
-// cap with CallHub for more throughput — support@callhub.io, billed monthly).
-const DEFAULT_CALLS_PER_MINUTE = 10
+// VB cap is ~60 calls/min SHARED across RUNNING campaigns, and a new campaign
+// defaults to `frequency: 60` (the whole pool), so two RUNNING at once trip
+// `over_cps_limit` (incident 2026-10-08).
+//
+// Raised 10 → 30 on 2026-10-15: at 10/min big lists dialed slowly and, with the
+// serial queue running one campaign at a time, each held the shared pool for
+// hours and sends stacked up overdue. A faster per-campaign rate finishes each
+// run sooner (and shortens its completion estimate), draining the queue. Safe
+// now that (a) the serial gate guarantees only ONE campaign runs at a time, so
+// 30 never contends with our own others; (b) R1 freezes each run's rate at
+// staging, so this raise can't mis-estimate an in-flight run; and (c) the Oct
+// incident showed PAUSED campaigns do NOT consume the cap (leroy ran at 60 while
+// others sat Paused at 60) — only running ones do. 30 stays well under the ~60
+// ceiling a single run demonstrably sustains, and a stray `over_cps` self-heals
+// via startCampaign's throttle revert. Env-tunable (`CALLHUB_VB_CALLS_PER_MINUTE`)
+// to push higher; raising the account cap with CallHub multiplies the ceiling.
+const DEFAULT_CALLS_PER_MINUTE = 30
 const callsPerMinute = (): number => {
   const raw = Number(process.env.CALLHUB_VB_CALLS_PER_MINUTE)
   return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_CALLS_PER_MINUTE

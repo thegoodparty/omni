@@ -12,17 +12,9 @@
         "l2DistrictType": "City_Ward",
         "l2DistrictName": "MINNEAPOLIS WARD 3",
         "issueKeyword": "affordable housing"
-      }
-    },
-    {
-      "caseId": "urban-district-public-safety",
-      "params": {
-        "state": "AZ",
-        "city": "Phoenix",
-        "l2DistrictType": "City_Council_Commissioner_District",
-        "l2DistrictName": "8",
-        "issueKeyword": "public safety"
-      }
+      },
+      "condition": "Ordinary input: Minneapolis Ward 3, Minnesota, keyword 'affordable housing', the keyword the instruction uses as its own worked example, so a matching voter-file column is expected. The check is the core contract: one matched column, the aligned share computed from it, and one local article.",
+      "handledWhen": "the run sets matched_hs_column to a column about affordable housing, aligned_voter_percentage equals aligned_voter_count divided by total_active_voters times 100 within rounding, and the news item is about housing in Minneapolis. A null column, a column on another topic, a percentage that does not match its count, or an article about another city is not handled."
     },
     {
       "caseId": "urban-citywide-narrow-issue",
@@ -32,7 +24,9 @@
         "l2DistrictType": "City",
         "l2DistrictName": "OAKLAND CITY",
         "issueKeyword": "bus rapid transit"
-      }
+      },
+      "condition": "Narrow keyword: 'bus rapid transit' for the whole city of Oakland, California (l2DistrictType City, l2DistrictName OAKLAND CITY). The voter file may have no column for so specific an issue, which is the instruction's no-match path, and the keyword's tokens also substring-match unrelated column names (bus inside business).",
+      "handledWhen": "the run either matches a column about transit or public transportation with numeric aligned fields, or sets matched_hs_column, aligned_voter_count and aligned_voter_percentage all to null while still giving an integer total_active_voters and an issue_label for bus rapid transit. A column on an unrelated topic such as business, or a mix of null and numeric alignment fields, is not handled."
     },
     {
       "caseId": "midsize-ward-stormwater",
@@ -42,17 +36,9 @@
         "l2DistrictType": "City_Ward",
         "l2DistrictName": "FAYETTEVILLE CITY WARD 2",
         "issueKeyword": "stormwater flooding"
-      }
-    },
-    {
-      "caseId": "midsize-citywide-jobs",
-      "params": {
-        "state": "NC",
-        "city": "Hendersonville",
-        "l2DistrictType": "City",
-        "l2DistrictName": "HENDERSONVILLE CITY",
-        "issueKeyword": "jobs and the local economy"
-      }
+      },
+      "condition": "Ordinary mid-size input: Fayetteville, North Carolina, City_Ward FAYETTEVILLE CITY WARD 2, keyword 'stormwater flooding', a recurring local story there. The check is the news half of the contract.",
+      "handledWhen": "the run's news item is an article about stormwater or flooding in Fayetteville, and its published_date falls within about 12 months before generated_at. An article about another city, an article on another topic, or one dated more than 12 months before generated_at is not handled."
     },
     {
       "caseId": "small-city-drinking-water",
@@ -62,6 +48,30 @@
         "l2DistrictType": "City_Ward",
         "l2DistrictName": "DOVER WARD 4",
         "issueKeyword": "drinking water contamination"
+      },
+      "condition": "Dover, New Hampshire, City_Ward DOVER WARD 4, keyword 'drinking water contamination'. A matched column may carry a stance suffix such as _oppose, _no or _gov_has_role, which decides what the aligned share measures. The check is the instruction's label-direction rule and its percentile framing.",
+      "handledWhen": "issue_label states the matched column's direction (an _oppose or _no column is labeled Oppose, a _gov_has_role column says Government Has A Role), or is the title-cased keyword when no column matched, and no field frames aligned_voter_percentage as the share of voters who support something. A label that contradicts the column suffix, or 'X% of voters support' wording, is not handled."
+    },
+    {
+      "caseId": "urban-district-public-safety",
+      "params": {
+        "state": "AZ",
+        "city": "Phoenix",
+        "l2DistrictType": "City_Council_Commissioner_District",
+        "l2DistrictName": "8",
+        "issueKeyword": "public safety"
+      },
+      "condition": "The district value is a bare number: Phoenix, Arizona, City_Council_Commissioner_District 8, keyword 'public safety'. A district match that fails leaves only the city scope, so the count becomes the whole city, the instruction's first spot-check. Phoenix has eight council districts.",
+      "handledWhen": "the run echoes state, city, l2_district_type, l2_district_name and issue_keyword exactly as given, and total_active_voters is on the scale of one of eight districts rather than the whole city. A changed input value, or a total near the whole city's electorate (more than about 300,000), is not handled."
+    },
+    {
+      "caseId": "midsize-citywide-jobs",
+      "params": {
+        "state": "NC",
+        "city": "Hendersonville",
+        "l2DistrictType": "City",
+        "l2DistrictName": "HENDERSONVILLE CITY",
+        "issueKeyword": "jobs and the local economy"
       }
     },
     {

@@ -173,10 +173,13 @@ const resolveBucket = (): string => {
  * was canceled, is already sending, or was never paid for, and none of those
  * may reach fulfilment.
  *
- * An expansion (`sendSeq > 1`) is its own trigger's problem: it has to return
- * the row to `pending` before enqueueing, the way the purchase handler does.
+ * An expansion (`sendSeq > 1`) is a follow-on to a send that already moved
+ * the spine, so it claims its own `OutreachPollExpansion` row, the same
+ * `pending → in_progress`, and never writes the spine.
  */
 const SENDABLE_STATUS = OutreachStatus.pending
+
+const FIRST_SEND_SEQ = 1
 
 type ResolvedRecipient = {
   personId: string
@@ -288,15 +291,18 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // Serve row carries no phone list, so `pending` renders "In review" —
       // it would tell the official a human is working a send that can never
       // go out. `failed` already renders "Couldn't send".
-      await this.client.outreach.updateMany({
-        where: {
-          id: outreachId,
-          status: {
-            in: [OutreachStatus.pending, OutreachStatus.in_progress],
-          },
-        },
-        data: { status: OutreachStatus.failed },
-      })
+      const inFlight = {
+        in: [OutreachStatus.pending, OutreachStatus.in_progress],
+      }
+      await (sendSeq > FIRST_SEND_SEQ
+        ? this.client.outreachPollExpansion.updateMany({
+            where: { outreachId, sendSeq, status: inFlight },
+            data: { status: OutreachStatus.failed },
+          })
+        : this.client.outreach.updateMany({
+            where: { id: outreachId, status: inFlight },
+            data: { status: OutreachStatus.failed },
+          }))
       this.logger.error(
         { outreachId, sendSeq, sendKey, err: error },
         'Text send failed permanently; the row is now failed. It is already ' +
@@ -334,10 +340,15 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // The claim IS the spine advance; there is no separate "claimed" state to
     // add. A redelivered message, or a message for a canceled / unpaid /
     // already-sent row, matches nothing and does no work.
-    const claimed = await this.client.outreach.updateMany({
-      where: { id: outreachId, status: SENDABLE_STATUS },
-      data: { status: OutreachStatus.in_progress },
-    })
+    const claimed = await (sendSeq > FIRST_SEND_SEQ
+      ? this.client.outreachPollExpansion.updateMany({
+          where: { outreachId, sendSeq, status: SENDABLE_STATUS },
+          data: { status: OutreachStatus.in_progress },
+        })
+      : this.client.outreach.updateMany({
+          where: { id: outreachId, status: SENDABLE_STATUS },
+          data: { status: OutreachStatus.in_progress },
+        }))
     if (claimed.count === 0) {
       this.logger.warn(
         { outreachId, sendSeq },
@@ -367,10 +378,19 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // outreach serialize, and a cancel cannot have landed while the row
       // was claimed. `requestSend` decides whether the retry actually
       // happens or the row goes to `failed` instead.
-      await this.client.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.in_progress },
-        data: { status: SENDABLE_STATUS },
-      })
+      await (sendSeq > FIRST_SEND_SEQ
+        ? this.client.outreachPollExpansion.updateMany({
+            where: {
+              outreachId,
+              sendSeq,
+              status: OutreachStatus.in_progress,
+            },
+            data: { status: SENDABLE_STATUS },
+          })
+        : this.client.outreach.updateMany({
+            where: { id: outreachId, status: OutreachStatus.in_progress },
+            data: { status: SENDABLE_STATUS },
+          }))
       throw error
     }
   }
@@ -736,6 +756,16 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       { size, excludeIds },
       organization,
     )
+
+    const alreadyAsked = new Set(audience.excludePersonIds)
+    const overlap = sample.filter((person) => alreadyAsked.has(person.id))
+    if (overlap.length > 0) {
+      this.logger.error(
+        { outreachId, overlapCount: overlap.length },
+        'Sample drew people an earlier send already reached; the exclusion ' +
+          'did not hold',
+      )
+    }
 
     // Dedupe by phone here too, for the same reason the filter branch does:
     // the capture row is a phone-to-person map, and two people on one number

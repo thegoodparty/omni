@@ -11,6 +11,8 @@ import Link from 'next/link'
 import { StatusBadge } from './StatusBadge'
 import React from 'react'
 import { Poll } from '../shared/poll-types'
+import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
+import { getHistoryStatusLabel } from 'app/dashboard/outreach/v2/historyStatus.util'
 
 const columns = [
   {
@@ -31,8 +33,11 @@ const columns = [
   },
 ]
 
-export const PollsTable: React.FC<{ polls: Poll[] }> = ({ polls }) => {
-  if (polls.length === 0) {
+export const PollsTable: React.FC<{
+  polls: Poll[]
+  outreachPolls?: Outreach[]
+}> = ({ polls, outreachPolls = [] }) => {
+  if (polls.length === 0 && outreachPolls.length === 0) {
     return (
       <div className="mt-4 text-center text-2xl font-medium">
         No polls found
@@ -51,6 +56,24 @@ export const PollsTable: React.FC<{ polls: Poll[] }> = ({ polls }) => {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {outreachPolls.map((row) => (
+              <TableRow key={`outreach-${row.id}`}>
+                <TableCell>
+                  <Link
+                    href={`/dashboard/polls/results/${row.id}`}
+                    className="block py-2 text-blue-500"
+                    aria-label={`View poll: ${row.name}`}
+                  >
+                    {row.name}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  {getHistoryStatusLabel(row, null, true) ?? '-'}
+                </TableCell>
+                <TableCell>-</TableCell>
+                <TableCell>{row.textCount || '-'}</TableCell>
+              </TableRow>
+            ))}
             {polls.map((poll) => (
               <TableRow key={poll.id}>
                 <TableCell>

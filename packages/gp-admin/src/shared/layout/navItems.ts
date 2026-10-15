@@ -8,6 +8,7 @@ import {
   HiEyeOff,
   HiKey,
   HiStatusOnline,
+  HiCheckCircle,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -42,6 +43,12 @@ export const navItems: NavItem[] = [
     title: 'SMS Outreach',
     href: '/dashboard/sms-outreach',
     icon: HiChatAlt2,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
+  },
+  {
+    title: 'Poll approvals',
+    href: '/dashboard/poll-approvals',
+    icon: HiCheckCircle,
     permission: PERMISSIONS.READ_CAMPAIGNS,
   },
   {

@@ -32,12 +32,23 @@ const pendingCompliance = { status: 'pending' } as TcrCompliance
 const renderHarness = ({
   isPro,
   tcrCompliance,
+  smsCompliance,
 }: {
   isPro: boolean
   tcrCompliance?: TcrCompliance
+  smsCompliance?: Campaign['smsCompliance']
 }) =>
   render(
-    <CampaignContext.Provider value={[{ id: 1, isPro } as Campaign]}>
+    <CampaignContext.Provider
+      value={[
+        {
+          id: 1,
+          isPro,
+          smsCompliance,
+          smsCutoffDate: smsCompliance ? '2026-10-15' : null,
+        } as Campaign,
+      ]}
+    >
       <Harness tcrCompliance={tcrCompliance} />
     </CampaignContext.Provider>,
   )
@@ -93,5 +104,25 @@ describe('useTextOutreachGate', () => {
     expect(
       screen.queryByText('Texting registration under review'),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows the cutoff notice instead of a pitch or the compliance modal once texting has closed', async () => {
+    renderHarness({ isPro: false, smsCompliance: 'closed' })
+
+    await userEvent.click(screen.getByText('run gate'))
+
+    expect(
+      screen.getByRole('dialog', {
+        name: 'The Oct. 15 deadline to get verified for texting has passed.',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Level the playing field for less'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('flow opened')).not.toBeInTheDocument()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.SmsCutoff.NoticeViewed,
+      expect.objectContaining({ surface: 'outreach_page' }),
+    )
   })
 })

@@ -39,8 +39,13 @@ import {
   GUARDRAIL_DECLINE,
   HONEST_REPORTING_BLOCK,
 } from '../../services/assistantRules.prompt'
+import { guardrailLine } from '../../services/guardrailLines'
 
 export const COS_GUARDRAIL_DECLINE = GUARDRAIL_DECLINE.serve
+const LEGAL_LINE = guardrailLine('legal_advice', 'chief_of_staff')
+const PROFESSIONAL_LINE = guardrailLine('professional_advice', 'chief_of_staff')
+const HANDOFF_LINE = guardrailLine('handoff_draft', 'chief_of_staff')
+const SMALL_COUNT_LINE = guardrailLine('small_count', 'chief_of_staff')
 
 // Reads as a fact about the data rather than as ambiguous punctuation, and does
 // not contradict the no-em-dash rule this same prompt sets.
@@ -54,12 +59,15 @@ const ROLE_CLARIFIERS_BLOCK = `ROLE CLARIFIERS (do not violate)
 - Never invent the user's name, office, or background. If you don't have a name, address them as 'you' or 'Councilmember'.
 - A text message you draft for the user to send to constituents must say who is sending it: their full name and the office they hold, from <office_context> (for example "this is Jordan Ellis, your City Council Member"). Use the full name every time, never the first name alone. Never sign it as the city, the council, or the office instead of the person, and never write a placeholder such as [Your Name] or [Office]. If either is unknown, ask before you draft.`
 
-// Twin of CAUTION_RULES in briefing-chats/services/systemPromptBuilder.ts, which
-// splits this rule by line. Edit the two together.
-const PROFESSIONAL_ADVICE_BLOCK = `PROFESSIONAL ADVICE (apply before you finish any answer)
-- Some answers resemble advice a licensed professional would normally give: legal, medical or public-health, financial or tax, and employment or HR. This includes citing statutes, characterizing someone's potential legal or criminal liability, or telling the user how to file a formal complaint.
-- When your answer falls in any of those categories, you may still be specific and substantive, but end with one plain line that this isn't a substitute for professional counsel and they should confirm with a qualified professional before acting. Never suppress or skip that line.
-- Only add this line to substantive answers. Never attach it to a message that declines or redirects a request.`
+// Twin of CAUTION_RULES in briefing-chats/services/systemPromptBuilder.ts. Edit
+// the two together.
+const PROFESSIONAL_ADVICE_BLOCK = `PROFESSIONAL AND LEGAL CAUTION (apply before you finish any answer)
+- Some answers resemble advice a licensed professional would normally give: legal, medical or public-health, financial or tax, and employment or HR. This includes citing statutes, characterizing someone's potential legal liability, or telling the user how to file a formal complaint.
+- When your answer says what a law or regulation allows, requires, or prohibits, include this line, once, in these exact words: "${LEGAL_LINE}"
+- When your answer is medical or public-health, financial or tax, or employment or HR advice, include this line, once, in these exact words: "${PROFESSIONAL_LINE}"
+- One line per reply. When both would apply, use the legal line.
+- Use the line in place of a caution in your own words, never both.
+- Only add a line to a substantive answer. Never attach one to a reply that is only a decline or a redirect.`
 
 const INSTRUCTIONS_BLOCK = `Instructions:
 - Ground your answers in the office context and priorities provided below, and in the tools available to you.
@@ -170,6 +178,7 @@ const constituentDataRules = (
 - Turn the 0-100 modeled scores into vivid, confident language: "constituents lean clearly toward…", "narrowly split", "your under-45s break the other way." They are modeled estimates, so don't overstate precision, but be decisive about direction and what it means.
 - Never present an average modeled score as a share of constituents. "55 out of 100" or "a 53 lean" is an average score, not "53% of people." Say "the typical constituent leans toward X" or "constituents lean X on average", never "N% of constituents believe X."
 - When a breakdown includes an unknown or null group, state its size instead of dropping it: ${peopleDataset === 'constituents' ? 'in this constituent data "unknown" is often a fifth to a third of the rows, more on modeled scores because residents who are not registered to vote are never scored, and it is sometimes the most interesting group.' : 'in this constituent data "unknown" is often a fifth to a third of the file and is sometimes the most interesting group.'} When averaging, exclude unknowns rather than counting them as zero, and say you did.
+- If a result reports suppressed rows, include this line, once, in these exact words: "${SMALL_COUNT_LINE}" Never guess at the groups left out.
 - Always tie the finding back to the user's priorities and to a concrete next step or message frame they could use.`
 
 const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_filter_dimensions\` or \`count_contacts\`):
@@ -235,7 +244,8 @@ const COMPOSE_HANDOFF_RULES =
   "would have to guess — do not invent platform ids or details you don't " +
   'know.\n' +
   '- The result opens a prefilled drawer for the official to review before ' +
-  'anything sends. Confirm you called it and let them take it from there.'
+  'anything sends. Confirm you called it and include this line, once, in ' +
+  `these exact words: "${HANDOFF_LINE}"`
 
 const people = (n: number): string => n.toLocaleString('en-US')
 const dollars = (texts: number): string =>

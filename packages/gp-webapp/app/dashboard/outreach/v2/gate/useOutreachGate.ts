@@ -6,7 +6,13 @@ import { useMembershipState } from 'app/dashboard/shared/membership/useMembershi
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { GateChannel } from './gateCopy'
 
-export type GateRequirement = 'pro' | 'verify' | 'in_review' | 'pin' | null
+export type GateRequirement =
+  | 'pro'
+  | 'verify'
+  | 'in_review'
+  | 'pin'
+  | 'closed'
+  | null
 
 export interface OutreachGateState {
   // Flag on and membership ready — the flow can trust `requirement`.
@@ -24,17 +30,29 @@ export interface OutreachGateState {
 
 // A Serve org is never gated (milestone 1's MembershipBanner reads the same
 // way — see isMembershipSurfaceVisible), regardless of tier or texting state.
+// Closed texting comes before the Pro check: Pro cannot reopen it, so a free
+// candidate's text gets the cutoff notice rather than a pitch for a send
+// that could never go out.
 const deriveRequirement = (
   channel: GateChannel,
   membership: MembershipState,
 ): GateRequirement => {
   if (membership.isElectedOffice) return null
+  if (channel === 'sms' && membership.texting === 'closed') return 'closed'
   if (membership.tier === 'free') return 'pro'
   if (channel !== 'sms') return null
-  if (membership.texting === 'needs_verification') return 'verify'
-  if (membership.texting === 'in_review') return 'in_review'
-  if (membership.texting === 'awaiting_pin') return 'pin'
-  return null
+  switch (membership.texting) {
+    case 'needs_verification':
+      return 'verify'
+    case 'in_review':
+      return 'in_review'
+    case 'awaiting_pin':
+      return 'pin'
+    case 'closed':
+      return 'closed'
+    case 'cleared':
+      return null
+  }
 }
 
 // Thin over the flag + membership hooks: maps them to what a channel flow
