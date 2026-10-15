@@ -910,8 +910,11 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     campaign: CampaignWith<'user'>,
   ): Promise<void> {
     // The text rows are only swapped when the tracker is read, so a closed
-    // race can still hold some; CAS must not get texts it can't send.
+    // race can still hold some; CAS must not get texts it can't send. Swap
+    // them first so CAS gets the robocalls that replace them, since this
+    // post goes out once.
     const smsClosed = await this.isSmsClosed(campaign)
+    if (smsClosed) await this.alignTrackerTaskDates(campaign)
     const outreach = await this.model.findMany({
       where: {
         campaignId: campaign.id,
@@ -1006,6 +1009,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       electionDate !== null &&
       differenceInCalendarDays(electionDate, new Date()) <= 30
     const smsClosed = await this.isSmsClosed(campaign)
+    if (smsClosed) await this.alignTrackerTaskDates(campaign)
     const tasks = await this.model.findMany({
       where: {
         campaignId: campaign.id,

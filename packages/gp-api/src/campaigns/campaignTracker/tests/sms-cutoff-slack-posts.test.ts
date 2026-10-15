@@ -86,7 +86,7 @@ const seedTrackerRows = async (campaignId: number) => {
 }
 
 describe('CAS Slack posts once texting closes', () => {
-  it('leaves text sends out of the tracker week and schedule posts', async () => {
+  it('swaps text sends for their robocalls before the tracker week and schedule posts', async () => {
     const campaign = await makeProCampaign(CLOSED_ELECTION)
     await seedTrackerRows(campaign.id)
     const texts = slackTexts()
@@ -97,10 +97,11 @@ describe('CAS Slack posts once texting closes', () => {
 
     const [week, schedule] = texts()
     expect(week).toContain('Knock doors')
-    expect(week).toContain('ROBOCALL: Election Day Reminder Robocall')
     expect(week).not.toContain('TEXT:')
     expect(schedule).toContain('AI Campaign Plan Created')
-    expect(schedule).toContain('*Outreach Tasks (1):*')
+    expect(schedule).toContain('*Outreach Tasks (2):*')
+    expect(schedule).toContain('ROBOCALL: Early Voting Robocall')
+    expect(schedule).toContain('ROBOCALL: Election Day Reminder Robocall')
     expect(schedule).not.toContain('TEXT:')
   })
 
