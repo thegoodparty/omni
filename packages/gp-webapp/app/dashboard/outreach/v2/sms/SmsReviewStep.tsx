@@ -57,6 +57,9 @@ interface SmsReviewStepProps {
   // per recipient, so the bubble shows a stand-in name instead of the token
   // — the script sent to the API is untouched.
   isServe: boolean
+  // The channel the summary card names. Serve polls ride this step and read
+  // "Poll"; every other caller is SMS.
+  channelLabel?: string
   name: string
   audienceName: string
   sendAt: Date
@@ -101,6 +104,7 @@ interface SmsReviewStepProps {
 
 export const SmsReviewStep = ({
   isServe,
+  channelLabel = 'SMS',
   name,
   audienceName,
   sendAt,
@@ -242,7 +246,7 @@ export const SmsReviewStep = ({
             <MessageSquareIcon className="size-6 text-foreground" />
           </span>
           <div className="min-w-0">
-            <p className="font-medium text-foreground">SMS</p>
+            <p className="font-medium text-foreground">{channelLabel}</p>
             <p className="truncate text-sm text-muted-foreground">{name}</p>
           </div>
         </div>
