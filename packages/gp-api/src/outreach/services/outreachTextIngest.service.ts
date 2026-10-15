@@ -428,6 +428,12 @@ export class OutreachTextIngestService extends createPrismaBase(
       where: { id: outreachId, status: OutreachStatus.in_progress },
       data: { status: OutreachStatus.completed },
     })
+    if (advanced.count > 0) {
+      await this.client.outreachPollExpansion.updateMany({
+        where: { outreachId, status: OutreachStatus.in_progress },
+        data: { status: OutreachStatus.completed },
+      })
+    }
     return advanced.count > 0
   }
 
