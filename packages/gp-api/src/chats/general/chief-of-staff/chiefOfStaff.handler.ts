@@ -13,7 +13,17 @@ import {
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import {
+  composeAppendix,
+  handoffDraftBackstop,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '../services/guardrailBackstops'
+import {
+  ADVICE_SIGNALS,
+  SECTION_MARK_SIGNAL,
+} from '../services/professionalAdviceCheck'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 import {
   buildConstituentDataScope,
   ConstituentTablesByDataset,
@@ -66,6 +76,10 @@ import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
 // fails closed if any of these is not claude-routed.
+const COS_LEGAL_SIGNALS = ADVICE_SIGNALS.filter(
+  (re) => re !== SECTION_MARK_SIGNAL,
+)
+
 export const CHIEF_OF_STAFF_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
@@ -209,11 +223,17 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return this.assembleTools(ctx)
   }
 
-  // Tier-1 deterministic backstop: if a turn gave professional-domain advice
-  // (legal/medical/financial/HR) but skipped the disclaimer the prompt asks
-  // for, append it. See professionalAdviceCheck.ts.
-  finalizeAssistantText(text: string): string | null {
-    return professionalAdviceDisclaimer(text)
+  // Finish-time backstops for the lines the prompt asks for. The bare section
+  // sign is left out of the legal signals, as the briefing chat does: this
+  // chat summarizes the same agendas and briefings, where a section number in
+  // a summary is not a legal reading. The small-count and handoff lines are
+  // decided from the turn's tool events, not the text.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'chief_of_staff', COS_LEGAL_SIGNALS),
+      smallCountBackstop(text, 'chief_of_staff', turn.toolEvents),
+      handoffDraftBackstop(text, 'chief_of_staff', turn.toolEvents),
+    ])
   }
 
   private assembleTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {

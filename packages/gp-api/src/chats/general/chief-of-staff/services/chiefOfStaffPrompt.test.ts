@@ -19,6 +19,7 @@ import {
   buildChiefOfStaffSystemPrompt,
   COS_GUARDRAIL_DECLINE,
 } from './chiefOfStaffPrompt'
+import { guardrailLine } from '../../services/guardrailLines'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import type { Organization } from '../../../../generated/prisma'
 
@@ -723,13 +724,54 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     )
   })
 
-  it('always includes the professional advice disclaimer rules', () => {
+  it('always includes the caution rules with both registry lines', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: [],
     })
-    expect(prompt).toContain('PROFESSIONAL ADVICE')
-    expect(prompt).toContain('a substitute for professional counsel')
+    expect(prompt).toContain('PROFESSIONAL AND LEGAL CAUTION')
+    expect(prompt).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('legal_advice', 'chief_of_staff')}"`,
+    )
+    expect(prompt).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('professional_advice', 'chief_of_staff')}"`,
+    )
+    expect(prompt).toContain('When both would apply, use the legal line.')
+    expect(prompt).toContain(
+      'Use the line in place of a caution in your own words, never both.',
+    )
+  })
+
+  it('says the redrafted decline from the registry', () => {
+    expect(COS_GUARDRAIL_DECLINE).toBe(
+      'I can only help with your office, your priorities, your meetings, and your work as an elected official.',
+    )
+  })
+
+  it('asks for the handoff line only where compose_handoff is registered', () => {
+    const line = guardrailLine('handoff_draft', 'chief_of_staff')
+    expect(
+      buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: ['compose_handoff'],
+      }),
+    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    expect(
+      buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: [] }),
+    ).not.toContain(line)
+  })
+
+  it('asks for the small-count line only where the data tool is registered', () => {
+    const line = guardrailLine('small_count', 'chief_of_staff')
+    expect(
+      buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: ['query_constituent_data', 'describe_constituent_data'],
+      }),
+    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    expect(
+      buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: [] }),
+    ).not.toContain(line)
   })
 
   it('scopes the disclaimer to answers without restating the decline rule', () => {
@@ -738,7 +780,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: [],
     })
     expect(prompt).toContain(
-      'Never attach it to a message that declines or redirects a request',
+      'Never attach one to a reply that is only a decline or a redirect.',
     )
   })
 
