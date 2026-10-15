@@ -293,6 +293,9 @@ const HANDLING_CLASSES: Readonly<Record<HandlingClass, string>> = {
   sharedFailure: 'shared failure',
   regression: 'regression (the base handled it, the candidate did not)',
   improvement: 'improvement (the candidate handled it, the base did not)',
+  unsettled:
+    'unsettled (the arms differ, but one order said yes, so it is not ' +
+    'counted as a change)',
 }
 
 const armText = (h: CaseHandling, arm: ArmHandling): string =>
@@ -311,10 +314,12 @@ const handlingLines = (score: AgentScore): string[] => {
   return [
     `Condition handling: ${count('bothHandled')} both handled, ` +
       `${count('sharedFailure')} shared failure(s), ${count('regression')} ` +
-      `regression(s), ${count('improvement')} improvement(s), over ` +
-      `${handling.length} case pair(s). Judged per run against each case's ` +
-      'handledWhen; partly, and a value that changes with the order, count ' +
-      'as not handled. Not part of the verdict above.',
+      `regression(s), ${count('improvement')} improvement(s), ` +
+      `${count('unsettled')} unsettled, over ${handling.length} case ` +
+      "pair(s). Judged per run against each case's handledWhen; partly, " +
+      'and a value that changes with the order, count as not handled. A ' +
+      'regression or improvement needs the arm that fell short to do so in ' +
+      'both orders. Not part of the verdict above.',
     ...(notGraded === 0
       ? []
       : [

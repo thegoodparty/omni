@@ -85,7 +85,37 @@ describe('condition handling per case', () => {
     )
     expect(only?.base).toEqual({ primary: 'yes', swapped: 'no' })
     expect(only && ordersDisagree(only.base)).toBe(true)
-    expect(only?.class).toBe('improvement')
+    expect(only?.class).toBe('unsettled')
+  })
+
+  // The no-change sweep's one false regression: base yes in both orders,
+  // the identical candidate yes in one and partly in the other.
+  it('does not call a regression when one candidate order said yes', () => {
+    const {
+      cases: [only],
+    } = conditionHandling(
+      [
+        judged('primary', X_IS_BASE, 'yes', 'yes'),
+        judged('swapped', X_IS_CANDIDATE, 'partly', 'yes'),
+      ],
+      ASKED,
+    )
+    expect(only?.candidate).toEqual({ primary: 'yes', swapped: 'partly' })
+    expect(only?.class).toBe('unsettled')
+  })
+
+  it('calls a regression when the candidate falls short in both orders', () => {
+    const {
+      cases: [only],
+    } = conditionHandling(
+      [
+        judged('primary', X_IS_BASE, 'yes', 'partly'),
+        judged('swapped', X_IS_CANDIDATE, 'no', 'yes'),
+      ],
+      ASKED,
+    )
+    expect(only?.candidate).toEqual({ primary: 'partly', swapped: 'no' })
+    expect(only?.class).toBe('regression')
   })
 
   // Asked, but the judge never answered: counted, not silently dropped.
