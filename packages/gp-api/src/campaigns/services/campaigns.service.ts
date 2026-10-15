@@ -624,15 +624,35 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       // primaryResult / details.wonGeneral recorded for the PREVIOUS race
       // would permanently fail isActiveCampaign (and block Pro) on the new
       // one (ENG-10954). When the caller is a user-driven details update
-      // that moves electionDate to a different upcoming date, clear that
-      // stale result state. Detected here, inside the transaction, against
-      // the freshly-read row.
+      // that moves to a different upcoming race, clear that stale result
+      // state. Detected here, inside the transaction, against the
+      // freshly-read row.
+      //
+      // A new race is either a new election date or a different raceId.
+      // The raceId check covers a candidate who picks a different office in
+      // the same election: the date stays the same, so the date check alone
+      // left the old race's result in place.
+      // It needs a prior raceId, so first attaching a race to an older
+      // campaign does not wipe a result recorded for that same race.
       const newElectionDate = details?.electionDate
+      const priorRaceId = campaign.details?.raceId
+      const newRaceId = details?.raceId
+      const effectiveElectionDate =
+        newElectionDate ?? campaign.details?.electionDate
+      const changedElectionDate =
+        typeof newElectionDate === 'string' &&
+        newElectionDate !== campaign.details?.electionDate
+      const changedRace =
+        typeof priorRaceId === 'string' &&
+        priorRaceId !== '' &&
+        typeof newRaceId === 'string' &&
+        newRaceId !== '' &&
+        newRaceId !== priorRaceId
       const resetStaleResults = Boolean(
         opts.resetStaleElectionResults &&
-        typeof newElectionDate === 'string' &&
-        newElectionDate !== campaign.details?.electionDate &&
-        isUpcomingElectionDate(newElectionDate, new Date()),
+        (changedElectionDate || changedRace) &&
+        typeof effectiveElectionDate === 'string' &&
+        isUpcomingElectionDate(effectiveElectionDate, new Date()),
       )
 
       const campaignUpdateData: Prisma.CampaignUpdateInput = {
