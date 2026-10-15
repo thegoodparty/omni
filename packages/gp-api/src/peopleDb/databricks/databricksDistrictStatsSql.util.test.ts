@@ -4,13 +4,18 @@ import {
   mapDistrictStatsRows,
 } from './databricksDistrictStatsSql.util'
 import { VALUE_MAPPERS } from '../utils/valueMappers.util'
+import type { DbxDistrict } from './databricksVoterSql.util'
 
-const DISTRICT = {
+const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
+
+const DISTRICT: DbxDistrict = {
   districtId: 'd-1',
   state: 'WA',
   districtType: 'Water_District',
   districtName: 'EAST WENATCHEE WATER',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const sqlFor = (district = DISTRICT) => buildDistrictStatsSql(district).sql
@@ -45,6 +50,8 @@ describe('buildDistrictStatsSql', () => {
       districtType: 'State',
       districtName: 'WA',
       useVoterOnlyPath: true,
+      dataset: 'voters',
+      table: VOTERS_TABLE,
     })
 
     expect(sql).toContain('v.`State` = :p0')

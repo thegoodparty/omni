@@ -31,8 +31,13 @@ export const ADVICE_SIGNALS: RegExp[] = [
 // Tier-3 prompt line working). Kept to phrasings that read as a disclaimer, not
 // incidental prose ("consult a colleague") — a rare missed dedup is harmless,
 // a suppressed-but-needed disclaimer is not.
+// The canonical lines open this way. Exported on its own so a chat that counts
+// only the lines themselves as a caution can still honor a sentence that
+// starts like one, by identity rather than by matching the pattern's text.
+export const SUBSTITUTE_OPENER = /\b(?:not|isn'?t|is not) a substitute for\b/i
+
 export const DISCLAIMER_PRESENT: RegExp[] = [
-  /\b(?:not|isn'?t|is not) a substitute for\b/i,
+  SUBSTITUTE_OPENER,
   /\bqualified professional\b/i,
   /\bseek (?:professional|legal|medical|financial|tax) (?:advice|counsel|help)\b/i,
   // The ordinance draft's own line: "not final legal advice".

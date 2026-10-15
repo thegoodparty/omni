@@ -61,6 +61,10 @@ always resolves.
    - Otherwise push the branch and `gh pr create --base main`. Write a
      **why-focused** body (the motivation and the tradeoff, not a file-by-file
      recap). Omit any test-plan section and any AI-authorship footer.
+   - **Human decisions** (root `AGENTS.md`, `docs/decisions/`): if the human
+     stated a decision in this session that is not yet recorded, offer to record
+     it before opening. If the PR reverses an active record, the human must have
+     confirmed it; name the superseded record and its decider in the body.
 
 ## Phase 2 — converge with delegate (autonomous to approval)
 

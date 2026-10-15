@@ -23,6 +23,11 @@ vi.mock('helpers/analyticsHelper', async () => {
   return { ...actual, trackEvent }
 })
 
+vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
+  SERVE_CITIZEN_PANELS_FLAG_KEY: 'serve-citizen-panels',
+  useServeCitizenPanelsFlag: () => ({ ready: true, enabled: false }),
+}))
+
 const mockClientRequest = vi.mocked(clientRequest)
 
 const renderFlow = () => render(<ServeOnboardingFlow />)

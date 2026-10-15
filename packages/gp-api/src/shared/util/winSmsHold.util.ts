@@ -1,12 +1,16 @@
-// Kill switch for Win p2p SMS hold-billing (slice B1+): the checkout places a
-// manual-capture authorization HOLD instead of an immediate charge, recorded on
-// the OutreachP2pSms satellite. Read live, never cached at module load, so a
-// test can `vi.stubEnv` it and so a prod cutover needs no redeploy. Defaults
-// OFF: the immediate-charge checkout is unchanged until someone flips it, and
-// the whole chain (through capture + release) ships inert behind this flag
-// until it is built and validated.
-export const isWinSmsHoldBillingEnabled = (): boolean =>
-  process.env.WIN_SMS_HOLD_BILLING === 'true'
+// The managed Amplitude flag key for Win p2p SMS hold-billing: the checkout
+// places a manual-capture authorization HOLD instead of an immediate charge,
+// recorded on the OutreachP2pSms satellite. snake_case is the LITERAL
+// Amplitude flag key (all-caps was rejected by Amplitude) — gp-api and the
+// webapp must both reference this exact string. Evaluated per-user via
+// FeaturesService.isFeatureEnabled ONLY at entry (checkout-session creation,
+// the draft phoneListId relaxation, the buildId acceptance, and the async
+// build decision) — never re-read downstream. Settlement (capture, sweeps,
+// release) and the webhook that records a placed hold key on durable state
+// (the OutreachP2pSms satellite, or the live PaymentIntent's capture_method)
+// instead, so a flag flip after entry can never strand a hold Stripe already
+// placed or block its settlement.
+export const WIN_SMS_HOLD_BILLING_FLAG = 'win_sms_hold_billing'
 
 // Stripe refuses an authorization under 50 cents, so an undiscounted hold below
 // this floor is forgiven (treated as covered, no hold placed) rather than

@@ -234,11 +234,37 @@ jobs:
           # case and skip cleanly instead of hard-failing. A genuinely failed
           # deploy (Deploy job conclusion=failure/timed_out) is NOT superseded
           # and still fails E2E.
+          # bash runs this step with -e, so one transient GitHub 5xx would fail the gate.
+          # A failed gh call can print an error body to stdout, so only a
+          # successful attempt's output may reach the caller.
+          gh_retry() {
+            local out n
+            for n in 1 2 3; do
+              if out=$(gh "$@"); then
+                printf '%s\n' "$out"
+                return 0
+              fi
+              sleep 5
+            done
+            return 1
+          }
+          poll_failed() {
+            echo "  attempt $i/150: GitHub API call failed after retries; polling again"
+            if [ "$i" = 150 ]; then
+              echo "::error::timed out waiting for gp-api '$JOB_NAME' on $RUN_SHA"
+              exit 1
+            fi
+            sleep 10
+          }
+
           superseded() {
             [ "$IS_PUSH" = "true" ] || return 1
             local latest
-            latest=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?branch=main&event=push&per_page=30" \
-              --jq '.workflow_runs | sort_by(.run_started_at, .id) | last | .id // empty')
+            if ! latest=$(gh_retry api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?branch=main&event=push&per_page=30" \
+              --jq '.workflow_runs | sort_by(.run_started_at, .id) | last | .id // empty'); then
+              echo "::warning::could not list gp-api main runs to check supersession"
+              return 1
+            fi
             # Our commit's gp-api main run is no longer the newest main
             # gp-api run => a later merge superseded it.
             [ -n "$latest" ] && [ -n "$run_id" ] && [ "$latest" != "$run_id" ]
@@ -253,7 +279,10 @@ jobs:
             # trigger filed under main's head) pushed gp-api off it. The wait
             # then saw no run for a deploy that had already succeeded and
             # timed out.
-            runs_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?head_sha=$RUN_SHA&per_page=100")
+            if ! runs_json=$(gh_retry api "repos/$GITHUB_REPOSITORY/actions/workflows/gp-api.yml/runs?head_sha=$RUN_SHA&per_page=100"); then
+              poll_failed
+              continue
+            fi
             # This PR's runs, oldest to newest, ties broken by id: twin runs on
             # one commit can start in the same second, and their order is
             # otherwise arbitrary. Other PRs on the same head commit are left
@@ -268,8 +297,11 @@ jobs:
             run_conclusion=$(jq -r 'last | .conclusion // ""' <<<"$runs")
             job_conclusion=""
             if [ -n "$run_id" ]; then
-              job_conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
-                --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
+              if ! job_conclusion=$(gh_retry api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" \
+                --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\""); then
+                poll_failed
+                continue
+              fi
             fi
             # A TWIN THAT DEPLOYED. Two PR events at once start every workflow
             # twice, and the newer twin's deploy can be cancelled after the
@@ -280,8 +312,11 @@ jobs:
             deployed=""
             if [ "$run_conclusion" = "cancelled" ] || [ "$job_conclusion" = "cancelled" ]; then
               for id in $(jq -r '.[:-1] | reverse | .[].id' <<<"$runs"); do
-                conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
-                  --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\"")
+                if ! conclusion=$(gh_retry api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+                  --jq "[.jobs[] | select(.name==\"$JOB_NAME\")] | first | .conclusion // \"\""); then
+                  poll_failed
+                  continue 2
+                fi
                 if [ "$conclusion" = "success" ]; then
                   deployed=$id
                   break
@@ -533,9 +568,31 @@ jobs:
       # signal then. (download-artifact@v4 with a pattern does not error on zero
       # matches, so this guard is for coherence, not to avoid a step failure.)
       - name: Download shard blob reports
+        id: download-blobs
+        continue-on-error: true
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-blob-*
+          merge-multiple: true
+          path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
+      # GitHub's artifact storage occasionally fails one large blob even after
+      # its own internal retries; one more attempt keeps a passing E2E run from
+      # going red on infrastructure alone. Clear the partial download first so
+      # merge-multiple does not combine a half-extracted zip with the retry.
+      - name: Clear partial shard blob download
+        if: >-
+          steps.download-blobs.outcome == 'failure'
+          && (needs.e2e-shard.result == 'success'
+          || needs.e2e-shard.result == 'failure')
+        run: rm -rf "${{ env.WORKSPACE }}/e2e-tests/blob-report"
+      - name: Retry shard blob report download
+        if: >-
+          steps.download-blobs.outcome == 'failure'
+          && (needs.e2e-shard.result == 'success'
+          || needs.e2e-shard.result == 'failure')
         uses: actions/download-artifact@v4
         with:
           pattern: e2e-blob-*

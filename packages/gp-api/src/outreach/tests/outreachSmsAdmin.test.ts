@@ -628,13 +628,14 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledTimes(1)
     })
 
-    // Win SMS hold billing (WIN_SMS_HOLD_BILLING): a paid send is funded by a
-    // manual-capture hold that is only money once CAPTURED. The funding marker
-    // is stamped at authorization, so the approve/send gate reads the committed
-    // `captured` state on the OutreachP2pSms satellite instead — no uncaptured
-    // hold can book canvassers. The satellite read is SATELLITE-gated, not
-    // flag-gated: a row with a satellite is held to `captured` even on a flag
-    // rollback, and a row with no satellite stays on the funding-marker gate.
+    // Win SMS hold billing (managed flag win_sms_hold_billing): a paid send is
+    // funded by a manual-capture hold that is only money once CAPTURED. The
+    // funding marker is stamped at authorization, so the approve/send gate
+    // reads the committed `captured` state on the OutreachP2pSms satellite
+    // instead — no uncaptured hold can book canvassers. The satellite read is
+    // SATELLITE-gated, not flag-gated: a row with a satellite is held to
+    // `captured` regardless of the flag, and a row with no satellite stays on
+    // the funding-marker gate.
     describe('hold-billing approve gate', () => {
       const seedSatellite = (
         outreachId: number,
@@ -645,7 +646,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         })
 
       it('approves a hold-model row once it is captured', async () => {
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
         const row = await seedOutreach()
         await seedSatellite(row.id, P2pSmsSettleState.captured)
 
@@ -663,7 +663,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
 
       it('blocks a hold still being captured and books nothing', async () => {
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
         const row = await seedOutreach()
         await seedSatellite(row.id, P2pSmsSettleState.capturing)
 
@@ -683,7 +682,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
 
       it('blocks an authorized-but-uncaptured hold and books nothing', async () => {
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
         const row = await seedOutreach()
         await seedSatellite(row.id, P2pSmsSettleState.authorized)
 
@@ -702,7 +700,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
 
       it('blocks a terminal non-send hold (voided)', async () => {
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
         const row = await seedOutreach()
         await seedSatellite(row.id, P2pSmsSettleState.voided)
 
@@ -722,7 +719,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         // authorization), then the flag was flipped OFF. A flag-gated read
         // would skip the satellite, let the funding marker pass, and send an
         // uncaptured hold for free. The satellite-gated read blocks it.
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
         const row = await seedOutreach()
         await seedSatellite(row.id, P2pSmsSettleState.authorized)
 
@@ -743,7 +739,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       it('approves a captured satellite with the flag OFF (rollback, already settled)', async () => {
         // A hold captured before the rollback is real money committed — it must
         // still be approvable with the flag off.
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
         const row = await seedOutreach()
         await seedSatellite(row.id, P2pSmsSettleState.captured)
 
@@ -759,7 +754,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       it('keeps the funding-marker gate for a non-hold row (no satellite) with the flag off', async () => {
         // The whole default population: no satellite, flag off — byte-for-byte
         // the pre-existing funding-marker behavior.
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'false')
         const row = await seedOutreach()
 
         const res = await service.client.post(
@@ -772,7 +766,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
 
       it('keeps the funding-marker gate for a non-hold row (no satellite) with the flag on', async () => {
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
         // A free/forgiven send: no satellite, funded by the free marker.
         const row = await seedOutreach({
           stripeCheckoutSessionId: null,
@@ -789,7 +782,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
 
       it('still refuses a non-hold row with no funding marker when the flag is on', async () => {
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
         const row = await seedOutreach({ stripeCheckoutSessionId: null })
 
         const res = await service.client.post(

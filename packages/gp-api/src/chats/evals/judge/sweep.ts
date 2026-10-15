@@ -1,3 +1,7 @@
+import {
+  JUDGE_REPLAY_KEY_PREFIX,
+  type JudgeReplay,
+} from '@goodparty_org/contracts'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -63,6 +67,7 @@ import {
   type AgentRulings,
   type ArmManifest,
   type RecordStore,
+  type ReplayOutcomes,
 } from './records'
 import {
   renderReport,
@@ -70,6 +75,7 @@ import {
   type AgentIdenticalConfig,
   type Refusal,
   type SeededTranscripts,
+  type PageReplaySummary,
   type StoredRulings,
   type SweepReport,
 } from './report'
@@ -101,10 +107,11 @@ export interface JudgingDeps {
   // a seed rather than only from a run.
   rng?: Rng
   registry?: readonly AgentEntry[]
-  // Where a case's own dimensions come from. THIS checkout's case list, not
-  // either arm's records: the judging step runs at the candidate commit, the
-  // arms never record the field, and so both slots of a pair are asked the
-  // same questions whatever the base ref knew.
+  // Where a case's own dimensions, condition, handling sentence and control
+  // flag come from. THIS checkout's case list, not either arm's records: the
+  // judging step runs at the candidate commit, the arms never record the
+  // fields, and so both slots of a pair are judged the same way whatever the
+  // base ref knew.
   loadCases?: (agent: AgentEntry) => CaseList
   // Each case's condition and scored flag, read from the case list in THIS
   // checkout. Injected so a test need not stand a case list on disk.
@@ -119,14 +126,6 @@ export interface JudgingDeps {
   // on disk.
   outputContract?: (agent: AgentEntry) => ContractRead
 }
-
-// Only a background list carries either field, so a chat agent costs no read.
-const readCaseJudging = (
-  agent: AgentEntry,
-): ReadonlyMap<string, CaseJudging> =>
-  agent.shape === 'background'
-    ? caseJudgingOf(loadCaseList(agent))
-    : new Map<string, CaseJudging>()
 
 // Read raw rather than through `parseCaseList`: the base ref's list is held to
 // the base ref's schema, not this one, and the only fact wanted here is which
@@ -218,6 +217,99 @@ const skipReasonFor = (
     .flatMap((m) => m.skipped.filter((s) => s.agentId === agentId))
     .map((s) => s.reason)[0]
 
+type ReplayingRun = { runId: string; replay: JudgeReplay }
+
+const countReplay = async (
+  store: RecordStore,
+  agentId: string,
+  runs: readonly ReplayingRun[],
+  seeded: boolean,
+  baseUnseeded: boolean,
+): Promise<PageReplaySummary> => {
+  let counts: Awaited<ReturnType<RecordStore['replayOutcomes']>>[]
+  try {
+    counts = await Promise.all(
+      runs.map(({ runId, replay }) => store.replayOutcomes(replay, runId)),
+    )
+  } catch (err) {
+    console.error(`judge: listing ${agentId}'s page replay markers failed`, err)
+    return { agentId, state: 'unreadable', why: 'listFailed' }
+  }
+  const seen = counts.filter((c): c is ReplayOutcomes => c !== undefined)
+  if (seen.length < counts.length) {
+    return { agentId, state: 'unreadable', why: 'localStore' }
+  }
+  const hits = seen.reduce((sum, c) => sum + c.hits, 0)
+  const misses = seen.reduce((sum, c) => sum + c.misses, 0)
+  return hits + misses === 0
+    ? { agentId, state: 'inactive', why: 'noMarkers' }
+    : {
+        agentId,
+        state: 'counted',
+        hits,
+        misses,
+        seeded,
+        ...(baseUnseeded && { baseUnseeded }),
+      }
+}
+
+// Two summaries at most, one per source, so a seeded hit is never added to a
+// replayed one. A sweep-replayed candidate run counts only when the base run
+// of the same case and attempt recorded into the same store: a base arm with
+// no replay setting (its code predates replay), or one whose key differs,
+// gave it nothing to replay, and its misses would read as a real but low hit
+// rate. A seeded run needs no base: the bench wrote its store.
+const pageReplaySummaries = async (
+  store: RecordStore,
+  agentId: string,
+  records: readonly RunRecord[],
+): Promise<PageReplaySummary[]> => {
+  const bases = records.filter((r) => r.arm === 'base')
+  const sameStoreAsBase = (r: RunRecord): boolean =>
+    bases.some(
+      (b) =>
+        b.caseId === r.caseId &&
+        b.attempt === r.attempt &&
+        b.pageReplay?.key === r.pageReplay?.key,
+    )
+  const replaying = records.flatMap((r) =>
+    r.arm === 'candidate' && r.pageReplay?.mode === 'replay'
+      ? [{ record: r, runId: r.runId, replay: r.pageReplay }]
+      : [],
+  )
+  const isSeed = (run: ReplayingRun): boolean =>
+    run.replay.key.startsWith(`${JUDGE_REPLAY_KEY_PREFIX}seed/`)
+  const seeded = replaying.filter(isSeed)
+  const swept = replaying.filter((run) => !isSeed(run))
+  const summaries: PageReplaySummary[] = []
+  if (swept.length > 0) {
+    const paired = swept.filter((run) => sameStoreAsBase(run.record))
+    if (paired.length > 0) {
+      summaries.push(await countReplay(store, agentId, paired, false, false))
+    } else {
+      summaries.push({
+        agentId,
+        state: 'inactive',
+        why: bases.some((b) => b.pageReplay !== undefined)
+          ? 'keyMismatch'
+          : 'baseDidNotRecord',
+      })
+    }
+  }
+  if (seeded.length > 0) {
+    summaries.push(
+      await countReplay(
+        store,
+        agentId,
+        seeded,
+        true,
+        seeded.some((run) => !sameStoreAsBase(run.record)),
+      ),
+    )
+  }
+  return summaries
+}
+
 const refusalFor = (
   agentId: string,
   records: readonly RunRecord[],
@@ -267,12 +359,11 @@ const storeRulings = async (
   }
 }
 
-// Background agents only: a chat case has no dimensions of its own yet.
 const caseDimensionsByCase = (
   agent: AgentEntry | undefined,
   load: (agent: AgentEntry) => CaseList,
 ): ReadonlyMap<string, readonly CaseDimension[]> => {
-  if (agent === undefined || agent.shape !== 'background') return new Map()
+  if (agent === undefined) return new Map()
   return new Map(
     load(agent)
       .cases.map((one) => [one.caseId, caseDimensionsOf(one)] as const)
@@ -304,7 +395,8 @@ export const judgeSweep = async (
   const rng = deps.rng ?? createRng(1)
   const registry = deps.registry ?? AGENTS
   const loadCases = deps.loadCases ?? loadCaseList
-  const caseJudging = deps.caseJudging ?? readCaseJudging
+  const caseJudging =
+    deps.caseJudging ?? ((agent: AgentEntry) => caseJudgingOf(loadCases(agent)))
   const outputContract =
     deps.outputContract ??
     ((agent: AgentEntry) => readOutputContracts(agent.agentId, env.baseDir))
@@ -494,7 +586,16 @@ export const judgeSweep = async (
           meter.llm,
           normalized.judgeable,
           config,
-          unscoredCaseIds,
+          // A case with a condition is the whole evidence for it, so it is
+          // read in both orders like a control. Background cases already
+          // are; this is what extends it to a chat case outside the swap
+          // subsample.
+          new Set([
+            ...unscoredCaseIds,
+            ...[...judging]
+              .filter(([, one]) => one.condition !== undefined)
+              .map(([caseId]) => caseId),
+          ]),
         )
       } finally {
         judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
@@ -561,6 +662,17 @@ export const judgeSweep = async (
   }
 
   const unpinned = unpinnedMartReads(records)
+  const pageReplay = (
+    await Promise.all(
+      env.agentIds.map((agentId) =>
+        pageReplaySummaries(
+          deps.store,
+          agentId,
+          records.filter((r) => r.agentId === agentId),
+        ),
+      ),
+    )
+  ).flat()
   // Over every record for the same reason the mart check is: a run excluded
   // from the comparison still produced an answer, and an answer that broke a
   // rule is a fact about the branch whether or not it was judgeable.
@@ -627,6 +739,7 @@ export const judgeSweep = async (
     ...(unpinned.length > 0 && { unpinnedMart: unpinned }),
     ...(broken.length > 0 && { invariantViolations: broken }),
     ...(rulings.length > 0 && { rulings }),
+    ...(pageReplay.length > 0 && { pageReplay }),
   }
 
   return {

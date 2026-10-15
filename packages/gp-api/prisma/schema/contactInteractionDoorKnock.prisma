@@ -49,6 +49,13 @@ model ContactInteractionDoorKnock {
   // since a CHECK constraint would also have to be taught about every legacy
   // row that predates it.
   followUp         FollowUpAnswer?  @map("follow_up")
+  // The Serve door's closing question: did this resident agree to join the
+  // office's civic panel. What this one knock heard, never the standing
+  // membership, which lives on the `civic_panel` contact status.
+  joinCivicPanel   FollowUpAnswer?  @map("join_civic_panel")
+  // Asked instead on a turf of panel members only: did they want to stay on
+  // it. A no takes them off the panel; join_civic_panel stays null.
+  stayOnCivicPanel FollowUpAnswer?  @map("stay_on_civic_panel")
   note             String?
   // The door-knocking tool's route/interaction id, the idempotency key so a
   // re-sync upserts rather than double-writes. Null for manual logs; Postgres

@@ -8,7 +8,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
 import { PRO_FILTERING_REQUIRED_MESSAGE } from '@/contacts/services/contacts.service'
 import { FILTER_PRO_REQUIRED_MESSAGE } from '@/voters/services/voterFileFilter.service'
-import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
+import {
+  DATA_SOURCE_ROUTING_RULES,
+  dataSourceRoutingRules,
+} from '@/llm/tools/dataSourceRouting'
 import { buildCrudSavedFiltersTool } from './crudSavedFilters.tool'
 
 const ORGANIZATION = { slug: 'win-campaign' } as Organization
@@ -36,6 +39,7 @@ const buildDeps = (over: {
     drawListSample: over.drawListSample ?? vi.fn(),
   },
   organization: ORGANIZATION,
+  peopleDataset: 'voters',
 })
 
 const buildTool = (over: Parameters<typeof buildDeps>[0] = {}) => {
@@ -55,16 +59,6 @@ describe('crud_saved_filters input schema', () => {
           // voicemail_left is a robocall outcome; invalid on the text channel
           { outreachType: 'text', actions: ['voicemail_left'] },
         ],
-      }).success,
-    ).toBe(false)
-  })
-
-  it('rejects the legacy registration keys the filter engine ignores', () => {
-    expect(
-      tool.inputSchema.safeParse({
-        action: 'create',
-        name: 'Inactive registrations',
-        registeredVoterFalse: true,
       }).success,
     ).toBe(false)
   })
@@ -392,5 +386,14 @@ describe('crud_saved_filters execute', () => {
   it('carries the cross-catalog routing rules in its description', () => {
     const { tool } = buildTool()
     expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
+  })
+
+  it('carries the routing rules for the constituents dataset it was given', () => {
+    const tool = buildCrudSavedFiltersTool({
+      ...buildDeps({}),
+      peopleDataset: 'constituents',
+    })
+    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+    expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

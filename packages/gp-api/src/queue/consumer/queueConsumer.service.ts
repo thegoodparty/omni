@@ -3,7 +3,9 @@ import { Message } from '@aws-sdk/client-sqs'
 import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
+  OutreachType,
   Poll,
+  PollAudienceKind,
   PollIndividualMessageSender,
   Prisma,
   TcrComplianceStatus,
@@ -90,7 +92,11 @@ import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
-import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
+import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
+import {
+  OutreachTextDeliveryService,
+  TextDeliveryAudience,
+} from '@/outreach/services/outreachTextDelivery.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
@@ -99,6 +105,8 @@ import type { AgentExperimentResultData } from '../queue.types'
 
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
+
+const INITIAL_POLL_SEND_SEQ = 1
 
 type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 
@@ -186,6 +194,7 @@ export class QueueConsumerService {
     private readonly chatAttachments: ChatAttachmentsService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
+    private readonly pollExpansion: OutreachServePollExpansionService,
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
@@ -590,12 +599,15 @@ export class QueueConsumerService {
     const outreach = await this.outreachService.model.findUnique({
       where: { id: outreachId },
       select: {
+        outreachType: true,
+        approvedAt: true,
         message: true,
         imageUrl: true,
         scheduledLocalDate: true,
         voterFileFilterId: true,
         billableTextCount: true,
         textCount: true,
+        pollDetails: { select: { audienceKind: true } },
       },
     })
 
@@ -603,6 +615,28 @@ export class QueueConsumerService {
       this.logger.error(
         { outreachId, sendSeq },
         'outreachTextSend: no such outreach; acking, retrying cannot help',
+      )
+      return true
+    }
+
+    const isPoll = outreach.outreachType === OutreachType.poll
+    if (isPoll && !outreach.approvedAt) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: a poll reached delivery without approval, which ' +
+          'should never happen; acking without sending',
+      )
+      return true
+    }
+    const expansion =
+      isPoll && sendSeq > INITIAL_POLL_SEND_SEQ
+        ? await this.pollExpansion.resolveDelivery(outreachId, sendSeq)
+        : null
+    if (isPoll && sendSeq > INITIAL_POLL_SEND_SEQ && !expansion) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: an expansion reached delivery without an ' +
+          'approved row, which should never happen; acking without sending',
       )
       return true
     }
@@ -616,7 +650,23 @@ export class QueueConsumerService {
       textCount,
     } = outreach
 
-    if (!message || !scheduledLocalDate || !voterFileFilterId) {
+    const isSamplePoll =
+      isPoll && outreach.pollDetails?.audienceKind === PollAudienceKind.sample
+    const audience: TextDeliveryAudience | null = expansion
+      ? {
+          kind: 'sample',
+          size: expansion.textCount,
+          excludePersonIds: expansion.excludePersonIds,
+        }
+      : isSamplePoll
+        ? textCount
+          ? { kind: 'sample', size: textCount }
+          : null
+        : voterFileFilterId
+          ? { kind: 'savedFilter', voterFileFilterId }
+          : null
+
+    if (!message || !scheduledLocalDate || !audience) {
       this.logger.error(
         {
           outreachId,
@@ -634,7 +684,7 @@ export class QueueConsumerService {
     const result = await this.outreachTextDelivery.requestSend({
       outreachId,
       sendSeq,
-      audience: { kind: 'savedFilter', voterFileFilterId },
+      audience,
       message,
       imageUrl: imageUrl ?? undefined,
       scheduledLocalDate,
@@ -644,7 +694,7 @@ export class QueueConsumerService {
       // allowance, so a send fully covered by the offer carries 0. Capping
       // on that would truncate a legitimate send to nobody and hand
       // fulfilment an empty file.
-      paidRecipientCap: textCount ?? undefined,
+      paidRecipientCap: expansion?.textCount ?? textCount ?? undefined,
     })
 
     // `terminalReason` means nothing was handed off and nothing ever will be.
@@ -971,8 +1021,10 @@ export class QueueConsumerService {
       // so resolve it once instead of letting every findPersonByPhone re-query
       // the campaign. Bound the fan-out (see PEOPLE_LOOKUP_CONCURRENCY) so a
       // large poll can't burst hundreds of simultaneous requests at People-API.
-      const proAccess =
-        await this.contactsService.resolveProAccess(organization)
+      const [proAccess, dataset] = await Promise.all([
+        this.contactsService.resolveProAccess(organization),
+        this.contactsService.resolvePeopleDataset(organization),
+      ])
       const lookups = await pmap(
         unmappedPhones,
         async (normalized) => {
@@ -982,6 +1034,7 @@ export class QueueConsumerService {
               digitsOnly,
               organization,
               proAccess,
+              dataset,
             )
             return { phone: normalized, personId: person?.id ?? null }
           } catch (err) {

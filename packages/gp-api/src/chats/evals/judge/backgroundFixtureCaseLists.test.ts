@@ -30,10 +30,16 @@ const AUTHORED = [
 ] as const
 
 const CASES_PER_LIST = 8
-// The one real bench among the six carries eight probes and a control; the
-// placeholder lists keep the eight-case shape.
+// The real benches among the six carry six to eight probes and a control
+// (trending_issues drops the hint probe, since the agent takes no hint); the
+// placeholder list keeps the eight-case shape.
 const casesExpected = (agentId: string): number =>
-  agentId === 'opportunities_and_challenges' ? 9 : CASES_PER_LIST
+  agentId === 'opportunities_and_challenges' ||
+  agentId === 'campaign_tracker_tasks'
+    ? 9
+    : agentId === 'trending_issues'
+      ? 7
+      : CASES_PER_LIST
 
 // WHICH PARAM carries which token, not merely that the token appears
 // somewhere in the file. A substring search over the whole list passes when

@@ -11,7 +11,7 @@ organization. TDD: ClickUp doc `2ky4jq2q-145653` (Implementation Notes
 | Route                                      | Purpose                                                                                         |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `GET /v1/test-mode`                        | The user's test orgs, plus the current preset per family for the active org                     |
-| `POST /v1/test-mode/organizations`         | Create a test campaign (on a real race) or test elected office in a preset bundle               |
+| `POST /v1/test-mode/organizations`         | Create a test campaign or test elected office on a real race, in a preset bundle                |
 | `POST /v1/test-mode/apply`                 | Apply one family preset to the active (`X-Organization-Slug`) test org                          |
 | `DELETE /v1/test-mode/organizations/:slug` | Delete a test org (cascade), refusing on a real subscription, live domain or in-flight outreach |
 
@@ -20,6 +20,11 @@ not impersonating, not an M2M or agent token, and the `staff-test-mode`
 Amplitude flag on. Every write 409s unless the target org carries
 `Organization.testModeCreatedAt`.
 
+The UI is `gp-webapp/app/dashboard/shared/testMode/` (its own `AGENTS.md`).
+Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
+`guards/TestMode.guard.test.ts`, and the Playwright spec
+`gp-webapp/e2e-tests/tests/app/dashboard/test-mode/test-mode.spec.ts`.
+
 ## Gotchas
 
 - Org creation reuses `StateTransitionsService` (`src/testFixtures/`), the
@@ -27,7 +32,9 @@ Amplitude flag on. Every write 409s unless the target org carries
   transaction so HubSpot never sees the org, `launch` with tracking off.
 - Elected-office test orgs are inserted directly, never through
   `ElectedOfficeService.create`, which dispatches real agent runs and 409s on
-  term overlap with the owner's real office.
+  term overlap with the owner's real office. They still bind the picked
+  race's real position (`positionId`, resolved the way Serve onboarding
+  does), because outreach and list building read the district from it.
 - `pro` writes `isPro` directly; `setIsPro` would announce the upgrade in
   Slack.
 - Presets that drop JSON keys (`wonGeneral`, the onboarding markers) go

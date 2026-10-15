@@ -5,7 +5,11 @@ import { useState } from 'react'
 import { FilterPill, FilterPillGroup, IconButton } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffHref } from '../../routes'
-import { useDashboardCards, useOnboardingCards } from '../../data/use-dashboard'
+import {
+  useDashboardCards,
+  useOnboardingCards,
+  useRestoreCard,
+} from '../../data/use-dashboard'
 import DashboardTaskCard from '../../components/DashboardTaskCard'
 import TaskCard from '../../components/TaskCard'
 import {
@@ -16,17 +20,19 @@ import type { DashboardCardBucket } from '../../data/contracts'
 
 type ArchiveBucket = Extract<
   DashboardCardBucket,
-  'this_week' | 'skipped' | 'missed'
+  'this_week' | 'done' | 'skipped' | 'missed'
 >
 
 const BUCKETS: { value: ArchiveBucket; label: string }[] = [
   { value: 'this_week', label: 'This week' },
+  { value: 'done', label: 'Done' },
   { value: 'skipped', label: 'Skipped' },
   { value: 'missed', label: 'Missed' },
 ]
 
 const EMPTY_COPY: Record<ArchiveBucket, string> = {
   this_week: 'Nothing scheduled for this week.',
+  done: "You haven't marked any tasks done.",
   skipped: "You haven't skipped any tasks.",
   missed: 'No missed tasks. Nice work staying on top of things.',
 }
@@ -34,6 +40,7 @@ const EMPTY_COPY: Record<ArchiveBucket, string> = {
 function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   const { data: cards, isPending, isError } = useDashboardCards(bucket)
   const { data: onboarding } = useOnboardingCards()
+  const restoreCard = useRestoreCard()
 
   // Skipped onboarding cards live in the Skipped bucket alongside task cards.
   const skippedOnboarding =
@@ -63,7 +70,20 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       {cards?.map((card) => (
-        <DashboardTaskCard key={card.id} card={card} />
+        <DashboardTaskCard
+          key={card.id}
+          card={card}
+          // "Not for me" is how the civic panel and report back cards are
+          // set aside, so they are the ones a skipped card can be brought
+          // back from.
+          onRestore={
+            bucket === 'skipped' &&
+            (card.type === 'civic_panel' || card.type === 'report_back')
+              ? restoreCard.mutate
+              : undefined
+          }
+          restoreDisabled={restoreCard.isPending}
+        />
       ))}
       {skippedOnboarding.map((key) => {
         const config = ONBOARDING_CARDS[key]
@@ -80,7 +100,7 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
   )
 }
 
-/** The Archive view — This week (default) / Skipped / Missed buckets. */
+/** The Archive view — This week (default) / Done / Skipped / Missed buckets. */
 export default function ArchiveContent(): React.JSX.Element {
   const [bucket, setBucket] = useState<ArchiveBucket>('this_week')
 

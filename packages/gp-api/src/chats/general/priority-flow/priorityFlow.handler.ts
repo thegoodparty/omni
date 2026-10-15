@@ -10,6 +10,8 @@ import {
   OrdinanceAuthorityFindingSchema,
   OrdinanceCurrentLawSummarySchema,
   OrdinancePresentComparablesSchema,
+  type PriorityCheckSide,
+  type PriorityStepId,
   type ProposalChannel,
 } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
@@ -22,6 +24,9 @@ import {
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   ChatScopeHandler,
@@ -32,7 +37,7 @@ import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
-  ConstituentTableConfig,
+  ConstituentTablesByDataset,
 } from '../chief-of-staff/services/constituentDataScope'
 import {
   CONSTITUENT_DATA_PROVIDER,
@@ -54,12 +59,19 @@ import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.to
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import {
   buildPriorityOutreachProposalTool,
+  checkPanelPart,
   checkProposalRefusal,
   proposalResult,
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import {
+  buildReadReportBackTool,
+  checkReportBack,
+} from '../chat-tools/readReportBack.tool'
+import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
@@ -83,28 +95,28 @@ const PLACEHOLDER = /\[[^\]\n]{1,40}\]/
 
 const unsignedDraftReason = (
   input: { channel: ProposalChannel; message: string },
-  firstName: string | null,
+  officialName: string | null,
 ): string | null => {
   if (PLACEHOLDER.test(input.message)) {
     return (
       'The message has a placeholder in brackets. Write it out in full, ' +
-      "signed with the official's first name and office from <priority>."
+      "signed with the official's full name and office from <priority>."
     )
   }
   const voiced = input.channel === 'text' || input.channel === 'phoneBanking'
-  if (!voiced || firstName === null) return null
+  if (!voiced || officialName === null) return null
   const { failures } = checkSmsStandards(input.message, {
-    candidateNames: [firstName],
+    candidateNames: [officialName],
   })
   if (!failures.includes('candidate_name')) return null
   // A caller may be a volunteer, so the script names the official without
   // claiming to be them.
   return input.channel === 'text'
     ? `A text has to name the official. Open it with "this is ` +
-        `${firstName}, your" and their office (no greeting, the flow adds ` +
+        `${officialName}, your" and their office (no greeting, the flow adds ` +
         `one), then present it again.`
     : `A phone script has to name the official. Have the caller say who ` +
-        `they are calling for: "${firstName}, your" and their office.`
+        `they are calling for: "${officialName}, your" and their office.`
 }
 
 @Injectable()
@@ -124,7 +136,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly outreach: PriorityFlowOutreachService,
     private readonly priorityStatus: PriorityStatusService,
     @Inject(CONSTITUENT_TABLES_CONFIG)
-    private readonly constituentTables: ConstituentTableConfig[],
+    private readonly constituentTables: ConstituentTablesByDataset,
     @Optional()
     @Inject(CONSTITUENT_DATA_PROVIDER)
     private readonly constituentProvider?: DatabricksProvider,
@@ -137,6 +149,12 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly contacts?: ContactsService,
     @Optional()
     private readonly voterFileFilters?: VoterFileFilterService,
+    @Optional()
+    private readonly peopleDatasets?: PeopleDatasetService,
+    @Optional()
+    private readonly features?: FeaturesService,
+    @Optional()
+    private readonly reportBack?: OutreachReportBackService,
   ) {}
 
   // ONE conversation per priority, for the life of the priority. The ordinance
@@ -193,16 +211,52 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const resolved = await this.districtResolver?.resolveByOrgSlug(
       ctx.organizationSlug,
     )
-    if (!resolved) return ctx
+    // Once per turn, so every constituent-data call in it reads one table.
+    // Resolved before the district check because the CRM tools register
+    // without a district and describe the same dataset.
+    const peopleDataset = this.peopleDatasets
+      ? await this.peopleDatasets.resolve(ctx.organization)
+      : 'voters'
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: SERVE_CITIZEN_PANELS_FLAG,
+        })
+      : false
+    const civicPanelMembers = outreachFeedbackEnabled
+      ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
+      : undefined
+    const reportBacks =
+      outreachFeedbackEnabled && this.reportBack
+        ? await this.reportBack.listForOffice(
+            ctx.organizationSlug,
+            ctx.electedOfficeId,
+            { priorityId: ctx.priorityId },
+          )
+        : undefined
+    if (!resolved) {
+      return {
+        ...ctx,
+        peopleDataset,
+        outreachFeedbackEnabled,
+        civicPanelMembers,
+        reportBacks,
+      }
+    }
     return {
       ...ctx,
+      outreachFeedbackEnabled,
+      civicPanelMembers,
+      reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
         ? this.districtResolver.toMandatoryFilters(resolved)
         : null,
       constituentToolEnabled:
-        !!this.constituentProvider && this.constituentTables.length > 0,
+        !!this.constituentProvider &&
+        this.constituentTables[peopleDataset].length > 0,
+      peopleDataset,
     }
   }
 
@@ -223,13 +277,74 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     return this.assembleTools(ctx)
   }
 
+  // A widen names sends of the same side. Behind serve-citizen-panels, a side
+  // not yet sent may also name the step's other side: the targeted group
+  // offered after the panel's read leaves out everyone that send asked.
+  private async proposalRefusal(
+    ctx: PriorityFlowContext,
+    input: {
+      stepId?: PriorityStepId
+      side?: PriorityCheckSide
+      widensOutreachIds?: number[]
+    },
+  ): Promise<string | null> {
+    const status = await this.priorityStatus.read(ctx.priorityId)
+    const widens = input.widensOutreachIds ?? []
+    if (
+      widens.length === 0 ||
+      input.stepId === undefined ||
+      input.side === undefined
+    ) {
+      return checkProposalRefusal(input, status, false)
+    }
+    const { stepId, side } = input
+    const check = status.steps.find((step) => step.id === stepId)?.check
+    const sideSent =
+      (side === 'main' ? check?.sentAt : check?.contrast?.sentAt) !== undefined
+    const verified =
+      (await this.outreach.allPutOutCheck(
+        ctx.priorityId,
+        stepId,
+        side,
+        widens,
+      )) ||
+      (ctx.outreachFeedbackEnabled === true &&
+        !sideSent &&
+        (await this.outreach.allPutOutCheck(
+          ctx.priorityId,
+          stepId,
+          null,
+          widens,
+        )))
+    return checkProposalRefusal(input, status, verified)
+  }
+
+  // Read fresh rather than from the turn's context: a report back sent from
+  // another tab since the turn began must not be offered again.
+  private async reportBackRefusal(
+    ctx: PriorityFlowContext,
+    input: Parameters<typeof checkReportBack>[0] & {
+      reportBackForOutreachId: number
+    },
+  ): Promise<string | null> {
+    if (!this.reportBack) return 'Reporting back is not available here.'
+    const [send] = await this.reportBack.listForOffice(
+      ctx.organizationSlug,
+      ctx.electedOfficeId,
+      { priorityId: ctx.priorityId, outreachId: input.reportBackForOutreachId },
+    )
+    return checkReportBack(input, send)
+  }
+
   private assembleTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
     // Tools are built once per turn, so this flag is "did a card or a question
     // reach the official in this turn". The status tool refuses to record a
     // check as asked until one has, which is what makes `asked` mean shown.
     let offeredThisTurn = false
     const ask = buildAskClarifyQuestionTool()
-    const propose = buildPriorityOutreachProposalTool()
+    const propose = buildPriorityOutreachProposalTool({
+      citizenPanels: ctx.outreachFeedbackEnabled === true,
+    })
     const tools: Record<string, LlmTool> = {
       ...this.priorityStatus.buildStatusTool(ctx.priorityId, {
         offered: () => offeredThisTurn,
@@ -257,25 +372,24 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       present_outreach_proposal: {
         ...propose,
         execute: async (input: Parameters<typeof propose.execute>[0]) => {
-          const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
+          const unsigned = unsignedDraftReason(input, ctx.officialName)
           if (unsigned !== null) return { error: unsigned }
-          const widens = input.widensOutreachIds ?? []
+          if (input.reportBackForOutreachId !== undefined) {
+            const reportBack = await this.reportBackRefusal(ctx, {
+              ...input,
+              reportBackForOutreachId: input.reportBackForOutreachId,
+            })
+            if (reportBack !== null) return { error: reportBack }
+            const result = proposalResult(input)
+            if (!('error' in result)) offeredThisTurn = true
+            return result
+          }
+          const panelPart = checkPanelPart(input)
+          if (panelPart !== null) return { error: panelPart }
           const refusal =
             input.stepId === undefined && input.side === undefined
               ? null
-              : checkProposalRefusal(
-                  input,
-                  await this.priorityStatus.read(ctx.priorityId),
-                  widens.length > 0 &&
-                    input.stepId !== undefined &&
-                    input.side !== undefined &&
-                    (await this.outreach.allPutOutCheck(
-                      ctx.priorityId,
-                      input.stepId,
-                      input.side,
-                      widens,
-                    )),
-                )
+              : await this.proposalRefusal(ctx, input)
           if (refusal !== null) return { error: refusal }
           const result = proposalResult(input)
           if (!('error' in result)) offeredThisTurn = true
@@ -320,6 +434,22 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       }),
     }
 
+    if (ctx.outreachFeedbackEnabled) {
+      tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
+        outreach: this.outreach,
+        priorityId: ctx.priorityId,
+        organizationSlug: ctx.organizationSlug,
+      })
+      if (this.reportBack) {
+        tools.read_report_back = buildReadReportBackTool({
+          reportBack: this.reportBack,
+          organizationSlug: ctx.organizationSlug,
+          electedOfficeId: ctx.electedOfficeId,
+          priorityId: ctx.priorityId,
+        })
+      }
+    }
+
     // Web search runs through Anthropic's native tool (the scope is
     // Claude-only) so queries stay within the enterprise agreement. Gated on
     // the key here so the prompt never advertises an unregistered tool.
@@ -334,7 +464,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables,
+        this.constituentTables[ctx.peopleDataset],
+        ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
@@ -360,6 +491,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       crmTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
+        peopleDataset: ctx.peopleDataset,
       })
       // A stage-gate check is often a few blocks, and precinct is the one
       // geographic filter describe_filter_dimensions cannot list.
@@ -372,12 +504,15 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
+          peopleDataset: ctx.peopleDataset,
         })
       }
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(crmTools),
+        peopleDataset: ctx.peopleDataset,
+        citizenPanels: ctx.outreachFeedbackEnabled === true,
       })
       Object.assign(tools, crmTools)
     }

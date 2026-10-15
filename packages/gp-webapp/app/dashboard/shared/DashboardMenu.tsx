@@ -499,9 +499,13 @@ const NewNavMenu = ({
   const { setOpenMobile, isMobile } = useSidebar()
 
   const menuFirstName =
-    (isClerkUserLoaded && clerkUser?.firstName?.trim()) || user?.firstName || ''
+    user?.firstName?.trim() ||
+    (isClerkUserLoaded && clerkUser?.firstName?.trim()) ||
+    ''
   const menuLastName =
-    (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
+    user?.lastName?.trim() ||
+    (isClerkUserLoaded && clerkUser?.lastName?.trim()) ||
+    ''
 
   const organization = useOrganization()
   const organizationRole = useOrganizationRole()

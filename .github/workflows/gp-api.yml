@@ -191,6 +191,14 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Base images come from ECR Public. Anonymous pulls there are limited
+      # per IP and shared runners hit 429s; logged in, the limit is per
+      # account.
+      - name: Login to Amazon ECR Public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
       # ECR tags are immutable, so a re-run of this job after a successful
       # push would fail trying to overwrite the tag. Same SHA means same
       # source; reuse the existing image and skip the build.
@@ -221,6 +229,8 @@ jobs:
           # The runner is thrown away after the job; tearing the builder down
           # cost 10-20s of post-job time for nothing.
           cleanup: false
+          driver-opts: |
+            image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
 
       # The layer cache lives in ECR, not the GitHub Actions cache. This repo's
       # Actions cache sits over its 10GB cap, so the ~600MB dependency layer was
@@ -266,10 +276,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_PR_NUMBER: ${{ github.event.number }}
-          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
-          CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
 
       # This step, not Pulumi, is what waits for the rollout. The preview's ECS
       # service does not wait for steady state (see service.ts): ECS marked a
@@ -295,8 +301,8 @@ jobs:
           echo "Confirming $BASE is serving $EXPECTED_SHA"
           got=""
           # 10 minutes, the same budget Pulumi's steady-state wait had. A
-          # first deploy runs every migration and the full seed before the app
-          # starts, so it is the slow case.
+          # first deploy runs every migration before the app starts, so it is
+          # the slow case.
           deadline=$((SECONDS + 600))
           i=0
           while [ $SECONDS -lt $deadline ]; do

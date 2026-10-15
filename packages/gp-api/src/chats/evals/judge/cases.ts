@@ -240,6 +240,57 @@ export const MAX_CASE_TURNS = 10
 // short of it rather than exactly on it.
 export const MAX_SEEDED_TURNS = 18
 
+// A question the judge is asked about ONE case, beside the config's default
+// dimensions. A probe tests a relationship between the artifact and an input
+// the case mutated, and "is this a good artifact" is the wrong question for
+// it: a polished artifact that glossed over a sparse input can read better
+// than one that handled it.
+//
+// JUDGE-ONLY. The runner never reads it, so it never reaches the agent's
+// params or a record. The judging step reads it from its own checkout's case
+// list, keyed by caseId, and puts it on the one payload both slots share — so
+// both runs are always judged on the same questions, and a base ref that
+// predates the field strips it from a case the base arm never judges anyway.
+//
+// The reserved names are the keys a verdict already has. `overall` is
+// judge.ts's OVERALL, spelled out because judge.ts imports this module.
+const RESERVED_DIMENSIONS = new Set([
+  ...DEFAULT_JUDGE_CONFIG.dimensions,
+  'overall',
+])
+
+export const MAX_CASE_DIMENSIONS = 4
+
+export const CaseDimensionSchema = z
+  .object({
+    // Becomes a key in the judge's output schema and a row in a public
+    // report, so it is held to an identifier: a leading letter also rules
+    // out `__proto__`, the one key `z.object` cannot require.
+    name: z
+      .string()
+      .max(40)
+      .regex(
+        /^[a-z][a-z0-9_]*$/,
+        'a case dimension name is a snake_case identifier',
+      )
+      .refine((name) => !RESERVED_DIMENSIONS.has(name), {
+        message:
+          'that name is already a dimension every case is judged on; a ' +
+          'case dimension has to be a question of its own',
+      }),
+    question: z.string().min(1).max(400),
+  })
+  .strict()
+export type CaseDimension = z.infer<typeof CaseDimensionSchema>
+
+// Long enough for a mutation excerpt and the axis it tests, short enough that
+// it cannot become a second input competing with the case's own input for the
+// judge's attention.
+export const MAX_CONDITION_CHARS = 2_000
+
+// One sentence, so a bound well short of a condition's.
+export const MAX_HANDLED_WHEN_CHARS = 600
+
 // The case a chat agent is driven with.
 //
 // `question` STAYS VALID ON ITS OWN and is still what every authored list
@@ -275,6 +326,27 @@ export const ChatCaseSchema = z
       .optional(),
     toolFailure: ToolFailureSchema.optional(),
     accountState: ChatAccountStateSchema.optional(),
+    // The same four judge-only fields a background case carries, with the
+    // same bounds; see BackgroundCaseSchema. The runner never reads them, so
+    // a turn is driven the same way with or without them.
+    condition: z.string().trim().min(1).max(MAX_CONDITION_CHARS).optional(),
+    handledWhen: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_HANDLED_WHEN_CHARS)
+      .optional(),
+    scored: z.boolean().optional(),
+    dimensions: z
+      .array(CaseDimensionSchema)
+      .min(1)
+      .max(MAX_CASE_DIMENSIONS)
+      .refine(
+        (dimensions) =>
+          new Set(dimensions.map((d) => d.name)).size === dimensions.length,
+        { message: 'a case names each of its dimensions once' },
+      )
+      .optional(),
   })
   // STRICT, WHICH IS NOT THE SAME AS REQUIRING ANYTHING. Every field above is
   // optional, which is what an older base ref needs. What strict adds is that
@@ -296,6 +368,17 @@ export const ChatCaseSchema = z
       '(several user turns in order); carrying both leaves which one the ' +
       'agent was asked undecided',
     path: ['question'],
+  })
+  .refine(
+    (one) => one.handledWhen === undefined || one.condition !== undefined,
+    {
+      message: 'handledWhen describes handling a condition; add the condition',
+      path: ['handledWhen'],
+    },
+  )
+  .refine((one) => one.handledWhen === undefined || one.scored !== false, {
+    message: 'a control (scored: false) carries no handledWhen',
+    path: ['handledWhen'],
   })
 export type ChatCase = z.infer<typeof ChatCaseSchema>
 
@@ -350,56 +433,74 @@ export const caseTurns = (one: ChatCase): string[] => {
 export const usesSeededTranscript = (one: ChatCase): boolean =>
   one.priorTranscript !== undefined
 
-// A question the judge is asked about ONE case, beside the config's default
-// dimensions. A probe tests a relationship between the artifact and an input
-// the case mutated, and "is this a good artifact" is the wrong question for
-// it: a polished artifact that glossed over a sparse input can read better
-// than one that handled it.
-//
-// JUDGE-ONLY. The runner never reads it, so it never reaches the agent's
-// params or a record. The judging step reads it from its own checkout's case
-// list, keyed by caseId, and puts it on the one payload both slots share — so
-// both runs are always judged on the same questions, and a base ref that
-// predates the field strips it from a case the base arm never judges anyway.
-//
-// The reserved names are the keys a verdict already has. `overall` is
-// judge.ts's OVERALL, spelled out because judge.ts imports this module.
-const RESERVED_DIMENSIONS = new Set([
-  ...DEFAULT_JUDGE_CONFIG.dimensions,
-  'overall',
-])
+// A page the broker serves both arms in place of the live one. The URL has to
+// be in the broker's normalized form already (gp-ai
+// `broker/page_replay.normalize_url`), because the store is keyed by its hash
+// and the broker hashes the normalized form of what the agent asks for. So:
+// https, a lowercase host, no fragment, and a query of plain pairs in sorted
+// order with no tracking parameters. A broker test reads every committed
+// seeded URL and checks it normalizes to itself.
+// No port and a path that starts with `/`: the broker keeps both as written,
+// so `https://a.gov` and `https://a.gov/` would be two different pages.
+const SEED_QUERY_PAIR = '[A-Za-z0-9._-]+=[A-Za-z0-9._-]*'
+const SEED_URL = new RegExp(
+  "^https://[a-z0-9.-]+/[A-Za-z0-9._~!$'()*+,;=:@%/-]*" +
+    `(?:\\?${SEED_QUERY_PAIR}(?:&${SEED_QUERY_PAIR})*)?$`,
+)
+const TRACKING_PARAM = /^(?:utm_.*|fbclid|gclid)$/i
 
-export const MAX_CASE_DIMENSIONS = 4
+export const MAX_SEED_PAGES = 20
+export const MAX_SEED_PAGE_BYTES = 1024 * 1024
 
-export const CaseDimensionSchema = z
+const queryInBrokerOrder = (url: string): boolean => {
+  const query = url.split('?')[1]
+  if (query === undefined) return true
+  const pairs = query.split('&').map((pair) => {
+    const [name = '', value = ''] = pair.split('=')
+    return [name, value] as const
+  })
+  const sorted = [...pairs].sort(([a, x], [b, y]) => {
+    if (a !== b) return a < b ? -1 : 1
+    if (x === y) return 0
+    return x < y ? -1 : 1
+  })
+  return (
+    pairs.every(([name]) => !TRACKING_PARAM.test(name)) &&
+    pairs.every(([name, value], i) => {
+      const [sortedName, sortedValue] = sorted[i] ?? ['', '']
+      return name === sortedName && value === sortedValue
+    })
+  )
+}
+
+export const SeedPageSchema = z
   .object({
-    // Becomes a key in the judge's output schema and a row in a public
-    // report, so it is held to an identifier: a leading letter also rules
-    // out `__proto__`, the one key `z.object` cannot require.
-    name: z
+    url: z
       .string()
-      .max(40)
-      .regex(
-        /^[a-z][a-z0-9_]*$/,
-        'a case dimension name is a snake_case identifier',
-      )
-      .refine((name) => !RESERVED_DIMENSIONS.has(name), {
+      .max(2_000)
+      .regex(SEED_URL, {
         message:
-          'that name is already a dimension every case is judged on; a ' +
-          'case dimension has to be a question of its own',
+          'must be an https URL in the broker normalized form: lowercase ' +
+          'host, no fragment, a plain query',
+      })
+      .refine(queryInBrokerOrder, {
+        message:
+          'query parameters must be sorted by name, then value, with no ' +
+          'utm_*, fbclid or gclid',
       }),
-    question: z.string().min(1).max(400),
+    // A file under `cases/seeds/<agentId>/`, committed beside the list. omni
+    // is public, so it holds only content fine to publish.
+    file: z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/, {
+      message: 'is a file name in cases/seeds/<agentId>/, not a path',
+    }),
+    // Text only: the page is read and planted as UTF-8, and `http.get`
+    // refuses a binary response anyway.
+    contentType: z
+      .enum(['text/html', 'text/plain', 'application/json', 'application/xml'])
+      .optional(),
   })
   .strict()
-export type CaseDimension = z.infer<typeof CaseDimensionSchema>
-
-// Long enough for a mutation excerpt and the axis it tests, short enough that
-// it cannot become a second input competing with the params for the judge's
-// attention.
-export const MAX_CONDITION_CHARS = 2_000
-
-// One sentence, so a bound well short of a condition's.
-export const MAX_HANDLED_WHEN_CHARS = 600
+export type SeedPage = z.infer<typeof SeedPageSchema>
 
 export const BackgroundCaseSchema = z
   .object({
@@ -408,6 +509,27 @@ export const BackgroundCaseSchema = z
     // for the same reason a record's input is opaque: only the runner knows
     // what an experiment's params mean.
     params: z.record(z.string(), JsonValueSchema),
+    // Files the runner stages into the agent's workspace before it boots,
+    // the hold-still route for an agent that reads a user-supplied document:
+    // both arms read the same object. The runner already carries and checks
+    // the field at dispatch (dest a plain filename, the key's length, the
+    // count, no placeholder token); until now no authored list carried it,
+    // and a strict schema without it refused the first one. The three names
+    // are the dispatch handler's own. Strict, like the case: a misspelled
+    // `dest` would otherwise stage the file under a name the agent never
+    // reads and the case would run as if nothing had been supplied.
+    inputFiles: z
+      .array(
+        z
+          .object({
+            bucket: z.string().min(1),
+            key: z.string().min(1),
+            dest: z.string().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .optional(),
     // What this case planted in or took out of `params`, for the JUDGE. A
     // probe tests a relationship between the artifact and the input, and a
     // judge not told what was planted has to find it unaided inside tens of
@@ -432,6 +554,19 @@ export const BackgroundCaseSchema = z
       .trim()
       .min(1)
       .max(MAX_HANDLED_WHEN_CHARS)
+      .optional(),
+    // Pages both arms are served instead of the live web, so a bench can
+    // plant content: a hidden instruction, a namesake, a stale page, two
+    // sources that disagree. Dispatched as a page replay store, never as
+    // params, so the agent fetches them like any other page.
+    seedPages: z
+      .array(SeedPageSchema)
+      .min(1)
+      .max(MAX_SEED_PAGES)
+      .refine(
+        (pages) => new Set(pages.map((p) => p.url)).size === pages.length,
+        { message: 'a case seeds each URL once' },
+      )
       .optional(),
     // `false` keeps the pair out of every aggregate. It still runs and is
     // still judged, and the report states that judgment on its own line: a
@@ -472,7 +607,7 @@ export const BackgroundCaseSchema = z
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
 
 // What the judging step needs from a case list beyond the records, keyed by
-// caseId. Chat cases carry neither field, so a chat list yields an empty map.
+// caseId.
 export interface CaseJudging {
   condition?: string
   handledWhen?: string
@@ -481,30 +616,22 @@ export interface CaseJudging {
 
 export const caseJudgingOf = (list: CaseList): Map<string, CaseJudging> =>
   new Map(
-    list.cases.flatMap((one) =>
-      'params' in one
-        ? [
-            [
-              one.caseId,
-              {
-                ...(one.condition !== undefined && {
-                  condition: one.condition,
-                }),
-                ...(one.handledWhen !== undefined && {
-                  handledWhen: one.handledWhen,
-                }),
-                scored: one.scored ?? true,
-              },
-            ],
-          ]
-        : [],
-    ),
+    list.cases.map((one) => [
+      one.caseId,
+      {
+        ...(one.condition !== undefined && { condition: one.condition }),
+        ...(one.handledWhen !== undefined && {
+          handledWhen: one.handledWhen,
+        }),
+        scored: one.scored ?? true,
+      },
+    ]),
   )
 
 export type JudgeCase = ChatCase | BackgroundCase
 
 export const caseDimensionsOf = (one: JudgeCase): readonly CaseDimension[] =>
-  'dimensions' in one ? (one.dimensions ?? []) : []
+  one.dimensions ?? []
 
 const CASE_SCHEMAS = {
   chat: ChatCaseSchema,
@@ -719,6 +846,43 @@ export const loadCaseList = (
 // structural discriminator left.
 export const isChatCase = (one: JudgeCase): one is ChatCase =>
   !('params' in one)
+
+export const SEEDS_DIR = 'seeds'
+
+export interface SeededPage {
+  url: string
+  contentType: string
+  body: string
+}
+
+export const loadSeedPages = (
+  agentId: string,
+  one: BackgroundCase,
+  dir: string = CASES_DIR,
+): SeededPage[] =>
+  (one.seedPages ?? []).map((page) => {
+    const file = caseListPath(path.join(SEEDS_DIR, agentId, page.file), dir)
+    let body: string
+    try {
+      body = readFileSync(file, 'utf8')
+    } catch (err) {
+      throw new CaseListError(
+        `${agentId}/${one.caseId} seeds ${page.url} from ${file}, which ` +
+          `cannot be read — ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    if (Buffer.byteLength(body, 'utf8') > MAX_SEED_PAGE_BYTES) {
+      throw new CaseListError(
+        `${file} is over ${MAX_SEED_PAGE_BYTES} bytes; a seeded page is ` +
+          'one page, not a download',
+      )
+    }
+    return {
+      url: page.url,
+      contentType: page.contentType ?? 'text/html',
+      body,
+    }
+  })
 
 // A background agent's cases, narrowed. `parseCaseList` already discriminated
 // on `shape` when it built these, so re-deriving the narrowing structurally in

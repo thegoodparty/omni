@@ -26,6 +26,8 @@ import {
   canPutOffTask,
   canSetTaskAsideForGood,
   resolveTrackerTaskDate,
+  SmsComplianceWindow,
+  TEXT_SEND_ROBOCALL_SWAPS,
   timelineElectionDate,
   trackerTaskPutOffDate,
   trackerTimelineStart,
@@ -53,6 +55,7 @@ import { getUserFullName } from '@/users/util/users.util'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
+import { smsComplianceWindow } from '@/campaigns/util/eligibility.util'
 import {
   TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY,
   VOTER_GOALS_ADVISORY_LOCK_KEY,
@@ -159,6 +162,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   // isn't atomic, so two callers could both read zero and each insert the rows).
   async materializeStaticTasks(campaign: Campaign): Promise<number> {
     const { complete: storyComplete } = await this.storyState.read(campaign.id)
+    const smsClosed = await this.isSmsClosed(campaign)
     return this.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`
 
@@ -192,6 +196,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           start,
           electionDate,
           campaign.primaryResult === 'lost',
+          smsClosed,
         ),
         // Always materialized, ticked or not: the row is the record of this
         // work, and its completion mirrors the story rather than its
@@ -420,6 +425,9 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   // in the right phase. The voter-contact sends move too, so a late joiner's
   // past-due sends are compressed into the time ahead of them. Other
   // election-relative rows (the GOTV dates) were always right and stay.
+  // Once texting is closed for the race, the open text sends are swapped for
+  // a robocall on the same date, or removed when a robocall already lands
+  // there, the same rule buildOutreachTrackerTaskRows applies to new rows.
   async alignTrackerTaskDates(campaign: Campaign): Promise<number> {
     const rows = await this.model.findMany({
       where: { campaignId: campaign.id, isDefaultTask: true },
@@ -427,6 +435,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         id: true,
         title: true,
         date: true,
+        flowType: true,
         completed: true,
         isDefaultTask: true,
         skipReason: true,
@@ -438,39 +447,95 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       start,
       this.resolveElectionDate(campaign),
     )
-    const moves = rows.flatMap((row) => {
-      // Done, or dated by the candidate when they put it off.
-      if (row.completed || row.skipReason === 'later') return []
-      const entry = CAMPAIGN_TASK_CATALOG.find(
-        (task) => task.title === row.title,
+    const dated = rows.map((row) => {
+      const swapOf = TEXT_SEND_ROBOCALL_SWAPS.find(
+        (swap) => swap.title === row.title,
+      )?.catalogId
+      const entry = CAMPAIGN_TASK_CATALOG.find((task) =>
+        swapOf ? task.id === swapOf : task.title === row.title,
       )
+      // Done, or dated by the candidate when they put it off.
       if (
+        row.completed ||
+        row.skipReason === 'later' ||
         !entry ||
         !(
           TIMELINE_DATED_KINDS.has(entry.timing.kind) ||
           VOTER_CONTACT_IDS.has(entry.id)
         )
       ) {
-        return []
+        return { row, entry, date: row.date }
       }
       const date = getMidnightForDate(resolveTrackerTaskDate(entry, windows))
-      return date.getTime() === row.date.getTime()
-        ? []
-        : [
-            {
-              id: row.id,
-              date,
-              week: Math.max(0, differenceInCalendarWeeks(date, start)),
-            },
-          ]
+      return { row, entry, date }
     })
-    if (moves.length === 0) return 0
-    await this.client.$transaction(
-      moves.map(({ id, date, week }) =>
-        this.model.update({ where: { id }, data: { date, week } }),
-      ),
+
+    const smsClosed =
+      rows.some(
+        (row) => !row.completed && row.flowType === CampaignTaskType.text,
+      ) && (await this.isSmsClosed(campaign))
+    const robocallDates = new Set(
+      dated
+        .filter(({ row }) => row.flowType === CampaignTaskType.robocall)
+        .map(({ date }) => date.getTime()),
     )
-    return moves.length
+    const removals: string[] = []
+    const updates: {
+      id: string
+      data: Prisma.CampaignTrackerTaskUpdateInput
+    }[] = []
+    for (const { row, entry, date } of dated) {
+      const week = Math.max(0, differenceInCalendarWeeks(date, start))
+      if (
+        smsClosed &&
+        !row.completed &&
+        row.flowType === CampaignTaskType.text
+      ) {
+        const swap = TEXT_SEND_ROBOCALL_SWAPS.find(
+          (candidate) => candidate.catalogId === entry?.id,
+        )
+        if (!swap || robocallDates.has(date.getTime())) {
+          removals.push(row.id)
+          continue
+        }
+        robocallDates.add(date.getTime())
+        updates.push({
+          id: row.id,
+          data: {
+            date,
+            week,
+            title: swap.title,
+            description: swap.description,
+            flowType: CampaignTaskType.robocall,
+          },
+        })
+        continue
+      }
+      if (date.getTime() !== row.date.getTime()) {
+        updates.push({ id: row.id, data: { date, week } })
+      }
+    }
+    if (updates.length === 0 && removals.length === 0) return 0
+    await this.client.$transaction([
+      ...updates.map(({ id, data }) =>
+        this.model.update({ where: { id }, data }),
+      ),
+      this.model.deleteMany({ where: { id: { in: removals } } }),
+    ])
+    return updates.length + removals.length
+  }
+
+  private async isSmsClosed(campaign: Campaign): Promise<boolean> {
+    const tcrCompliance = await this.client.tcrCompliance.findUnique({
+      where: { campaignId: campaign.id },
+      select: { kickoffSentAt: true, internalTestingAt: true },
+    })
+    const { smsCompliance } = smsComplianceWindow({
+      electionDate: campaign.details?.electionDate,
+      tcrCompliance,
+      now: new Date(),
+    })
+    return smsCompliance === SmsComplianceWindow.closed
   }
 
   private resolveElectionDate(campaign: Campaign): Date | null {
@@ -844,12 +909,20 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   private async postOutreachScheduleOnce(
     campaign: CampaignWith<'user'>,
   ): Promise<void> {
+    // The text rows are only swapped when the tracker is read, so a closed
+    // race can still hold some; CAS must not get texts it can't send. Swap
+    // them first so CAS gets the robocalls that replace them, since this
+    // post goes out once.
+    const smsClosed = await this.isSmsClosed(campaign)
+    if (smsClosed) await this.alignTrackerTaskDates(campaign)
     const outreach = await this.model.findMany({
       where: {
         campaignId: campaign.id,
         isDefaultTask: true,
         flowType: {
-          in: [CampaignTaskType.text, CampaignTaskType.robocall],
+          in: smsClosed
+            ? [CampaignTaskType.robocall]
+            : [CampaignTaskType.text, CampaignTaskType.robocall],
         },
       },
       orderBy: { date: Prisma.SortOrder.asc },
@@ -935,6 +1008,8 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     const withinGotvWindow =
       electionDate !== null &&
       differenceInCalendarDays(electionDate, new Date()) <= 30
+    const smsClosed = await this.isSmsClosed(campaign)
+    if (smsClosed) await this.alignTrackerTaskDates(campaign)
     const tasks = await this.model.findMany({
       where: {
         campaignId: campaign.id,
@@ -950,7 +1025,9 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           {
             isDefaultTask: true,
             flowType: {
-              in: [CampaignTaskType.text, CampaignTaskType.robocall],
+              in: smsClosed
+                ? [CampaignTaskType.robocall]
+                : [CampaignTaskType.text, CampaignTaskType.robocall],
             },
           },
           ...(latest ? [{ isDefaultTask: false, week: latest.week }] : []),

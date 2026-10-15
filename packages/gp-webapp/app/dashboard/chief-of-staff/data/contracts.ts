@@ -29,9 +29,19 @@ export interface SupportEstimate {
 // slice 2 — dashboard cards (GET /v1/dashboard/cards, PUT .../dismiss)
 // ---------------------------------------------------------------------------
 
-export type DashboardCardType = 'briefing' | 'agenda_item' | 'community_issue'
+export type DashboardCardType =
+  | 'briefing'
+  | 'agenda_item'
+  | 'community_issue'
+  | 'civic_panel'
+  | 'report_back'
 
-export type DashboardCardBucket = 'active' | 'this_week' | 'skipped' | 'missed'
+export type DashboardCardBucket =
+  | 'active'
+  | 'this_week'
+  | 'skipped'
+  | 'missed'
+  | 'done'
 
 export interface DashboardCard {
   id: string
@@ -45,6 +55,7 @@ export interface DashboardCard {
   sourceExternalId: string
   sourceItemId: string | null
   dismissedAt: string | null
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -54,7 +65,8 @@ export interface DashboardCardListResponse {
   cards: DashboardCard[]
 }
 
-// onboarding cards (GET /v1/dashboard/onboarding-cards, PUT .../:key/skip).
+// onboarding cards (GET /v1/dashboard/onboarding-cards, PUT .../:key/skip,
+// PUT .../:key/complete).
 // The two fixed get-started cards; status is derived server-side.
 export type OnboardingCardKey = 'meet' | 'priorities'
 

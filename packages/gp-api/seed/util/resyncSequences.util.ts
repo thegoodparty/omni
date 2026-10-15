@@ -33,10 +33,9 @@ export const SEQUENCE_BACKED_TABLES_SEEDED_WITH_EXPLICIT_IDS = [
  * Point each sequence at `MAX(id) + 1` so the seeded database can create rows
  * normally afterwards.
  *
- * Only ever reached from the factory seeds, which run against preview
- * (`gpdb_pr_<n>`) and local databases. Production never executes them — the
- * entrypoint gates seeding on `IS_PREVIEW`, and `seed.ts` gates the factory
- * branch on `NODE_ENV`.
+ * Only ever reached from the factory seeds, which run against local
+ * databases. No deployed entrypoint runs the seed, and `seed.ts` gates the
+ * factory branch on `NODE_ENV`.
  *
  * `setval(seq, n, false)` means "the next nextval() returns n", which is what
  * makes the empty-table case correct: `MAX(id)` is NULL, `COALESCE(..., 0) + 1`

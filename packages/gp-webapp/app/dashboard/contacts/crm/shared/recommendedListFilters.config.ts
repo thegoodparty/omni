@@ -61,9 +61,100 @@ export const ANY_PHONE_FIELD = {
   options: [{ key: ANY_PHONE_FILTER_KEY, label: 'Has Any Phone' }],
 }
 
+// Serve-only, the inverse of the Win-only fields above: the people on the
+// official's civic panel. gp-api resolves it from their standing civic panel
+// status and 400s it for a Win org. Kept here with the other non-config
+// groups so the transform carries its key and an edit can clear it.
+export const CIVIC_PANEL_FILTER_KEY = 'civicPanelMember'
+
+// The status options OR together. Left is someone who was on the panel and
+// left; never invited is nobody the office ever asked to join.
+export const CIVIC_PANEL_FIELD = {
+  key: 'civic_panel',
+  label: 'Civic panel',
+  options: [
+    { key: CIVIC_PANEL_FILTER_KEY, label: 'On your civic panel' },
+    { key: 'civicPanelLeft', label: 'Left' },
+    { key: 'civicPanelNeverInvited', label: 'Never invited' },
+  ],
+}
+
+// How a current member last joined. gp-api matches members only.
+export const CIVIC_PANEL_JOINED_BY_FIELD = {
+  key: 'civic_panel_joined_by',
+  label: 'How they joined',
+  options: [
+    { key: 'civicPanelJoinedByText', label: 'By text' },
+    { key: 'civicPanelJoinedByDoor', label: 'At the door' },
+    { key: 'civicPanelJoinedByPhone', label: 'On a call' },
+    { key: 'civicPanelJoinedByHand', label: 'Added by you' },
+  ],
+}
+
+// Inclusive calendar days (YYYY-MM-DD). Values are strings, not booleans:
+// the one place VoterFileFilters holds anything but a pill.
+export interface DayRangeField {
+  key: string
+  label: string
+  fromKey: string
+  toKey: string
+}
+
+export const CIVIC_PANEL_JOINED_WHEN_FIELD: DayRangeField = {
+  key: 'civic_panel_joined_when',
+  label: 'When they joined',
+  fromKey: 'civicPanelJoinedFrom',
+  toKey: 'civicPanelJoinedTo',
+}
+
+// When the office last reached them on any channel, the same rule as the
+// 30-day rest window, so its pill is that window's key.
+export const LAST_ASKED_RANGE_FIELD: DayRangeField = {
+  key: 'last_asked',
+  label: 'Last asked',
+  fromKey: 'lastReachedFrom',
+  toKey: 'lastReachedTo',
+}
+
+export const DAY_RANGE_FILTER_KEYS = [
+  CIVIC_PANEL_JOINED_WHEN_FIELD,
+  LAST_ASKED_RANGE_FIELD,
+].flatMap((field) => [field.fromKey, field.toKey])
+
+// Both products: a rest window that leaves out anyone the office reached on
+// any channel in the last 30 days (gp-api CONTACT_REST_DAYS), so the same
+// people are not asked twice in a month.
+export const NOT_CONTACTED_RECENTLY_FILTER_KEY = 'notContactedRecently'
+
+// Serve's spelling of the rest window, under the panel's other groups.
+export const LAST_ASKED_FIELD = {
+  key: 'last_asked',
+  label: 'Last asked',
+  options: [
+    {
+      key: NOT_CONTACTED_RECENTLY_FILTER_KEY,
+      label: 'Not in the last 30 days',
+    },
+  ],
+}
+
+export const CONTACT_HISTORY_FIELD = {
+  key: 'contact_history',
+  label: 'Contact History',
+  options: [
+    {
+      key: NOT_CONTACTED_RECENTLY_FILTER_KEY,
+      label: 'Not Contacted In The Last 30 Days',
+    },
+  ],
+}
+
 export const RECOMMENDED_LIST_FILTER_OPTION_KEYS = [
   ...RECOMMENDED_LIST_FILTER_FIELDS.flatMap((field) =>
     field.options.map((option) => option.key),
   ),
   ANY_PHONE_FILTER_KEY,
+  ...CIVIC_PANEL_FIELD.options.map((option) => option.key),
+  ...CIVIC_PANEL_JOINED_BY_FIELD.options.map((option) => option.key),
+  NOT_CONTACTED_RECENTLY_FILTER_KEY,
 ]

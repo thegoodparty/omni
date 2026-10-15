@@ -25,6 +25,7 @@ import {
   type ControlPosition,
   type ControlReading,
   type DimensionScore,
+  type OrientedFlag,
   type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
@@ -57,6 +58,26 @@ export interface SeededTranscripts {
   agentId: string
   caseIds: readonly string[]
 }
+
+// How each replaying agent's candidate runs were served. Only counts, never a
+// URL: this page is public.
+export type PageReplaySummary =
+  | {
+      agentId: string
+      state: 'counted'
+      hits: number
+      misses: number
+      seeded: boolean
+      // A seeded case whose base arm ran without the seeded pages, which is
+      // what a PR adding seedPages to an existing case looks like.
+      baseUnseeded?: boolean
+    }
+  | {
+      agentId: string
+      state: 'inactive'
+      why: 'baseDidNotRecord' | 'keyMismatch' | 'noMarkers'
+    }
+  | { agentId: string; state: 'unreadable'; why: 'listFailed' | 'localStore' }
 
 export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
@@ -106,6 +127,8 @@ export interface SweepReport {
   // Where each agent's per-case rulings were stored. Only the location, never
   // a ruling: a ruling quotes the agent's output and this page is public.
   rulings?: readonly StoredRulings[]
+  // Absent for an agent whose candidate runs did not ask for page replay.
+  pageReplay?: readonly PageReplaySummary[]
 }
 
 // `location` is null when the write failed. The verdict above it still
@@ -480,21 +503,74 @@ const toolErrorCauseLines = (score: AgentScore): string[] => {
   return [...excluded, '', 'Tool errors (scored, not excluded):', ...scored]
 }
 
+// Never "0%" for a replay that did not run. Zero markers means the
+// candidate's dispatch was not served by replay at all, which says nothing
+// about whether the two arms fetched the same pages.
+const replayLine = (replay: PageReplaySummary): string => {
+  if (replay.state === 'unreadable') {
+    return replay.why === 'listFailed'
+      ? 'Page replay: hit rate unavailable. Its outcome markers could not ' +
+          'be listed.'
+      : "Page replay: hit rate unavailable. This sweep's records are not " +
+          'in the artifacts bucket, where the broker leaves its markers.'
+  }
+  if (replay.state === 'inactive') {
+    return {
+      baseDidNotRecord:
+        'Page replay: not active. The base arm recorded nothing, usually ' +
+        'because its code predates replay.',
+      keyMismatch:
+        'Page replay: not active. No candidate run replayed the store its ' +
+        'base run recorded into.',
+      noMarkers:
+        'Page replay: not active. The candidate runs left no outcome ' +
+        'markers, so no page request went through replay.',
+    }[replay.why]
+  }
+  const total = replay.hits + replay.misses
+  // Rounded down, so one live request never reads as 100%.
+  const percent = Math.floor((replay.hits / total) * 100)
+  const source = replay.seeded ? 'the seeded pages' : "the base run's copy"
+  const unseeded =
+    replay.baseUnseeded === true
+      ? ' The base arm ran without the seeded pages, so it saw the live web.'
+      : ''
+  return (
+    `Page replay: ${replay.hits} of ${total} page requests (${percent}%) ` +
+    `used ${source}; ${replay.misses} went live.${unseeded}`
+  )
+}
+
 const agentSection = (
   score: AgentScore,
   config: JudgeConfig,
   spend: AgentSpend | undefined,
+  replays: readonly PageReplaySummary[],
 ): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
   lines.push('')
 
-  // A flag seen only on the candidate is stated first whatever the verdict.
+  // A candidate-only flag is stated first whatever the verdict, but only once
+  // its type repeats across cases (one case for restricted_data): one-case
+  // flags fired on unchanged code. See "The report headlines a flag only
+  // when it repeats" in README.md.
   const candidateFlags = score.flags.filter((f) => f.arm === 'candidate')
   const baseFlagTypes = new Set(
     score.flags.filter((f) => f.arm === 'base').map((f) => f.type),
   )
-  const newFlags = candidateFlags.filter((f) => !baseFlagTypes.has(f.type))
+  const candidateOnly = candidateFlags.filter((f) => !baseFlagTypes.has(f.type))
+  const casesByType = new Map<OrientedFlag['type'], Set<string>>()
+  for (const flag of candidateOnly) {
+    casesByType.set(
+      flag.type,
+      (casesByType.get(flag.type) ?? new Set()).add(flag.caseId),
+    )
+  }
+  const newFlags = candidateOnly.filter(
+    (f) =>
+      f.type === 'restricted_data' || (casesByType.get(f.type)?.size ?? 0) >= 2,
+  )
   if (newFlags.length > 0) {
     lines.push(
       `> **${newFlags.length} flag(s) raised on the candidate only ` +
@@ -546,6 +622,7 @@ const agentSection = (
   lines.push(...controlLines(score))
   lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))
+  for (const replay of replays) lines.push(`- ${replayLine(replay)}`)
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push(...toolErrorCauseLines(score))
@@ -917,6 +994,7 @@ export const renderReport = (
         score,
         config,
         report.actualCost?.agents.find((a) => a.agentId === score.agentId),
+        (report.pageReplay ?? []).filter((r) => r.agentId === score.agentId),
       ),
     )
     lines.push('')

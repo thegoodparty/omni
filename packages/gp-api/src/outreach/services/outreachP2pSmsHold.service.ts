@@ -7,6 +7,31 @@ import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { WIN_SMS_HOLD_WINDOW_DAYS } from 'src/shared/util/winSmsHold.util'
 import { P2pSmsSettleState } from '../../generated/prisma'
 
+type SessionPromo = {
+  discountInCents: number
+  promotionCodeId: string | null
+}
+
+// What a promotion code took off a completed checkout. The session is the only
+// place Stripe reports it: the PaymentIntent carries just the net amount.
+const resolveSessionPromo = (
+  session: Stripe.Checkout.Session,
+): SessionPromo => {
+  const code = session.discounts?.[0]?.promotion_code ?? null
+  return {
+    discountInCents: session.total_details?.amount_discount ?? 0,
+    promotionCodeId: typeof code === 'string' ? code : (code?.id ?? null),
+  }
+}
+
+const promoColumns = (promo: SessionPromo) =>
+  promo.discountInCents > 0
+    ? {
+        promoDiscountInCents: promo.discountInCents,
+        promotionCodeId: promo.promotionCodeId,
+      }
+    : {}
+
 // Records the Win p2p SMS authorization hold on the OutreachP2pSms satellite
 // after the checkout session completes. The hold itself is placed by Stripe at
 // checkout (payment_intent_data.capture_method = 'manual'); this service's job
@@ -29,89 +54,63 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     super()
   }
 
-  // `checkoutSessionId` is the `cs_...` id from the completed webhook. The caller
-  // (the p2p post-purchase handler) only invokes this on the paid checkout path
-  // under the flag, so the session always has a PaymentIntent.
+  // `checkoutSessionId` is the `cs_...` id from the completed webhook. The
+  // caller (the p2p post-purchase handler) invokes this on every paid p2p
+  // checkout now — NOT gated on a fresh flag read, because a flag flip
+  // between session-creation and this webhook must never stymie recording a
+  // hold Stripe already placed. Returns whether this WAS a hold-model
+  // (manual-capture) checkout at all, durably read off the live PI's
+  // capture_method — the caller uses this, not the flag, to decide whether
+  // the rest of the webhook's hold-only steps (the per-send free-texts stamp,
+  // the post-hold capture attempt) should run.
   async recordHold({
     outreachId,
     checkoutSessionId,
-    phoneListToken,
-    phoneListBuildId,
-    campaignId,
+    peerlyPhoneListId,
   }: {
     outreachId: number
     checkoutSessionId: string
-    // The Peerly phone-list upload token this send bills against, from the
-    // checkout metadata. Resolves the PeerlyPhoneList row so the hold links to
-    // its building list NOW — before the list is `ready` and before
-    // Outreach.phoneListId exists. The build-ready edge (finalize) and the
-    // capture both find a pre-build draft through this satellite link rather
-    // than Outreach.phoneListId, which is null until the build finishes.
-    phoneListToken?: string
-    // The PeerlyPhoneList row id, used INSTEAD of the token when an async build
-    // has no token yet (same metadata, token-absent case). Links by id; scoped
-    // to campaignId because the id is client-supplied (the token is @unique, so
-    // its path needs no re-scope — ownership was already proven at checkout).
-    phoneListBuildId?: string
-    campaignId?: number
-  }): Promise<void> {
-    const intent = await this.resolveHeldIntent(checkoutSessionId)
+    // The PeerlyPhoneList this send bills against, resolved by the caller from
+    // the draft (the same list calculateAmount priced). Linked NOW — before the
+    // list is `ready` and before Outreach.phoneListId exists — because the
+    // build-ready edge (finalize) and the capture both find a pre-build draft
+    // through this satellite link rather than Outreach.phoneListId, which is
+    // null until the build finishes.
+    peerlyPhoneListId?: string
+  }): Promise<boolean> {
+    const session = await this.stripe.retrieveCheckoutSession(checkoutSessionId)
+    const promo = resolveSessionPromo(session)
+    const intent = await this.resolveHeldIntent(session)
     if (!intent) {
+      // A promotion code that covered the whole hold completes the session
+      // with no PaymentIntent, so there is no capture_method to read. The
+      // server-stamped session marker is the same entry-time decision, and a
+      // $0 total with a discount is what a covered checkout looks like.
+      if (
+        session.metadata?.winSmsHoldBilling === 'true' &&
+        session.amount_total === 0 &&
+        promo.discountInCents > 0
+      ) {
+        await this.seedAndLink(outreachId, checkoutSessionId, peerlyPhoneListId)
+        return this.recordCovered(outreachId, promo)
+      }
       this.logger.error(
         { outreachId, checkoutSessionId },
         'win sms hold: no PaymentIntent on completed session; nothing to record',
       )
-      return
+      return false
     }
 
-    // Seed the satellite at pending_payment if it does not exist yet. The unique
-    // outreachId makes this idempotent; a concurrent seed that loses the race
-    // raises a unique-constraint error, which means the row already exists.
-    try {
-      await this.model.upsert({
-        where: { outreachId },
-        create: { outreachId },
-        update: {},
-      })
-    } catch (err) {
-      if (!isUniqueConstraintError(err)) throw err
+    // DURABLE hold-model signal: capture_method is set ('manual') at checkout-
+    // session CREATION time (entry) and never changes afterward, so reading it
+    // here tells us what entry decided WITHOUT re-reading the flag. An
+    // immediate-charge (automatic-capture) session reaching this webhook is
+    // not a hold at all — nothing to record on the satellite.
+    if (intent.capture_method !== 'manual') {
+      return false
     }
 
-    // LINK the satellite to its building PeerlyPhoneList by the upload token.
-    // This is the only handle to the list before it is `ready`, so it is what the
-    // build-ready finalize edge and the capture use to find a pre-build draft
-    // (whose Outreach.phoneListId is still null). Written as its OWN idempotent
-    // update (guarded on peerlyPhoneListId IS NULL), separate from the authorize
-    // CAS below — so a webhook replay whose token now resolves backfills a link
-    // that an earlier authorize left unset, which the pending_payment-guarded CAS
-    // could never add once the row is past pending_payment.
-    //
-    // The link is provably set in practice: resolvePhoneListId looks the row up
-    // by its globally-@unique, immutable token, and resolveBilledContactCount
-    // already proved that token belongs to this campaign ({token, campaignId})
-    // and threw before the Stripe session was ever created — so by the time this
-    // webhook runs the row exists and the token still resolves. The only way to
-    // reach the null branch is deleting the PeerlyPhoneList between checkout and
-    // the webhook, which nothing does; it is logged (loud, observable) but not
-    // fatal, because an unlinked hold simply lapses and releases at the ~7-day
-    // Stripe auth with NO charge — the capture projectId gate never charges for a
-    // send that was not submitted.
-    const peerlyPhoneListId = await this.resolvePhoneListId(
-      phoneListToken,
-      phoneListBuildId,
-      campaignId,
-    )
-    if (peerlyPhoneListId === null) {
-      this.logger.warn(
-        { outreachId, checkoutSessionId, phoneListToken, phoneListBuildId },
-        'win sms hold: could not resolve phone list; satellite left unlinked',
-      )
-    } else {
-      await this.model.updateMany({
-        where: { outreachId, peerlyPhoneListId: null },
-        data: { peerlyPhoneListId },
-      })
-    }
+    await this.seedAndLink(outreachId, checkoutSessionId, peerlyPhoneListId)
 
     // VERIFY BEFORE STAMPING: a confirmed PI that did not reach requires_capture
     // (requires_action / processing / canceled) is NOT a usable hold — it is a
@@ -132,7 +131,7 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
         { outreachId, checkoutSessionId, status: intent.status },
         'win sms hold: PI not in requires_capture; recorded hold_failed',
       )
-      return
+      return true
     }
 
     // STAMP: a single single-owner CAS straight from pending_payment ->
@@ -144,8 +143,9 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
     // guarantee exactly one hold is recorded per send: a webhook replay or a
     // second completed session for the same outreach finds the row already past
     // pending_payment and no-ops (count 0). authorizedAmountInCents is the amount
-    // Stripe actually authorized (the undiscounted estimate), read off the live
-    // PI, never a client-supplied number.
+    // Stripe actually authorized, read off the live PI, never a client-supplied
+    // number: the undiscounted estimate, less any promotion code, whose discount
+    // is stamped beside it in the same write.
     const stamp = await this.model.updateMany({
       where: {
         outreachId,
@@ -157,6 +157,7 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
         authorizationIntentId: intent.id,
         authorizedAmountInCents: intent.amount,
         captureBefore: this.resolveCaptureBefore(intent),
+        ...promoColumns(promo),
       },
     })
     if (stamp.count === 0) {
@@ -164,7 +165,7 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
         { outreachId, checkoutSessionId },
         'win sms hold: satellite already past pending_payment; skipping (replay)',
       )
-      return
+      return true
     }
 
     this.logger.info(
@@ -172,64 +173,100 @@ export class OutreachP2pSmsHoldService extends createPrismaBase(
         outreachId,
         authorizationIntentId: intent.id,
         authorizedAmountInCents: intent.amount,
+        promoDiscountInCents: promo.discountInCents,
       },
       'win sms hold: authorized hold recorded on satellite',
     )
+    return true
   }
 
-  // Records, per send and server-side, that THIS send redeemed the free-texts
-  // offer — the authoritative signal the capture reads to apply the discount.
-  // Called from the purchase handler the moment the offer is consumed for this
-  // outreach (before redeemFreeTexts flips the campaign flag), so the capture
-  // never has to trust the client-writable billableTextCount or the
-  // once-per-campaign redeemed marker. Idempotent: a webhook retry re-stamps the
-  // same true. The satellite row already exists (recordHold seeded it on the
-  // same paid path before finalize).
-  async markFreeTextsApplied(outreachId: number): Promise<void> {
-    await this.model.updateMany({
-      where: { outreachId },
-      data: { freeTextsApplied: true },
+  // A promotion code covered the whole hold, so Stripe placed none. Recorded
+  // `authorized` with a $0 hold and no intent, which is what promoCoversTotal
+  // tells every reader to expect: finalize and the build-ready edge find it
+  // like any hold, capture records it captured at $0 without calling Stripe,
+  // and a cancel before then has nothing to release. Same single-owner CAS as
+  // a real hold, so a replay no-ops.
+  private async recordCovered(
+    outreachId: number,
+    promo: SessionPromo,
+  ): Promise<boolean> {
+    const stamp = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: P2pSmsSettleState.pending_payment,
+        authorizationIntentId: null,
+      },
+      data: {
+        settleState: P2pSmsSettleState.authorized,
+        authorizedAmountInCents: 0,
+        promoCoversTotal: true,
+        ...promoColumns(promo),
+      },
     })
+    this.logger.info(
+      {
+        outreachId,
+        promoDiscountInCents: promo.discountInCents,
+        replay: stamp.count === 0,
+      },
+      'win sms hold: promotion code covered the send; recorded with no hold',
+    )
+    return true
   }
 
-  // Resolves the durable PeerlyPhoneList row id (the uuid primary key, which the
-  // satellite's peerlyPhoneListId FK points at) from the Peerly upload token.
-  // Token is unique per list, so a missing token or an unknown one returns null
-  // and the caller leaves the satellite unlinked rather than guessing.
-  private async resolvePhoneListId(
-    phoneListToken: string | undefined,
-    phoneListBuildId: string | undefined,
-    campaignId: number | undefined,
-  ): Promise<string | null> {
-    if (phoneListToken) {
-      const list = await this.client.peerlyPhoneList.findUnique({
-        where: { token: phoneListToken },
-        select: { id: true },
+  private async seedAndLink(
+    outreachId: number,
+    checkoutSessionId: string,
+    peerlyPhoneListId: string | undefined,
+  ): Promise<void> {
+    // Seed the satellite at pending_payment if it does not exist yet. The unique
+    // outreachId makes this idempotent; a concurrent seed that loses the race
+    // raises a unique-constraint error, which means the row already exists.
+    try {
+      await this.model.upsert({
+        where: { outreachId },
+        create: { outreachId },
+        update: {},
       })
-      return list?.id ?? null
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err
     }
-    // buildId path: the id is client-supplied in checkout metadata, so the link
-    // is scoped to the campaign the hold belongs to — mirroring the {id,
-    // campaignId} ownership proof calculateAmount already ran before the session
-    // existed, re-checked here so an unowned id can never link (and later
-    // capture) this hold against another campaign's list. No campaignId means no
-    // proof, so leave it unlinked (the hold lapses and releases with no charge).
-    if (phoneListBuildId && campaignId !== undefined) {
-      const list = await this.client.peerlyPhoneList.findFirst({
-        where: { id: phoneListBuildId, campaignId },
-        select: { id: true },
+
+    // LINK the satellite to its PeerlyPhoneList. This is the only handle to the
+    // list before it is `ready`, so it is what the build-ready finalize edge and
+    // the capture use to find a pre-build draft (whose Outreach.phoneListId is
+    // still null). Written as its OWN idempotent update (guarded on
+    // peerlyPhoneListId IS NULL), separate from the authorize CAS after it — so
+    // a webhook replay that now resolves the list backfills a link an earlier
+    // authorize left unset, which the pending_payment-guarded CAS could never
+    // add once the row is past pending_payment.
+    //
+    // The link is set in practice: the caller resolves it from the draft the
+    // same way calculateAmount did before the Stripe session existed, and that
+    // lookup threw if it found nothing. Reaching the missing branch means the
+    // list or draft changed between checkout and the webhook, which nothing
+    // does; it is logged (loud, observable) but not fatal, because an unlinked
+    // hold simply lapses and releases at the ~7-day Stripe auth with NO charge —
+    // the capture projectId gate never charges for a send that was not
+    // submitted.
+    if (!peerlyPhoneListId) {
+      this.logger.warn(
+        { outreachId, checkoutSessionId },
+        'win sms hold: could not resolve phone list; satellite left unlinked',
+      )
+    } else {
+      await this.model.updateMany({
+        where: { outreachId, peerlyPhoneListId: null },
+        data: { peerlyPhoneListId },
       })
-      return list?.id ?? null
     }
-    return null
   }
 
   // Resolves the manual-capture PaymentIntent behind a completed checkout
   // session, re-read live so the stamp reflects the authoritative money state.
   private async resolveHeldIntent(
-    checkoutSessionId: string,
+    session: Stripe.Checkout.Session,
   ): Promise<Stripe.PaymentIntent | null> {
-    const session = await this.stripe.retrieveCheckoutSession(checkoutSessionId)
     const paymentIntentId =
       typeof session.payment_intent === 'string'
         ? session.payment_intent

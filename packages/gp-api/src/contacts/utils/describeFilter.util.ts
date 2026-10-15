@@ -45,6 +45,24 @@ const capitalizeFirst = (label: string): string =>
 const sentenceCase = (name: string): string =>
   name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
 
+// A stored YYYY-MM-DD day as "Oct 2, 2026", read in UTC like the filter.
+const formatDay = (day: string): string =>
+  new Date(`${day}T00:00:00.000Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+
+const describeDaySpan = (from: string | null, to: string | null) =>
+  from && to
+    ? `between ${formatDay(from)} and ${formatDay(to)}`
+    : from
+      ? `on or after ${formatDay(from)}`
+      : to
+        ? `on or before ${formatDay(to)}`
+        : null
+
 // The webapp's sentence style, transcribed: "Age 18-24 or 25-34, Language
 // Spanish, and Support status Supporter."
 const joinAsSentence = (clauses: string[]): string => {
@@ -89,14 +107,6 @@ const LEGACY_VALUE_LABELS: Record<
   },
 }
 
-// In the column set but absent from the catalog, so the catalog loop below
-// cannot reach them.
-const REGISTERED_VOTER_LABELS: Record<string, string> = {
-  registeredVoterTrue: 'Yes',
-  registeredVoterFalse: 'No',
-  registeredVoterUnknown: 'Unknown',
-}
-
 // Dimensions that may steer WHICH of the candidate's own priorities to lead
 // with at a door. Everything absent from this list is excluded on purpose, in
 // three groups:
@@ -107,8 +117,8 @@ const REGISTERED_VOTER_LABELS: Record<string, string> = {
 //    party label in would hand the model that label and the rule forbidding it
 //    in the same breath.
 //  - Targeting mechanics with no conversational content: voter likelihood,
-//    prior contacts made, support status, previous activity, phone presence,
-//    registration. A canvasser cannot say any of them out loud, and a model
+//    prior contacts made, support status, previous activity, phone presence.
+//    A canvasser cannot say any of them out loud, and a model
 //    handed them will try.
 //  - `ethnicity`. It is modeled rather than observed, and unlike the
 //    life-circumstance dimensions here it maps to no local issue without going
@@ -193,6 +203,17 @@ const catalogClauses = (
       continue
     }
 
+    if (dimension.kind === 'date-range') {
+      const from = row[dimension.fromKey]
+      const to = row[dimension.toKey]
+      const span = describeDaySpan(
+        typeof from === 'string' ? from : null,
+        typeof to === 'string' ? to : null,
+      )
+      if (span) clauses.push({ label: dimension.label, values: [span] })
+      continue
+    }
+
     // 'activity' — a relation, not a column. See the header note.
   }
 
@@ -258,18 +279,10 @@ export const describeFilter = (
   filter: Partial<VoterFileFilter>,
   { isServe }: { isServe: boolean },
 ): string => {
-  const row = filter as Record<string, unknown>
   const clauses = renderClauses([
     ...catalogClauses(filter, isServe, null),
     ...legacyClauses(filter, null),
   ])
-
-  const registered = Object.entries(REGISTERED_VOTER_LABELS)
-    .filter(([key]) => isTrue(row[key]))
-    .map(([, label]) => label)
-  if (registered.length > 0) {
-    clauses.push(`Registered voter ${registered.join(' or ')}`)
-  }
 
   // Enumerated per district, so there is no label map to look values up in:
   // the encoded `county|precinct` pair is decoded for display. Win-only, like

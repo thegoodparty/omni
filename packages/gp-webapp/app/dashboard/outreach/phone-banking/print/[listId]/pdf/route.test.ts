@@ -10,6 +10,9 @@ const { mockCandidateAccess, mockServerRequest } = vi.hoisted(() => ({
 vi.mock('app/dashboard/shared/candidateAccess', () => ({
   default: () => mockCandidateAccess(),
 }))
+vi.mock('@shared/experiments/getFlagVariants', () => ({
+  getFlagVariants: () => Promise.resolve(null),
+}))
 vi.mock('gpApi/server-request', () => ({
   serverRequest: (route: string, payload: unknown) =>
     mockServerRequest(route, payload),

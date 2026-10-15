@@ -4,10 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { addDays, subDays } from 'date-fns'
 import {
+  CIVIC_PANEL_SEGMENT,
+  CONTACT_REST_DAYS,
   MAX_OVERLAP_SAVED_FILTER_SETS,
   FollowUpStatusSchema,
   type FollowUpStatusResponse,
+  CivicPanelStatusSchema,
+  type CivicPanelStatusResponse,
+  type CivicPanelActivity,
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
   type ContactStatuses,
@@ -27,6 +33,7 @@ import {
   ContactStatusField,
   ContactStatusSource,
   FollowUpStatus,
+  CivicPanelStatus,
   Organization,
 } from '../../generated/prisma'
 import { FastifyReply } from 'fastify'
@@ -47,6 +54,12 @@ import {
   type ContactsMadeBucket,
 } from 'src/contactInteraction/services/contactsMadeResolution.service'
 import { ContactStatusService } from 'src/contactInteraction/services/contactStatus.service'
+import {
+  CivicPanelHistoryService,
+  type DayRange,
+  dayStart,
+  hasDayRange,
+} from 'src/contactInteraction/services/civicPanelHistory.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
@@ -58,6 +71,10 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import {
+  type PeopleDataset,
+  PeopleDatasetService,
+} from '@/peopleDb/services/peopleDataset.service'
 import { DoorKnockingEvaluateDTO } from '@/peopleDb/schemas/doorKnocking.schema'
 import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import type { Bbox } from '@goodparty_org/contracts'
@@ -101,6 +118,7 @@ import {
   WIN_ONLY_RECOMMENDED_FILTER_KEYS,
 } from '../utils/voterFileFilter.utils'
 import {
+  CITIZEN_PANEL_DIMENSION_KEYS,
   FILTER_DIMENSIONS,
   type FilterDimension,
 } from '../filterDimensions.catalog'
@@ -112,6 +130,37 @@ import { buildPreviewContacts } from '../utils/previewContacts.utils'
 // PII (see previewContacts.utils) — before being upsold. Search, custom/named
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
+
+// Serve's civic panel as a built-in list: resolved through the same
+// path as a saved list holding only the panel filter, so it matches what
+// the `civicPanelMember` dimension selects and is always the current members.
+const CIVIC_PANEL_FILTER: Partial<VoterFileFilter> = { civicPanelMember: true }
+
+// Every Serve-only civic panel dimension, so the Win gate refuses all of
+// them rather than whichever one was remembered.
+const CIVIC_PANEL_FILTER_KEYS = [
+  'civicPanelMember',
+  'civicPanelLeft',
+  'civicPanelNeverInvited',
+  'civicPanelJoinedByText',
+  'civicPanelJoinedByDoor',
+  'civicPanelJoinedByPhone',
+  'civicPanelJoinedByHand',
+  'civicPanelJoinedFrom',
+  'civicPanelJoinedTo',
+  'lastReachedFrom',
+  'lastReachedTo',
+] as const satisfies readonly (keyof VoterFileFilter)[]
+
+const JOINED_BY_SOURCE = [
+  ['civicPanelJoinedByText', ContactStatusSource.sms],
+  ['civicPanelJoinedByDoor', ContactStatusSource.door_knock],
+  ['civicPanelJoinedByPhone', ContactStatusSource.phone_banking],
+  ['civicPanelJoinedByHand', ContactStatusSource.manual],
+] as const satisfies readonly (readonly [
+  keyof VoterFileFilter,
+  ContactStatusSource,
+])[]
 
 // The pro gate message shared by every filter-resolution path. Exported so
 // the assistant's count_contacts tool can recognize the rejection and suggest
@@ -289,7 +338,9 @@ export class ContactsService {
     private readonly voterDownloadService: VoterDownloadService,
     private readonly voterDoorKnockingService: VoterDoorKnockingService,
     private readonly peopleStatsService: StatsService,
+    private readonly peopleDataset: PeopleDatasetService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
+    private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly independentAffinityColumn: IndependentAffinityColumnService,
     private readonly logger: PinoLogger,
   ) {
@@ -304,12 +355,21 @@ export class ContactsService {
   // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
   // (party, ethnicity), mirroring assertNoPartyFilterForElectedOffice and
   // assertNoEthnicityFilterForElectedOffice on the read side.
-  getFilterDimensions(organization: Organization): FilterDimension[] {
+  // The civic panel dimensions follow the user's serve-citizen-panels
+  // flag, the same flag that shows them in the list builder, so an agent never
+  // names a filter the official cannot see.
+  getFilterDimensions(
+    organization: Organization,
+    options: { citizenPanels: boolean },
+  ): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
       : 'serve'
     return FILTER_DIMENSIONS.filter(
-      (dimension) => dimension.modes !== excludedMode,
+      (dimension) =>
+        dimension.modes !== excludedMode &&
+        (options.citizenPanels ||
+          !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)),
     )
   }
 
@@ -459,6 +519,14 @@ export class ContactsService {
     ) {
       throw new BadRequestException(
         'Follow-up filtering is not available for this organization',
+      )
+    }
+    if (
+      !this.hasElectedOfficeAccess(organization) &&
+      CIVIC_PANEL_FILTER_KEYS.some((key) => Boolean(filterInput[key]))
+    ) {
+      throw new BadRequestException(
+        'Civic panel filtering is not available for this organization',
       )
     }
   }
@@ -648,22 +716,30 @@ export class ContactsService {
     // boundary is a Serve feature and that return is the Serve path. Applied
     // after it, the boundary would hold on the CSV and the counts and
     // nowhere a holder actually looks.
-    const idResolution = intersectIdFilterResolutions(
+    const idResolution = await this.resolveNotContactedRecently(
+      organization,
+      filterInput,
       intersectIdFilterResolutions(
-        activityResolution,
-        await this.resolveGeoIdFilter(filterInput),
+        intersectIdFilterResolutions(
+          activityResolution,
+          await this.resolveGeoIdFilter(filterInput),
+        ),
+        await this.resolveSampleIdFilter(filterInput),
       ),
-      await this.resolveSampleIdFilter(filterInput),
     )
     if (this.hasElectedOfficeAccess(organization)) {
       // Serve's own dimension takes the Win block's place rather than sitting
       // beside it: an org is one surface or the other, and neither product
       // can select the other's audience.
       return {
-        idResolution: await this.resolveFollowUpRequested(
+        idResolution: await this.resolveCivicPanelMember(
           organization,
           filterInput,
-          idResolution,
+          await this.resolveFollowUpRequested(
+            organization,
+            filterInput,
+            idResolution,
+          ),
         ),
       }
     }
@@ -737,6 +813,129 @@ export class ContactsService {
       kind: 'filter',
       idFilter: { in: personIds },
     })
+  }
+
+  // The rest window: leaves out anyone the office reached on any channel in
+  // the last CONTACT_REST_DAYS. Read when the list is read, so a saved list
+  // lets people back in as their window passes.
+  private async resolveNotContactedRecently(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    idResolution: IdFilterResolution,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.notContactedRecently || idResolution.kind === 'empty') {
+      return idResolution
+    }
+    const contacted =
+      await this.contactsMadeResolutionService.personIdsContactedSince(
+        organization.slug,
+        subDays(new Date(), CONTACT_REST_DAYS),
+      )
+    if (contacted.length === 0) return idResolution
+    return intersectIdFilterResolutions(idResolution, {
+      kind: 'filter',
+      idFilter: { notIn: contacted },
+    })
+  }
+
+  // Serve's civic panel: people whose standing civic_panel status is member.
+  // The same positive membership set as follow-up, and the same rule that
+  // nobody on the panel is an empty audience, never the whole district.
+  //
+  // The status group's three options OR together: member and left are
+  // standing rows, never invited is everyone outside invitedPersonIds. Left
+  // only ever comes from an event, so someone who was never on the panel
+  // (no row, seeded `left`) counts as never invited, never as left. The
+  // joined and last-reached groups each AND on after it.
+  private async resolveCivicPanelMember(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    idResolution: IdFilterResolution,
+  ): Promise<IdFilterResolution> {
+    let resolution = idResolution
+    for (const step of [
+      () => this.resolveCivicPanelStatus(organization, filterInput),
+      () => this.resolveCivicPanelJoined(organization, filterInput),
+      () => this.resolveLastReached(organization, filterInput),
+    ]) {
+      if (resolution.kind === 'empty') return resolution
+      resolution = intersectIdFilterResolutions(resolution, await step())
+    }
+    return resolution
+  }
+
+  private async resolveCivicPanelStatus(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const statuses = [
+      ...(filterInput.civicPanelMember ? [CivicPanelStatus.member] : []),
+      ...(filterInput.civicPanelLeft ? [CivicPanelStatus.left] : []),
+    ]
+    if (statuses.length === 0 && !filterInput.civicPanelNeverInvited) {
+      return { kind: 'none' }
+    }
+    const selected = await this.contactStatusService.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.civic_panel,
+      statuses,
+    )
+    if (!filterInput.civicPanelNeverInvited) {
+      return selected.length === 0
+        ? { kind: 'empty' }
+        : { kind: 'filter', idFilter: { in: selected } }
+    }
+    const keep = new Set(selected)
+    const excluded = (
+      await this.civicPanelHistory.invitedPersonIds(organization.slug)
+    ).filter((personId) => !keep.has(personId))
+    return excluded.length === 0
+      ? { kind: 'none' }
+      : { kind: 'filter', idFilter: { notIn: excluded } }
+  }
+
+  private async resolveCivicPanelJoined(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const sources = JOINED_BY_SOURCE.filter(([key]) => filterInput[key]).map(
+      ([, source]) => source,
+    )
+    const joined: DayRange = {
+      from: filterInput.civicPanelJoinedFrom,
+      to: filterInput.civicPanelJoinedTo,
+    }
+    if (sources.length === 0 && !hasDayRange(joined)) return { kind: 'none' }
+    const personIds = await this.civicPanelHistory.memberIdsByLatestJoin(
+      organization.slug,
+      sources,
+      joined,
+    )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
+  // "Last asked" on a list: when the office last reached the person on any
+  // channel, the rule CivicPanelSummaryService's reachedRecently counts by.
+  private async resolveLastReached(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const range: DayRange = {
+      from: filterInput.lastReachedFrom,
+      to: filterInput.lastReachedTo,
+    }
+    if (!hasDayRange(range)) return { kind: 'none' }
+    const personIds =
+      await this.contactsMadeResolutionService.personIdsLastReachedBetween(
+        organization.slug,
+        range.from ? dayStart(range.from) : null,
+        range.to ? addDays(dayStart(range.to), 1) : null,
+      )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
   }
 
   // Everything a saved list needs before it can be queried: the FilterObject
@@ -834,19 +1033,32 @@ export class ContactsService {
       : undefined
   }
 
+  // Which people table this org reads. Batch callers fanning out over many
+  // reads for one org (phone lookups, paged audiences) resolve it once here
+  // and pass it back in, the same way they do resolveProAccess, so the flag
+  // is evaluated once per job rather than once per page.
+  async resolvePeopleDataset(
+    organization: Organization,
+  ): Promise<PeopleDataset> {
+    return this.peopleDataset.resolve(organization)
+  }
+
   // Door knocking resolves the same district (and passes the same
   // eligibility gate) as every other voter-data read — public so
   // DoorKnockingModule reuses this instead of duplicating the gate.
-  async resolveEligibleDistrictId(org: Organization): Promise<string> {
-    return this.withOrgDistrictResolution(
-      org,
-      async ({ districtId }) => districtId,
-    )
+  async resolveEligibleDistrict(
+    org: Organization,
+  ): Promise<{ districtId: string; dataset: PeopleDataset }> {
+    return this.withOrgDistrictResolution(org, async (params) => params)
   }
 
   private async withOrgDistrictResolution<Result>(
     org: Organization,
-    fn: (params: { districtId: string }) => Promise<Result>,
+    fn: (params: {
+      districtId: string
+      dataset: PeopleDataset
+    }) => Promise<Result>,
+    resolvedDataset?: PeopleDataset,
   ): Promise<Result> {
     const { districtId } = await this.resolveDistrictInfoFromOrg(org)
 
@@ -860,7 +1072,8 @@ export class ContactsService {
 
     await this.assertVoterDataEligibility(org)
 
-    return fn({ districtId })
+    const dataset = resolvedDataset ?? (await this.peopleDataset.resolve(org))
+    return fn({ districtId, dataset })
   }
 
   // Serve / elected-office orgs keep their existing access untouched. For Win
@@ -895,7 +1108,9 @@ export class ContactsService {
     // Optional pre-resolved pro-access. Batch callers (e.g. the poll-analysis
     // consumer fanning out over many phones for one org) resolve it once via
     // resolveProAccess() and pass it in; falls back to resolving here.
+    // `dataset` is pre-resolved the same way (resolvePeopleDataset).
     proAccess?: boolean,
+    dataset?: PeopleDataset,
   ) {
     const wantsProOnlyView =
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
@@ -916,18 +1131,23 @@ export class ContactsService {
     if (!isPro) {
       return this.withOrgDistrictResolution(
         organization,
-        async ({ districtId }) =>
+        async (params) =>
           buildPreviewContacts({
             resultsPerPage,
             page,
-            totalResults: (await this.fetchStatsByDistrictId(districtId))
-              .totalConstituents,
+            totalResults: (
+              await this.fetchStatsByDistrictId(
+                params.districtId,
+                params.dataset,
+              )
+            ).totalConstituents,
           }),
+        dataset,
       )
     }
 
     const fetchPeople = async (
-      districtParams: { districtId: string },
+      districtParams: { districtId: string; dataset: PeopleDataset },
       filters: FilterObject,
       idOverrides: IdOverrides | undefined,
       contactsMadeIdOverrides: IdOverrides | undefined,
@@ -936,7 +1156,7 @@ export class ContactsService {
     ): Promise<PeopleListResponse> =>
       this.voterQueryService.findPeople(
         ListPeopleDTO.create({
-          ...districtParams,
+          districtId: districtParams.districtId,
           resultsPerPage,
           page,
           filters,
@@ -946,6 +1166,7 @@ export class ContactsService {
           search: peopleSearch,
           groupByHousehold,
         }),
+        districtParams.dataset,
       )
 
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
@@ -973,6 +1194,7 @@ export class ContactsService {
               groupByHousehold,
               effectiveSearch,
             ),
+      dataset,
     )
     return this.stripWinOnlyFieldsFromList(organization, response)
   }
@@ -1013,8 +1235,10 @@ export class ContactsService {
   ): Promise<PeoplePrecinctsResponse> {
     await this.assertProAccess(organization)
 
-    return this.withOrgDistrictResolution(organization, ({ districtId }) =>
-      this.voterQueryService.findPrecincts(districtId),
+    return this.withOrgDistrictResolution(
+      organization,
+      ({ districtId, dataset }) =>
+        this.voterQueryService.findPrecincts(districtId, dataset),
     )
   }
 
@@ -1054,12 +1278,16 @@ export class ContactsService {
     // number matches the list it would save (ENG-10517/10518).
     const search = filterInput.search || undefined
 
-    const fetchCount = async (districtParams: {
+    const fetchCount = async ({
+      districtId,
+      dataset,
+    }: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<{ count: number }> => {
       const response = await this.voterQueryService.findPeople(
         ListPeopleDTO.create({
-          ...districtParams,
+          districtId,
           resultsPerPage: 1,
           page: 1,
           filters,
@@ -1069,6 +1297,7 @@ export class ContactsService {
           search,
           groupByHousehold: false,
         }),
+        dataset,
       )
       return { count: response.pagination.totalResults }
     }
@@ -1112,10 +1341,10 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams) => {
+      async ({ districtId, dataset }) => {
         const response = await this.voterQueryService.findPeople(
           ListPeopleDTO.create({
-            ...districtParams,
+            districtId,
             resultsPerPage: 1,
             page: 1,
             filters,
@@ -1125,6 +1354,7 @@ export class ContactsService {
             search: search || undefined,
             groupByHousehold: false,
           }),
+          dataset,
         )
         return { count: response.pagination.totalResults }
       },
@@ -1168,7 +1398,7 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId }) => {
+      async ({ districtId, dataset }) => {
         // Per part, unioned by id — the same shape (and the same reason)
         // as `resolveGeoMemberIds` below. A person inside two overlapping
         // parts is one person, so the pill the holder reads while dragging
@@ -1181,6 +1411,7 @@ export class ContactsService {
         for (const part of shapePolygons(geoPoly)) {
           const { people } = await this.evaluateWithinBbox(
             districtId,
+            dataset,
             polygonBbox(part),
             { ...resolved, affinityColumn },
           )
@@ -1234,7 +1465,7 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId }) => {
+      async ({ districtId, dataset }) => {
         const { people, truncated } =
           await this.voterDoorKnockingService.evaluatePoints(
             DoorKnockingEvaluateDTO.create({
@@ -1249,9 +1480,43 @@ export class ContactsService {
               ),
               maxPeople: MAP_POINTS_MAX,
             }),
+            dataset,
             // Same reason polygonPreview drops it: the rooftop gate is door
             // knocking's routing rule, and a dot the holder is about to draw
             // a shape around must be one the count will find.
+            { requireRooftopAccuracy: false },
+          )
+        return {
+          points: people.map(({ id, lat, lng }) => ({ id, lat, lng })),
+          truncated,
+        }
+      },
+    )
+  }
+
+  // Where a known set of people live, for a map of who answered. Scoped to
+  // the org's district like every other people read, so an id from another
+  // district simply has no point.
+  async pointsForPeople(
+    personIds: string[],
+    organization: Organization,
+  ): Promise<{
+    points: { id: string; lat: number; lng: number }[]
+    truncated: boolean
+  }> {
+    if (personIds.length === 0) return { points: [], truncated: false }
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) => {
+        const { people, truncated } =
+          await this.voterDoorKnockingService.evaluatePoints(
+            DoorKnockingEvaluateDTO.create({
+              districtId,
+              bbox: DISTRICT_WIDE_BBOX,
+              filters: { id: { in: personIds } },
+              maxPeople: MAP_POINTS_MAX,
+            }),
+            dataset,
             { requireRooftopAccuracy: false },
           )
         return {
@@ -1284,7 +1549,7 @@ export class ContactsService {
     }
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId }) => {
+      async ({ districtId, dataset }) => {
         // One scan PER PART, not one scan of the whole shape's bounding
         // box. The parts of a multi-shape boundary are typically a few
         // neighbourhoods scattered across a district, and the box around
@@ -1299,6 +1564,7 @@ export class ContactsService {
         for (const part of shapePolygons(geoPoly)) {
           const { people } = await this.evaluateWithinBbox(
             districtId,
+            dataset,
             polygonBbox(part),
             { filters: {} },
           )
@@ -1319,6 +1585,7 @@ export class ContactsService {
 
   private async evaluateWithinBbox(
     districtId: string,
+    dataset: PeopleDataset,
     bbox: Bbox,
     resolved: {
       filters: FilterObject
@@ -1338,6 +1605,7 @@ export class ContactsService {
           affinityColumn: resolved.affinityColumn,
           maxPeople: POLYGON_PREVIEW_MAX_PEOPLE,
         }),
+        dataset,
         // The contacts map draws every geocoded row, with no accuracy gate.
         // Counting rooftop-only would answer about a different population
         // than the one the holder just drew a shape around — every
@@ -1395,12 +1663,16 @@ export class ContactsService {
       return { count: 0 }
     }
 
-    const fetchOverlapCount = async (districtParams: {
+    const fetchOverlapCount = async ({
+      districtId,
+      dataset,
+    }: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<PeopleOverlapCountResponse> =>
       this.voterQueryService.getOverlapCount(
         OverlapCountDTO.create({
-          ...districtParams,
+          districtId,
           filters,
           idOverrides,
           contactsMadeIdOverrides,
@@ -1412,6 +1684,7 @@ export class ContactsService {
           search,
           savedFilterSets,
         }),
+        dataset,
       )
 
     return this.withOrgDistrictResolution(organization, fetchOverlapCount)
@@ -1534,6 +1807,16 @@ export class ContactsService {
             savedFilter,
             savedIdResolution,
           )
+          savedIdResolution = await this.resolveCivicPanelMember(
+            organization,
+            savedFilter,
+            savedIdResolution,
+          )
+          savedIdResolution = await this.resolveNotContactedRecently(
+            organization,
+            savedFilter,
+            savedIdResolution,
+          )
           // And the shape drawn on it. Without this a boundaried list joins
           // the union at its PRE-boundary size — every person its criteria
           // match anywhere in the district, not the ones inside the shape —
@@ -1589,6 +1872,8 @@ export class ContactsService {
     pagination: { resultsPerPage: number; page: number; skipCount?: boolean },
     organization: Organization,
     excludePersonIds?: Set<string>,
+    // Pre-resolved by callers paging one org's audience (resolvePeopleDataset).
+    dataset?: PeopleDataset,
   ): Promise<PeopleListResponse> {
     if (!(await this.isProAccess(organization))) {
       throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
@@ -1616,10 +1901,11 @@ export class ContactsService {
 
     const fetchPeoplePage = async (districtParams: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<PeopleListResponse> =>
       this.voterQueryService.findPeople(
         ListPeopleDTO.create({
-          ...districtParams,
+          districtId: districtParams.districtId,
           resultsPerPage: pagination.resultsPerPage,
           page: pagination.page,
           filters,
@@ -1630,11 +1916,13 @@ export class ContactsService {
           groupByHousehold: false,
           skipCount: pagination.skipCount ?? false,
         }),
+        districtParams.dataset,
       )
 
     const response = await this.withOrgDistrictResolution(
       organization,
       fetchPeoplePage,
+      dataset,
     )
     return this.stripWinOnlyFieldsFromList(organization, response)
   }
@@ -1654,6 +1942,28 @@ export class ContactsService {
     if (segment === undefined) {
       const aggregates = await this.fetchListDetailAggregates(organization, {})
       return { ...aggregates, outreachHistory: [] }
+    }
+
+    // The built-in civic panel list: the panel filter's figures, and as its
+    // history every send that reached a current member. The filter's own
+    // gate 400s a Win org before any history is read.
+    if (segment === CIVIC_PANEL_SEGMENT) {
+      const detail = await this.getFilterDetail(
+        { civicPanelMember: true },
+        organization,
+      )
+      const members = await this.contactStatusService.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.civic_panel,
+        [CivicPanelStatus.member],
+      )
+      return {
+        ...detail,
+        outreachHistory: await this.civicPanelOutreachHistory(
+          organization.slug,
+          members,
+        ),
+      }
     }
 
     const filter =
@@ -1709,6 +2019,26 @@ export class ContactsService {
       filter.search ?? undefined,
     )
     return { ...aggregates, outreachHistory }
+  }
+
+  // The office's sends that reached at least one of `members`, most recent
+  // first. Reached is the interaction rule reachedRecently and "Last asked"
+  // count by, so the panel's history agrees with both.
+  async civicPanelOutreachHistory(
+    organizationSlug: string,
+    members: string[],
+    take?: number,
+  ) {
+    const outreachIds =
+      await this.contactsMadeResolutionService.outreachIdsReachingAmong(
+        organizationSlug,
+        members,
+      )
+    return this.voterFileFilterService.findSentOutreachesByIds(
+      organizationSlug,
+      outreachIds,
+      take,
+    )
   }
 
   // The same payload as getListDetail for a filter that has not been saved
@@ -1777,10 +2107,10 @@ export class ContactsService {
   > {
     const aggregates = await this.withOrgDistrictResolution(
       organization,
-      async (districtParams) =>
+      async ({ districtId, dataset }) =>
         this.voterQueryService.getListDetailAggregates(
           AggregatesDTO.create({
-            ...districtParams,
+            districtId,
             filters: baseFilters,
             search,
             idOverrides,
@@ -1790,6 +2120,7 @@ export class ContactsService {
               baseFilters,
             ),
           }),
+          dataset,
         ),
     )
 
@@ -1817,14 +2148,21 @@ export class ContactsService {
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
-    const fetchSample = (districtParams: { districtId: string }) =>
+    const fetchSample = ({
+      districtId,
+      dataset,
+    }: {
+      districtId: string
+      dataset: PeopleDataset
+    }) =>
       this.voterQueryService.samplePeople(
         SamplePeopleDTO.create({
-          ...districtParams,
+          districtId,
           size: String(dto.size ?? 500),
           hasCellPhone: 'true',
           excludeIds: (dto.excludeIds ?? []) as string[],
         }),
+        dataset,
       )
 
     return this.withOrgDistrictResolution(organization, fetchSample)
@@ -1838,6 +2176,13 @@ export class ContactsService {
   // A widened sample is the exception. When everyone not already asked fits
   // in it, it holds all of them, frozen, and never null: a live filter has no
   // exclusions, so saving it whole would text the earlier sample again.
+  //
+  // A sample with a panel part is never null either: the list's criteria
+  // match members and non-members alike, so saved whole it would hold
+  // neither part at the size proposed.
+  //
+  // A report back's sample is never null: it is the people one send reached,
+  // minus anyone who opted out since, frozen, which no live filter can say.
   async drawListSample(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -1845,7 +2190,113 @@ export class ContactsService {
       size: number
       seedKey?: string
       excludeOutreachIds?: number[]
+      panelSize?: number
+      recipientsOfOutreachId?: number
+      // Server-side only: people to leave out by id, such as who the civic
+      // panel build plan already drew. Passing it always freezes the draw.
+      excludePersonIds?: string[]
     },
+  ): Promise<string[] | null> {
+    if (sample.recipientsOfOutreachId !== undefined) {
+      if (!this.hasElectedOfficeAccess(organization)) {
+        throw new BadRequestException(
+          'Reporting back is not available for this organization',
+        )
+      }
+      const reached =
+        await this.voterFileFilterSampleService.personIdsReachedBy(
+          organization.slug,
+          sample.recipientsOfOutreachId,
+        )
+      if (reached.length <= sample.size) return reached
+      return (
+        (await this.drawWithin(
+          organization,
+          filterInput,
+          { kind: 'filter', idFilter: { in: reached } },
+          {
+            size: sample.size,
+            seedKey: sample.seedKey,
+            wholeWhenItFits: false,
+          },
+        )) ?? []
+      )
+    }
+    const excludeIds = [
+      ...(await this.voterFileFilterSampleService.personIdsForOutreaches(
+        organization.slug,
+        sample.excludeOutreachIds ?? [],
+      )),
+      ...(sample.excludePersonIds ?? []),
+    ]
+    const notAsked: IdFilterResolution =
+      excludeIds.length === 0
+        ? { kind: 'none' }
+        : { kind: 'filter', idFilter: { notIn: [...new Set(excludeIds)] } }
+    if (sample.panelSize === undefined) {
+      return this.drawWithin(organization, filterInput, notAsked, {
+        size: sample.size,
+        seedKey: sample.seedKey,
+        wholeWhenItFits:
+          excludeIds.length === 0 && sample.excludePersonIds === undefined,
+      })
+    }
+    if (!this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        'Civic panel sampling is not available for this organization',
+      )
+    }
+    const members = await this.contactStatusService.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.civic_panel,
+      [CivicPanelStatus.member],
+    )
+    const panel =
+      members.length === 0
+        ? []
+        : await this.drawWithin(
+            organization,
+            filterInput,
+            intersectIdFilterResolutions(notAsked, {
+              kind: 'filter',
+              idFilter: { in: members },
+            }),
+            {
+              size: sample.panelSize,
+              seedKey: sample.seedKey && `${sample.seedKey}:panel`,
+              wholeWhenItFits: false,
+            },
+          )
+    const freshSize = sample.size - sample.panelSize
+    const fresh =
+      freshSize === 0
+        ? []
+        : await this.drawWithin(
+            organization,
+            filterInput,
+            members.length === 0
+              ? notAsked
+              : intersectIdFilterResolutions(notAsked, {
+                  kind: 'filter',
+                  idFilter: { notIn: members },
+                }),
+            {
+              size: freshSize,
+              seedKey: sample.seedKey && `${sample.seedKey}:fresh`,
+              wholeWhenItFits: false,
+            },
+          )
+    return [...(panel ?? []), ...(fresh ?? [])]
+  }
+
+  // One random draw of `size` from the criteria narrowed by `within`. Null
+  // when the criteria match nobody, or when `wholeWhenItFits` and the pool is
+  // no bigger than `size`, so the caller saves the live list.
+  private async drawWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    within: IdFilterResolution,
+    draw: { size: number; seedKey?: string; wholeWhenItFits: boolean },
   ): Promise<string[] | null> {
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
@@ -1854,30 +2305,19 @@ export class ContactsService {
     const { idResolution: criteria, contactsMadeIdOverrides } =
       await this.resolveIdFilterWithContactsMade(organization, filterInput)
     if (criteria.kind === 'empty') return null
-    const excludeIds =
-      await this.voterFileFilterSampleService.personIdsForOutreaches(
-        organization.slug,
-        sample.excludeOutreachIds ?? [],
-      )
     // The people already asked leave the scope itself, so the count below is
     // the real pool. Subtracting their number from the audience assumed they
     // were all still in it, and drew short when they were not.
-    const idResolution =
-      excludeIds.length === 0
-        ? criteria
-        : intersectIdFilterResolutions(criteria, {
-            kind: 'filter',
-            idFilter: { notIn: excludeIds },
-          })
+    const idResolution = intersectIdFilterResolutions(criteria, within)
     if (idResolution.kind === 'empty') return []
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     const search = filterInput.search || undefined
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams) => {
+      async ({ districtId, dataset }) => {
         const scope = {
-          ...districtParams,
+          districtId,
           filters,
           idOverrides,
           contactsMadeIdOverrides,
@@ -1891,20 +2331,101 @@ export class ContactsService {
             page: 1,
             groupByHousehold: false,
           }),
+          dataset,
         )
         const pool = pagination.totalResults
         // Widening a sample that already reached nearly everyone takes the
         // rest of them, never the people it already asked.
-        if (pool <= sample.size && excludeIds.length === 0) return null
+        if (pool <= draw.size && draw.wholeWhenItFits) return null
         if (pool === 0) return []
         const people = await this.voterQueryService.samplePeople(
           SamplePeopleDTO.create({
             ...scope,
-            size: Math.min(sample.size, pool),
-            seedKey: sample.seedKey,
+            size: Math.min(draw.size, pool),
+            seedKey: draw.seedKey,
           }),
+          dataset,
         )
         return people.map((person) => person.id)
+      },
+    )
+  }
+
+  // How many people the criteria match once these ids are left out: the
+  // pool a civic panel build step can still draw from.
+  async countWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    excludePersonIds: string[],
+  ): Promise<number> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution: criteria, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    const idResolution = intersectIdFilterResolutions(
+      criteria,
+      excludePersonIds.length === 0
+        ? { kind: 'none' }
+        : { kind: 'filter', idFilter: { notIn: excludePersonIds } },
+    )
+    if (idResolution.kind === 'empty') return 0
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) => {
+        const { pagination } = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create({
+            districtId,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            resultsPerPage: 1,
+            page: 1,
+            groupByHousehold: false,
+          }),
+          dataset,
+        )
+        return pagination.totalResults
+      },
+    )
+  }
+
+  // Where the people the criteria match live, with their household, for
+  // picking a walkable area. Rooftop-geocoded only, like a turf's doors, so
+  // every household picked is one a route can reach. Capped like the map.
+  async doorPointsWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    excludePersonIds: string[],
+  ): Promise<{ id: string; lat: number; lng: number; addressKey: string }[]> {
+    const resolved = await this.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+    if (resolved.empty) return []
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) => {
+        const { people } = await this.voterDoorKnockingService.evaluatePoints(
+          DoorKnockingEvaluateDTO.create({
+            districtId,
+            bbox: DISTRICT_WIDE_BBOX,
+            filters: resolved.filters,
+            idOverrides: resolved.idOverrides,
+            contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+            maxPeople: MAP_POINTS_MAX,
+            ...(excludePersonIds.length > 0 && { excludePersonIds }),
+          }),
+          dataset,
+        )
+        return people.map(({ id, lat, lng, addressKey }) => ({
+          id,
+          lat,
+          lng,
+          addressKey,
+        }))
       },
     )
   }
@@ -1918,11 +2439,13 @@ export class ContactsService {
     phone: string,
     organization: Organization,
     proAccess?: boolean,
+    dataset?: PeopleDataset,
   ): Promise<PersonOutput | null> {
     const result = await this.findContacts(
       { search: phone, segment: 'all', resultsPerPage: 1, page: 1 },
       organization,
       proAccess,
+      dataset,
     )
     return result.people[0] ?? null
   }
@@ -1941,12 +2464,17 @@ export class ContactsService {
       )
     }
 
-    const fetchPerson = (districtParams: {
+    const fetchPerson = ({
+      districtId,
+      dataset,
+    }: {
       districtId: string
+      dataset: PeopleDataset
     }): Promise<PersonOutput> =>
       this.voterQueryService.findPerson(
         id,
-        GetPersonQueryDTO.create(districtParams),
+        GetPersonQueryDTO.create({ districtId }),
+        dataset,
       )
 
     const person = await this.withOrgDistrictResolution(
@@ -1956,35 +2484,47 @@ export class ContactsService {
     // voterLikelihood is Win-only (ENG-10833) — Serve responses stay exactly
     // as they were (field omitted), so skip the lookup entirely for `eo-`
     // orgs rather than compute-and-drop it.
-    const [optedOutAt, supportStatus, voterLikelihoodOrNull, followUpOrNull] =
-      await Promise.all([
-        this.contactInteractionTextService.latestOptOutAt(
-          organization.slug,
-          person.id,
-        ),
-        this.effectiveStatus(
-          organization.slug,
-          person.id,
-          ContactStatusField.support_status,
-          SupportStatusRollupSchema,
-          () => this.derivedSupportStatus(organization.slug, person.id),
-        ),
-        this.hasElectedOfficeAccess(organization)
-          ? Promise.resolve(null)
-          : this.effectiveStatus(
-              organization.slug,
-              person.id,
-              ContactStatusField.voter_likelihood,
-              VoterLikelihoodSchema,
-              () => seedVoterLikelihood(person.voterStatus),
-            ),
-        // The mirror of the line above: Serve-only, so a Win response stays
-        // exactly as it was rather than carrying a flag that surface cannot
-        // set.
-        this.hasElectedOfficeAccess(organization)
-          ? this.effectiveFollowUp(organization.slug, person.id)
-          : Promise.resolve(null),
-      ])
+    const [
+      optedOutAt,
+      supportStatus,
+      voterLikelihoodOrNull,
+      followUpOrNull,
+      civicPanelOrNull,
+      civicPanelActivityOrNull,
+    ] = await Promise.all([
+      this.contactInteractionTextService.latestOptOutAt(
+        organization.slug,
+        person.id,
+      ),
+      this.effectiveStatus(
+        organization.slug,
+        person.id,
+        ContactStatusField.support_status,
+        SupportStatusRollupSchema,
+        () => this.derivedSupportStatus(organization.slug, person.id),
+      ),
+      this.hasElectedOfficeAccess(organization)
+        ? Promise.resolve(null)
+        : this.effectiveStatus(
+            organization.slug,
+            person.id,
+            ContactStatusField.voter_likelihood,
+            VoterLikelihoodSchema,
+            () => seedVoterLikelihood(person.voterStatus),
+          ),
+      // The mirror of the line above: Serve-only, so a Win response stays
+      // exactly as it was rather than carrying a flag that surface cannot
+      // set.
+      this.hasElectedOfficeAccess(organization)
+        ? this.effectiveFollowUp(organization.slug, person.id)
+        : Promise.resolve(null),
+      this.hasElectedOfficeAccess(organization)
+        ? this.effectiveCivicPanel(organization.slug, person.id)
+        : Promise.resolve(null),
+      this.hasElectedOfficeAccess(organization)
+        ? this.civicPanelActivity(organization.slug, person.id)
+        : Promise.resolve(null),
+    ])
     const base = {
       ...this.stripWinOnlyFieldsIfElectedOffice(organization, person),
       supportStatus,
@@ -1994,9 +2534,41 @@ export class ContactsService {
       voterLikelihoodOrNull === null
         ? base
         : { ...base, voterLikelihood: voterLikelihoodOrNull }
-    return followUpOrNull === null
+    return followUpOrNull === null ||
+      civicPanelOrNull === null ||
+      civicPanelActivityOrNull === null
       ? withLikelihood
-      : { ...withLikelihood, followUp: followUpOrNull }
+      : {
+          ...withLikelihood,
+          followUp: followUpOrNull,
+          civicPanel: civicPanelOrNull,
+          civicPanelActivity: civicPanelActivityOrNull,
+        }
+  }
+
+  // The line under the record's civic panel toggle: the latest join or
+  // leave, and when the office last reached them by the rest window's rule.
+  private async civicPanelActivity(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<CivicPanelActivity> {
+    const [latest, lastReachedAt] = await Promise.all([
+      this.civicPanelHistory.latestEvent(organizationSlug, personId),
+      this.contactsMadeResolutionService.lastReachedAt(
+        organizationSlug,
+        personId,
+      ),
+    ])
+    return {
+      latestChange: latest
+        ? {
+            value: latest.toValue,
+            source: latest.source,
+            at: latest.createdAt.toISOString(),
+          }
+        : null,
+      lastReachedAt: lastReachedAt ? lastReachedAt.toISOString() : null,
+    }
   }
 
   // Both editable statuses (ENG-10833) are Win-only. Rejects `eo-` orgs
@@ -2106,6 +2678,52 @@ export class ContactsService {
     return {
       followUp: await this.effectiveFollowUp(organization.slug, personId),
     }
+  }
+
+  // Serve's civic panel toggle on the contact card. Same shape and gates as
+  // updateFollowUp; a yes to a panel invitation reaches the same field from
+  // the outreach writers, so the latest of either wins.
+  async updateCivicPanel(
+    personId: string,
+    value: CivicPanelStatus,
+    organization: Organization,
+    actorUserId: number,
+  ): Promise<CivicPanelStatusResponse> {
+    if (!this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        'The civic panel is not available for this organization',
+      )
+    }
+
+    await this.findPerson(personId, organization)
+
+    await this.contactStatusService.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field: ContactStatusField.civic_panel,
+      toValue: value,
+      source: ContactStatusSource.manual,
+      actorUserId,
+      fallbackFromValue: CivicPanelStatus.left,
+    })
+
+    return {
+      civicPanel: await this.effectiveCivicPanel(organization.slug, personId),
+    }
+  }
+
+  // Nobody is on the panel until they say yes, so absence of a row is `left`.
+  private effectiveCivicPanel(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<CivicPanelStatus> {
+    return this.effectiveStatus(
+      organizationSlug,
+      personId,
+      ContactStatusField.civic_panel,
+      CivicPanelStatusSchema,
+      () => CivicPanelStatus.left,
+    )
   }
 
   // No derived seed to fall back to: unlike voter likelihood (people-api's
@@ -2239,7 +2857,7 @@ export class ContactsService {
   }
 
   private async streamPeopleDownload(
-    districtParams: { districtId: string },
+    { districtId, dataset }: { districtId: string; dataset: PeopleDataset },
     organization: Organization,
     filters: FilterObject,
     idOverrides: IdOverrides | undefined,
@@ -2253,7 +2871,7 @@ export class ContactsService {
       `SameSite=Lax; Secure`
     return this.voterDownloadService.streamPeopleCsv(
       DownloadPeopleDTO.create({
-        ...districtParams,
+        districtId,
         filters,
         idOverrides,
         contactsMadeIdOverrides,
@@ -2261,6 +2879,7 @@ export class ContactsService {
         groupByHousehold,
         excludeColumns,
       }),
+      dataset,
       res,
       {
         filename: 'contacts.csv',
@@ -2288,16 +2907,17 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams): Promise<number> => {
+      async ({ districtId, dataset }): Promise<number> => {
         const response = await this.voterQueryService.findPeople(
           ListPeopleDTO.create({
-            ...districtParams,
+            districtId,
             resultsPerPage: 1,
             page: 1,
             filters,
             affinityColumn: await this.affinityColumnFor(organization, filters),
             groupByHousehold,
           }),
+          dataset,
         )
         return response.pagination.totalResults
       },
@@ -2368,8 +2988,10 @@ export class ContactsService {
   }
 
   async getDistrictStats(organization: Organization) {
-    return this.withOrgDistrictResolution(organization, ({ districtId }) =>
-      this.fetchStatsByDistrictId(districtId),
+    return this.withOrgDistrictResolution(
+      organization,
+      ({ districtId, dataset }) =>
+        this.fetchStatsByDistrictId(districtId, dataset),
     )
   }
 
@@ -2383,9 +3005,13 @@ export class ContactsService {
     return position?.district?.id ?? undefined
   }
 
-  async fetchStatsByDistrictId(districtId: string): Promise<StatsResponse> {
+  async fetchStatsByDistrictId(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<StatsResponse> {
     const stats = await this.peopleStatsService.findStats(
       StatsDTO.create({ districtId }),
+      dataset,
     )
 
     // A district with no stats row is the same user-facing state as an org
@@ -2420,10 +3046,10 @@ export class ContactsService {
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return { filters: builtInFilters, empty: false }
 
-    const customSegment = await this.resolveCustomSegment(
-      resolvedSegment,
-      organization,
-    )
+    const customSegment =
+      resolvedSegment === CIVIC_PANEL_SEGMENT
+        ? CIVIC_PANEL_FILTER
+        : await this.resolveCustomSegment(resolvedSegment, organization)
     this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
     this.assertNoFollowUpFilterForCampaign(organization, customSegment)
 
@@ -2513,7 +3139,12 @@ export class ContactsService {
     organization: Organization,
   ): Promise<string | undefined> {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
-    if (this.resolveBuiltInSegment(resolvedSegment)) return undefined
+    if (
+      resolvedSegment === CIVIC_PANEL_SEGMENT ||
+      this.resolveBuiltInSegment(resolvedSegment)
+    ) {
+      return undefined
+    }
 
     const customSegment = await this.resolveCustomSegment(
       resolvedSegment,

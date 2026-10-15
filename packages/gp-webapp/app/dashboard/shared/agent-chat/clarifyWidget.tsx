@@ -21,7 +21,8 @@ export type ClarifyWidgetContext = {
   // reads back with its options locked, above the turn that answered it.
   clarifyInteractive: boolean
   // What the user said next. The widget highlights it when it matches an
-  // option and shows it as written when it does not.
+  // option. A written-in answer is not echoed: these surfaces already show
+  // it as the user's own message right below.
   clarifyAnswer?: string
   onClarifyAnswer: (answer: string) => void
 }
@@ -42,6 +43,7 @@ export const clarifyWidgetTool = defineWidgetTool({
       disabled={!clarifyInteractive}
       answer={clarifyAnswer}
       onAnswer={onClarifyAnswer}
+      showWrittenAnswer={false}
     />
   ),
 })

@@ -26,6 +26,9 @@ export interface CallSheetPerson {
   // Whichever question this surface asks; never both. Named for the slot
   // rather than for Win's question, since Serve fills the same slot.
   answer: CallSheetAnswer
+  // Serve's civic panel ask, its own column after follow-up. Null on Win,
+  // which never asks it, and with serve-citizen-panels off.
+  civicPanel: CallSheetAnswer | null
 }
 
 export interface CallSheetRow {
@@ -110,12 +113,29 @@ const personAnswer = (
   return logged ? { kind: 'logged', label: logged } : { kind: 'form' }
 }
 
+// Blank boxes until somebody answered, the same as the app: a call that never
+// got to the ask is not a no.
+const civicPanelAnswer = (
+  person: PhoneBankingListPerson,
+  outcome: CallSheetAnswer,
+  asksCivicPanel: boolean,
+): CallSheetAnswer | null => {
+  if (!asksCivicPanel) return null
+  if (outcome.kind === 'skip') return outcome
+  const answer =
+    person.interaction?.stayOnCivicPanel ?? person.interaction?.joinCivicPanel
+  return answer
+    ? { kind: 'logged', label: FOLLOW_UP_LABELS[answer] }
+    : { kind: 'form' }
+}
+
 // One row per phone number, in seq order. Unlike the walk list's per-resident
 // rows, a call reaches one household at once — the row is the call, and its
 // named residents stack inside it rather than each getting a row of their own.
 export const callSheetRows = (
   entries: PhoneBankingListEntry[],
   isServe: boolean,
+  asksCivicPanel = false,
 ): CallSheetRow[] =>
   entries
     .slice()
@@ -132,6 +152,11 @@ export const callSheetRows = (
           key: person.personId,
           name: person.name,
           answer: personAnswer(person, outcome, isServe),
+          civicPanel: civicPanelAnswer(
+            person,
+            outcome,
+            isServe && asksCivicPanel,
+          ),
         })),
       }
     })

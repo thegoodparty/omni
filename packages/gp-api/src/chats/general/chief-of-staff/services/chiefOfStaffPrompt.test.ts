@@ -19,6 +19,7 @@ import {
   buildChiefOfStaffSystemPrompt,
   COS_GUARDRAIL_DECLINE,
 } from './chiefOfStaffPrompt'
+import { guardrailLine } from '../../services/guardrailLines'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import type { Organization } from '../../../../generated/prisma'
 
@@ -43,6 +44,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  peopleDataset: 'voters',
   ...overrides,
 })
 
@@ -66,6 +68,57 @@ const ALL_TOOLS = [
 ]
 
 describe('buildChiefOfStaffSystemPrompt', () => {
+  describe('reporting back, behind serve-citizen-panels', () => {
+    const send = {
+      outreachId: 77,
+      priorityId: 'pri-1',
+      priorityTitle: 'Downtown parking',
+      sentOn: '2026-10-05',
+      audience: 'Everyone you texted about Downtown parking on October 5',
+      reached: 240,
+      canReach: 236,
+      answered: 31,
+      themes: [],
+      reportBack: null,
+    }
+
+    it('knows a report back is due and points into the priority', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ reportBacks: [send] }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        'Priority pri-1 (Downtown parking), outreach 77: 240 texted on 2026-10-05, 31 answered. Not reported back yet.',
+      )
+      expect(prompt).toContain(
+        '/dashboard/priorities/PRIORITY_ID?reportBack=OUTREACH_ID',
+      )
+      expect(prompt).toContain('Never draft the report back here')
+      expect(prompt).toContain('Never ask them whether they reported back')
+    })
+
+    it('knows a report back already went out', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          reportBacks: [
+            { ...send, reportBack: { outreachId: 90, sentOn: '2026-10-12' } },
+          ],
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('Reported back 2026-10-12.')
+    })
+
+    it('says nothing about reporting back with the flag off', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: TOOLS,
+      })
+      expect(prompt).not.toContain('REPORTING BACK')
+      expect(prompt).not.toContain('<report_backs>')
+    })
+  })
+
   it('frames the assistant as a governance chief of staff', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
@@ -84,8 +137,9 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: TOOLS,
     })
     expect(prompt).toContain(
-      'A text message you draft for the user to send to constituents must say who is sending it: their first name and the office they hold',
+      'A text message you draft for the user to send to constituents must say who is sending it: their full name and the office they hold',
     )
+    expect(prompt).toContain('never the first name alone')
     expect(prompt).toContain('never write a placeholder such as [Your Name]')
   })
 
@@ -555,6 +609,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     )
   })
 
+  it('sizes the unknown group against the voter file on the voters dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain('a fifth to a third of the file')
+    expect(prompt).not.toContain('not registered to vote')
+  })
+
+  it('blames missing scores on non-registration on the constituents dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ peopleDataset: 'constituents' }),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).not.toContain('of the file')
+    expect(prompt).toContain(
+      'residents who are not registered to vote are never scored',
+    )
+  })
+
   // A model that says it hit an authentication error it never hit is not a
   // capability problem, it is a reporting one, so these rules are unconditional
   // rather than hung off any one tool.
@@ -650,13 +724,54 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     )
   })
 
-  it('always includes the professional advice disclaimer rules', () => {
+  it('always includes the caution rules with both registry lines', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: [],
     })
-    expect(prompt).toContain('PROFESSIONAL ADVICE')
-    expect(prompt).toContain('a substitute for professional counsel')
+    expect(prompt).toContain('PROFESSIONAL AND LEGAL CAUTION')
+    expect(prompt).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('legal_advice', 'chief_of_staff')}"`,
+    )
+    expect(prompt).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('professional_advice', 'chief_of_staff')}"`,
+    )
+    expect(prompt).toContain('When both would apply, use the legal line.')
+    expect(prompt).toContain(
+      'Use the line in place of a caution in your own words, never both.',
+    )
+  })
+
+  it('says the redrafted decline from the registry', () => {
+    expect(COS_GUARDRAIL_DECLINE).toBe(
+      'I can only help with your office, your priorities, your meetings, and your work as an elected official.',
+    )
+  })
+
+  it('asks for the handoff line only where compose_handoff is registered', () => {
+    const line = guardrailLine('handoff_draft', 'chief_of_staff')
+    expect(
+      buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: ['compose_handoff'],
+      }),
+    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    expect(
+      buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: [] }),
+    ).not.toContain(line)
+  })
+
+  it('asks for the small-count line only where the data tool is registered', () => {
+    const line = guardrailLine('small_count', 'chief_of_staff')
+    expect(
+      buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: ['query_constituent_data', 'describe_constituent_data'],
+      }),
+    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    expect(
+      buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: [] }),
+    ).not.toContain(line)
   })
 
   it('scopes the disclaimer to answers without restating the decline rule', () => {
@@ -665,7 +780,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: [],
     })
     expect(prompt).toContain(
-      'Never attach it to a message that declines or redirects a request',
+      'Never attach one to a reply that is only a decline or a redirect.',
     )
   })
 
@@ -688,13 +803,19 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('SUPPORT HANDOFFS')
   })
 
-  it('routes to the most specific response and keeps the decline terminal', () => {
+  it('routes to the most specific response and answers the in-scope part of a mixed request', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: TOOLS,
     })
     expect(prompt).toContain('most specific applicable response')
-    expect(prompt).toContain('it is your entire reply')
+    expect(prompt).toContain(
+      'If a request mixes their official work with something unrelated, answer the part that belongs here and give the line in place of the rest.',
+    )
+    expect(prompt).toContain('respond to the danger first')
+    expect(prompt).toContain('reply with the same line and nothing more')
+    expect(prompt).not.toContain('entire reply')
+    expect(prompt).not.toContain('exact line and nothing else')
   })
 
   it('pins the campaign-resource boundary and untrusted-link rule', () => {

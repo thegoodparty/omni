@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -155,6 +155,52 @@ describe('OutreachProposalCard', () => {
     ).toBeInTheDocument()
   })
 
+  // The panel and the new residents are one send, so the card shows one
+  // audience and one count, never a line per part.
+  it('shows a send to the panel and new residents as one audience and count', async () => {
+    mockNotSent()
+
+    renderCard(
+      proposalCard({
+        channel: 'text',
+        audience: 'Your civic panel and residents across the district',
+        count: 18_400,
+        sampleSize: 84,
+        panelSampleSize: 42,
+        civicPanelAsk: true,
+      }),
+    )
+
+    expect(
+      await screen.findByText('Text 84 of 18,400, picked at random'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('Your civic panel and residents across the district'),
+    ).toHaveLength(1)
+    expect(screen.queryByText(/\b42\b/)).toBeNull()
+  })
+
+  it('says who a report back goes to in the official’s words, and how many', async () => {
+    mockNotSent()
+
+    renderCard(
+      proposalCard({
+        channel: 'text',
+        audience: 'Everyone you texted about Downtown parking on October 5',
+        count: 236,
+        reportBackForOutreachId: 77,
+      }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Everyone you texted about Downtown parking on October 5',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/236 constituents/)).toBeInTheDocument()
+    expect(screen.queryByText(/picked at random/)).toBeNull()
+  })
+
   it('reads a sample no smaller than its audience as the whole audience', async () => {
     mockNotSent()
 
@@ -175,6 +221,20 @@ describe('OutreachProposalCard', () => {
     expect(
       await screen.findByText('Texting is not available for your office yet'),
     ).toBeInTheDocument()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('renders no text card on Win once the window has closed', async () => {
+    mockNotSent()
+    flows.mode = 'win'
+    flows.textAvailable = false
+
+    const { container } = renderCard(proposalCard({ channel: 'text' }))
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
+    expect(
+      screen.queryByText('Texting is not available for your office yet'),
+    ).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
   })
 

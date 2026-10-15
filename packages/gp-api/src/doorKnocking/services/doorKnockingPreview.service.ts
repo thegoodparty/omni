@@ -66,8 +66,8 @@ export class DoorKnockingPreviewService {
     organization: Organization,
     input: DoorKnockingAddressPreview,
   ): Promise<DoorKnockingAddressPreviewResponse> {
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
+    const { districtId, dataset } =
+      await this.contacts.resolveEligibleDistrict(organization)
 
     // ADR 0007 and ADR 0008, deduped into one exclusion list exactly as the
     // knock builds it. A door whose every resident is flagged therefore has
@@ -117,6 +117,7 @@ export class DoorKnockingPreviewService {
 
     const { people } = await this.peopleApi.evaluate({
       districtId,
+      dataset,
       bbox: polygonBbox(input.geoPoly),
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,

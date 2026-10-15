@@ -1,0 +1,41 @@
+enum PollAudienceKind {
+  sample
+  list
+}
+
+model OutreachPoll {
+  outreachId     Int                     @id @map("outreach_id")
+  outreach       Outreach                @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  // A POLL_TOPICS id from contracts. Renaming an id needs a data fix.
+  topic          String
+  tone           String?
+  audienceKind   PollAudienceKind        @map("audience_kind")
+  biasOverridden Boolean                 @default(false) @map("bias_overridden")
+  lastAnalysisAt DateTime?               @map("last_analysis_at")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  expansions     OutreachPollExpansion[]
+
+  @@map("outreach_poll")
+}
+
+// A follow-on send to more people after the first one. Each carries its own
+// payment and approval, mirroring the spine's approval columns.
+model OutreachPollExpansion {
+  id                      String         @id @default(uuid(7))
+  outreachId              Int            @map("outreach_id")
+  poll                    OutreachPoll   @relation(fields: [outreachId], references: [outreachId], onDelete: Cascade)
+  sendSeq                 Int            @map("send_seq")
+  textCount               Int            @map("text_count")
+  status                  OutreachStatus
+  stripeCheckoutSessionId String?        @map("stripe_checkout_session_id")
+  approvedAt              DateTime?      @map("approved_at")
+  approvedBy              String?        @map("approved_by")
+  createdAt               DateTime       @default(now()) @map("created_at")
+  deniedAt                DateTime?      @map("denied_at")
+  deniedBy                String?        @map("denied_by")
+  deniedReason            String?        @map("denied_reason")
+
+  @@unique([outreachId, sendSeq])
+  @@map("outreach_poll_expansion")
+}

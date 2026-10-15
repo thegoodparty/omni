@@ -50,6 +50,7 @@ describe('getWarningMessage', () => {
         hasGrammar: false,
         hasServerError: false,
         hasBeenChecked: false,
+        isAnalyzing: false,
       }),
     ).toBeNull()
   })
@@ -61,6 +62,7 @@ describe('getWarningMessage', () => {
         hasGrammar: false,
         hasServerError: false,
         hasBeenChecked: true,
+        isAnalyzing: false,
       }),
     ).toBeNull()
   })
@@ -72,6 +74,7 @@ describe('getWarningMessage', () => {
         hasGrammar: false,
         hasServerError: false,
         hasBeenChecked: true,
+        isAnalyzing: false,
       }),
     ).toBe(
       'Biased language detected. Please use "Optimize message" to correct it.',
@@ -85,6 +88,7 @@ describe('getWarningMessage', () => {
         hasGrammar: true,
         hasServerError: false,
         hasBeenChecked: true,
+        isAnalyzing: false,
       }),
     ).toBe('Grammar issues found. Please use "Optimize message" to correct it.')
   })
@@ -96,6 +100,7 @@ describe('getWarningMessage', () => {
         hasGrammar: true,
         hasServerError: false,
         hasBeenChecked: true,
+        isAnalyzing: false,
       }),
     ).toBe(
       'Biased language detected. Grammar issues found. Please use "Optimize message" to correct it.',
@@ -109,6 +114,7 @@ describe('getWarningMessage', () => {
         hasGrammar: false,
         hasServerError: true,
         hasBeenChecked: true,
+        isAnalyzing: false,
       }),
     ).toBe(
       'Unable to check for bias. You can still proceed or try again later.',
@@ -122,6 +128,7 @@ describe('getWarningMessage', () => {
         hasGrammar: false,
         hasServerError: true,
         hasBeenChecked: false,
+        isAnalyzing: false,
       }),
     ).toBe(
       'Unable to check for bias. You can still proceed or try again later.',

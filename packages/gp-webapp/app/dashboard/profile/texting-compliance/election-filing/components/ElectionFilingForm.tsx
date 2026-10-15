@@ -54,6 +54,7 @@ interface ElectionFilingFormProps {
   // default.
   variant?: FormVariant
   onBack?: () => void
+  submitLabel?: string
   // Keep unsubmitted input in this browser and restore it on return. Only
   // campaign verification opts in.
   persistDraft?: boolean
@@ -83,6 +84,7 @@ const ElectionFilingFormBody = ({
   contactCaption,
   variant,
   onBack,
+  submitLabel,
   persistDraft = false,
 }: ElectionFilingFormProps): React.JSX.Element => {
   const queryClient = useQueryClient()
@@ -230,6 +232,7 @@ const ElectionFilingFormBody = ({
         contactCaption={contactCaption}
         variant={variant}
         onBack={onBack}
+        submitLabel={submitLabel}
         // The profile section rides inside the form so the combined
         // validation alert stays at the very top of the page, above
         // it. Its errors join that alert via extraErrors (the

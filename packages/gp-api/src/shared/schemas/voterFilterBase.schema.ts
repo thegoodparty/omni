@@ -41,8 +41,6 @@ export const voterFilterBaseSchema = z.object({
   ideologyModerate: z.boolean().optional(),
   ideologyUnknown: z.boolean().optional(),
   // New boolean flags to allow FE to pass simple true/false values
-  registeredVoterTrue: z.boolean().optional(),
-  registeredVoterFalse: z.boolean().optional(),
   likelyMarried: z.boolean().optional(),
   likelySingle: z.boolean().optional(),
   married: z.boolean().optional(),
@@ -67,6 +65,31 @@ export const voterFilterBaseSchema = z.object({
   // against contact_current_status, not a voter-file column, so it is
   // handled separately rather than by the generic field loop.
   followUpRequested: z.boolean().optional(),
+  // Serve's civic panel: people whose standing civic_panel status is
+  // member. Resolved against contact_current_status the same way.
+  civicPanelMember: z.boolean().optional(),
+  // The rest of the panel status group, OR-ed with civicPanelMember: left
+  // (a standing `left` row) and never invited (no panel event, no send that
+  // asked, no door or call answer).
+  civicPanelLeft: z.boolean().optional(),
+  civicPanelNeverInvited: z.boolean().optional(),
+  // How a current member last joined, OR-ed with each other.
+  civicPanelJoinedByText: z.boolean().optional(),
+  civicPanelJoinedByDoor: z.boolean().optional(),
+  civicPanelJoinedByPhone: z.boolean().optional(),
+  civicPanelJoinedByHand: z.boolean().optional(),
+  // Inclusive calendar days, UTC. Nullish because a saved row stores null
+  // and the webapp round-trips whole rows back through this schema.
+  civicPanelJoinedFrom: z.iso.date().nullish(),
+  civicPanelJoinedTo: z.iso.date().nullish(),
+  // When the office last reached the person on any channel, by the rest
+  // window's rule.
+  lastReachedFrom: z.iso.date().nullish(),
+  lastReachedTo: z.iso.date().nullish(),
+  // Nobody the office texted, called, knocked or robocalled in the last
+  // CONTACT_REST_DAYS. Resolved against the interaction tables, not a
+  // voter-file column, so it is handled separately like the two above.
+  notContactedRecently: z.boolean().optional(),
   businessOwnerYes: z.boolean().optional(),
   businessOwnerUnknown: z.boolean().optional(),
   educationNone: z.boolean().optional(),

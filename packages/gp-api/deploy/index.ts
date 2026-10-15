@@ -489,44 +489,15 @@ export = async () => {
           `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
         ]
 
-  // Preview stacks seed the E2E test accounts from these and the preview E2E
-  // suite signs in with them. They sit in the shared GP_API_DEV blob under
-  // E2E_ names so dev tasks, which share that blob, never receive them.
-  const e2eCredentialKeys: Record<string, string> = {
-    ADMIN_EMAIL: 'E2E_ADMIN_EMAIL',
-    ADMIN_PASSWORD: 'E2E_ADMIN_PASSWORD',
-    CANDIDATE_EMAIL: 'E2E_CANDIDATE_EMAIL',
-    CANDIDATE_PASSWORD: 'E2E_CANDIDATE_PASSWORD',
-  }
-  const e2eCredentialSecretKeys = Object.values(e2eCredentialKeys)
-  const e2eCredentialsInSecret = e2eCredentialSecretKeys.every(
-    (key) => key in secret,
+  const containerSecrets: Record<
+    string,
+    pulumi.Output<string>
+  > = Object.fromEntries(
+    Object.keys(secret).map((key) => [
+      key,
+      pulumi.interpolate`${secretInfo.arn}:${key}::`,
+    ]),
   )
-  // Keeps preview deploys working until the four keys are added to the blob.
-  if (environment === 'preview' && !e2eCredentialsInSecret) {
-    console.warn(
-      `WARNING: ${secretName} is missing ${e2eCredentialSecretKeys.join(', ')}. ` +
-        'Preview E2E credentials fall back to plain environment values from ' +
-        'the deploy runner. Add those keys to the secret to reference them ' +
-        'via valueFrom instead.',
-    )
-  }
-
-  const containerSecrets: Record<string, pulumi.Output<string>> = {
-    ...Object.fromEntries(
-      Object.keys(secret)
-        .filter((key) => !e2eCredentialSecretKeys.includes(key))
-        .map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
-    ),
-    ...(environment === 'preview' && e2eCredentialsInSecret
-      ? Object.fromEntries(
-          Object.entries(e2eCredentialKeys).map(([name, key]) => [
-            name,
-            pulumi.interpolate`${secretInfo.arn}:${key}::`,
-          ]),
-        )
-      : {}),
-  }
 
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
@@ -605,6 +576,28 @@ export = async () => {
         dev: '',
         prod: 'true',
       }),
+      // Dev and previews write to prod's HubSpot portal, so the Office Holder
+      // sync and its ids are prod only.
+      HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
+        preview: '',
+        dev: '',
+        prod: 'true',
+      }),
+      HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '2-65502604',
+      }),
+      HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '76',
+      }),
+      HUBSPOT_OFFICE_HOLDER_COMPANY_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '73',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
@@ -625,21 +618,8 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      SECRETS_MANAGER_KEYS: [
-        ...Object.keys(containerSecrets),
-        ...(environment === 'preview' && !e2eCredentialsInSecret
-          ? Object.keys(e2eCredentialKeys)
-          : []),
-      ].join(','),
+      SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
-      ...(environment === 'preview' && !e2eCredentialsInSecret
-        ? {
-            ADMIN_EMAIL: process.env.ADMIN_EMAIL,
-            ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
-            CANDIDATE_EMAIL: process.env.CANDIDATE_EMAIL,
-            CANDIDATE_PASSWORD: process.env.CANDIDATE_PASSWORD,
-          }
-        : {}),
     },
     permissions: [
       {

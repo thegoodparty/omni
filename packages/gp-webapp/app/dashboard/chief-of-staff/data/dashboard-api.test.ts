@@ -24,6 +24,7 @@ const CARD: DashboardCard = {
   sourceExternalId: 'b_1',
   sourceItemId: null,
   dismissedAt: null,
+  completedAt: null,
   createdAt: '2026-06-15T00:00:00.000Z',
   updatedAt: '2026-06-15T00:00:00.000Z',
 }
@@ -99,6 +100,27 @@ describe('dashboardApi', () => {
         data: {},
       })
       await expect(dashboardApi.dismissCard('card_x')).rejects.toThrow(/500/)
+    })
+  })
+
+  describe('completeCard', () => {
+    it('PUTs to the complete endpoint for the given card id', async () => {
+      let capturedId: string | undefined
+      api.mock('PUT /v1/dashboard/cards/:id/complete', ({ params }) => {
+        capturedId = params.id
+        return { status: 200, data: undefined }
+      })
+
+      await expect(dashboardApi.completeCard('card_1')).resolves.toBeUndefined()
+      expect(capturedId).toBe('card_1')
+    })
+
+    it('throws on a non-2xx response', async () => {
+      api.mock('PUT /v1/dashboard/cards/:id/complete', {
+        status: 500,
+        data: {},
+      })
+      await expect(dashboardApi.completeCard('card_x')).rejects.toThrow(/500/)
     })
   })
 })

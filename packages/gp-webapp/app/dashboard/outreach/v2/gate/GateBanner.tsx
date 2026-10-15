@@ -23,10 +23,18 @@ const bannerLine = (
 
   if (channel === 'sms') {
     const noun = GATE_NOUN.sms
-    if (requirement === 'pro') return BANNER_COPY.twoStepFree(noun)
-    if (requirement === 'verify') return BANNER_COPY.needsVerification(noun)
-    if (requirement === 'in_review') return BANNER_COPY.inReview
-    return BANNER_COPY.awaitingPin
+    switch (requirement) {
+      case 'pro':
+        return BANNER_COPY.twoStepFree(noun)
+      case 'verify':
+        return BANNER_COPY.needsVerification(noun)
+      case 'in_review':
+        return BANNER_COPY.inReview
+      case 'pin':
+        return BANNER_COPY.awaitingPin
+      case 'closed':
+        return BANNER_COPY.closed
+    }
   }
 
   if (channel === 'door') return BANNER_COPY.door

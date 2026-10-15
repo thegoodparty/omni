@@ -177,7 +177,7 @@ export class FeedbackSeedService extends createPrismaBase(
   }
 }
 
-type SeedContext = {
+export type SeedContext = {
   organizationSlug: string
   actorUserId: number
   outreachId: number
@@ -185,7 +185,7 @@ type SeedContext = {
 
 // Confirmed as recorded: the proposed columns match the confirmed ones, so
 // a seeded memo reads as one the canvasser accepted without edits.
-const memoRow = (
+export const memoRow = (
   context: SeedContext,
   index: number,
   effortQuestion: string | null,

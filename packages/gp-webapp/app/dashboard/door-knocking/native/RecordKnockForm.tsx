@@ -37,6 +37,7 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
@@ -45,6 +46,9 @@ import IssueCaptureConfirmCard, {
 } from './IssueCaptureConfirmCard'
 import {
   ANSWER_OPTIONS,
+  CIVIC_PANEL_OPTIONS,
+  CIVIC_PANEL_QUESTION,
+  CIVIC_PANEL_STAY_QUESTION,
   engagementOptions,
   ENGAGEMENT_QUESTION,
   FOLLOW_UP_OPTIONS,
@@ -113,6 +117,8 @@ interface KnockInput {
   supportAnswer?: SupportAnswer
   willVote?: WillVoteAnswer
   followUp?: FollowUpAnswer
+  joinCivicPanel?: FollowUpAnswer
+  stayOnCivicPanel?: FollowUpAnswer
   note?: string
   engaged: boolean
   captureMethod: 'dictation' | 'typed'
@@ -128,6 +134,7 @@ export interface KnockDraft {
   supportAnswer?: SupportAnswer
   willVote?: WillVoteAnswer
   followUp?: FollowUpAnswer
+  joinCivicPanel?: FollowUpAnswer
   note: string
   spoken: boolean
 }
@@ -145,6 +152,10 @@ interface RecordKnockFormProps {
   // so tapping a housemate and back remounts it, and this is what brings the
   // answers back.
   drafts?: UnsavedDrafts<KnockDraft>
+  // The turf's list is civic panel members only (the route payload's
+  // `civicPanelOnly`), so the closing question asks whether they want to stay
+  // on rather than whether they want to join.
+  civicPanelOnly?: boolean
 }
 
 const ChoiceRow = <T extends string>({
@@ -191,6 +202,7 @@ export default function RecordKnockForm({
   clientKey,
   onRecorded,
   drafts,
+  civicPanelOnly = false,
 }: RecordKnockFormProps) {
   // Which surface's engaged branch this is. An elected official's canvasser
   // asks neither of the Win questions — a constituent has no candidate to
@@ -205,6 +217,8 @@ export default function RecordKnockForm({
   // Issue capture runs on both products, behind one flag.
   // `trackExposure` stays default: this form is the treatment surface.
   const { enabled: captureEnabled } = useIssueCaptureFlag()
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(serveMode)
+  const asksCivicPanel = serveMode && citizenPanelsEnabled
   const product = outreachProduct(serveMode)
   // Two steps, two pieces of state, because the contract's five-way outcome is
   // a flattening of the tree the canvasser walks: `answered` in step one only
@@ -226,6 +240,9 @@ export default function RecordKnockForm({
   const [followUp, setFollowUp] = useState<FollowUpAnswer | undefined>(
     stashed?.followUp,
   )
+  const [joinCivicPanel, setJoinCivicPanel] = useState<
+    FollowUpAnswer | undefined
+  >(stashed?.joinCivicPanel)
   const [note, setNote] = useState(stashed?.note ?? '')
   // Dictation is the point of the notes field in the field: nobody types a
   // paragraph one-handed on a doorstep in the rain. The shared hook already
@@ -254,12 +271,22 @@ export default function RecordKnockForm({
               supportAnswer,
               willVote,
               followUp,
+              joinCivicPanel,
               note,
               spoken,
             }
           : null,
     }
-  }, [outcome, engagement, supportAnswer, willVote, followUp, note, spoken])
+  }, [
+    outcome,
+    engagement,
+    supportAnswer,
+    willVote,
+    followUp,
+    joinCivicPanel,
+    note,
+    spoken,
+  ])
   useEffect(() => {
     const unsaved = unsavedRef
     return () => {
@@ -350,6 +377,10 @@ export default function RecordKnockForm({
     ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
     ...(input.willVote ? { willVote: input.willVote } : {}),
     ...(input.followUp ? { followUp: input.followUp } : {}),
+    ...(input.joinCivicPanel ? { joinCivicPanel: input.joinCivicPanel } : {}),
+    ...(input.stayOnCivicPanel
+      ? { stayOnCivicPanel: input.stayOnCivicPanel }
+      : {}),
     ...(input.note ? { note: input.note } : {}),
   })
 
@@ -542,6 +573,7 @@ export default function RecordKnockForm({
     setSupportAnswer(undefined)
     setWillVote(undefined)
     setFollowUp(undefined)
+    setJoinCivicPanel(undefined)
     setNote('')
     setSpoken(false)
     // The failure banner isn't gated on the walk, so without this a Cancel
@@ -570,6 +602,13 @@ export default function RecordKnockForm({
       ...(engaged && supportAnswer && !serveMode ? { supportAnswer } : {}),
       ...(engaged && willVote && !serveMode ? { willVote } : {}),
       ...(engaged && followUp && serveMode ? { followUp } : {}),
+      // One panel question per door, and which one depends on the turf: the
+      // answer the form holds goes out as the question it asked.
+      ...(engaged && joinCivicPanel && asksCivicPanel
+        ? civicPanelOnly
+          ? { stayOnCivicPanel: joinCivicPanel }
+          : { joinCivicPanel }
+        : {}),
       // The note is deliberately NOT guarded the same way. Support and
       // will-vote are answers to questions this door was never asked, but a
       // note is text a person wrote, and the contract takes one on any outcome
@@ -632,6 +671,7 @@ export default function RecordKnockForm({
           setSupportAnswer(undefined)
           setWillVote(undefined)
           setFollowUp(undefined)
+          setJoinCivicPanel(undefined)
         }}
       />
 
@@ -650,6 +690,7 @@ export default function RecordKnockForm({
               setSupportAnswer(undefined)
               setWillVote(undefined)
               setFollowUp(undefined)
+              setJoinCivicPanel(undefined)
             }
           }}
         />
@@ -684,7 +725,21 @@ export default function RecordKnockForm({
           label={FOLLOW_UP_QUESTION}
           options={FOLLOW_UP_OPTIONS}
           value={followUp}
-          onChange={setFollowUp}
+          onChange={(value) => {
+            setFollowUp(value)
+            if (!value) setJoinCivicPanel(undefined)
+          }}
+        />
+      )}
+
+      {engaged && asksCivicPanel && followUp && (
+        <ChoiceRow
+          label={
+            civicPanelOnly ? CIVIC_PANEL_STAY_QUESTION : CIVIC_PANEL_QUESTION
+          }
+          options={CIVIC_PANEL_OPTIONS}
+          value={joinCivicPanel}
+          onChange={setJoinCivicPanel}
         />
       )}
 

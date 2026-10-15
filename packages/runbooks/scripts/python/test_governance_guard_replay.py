@@ -67,9 +67,13 @@ def _warns(report: gg.Report, rule: str) -> set[str]:
 
 def test_the_onboarding_redirect_warns_that_office_events_moved():
     """d4687047d (2026-05-05) turned onboarding/[slug]/[step] into a bare redirect while
-    CampaignOfficeSelectionModal kept importing OfficeStep (DATA-2525)."""
+    CampaignOfficeSelectionModal kept importing OfficeStep (DATA-2525). Click Next lost
+    that page but still fires from two other onboarding pages, so its area name is still
+    right and it does not warn."""
     report = _replay("d4687047d", {})
-    assert "Onboarding - Office Step: Click Next" in _warns(report, "surface_moved")
+    moved = _warns(report, "surface_moved")
+    assert "Onboarding - Office Step: Office Selected" in moved
+    assert "Onboarding - Office Step: Click Next" not in moved
 
 
 def test_removing_running_against_from_profile_warns():

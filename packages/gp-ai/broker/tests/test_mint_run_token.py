@@ -952,6 +952,161 @@ class TestMintJudgeFields:
         store.put_ticket.assert_not_called()
 
 
+class TestMintJudgeReplay:
+    """`replay` is held to the override's rules plus the REPLAY_ENABLED
+    switch, which Terraform sets in the dev broker only."""
+
+    JUDGE_RUN_ID = "_judge-run-001"
+    PRODUCT_RUN_ID = "0199b4c0-7b1e-7000-8000-0123456789ab"
+    SWEEP_KEY = "_judge/replay/sweep/judge-1-1/voter_targeting/t1-1"
+
+    @pytest.fixture(autouse=True)
+    def _dev_with_replay(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "dev")
+        monkeypatch.setenv("REPLAY_ENABLED", "true")
+
+    def _post(self, store, **payload_overrides):
+        return TestClient(_create_test_app(store=store)).post(
+            "/internal/mint-run-token",
+            json=_mint_payload(**payload_overrides),
+            headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        )
+
+    def _replay(self, mode="replay", key=None):
+        return {"mode": mode, "key": key or self.SWEEP_KEY}
+
+    @pytest.mark.parametrize(
+        "mode,key",
+        [
+            ("record", SWEEP_KEY),
+            ("replay", SWEEP_KEY),
+            ("record", "_judge/replay/base/voter_targeting/abc123/t1-1"),
+            ("replay", "_judge/replay/seed/voter_targeting/t1"),
+        ],
+    )
+    def test_replay_reaches_the_stored_ticket(self, mode, key):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True, replay=self._replay(mode, key))
+
+        assert resp.status_code == 200
+        ticket = store.put_ticket.call_args.args[0]
+        assert ticket.replay is not None
+        assert ticket.replay.mode == mode
+        assert ticket.replay.key == key
+
+    def test_a_refused_replay_never_reaches_the_override_read(self, monkeypatch):
+        """Every cheap refusal comes before the published-manifest read."""
+        monkeypatch.delenv("REPLAY_ENABLED")
+        store = MagicMock(spec=ScopeTicketStore)
+        s3 = _s3_serving(CLEAN_PUBLISHED)
+        override = {
+            "manifest_key": "_judge/voter_targeting/abc123/manifest.json",
+            "instruction_key": "_judge/voter_targeting/abc123/instruction.md",
+            "manifest_version_id": "m-1",
+            "instruction_version_id": "i-1",
+        }
+
+        resp = TestClient(_create_test_app(store=store, s3_client=s3)).post(
+            "/internal/mint-run-token",
+            json=_mint_payload(
+                run_id=self.JUDGE_RUN_ID, is_eval=True, experiment_override=override, replay=self._replay()
+            ),
+            headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        )
+
+        assert resp.status_code == 400
+        s3.get_object.assert_not_called()
+        store.put_ticket.assert_not_called()
+
+    def test_a_mint_without_replay_stores_none(self):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True)
+
+        assert resp.status_code == 200
+        assert store.put_ticket.call_args.args[0].replay is None
+
+    def test_replay_on_a_product_run_is_a_400(self):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.PRODUCT_RUN_ID, replay=self._replay())
+
+        assert resp.status_code == 400
+        assert "is_eval" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    @pytest.mark.parametrize("value", ["", "false", "1", "yes"])
+    def test_replay_with_the_switch_off_is_a_400(self, monkeypatch, value):
+        """Only the literal "true" turns it on, so a typo leaves it off."""
+        monkeypatch.setenv("REPLAY_ENABLED", value)
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True, replay=self._replay())
+
+        assert resp.status_code == 400
+        assert "not enabled" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    def test_replay_with_the_switch_unset_is_a_400(self, monkeypatch):
+        monkeypatch.delenv("REPLAY_ENABLED")
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True, replay=self._replay())
+
+        assert resp.status_code == 400
+        store.put_ticket.assert_not_called()
+
+    def test_the_switch_off_leaves_a_mint_without_replay_untouched(self, monkeypatch):
+        monkeypatch.delenv("REPLAY_ENABLED")
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True)
+
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize("environment", ["prod", "qa", ""])
+    def test_replay_outside_dev_is_a_400_even_with_the_switch_on(self, monkeypatch, environment):
+        monkeypatch.setenv("ENVIRONMENT", environment)
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True, replay=self._replay())
+
+        assert resp.status_code == 400
+        store.put_ticket.assert_not_called()
+
+    def test_replay_for_another_agent_is_a_400(self):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(
+            store,
+            run_id=self.JUDGE_RUN_ID,
+            is_eval=True,
+            replay=self._replay(key="_judge/replay/seed/walking_plan/t1"),
+        )
+
+        assert resp.status_code == 400
+        assert "does not match experiment_id" in resp.json()["detail"]
+        store.put_ticket.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "replay",
+        [
+            {"mode": "replay", "key": "_judge/replay/sweep/s/../voter_targeting/t1-1"},
+            {"mode": "record", "key": "_judge/replay/seed/voter_targeting/t1"},
+            {"mode": "write", "key": "_judge/replay/sweep/judge-1-1/voter_targeting/t1-1"},
+            {"mode": "replay", "key": "_judge/replay/sweep/judge-1-1/voter_targeting/t1-1", "x": 1},
+        ],
+    )
+    def test_a_malformed_replay_is_a_422(self, replay):
+        store = MagicMock(spec=ScopeTicketStore)
+
+        resp = self._post(store, run_id=self.JUDGE_RUN_ID, is_eval=True, replay=replay)
+
+        assert resp.status_code == 422
+        store.put_ticket.assert_not_called()
+
+
 class TestMintRefusesAnOverrideThePublishedManifestCannotSurvive:
     """An override is served IN PLACE of the published manifest, and the
     behavior allowlist cannot carry system_prompt, permission_mode or

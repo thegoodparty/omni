@@ -1,6 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
+import { SmsComplianceWindow } from '@goodparty_org/contracts'
 import { isAxiosError } from 'axios'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import {
+  SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+  smsComplianceWindow,
+} from 'src/campaigns/util/eligibility.util'
 import {
   ContactsFilterResolutionInput,
   ContactsService,
@@ -17,16 +26,27 @@ import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerl
 import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
 import { p2pPhoneListRequestSchema } from 'src/vendors/peerly/schemas/p2pPhoneListRequest.schema'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
+import { WIN_SMS_HOLD_MIN_CENTS } from 'src/shared/util/winSmsHold.util'
+import { z } from 'zod'
 import {
-  isWinSmsHoldBillingEnabled,
-  WIN_SMS_HOLD_MIN_CENTS,
-} from 'src/shared/util/winSmsHold.util'
-import { PeerlyPhoneList, PhoneListBuildStatus } from '../../generated/prisma'
+  OutreachStatus,
+  OutreachType,
+  PeerlyPhoneList,
+  PhoneListBuildStatus,
+} from '../../generated/prisma'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { PinoLogger } from 'nestjs-pino'
+
+// Stripe hands metadata values back as strings.
+const P2pDraftIdSchema = z.coerce.number().int().positive()
+
+type P2pDraftAudience = {
+  phoneListId: number | null
+  voterFileFilterId: number | null
+}
 
 @Injectable()
 export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachPurchaseMetadata> {
@@ -47,9 +67,41 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
   async validatePurchase({
     contactCount,
+    outreachType,
+    campaignId,
   }: OutreachPurchaseMetadata): Promise<void> {
-    if (!contactCount) {
+    // p2p is priced off the draft's own list, where a Peerly-confirmed 0 is a
+    // valid $0 send. Only types priced off the request's count need one here.
+    if (outreachType !== 'p2p' && !contactCount) {
       throw new BadRequestException('contactCount is required')
+    }
+
+    // Win text purchases always carry a campaign (Serve texts use
+    // SERVE_TEXT). An organization without one has no general election date,
+    // which the SMS cutoff rule reads as open, so there is nothing to check.
+    if (!campaignId) {
+      return
+    }
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: campaignId },
+      include: {
+        tcrCompliance: {
+          select: { kickoffSentAt: true, internalTestingAt: true },
+        },
+      },
+    })
+    const { smsCompliance } = smsComplianceWindow({
+      electionDate: campaign?.details?.electionDate,
+      tcrCompliance: campaign?.tcrCompliance ?? null,
+      now: new Date(),
+    })
+    if (smsCompliance === SmsComplianceWindow.closed) {
+      throw new ConflictException({
+        message:
+          'Texting is closed for this race because it is too close to ' +
+          'the general election to finish verification.',
+        errorCode: SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+      })
     }
   }
 
@@ -57,23 +109,24 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     contactCount,
     campaignId,
     outreachType,
-    phoneListToken,
+    outreachId,
     phoneListBuildId,
+    winSmsHoldBillingEnabled,
   }: OutreachPurchaseMetadata): Promise<number> {
     if (outreachType !== 'p2p') {
       return calcTextAmountInCents(contactCount)
     }
 
-    // Every PeerlyPhoneList row is written with a real campaignId
-    // (createQueuedBuild requires one, at accept time — before recordUpload
-    // ever runs), so a p2p purchase with a phoneListToken but no campaignId
-    // is a client-supplied contradiction, not a legacy no-campaign case —
-    // reject it rather than looking the token up unscoped.
+    // A p2p draft always belongs to a campaign, so a p2p purchase with none is
+    // a client-supplied contradiction — reject it rather than reading a draft
+    // or a phone list unscoped.
     if (!campaignId) {
       throw new BadRequestException(
         'A campaign is required to bill a p2p purchase',
       )
     }
+
+    const draft = await this.findPayableDraft(outreachId, campaignId)
 
     // Win SMS hold billing: the checkout places an authorization HOLD on the
     // UNDISCOUNTED amount, so a later capture (slice C1) can apply the
@@ -82,6 +135,11 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // authorization floor, so it is forgiven (amount 0 -> the free path, no
     // hold placed) rather than blocking checkout for a tiny campaign.
     //
+    // winSmsHoldBillingEnabled is resolved ONCE by PurchaseService at entry
+    // (for the paying user) and passed in — never read live here, so this
+    // can't disagree with the manual-capture decision the SAME request made
+    // for the Stripe session.
+    //
     // PAY-BEFORE-BUILD (slice D2a): when the Peerly list is NOT yet built there
     // is no final leads_loaded to bill against, so the hold is sourced from the
     // pre-pay match-count estimate (getListDetail reachability.sms) — a true
@@ -89,9 +147,9 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // ready the current leads_loaded basis (resolveBilledContactCount) is used
     // unchanged. Capture (C1) clamps to the authorized hold, so an estimate
     // >= leads_loaded means capture is never clamped down.
-    if (isWinSmsHoldBillingEnabled()) {
+    if (winSmsHoldBillingEnabled) {
       return this.resolveWinSmsHoldAmount(
-        phoneListToken,
+        draft,
         phoneListBuildId,
         campaignId,
         contactCount,
@@ -99,8 +157,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     }
 
     const billedContactCount = await this.resolveBilledContactCount(
-      phoneListToken,
-      phoneListBuildId,
+      draft,
       campaignId,
       contactCount,
     )
@@ -113,7 +170,14 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         0,
         billedContactCount - FREE_TEXTS_OFFER.COUNT,
       )
-      const finalAmount = calcTextAmountInCents(discountedContactCount)
+      const discountedAmount = calcTextAmountInCents(discountedContactCount)
+      // A send just over the free allowance leaves a remainder of a few
+      // cents (5,001-5,014 contacts) — non-zero but under Stripe's 50c
+      // minimum, so createCheckoutSession's session is rejected and the
+      // candidate can't submit. Forgive it the same way the hold path does
+      // (amount 0 -> the free path) rather than block a free-texts send.
+      const finalAmount =
+        discountedAmount < WIN_SMS_HOLD_MIN_CENTS ? 0 : discountedAmount
 
       this.logger.info(
         `Campaign ${campaignId}: applying free texts discount (${billedContactCount} contacts, ${discountedContactCount} billable, amount: ${finalAmount})`,
@@ -125,24 +189,30 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return calcTextAmountInCents(billedContactCount)
   }
 
-  // The Win SMS hold amount (cents) for a p2p checkout: UNDISCOUNTED so a later
-  // capture (slice C1) can apply the free-texts discount and still never exceed
-  // the hold. One build-row lookup drives both branches:
+  // The Win SMS hold amount (cents) for a p2p checkout. One build-row lookup
+  // drives both branches:
   //  - READY build: bill the current server-derived leads_loaded (the unchanged
-  //    B1 basis), undiscounted; sub-50c forgiven to 0 (below Stripe's floor).
+  //    B1 basis) — see resolveReadyHoldAmount for the free-texts/forgiveness
+  //    rules.
   //  - PRE-BUILD (slice D2a): no final leads_loaded yet, so source the hold from
-  //    the pre-pay match-count estimate — see resolvePreBuildHoldAmount.
+  //    the pre-pay match-count estimate — see resolvePreBuildHoldAmount. This
+  //    estimate is ALWAYS undiscounted (the free-texts offer is never consulted
+  //    pre-build, see resolvePreBuildHoldAmount's zero-amount guard): a covered
+  //    send that isn't yet ready must wait rather than take the free path,
+  //    because a free send places no hold/link for the build-ready recovery
+  //    edge to find. The webapp mirrors this — it defers creating the draft
+  //    (and so the checkout) for a free-texts-covered send until the build is
+  //    ready, so FE and BE can never disagree pre-build.
   private async resolveWinSmsHoldAmount(
-    phoneListToken: string | undefined,
+    draft: P2pDraftAudience,
     phoneListBuildId: string | undefined,
     campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
-    const build = await this.resolvePurchaseBuild(
-      phoneListToken,
-      phoneListBuildId,
-      campaignId,
-    )
+    const build = await this.findDraftBuild(draft, phoneListBuildId, campaignId)
+    if (!build) {
+      throw new BadRequestException('No phone list found for this purchase')
+    }
 
     // A FAILED build never reaches `ready`, so no build-ready edge would ever
     // finalize or capture a hold placed on it — the hold would strand (reserved,
@@ -164,8 +234,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         clientContactCount,
         campaignId,
       )
-      const undiscounted = calcTextAmountInCents(builtContactCount)
-      amount = undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
+      amount = await this.resolveReadyHoldAmount(builtContactCount, campaignId)
     }
 
     // HARD send cap (slice D2b — never oversend): persist the paid text count
@@ -187,6 +256,31 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       )
     }
     return amount
+  }
+
+  // The READY-build hold amount (cents): the same free-texts rule the non-hold
+  // path applies, so a send the offer fully covers is $0 — the free path, no
+  // hold — exactly like non-hold billing. PROD BUG this fixes: before this
+  // check existed, a fully-covered send still priced the undiscounted amount
+  // here, so the client (which shows "Free" the same way the non-hold path
+  // would) called complete-free-purchase and the server's nonzero amount threw
+  // its "only allowed for zero-amount purchases" 400 — the candidate could
+  // never send. A send the offer only PARTIALLY covers still holds the full
+  // UNDISCOUNTED count (unchanged): the discount is applied at capture
+  // (OutreachP2pSms.freeTextsApplied), clamped to this hold, never exceeding
+  // it.
+  private async resolveReadyHoldAmount(
+    builtContactCount: number,
+    campaignId: number,
+  ): Promise<number> {
+    const hasOffer =
+      await this.campaignsService.checkFreeTextsEligibility(campaignId)
+    if (hasOffer && builtContactCount <= FREE_TEXTS_OFFER.COUNT) {
+      return 0
+    }
+
+    const undiscounted = calcTextAmountInCents(builtContactCount)
+    return undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
   }
 
   // The pre-build hold amount: the has-cell match count of the EXACT filter the
@@ -307,12 +401,15 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return pagination.totalResults
   }
 
-  // p2p purchases must never bill off the client-supplied contactCount — it
-  // rides in checkout metadata the client controls. Preference order: Peerly's
-  // own leads_loaded for the list (the vendor's count of what actually got
-  // uploaded), falling back to the captured recipient rows if Peerly can't be
-  // reached. Either source missing entirely means there's nothing to bill
-  // against, so this throws before the caller ever calls Stripe.
+  // p2p purchases bill the list the DRAFT sends to, never a count or list
+  // handle from the checkout metadata, which the client controls. The send
+  // goes to `Outreach.phoneListId`, so that is the list priced here; pricing
+  // any other list would let the billed and the sent audience differ.
+  // Preference order within that list: Peerly's own leads_loaded (the vendor's
+  // count of what actually got uploaded), falling back to the captured
+  // recipient rows if Peerly can't be reached. Either source missing entirely
+  // means there's nothing to bill against, so this throws before the caller
+  // ever calls Stripe.
   //
   // This does a live Peerly fetch on every call, so PurchaseService's
   // free-purchase recheck (a second calculateAmount call before granting a
@@ -323,21 +420,22 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   // vendor pricing on every call) — failing the recheck closed on drift, not
   // trusting a stale amount, is intentional here too.
   private async resolveBilledContactCount(
-    phoneListToken: string | undefined,
-    phoneListBuildId: string | undefined,
+    draft: P2pDraftAudience,
     campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
-    // FLAG-OFF INERTNESS: the buildId handle only exists for the async-build
-    // path gated behind WIN_SMS_HOLD_BILLING (resolveWinSmsHoldAmount). With
-    // the flag off this must resolve exactly as it did before that slice —
-    // token-only — so a crafted buildId in checkout metadata can't reach a
-    // list the pre-slice code would have refused.
-    const capturedList = await this.resolvePurchaseBuild(
-      phoneListToken,
-      isWinSmsHoldBillingEnabled() ? phoneListBuildId : undefined,
-      campaignId,
-    )
+    // Flag off, a draft is only ever created against a built list, so one
+    // with no list id has nothing it could be sent to and is refused rather
+    // than priced off a list the checkout names.
+    if (draft.phoneListId === null) {
+      throw new BadRequestException(
+        'The outreach draft has no phone list to bill',
+      )
+    }
+    const capturedList = await this.findDraftBuild(draft, undefined, campaignId)
+    if (!capturedList) {
+      throw new BadRequestException('No phone list found for this purchase')
+    }
 
     return this.billedCountFromCapturedList(
       capturedList,
@@ -346,38 +444,65 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     )
   }
 
-  // Resolves the PeerlyPhoneList this p2p purchase bills against, scoped to the
-  // server-validated campaign so a client-supplied handle can never reach
-  // another campaign's list. Both handles ride in client-controlled checkout
-  // metadata, so BOTH lookups carry the campaignId — this is the one ownership
-  // proof every billing/cap/link path runs through, and it runs here (at
-  // calculateAmount) BEFORE a Stripe session or any hold exists.
-  //
-  // The token path is unchanged and takes precedence: a globally-@unique token
-  // is resolved first, and the buildId path is used ONLY when no token is
-  // present (an async build returns a null token until it reaches Peerly). A
-  // buildId that does not belong to the campaign resolves to null here and is
-  // refused with the SAME shape the token path uses — never billed or linked.
-  private async resolvePurchaseBuild(
-    phoneListToken: string | undefined,
-    phoneListBuildId: string | undefined,
+  // The p2p draft this checkout pays for, scoped to the server-validated
+  // campaign. Only an unpaid draft is priced: once finalize has claimed it
+  // there is nothing left to buy, and minting a session for it (a client retry
+  // of a timed-out create, say) would charge again for a send already
+  // scheduled. The zero-amount recheck runs before finalize, so it still reads
+  // the draft at pending_payment.
+  private async findPayableDraft(
+    outreachId: number | undefined,
     campaignId: number,
-  ): Promise<PeerlyPhoneList> {
-    const where = phoneListToken
-      ? { token: phoneListToken, campaignId }
-      : phoneListBuildId
-        ? { id: phoneListBuildId, campaignId }
-        : null
-    if (!where) {
+  ): Promise<P2pDraftAudience> {
+    const draftId = P2pDraftIdSchema.safeParse(outreachId)
+    if (!draftId.success) {
       throw new BadRequestException(
-        'A phone list is required to bill a p2p purchase',
+        'An outreach draft is required to bill a p2p purchase',
       )
     }
-    const build = await this.peerlyPhoneListCapture.findFirst({ where })
-    if (!build) {
-      throw new BadRequestException('No phone list found for this purchase')
+    const draft = await this.outreachService.findFirst({
+      where: {
+        id: draftId.data,
+        campaignId,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending_payment,
+      },
+      select: { phoneListId: true, voterFileFilterId: true },
+    })
+    if (!draft) {
+      throw new BadRequestException('No outreach draft found for this purchase')
     }
-    return build
+    return draft
+  }
+
+  // The PeerlyPhoneList a p2p draft sends to, which is the only list it may be
+  // billed, capped, or linked against. Every lookup is scoped to the
+  // server-validated campaign.
+  //
+  // A draft that names its Peerly list (`Outreach.phoneListId`) resolves to
+  // that list, whatever the checkout names. A draft paid before its build
+  // finished names no list yet: the build-ready edge later stamps it from the
+  // build this hold is linked to, so that build is what it sends to and what
+  // is billed. The checkout's build id is the only handle to it, so it is held
+  // to the draft's own saved voter list as well as the campaign.
+  private async findDraftBuild(
+    draft: P2pDraftAudience,
+    phoneListBuildId: string | undefined,
+    campaignId: number,
+  ): Promise<PeerlyPhoneList | null> {
+    if (draft.phoneListId !== null) {
+      return this.peerlyPhoneListCapture.findFirst({
+        where: { peerlyListId: draft.phoneListId, campaignId },
+      })
+    }
+    if (!phoneListBuildId || draft.voterFileFilterId === null) return null
+    return this.peerlyPhoneListCapture.findFirst({
+      where: {
+        id: phoneListBuildId,
+        campaignId,
+        voterFileFilterId: draft.voterFileFilterId,
+      },
+    })
   }
 
   // The server-derived billable count for a captured list the caller already
@@ -395,11 +520,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     clientContactCount: number,
     campaignId: number,
   ): Promise<number> {
-    // The list's OWN token (identical to the request token on the token path,
-    // which resolved the row BY it) — so the buildId path, which carries no
-    // request token, fetches leads_loaded the same way. A `ready` build always
-    // carries a token (stamped at upload before ready); a tokenless row here is
-    // a data anomaly we refuse rather than bill off the pre-scrub captured rows.
+    // The list's OWN token is what Peerly's status route is keyed on. A
+    // `ready` build always carries a token (stamped at upload before ready); a
+    // tokenless row here is a data anomaly we refuse rather than bill off the
+    // pre-scrub captured rows.
     const phoneListToken = capturedList.token
     if (!phoneListToken) {
       throw new BadRequestException('No phone list found for this purchase')
@@ -589,34 +713,39 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // checkout; recording first means a later finalize failure (which reverts
     // and lets the webhook retry) never leaves held money unrecorded. Scoped to
     // the paid checkout path (a `cs_` id) — a sub-50c forgiven campaign takes
-    // the free path (`free_confirmed_*`) and places no hold. CAS-idempotent, so
-    // a webhook retry re-runs it safely. Capture + release are later slices.
-    if (
-      isWinSmsHoldBillingEnabled() &&
-      outreachId &&
-      paymentIntentId.startsWith('cs_')
-    ) {
-      // The upload token rides in the checkout metadata (as a string); pass it
-      // so recordHold links the satellite to its building phone list now, before
-      // the list is ready and before Outreach.phoneListId exists. An async build
-      // carries no token — it rides the build id instead, which recordHold links
-      // by (scoped to this campaign, since the id is client-supplied).
-      const phoneListToken =
-        'phoneListToken' in rawMetadata &&
-        typeof rawMetadata.phoneListToken === 'string'
-          ? rawMetadata.phoneListToken
-          : undefined
+    // the free path (`free_confirmed_*`) and places no hold.
+    //
+    // NOT flag-gated — recordHold runs on EVERY paid p2p checkout. A flag
+    // flip between session-creation and this webhook must never skip
+    // recording a hold Stripe already placed (that would strand an
+    // authorization with nothing tracking it). recordHold itself determines
+    // durably, off the live PI's capture_method, whether this was a
+    // hold-model checkout at all — a no-op for an immediate-charge one.
+    // isHoldModelCheckout is that durable signal, reused below instead of the
+    // flag for the per-send free-texts stamp and the post-hold capture
+    // attempt. CAS-idempotent, so a webhook retry re-runs it safely.
+    let isHoldModelCheckout = false
+    if (outreachId && paymentIntentId.startsWith('cs_')) {
+      // The satellite is linked to the list the draft sends to, resolved the
+      // same way calculateAmount priced it, so the build-ready edge finds a
+      // pre-build draft through the build it was billed for. A lookup that
+      // finds nothing leaves the hold unlinked rather than skipping it.
       const phoneListBuildId =
         'phoneListBuildId' in rawMetadata &&
         typeof rawMetadata.phoneListBuildId === 'string'
           ? rawMetadata.phoneListBuildId
           : undefined
-      await this.p2pSmsHold.recordHold({
+      const draft = await this.outreachService.findFirst({
+        where: { id: outreachId, campaignId },
+        select: { phoneListId: true, voterFileFilterId: true },
+      })
+      const build = draft
+        ? await this.findDraftBuild(draft, phoneListBuildId, campaignId)
+        : null
+      isHoldModelCheckout = await this.p2pSmsHold.recordHold({
         outreachId,
         checkoutSessionId: paymentIntentId,
-        phoneListToken,
-        phoneListBuildId,
-        campaignId,
+        peerlyPhoneListId: build?.id,
       })
     }
 
@@ -681,20 +810,29 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
             campaignId,
           )
           if (stamped) {
-            // Win SMS hold billing: record the per-send, server-authoritative
-            // "this send redeemed the offer" signal BEFORE flipping the campaign
-            // flag, so the capture's discount decision never depends on the
-            // client-supplied billableTextCount. Ordered before redeemFreeTexts
-            // so there is no instant where the offer is consumed (flag flipped)
-            // but the per-send signal is still unset — which the capture gate
-            // would otherwise read as "full price" and overcharge.
-            if (
-              isWinSmsHoldBillingEnabled() &&
-              paymentIntentId.startsWith('cs_')
-            ) {
-              await this.p2pSmsHold.markFreeTextsApplied(outreachId)
+            // Win SMS hold billing: the per-send, server-authoritative "this
+            // send redeemed the offer" signal (OutreachP2pSms.freeTextsApplied,
+            // the ONLY thing the capture reads for the discount) must mean
+            // "this send WON the campaign's one-time offer" — never merely
+            // "this send was eligible". Two concurrent eligible sends on the
+            // SAME campaign both reach this line; only one can win the CAS
+            // inside redeemFreeTexts. Passing outreachId lets redeemFreeTexts
+            // stamp the satellite in the SAME transaction as the CAS win, so a
+            // losing send's stamp is never set — it throws before the stamp
+            // runs, and the catch below surfaces the failure so Stripe
+            // retries (which then sees hasOffer=false and no-ops, idempotent).
+            // isHoldModelCheckout (durable, from recordHold above) replaces the
+            // flag here: it is true only when THIS send actually got a hold
+            // recorded, so capture — the only reader of the stamp — will
+            // always find it, and a flag flip can't desync the two.
+            if (isHoldModelCheckout) {
+              await this.campaignsService.redeemFreeTexts(
+                campaignId,
+                outreachId,
+              )
+            } else {
+              await this.campaignsService.redeemFreeTexts(campaignId)
             }
-            await this.campaignsService.redeemFreeTexts(campaignId)
             this.logger.info(
               `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
             )
@@ -724,19 +862,17 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
     // CAPTURE edge (a): attempt the capture only AFTER finalize and the
     // free-texts redemption have run — the discount is read at capture from the
-    // per-send stamp (`billableTextCount`) that `markFreeTextsConsumed` writes
-    // in the block above, so capturing earlier would miss an eligible campaign's
-    // discount and overcharge. If the build is already `ready` (the common
-    // ordering — the list is built before checkout), this captures now;
+    // per-send stamp (`OutreachP2pSms.freeTextsApplied`) that `redeemFreeTexts`
+    // writes in the block above, so capturing earlier would miss an eligible
+    // campaign's discount and overcharge. If the build is already `ready` (the
+    // common ordering — the list is built before checkout), this captures now;
     // otherwise it no-ops and the build-ready edge or the backstop sweep fires
     // once the list finishes. Best-effort: a capture failure must not fail the
     // webhook (finalize already ran, and the backstop re-captures), and it runs
-    // last so it can never strand the send setup. Self-gated on the flag.
-    if (
-      isWinSmsHoldBillingEnabled() &&
-      outreachId &&
-      paymentIntentId.startsWith('cs_')
-    ) {
+    // last so it can never strand the send setup. Gated on isHoldModelCheckout
+    // (durable — see above), not the flag: a hold that was actually placed
+    // always gets its capture attempt regardless of a later flag flip.
+    if (isHoldModelCheckout && outreachId) {
       try {
         await this.p2pSmsCapture.captureHold(outreachId)
       } catch (error) {

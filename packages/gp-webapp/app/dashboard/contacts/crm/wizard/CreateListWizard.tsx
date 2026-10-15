@@ -46,6 +46,7 @@ import { useListWizardCount } from './useListWizardCount'
 import { useListWizardOverlapCount } from './useListWizardOverlapCount'
 import { useListWizardPolygonCount } from './useListWizardPolygonCount'
 import OverlapBar from './OverlapBar'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 
 type WizardStepName = 'branch' | 'conditions' | 'boundary' | 'name'
 
@@ -66,6 +67,9 @@ interface CreateListWizardProps {
   // a saved list, collapsed to its conditions step, saving with PUT instead
   // of POST. Null/absent = the create flow.
   editingSegment?: SegmentResponse | null
+  // The create flow's starting pills (a `?newList=` preset). Ignored in
+  // edit mode, which seeds from the saved list.
+  initialFilters?: VoterFileFilters
 }
 
 // The list creation wizard (ENG-10708 locked design): branch chooser ->
@@ -78,6 +82,7 @@ export default function CreateListWizard({
   open,
   onOpenChange,
   editingSegment = null,
+  initialFilters,
 }: CreateListWizardProps) {
   const {
     isElectedOfficial,
@@ -89,6 +94,8 @@ export default function CreateListWizard({
     voterDataUnavailable,
   } = useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
+  const { enabled: citizenPanelsEnabled } =
+    useServeCitizenPanelsFlag(isElectedOfficial)
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -158,7 +165,9 @@ export default function CreateListWizard({
     setStepIndex(0)
     setBranch(null)
     setDemographicFilters(
-      editingSegment ? segmentToVoterFileFilters(editingSegment) : {},
+      editingSegment
+        ? segmentToVoterFileFilters(editingSegment)
+        : (initialFilters ?? {}),
     )
     setSupportStatus(editingSegment?.supportStatus ?? [])
     setPrecincts(
@@ -817,6 +826,7 @@ export default function CreateListWizard({
           precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
           showRecommendedListFilters
+          showCitizenPanelFilters={citizenPanelsEnabled}
         />
       )}
       {stepName === 'conditions' && activeBranch === 'activity' && (

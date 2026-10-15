@@ -48,6 +48,8 @@ export const AgentEntrySchema = z
     // these run as the seeded account in judgeFixtureIdentity.ts; every other
     // dispatch names no user, so the broker cannot reach gp-api for it.
     readsGpApi: z.literal(true).optional(),
+    // See PAGE_REPLAY_AGENTS.
+    replaysPages: z.literal(true).optional(),
     // Required on a wired entry, so "wired" can never be a claim with no run
     // behind it.
     wiredBy: WiredBySchema.optional(),
@@ -155,9 +157,9 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // compliance_setup is absent on purpose: it is blocked, so a case list would
 // be inputs for a sweep that must not run.
 //
-// All but race_opponent_summary, race_opponent_actions and
-// opportunities_and_challenges are placeholder lists — see the `note` in each
-// file. As above, the coverage line counts a
+// All but race_opponent_summary, race_opponent_actions,
+// opportunities_and_challenges and campaign_tracker_tasks are placeholder
+// lists — see the `note` in each file. As above, the coverage line counts a
 // wired one separately.
 const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
   campaign_tracker_tasks: 'campaign_tracker_tasks.json',
@@ -194,6 +196,16 @@ const GP_API_READERS: ReadonlySet<BackgroundAgentId> = new Set([
   'trending_issues',
 ])
 
+// These three fetch canonical pages about a named person, often from URL hints
+// in their params, so both arms ask for the same pages. Agents that find their
+// own sources diverge at web search instead, where replay serves little; the
+// rest wait until these three's hit rates have been read.
+const PAGE_REPLAY_AGENTS: ReadonlySet<BackgroundAgentId> = new Set([
+  'opponent_research',
+  'race_opponent_collection',
+  'self_research',
+])
+
 // Keyed by the id union, so dropping an experiment without dropping its
 // reason is a typecheck failure — the same shape as CHAT_BLOCKED_REASONS.
 const BACKGROUND_BLOCKED_REASONS: Partial<Record<BackgroundAgentId, string>> = {
@@ -218,6 +230,7 @@ const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => {
       ? { status: 'pending' as const }
       : { status: 'blocked' as const, blockedReason }),
     ...(GP_API_READERS.has(agentId) && { readsGpApi: true as const }),
+    ...(PAGE_REPLAY_AGENTS.has(agentId) && { replaysPages: true as const }),
   }
 })
 

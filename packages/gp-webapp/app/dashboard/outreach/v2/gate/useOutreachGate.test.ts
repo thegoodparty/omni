@@ -105,6 +105,41 @@ describe('useOutreachGate', () => {
     expect(result.current.requirement).toBe('pin')
   })
 
+  it('returns closed for sms ahead of the Pro requirement', () => {
+    setMembership({ ...baseMembership, tier: 'free', texting: 'closed' })
+
+    expect(
+      renderHook(() => useOutreachGate('sms')).result.current.requirement,
+    ).toBe('closed')
+    expect(
+      renderHook(() => useOutreachGate('robocall')).result.current.requirement,
+    ).toBe('pro')
+  })
+
+  it('returns closed for a Pro campaign on sms only', () => {
+    setMembership({ ...baseMembership, tier: 'pro', texting: 'closed' })
+
+    expect(
+      renderHook(() => useOutreachGate('sms')).result.current.requirement,
+    ).toBe('closed')
+    expect(
+      renderHook(() => useOutreachGate('door')).result.current.requirement,
+    ).toBeNull()
+  })
+
+  it('never closes texting for a Serve (elected office) org', () => {
+    setMembership({
+      ...baseMembership,
+      tier: 'pro',
+      texting: 'closed',
+      isElectedOffice: true,
+    })
+
+    expect(
+      renderHook(() => useOutreachGate('sms')).result.current.requirement,
+    ).toBeNull()
+  })
+
   it('requires nothing once texting is cleared', () => {
     setMembership({ ...baseMembership, tier: 'pro', texting: 'cleared' })
 

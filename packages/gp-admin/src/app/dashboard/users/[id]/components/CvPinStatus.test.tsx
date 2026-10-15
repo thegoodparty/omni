@@ -765,6 +765,94 @@ describe('CvPinStatus', () => {
     })
   })
 
+  describe('texting window', () => {
+    const notSubmittedState: ComplianceStateOutput = {
+      ...awaitingPinState,
+      stage: 'needs_filing',
+      peerlyCvStatus: null,
+      pinDelivery: null,
+      hasComplianceRecord: false,
+      committeeName: null,
+    }
+
+    it.each([
+      ['open', 'Open'],
+      ['closing', 'Last week'],
+      ['closed', 'Closed'],
+    ] as const)(
+      'shows the %s window with the election and cutoff dates',
+      async (smsCompliance, label) => {
+        mockGetCampaignComplianceState.mockResolvedValue({
+          ...notSubmittedState,
+          smsCompliance,
+          smsCutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        })
+
+        renderWidget()
+
+        expect(
+          await screen.findByText(`Texting window: ${label}`)
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText('General election: Nov 3, 2026')
+        ).toBeInTheDocument()
+        expect(screen.getByText('Cutoff: Oct 15, 2026')).toBeInTheDocument()
+        expect(
+          screen.getByText(
+            'Wrong date? Fix it by editing the election date in the campaign form.'
+          )
+        ).toBeInTheDocument()
+      }
+    )
+
+    it('shows that a submitted campaign made the cutoff while awaiting the PIN', async () => {
+      mockGetCampaignComplianceState.mockResolvedValue({
+        ...awaitingPinState,
+        smsCompliance: 'not_applicable',
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      })
+
+      renderWidget()
+
+      expect(
+        await screen.findByText('Texting window: Made the cutoff')
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /resend cv pin/i })
+      ).toBeInTheDocument()
+    })
+
+    it('says the dates are not set when the campaign has no election date', async () => {
+      mockGetCampaignComplianceState.mockResolvedValue({
+        ...notSubmittedState,
+        smsCompliance: 'open',
+        smsCutoffDate: null,
+        generalElectionDate: null,
+      })
+
+      renderWidget()
+
+      expect(
+        await screen.findByText('Texting window: Open')
+      ).toBeInTheDocument()
+      expect(screen.getByText('General election: Not set')).toBeInTheDocument()
+      expect(screen.getByText('Cutoff: Not set')).toBeInTheDocument()
+    })
+
+    it('shows no window when the response does not carry one', async () => {
+      mockGetCampaignComplianceState.mockResolvedValue(notSubmittedState)
+
+      renderWidget()
+
+      expect(
+        await screen.findByText('10DLC: Filing details needed')
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/Texting window/)).not.toBeInTheDocument()
+    })
+  })
+
   describe('internal testing approval toggle', () => {
     const noRecordState: ComplianceStateOutput = {
       ...awaitingPinState,

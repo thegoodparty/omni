@@ -1,5 +1,5 @@
 # Stage 1: Install dependencies and build application
-FROM node:22.23.0-alpine AS builder
+FROM public.ecr.aws/docker/library/node:22.23.0-alpine AS builder
 
 RUN apk add --no-cache \
     libc6-compat \
@@ -84,7 +84,7 @@ RUN npm run generate
 RUN npx nest build
 
 # Stage 2: Create a minimal runtime image
-FROM node:22.23.0-alpine
+FROM public.ecr.aws/docker/library/node:22.23.0-alpine
 
 RUN apk add --no-cache \
     libc6-compat \

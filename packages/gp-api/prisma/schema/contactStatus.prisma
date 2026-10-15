@@ -34,6 +34,12 @@ enum ContactStatusField {
   // person-level fact an official toggles as they work through people. Seed is
   // `cleared`, same as the two flags above.
   follow_up
+  // Serve's civic panel: constituents who said yes to being asked for feedback.
+  // One panel per office, so the set of people at `member` IS the panel. A
+  // person-level standing fact like follow_up, written by the contact card and,
+  // later, by a yes to a panel invitation. Seed is `left`: nobody is a member
+  // until they say yes.
+  civic_panel
 }
 
 // ADR 0007. `cleared` is a real value rather than a deleted row so that
@@ -74,10 +80,22 @@ enum FollowUpStatus {
   cleared
 }
 
+// The vocabulary for `civic_panel`. `left` rather than a deleted row for the
+// DoNotKnockStatus reason: leaving is itself the event worth keeping, since a
+// panel's history (who joined, who left, when, and how) is what an official
+// will be asked to account for. Backs no column, like FollowUpStatus.
+enum CivicPanelStatus {
+  member
+  left
+}
+
 enum ContactStatusSource {
   manual
   door_knock
   phone_banking
+  // A text reply: JOIN to a send that asked someone onto the civic panel, or
+  // STOP, which takes them off it.
+  sms
 }
 
 // Append-only change log. `fromValue` snapshots the *effective* value at

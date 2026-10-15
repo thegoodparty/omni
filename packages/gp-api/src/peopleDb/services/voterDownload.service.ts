@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { DatabricksVoterDownloadService } from '../databricks/databricksVoterDownload.service'
 import { DownloadPeopleDTO } from '../schemas/people.schema'
+import type { PeopleDataset } from './peopleDataset.service'
 
 @Injectable()
 export class VoterDownloadService {
@@ -15,12 +16,18 @@ export class VoterDownloadService {
   // attribution wants are the chunk fetches rather than one submit.
   async streamPeopleCsv(
     dto: DownloadPeopleDTO,
+    dataset: PeopleDataset,
     res: FastifyReply,
     responseOptions?: {
       filename?: string
       extraHeaders?: Record<string, string>
     },
   ): Promise<void> {
-    return this.databricksDownload.streamPeopleCsv(dto, res, responseOptions)
+    return this.databricksDownload.streamPeopleCsv(
+      dto,
+      dataset,
+      res,
+      responseOptions,
+    )
   }
 }

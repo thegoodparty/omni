@@ -1098,11 +1098,18 @@ describe('resolveAdmission', () => {
     const ids = AGENTS.filter(
       (one) => one.shape === 'background' && one.status !== 'blocked',
     ).map((one) => one.agentId)
-    const resolved = resolveAdmission(ids, REPO_ROOT).admitted
+    const decision = resolveAdmission(ids, REPO_ROOT)
+    const resolved = decision.admitted
+    // The arm walks the resolver's held-out controls too (armDeps hands it
+    // env.backgroundExtraCases), so the comparison has to hand them over or
+    // a real list with a control past the cap moves the cut on one side only.
     const loader = armCaseLoader(
       SWEEP_VALUES,
       ARM_BUDGET_MS,
       DEFAULT_JUDGE_CONFIG,
+      undefined,
+      undefined,
+      decision.extraCases,
     )
     const walked = AGENTS.filter((one) => ids.includes(one.agentId)).filter(
       (one) => {
@@ -1123,8 +1130,10 @@ describe('resolveAdmission', () => {
   // admitted set no longer checks its own budget, so the resolver is the only
   // guard there is. Pinned to the measured answer as well as to the loader.
   it('agrees with the arm loader at a budget where attempts change the answer', () => {
-    // Two runs an agent against five slots admits two agents; dropping the
-    // attempts on either path makes it one run each, and admits five.
+    // The first list in registry order carries a control past the cap, so at
+    // two attempts it takes four of the five slots (one case and one control,
+    // twice) and is the only agent admitted; dropping the attempts on either
+    // path makes it two runs, and admits more.
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
       background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 5 },
@@ -1132,8 +1141,16 @@ describe('resolveAdmission', () => {
     const ids = AGENTS.filter(
       (one) => one.shape === 'background' && one.status !== 'blocked',
     ).map((one) => one.agentId)
-    const resolved = resolveAdmission(ids, REPO_ROOT, config).admitted
-    const loader = armCaseLoader(SWEEP_VALUES, ARM_BUDGET_MS, config)
+    const decision = resolveAdmission(ids, REPO_ROOT, config)
+    const resolved = decision.admitted
+    const loader = armCaseLoader(
+      SWEEP_VALUES,
+      ARM_BUDGET_MS,
+      config,
+      undefined,
+      undefined,
+      decision.extraCases,
+    )
     const walked = AGENTS.filter((one) => ids.includes(one.agentId)).filter(
       (one) => {
         try {
@@ -1145,7 +1162,7 @@ describe('resolveAdmission', () => {
       },
     )
     expect(resolved).toEqual(walked.map((one) => one.agentId))
-    expect(resolved).toEqual(['campaign_tracker_tasks', 'district_issue_pulse'])
+    expect(resolved).toEqual(['campaign_tracker_tasks'])
   })
 })
 

@@ -9,6 +9,7 @@ import {
 } from '@goodparty_org/contracts'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
+import type { PeopleDataset } from './peopleDataset.service'
 import type {
   DbxEvaluateRow,
   DbxResidentRow,
@@ -165,12 +166,14 @@ export class VoterDoorKnockingService {
   // belongs beside the roster shaping rather than inside the query.
   async evaluate(
     dto: DoorKnockingEvaluateDTO,
+    dataset: PeopleDataset,
     opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<DoorKnockingEvaluateResponse> {
     const rows = await this.readLog.measure({
       op: 'dk-evaluate',
       districtId: dto.districtId,
-      read: () => this.databricks.doorKnockingEvaluateRows(dto, opts),
+      dataset,
+      read: () => this.databricks.doorKnockingEvaluateRows(dto, dataset, opts),
     })
     return shapeEvaluate(rows, dto)
   }
@@ -183,6 +186,7 @@ export class VoterDoorKnockingService {
   // the CRM already does.
   async evaluatePoints(
     dto: DoorKnockingEvaluateDTO,
+    dataset: PeopleDataset,
     opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<{
     people: DoorKnockingEvaluateResponse['people']
@@ -191,7 +195,8 @@ export class VoterDoorKnockingService {
     const rows = await this.readLog.measure({
       op: 'dk-evaluate-points',
       districtId: dto.districtId,
-      read: () => this.databricks.doorKnockingEvaluateRows(dto, opts),
+      dataset,
+      read: () => this.databricks.doorKnockingEvaluateRows(dto, dataset, opts),
     })
     // The query LIMITs cap + 1, so overflow is known without counting past it.
     const truncated = rows.length > dto.maxPeople
@@ -203,12 +208,15 @@ export class VoterDoorKnockingService {
 
   async residents(
     dto: DoorKnockingResidentsDTO,
+    dataset: PeopleDataset,
   ): Promise<DoorKnockingResidentsResponse> {
     const residentsCap = dto.targetPersonIds.length * 10
     const rows = await this.readLog.measure({
       op: 'dk-residents',
       districtId: dto.districtId,
-      read: () => this.databricks.doorKnockingResidentRows(dto, residentsCap),
+      dataset,
+      read: () =>
+        this.databricks.doorKnockingResidentRows(dto, dataset, residentsCap),
     })
     return shapeResidents(rows, dto, residentsCap)
   }

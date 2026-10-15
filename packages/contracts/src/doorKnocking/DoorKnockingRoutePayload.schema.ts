@@ -397,6 +397,11 @@ export const DoorKnockingRoutePayloadSchema = z.object({
   // to the static build for exactly those. Absent must render identically to
   // empty.
   talkingPoints: z.string().optional(),
+  // The turf's list can only hold civic panel members (isCivicPanelOnlyList
+  // on its saved criteria), so a Serve canvasser asks whether they want to
+  // stay on the panel instead of whether they want to join. Optional like
+  // every field above it: a snapshot without it asks the join question.
+  civicPanelOnly: z.boolean().optional(),
 })
 
 export type DoorKnockingRoutePayload = z.infer<

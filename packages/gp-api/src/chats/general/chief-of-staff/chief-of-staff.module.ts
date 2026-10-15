@@ -6,6 +6,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { Module } from '@nestjs/common'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { OutreachReportBackModule } from '@/outreach/outreachReportBack.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -13,6 +14,7 @@ import { DistrictResolverService } from '@/chats/briefing-chats/services/distric
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
@@ -27,7 +29,7 @@ import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.servi
 import {
   CONSTITUENT_CATALOG,
   CONSTITUENT_SCHEMA,
-  CONSTITUENT_TABLES,
+  CONSTITUENT_TABLES_BY_DATASET,
 } from './services/constituentDataScope'
 import { PrioritiesServiceAdapter } from './services/prioritiesService.adapter'
 import { PRIORITIES_PORT } from './services/prioritiesPort'
@@ -38,8 +40,9 @@ export { CHIEF_OF_STAFF_MODELS }
 
 // Aggregate-only Databricks provider for the constituent-data tool. Reads the
 // SAME shared Databricks credential the briefing chat uses (OAuth M2M, or a PAT
-// fallback — see resolveDatabricksConnection), against the serve_agent_voters
-// mart in the mart_serve_agents schema. Returns null unless host/path and a
+// fallback — see resolveDatabricksConnection), against the mart_serve_agents
+// schema. The handler picks serve_agent_voters or serve_agent_constituents per
+// turn from PeopleDatasetService. Returns null unless host/path and a
 // credential are set, so with nothing configured the tool never registers and
 // prod/local stay off until the credential is deployed. The aggregate-only
 // safety comes from the app-layer scope (allowlist + forbidden columns +
@@ -64,6 +67,8 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     CommunityIssuesModule,
     ContactsModule,
     VotersModule,
+    PeopleQueryModule,
+    OutreachReportBackModule,
   ],
   providers: [
     ChiefOfStaffHandler,
@@ -85,7 +90,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     },
     {
       provide: CONSTITUENT_TABLES_CONFIG,
-      useValue: CONSTITUENT_TABLES,
+      useValue: CONSTITUENT_TABLES_BY_DATASET,
     },
     {
       provide: COMMUNITY_ISSUE_READ_PORT,

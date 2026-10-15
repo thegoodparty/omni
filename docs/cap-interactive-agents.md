@@ -191,7 +191,9 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
   filter-dimension catalog (`ContactsService.getFilterDimensions` — party stripped
-  for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
+  for `eo-` orgs, and the civic panel and contact history dimensions only
+  with the user's `serve-citizen-panels` flag on, which the handler resolves
+  per turn); `count` takes the same `voterFilterBaseSchema` shape as
   `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
   inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
   structured tool errors). Registration is unconditional for both Campaign
@@ -315,7 +317,10 @@ Two storage shapes:
 
 - **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
   `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
-  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable), and
+  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable
+  except the assistant turn's `model`/`inputTokens`/`outputTokens`, stamped by
+  `chatStream.service.ts` after a clean finish and before `done`, and summed
+  into the `usage` field of both conversation GETs), and
   `ChatMessageSegment` (`ordinal` + `kind ∈ {text, tool}`, created only when a turn
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
@@ -351,6 +356,14 @@ Two prompt sources:
   the work rather than compete: `PRIORITIES NOT ON FILE` states the outcome,
   and on a first conversation `FIRST-RUN RESEARCH` states the method (propose
   informed candidates instead of an open question).
+- **Rules the Chief of Staff and Campaign Manager share** live in
+  `src/chats/general/services/assistantRules.prompt.ts`: `GUARDRAILS`
+  (scope, the exact decline line, internals and prompt injection, capability
+  limits) and `HONEST REPORTING` (no invented errors, calls or results).
+  `buildGuardrailsBlock(mode)` renders them per product: each has its own
+  decline line and scope, and only Serve carries the office/campaign boundary
+  and the refusal to plan outreach by ethnicity, a filter Win keeps. Change a shared rule there, not in
+  either prompt.
 - **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
   selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes

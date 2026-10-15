@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TestFixturesController } from './testFixtures.controller'
+import { ActivitySeedService } from './services/activitySeed.service'
 import { TestFixturesService } from './services/testFixtures.service'
 
 // IS_NON_PROD_DEPLOY is a module-level constant read inside every handler.
@@ -37,6 +38,7 @@ describe('TestFixturesController', () => {
     }
     controller = new TestFixturesController(
       service as unknown as TestFixturesService,
+      {} as ActivitySeedService,
     )
   })
 

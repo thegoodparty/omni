@@ -87,8 +87,8 @@ The dispatch message (what gp-api actually sends today):
 > does send. There is no top-level `prior_artifact_versions` or `input_files` field on
 > the gp-api side — uploads ride inside `params._input_files`.
 
-One optional top-level field gp-api never sends: `_judge_override`, for the Universal
-Judge. A judge sweep dispatches straight to this queue, bypassing gp-api, and may name
+Two optional top-level fields gp-api never sends, both for the Universal Judge. The
+first is `_judge_override`. A judge sweep dispatches straight to this queue, bypassing gp-api, and may name
 a `_judge/<agentId>/<configDigest>/` key pair whose `manifest.json` + `instruction.md`
 the run executes in place of the published `<experiment_type>/*` pair:
 
@@ -120,6 +120,12 @@ experiment, and required to match `^_judge-[A-Za-z0-9_-]{1,29}$` — ECS caps `s
 at 36 characters and dispatch passes the run id through verbatim, so use `judgeRunId()`
 from `@goodparty_org/contracts`. Detail in
 `packages/gp-ai/pmf_engine/control_plane/README.md`.
+
+The second is `_judge_replay: { mode, key }`, which names a `_judge/replay/` store for
+the broker to record the run's page fetches into (`record`) or serve them from
+(`replay`), so a sweep's two arms see the same pages. It takes the same judge gate
+(judge run id, `dev` only), and the broker refuses the mint unless its own
+`REPLAY_ENABLED` switch is on.
 
 A judge dispatch omits `clerk_user_id`, so the broker's `/agent/mcp` proxy refuses
 the run, except for the three agents that read gp-api (`meeting_briefing`,

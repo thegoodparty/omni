@@ -29,6 +29,7 @@ const THEME: FeedbackThemeDetail = {
   members: [
     {
       feedbackId: 'memo-1',
+      textReplyId: null,
       personId: 'person-1',
       occurredAt: new Date('2026-09-25T18:00:00.000Z'),
       channel: 'door_knock',
@@ -46,6 +47,7 @@ const THEME: FeedbackThemeDetail = {
     },
     {
       feedbackId: 'memo-2',
+      textReplyId: null,
       personId: 'person-2',
       occurredAt: new Date('2026-09-24T18:00:00.000Z'),
       channel: 'phone_bank',
@@ -192,6 +194,44 @@ describe('ThemeDetailPage', () => {
     expect(
       await screen.findByRole('link', { name: 'Back to what we heard' }),
     ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}`)
+  })
+
+  // A reply carries no stance and no ask, so a theme made of replies shows
+  // neither card: four zeros would read as a finding. The replies are the
+  // constituents' own words, not a summary credited to the team.
+  it('lists a text send’s replies as their own words, with no stance split', async () => {
+    mockTheme({
+      ...THEME,
+      stanceCounts: null,
+      desiredOutcomes: [],
+      members: [
+        {
+          feedbackId: null,
+          textReplyId: 'reply-1',
+          personId: 'person-3',
+          occurredAt: new Date('2026-10-10T18:00:00.000Z'),
+          channel: 'text',
+          transcript: 'The lanes slow down my deliveries every morning.',
+          issues: [],
+          actorName: null,
+        },
+      ],
+    })
+    const { container } = renderPage(true)
+
+    expect(
+      await screen.findByRole('heading', { name: 'The replies' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('The lanes slow down my deliveries every morning.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Their reply')).toBeInTheDocument()
+    expect(screen.getByText(/By text/)).toBeInTheDocument()
+    expect(screen.queryByText(/Summary by/)).toBeNull()
+    expect(
+      screen.queryByRole('heading', { name: 'Where people stand' }),
+    ).toBeNull()
+    expect(container.textContent).not.toMatch(/voter/i)
   })
 
   it('leaves out the asks when nobody named one', async () => {

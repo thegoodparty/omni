@@ -65,7 +65,7 @@ test.describe('Contacts Organization Scoping', () => {
     // whether a constituent votes or how reliably — so there was nothing left
     // to put in it. This spec used to assert the Win labels were VISIBLE
     // here, which is how they outlived a vocabulary pass on the one surface
-    // named Constituent Data.
+    // named Constituents.
     for (const label of [
       'Political Party',
       'Support Status',

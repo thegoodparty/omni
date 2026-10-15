@@ -24,6 +24,7 @@ import {
   TestModeTermPreset,
 } from '@goodparty_org/contracts'
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -460,11 +461,19 @@ export class TestModeService {
     user: User,
     body: Extract<CreateTestOrganizationRequest, { type: 'elected_office' }>,
   ): Promise<string> {
+    const match = await this.transitions.findRace(body.race)
+    const { positionId } = await this.organizations.resolveOrgData({
+      ballotReadyPositionId: match.brPositionId,
+    })
+    if (!positionId) {
+      throw new BadRequestException('Position not found')
+    }
     const now = new Date()
     const onboarded = body.onboarding === 'complete'
     const term = onboarded ? termDates(body.term, startOfDay(now)) : null
     return this.insertElectedOfficeOrganization(user, {
-      customPositionName: DEFAULT_CUSTOM_POSITION_NAME,
+      positionId,
+      customPositionName: match.position.name,
       termStartDate: term?.termStartDate ?? null,
       termEndDate: term?.termEndDate ?? null,
       onboardingCompletedAt: onboarded ? now : null,

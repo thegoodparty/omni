@@ -8,6 +8,7 @@ import {
 import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
 import type { HighlightSnippet } from './extractHighlight'
 import { guardrailLine } from '@/chats/general/services/guardrailLines'
+import { SUPPORT_EMAIL } from '@/chats/general/product-knowledge/productKnowledgePrompt'
 import {
   buildSystemPrompt,
   GUARDRAIL_DECLINE,
@@ -148,12 +149,15 @@ describe('buildSystemPrompt', () => {
     expect(out).toContain('give the line in place of the rest')
     expect(out).toContain('someone may be in danger')
     expect(out).toContain('what you can do for them')
+    expect(out).toContain(`send them to ${SUPPORT_EMAIL}`)
     expect(out).toContain('GUARDRAILS line in place of an answer')
   })
 
   it('asks for the legal or professional line on advice-shaped answers, one per reply', () => {
     const out = buildSystemPrompt(baseArgs)
     expect(out).toContain('PROFESSIONAL AND LEGAL CAUTION')
+    expect(out).toContain('in these exact words')
+    expect(out).toContain('in place of a caution in your own words, never both')
     expect(out).toContain(guardrailLine('legal_advice', 'briefing_chat'))
     expect(out).toContain(guardrailLine('professional_advice', 'briefing_chat'))
     expect(out).toContain('When both would apply, use the legal line')

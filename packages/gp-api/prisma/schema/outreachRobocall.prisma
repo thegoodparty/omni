@@ -94,6 +94,16 @@ model OutreachRobocall {
   // The CallHub voice-broadcast campaign this robocall dials from (its PK, as a
   // string — CallHub ids exceed a 32-bit int).
   callhubCampaignPkStr   String?             @map("callhub_campaign_pk_str")
+  // The calls/min (CallHub `frequency`) this campaign was CREATED with at stage
+  // time — the rate CallHub actually dials it at, frozen so the completion
+  // estimate can never diverge from it. The dial-completion ceiling (the serial
+  // send sweep's free-and-advance) and the backlog projection read THIS, not the
+  // live `CALLHUB_VB_CALLS_PER_MINUTE`, so raising that env for new campaigns
+  // never shortens the estimate for a run already staged at the old rate (which
+  // would free the pool / abort while it is still dialing — under-deliver + full
+  // charge). Null for a run staged before this column existed; readers fall back
+  // to the live configured rate for those.
+  stagedCallsPerMinute   Int?                @map("staged_calls_per_minute")
   // The CallHub campaign's scheduled dial window, mirrored back for settlement.
   callhubStartingDate    DateTime?           @map("callhub_starting_date")
   callhubExpirationDate  DateTime?           @map("callhub_expiration_date")
@@ -148,12 +158,41 @@ model OutreachRobocall {
   completedCallCount     Int?                @map("completed_call_count")
   // When the completion sweep last polled CallHub for this run's count.
   completionPolledAt     DateTime?           @map("completion_polled_at")
+  // When the CURRENT dialing episode began — stamped at the dial claim
+  // (`authorized → dialing`) and NEVER bumped by stale-dialing recovery's
+  // self-transition (which does bump `@updatedAt`). It is therefore a STABLE
+  // clock the serial send sweep's deadlock backstop measures a stuck row's age
+  // from: a `dialing` row whose CallHub status never resolves is re-claimed by
+  // recovery every pass (resetting `updatedAt`) and would otherwise block the
+  // serial queue forever, so the backstop force-fails one still `dialing` past
+  // ROBOCALL_DIALING_DEADLOCK_MINUTES. Read only while the row is `dialing`; a
+  // value lingering on an authorized/dialed row is inert, and a re-claim always
+  // overwrites it with a fresh instant.
+  dialingStartedAt       DateTime?           @map("dialing_started_at")
+  // When the serial send sweep ABORTed this dialed run's CallHub campaign to free
+  // the shared account calls/min pool for the next queued run — stamped once the
+  // run's ESTIMATED dial completion (dialedAt + estimate + a conservative buffer)
+  // has passed. Operational only: the row stays `dialed` and the completion sweep
+  // still settles + captures the full authorized estimate at dialedAt + 48h — this
+  // early abort NEVER touches money or settleState, only CallHub's pool slot. The
+  // serial gate reads it to tell a run still (estimated) dialing from one whose
+  // pool has been freed, and the free-and-advance step reads it to avoid
+  // re-aborting an already-freed run every pass. Read by nothing else.
+  poolFreedAt            DateTime?           @map("pool_freed_at")
   // When the overdue-alert sweep first posted the "past its scheduled date and
   // still not dialed" CAS Slack for this run. The sweep claims the alert with a
   // single-owner CAS guarded on this being NULL, so the run is paged ONCE across
   // replicas and repeat passes rather than every pass while it stays stuck. Read
   // only by that dedupe — it never gates a dial, hold, or capture.
   overdueAlertedAt       DateTime?           @map("overdue_alerted_at")
+  // When the backlog-alert sweep first posted the proactive "the serial send
+  // queue won't reach this run until after its scheduled day" CAS Slack. The
+  // sweep claims the alert with a single-owner CAS guarded on this being NULL,
+  // so a run is paged ONCE across replicas and repeat passes rather than every
+  // pass while the backlog persists. Distinct from overdueAlertedAt, which is a
+  // run already PAST its date; this one fires BEFORE. Read only by that dedupe —
+  // it never gates a dial, hold, or capture.
+  backlogAlertedAt       DateTime?           @map("backlog_alerted_at")
   // A reward promotion code applied on the pay step. CAS mints these in Stripe
   // as single-use, amount-off codes; Stripe only applies a code to a Checkout
   // Session or invoice, never to the manual-capture hold this run pays with, so

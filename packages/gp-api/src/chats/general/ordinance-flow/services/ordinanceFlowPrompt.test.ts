@@ -6,6 +6,7 @@ import {
 } from './ordinanceFlowPrompt'
 import { OrdinanceFlowContext } from './ordinanceFlowContext.service'
 import { guardrailLine } from '../../services/guardrailLines'
+import { SUPPORT_EMAIL } from '../../product-knowledge/productKnowledgePrompt'
 
 const baseCtx = (
   overrides: Partial<OrdinanceFlowContext> = {},
@@ -73,6 +74,7 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
         expect(prompt).toContain('give the line in place of the rest')
         expect(prompt).toContain('someone may be in danger')
         expect(prompt).toContain('what you can do for them')
+        expect(prompt).toContain(`send them to ${SUPPORT_EMAIL}`)
         expect(prompt).not.toContain('nothing else')
       }
       expect(municipal()).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
@@ -101,6 +103,9 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       ] as const
       for (const step of steps) {
         expect(municipal(step)).toContain('LEGAL CAUTION')
+        expect(municipal(step)).toContain(
+          'in these exact words and in place of any caution of your own',
+        )
         expect(municipal(step)).toContain(legal)
         expect(bill(step)).toContain(legal)
       }

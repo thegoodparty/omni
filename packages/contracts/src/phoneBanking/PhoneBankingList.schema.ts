@@ -21,6 +21,11 @@ export const PhoneBankingInteractionSchema = z.object({
   // schema refuses it alongside supportAnswer/willVote, so that holds for any
   // caller and not just ours. Also null on anything logged before it existed.
   followUp: FollowUpAnswerSchema.nullable(),
+  // Serve's closing question, read back so a corrected save keeps it. Same
+  // null-on-Win rule as followUp.
+  joinCivicPanel: FollowUpAnswerSchema.nullable(),
+  // The panel-only list's version of the closing question. Same rule.
+  stayOnCivicPanel: FollowUpAnswerSchema.nullable(),
   occurredAt: zCoerceDate(),
 })
 export type PhoneBankingInteraction = z.infer<
@@ -73,6 +78,10 @@ export const PhoneBankingListSchema = z.object({
   // route across both surfaces (e.g. the caller page's back-link) can't
   // infer it from the URL, which is identical for both.
   isServe: z.boolean(),
+  // The list can only hold civic panel members (isCivicPanelOnlyList on its
+  // saved criteria), so a Serve caller asks whether they want to stay on the
+  // panel instead of whether they want to join. False on Win.
+  civicPanelOnly: z.boolean(),
 })
 export type PhoneBankingList = z.infer<typeof PhoneBankingListSchema>
 

@@ -45,6 +45,7 @@ const LIST: PhoneBankingList = {
   purpose: 'community_input',
   createdAt: new Date('2026-01-01'),
   isServe: false,
+  civicPanelOnly: false,
   entries: [],
 }
 
@@ -207,6 +208,8 @@ describe('PhoneBankingCallerPage: what we heard', () => {
               supportAnswer: null,
               willVote: null,
               followUp: 'yes',
+              joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt: new Date(),
             },
           },

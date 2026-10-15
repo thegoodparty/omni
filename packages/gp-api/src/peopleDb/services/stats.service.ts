@@ -2,7 +2,9 @@ import { Injectable } from '@nestjs/common'
 import { StatsDTO } from '../schemas/people.schema'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
+import { type CensusCompositionRows } from '../databricks/districtCensusSql.util'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
+import type { PeopleDataset } from './peopleDataset.service'
 
 @Injectable()
 export class StatsService {
@@ -11,11 +13,29 @@ export class StatsService {
     private readonly readLog: VoterReadLogService,
   ) {}
 
-  async findStats(dto: StatsDTO): Promise<ComputedDistrictStats | null> {
+  async findStats(
+    dto: StatsDTO,
+    dataset: PeopleDataset,
+  ): Promise<ComputedDistrictStats | null> {
     return this.readLog.measure({
       op: 'stats',
       districtId: dto.districtId,
-      read: () => this.databricks.findStats(dto.districtId),
+      dataset,
+      read: () => this.databricks.findStats(dto.districtId, dataset),
+    })
+  }
+
+  async findCensusComposition(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<CensusCompositionRows> {
+    return this.readLog.measure({
+      op: 'census-composition',
+      districtId,
+      dataset,
+      read: () =>
+        this.databricks.findCensusComposition(districtId, dataset, personIds),
     })
   }
 }

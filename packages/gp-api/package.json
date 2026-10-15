@@ -32,10 +32,6 @@
     "test": "npx vitest run",
     "types": "npm run build:contracts && npx tsc --noEmit",
     "verify": "npm run lint && npm run types && npm run test",
-    "test:e2e": "playwright test --config=e2e-tests/playwright.config.ts",
-    "test:e2e:debug": "playwright test --config=e2e-tests/playwright.config.ts --debug",
-    "test:e2e:report": "playwright show-report e2e-tests/playwright-report",
-    "test:e2e:ui": "playwright test --config=e2e-tests/playwright.config.ts --ui",
     "test:watch": "npx vitest"
   },
   "prisma": {
@@ -196,7 +192,6 @@
     "@nestjs/cli": "^11.0.2",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.9",
-    "@playwright/test": "^1.56.1",
     "@pulumi/aws": "~6.67.0",
     "@pulumi/awsx": "~2.18.0",
     "@pulumi/pulumi": "~3.140.0",

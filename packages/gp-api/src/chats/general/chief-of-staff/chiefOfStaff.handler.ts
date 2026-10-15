@@ -13,10 +13,20 @@ import {
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import {
+  composeAppendix,
+  handoffDraftBackstop,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '../services/guardrailBackstops'
+import {
+  ADVICE_SIGNALS,
+  SECTION_MARK_SIGNAL,
+} from '../services/professionalAdviceCheck'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 import {
   buildConstituentDataScope,
-  ConstituentTableConfig,
+  ConstituentTablesByDataset,
 } from './services/constituentDataScope'
 import { buildCrudPrioritiesTool } from './services/crudPriorities.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
@@ -46,16 +56,30 @@ import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
-import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import {
+  buildChiefOfStaffOutreachProposalTool,
+  buildPresentOutreachProposalTool,
+} from '../chat-tools/presentOutreachProposal.tool'
+import { buildSizePanelInviteTool } from '../chat-tools/sizePanelInvite.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import { FeaturesService } from '@/features/services/features.service'
+import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
+import { SERVE_SMS_FLAG } from '@/shared/util/serveSmsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
 // fails closed if any of these is not claude-routed.
+const COS_LEGAL_SIGNALS = ADVICE_SIGNALS.filter(
+  (re) => re !== SECTION_MARK_SIGNAL,
+)
+
 export const CHIEF_OF_STAFF_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
@@ -66,8 +90,9 @@ export const CHIEF_OF_STAFF_MODELS = [
 // tool stays unregistered until that key is configured.
 export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
 
-// Token for the app-layer table/dimension allowlist (lever 1). Injected so prod
-// uses the in-code CONSTITUENT_TABLES const while tests can supply a fixture.
+// Token for the app-layer table/dimension allowlist (lever 1), keyed by people
+// dataset. Injected so prod uses the in-code CONSTITUENT_TABLES_BY_DATASET
+// const while tests can supply a fixture.
 export const CONSTITUENT_TABLES_CONFIG = 'CONSTITUENT_TABLES_CONFIG'
 
 @Injectable()
@@ -86,7 +111,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Inject(PRIORITIES_PORT)
     private readonly priorities: PrioritiesToolPort,
     @Inject(CONSTITUENT_TABLES_CONFIG)
-    private readonly constituentTables: ConstituentTableConfig[],
+    private readonly constituentTables: ConstituentTablesByDataset,
     @Optional()
     @Inject(CONSTITUENT_DATA_PROVIDER)
     private readonly constituentProvider?: DatabricksProvider,
@@ -105,6 +130,12 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly pastOutreach?: PriorityFlowOutreachService,
     @Optional()
     private readonly priorityStatus?: PriorityStatusService,
+    @Optional()
+    private readonly peopleDatasets?: PeopleDatasetService,
+    @Optional()
+    private readonly features?: FeaturesService,
+    @Optional()
+    private readonly reportBack?: OutreachReportBackService,
   ) {}
 
   async loadContext(
@@ -124,18 +155,60 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     const resolved = await this.districtResolver?.resolveByOrgSlug(
       ctx.organizationSlug,
     )
-    if (!resolved) return ctx
+    // Once per turn, so every constituent-data call in it reads one table.
+    // Resolved before the district check because the CRM tools register
+    // without a district and describe the same dataset.
+    const peopleDataset = this.peopleDatasets
+      ? await this.peopleDatasets.resolve(ctx.organization)
+      : 'voters'
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: SERVE_CITIZEN_PANELS_FLAG,
+        })
+      : false
+    const civicPanel =
+      outreachFeedbackEnabled && this.features
+        ? await this.contextService.civicPanelBuildState(
+            ctx.organizationSlug,
+            await this.features.isFeatureEnabled({
+              user: userId,
+              feature: SERVE_SMS_FLAG,
+            }),
+          )
+        : undefined
+    const reportBacks =
+      outreachFeedbackEnabled && this.reportBack
+        ? await this.reportBack.listForOffice(
+            ctx.organizationSlug,
+            ctx.electedOfficeId,
+          )
+        : undefined
+    if (!resolved) {
+      return {
+        ...ctx,
+        peopleDataset,
+        outreachFeedbackEnabled,
+        civicPanel,
+        reportBacks,
+      }
+    }
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
     const constituentToolEnabled =
-      !!this.constituentProvider && this.constituentTables.length > 0
+      !!this.constituentProvider &&
+      this.constituentTables[peopleDataset].length > 0
     return {
       ...ctx,
+      outreachFeedbackEnabled,
+      civicPanel,
+      reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,
       constituentToolEnabled,
+      peopleDataset,
     }
   }
 
@@ -150,11 +223,17 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return this.assembleTools(ctx)
   }
 
-  // Tier-1 deterministic backstop: if a turn gave professional-domain advice
-  // (legal/medical/financial/HR) but skipped the disclaimer the prompt asks
-  // for, append it. See professionalAdviceCheck.ts.
-  finalizeAssistantText(text: string): string | null {
-    return professionalAdviceDisclaimer(text)
+  // Finish-time backstops for the lines the prompt asks for. The bare section
+  // sign is left out of the legal signals, as the briefing chat does: this
+  // chat summarizes the same agendas and briefings, where a section number in
+  // a summary is not a legal reading. The small-count and handoff lines are
+  // decided from the turn's tool events, not the text.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'chief_of_staff', COS_LEGAL_SIGNALS),
+      smallCountBackstop(text, 'chief_of_staff', turn.toolEvents),
+      handoffDraftBackstop(text, 'chief_of_staff', turn.toolEvents),
+    ])
   }
 
   private assembleTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {
@@ -213,7 +292,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables,
+        this.constituentTables[ctx.peopleDataset],
+        ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
@@ -241,6 +321,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         priorityId: null,
         organizationSlug: ctx.organizationSlug,
       })
+      if (ctx.outreachFeedbackEnabled) {
+        tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
+          outreach: this.pastOutreach,
+          priorityId: null,
+          organizationSlug: ctx.organizationSlug,
+        })
+      }
       tools.present_past_outreach = buildPresentPastOutreachTool()
     }
 
@@ -261,6 +348,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       crmTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
+        peopleDataset: ctx.peopleDataset,
       })
       // Beside describe_filter_dimensions rather than with the saved-list
       // tools: it IS the vocabulary read for the one dimension the catalog
@@ -279,6 +367,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
+          peopleDataset: ctx.peopleDataset,
         })
         // Registered with the saved-list tool rather than beside the other
         // reads: the only id it can legitimately be given is one
@@ -296,13 +385,22 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(crmTools),
+        peopleDataset: ctx.peopleDataset,
+        citizenPanels: ctx.outreachFeedbackEnabled === true,
       })
       Object.assign(tools, crmTools)
       // A proposal is sent against a saved list, so it is offered only where
       // the list behind it can be built.
       if (this.voterFileFilters) {
-        tools.present_outreach_proposal = buildPresentOutreachProposalTool()
+        // The panel invite is a text, so it is offered only where one can
+        // be sent: serve-citizen-panels and serve-sms-outreach both on.
+        const panelInvite =
+          ctx.civicPanel?.textingEnabled === true ? ctx.civicPanel : null
+        tools.present_outreach_proposal = panelInvite
+          ? buildChiefOfStaffOutreachProposalTool(panelInvite)
+          : buildPresentOutreachProposalTool()
         tools.size_outreach_sample = buildSizeOutreachSampleTool()
+        if (panelInvite) tools.size_panel_invite = buildSizePanelInviteTool()
       }
     }
 

@@ -12,8 +12,9 @@ import {
 
 export type CommunityIssueUpsertSummary = {
   list: CommunityIssueList
-  // True when the org had no rows for this list before this run and this run
-  // created its first ones — i.e. the list's first-ever generation.
+  // True when no earlier run wrote this list and this run wrote at least one
+  // issue — i.e. the list's first-ever generation, even when it carried over
+  // starter rows from onboarding.
   wasFirstGenerationForList: boolean
   // The rows this run newly created (the id-less artifact issues). Refreshed
   // rows (those carrying an existing_issue_id) are not included.
@@ -38,8 +39,14 @@ export class CommunityIssueUpsertService extends createPrismaBase(
     // true exactly once per list. Filtering to archivedAt: null would make it
     // true again whenever a list empties and repopulates (trending routinely
     // empties), wrongly re-firing the once-per-org InitialIssuesGenerated.
+    // Starter rows written during onboarding have no run, so they are not a
+    // generation: the first agent run still counts as the first.
     const existingCount = await this.model.count({
-      where: { organizationSlug: artifact.organization_slug, list },
+      where: {
+        organizationSlug: artifact.organization_slug,
+        list,
+        lastRefreshedRunId: { not: null },
+      },
     })
 
     const idCarrying = artifact.issues.filter(
@@ -145,7 +152,8 @@ export class CommunityIssueUpsertService extends createPrismaBase(
 
     return {
       list,
-      wasFirstGenerationForList: existingCount === 0 && idLess.length > 0,
+      wasFirstGenerationForList:
+        existingCount === 0 && artifact.issues.length > 0,
       createdIssues,
     }
   }

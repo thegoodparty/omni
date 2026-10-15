@@ -10,6 +10,7 @@ import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvi
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { ALL_SEGMENTS } from '../shared/constants'
 import ListCard from './ListCard'
+import { CitizensPanelListCard } from './CitizensPanelListCard'
 
 // The Lovable design's first list row: the whole (unfiltered) universe.
 // Count comes from the same GET /v1/contacts/stats query DistrictStatCard
@@ -120,6 +121,7 @@ export default function ListsIndex() {
           showSendOutreach={showSendOutreach}
           canUseProFeatures={canUseProFeatures}
         />
+        <CitizensPanelListCard />
         {customSegments.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             You haven&apos;t created any lists yet.

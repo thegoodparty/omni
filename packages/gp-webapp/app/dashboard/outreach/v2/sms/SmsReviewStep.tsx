@@ -52,11 +52,25 @@ const fmtDate = (d: Date) =>
     year: 'numeric',
   })
 
+export interface SmsReviewCopy {
+  title: string
+  freeBody: string
+  paidBody: string
+  scheduleAction: string
+  chargeNote: string
+}
+
 interface SmsReviewStepProps {
   // Display only. Serve's greeting carries a merge token fulfilment fills
   // per recipient, so the bubble shows a stand-in name instead of the token
   // — the script sent to the API is untouched.
   isServe: boolean
+  // The channel the summary card names. Serve polls ride this step and read
+  // "Poll"; every other caller is SMS.
+  channelLabel?: string
+  // Replaces the Win-worded title, caption, schedule button and charge note
+  // for a caller whose thing sent is not a campaign (Serve polls).
+  copy?: SmsReviewCopy
   name: string
   audienceName: string
   sendAt: Date
@@ -71,10 +85,8 @@ interface SmsReviewStepProps {
   contactCount: number | null
   pricePerContact: number
   outreachId: number | null
-  phoneListToken: string | null
-  // The PeerlyPhoneList row id, carried alongside the token so an async build
-  // (no token yet) can still complete a free send off the build id. Sent to
-  // gp-api only when there is no token — the token path is unchanged.
+  // The PeerlyPhoneList row id. gp-api reads it only for a draft paid before
+  // its build finished; a draft that names its list is billed for that list.
   phoneListBuildId: string | null
   excludedOptedOutCount: number | null
   excludedDuplicatePhoneCount: number | null
@@ -103,6 +115,8 @@ interface SmsReviewStepProps {
 
 export const SmsReviewStep = ({
   isServe,
+  channelLabel = 'SMS',
+  copy,
   name,
   audienceName,
   sendAt,
@@ -112,7 +126,6 @@ export const SmsReviewStep = ({
   contactCount,
   pricePerContact,
   outreachId,
-  phoneListToken,
   phoneListBuildId,
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
@@ -178,15 +191,9 @@ export const SmsReviewStep = ({
     try {
       const response = await completeFreePurchase(PURCHASE_TYPES.TEXT, {
         contactCount: contactCount ?? 0,
-        pricePerContact,
         outreachType: 'p2p',
         outreachId: outreachId ?? undefined,
-        phoneListToken: phoneListToken ?? undefined,
-        // Async build: with no token the server resolves the list by build id.
-        // Sent only when the token is absent, so the token path is unchanged.
-        ...(phoneListToken
-          ? {}
-          : { phoneListBuildId: phoneListBuildId ?? undefined }),
+        phoneListBuildId: phoneListBuildId ?? undefined,
       })
       if (!response.ok) {
         const parsed = purchaseErrorSchema.safeParse(response.data)
@@ -232,16 +239,16 @@ export const SmsReviewStep = ({
         title={
           readOnlySummary
             ? 'Review and verify'
-            : isFree
-              ? 'Review and send'
-              : 'Review & pay'
+            : (copy?.title ?? (isFree ? 'Review and send' : 'Review & pay'))
         }
         body={
           readOnlySummary
             ? 'Review your campaign details, then verify your campaign so this can send.'
             : isFree
-              ? 'Review your campaign details and schedule your send.'
-              : 'Review your campaign details and complete your payment.'
+              ? (copy?.freeBody ??
+                'Review your campaign details and schedule your send.')
+              : (copy?.paidBody ??
+                'Review your campaign details and complete your payment.')
         }
       />
 
@@ -251,7 +258,7 @@ export const SmsReviewStep = ({
             <MessageSquareIcon className="size-6 text-foreground" />
           </span>
           <div className="min-w-0">
-            <p className="font-medium text-foreground">SMS</p>
+            <p className="font-medium text-foreground">{channelLabel}</p>
             <p className="truncate text-sm text-muted-foreground">{name}</p>
           </div>
         </div>
@@ -431,7 +438,7 @@ export const SmsReviewStep = ({
           disabled={isRedeeming}
           loading={isRedeeming}
         >
-          Schedule campaign
+          {copy?.scheduleAction ?? 'Schedule campaign'}
         </Button>
       ) : (
         <>
@@ -461,7 +468,8 @@ export const SmsReviewStep = ({
             <AlertDescription>
               {priceIsCeiling
                 ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
-                : 'One-time charge for this campaign. Your Pro subscription is billed separately.'}
+                : (copy?.chargeNote ??
+                  'One-time charge for this campaign. Your Pro subscription is billed separately.')}
             </AlertDescription>
           </Alert>
         </>

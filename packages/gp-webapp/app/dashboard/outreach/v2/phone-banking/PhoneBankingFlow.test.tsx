@@ -1418,6 +1418,59 @@ describe('PhoneBankingFlow', () => {
     ).toBeEnabled()
   })
 
+  // A chat card hands over its saved list and its script: once the list
+  // resolves the flow lands on the script, with every step behind it.
+  it('lands on the script when the list and the script are both handed over', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 7, name: 'Supporters' }])
+    mockListDetail(5)
+    render(
+      <PhoneBankingFlow
+        source="campaign_manager"
+        open
+        onClose={vi.fn()}
+        preselectedListId={7}
+        initialScript="Hi, this is Jane calling about the library."
+      />,
+    )
+
+    expect(
+      (await screen.findAllByText('Write your call script')).length,
+    ).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      (await screen.findAllByText('Who do you want to reach?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('Supporters')).toBeInTheDocument()
+  })
+
+  it('lands on the who step when the script is handed over without a list', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 7, name: 'Supporters' }])
+    render(
+      <PhoneBankingFlow
+        source="campaign_manager"
+        open
+        onClose={vi.fn()}
+        initialScript="Hi, this is Jane calling about the library."
+      />,
+    )
+
+    expect(
+      (await screen.findAllByText('Who do you want to reach?')).length,
+    ).toBeGreaterThan(0)
+    expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+  })
+
+  it('lands on the purpose when nothing is handed over', async () => {
+    openFlow()
+
+    expect(
+      await screen.findByText('Introduce myself to voters'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Who do you want to reach?')).toBeNull()
+  })
+
   it('ignores a preselected id that matches no saved list', async () => {
     mockDraft()
     mockSavedLists([{ id: 7, name: 'Supporters' }])

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useSearchParams } from 'next/navigation'
 import { CrmContactsPage } from './CrmContactsPage'
 import { useContactsTable } from './ContactsTableProvider'
 
@@ -57,13 +58,20 @@ vi.mock('./wizard/CreateListWizard', () => ({
     open,
     onOpenChange,
     editingSegment,
+    initialFilters,
   }: {
     open: boolean
     onOpenChange: (open: boolean) => void
     editingSegment?: { id: number } | null
+    initialFilters?: Record<string, boolean | string>
   }) =>
     open ? (
       <div data-testid="create-list-wizard">
+        {initialFilters && (
+          <span data-testid="wizard-initial-filters">
+            {JSON.stringify(initialFilters)}
+          </span>
+        )}
         {editingSegment && (
           <span data-testid="wizard-editing-id">{editingSegment.id}</span>
         )}
@@ -113,6 +121,19 @@ const mockOrganization = vi.hoisted(() => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockOrganization.current,
 }))
+const mockServeConsumerData = vi.hoisted(() => ({ on: false }))
+const mockCitizenPanels = vi.hoisted(() => ({ on: false }))
+vi.mock('@shared/experiments/FeatureFlagsProvider', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@shared/experiments/FeatureFlagsProvider')
+  >()),
+  useFlagOn: (key: string) => ({
+    ready: true,
+    on:
+      (key === 'serve-consumer-data' && mockServeConsumerData.on) ||
+      (key === 'serve-citizen-panels' && mockCitizenPanels.on),
+  }),
+}))
 vi.mock('./lists/ListDetailSheet', () => ({
   default: ({
     listId,
@@ -156,7 +177,56 @@ beforeEach(() => {
     slug: 'campaign-1',
     positionName: 'Mayor of Nowhere',
   }
+  mockServeConsumerData.on = false
+  mockCitizenPanels.on = false
+  vi.mocked(useSearchParams).mockReturnValue(
+    new URLSearchParams() as ReturnType<typeof useSearchParams>,
+  )
   vi.mocked(trackEvent).mockClear()
+})
+
+// The civic panel's "can be asked now" links here with ?newList=askableNow.
+describe('CrmContactsPage — ?newList= presets', () => {
+  const withParam = () =>
+    vi
+      .mocked(useSearchParams)
+      .mockReturnValue(
+        new URLSearchParams('newList=askableNow') as ReturnType<
+          typeof useSearchParams
+        >,
+      )
+
+  it('opens the wizard on the preset for Serve with the flag on, then drops the param', () => {
+    withParam()
+    mockCitizenPanels.on = true
+    setContext({ isWinContext: false, isElectedOfficial: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('wizard-initial-filters')).toHaveTextContent(
+      JSON.stringify({ civicPanelMember: true, notContactedRecently: true }),
+    )
+    expect(router.replace).toHaveBeenCalledWith('/', { scroll: false })
+  })
+
+  it('ignores the preset with serve-citizen-panels off', () => {
+    withParam()
+    setContext({ isWinContext: false, isElectedOfficial: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
+  })
+
+  it('ignores the preset for Win', () => {
+    withParam()
+    mockCitizenPanels.on = true
+    setContext({ isWinContext: true, isElectedOfficial: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
+  })
 })
 
 // ENG-10767: this page's users had vanished from the Contacts Viewed chart,
@@ -252,14 +322,12 @@ describe('CrmContactsPage — data-title nav header (ENG-10747)', () => {
     expect(screen.getByTestId('nav-header')).toHaveTextContent('Voter Data')
   })
 
-  it('reads "Constituent Data" for the Serve/elected-office path', () => {
+  it('reads "Constituents" for the Serve/elected-office path', () => {
     setContext({ isWinContext: false })
 
     render(<CrmContactsPage />)
 
-    expect(screen.getByTestId('nav-header')).toHaveTextContent(
-      'Constituent Data',
-    )
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Constituents')
   })
 
   it('renders no header until the Win/Serve context is ready (no mode-copy flash)', () => {
@@ -322,6 +390,18 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+  })
+
+  it('Serve with serve-consumer-data on shows only the records row, no census row', () => {
+    setContext({ isWinContext: false })
+    mockServeConsumerData.on = true
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByText('Records available')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Total constituents in your district'),
+    ).not.toBeInTheDocument()
   })
 
   it('Win passes no populationLabel to the district stat card', () => {

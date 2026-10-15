@@ -1,4 +1,5 @@
-// Serve vocabulary gate. Fails when Serve copy says a Win-only word.
+// Serve vocabulary gate. Fails when Serve copy says a Win-only word, or when
+// any copy calls the civic panel by an old name.
 //
 // Serve users are elected officials. They have constituents, an office and a
 // term. They do not have voters, an election, a candidacy or a ballot, and
@@ -85,6 +86,7 @@ export const SERVE_ONLY_DIRS: readonly string[] = [
   'app/dashboard/community-issues',
   'app/dashboard/priorities',
   'app/dashboard/constituent-outreach',
+  'app/dashboard/contacts/citizens-panel',
   'app/dashboard/admin-review/briefings',
   'app/serve',
   // The Serve onboarding lives under `app/polls/` for historical reasons —
@@ -120,6 +122,19 @@ const BANNED_WORD_PATTERNS: readonly { word: string; pattern: RegExp }[] = [
   { word: 'candidate', pattern: /\bcandidates?(?:'s?)?\b/gi },
   { word: 'ballot', pattern: /\bballots?\b/gi },
   { word: 'campaign', pattern: /\bcampaigns?\b|\bcampaigning\b/gi },
+]
+
+// The panel residents join is the "civic panel", in every product and every
+// file, so these are checked in all copy, not only in Serve regions. JSX text
+// keeps its entities, hence `&apos;` and friends. The earlier join lines sent
+// under the old name live in contracts, which this check does not read.
+const PANEL_NAME_PATTERNS: readonly { word: string; pattern: RegExp }[] = [
+  {
+    word: 'citizens panel',
+    pattern: /\bcitizens?(?:['’]|&apos;|&#39;|&rsquo;)?s?\s+panels?\b/gi,
+  },
+  { word: 'civics panel', pattern: /\bcivics\s+panels?\b/gi },
+  { word: 'constituent panel', pattern: /\bconstituents?\s+panels?\b/gi },
 ]
 
 // The outreach-campaign sense, which Serve is welcome to use: a campaign is a
@@ -405,19 +420,20 @@ export const scanSource = (
   const regions: Region[] = isServeOnly
     ? [{ start: 0, end: source.length, label: 'Serve-only file' }]
     : markedServeRegions(sourceFile)
-  if (regions.length === 0) return []
 
   const violations: ServeVocabularyViolation[] = []
   const seen = new Set<string>()
 
   for (const node of collectCopyNodes(sourceFile)) {
+    if (!looksLikeCopy(node.text)) continue
     const region = regions.find(
       (r) => node.start >= r.start && node.start < r.end,
     )
-    if (!region) continue
-    if (!looksLikeCopy(node.text)) continue
+    const checks = region
+      ? [...BANNED_WORD_PATTERNS, ...PANEL_NAME_PATTERNS]
+      : PANEL_NAME_PATTERNS
 
-    for (const { word, pattern } of BANNED_WORD_PATTERNS) {
+    for (const { word, pattern } of checks) {
       pattern.lastIndex = 0
       let hit: RegExpExecArray | null
       while ((hit = pattern.exec(node.text))) {
@@ -444,7 +460,7 @@ export const scanSource = (
           line: lineNumber,
           word,
           copy: node.text.trim().replace(/\s+/g, ' ').slice(0, 120),
-          region: region.label,
+          region: region?.label ?? 'copy',
         })
       }
     }
@@ -512,7 +528,7 @@ export const formatViolations = (
   violations
     .map(
       ({ file, line, word, copy, region }) =>
-        `  ${file}:${line}\n    says "${word}" in Serve copy (${region})\n    > ${copy}`,
+        `  ${file}:${line}\n    says "${word}" in ${region === 'copy' ? 'copy' : `Serve copy (${region})`}\n    > ${copy}`,
     )
     .join('\n\n')
 
@@ -526,4 +542,7 @@ argument — never by renaming the Win string, which must not change. Models:
 "campaign" is fine when it means an outreach campaign ("Campaign name",
 "Outreach campaign history") and wrong when it means a run for office
 ("your campaign tone", "Campaign Manager"). Full rule, and the escape hatch
-for a legitimate use: docs/product-vocabulary.md`
+for a legitimate use: docs/product-vocabulary.md
+
+The panel residents join is the "civic panel" ("Civic panel" at the start of
+a heading or label), never a citizens' panel, citizen's panel or civics panel.`

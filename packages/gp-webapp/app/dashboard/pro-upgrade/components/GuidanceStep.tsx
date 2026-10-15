@@ -4,14 +4,24 @@ import { useEffect } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
+import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import {
+  CalendarClockIcon,
   CreditCardIcon,
   FileBadgeIcon,
-  FileTextIcon,
+  InfoIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  CONTACT_DETAILS_ROW,
+  FILING_DETAILS_ROW,
+  PIN_TIMING_ROW,
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -29,34 +39,23 @@ const GATHER_STEPS = [
 ]
 
 // The purchase-only flow (outreach-pro-gating-v2), design: sgBody's
-// overview. Texting is the two-step channel, so its list also names the
-// filing details campaign verification gathers right after payment; every
-// other launch only sets up the two things collected before checkout.
-const PAYMENT_ROW = {
-  icon: CreditCardIcon,
-  title: 'Payment',
-  body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
-}
+// overview. Every launch now gathers the filing details before payment, so
+// the list carries campaign verification's own rows around the EIN and
+// payment ones, with the wait for the PIN last.
 const PURCHASE_ONLY_ROWS = [
-  {
-    icon: FileBadgeIcon,
-    title: 'Your campaign EIN',
-    body: 'Your campaign EIN confirms your campaign is a real tax entity.',
-  },
-  PAYMENT_ROW,
-]
-const TWO_STEP_ROWS = [
   {
     icon: FileBadgeIcon,
     title: 'Your campaign EIN',
     body: 'Your campaign EIN helps verify your candidacy and comply with texting regulations.',
   },
+  FILING_DETAILS_ROW,
+  CONTACT_DETAILS_ROW,
   {
-    icon: FileTextIcon,
-    title: 'Your campaign filing details',
-    body: 'Your election authority can provide these details to help verify your campaign.',
+    icon: CreditCardIcon,
+    title: 'Payment',
+    body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
   },
-  PAYMENT_ROW,
+  PIN_TIMING_ROW,
 ]
 
 // Mirrors gp-api's buildFilingInstructionsContent / formatFilingWindow
@@ -85,8 +84,11 @@ const formatFilingWindow = (
 const GuidanceStep = (): React.JSX.Element => {
   const { purchaseOnly, channel, goToStep, goToPreviousStep, exit } =
     useProUpgradeWizard()
-  const twoStep = channel === 'sms'
   const [campaign] = useCampaign()
+  const { smsCompliance, smsCutoffDate, generalElectionDate } =
+    useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
+  const cutoff = smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null
 
   const filingWindow = formatFilingWindow(
     campaign?.details?.filingPeriodsStart,
@@ -97,8 +99,25 @@ const GuidanceStep = (): React.JSX.Element => {
     trackEvent(EVENTS.ProUpgrade.Compliance.GuidanceViewed)
   }, [])
 
+  const cutoffSource = channel ?? 'generic'
+  useEffect(() => {
+    if (!smsClosed) return
+    trackEvent(EVENTS.ProUpgrade.SmsCutoff.NoticeViewed, {
+      source: cutoffSource,
+      cutoffDate: smsCutoffDate,
+      generalElectionDate,
+    })
+  }, [smsClosed, cutoffSource, smsCutoffDate, generalElectionDate])
+
   const handleContinue = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.GuidanceContinue)
+    if (smsClosed) {
+      trackEvent(EVENTS.ProUpgrade.SmsCutoff.NoticeCompleted, {
+        source: cutoffSource,
+        cutoffDate: smsCutoffDate,
+        generalElectionDate,
+      })
+    }
     // GUIDANCE is off the linear step order (the router can't derive an
     // interstitial with no persisted "seen" state), so advance explicitly to
     // the EIN step rather than via goToNextStep. In the purchase-only order
@@ -106,41 +125,58 @@ const GuidanceStep = (): React.JSX.Element => {
     goToStep(purchaseOnly ? PRO_UPGRADE_STEP.STATUS : PRO_UPGRADE_STEP.EIN)
   }
 
+  // Closed: the steps stay, since they still verify the candidate, but the
+  // PIN that would unlock texting is not coming.
+  const smsBanner = smsClosed ? (
+    <Alert variant="info" icon={<InfoIcon />} className="mb-6">
+      <AlertTitle>{SMS_CUTOFF_COPY.closedReason(cutoff)}</AlertTitle>
+    </Alert>
+  ) : null
+  const smsCountdown =
+    smsCompliance === 'closing' && cutoff ? (
+      <p className="mb-4 flex items-center gap-2 text-sm font-medium text-warning-dark">
+        <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
+        {SMS_CUTOFF_COPY.guidanceClosing(cutoff)}
+      </p>
+    ) : null
+
   if (purchaseOnly) {
+    const rows = smsClosed
+      ? PURCHASE_ONLY_ROWS.filter((row) => row !== PIN_TIMING_ROW)
+      : PURCHASE_ONLY_ROWS
     return (
       // min-h-full + flex-col: inside the outreach sheet the footer row pins
       // to the bottom (design: renderSgModal's footerRow); in the route
       // shell's card the parent has no height to fill and this is inert.
       <div className="flex min-h-full flex-1 flex-col">
+        {smsBanner}
         <h1 className="mb-2 text-xl font-semibold">
           Let&apos;s gather a few things to unlock Pro
         </h1>
         <p className="mb-6 text-base text-base-muted-foreground">
-          {twoStep
-            ? 'Have this information available to verify your campaign.'
-            : 'Have this information available to activate Pro.'}
+          Have this information available to verify your campaign.
         </p>
 
+        {smsCountdown}
+
         <ul className="rounded-xl border border-base-border">
-          {(twoStep ? TWO_STEP_ROWS : PURCHASE_ONLY_ROWS).map(
-            ({ icon: Icon, title, body }) => (
-              <li
-                key={title}
-                className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"
-              >
-                <Icon
-                  className="mt-0.5 size-[18px] shrink-0 text-primary"
-                  aria-hidden
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{title}</span>
-                  <span className="mt-0.5 block text-[13px] text-base-muted-foreground">
-                    {body}
-                  </span>
+          {rows.map(({ icon: Icon, title, body }) => (
+            <li
+              key={title}
+              className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"
+            >
+              <Icon
+                className="mt-0.5 size-[18px] shrink-0 text-primary"
+                aria-hidden
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{title}</span>
+                <span className="mt-0.5 block text-[13px] text-base-muted-foreground">
+                  {body}
                 </span>
-              </li>
-            ),
-          )}
+              </span>
+            </li>
+          ))}
         </ul>
 
         <p className="mt-5 text-sm text-base-muted-foreground">
@@ -172,6 +208,7 @@ const GuidanceStep = (): React.JSX.Element => {
 
   return (
     <div>
+      {smsBanner}
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
         Great! We&apos;ll need to gather a few things to get you set up for
         texting
@@ -179,6 +216,8 @@ const GuidanceStep = (): React.JSX.Element => {
       <Body2 className="text-base-muted-foreground mb-6">
         This is required to access voter data and send texts.
       </Body2>
+
+      {smsCountdown}
 
       <ol className="rounded-xl border border-base-border">
         {GATHER_STEPS.map((label, index) => {

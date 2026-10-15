@@ -14,6 +14,37 @@ row shape the SQL builders and column shapes in `voter.select.ts` are written
 against — nothing generates it, so a column added to the mart has to be added
 there before anything here can read it.
 
+## Which table a read uses is decided once per request
+
+There are two people tables in `mart_gp_api`, same columns, same ids:
+`gp_api_voters` (the L2 voter file) and `gp_api_constituents` (a superset that
+adds consumer-only people, today Michigan only). `PeopleDataset` names the
+choice (`'voters' | 'constituents'`) and `peopleTable(dataset)` in
+`databricksVoterSql.util.ts` maps it to the table.
+
+`services/peopleDataset.service.ts` decides it per organization: a Serve
+(`eo-`) org whose owner has the `serve-consumer-data` flag reads
+`constituents`; every other org, and every Win org without exception, reads
+`voters`. It is an Amplitude call, so the caller resolves it once per
+request, job or chat turn and passes it down. `ContactsService` does that in
+`withOrgDistrictResolution`, beside the district, and hands it to modules
+that call this one directly through `resolveEligibleDistrict`.
+
+Every public service here takes the dataset as a required argument, so a new
+caller cannot compile without choosing. `DatabricksVoterService`'s
+`resolveDistrict(districtId, dataset)` returns the district with its `table`,
+and every SQL builder reads `district.table`; there is no module-level voter
+table to fall back on. The district cache holds only the district's identity and the
+table is attached per call, so one org's choice never leaks to another org in
+the same district. The census marts (`gp_api_district_census_stats`,
+`gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
+are the same for both.
+
+Consumer-only rows are NULL in every voter-only column (party,
+`Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
+`hf_ideology_general`, every `hs_*` score) and most have no `LALVOTERID`,
+which is why `Person.lalVoterId` is nullable.
+
 ## Every voter read emits one log line
 
 `databricks/voterReadLog.service.ts` wraps each read: it times the Databricks
@@ -26,6 +57,7 @@ json without a parser expression per field.
 | -------------- | -------------------------------------------------- |
 | `op`           | which read (table below)                           |
 | `districtId`   | the district the read was scoped to                |
+| `dataset`      | `voters` or `constituents`, the table it read      |
 | `dbxMs`        | wall-clock ms for the whole operation              |
 | `statementIds` | every Databricks statement id the operation issued |
 
@@ -115,6 +147,41 @@ own `warn`, naming the census lookup so the line is attributable to one of
 the two statements. The voter scan keeps `run()` and stays exactly as loud as
 every other voter read.
 
+## Census composition: the district's ACS row and the people's block groups
+
+`findCensusComposition` (`StatsService`, op `census-composition`) feeds
+the priority results and civic panel comparisons
+(`src/priorities/services/censusComposition.ts`). It issues two statements
+from `districtCensusSql.util.ts`, against marts gp-data-platform#1203
+published:
+
+- `buildDistrictCompositionSql`: one row from
+  `gp_api_district_census_demographics`, keyed exactly like
+  `buildDistrictCensusSql` (state, district type, district name; a State
+  district reads the statewide row). ACS 2024 5-year counts allocated from
+  block groups by 2020 population share, so values are fractional and run
+  about 2.4% under, like `district_population`. No MOEs, no medians, no
+  gender.
+- `buildRespondentBlockGroupsSql`: the given ids scoped to the district,
+  grouped by `Census_Block_Group_Geoid` and joined to
+  `gp_api_block_group_census_demographics`. It returns block group figures
+  and a head count per block group, never a person. A person with a null
+  geoid (about 4% of voters) or no block group row drops out.
+
+`ACS_COUNT_COLUMNS` is the hand-kept column list both statements select.
+A suppressed figure maps to `null`, never `0`, and
+`representation.util.ts` drops a dimension with any `null` in it.
+
+Like the census lookup in `findStats`, both statements call the client
+directly rather than `run()`: the caller folds any failure, and a missing
+district row, into "comparison unavailable" on a 200, so an error-level
+line would be an alerting hazard.
+
+`Census_Block_Group_Geoid` is on `gp_api_voters` (and so
+`gp_api_constituents` and `gp_api_consumer_only_people`), keyed like the
+block group mart, Connecticut included. It is there for geographic
+targeting later; today only this read uses it.
+
 ## Random samples: a seeded slice, not a sort
 
 `samplePeople` (`buildSampleSql`) cuts the population to a 1/divisor slice by
@@ -141,33 +208,21 @@ The seed rotates every minute by default. A caller that passes `seedKey`
 back, so a draw is repeatable in its slice, not row for row; that is why a
 saved sample freezes the ids it got rather than redrawing on read.
 
-## The two direction columns cannot hold a direction
+## Street lines come from AddressLine
 
-`Residence_Addresses_PrefixDirection` and `Residence_Addresses_SuffixDirection`
-are **INTEGER** in the mart (`voter.types.ts`), as are their
-`Mailing_` twins, while every other address component is TEXT. The L2 file spells
-them `N`/`S`/`E`/`W`; the data-platform loader `try_cast`s each to `int`
-(`dbt/project/models/marts/people_api/m_people_api__voter.sql`, and
-`INTEGER_COLUMNS` in `write__l2_databricks_to_gp_api.py`), which in Spark yields
-NULL rather than an error. **Every residence directional is therefore NULL,
-silently.** Nothing in this repo can recover them.
+Anything needing a street line reads `Residence_Addresses_AddressLine`, which
+holds the whole CASS-standardized line, directions included — the stop's
+frozen `displayAddress` and the door-knocking unit key both do. Do not compose
+a line from the parsed components (house number, the two direction columns,
+street name, designator).
 
-**Do not read either column.** Anything needing a street line reads
-`Residence_Addresses_AddressLine`, which is TEXT and holds the whole line,
-directions included — the stop's frozen `displayAddress` and the door-knocking
-unit key both do.
-
-The cost of getting this wrong is not cosmetic. The unit key used to compose the
-line from components, so with both directionals permanently empty `1234 S Main
-St` and `1234 N Main St` in one ZIP keyed identically and were **one door** to
-`residents()`, which merged two households' rosters. Salt Lake City is where it
-is impossible to miss: the grid puts the information in the directions, so
-`1234 S 5678 W` keyed — and printed on the walk sheet — as `1234 5678`.
-
-Fixing this properly is a data-platform change (the column type, upstream). If it
-ever lands, the components become usable again, but there is no reason to go
-back to them: AddressLine is one column instead of five and already carries the
-CASS-standardized spelling.
+The unit key used to compose the line from components, and wherever the
+directionals came back empty `1234 S Main St` and `1234 N Main St` in one ZIP keyed
+identically and were **one door** to `residents()`, which merged two
+households' rosters. Salt Lake City is where it is impossible to miss: the
+grid puts the information in the directions, so `1234 S 5678 W` keyed — and
+printed on the walk sheet — as `1234 5678`. AddressLine is one column instead
+of five and already carries the standardized spelling.
 
 ## Door knocking: the query returns rows, the shaping happens here
 
@@ -181,9 +236,8 @@ inside whatever produced the rows.
 The pieces of the key that must agree across producers come from
 `@goodparty_org/contracts` (`DOOR_KNOCKING_UNIT_KEY_COLUMNS`, its legacy twin,
 and `HOUSEHOLD_KEY_RESIDENCE_COLUMNS`), so a key composed when a route was
-frozen matches one composed now. Spark needs an explicit `cast(... AS STRING)`
-inside the `coalesce`: the two direction columns are INT (above) and Spark will
-not coalesce an INT with `''`.
+frozen matches one composed now. Each component is `cast(... AS STRING)`
+inside the `coalesce`, so the legacy key composes the way it always has.
 
 A route freezes all of its keys in one transaction, so a `residents()` request
 carries either the current three-column key or the legacy seven-column one, and
@@ -274,7 +328,9 @@ signatures rather than callers reaching into `databricks/` directly.
 | `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)        |
 | `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
-| `services/stats.service.ts`                     | District aggregate stats, computed from the voter rows              |
+| `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition    |
+| `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups |
+| `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)          |
 | `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                      |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |
@@ -283,4 +339,4 @@ signatures rather than callers reaching into `databricks/` directly.
 | `utils/valueMappers.util.ts`                    | Wire value → the value the voter file stores                        |
 | `utils/packEncoder.utils.ts`                    | Pack encoding; inverts `VALUE_MAPPERS` into pack bytes              |
 | `utils/transformToPersonOutput.util.ts`         | Display mapping shared by contacts and the door                     |
-| `util/hash.util.ts`                             | `personId` hash derivation (stable hash of `LALVOTERID`)            |
+| `util/hash.util.ts`                             | `hash32`, the murmur hash behind the random-sample seed             |

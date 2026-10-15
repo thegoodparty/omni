@@ -56,6 +56,9 @@ export {
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
+  type PollAudienceKind,
+  POLL_AUDIENCE_KIND_VALUES,
+  PollAudienceKindSchema,
   type PollStatus,
   POLL_STATUS_VALUES,
   PollStatusSchema,
@@ -128,6 +131,8 @@ export {
   isLegacyDoorKnockingUnitKey,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
+  CivicPanelActivitySchema,
+  type CivicPanelActivity,
 } from './people/Person.schema'
 
 export {
@@ -153,6 +158,13 @@ export {
   type UpdateFollowUpInput,
   FollowUpStatusResponseSchema,
   type FollowUpStatusResponse,
+  CivicPanelStatusSchema,
+  type CivicPanelStatus,
+  UpdateCivicPanelInputSchema,
+  type UpdateCivicPanelInput,
+  CivicPanelStatusResponseSchema,
+  type CivicPanelStatusResponse,
+  CIVIC_PANEL_STATUS_LABELS,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
   DO_NOT_KNOCK_LABELS,
@@ -160,6 +172,57 @@ export {
   FOLLOW_UP_STATUS_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
+
+export {
+  CIVIC_PANEL_SEGMENT,
+  CivicPanelSummarySchema,
+  type CivicPanelSummary,
+  CivicPanelRepresentationSchema,
+  type CivicPanelRepresentation,
+} from './people/CivicPanelSummary.schema'
+export {
+  isCivicPanelOnlyList,
+  type CivicPanelOnlyCriteria,
+} from './people/CivicPanelOnlyList'
+export {
+  CIVIC_PANEL_PAGE_HREF,
+  PANEL_CALLS_PER_HOUR,
+  PANEL_DOORS_PER_HOUR,
+  PANEL_CALL_ASSUMED_JOIN_RATE,
+  PANEL_DOOR_ASSUMED_JOIN_RATE,
+  PANEL_DOOR_SHARE_OF_HOURS,
+  PANEL_DOORS_PER_AREA,
+  PANEL_MAX_DOOR_AREAS,
+  PANEL_MIN_HOURS_PER_WEEK,
+  PANEL_MAX_HOURS_PER_WEEK,
+  PANEL_WEEKS_PER_WAVE,
+  PANEL_TEXT_REPLY_BUSINESS_DAYS,
+  PANEL_STEP_WINDOW_DAYS,
+  PANEL_UNSTARTED_STEP_DAYS,
+  CIVIC_PANEL_BUILD_CHANNELS,
+  CivicPanelBuildChannelSchema,
+  type CivicPanelBuildChannel,
+  CIVIC_PANEL_BUILD_PLAN_STATUSES,
+  CivicPanelBuildPlanStatusSchema,
+  type CivicPanelBuildPlanStatus,
+  CIVIC_PANEL_BUILD_STEP_STATUSES,
+  CivicPanelBuildStepStatusSchema,
+  type CivicPanelBuildStepStatus,
+  CreateCivicPanelBuildPlanInputSchema,
+  type CreateCivicPanelBuildPlanInput,
+  UpdateCivicPanelBuildPlanInputSchema,
+  type UpdateCivicPanelBuildPlanInput,
+  CivicPanelBuildStepSchema,
+  type CivicPanelBuildStep,
+  CivicPanelBuildNextSchema,
+  type CivicPanelBuildNext,
+  CivicPanelBuildPlanSchema,
+  type CivicPanelBuildPlan,
+  CivicPanelBuildPlanResponseSchema,
+  type CivicPanelBuildPlanResponse,
+  PrepareCivicPanelBuildStepResponseSchema,
+  type PrepareCivicPanelBuildStepResponse,
+} from './people/CivicPanelBuildPlan.schema'
 
 export {
   ContactNoteSchema,
@@ -311,6 +374,9 @@ export {
   PIN_DELIVERY_METHOD_VALUES,
   PinDeliveryMethod,
   PinDeliveryMethodSchema,
+  SMS_COMPLIANCE_WINDOW_VALUES,
+  SmsComplianceWindow,
+  SmsComplianceWindowSchema,
   ORGANIZATION_STATUS_VALUES,
   OrganizationStatus,
   OrganizationStatusSchema,
@@ -437,6 +503,7 @@ export {
 } from './campaigns/TrackerTaskSkip'
 
 export {
+  TEXT_SEND_ROBOCALL_SWAPS,
   VOTER_CONTACT_SCHEDULE,
   voterContactSendOffsetDays,
   type VoterContactSend,
@@ -696,6 +763,14 @@ export {
   judgeRunId,
 } from './agentRuns/JudgeOverride.schema'
 export type { JudgeOverride } from './agentRuns/JudgeOverride.schema'
+export {
+  JUDGE_REPLAY_KEY_PREFIX,
+  JudgeReplaySchema,
+  judgeReplayBaseKey,
+  judgeReplaySeedKey,
+  judgeReplaySweepKey,
+} from './agentRuns/JudgeReplay.schema'
+export type { JudgeReplay } from './agentRuns/JudgeReplay.schema'
 
 export {
   BRIEFING_DATE_RANGE_VALUES,
@@ -771,6 +846,10 @@ export {
   ChatCardSchema,
   ProposalLinkSchema,
   PROPOSAL_SENT_MARKER,
+  REPORT_BACK_MARKER,
+  reportBackMessage,
+  isReportBackMessage,
+  isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
   type ProposalLink,
@@ -794,6 +873,41 @@ export {
 } from './priorities/Priority.schema'
 
 export {
+  ONBOARDING_PRIORITY_OPTION_KINDS,
+  OnboardingPriorityOptionKindSchema,
+  type OnboardingPriorityOptionKind,
+  OnboardingPriorityOptionSchema,
+  type OnboardingPriorityOption,
+  OnboardingPriorityOptionsSchema,
+  type OnboardingPriorityOptions,
+  OnboardingOtherPrioritySchema,
+  type OnboardingOtherPriority,
+  SetOnboardingPrioritiesInputSchema,
+  type SetOnboardingPrioritiesInput,
+} from './priorities/PriorityOnboarding.schema'
+
+export {
+  MIN_RESPONDENTS_FOR_REPRESENTATION,
+  PRIORITY_RESULTS_CHANNELS,
+  PriorityResultsChannelSchema,
+  type PriorityResultsChannel,
+  PriorityResultsSendSchema,
+  type PriorityResultsSend,
+  PriorityResultsPointSchema,
+  REPRESENTATION_DIMENSIONS,
+  RepresentationDimensionSchema,
+  type RepresentationDimension,
+  RepresentationGroupSchema,
+  type RepresentationGroup,
+  PriorityRepresentationSchema,
+  type PriorityRepresentation,
+  PriorityResultsSchema,
+  type PriorityResults,
+  PriorityThemeSchema,
+  type PriorityTheme,
+} from './priorities/PriorityResults.schema'
+
+export {
   DASHBOARD_CARD_TYPE_VALUES,
   DashboardCardTypeSchema,
   type DashboardCardType,
@@ -806,6 +920,10 @@ export {
   type DashboardCard,
   DashboardCardsResponseSchema,
   type DashboardCardsResponse,
+  DASHBOARD_CARD_SNOOZE_DAYS,
+  civicPanelBuildCardSourceId,
+  isCivicPanelBuildCard,
+  CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -858,6 +976,8 @@ export {
   type ChatMessageFeedback,
   ChatMessageSchema,
   type ChatMessage,
+  ChatConversationUsageSchema,
+  type ChatConversationUsage,
   ChatConversationSchema,
   type ChatConversation,
   ChatHistoryItemSchema,
@@ -962,6 +1082,11 @@ export {
   type OutreachPurpose,
   SERVE_OUTREACH_PURPOSE_VALUES,
   ServeOutreachPurposeSchema,
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  REPORT_BACK_PURPOSE,
+  SERVE_SMS_PURPOSE_VALUES,
+  ServeSmsPurposeSchema,
+  type ServeSmsPurpose,
   COMMUNITY_INPUT_PURPOSE,
   COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   type ServeOutreachPurpose,
@@ -1142,7 +1267,14 @@ export {
   type SmsOutreachReplies,
   SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
   SMS_OUTREACH_REPLIES_MAX_LIMIT,
+  SmsOutreachRepliesFilterSchema,
+  type SmsOutreachRepliesFilter,
+  SmsOutreachRepliesQuerySchema,
+  type SmsOutreachRepliesQuery,
 } from './outreach/OutreachResults.schema'
+export * from './outreach/ServePoll.schema'
+export * from './outreach/PollResults.schema'
+export * from './outreach/PollAdmin.schema'
 
 export {
   SMS_PURPOSE_VALUES,
@@ -1461,6 +1593,8 @@ export {
   type FeedbackSynthesisResponseRows,
   SynthesisRunSchema,
   type SynthesisRun,
+  FeedbackReportChannelSchema,
+  type FeedbackReportChannel,
   StanceCountsSchema,
   type StanceCounts,
   FeedbackThemeSummarySchema,
@@ -1546,6 +1680,12 @@ export {
   type TestFixtureSessionResponse,
   DeleteTestFixtureUsersResponseSchema,
   type DeleteTestFixtureUsersResponse,
+  TEST_FIXTURE_ACTIVITY_MAX_PEOPLE,
+  SeedTestFixtureActivityRequestSchema,
+  type SeedTestFixtureActivityRequest,
+  TestFixtureActivityEffortSchema,
+  SeedTestFixtureActivityResponseSchema,
+  type SeedTestFixtureActivityResponse,
 } from './testFixtures/testFixtures.schema'
 
 export {
@@ -1595,3 +1735,23 @@ export {
   TestModeStateSchema,
   type TestModeState,
 } from './testMode/testMode.schema'
+
+export {
+  CIVIC_PANEL_JOIN_KEYWORD,
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
+  findCivicPanelJoinLine,
+  CIVIC_PANEL_LEAVE_KEYWORD,
+  CIVIC_PANEL_LEAVE_LINE,
+  findCivicPanelLeaveLine,
+  countCivicPanelLines,
+  PANEL_ASSUMED_REPLY_RATE,
+  CONTACT_REST_DAYS,
+  PANEL_SEED_TARGET_MEMBERS,
+  PANEL_SEED_ASSUMED_JOIN_RATE,
+  PANEL_SEED_SAMPLE_SIZE,
+  BUILD_CITIZENS_PANEL_MARKER,
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MARKER,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from './outreach/CivicPanelJoin'

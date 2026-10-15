@@ -1,7 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { Button, Card, Overline, cn } from '@styleguide'
+import {
+  Button,
+  Card,
+  Overline,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+} from '@styleguide'
 
 export interface TaskCardProps {
   overlineLabel: string
@@ -15,11 +23,16 @@ export interface TaskCardProps {
   ctaHref?: string
   /** Fires on a CTA click; with no href it is the CTA's whole action. */
   onCta?: () => void
+  /** When set, the CTA renders disabled with this reason on hover. */
+  ctaDisabledReason?: string
   /** When set, renders a secondary "Mark done" action. */
   onComplete?: () => void
   completeDisabled?: boolean
   onSkip?: () => void
   skipDisabled?: boolean
+  /** When set, renders "Bring it back" for a card set aside. */
+  onRestore?: () => void
+  restoreDisabled?: boolean
   /** Subtle top-to-bottom tint, for a featured (top) card. */
   gradient?: boolean
 }
@@ -44,10 +57,13 @@ export default function TaskCard({
   ctaLabel,
   ctaHref,
   onCta,
+  ctaDisabledReason,
   onComplete,
   completeDisabled = false,
   onSkip,
   skipDisabled = false,
+  onRestore,
+  restoreDisabled = false,
   gradient = false,
 }: TaskCardProps): React.JSX.Element {
   return (
@@ -77,7 +93,18 @@ export default function TaskCard({
 
       <div className="flex flex-col gap-3 pt-2">
         {ctaLabel &&
-          (ctaHref ? (
+          (ctaDisabledReason ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0} className="w-full">
+                  <Button type="button" className="w-full" disabled>
+                    {ctaLabel}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{ctaDisabledReason}</TooltipContent>
+            </Tooltip>
+          ) : ctaHref ? (
             isExternalHref(ctaHref) ? (
               <Button asChild className="w-full">
                 <a
@@ -119,6 +146,16 @@ export default function TaskCard({
             className="self-center text-sm font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
           >
             Skip
+          </button>
+        )}
+        {onRestore && (
+          <button
+            type="button"
+            onClick={onRestore}
+            disabled={restoreDisabled}
+            className="self-center text-sm font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+          >
+            Bring it back
           </button>
         )}
       </div>

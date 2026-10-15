@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   Card,
   cn,
@@ -31,6 +32,7 @@ import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
 import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 import { RecommendedListCard } from './RecommendedListCard'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 
@@ -70,6 +72,10 @@ export interface OutreachAudienceCopy {
 interface OutreachAudienceStepProps {
   channel: OutreachType
   copy: OutreachAudienceCopy
+  // A card the flow owns, rendered above the recommendations in picker mode.
+  // Polls put their random-sample option here: it is an audience that is not a
+  // saved list, so the list picker cannot express it.
+  leadCard?: ReactNode
   mode: OutreachAudienceMode
   lists: SegmentResponse[]
   listsLoading: boolean
@@ -178,6 +184,7 @@ const money = (n: number): string =>
 export const OutreachAudienceStep = ({
   channel,
   copy,
+  leadCard,
   mode,
   lists,
   listsLoading,
@@ -224,6 +231,8 @@ export const OutreachAudienceStep = ({
   builderCountErrorMessage,
 }: OutreachAudienceStepProps) => {
   const [open, setOpen] = useState(false)
+  const { enabled: citizenPanelsEnabled } =
+    useServeCitizenPanelsFlag(isElectedOfficial)
   // The recommendation whose card the candidate tapped, opening the
   // naming drawer. Cleared on drawer close (cancel) or on a successful
   // submit; either way the picker returns to its default state.
@@ -352,6 +361,7 @@ export const OutreachAudienceStep = ({
           // render-driven, so they persist onto the created list and the
           // candidate has no control to clear them with.
           showRecommendedListFilters
+          showCitizenPanelFilters={citizenPanelsEnabled}
         />
       </div>
     )
@@ -398,6 +408,8 @@ export const OutreachAudienceStep = ({
         title={copy.pickerTitle}
         body={copy.pickerBody}
       />
+
+      {leadCard}
 
       {(recommendationsLoading || recommendationsError || cards.length > 0) && (
         <div className="space-y-2">

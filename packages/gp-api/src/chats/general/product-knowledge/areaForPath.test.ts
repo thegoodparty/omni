@@ -19,7 +19,7 @@ describe('areaForPath', () => {
 
   it("reads each product's own entry for a shared path", () => {
     expect(areaForPath('serve', '/dashboard/contacts')?.name).toBe(
-      'Constituent Data',
+      'Constituents',
     )
   })
 

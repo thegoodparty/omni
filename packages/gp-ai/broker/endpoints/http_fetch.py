@@ -5,13 +5,14 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from broker.browser_fetcher import MAX_BYTES, USER_AGENT, BrowserFetcher
-from broker.dynamodb_client import ScopeTicket
+from broker.browser_fetcher import MAX_BYTES, USER_AGENT, BrowserFetcher, BrowserFetchResult
+from broker.dynamodb_client import JudgeReplayRef, ScopeTicket
+from broker.page_replay import PageReplay, replay_enabled
 from broker.ssrf_guard import resolve_redirects, validate_url
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/http", tags=["http"])
 
 _DOWNLOAD_STREAM_CHUNK = 1 * 1024 * 1024  # 1 MB
 
-__all__ = ["router", "get_scope_ticket", "get_browser_fetcher", "MAX_BYTES"]
+__all__ = ["router", "get_scope_ticket", "get_browser_fetcher", "get_page_replay", "MAX_BYTES"]
 
 
 class HttpFetchRequest(BaseModel):
@@ -38,6 +39,18 @@ def get_browser_fetcher() -> BrowserFetcher:  # pragma: no cover
 
 def get_http_client() -> httpx.AsyncClient:  # pragma: no cover
     raise NotImplementedError("Must be overridden via dependency_overrides")
+
+
+def get_page_replay() -> PageReplay | None:
+    # None rather than raising, unlike the others: an app that never wires
+    # replay fetches live for every ticket, which is the safe reading.
+    return None
+
+
+def _active_replay(ticket: ScopeTicket, page_replay: PageReplay | None) -> JudgeReplayRef | None:
+    if page_replay is None or ticket.replay is None or not replay_enabled():
+        return None
+    return ticket.replay
 
 
 _HEAD_MAX_REDIRECTS = 5
@@ -131,9 +144,35 @@ async def http_fetch(
     req: HttpFetchRequest,
     ticket: ScopeTicket = Depends(get_scope_ticket),
     fetcher: BrowserFetcher = Depends(get_browser_fetcher),
+    page_replay: PageReplay | None = Depends(get_page_replay),
 ):
+    replay = _active_replay(ticket, page_replay)
     try:
         await validate_url(req.url)
+
+        if replay is not None and replay.mode == "replay":
+            assert page_replay is not None
+            recorded = await page_replay.lookup_fetch(ticket, replay, req.url)
+            await page_replay.mark(ticket, replay, "fetch", hit=recorded is not None)
+            if recorded is not None:
+                logger.info(
+                    "http_fetch replayed run_id=%s status=%d content_type=%s bytes=%d purpose=%s url=%s",
+                    ticket.run_id,
+                    recorded.status,
+                    recorded.content_type,
+                    recorded.byte_size,
+                    req.purpose or "",
+                    req.url,
+                )
+                return StreamingResponse(
+                    recorded.body,
+                    media_type=recorded.content_type,
+                    headers={
+                        "X-Source-URL": recorded.final_url,
+                        "X-Byte-Size": str(recorded.byte_size),
+                        "X-Upstream-Status": str(recorded.status),
+                    },
+                )
 
         result = await fetcher.fetch(req.url)
 
@@ -168,14 +207,21 @@ async def http_fetch(
             "X-Upstream-Status": str(result.status),
         }
 
+        recording = replay is not None and replay.mode == "record"
+
         if result.body_path is not None:
             # Download path: stream from disk; BackgroundTask unlinks the
             # temp file after the response is fully sent.
+            if recording:
+                assert page_replay is not None and replay is not None
+                background = BackgroundTask(_record_then_unlink, page_replay, ticket, replay, req.url, result)
+            else:
+                background = BackgroundTask(_unlink_quietly, result.body_path)
             return StreamingResponse(
                 _stream_file(result.body_path),
                 media_type=result.content_type,
                 headers=headers,
-                background=BackgroundTask(_unlink_quietly, result.body_path),
+                background=background,
             )
 
         # Page-response path: single in-memory chunk.
@@ -184,10 +230,26 @@ async def http_fetch(
         async def _iter():
             yield body
 
+        page_background = None
+        if recording:
+            assert page_replay is not None and replay is not None
+            page_background = BackgroundTask(
+                page_replay.record_fetch,
+                ticket,
+                replay,
+                req.url,
+                status=result.status,
+                content_type=result.content_type,
+                final_url=result.final_url,
+                byte_size=result.byte_size,
+                body=body,
+            )
+
         return StreamingResponse(
             _iter(),
             media_type=result.content_type,
             headers=headers,
+            background=page_background,
         )
     except HTTPException as e:
         logger.warning(
@@ -204,15 +266,29 @@ async def http_fetch(
 @router.post("/head")
 async def http_head(
     req: HttpFetchRequest,
+    background_tasks: BackgroundTasks,
     ticket: ScopeTicket = Depends(get_scope_ticket),
     client: httpx.AsyncClient = Depends(get_http_client),
+    page_replay: PageReplay | None = Depends(get_page_replay),
 ):
     """Fast, non-browser liveness check (rung 2 of WebSearch -> http/head ->
     http/fetch). Returns the status code without rendering the page. Callers
     escalate to /fetch (browser) only when this is blocked (e.g. 403 from a
     Cloudflare-protected site that a bare request can't pass)."""
+    replay = _active_replay(ticket, page_replay)
     try:
-        status, final_url = await _status_check(client, req.url)
+        recorded = None
+        if replay is not None and replay.mode == "replay":
+            assert page_replay is not None
+            # _status_check validates the URL itself; a hit skips it, so check
+            # here and keep a blocked URL failing the same way on both paths.
+            await validate_url(req.url)
+            recorded = await page_replay.lookup_head(ticket, replay, req.url)
+            await page_replay.mark(ticket, replay, "head", hit=recorded is not None)
+        if recorded is not None:
+            status, final_url = recorded.status, recorded.final_url
+        else:
+            status, final_url = await _status_check(client, req.url)
     except HTTPException as e:
         logger.warning(
             "http_head failed run_id=%s status=%d purpose=%s url=%s detail=%s",
@@ -224,13 +300,36 @@ async def http_head(
         )
         raise
     logger.info(
-        "http_head ok run_id=%s status=%d purpose=%s url=%s",
+        "http_head ok run_id=%s status=%d purpose=%s url=%s replayed=%s",
         ticket.run_id,
         status,
         req.purpose or "",
         req.url,
+        recorded is not None,
     )
+    if replay is not None and replay.mode == "record":
+        assert page_replay is not None
+        background_tasks.add_task(page_replay.record_head, ticket, replay, req.url, status=status, final_url=final_url)
     return {"status": status, "final_url": final_url}
+
+
+def _record_then_unlink(
+    page_replay: PageReplay, ticket: ScopeTicket, replay: JudgeReplayRef, url: str, result: BrowserFetchResult
+) -> None:
+    assert result.body_path is not None
+    try:
+        page_replay.record_fetch(
+            ticket,
+            replay,
+            url,
+            status=result.status,
+            content_type=result.content_type,
+            final_url=result.final_url,
+            byte_size=result.byte_size,
+            body_path=result.body_path,
+        )
+    finally:
+        _unlink_quietly(result.body_path)
 
 
 def _unlink_quietly(path: str) -> None:

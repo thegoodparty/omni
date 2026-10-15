@@ -59,6 +59,7 @@ const createDraft = async ({
   authorizationIntentId,
   chargeIntentId,
   stripeCustomerId,
+  callhubCampaignPkStr,
   sendAt = addDays(new Date(), 2),
 }: {
   settleState?: RobocallSettleState
@@ -66,6 +67,7 @@ const createDraft = async ({
   authorizationIntentId?: string
   chargeIntentId?: string
   stripeCustomerId?: string
+  callhubCampaignPkStr?: string
   sendAt?: Date
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
@@ -90,6 +92,7 @@ const createDraft = async ({
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(chargeIntentId ? { chargeIntentId } : {}),
       ...(stripeCustomerId ? { stripeCustomerId } : {}),
+      ...(callhubCampaignPkStr ? { callhubCampaignPkStr } : {}),
     },
   })
   return spine.id
@@ -127,6 +130,25 @@ describe('OutreachRobocallWebhookService', () => {
         where: { paymentIntentId: 'pi_hold_1' },
       })
       expect(orphan?.reason).toBe('cancel_before_send')
+    })
+
+    it('records a staged campaign for cleanup when a staged run is canceled', async () => {
+      // A staged draft (callhubCampaignPkStr set) leaves a PAUSED CallHub
+      // campaign; without recording it the cleanup sweep never aborts it.
+      await createDraft({
+        settleState: RobocallSettleState.authorized,
+        paymentMethodId: 'pm_gone',
+        authorizationIntentId: 'pi_hold_staged',
+        callhubCampaignPkStr: 'vb_detached_1',
+      })
+
+      await webhooks.cancelNotYetDialedForDetachedPaymentMethod('pm_gone')
+
+      const orphanCampaign =
+        await service.prisma.robocallOrphanedCampaign.findUnique({
+          where: { campaignPkStr: 'vb_detached_1' },
+        })
+      expect(orphanCampaign?.reason).toBe('cancel')
     })
 
     it('cancels a persisted pending_payment run without a hold to void', async () => {

@@ -1,10 +1,32 @@
 import { Injectable } from '@nestjs/common'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import type { ChatCardKind } from '@goodparty_org/contracts'
-import { Outreach, OutreachType, Prisma } from '../../../../generated/prisma'
+import {
+  Outreach,
+  OutreachStatus,
+  OutreachType,
+  PollIndividualMessageSender,
+  Prisma,
+  SynthesisRunStatus,
+  SynthesisScope,
+} from '../../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 
 const MAX_ROWS = 10
+// Enough of what people said for the model to quote and weigh it without
+// one big send crowding the rest of the turn out of its context.
+const MAX_VERBATIMS_PER_SEND = 60
+const MAX_VERBATIM_CHARS = 500
+const RECENT_SENDS_WITHOUT_SCOPE = 5
+const UNSENT_STATUSES: OutreachStatus[] = [
+  OutreachStatus.pending_payment,
+  OutreachStatus.draft,
+  OutreachStatus.canceled,
+]
+const GONE_OUT_STATUSES: OutreachStatus[] = [
+  OutreachStatus.in_progress,
+  OutreachStatus.completed,
+]
 
 export interface PastOutreachRow {
   outreachId: number
@@ -18,6 +40,32 @@ export interface PastOutreachRow {
   // Replies over recipients, so a sample is sized on what this office's
   // texts actually bring back. Null until something has gone out.
   replyRate: number | null
+}
+
+export interface OutreachVerbatim {
+  said: string
+  // A door or call note is a volunteer's account the official may not have
+  // reviewed yet; a text reply is the constituent's own words.
+  source: 'text_reply' | 'door_note' | 'call_note'
+  confirmed: boolean
+  issues: { issue: string; stance: string | null }[]
+}
+
+export interface OutreachFeedback {
+  outreachId: number
+  audience: string
+  channel: OutreachType
+  sentOn: string | null
+  heardFrom: number
+  verbatims: OutreachVerbatim[]
+  verbatimsLeftOut: number
+  themes: { title: string; summary: string; people: number }[]
+}
+
+export interface PooledTheme {
+  title: string
+  summary: string
+  people: number
 }
 
 // One resolved line per card this thread has already left. Built fresh on
@@ -98,7 +146,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   async allPutOutCheck(
     priorityId: string,
     stepId: string,
-    side: string,
+    // Null takes a send that put out either side of the step's check.
+    side: string | null,
     outreachIds: number[],
   ): Promise<boolean> {
     const ids = [...new Set(outreachIds)]
@@ -108,7 +157,9 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         id: { in: ids },
         priorityId,
         priorityStepId: stepId,
-        priorityCheckSide: side,
+        ...(side === null
+          ? { priorityCheckSide: { not: null } }
+          : { priorityCheckSide: side }),
       },
     })
     return matching === ids.length
@@ -130,6 +181,175 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     }))
   }
 
+  // What a send brought back in people's own words, plus the themes the
+  // latest finished synthesis found in it. Scoped to the office's own sends
+  // (campaignId null) so a Win row on the same org never leaks in.
+  async feedbackFor(
+    organizationSlug: string,
+    scope: { priorityId?: string | null; outreachId?: number },
+  ): Promise<OutreachFeedback[]> {
+    const rows = await this.findMany({
+      where: {
+        organizationSlug,
+        campaignId: null,
+        status: { notIn: UNSENT_STATUSES },
+        ...(scope.outreachId === undefined ? {} : { id: scope.outreachId }),
+        ...(scope.priorityId ? { priorityId: scope.priorityId } : {}),
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      take:
+        scope.outreachId === undefined && !scope.priorityId
+          ? RECENT_SENDS_WITHOUT_SCOPE
+          : MAX_ROWS,
+    })
+    return Promise.all(rows.map((row) => this.feedbackForSend(row)))
+  }
+
+  private async feedbackForSend(row: Outreach): Promise<OutreachFeedback> {
+    const verbatims =
+      row.outreachType === OutreachType.text
+        ? await this.textReplies(row.id)
+        : await this.capturedNotes(row.id)
+    const run = await this.client.feedbackSynthesisRun.findFirst({
+      where: {
+        outreachId: row.id,
+        scope: SynthesisScope.effort,
+        status: SynthesisRunStatus.completed,
+      },
+      orderBy: { completedAt: Prisma.SortOrder.desc },
+      select: {
+        themes: {
+          orderBy: { rank: Prisma.SortOrder.asc },
+          select: {
+            title: true,
+            summary: true,
+            members: {
+              where: {
+                OR: [
+                  { feedback: { confirmedAt: { not: null } } },
+                  { textReplyId: { not: null } },
+                ],
+              },
+              select: {
+                feedback: { select: { personId: true } },
+                textReply: { select: { personId: true } },
+              },
+            },
+          },
+        },
+      },
+    })
+    return {
+      outreachId: row.id,
+      audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
+      channel: row.outreachType,
+      sentOn: sentOn(row),
+      heardFrom: verbatims.length,
+      verbatims: verbatims.slice(0, MAX_VERBATIMS_PER_SEND),
+      verbatimsLeftOut: Math.max(0, verbatims.length - MAX_VERBATIMS_PER_SEND),
+      themes: themesWithPeople(run?.themes ?? []),
+    }
+  }
+
+  // The themes across every send for the priority, from its latest finished
+  // pooled run. Empty until one has run.
+  async pooledThemes(
+    organizationSlug: string,
+    priorityId: string,
+  ): Promise<PooledTheme[]> {
+    const run = await this.client.feedbackSynthesisRun.findFirst({
+      where: {
+        organizationSlug,
+        priorityId,
+        scope: SynthesisScope.priority,
+        status: SynthesisRunStatus.completed,
+      },
+      orderBy: { completedAt: Prisma.SortOrder.desc },
+      select: {
+        themes: {
+          orderBy: { rank: Prisma.SortOrder.asc },
+          select: {
+            title: true,
+            summary: true,
+            members: {
+              where: {
+                OR: [
+                  { feedback: { confirmedAt: { not: null } } },
+                  { textReplyId: { not: null } },
+                ],
+              },
+              select: {
+                feedback: { select: { personId: true } },
+                textReply: { select: { personId: true } },
+              },
+            },
+          },
+        },
+      },
+    })
+    return themesWithPeople(run?.themes ?? [])
+  }
+
+  // One entry per person, their messages joined in order. A reply that was
+  // only an opt-out is not an answer, so it is left out.
+  private async textReplies(outreachId: number): Promise<OutreachVerbatim[]> {
+    const messages = await this.client.pollIndividualMessage.findMany({
+      where: {
+        outreachId,
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        NOT: { isOptOut: true },
+      },
+      orderBy: { sentAt: Prisma.SortOrder.asc },
+      select: { personId: true, content: true },
+    })
+    const byPerson = new Map<string, string[]>()
+    for (const { personId, content } of messages) {
+      const text = content?.trim() ?? ''
+      if (text === '') continue
+      byPerson.set(personId, [...(byPerson.get(personId) ?? []), text])
+    }
+    return [...byPerson.values()].map((said) => ({
+      said: clip(said.join(' / ')),
+      source: 'text_reply' as const,
+      confirmed: true,
+      issues: [],
+    }))
+  }
+
+  private async capturedNotes(outreachId: number): Promise<OutreachVerbatim[]> {
+    const notes = await this.client.constituentFeedback.findMany({
+      where: { outreachId, transcript: { not: null } },
+      orderBy: { occurredAt: Prisma.SortOrder.asc },
+      select: {
+        transcript: true,
+        channel: true,
+        confirmedAt: true,
+        issues: {
+          orderBy: { position: Prisma.SortOrder.asc },
+          select: { issueLabel: true, stance: true },
+        },
+      },
+    })
+    return notes.flatMap((note) => {
+      const text = note.transcript?.trim() ?? ''
+      if (text === '') return []
+      return [
+        {
+          said: clip(text),
+          source:
+            note.channel === 'door_knock'
+              ? ('door_note' as const)
+              : ('call_note' as const),
+          confirmed: note.confirmedAt !== null,
+          issues: note.issues.map((issue) => ({
+            issue: issue.issueLabel,
+            stance: issue.stance,
+          })),
+        },
+      ]
+    })
+  }
+
   private async withReplyCounts(
     rows: Outreach[],
     scope: 'priority' | 'office',
@@ -140,6 +360,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       where: {
         outreachId: { in: rows.map((row) => row.id) },
         respondedAt: { not: null },
+        // A STOP is an opt-out, not something the person told the office.
+        optedOutAt: null,
       },
       _count: { _all: true },
     })
@@ -156,7 +378,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         channel: row.outreachType,
         status: row.status,
         recipients,
-        sentOn: row.date === null ? null : format(row.date, 'd MMM'),
+        sentOn: sentOn(row),
         replies,
         replyRate:
           recipients === null || recipients === 0
@@ -166,3 +388,48 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     })
   }
 }
+
+// A Serve text has no `date`: it goes out at a fixed local hour on
+// scheduledLocalDate, so that day is when it went once it has gone.
+const sentOn = (row: Outreach): string | null => {
+  if (row.date !== null) return format(row.date, 'd MMM')
+  if (
+    row.scheduledLocalDate === null ||
+    row.status === null ||
+    !GONE_OUT_STATUSES.includes(row.status)
+  ) {
+    return null
+  }
+  return format(parseISO(row.scheduledLocalDate), 'd MMM')
+}
+
+// The one rule for how many people a theme covers, shared by a send's
+// themes, the priority's pooled themes and the results page
+// (PriorityResultsService): confirmed notes and text replies, someone heard
+// twice counted once. A theme nobody counts toward is left out.
+type ThemeRow = {
+  title: string
+  summary: string
+  members: {
+    feedback: { personId: string } | null
+    textReply: { personId: string } | null
+  }[]
+}
+
+const themesWithPeople = (themes: ThemeRow[]): PooledTheme[] =>
+  themes.flatMap((theme) => {
+    const people = new Set(
+      theme.members.flatMap((member) => {
+        const personId = member.feedback?.personId ?? member.textReply?.personId
+        return personId === undefined ? [] : [personId]
+      }),
+    ).size
+    return people === 0
+      ? []
+      : [{ title: theme.title, summary: theme.summary, people }]
+  })
+
+const clip = (text: string): string =>
+  text.length <= MAX_VERBATIM_CHARS
+    ? text
+    : `${text.slice(0, MAX_VERBATIM_CHARS - 1)}…`
