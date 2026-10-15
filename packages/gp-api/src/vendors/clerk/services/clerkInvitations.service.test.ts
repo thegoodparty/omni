@@ -338,7 +338,7 @@ describe('ClerkInvitationsService', () => {
     it('retries once when the Clerk call times out', async () => {
       const getUser = vi
         .fn()
-        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockImplementationOnce(() => new Promise(() => undefined))
         .mockResolvedValueOnce({ publicMetadata: metadata, emailAddresses })
       const { service } = makeService({ getUser })
       vi.useFakeTimers()
