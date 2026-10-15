@@ -16,7 +16,6 @@ import {
   ElectedOffice,
   OutreachStatus,
   OutreachType,
-  Prisma,
 } from '../../generated/prisma'
 import { OutreachServeSmsCreateService } from './outreachServeSmsCreate.service'
 
@@ -25,6 +24,10 @@ const FIRST_SEND_SEQ = 1
 // people-api rejects an id filter above this, and the delivery layer sends the
 // asked-already set and the opt-out scrub upstream as one.
 const MAX_EXCLUDED_PERSON_IDS = 100_000
+
+const OPEN_EXPANSION_MESSAGE =
+  'Another request to gather more feedback on this poll is still waiting. ' +
+  'Finish or wait for it first.'
 
 const EXPANDABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.in_progress,
@@ -79,10 +82,7 @@ export class OutreachServePollExpansionService extends createPrismaBase(
       select: { id: true },
     })
     if (open) {
-      throw new ConflictException(
-        'Another request to gather more feedback on this poll is still ' +
-          'waiting. Finish or wait for it first.',
-      )
+      throw new ConflictException(OPEN_EXPANSION_MESSAGE)
     }
 
     const organization = await this.organizationsService.findFirst({
@@ -127,37 +127,36 @@ export class OutreachServePollExpansionService extends createPrismaBase(
       throw new BadRequestException('Everyone reachable has been asked.')
     }
 
-    const { _max } = await this.model.aggregate({
-      where: { outreachId },
-      _max: { sendSeq: true },
-    })
-    const sendSeq = (_max.sendSeq ?? FIRST_SEND_SEQ) + 1
-
-    let expansion: { id: string }
-    try {
-      expansion = await this.model.create({
-        data: {
-          outreachId,
-          sendSeq,
-          textCount,
-          status: OutreachStatus.pending_payment,
-        },
-        select: { id: true },
-      })
-    } catch (error) {
-      // A concurrent create computed the same sendSeq, so it holds the one
-      // open slot.
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'Another request to gather more feedback on this poll is still ' +
-            'waiting. Finish or wait for it first.',
-        )
-      }
-      throw error
-    }
+    // The open check above ran before the slow pool read, so it is repeated
+    // under a per-poll lock: two creates cannot both pass it and then take
+    // consecutive sendSeqs.
+    const { expansion, sendSeq } = await this.client.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`poll_expansion:${outreachId}`}))`
+        const stillOpen = await tx.outreachPollExpansion.findFirst({
+          where: { outreachId, approvedAt: null, deniedAt: null },
+          select: { id: true },
+        })
+        if (stillOpen) {
+          throw new ConflictException(OPEN_EXPANSION_MESSAGE)
+        }
+        const { _max } = await tx.outreachPollExpansion.aggregate({
+          where: { outreachId },
+          _max: { sendSeq: true },
+        })
+        const next = (_max.sendSeq ?? FIRST_SEND_SEQ) + 1
+        const created = await tx.outreachPollExpansion.create({
+          data: {
+            outreachId,
+            sendSeq: next,
+            textCount,
+            status: OutreachStatus.pending_payment,
+          },
+          select: { id: true },
+        })
+        return { expansion: created, sendSeq: next }
+      },
+    )
 
     this.logger.info(
       { outreachId, expansionId: expansion.id, sendSeq, textCount },
