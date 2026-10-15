@@ -40,18 +40,22 @@ export const CampaignProvider = ({
   // Query retries into repeated console 403s (ENG-11072). A volunteer never
   // has a campaign, so skip the request outright.
   const isActiveOrgVolunteer = activeOrg?.role === 'volunteer'
+  // An elected-office (Serve) org has its own slug, never a campaign's, so
+  // /campaigns/mine always 404s for it (ENG-11308).
+  const hasNoCampaign =
+    isActiveOrgVolunteer || Boolean(activeOrg?.electedOfficeId)
 
   const query = useQuery({
     queryKey: CAMPAIGN_QUERY_KEY,
     queryFn: fetchCampaign,
     initialData: initCampaign ?? undefined,
-    enabled: !isActiveOrgVolunteer,
+    enabled: !hasNoCampaign,
   })
 
   // enabled:false blocks refetches but not the cache: after an owner-org →
-  // volunteer-org switch the picker's invalidateQueries leaves the prior
+  // volunteer/Serve-org switch the picker's invalidateQueries leaves the prior
   // org's campaign in query.data, so short-circuit it for a volunteer.
-  const campaign = isActiveOrgVolunteer ? null : (query.data ?? null)
+  const campaign = hasNoCampaign ? null : (query.data ?? null)
   const contextValue = useMemo<CampaignContextValue>(
     () => [campaign],
     [campaign],

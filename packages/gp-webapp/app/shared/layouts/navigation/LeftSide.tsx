@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { NavDropdowns } from '@shared/layouts/navigation/NavDropdowns'
 import { useMemo } from 'react'
 import NavButton from './NavButton'
+import { getMarketingUrl } from 'helpers/linkhelper'
 
 const HIDE_NAV_PATHS = [
   '/onboarding',
@@ -28,7 +29,7 @@ const LeftSide = (): React.JSX.Element | null => {
       <NavDropdowns dropdownIndices={[0, 1]} />
 
       <NavButton
-        href="/pricing"
+        href={getMarketingUrl('/pricing')}
         id="nav-pricing"
         className="lg:ml-3 xl:ml-6 inline-flex items-center justify-center"
       >
