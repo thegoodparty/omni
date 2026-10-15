@@ -274,4 +274,31 @@ describe('PollFlow', () => {
       audience: { kind: 'list', voterFileFilterId: 41 },
     })
   })
+
+  it('writes a fresh poll after the flow is closed and reopened', async () => {
+    const onScheduled = vi.fn().mockResolvedValue(undefined)
+    const { rerender } = render(
+      <PollFlow open onClose={vi.fn()} onScheduled={onScheduled} />,
+    )
+    await pickTopic('Public safety')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
+    )
+    await throughQuestion()
+    await waitFor(() => expect(createBodies).toHaveLength(1))
+
+    rerender(
+      <PollFlow open={false} onClose={vi.fn()} onScheduled={onScheduled} />,
+    )
+    rerender(<PollFlow open onClose={vi.fn()} onScheduled={onScheduled} />)
+
+    await pickTopic('Housing')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
+    )
+    await throughQuestion()
+
+    await waitFor(() => expect(createBodies).toHaveLength(2))
+    expect(createBodies[1]).toMatchObject({ topic: 'housing' })
+  })
 })

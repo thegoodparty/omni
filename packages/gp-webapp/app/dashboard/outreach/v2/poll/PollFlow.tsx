@@ -226,25 +226,6 @@ export const PollFlow = ({
   ).length
   const biasFlagged = biasState?.hasBias === true
 
-  useEffect(() => {
-    if (!open) return
-    draftRequestRef.current += 1
-    setStepId('topic')
-    setTopic(null)
-    setTone(DEFAULT_POLL_TONE)
-    setQuestion('')
-    setDrafted(false)
-    setDrafting(false)
-    setDraftError(false)
-    setBiasState(null)
-    setImageUrl(undefined)
-    setQuestionContinueAttempts(0)
-    setAudienceKind('sample')
-    setDate(undefined)
-    setScheduled(false)
-    resetAudience()
-  }, [open, resetAudience])
-
   const runDraft = async (
     nextTopic: PollTopic,
     nextTone: PollTone,
@@ -329,7 +310,27 @@ export const PollFlow = ({
     enabled: stepId === 'review' && open && !scheduled,
     payload,
   })
-  const { created } = pollCreate
+  const { created, discard: discardCreate } = pollCreate
+
+  useEffect(() => {
+    if (!open) return
+    draftRequestRef.current += 1
+    setStepId('topic')
+    setTopic(null)
+    setTone(DEFAULT_POLL_TONE)
+    setQuestion('')
+    setDrafted(false)
+    setDrafting(false)
+    setDraftError(false)
+    setBiasState(null)
+    setImageUrl(undefined)
+    setQuestionContinueAttempts(0)
+    setAudienceKind('sample')
+    setDate(undefined)
+    setScheduled(false)
+    resetAudience()
+    discardCreate()
+  }, [open, resetAudience, discardCreate])
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
