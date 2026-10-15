@@ -9,6 +9,7 @@ import {
   PeerlyCvVerificationStatus,
   type ComplianceStateOutput,
 } from '@goodparty_org/sdk'
+import { formatLocalDateString } from '@/lib/utils/date'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useToast } from '@/components/Toast'
@@ -61,6 +62,25 @@ const STAGE_BADGE_COLORS: Record<
   [ComplianceStage.tcr_in_review]: 'amber',
   [ComplianceStage.tcr_approved]: 'green',
   [ComplianceStage.tcr_rejected]: 'red',
+}
+
+type TextingWindow = NonNullable<ComplianceStateOutput['smsCompliance']>
+
+const TEXTING_WINDOW_LABELS: Record<TextingWindow, string> = {
+  open: 'Open',
+  closing: 'Last week',
+  closed: 'Closed',
+  not_applicable: 'Made the cutoff',
+}
+
+const TEXTING_WINDOW_BADGE_COLORS: Record<
+  TextingWindow,
+  'amber' | 'green' | 'red' | 'gray'
+> = {
+  open: 'green',
+  closing: 'amber',
+  closed: 'red',
+  not_applicable: 'gray',
 }
 
 interface ComplianceInfo {
@@ -162,6 +182,29 @@ function CvPinStatusContent() {
     </Flex>
   )
 
+  const textingWindowRow = state.smsCompliance && (
+    <Flex direction="column" gap="1">
+      <Flex align="center" gap="3" wrap="wrap">
+        <Badge
+          color={TEXTING_WINDOW_BADGE_COLORS[state.smsCompliance]}
+          size="2"
+        >
+          Texting window: {TEXTING_WINDOW_LABELS[state.smsCompliance]}
+        </Badge>
+        <Text size="2" color="gray">
+          General election:{' '}
+          {formatLocalDateString(state.generalElectionDate, 'Not set')}
+        </Text>
+        <Text size="2" color="gray">
+          Cutoff: {formatLocalDateString(state.smsCutoffDate, 'Not set')}
+        </Text>
+      </Flex>
+      <Text size="1" color="gray">
+        Wrong date? Fix it by editing the election date in the campaign form.
+      </Text>
+    </Flex>
+  )
+
   const internalTestingToggle = isInternalEmail(email) && (
     <ProtectedContent
       requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
@@ -199,6 +242,7 @@ function CvPinStatusContent() {
           {committeeNameRow}
           {internalTestingToggle}
         </Flex>
+        {textingWindowRow}
         {state.stage === ComplianceStage.filing_review_hold && (
           <CvValidationHold
             campaignId={campaignId}
@@ -215,23 +259,26 @@ function CvPinStatusContent() {
   }
 
   return (
-    <Flex gap="3" align="center" wrap="wrap">
-      <Badge color="amber" size="2">
-        {state.pinDelivery
-          ? `PIN sent via ${state.pinDelivery.method} to ` +
-            state.pinDelivery.displayString
-          : 'PIN sent, not yet entered'}
-      </Badge>
-      <ProtectedContent
-        requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
-        hideWhenUnauthorized
-      >
-        <ResendCvPinButton
-          campaignId={campaignId}
-          icon={<HiOutlineMail className="w-4 h-4" />}
-        />
-      </ProtectedContent>
-      {committeeNameRow}
+    <Flex direction="column" gap="2">
+      <Flex gap="3" align="center" wrap="wrap">
+        <Badge color="amber" size="2">
+          {state.pinDelivery
+            ? `PIN sent via ${state.pinDelivery.method} to ` +
+              state.pinDelivery.displayString
+            : 'PIN sent, not yet entered'}
+        </Badge>
+        <ProtectedContent
+          requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+          hideWhenUnauthorized
+        >
+          <ResendCvPinButton
+            campaignId={campaignId}
+            icon={<HiOutlineMail className="w-4 h-4" />}
+          />
+        </ProtectedContent>
+        {committeeNameRow}
+      </Flex>
+      {textingWindowRow}
     </Flex>
   )
 }
