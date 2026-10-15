@@ -163,23 +163,19 @@ export default function CampaignManagerTasks({
             {top.map((task, index) => {
               const composeType = composeFlowType(task)
               // gp-api swaps text sends out once texting closes; a text task
-              // still here gets no way into the text flow, just the reason.
-              // TaskCard has no disabled CTA, so the reason is a meta line.
+              // still here keeps its CTA, disabled, with the reason on hover.
               if (composeType === 'text' && smsCompliance === 'closed') {
                 return (
                   <TaskCard
                     key={task.id}
                     overlineLabel={taskLabel(task.flowType)}
                     title={task.title}
-                    meta={[
-                      formatDue(task.date),
-                      SMS_CUTOFF_COPY.closedReason(
-                        smsCutoffDate
-                          ? formatSmsCutoffDate(smsCutoffDate)
-                          : null,
-                      ),
-                    ]}
+                    meta={[formatDue(task.date)]}
                     summary={task.description || undefined}
+                    ctaLabel="Start outreach"
+                    ctaDisabledReason={SMS_CUTOFF_COPY.closedReason(
+                      smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+                    )}
                     onComplete={() => onToggleComplete(task.id, true)}
                     gradient={index === 0}
                   />

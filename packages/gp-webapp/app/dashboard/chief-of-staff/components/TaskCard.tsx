@@ -1,7 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { Button, Card, Overline, cn } from '@styleguide'
+import {
+  Button,
+  Card,
+  Overline,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+} from '@styleguide'
 
 export interface TaskCardProps {
   overlineLabel: string
@@ -15,6 +23,8 @@ export interface TaskCardProps {
   ctaHref?: string
   /** Fires on a CTA click; with no href it is the CTA's whole action. */
   onCta?: () => void
+  /** When set, the CTA renders disabled with this reason on hover. */
+  ctaDisabledReason?: string
   /** When set, renders a secondary "Mark done" action. */
   onComplete?: () => void
   completeDisabled?: boolean
@@ -47,6 +57,7 @@ export default function TaskCard({
   ctaLabel,
   ctaHref,
   onCta,
+  ctaDisabledReason,
   onComplete,
   completeDisabled = false,
   onSkip,
@@ -82,7 +93,18 @@ export default function TaskCard({
 
       <div className="flex flex-col gap-3 pt-2">
         {ctaLabel &&
-          (ctaHref ? (
+          (ctaDisabledReason ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0} className="w-full">
+                  <Button type="button" className="w-full" disabled>
+                    {ctaLabel}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{ctaDisabledReason}</TooltipContent>
+            </Tooltip>
+          ) : ctaHref ? (
             isExternalHref(ctaHref) ? (
               <Button asChild className="w-full">
                 <a

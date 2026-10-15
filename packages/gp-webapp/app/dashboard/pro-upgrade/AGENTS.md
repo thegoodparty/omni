@@ -68,7 +68,9 @@ the paid compliance work.
   row.
 - **Guidance.** Closed: the normal screen under a small info `Alert` ("The
   {cutoff} deadline to get verified for texting has passed."), and the
-  purchase-only list drops its "About 1 to 2 weeks" PIN row. This is the
+  purchase-only list drops its "About 1 to 2 weeks" PIN row and the EIN row's
+  texting clause. The default screen drops "for texting" from its heading and
+  "send texts" from its caption. This is the
   before-purchase explanation. The banner fires `Pro Upgrade - SMS Cutoff
   Notice Viewed`, Continue fires `Completed` (`source` is the launch channel
   or `generic`, plus both dates). Closing: the normal rows under "In order to

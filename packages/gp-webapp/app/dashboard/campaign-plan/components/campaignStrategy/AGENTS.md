@@ -65,8 +65,8 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   `SMS_CUTOFF_COPY.closedReason` on hover, the row drops the action from its
   menu and shows "Texting closed" with the reason on hover, and the legacy
   row disables "Start outreach" the same way. The legacy Home list
-  (`campaign-manager/CampaignManagerTasks.tsx`) drops the card's CTA and
-  shows the reason as a meta line, since `TaskCard` has no disabled CTA.
+  (`campaign-manager/CampaignManagerTasks.tsx`) disables the card's "Start
+  outreach" the same way, through `TaskCard`'s `ctaDisabledReason`.
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.

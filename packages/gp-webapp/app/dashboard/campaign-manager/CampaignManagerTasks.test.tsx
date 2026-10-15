@@ -643,11 +643,44 @@ describe('text cards once texting is closed', () => {
 
     expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
     expect(
-      screen.getByText(/deadline to get verified for texting has passed/),
-    ).toBeInTheDocument()
+      screen.getByRole('button', { name: /start outreach/i }),
+    ).toBeDisabled()
     expect(
       screen.getByRole('button', { name: /mark done/i }),
     ).toBeInTheDocument()
+  })
+
+  it('shows the closed reason on hover', async () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'Send a text blast',
+          flowType: 'text',
+          link: null,
+          date: '2026-10-20T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(
+      <CampaignManagerTasks
+        showMeetCard={false}
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+    await userEvent.hover(
+      screen.getByRole('button', { name: /start outreach/i }).parentElement!,
+    )
+    expect(
+      (
+        await screen.findAllByText(
+          /deadline to get verified for texting has passed/,
+        )
+      ).length,
+    ).toBeGreaterThan(0)
   })
 
   it('still links robocall cards into the hub', () => {

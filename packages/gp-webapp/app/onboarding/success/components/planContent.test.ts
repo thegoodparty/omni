@@ -427,11 +427,6 @@ describe('buildPlanData once texting is closed', () => {
         tactic: 'Robocall',
         purpose: 'Get out the vote on election day.',
       },
-      {
-        date: 'Nov 3, 2026',
-        tactic: 'Robocall',
-        purpose: 'Get out the vote on election day.',
-      },
     ])
   })
 
@@ -445,7 +440,6 @@ describe('buildPlanData once texting is closed', () => {
       ['Nov 2, 2026', 'Robocall'],
       ['Nov 2, 2026', 'Robocall'],
       ['Nov 2, 2026', 'Robocall'],
-      ['Nov 3, 2026', 'Robocall'],
     ])
   })
 
@@ -469,7 +463,7 @@ describe('buildPlanData once texting is closed', () => {
     const plan = closed()
     expect(plan.smsClosed).toBe(true)
     expect(plan.glossary.map((row) => row.term)).not.toContain('Text')
-    expect(plan.planAtAGlance[1]?.body).toMatch(/^7 coordinated robocalls/)
+    expect(plan.planAtAGlance[1]?.body).toMatch(/^6 coordinated robocalls/)
     for (const row of plan.timeline) {
       expect(row.notes).not.toMatch(/\btext\b/i)
     }

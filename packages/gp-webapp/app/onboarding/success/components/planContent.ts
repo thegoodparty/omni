@@ -622,7 +622,8 @@ const buildContactSchedule = (
   smsClosed: boolean,
 ): ContactSend[] => {
   if (!electionDate) return []
-  const sends: ContactSend[] = VOTER_CONTACT_SCHEDULE.map((send) => ({
+  const sends = VOTER_CONTACT_SCHEDULE.map((send) => ({
+    catalogId: send.catalogId,
     date: formatDate(
       voterContactSendDate(send.catalogId, electionDate, planStart) ??
         addDays(electionDate, -send.daysBeforeElection),
@@ -630,15 +631,26 @@ const buildContactSchedule = (
     tactic: send.tactic,
     purpose: send.purpose,
   }))
-  if (!smsClosed) return sends
+  if (!smsClosed) {
+    return sends.map(({ date, tactic, purpose }) => ({ date, tactic, purpose }))
+  }
   // Past the texting cutoff each text send becomes a robocall on its date,
   // unless a robocall already lands that day, matching the tracker's swap.
+  // The election day text is dropped, as the tracker does: its reminder
+  // robocall lands the day before.
   const robocallDates = new Set(
     sends.filter((send) => send.tactic === 'Robocall').map((send) => send.date),
   )
-  return sends.flatMap((send) => {
-    if (send.tactic !== 'Text') return [send]
-    if (robocallDates.has(send.date)) return []
+  return sends.flatMap((send): ContactSend[] => {
+    if (send.tactic !== 'Text') {
+      return [{ date: send.date, tactic: send.tactic, purpose: send.purpose }]
+    }
+    if (
+      send.catalogId === 'election-day-reminder-text' ||
+      robocallDates.has(send.date)
+    ) {
+      return []
+    }
     robocallDates.add(send.date)
     return [
       {
