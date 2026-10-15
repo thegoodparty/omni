@@ -89,9 +89,9 @@ export const sizeOutreachSample = (
   }
 }
 
-export const buildSizeOutreachSampleTool = (): LlmStreamTool<
-  typeof sizeOutreachSampleInput
-> => ({
+export const buildSizeOutreachSampleTool = (
+  options: { textingClosed: boolean } = { textingClosed: false },
+): LlmStreamTool<typeof sizeOutreachSampleInput> => ({
   description:
     'Size a random sample for a text send, the way polls are sized: ' +
     `enough people for about ${SAMPLE_TARGET_REPLIES} replies. Call it ` +
@@ -100,5 +100,13 @@ export const buildSizeOutreachSampleTool = (): LlmStreamTool<
     'the sample and of texting all of them. Use these numbers as given; ' +
     'never work them out yourself.',
   inputSchema: sizeOutreachSampleInput,
-  execute: sizeOutreachSample,
+  execute: (input) =>
+    options.textingClosed
+      ? {
+          error:
+            'Texting is closed for this race: the deadline to get verified ' +
+            'for texting has passed. Do not size or present a text. Pick ' +
+            'door knocking, phone banking or a social post instead.',
+        }
+      : sizeOutreachSample(input),
 })
