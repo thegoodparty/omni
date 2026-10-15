@@ -841,7 +841,8 @@ marked done, or `PANEL_STEP_WINDOW_DAYS` (30) after it started; `skipped`
 for a step nobody started once a later wave exists, or that the official
 skipped (`POST …/steps/:id/skip`, current wave, not started, writes
 `skippedAt`; 409 once started). A skip only reads while nothing was started
-from the step, and its drawn people stay out of later draws. A text that never got
+from the step, and a skipped step's drawn people (if it was prepared) are
+back in later draws. A text that never got
 past checkout (`UNSENT_OUTREACH_STATUSES`) does not count.
 
 **Waves.** `GET` moves the plan: it refreshes each step's links and dates,

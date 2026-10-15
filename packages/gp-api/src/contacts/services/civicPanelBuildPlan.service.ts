@@ -689,7 +689,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   }
 
   // Who no step may draw: anyone an earlier step of any of the office's
-  // plans already drew, and anyone who opted out of the office's texts.
+  // plans already drew (unless it was skipped untouched), and anyone who
+  // opted out of the office's texts.
   // Members, people who left, anyone already invited and anyone reached in
   // the rest window are left out by every step list's own criteria.
   private async excludedPersonIds(
@@ -700,7 +701,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         where: {
           voterFileFilter: {
             organizationSlug: organization.slug,
-            civicPanelBuildStep: { isNot: null },
+            // A step skipped before anything was started from it gives its
+            // people back to later draws.
+            civicPanelBuildStep: {
+              is: { OR: [{ skippedAt: null }, { startedAt: { not: null } }] },
+            },
           },
         },
         select: { personId: true },

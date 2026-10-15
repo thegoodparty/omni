@@ -786,6 +786,24 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/skip', () => {
     expect(res.status).toBe(HttpStatus.CONFLICT)
   })
 
+  it('gives a prepared, skipped step’s people back to later draws', async () => {
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    const draw = stubDraws()
+    const plan = await createPlan(slug, 1)
+    const { data: list } = await prepare(slug, stepOf(plan, 'text').id)
+    const skippedPeople = await sampleIds(list.voterFileFilterId)
+
+    await skip(slug, stepOf(plan, 'text').id)
+    const next = await readPlan(slug)
+    await prepare(slug, stepOf(next, 'text', 2).id)
+
+    const wave2Draw = draw.mock.calls.at(-1)?.[0] as FilterArg
+    expect(notInIds(wave2Draw)).not.toEqual(
+      expect.arrayContaining(skippedPeople.slice(0, 1)),
+    )
+  })
+
   it('makes the next wave once every step was skipped', async () => {
     const slug = await seedOffice()
     stubPools(TEXT_ONLY)
