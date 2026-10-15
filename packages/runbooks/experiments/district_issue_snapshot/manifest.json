@@ -2,7 +2,7 @@
   "$schema": "../_schema/manifest.schema.json",
   "id": "district_issue_snapshot",
   "version": 1,
-  "model": "sonnet",
+  "model": "haiku",
   "max_turns": 60,
   "timeout_seconds": 1200,
   "input_schema": {

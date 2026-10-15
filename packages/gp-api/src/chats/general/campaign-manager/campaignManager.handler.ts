@@ -72,10 +72,7 @@ import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.to
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
-export const CAMPAIGN_MANAGER_MODELS = [
-  'claude-sonnet-4-6',
-  'claude-opus-4-7',
-] as const
+export const CAMPAIGN_MANAGER_MODELS = ['claude-haiku-4-5'] as const
 
 // The scripted opener, seeded as each new conversation's first assistant
 // message so the agent keeps its own greeting in context on later turns.

@@ -35,6 +35,24 @@ export interface ModelRates {
 // because the cost delta is evidence printed beside a verdict and a guessed
 // rate makes it fiction.
 const RATES: Record<string, ModelRates> = {
+  'claude-haiku-4-5': {
+    inputPerMillion: 1,
+    outputPerMillion: 5,
+    cacheReadPerMillion: null,
+    cacheWritePerMillion: null,
+  },
+  'claude-haiku-4-5-20251001': {
+    inputPerMillion: 1,
+    outputPerMillion: 5,
+    cacheReadPerMillion: null,
+    cacheWritePerMillion: null,
+  },
+  haiku: {
+    inputPerMillion: 1,
+    outputPerMillion: 5,
+    cacheReadPerMillion: 0.1,
+    cacheWritePerMillion: 1.25,
+  },
   // Verified against a real turn: 153,773 input + 3,878 output reproduces
   // the harness's own logged turnCostUsd of 0.5195 exactly at these rates.
   'claude-sonnet-4-6': {
