@@ -99,6 +99,19 @@ export const ComposeStep = ({
         body="Confirm the message. We'll adapt this draft to each platform's voice and length in the next steps."
       />
 
+      <FilterPillGroup
+        type="single"
+        value={tone}
+        onValueChange={(value) => value && onToneChange(value as SocialTone)}
+      >
+        {SOCIAL_TONE_VALUES.map((t) => (
+          <FilterPill key={t} value={t} className="gap-1.5">
+            {TONE_ICONS[t]}
+            {TONE_LABELS[t]}
+          </FilterPill>
+        ))}
+      </FilterPillGroup>
+
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">Your draft message</p>
@@ -211,18 +224,6 @@ export const ComposeStep = ({
             </IconButton>
           </div>
         </Card>
-        <FilterPillGroup
-          type="single"
-          value={tone}
-          onValueChange={(value) => value && onToneChange(value as SocialTone)}
-        >
-          {SOCIAL_TONE_VALUES.map((t) => (
-            <FilterPill key={t} value={t} className="gap-1.5">
-              {TONE_ICONS[t]}
-              {TONE_LABELS[t]}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your
