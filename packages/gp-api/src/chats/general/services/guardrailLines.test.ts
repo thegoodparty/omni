@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { ChatScope } from '../../../generated/prisma'
-import { LEGAL_LINE } from '@/chats/general/campaign-manager/campaignManagerPrompt'
 import { COS_GUARDRAIL_DECLINE } from '@/chats/general/chief-of-staff/services/chiefOfStaffPrompt'
 import lines from './guardrailLines.json'
 import {
@@ -37,8 +36,11 @@ describe('guardrailLine', () => {
   })
 
   it('resolves a chat key before the default', () => {
+    expect(guardrailLine('search_provenance', 'campaign_assistant')).toBe(
+      lines.search_provenance.campaign_assistant,
+    )
     expect(guardrailLine('legal_advice', 'campaign_assistant')).toBe(
-      lines.legal_advice.campaign_assistant,
+      lines.legal_advice.default,
     )
   })
 
@@ -126,7 +128,6 @@ describe('guardrailLines.json', () => {
     expect(guardrailLine('scope_decline', 'chief_of_staff')).toBe(
       COS_GUARDRAIL_DECLINE,
     )
-    expect(guardrailLine('legal_advice', 'campaign_assistant')).toBe(LEGAL_LINE)
     expect(guardrailLine('professional_advice', 'chief_of_staff')).toBe(
       PROFESSIONAL_ADVICE_DISCLAIMER,
     )
