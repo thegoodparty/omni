@@ -1012,7 +1012,7 @@ export const SmsFlow = ({
       ? serveIntroFor(t)
       : identificationIntro(
           t,
-          candidateFirstName,
+          candidateFullName,
           campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
   const identificationNames = [
@@ -1023,7 +1023,7 @@ export const SmsFlow = ({
   // this, so the compose step never opens on a candidate_name failure.
   const identificationFor = (t: SocialTone) => ({
     intro: introFor(t),
-    firstName: candidateFirstName,
+    senderName: surface.isServe ? candidateFirstName : candidateFullName,
     candidateNames: identificationNames,
   })
   const withIdentification = (text: string, t: SocialTone): string =>

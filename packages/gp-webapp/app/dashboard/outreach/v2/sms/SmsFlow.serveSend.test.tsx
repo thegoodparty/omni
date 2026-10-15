@@ -619,7 +619,7 @@ describe('SmsFlow win send path (unchanged)', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for City Council\./),
     )
     await attachImage()
     await waitFor(() =>
