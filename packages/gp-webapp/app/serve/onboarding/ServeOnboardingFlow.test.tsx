@@ -380,7 +380,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     }
   })
 
-  it('adds issues that land after the list loads without resetting picks', async () => {
+  it('adds issues that land after the list loads, past a failed check, without resetting picks', async () => {
     resumedAt('priorities')
     let loads = 0
     api.mock('GET /v1/priorities/onboarding', () => {
@@ -399,9 +399,10 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         description: 'Rents are rising fast.',
         selected: false,
       }
+      if (loads === 2) return { status: 500, data: {} }
       return {
         status: 200,
-        data: { options: loads < 2 ? [typed] : [typed, community] },
+        data: { options: loads < 3 ? [typed] : [typed, community] },
       }
     })
     const user = userEvent.setup()

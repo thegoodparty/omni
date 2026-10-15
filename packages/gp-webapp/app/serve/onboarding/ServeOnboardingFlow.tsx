@@ -440,7 +440,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         reportErrorToSentry(err, {
           context: 'serveOnboarding.pollStarterIssues',
         })
-        return
       }
       timer = setTimeout(check, STARTER_ISSUES_POLL_MS)
     }
