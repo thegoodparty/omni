@@ -75,6 +75,20 @@ const PERSON_SPINE_INCLUDE = {
 // forbids — cannot spin.
 const MAX_MERGE_HOPS = 4
 
+// Many people share one district, and a district's cells are recomputed on a
+// daily cadence. The public page fans out one request per visitor, each of which
+// used to read the same (often thousands of) rows on its own pool connection;
+// a burst held all of them for the 20s pool timeout and surfaced as 500s. Reads
+// of one district now share a single in-flight query and its result for a
+// minute. A failed read is dropped at once so it is never replayed.
+const DENSITY_CACHE_TTL_MS = 60_000
+const DENSITY_CACHE_MAX_ENTRIES = 500
+
+type DensityRead = {
+  coverage: number | null
+  cells: VoterDensityCell[]
+}
+
 /** A single precomputed heat-map cell: an H3 centroid and its voter count. */
 export interface VoterDensityCell {
   lat: number
@@ -84,6 +98,11 @@ export interface VoterDensityCell {
 
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {
+  private readonly densityCache = new Map<
+    string,
+    { expiresAtMs: number; read: Promise<DensityRead> }
+  >()
+
   async getPersons(filterDto: PersonFilterDto) {
     const {
       slug,
@@ -301,6 +320,44 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       return { personId, districtId: null, coverage: null, cells: [] }
     }
 
+    const { coverage, cells } = await this.readDistrictDensity(
+      districtId,
+      resolution,
+    )
+    return { personId, districtId, coverage, cells }
+  }
+
+  private readDistrictDensity(
+    districtId: string,
+    resolution: number,
+  ): Promise<DensityRead> {
+    const key = `${districtId}:${resolution}`
+    const now = Date.now()
+    const cached = this.densityCache.get(key)
+    if (cached && cached.expiresAtMs > now) return cached.read
+
+    if (this.densityCache.size >= DENSITY_CACHE_MAX_ENTRIES) {
+      for (const [k, entry] of this.densityCache) {
+        if (entry.expiresAtMs <= now) this.densityCache.delete(k)
+      }
+      if (this.densityCache.size >= DENSITY_CACHE_MAX_ENTRIES) {
+        this.densityCache.clear()
+      }
+    }
+
+    const read = this.queryDistrictDensity(districtId, resolution)
+    const entry = { expiresAtMs: now + DENSITY_CACHE_TTL_MS, read }
+    this.densityCache.set(key, entry)
+    read.catch(() => {
+      if (this.densityCache.get(key) === entry) this.densityCache.delete(key)
+    })
+    return read
+  }
+
+  private async queryDistrictDensity(
+    districtId: string,
+    resolution: number,
+  ): Promise<DensityRead> {
     // The cells and their coverage meta are independent reads on the same key;
     // fetch them together.
     const [rows, meta] = await Promise.all([
@@ -317,8 +374,6 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     ])
 
     return {
-      personId,
-      districtId,
       coverage: meta?.coverage ?? null,
       cells: rows.map((r) => ({ lat: r.lat, lng: r.lng, count: r.voterCount })),
     }
