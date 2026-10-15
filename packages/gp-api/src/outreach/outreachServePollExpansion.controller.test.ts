@@ -227,11 +227,16 @@ describe('POST /v1/outreach/serve/poll/:id/expansions', () => {
     expect(await service.prisma.outreachPollExpansion.count()).toBe(1)
   })
 
-  it('allows the next expansion once the first is approved, at the next sendSeq', async () => {
+  it('409s while the first is approved but not finished, then allows the next at the next sendSeq', async () => {
     const first = await postExpansion(pollId)
     await service.prisma.outreachPollExpansion.update({
       where: { id: first.data.expansionId },
       data: { approvedAt: new Date(), status: OutreachStatus.in_progress },
+    })
+    expect((await postExpansion(pollId)).status).toBe(HttpStatus.CONFLICT)
+    await service.prisma.outreachPollExpansion.update({
+      where: { id: first.data.expansionId },
+      data: { status: OutreachStatus.completed },
     })
 
     const second = await postExpansion(pollId)

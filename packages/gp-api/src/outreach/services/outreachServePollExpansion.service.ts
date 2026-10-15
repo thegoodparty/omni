@@ -29,6 +29,15 @@ const OPEN_EXPANSION_MESSAGE =
   'Another request to gather more feedback on this poll is still waiting. ' +
   'Finish or wait for it first.'
 
+// Open until its recipients are in and its results are back, not only until
+// approval: a next expansion priced while this one is still being delivered
+// would not yet see the people it is about to reach.
+const OPEN_STATUSES: OutreachStatus[] = [
+  OutreachStatus.pending_payment,
+  OutreachStatus.pending,
+  OutreachStatus.in_progress,
+]
+
 const EXPANDABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.in_progress,
   OutreachStatus.completed,
@@ -78,7 +87,7 @@ export class OutreachServePollExpansionService extends createPrismaBase(
     }
 
     const open = await this.model.findFirst({
-      where: { outreachId, approvedAt: null, deniedAt: null },
+      where: { outreachId, status: { in: OPEN_STATUSES } },
       select: { id: true },
     })
     if (open) {
@@ -134,7 +143,7 @@ export class OutreachServePollExpansionService extends createPrismaBase(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`poll_expansion:${outreachId}`}))`
         const stillOpen = await tx.outreachPollExpansion.findFirst({
-          where: { outreachId, approvedAt: null, deniedAt: null },
+          where: { outreachId, status: { in: OPEN_STATUSES } },
           select: { id: true },
         })
         if (stillOpen) {
