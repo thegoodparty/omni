@@ -34,7 +34,7 @@ const envInt = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback
 }
 const robocallDialEstimateBufferMinutes = () =>
-  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 180)
+  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
 const robocallDialSafetyRateDivisor = () =>
   Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 2))
 
