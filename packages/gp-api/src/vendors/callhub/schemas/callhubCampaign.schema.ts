@@ -30,10 +30,12 @@ export const CreateVbCampaignBodySchema = z.object({
   name: z.string(),
   phonebooks: z.array(z.string()),
   // Calls per minute for THIS campaign (top-level, per CallHub's VB campaign
-  // object). The account-wide VB cap is ~60 calls/min SHARED across every
-  // scheduled/running campaign, and CallHub defaults a new campaign to 60 — the
-  // whole pool — so a second campaign's START 400s `over_cps_limit`. Set low so
-  // several coexist under the cap (incident 2026-10-08).
+  // object). The account-wide VB pool is ~120 calls/min SHARED across RUNNING
+  // campaigns (two at 60 each trip `over_cps_limit` when both run — incident
+  // 2026-10-08), and CallHub defaults a new campaign to 60. The serial send
+  // sweep dials one campaign at a time, so a single run can use the whole pool;
+  // the service sets this from `CALLHUB_VB_CALLS_PER_MINUTE` (default 120). Full
+  // rationale is in `callhubCampaign.service.ts`.
   frequency: z.number().int().positive(),
   script: z.object({
     label: z.string(),
