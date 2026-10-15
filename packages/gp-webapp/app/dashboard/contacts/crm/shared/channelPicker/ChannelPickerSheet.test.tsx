@@ -13,6 +13,18 @@ vi.mock('../../ContactsTableProvider', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null as string | null,
+      generalElectionDate: null as string | null,
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
 const DETAIL = {
   demographics: { people: 20081, avgAge: 53, avgIncome: 136384 },
   reachability: {
@@ -43,6 +55,11 @@ beforeEach(() => {
   testQueryClient.clear()
   api.reset()
   vi.clearAllMocks()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
   vi.mocked(useContactsTable).mockReturnValue({
     canUseProFeatures: true,
     isWinContext: true,
@@ -140,6 +157,47 @@ describe('ChannelPickerSheet', () => {
       'Robocall',
       'Social media',
     ])
+  })
+
+  it('disables SMS once texting is closed, moves it last and explains why on hover', async () => {
+    const user = userEvent.setup()
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    api.mock('GET /v1/contacts/list-detail', { status: 200, data: DETAIL })
+
+    render(
+      <ChannelPickerSheet
+        target={{ kind: 'list', segment: { id: 42, name: 'GOTV text list' } }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await screen.findByText('GOTV text list · 20,081 voters')
+    expect(
+      screen
+        .getAllByRole('link')
+        .map((row) => within(row).getByRole('heading').textContent),
+    ).toEqual(['Door knocking', 'Phone banking', 'Robocall', 'Social media'])
+
+    const sms = screen.getByRole('heading', { name: 'SMS' }).parentElement!
+      .parentElement!
+    expect(sms).toHaveAttribute('aria-disabled', 'true')
+    expect(sms.compareDocumentPosition(rowNamed(/^Social media/))).toBe(
+      Node.DOCUMENT_POSITION_PRECEDING,
+    )
+
+    await user.hover(sms)
+
+    expect(
+      (
+        await screen.findAllByText(
+          'The Oct. 15 deadline to get verified for texting has passed.',
+        )
+      ).length,
+    ).toBeGreaterThan(1)
   })
 
   it('uses the recommendation filter and count for an unsaved recommendation', async () => {

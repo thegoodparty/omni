@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -221,6 +221,20 @@ describe('OutreachProposalCard', () => {
     expect(
       await screen.findByText('Texting is not available for your office yet'),
     ).toBeInTheDocument()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('renders no text card on Win once the window has closed', async () => {
+    mockNotSent()
+    flows.mode = 'win'
+    flows.textAvailable = false
+
+    const { container } = renderCard(proposalCard({ channel: 'text' }))
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
+    expect(
+      screen.queryByText('Texting is not available for your office yet'),
+    ).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
   })
 

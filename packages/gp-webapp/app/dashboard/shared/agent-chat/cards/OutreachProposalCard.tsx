@@ -86,13 +86,16 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
       .filter(Boolean)
       .join(' · ')
 
-  // The text flow is not mounted while SMS is off, so there is nothing to
-  // open. Say so rather than offer a button that does nothing.
+  // The text flow is not mounted while SMS is off (Serve), or texting has
+  // closed for this race (Win), so there is nothing to open. Serve says so
+  // rather than offer a button that does nothing; Win drops the card, so the
+  // manager never points a candidate at a channel they cannot use.
   if (
     proposal.channel === 'text' &&
     flows?.textResolved &&
     !flows.textAvailable
   ) {
+    if (mode === 'win') return null
     return (
       <CompactCardStatic
         title={proposal.audience}

@@ -454,6 +454,71 @@ describe('OutreachGate', () => {
     })
   })
 
+  describe('requirement: closed', () => {
+    it('shows the cutoff notice with a way back to outreach', async () => {
+      const user = userEvent.setup()
+      const onExit = vi.fn()
+      render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'closed' })}
+          onExit={onExit}
+        />,
+      )
+
+      expect(
+        screen.getByText(/deadline to get verified for texting has passed/),
+      ).toBeInTheDocument()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.SmsCutoff.NoticeViewed,
+        expect.objectContaining({ surface: 'outreach_gate' }),
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Back to outreach' }))
+
+      expect(onExit).toHaveBeenCalledTimes(1)
+    })
+
+    it('moves a texting upgrade on to the notice when the window closed under it', () => {
+      const onComplete = vi.fn()
+      const { rerender } = render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'pro' })}
+          onComplete={onComplete}
+        />,
+      )
+
+      rerender(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({
+            requirement: 'closed',
+            membership: {
+              tier: 'pro',
+              texting: 'closed',
+              pinDelivery: null,
+              isElectedOffice: false,
+            },
+          })}
+          onComplete={onComplete}
+        />,
+      )
+
+      const latestCall =
+        mockProUpgradeFlow.mock.calls[mockProUpgradeFlow.mock.calls.length - 1]!
+      act(() => latestCall[0].onComplete())
+
+      expect(
+        screen.getByText(/deadline to get verified for texting has passed/),
+      ).toBeInTheDocument()
+      expect(onComplete).not.toHaveBeenCalled()
+    })
+  })
+
   describe('requirement: in_review', () => {
     it('shows the in-review notice and a Back to my {noun} exit button', async () => {
       const user = userEvent.setup()

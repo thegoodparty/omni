@@ -8,9 +8,11 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
 import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { VerificationIntro } from './VerificationIntro'
 import { hasVerificationDraft } from '../verificationDraft'
 import {
+  DETAILS_SAVED_TITLE,
   FILING_CONTACT_CAPTION,
   FILING_CONTACT_TITLE,
   FILING_DETAILS_CAPTION,
@@ -49,6 +51,9 @@ const CampaignVerificationSteps = ({
   completeLabel = 'Done',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
   const [campaign] = useCampaign()
+  // Past the cutoff gp-api still saves the filing but never starts
+  // verification, so the confirmation promises neither.
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
   // `null` until mounted when the caller gives no step: the draft lives in
   // localStorage, which the server render cannot read, so choosing during
   // render would hydrate the intro over a client that wants the form.
@@ -124,18 +129,24 @@ const CampaignVerificationSteps = ({
               <CheckCircleIcon className="size-8 text-primary" aria-hidden />
             </span>
             <div className="flex max-w-[440px] flex-col items-center gap-2">
-              <h1 className="text-2xl font-semibold">{SUBMITTED_TITLE}</h1>
-              <p className="text-[15px] leading-relaxed text-base-muted-foreground">
-                {SUBMITTED_BODY}
-              </p>
+              <h1 className="text-2xl font-semibold">
+                {smsClosed ? DETAILS_SAVED_TITLE : SUBMITTED_TITLE}
+              </h1>
+              {!smsClosed && (
+                <p className="text-[15px] leading-relaxed text-base-muted-foreground">
+                  {SUBMITTED_BODY}
+                </p>
+              )}
             </div>
           </div>
-          <div className="relative mt-4 flex flex-col gap-1.5 rounded-xl border border-base-border bg-card p-4">
-            <p className="text-sm font-semibold">{PIN_NOTICE_TITLE}</p>
-            <p className="text-[13px] leading-relaxed text-base-muted-foreground">
-              {PIN_NOTICE_BODY}
-            </p>
-          </div>
+          {!smsClosed && (
+            <div className="relative mt-4 flex flex-col gap-1.5 rounded-xl border border-base-border bg-card p-4">
+              <p className="text-sm font-semibold">{PIN_NOTICE_TITLE}</p>
+              <p className="text-[13px] leading-relaxed text-base-muted-foreground">
+                {PIN_NOTICE_BODY}
+              </p>
+            </div>
+          )}
           <StepFooter align="center">
             <Button
               size="large"

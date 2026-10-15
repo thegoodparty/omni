@@ -6,6 +6,7 @@ import { EVENTS } from 'helpers/analyticsHelper'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
 import PaymentStep from './PaymentStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 const {
   confirmMock,
@@ -68,7 +69,12 @@ vi.mock('app/shared/sentry', () => ({
   reportErrorToSentry: vi.fn(),
 }))
 
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: vi.fn(),
+}))
+
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
+const mockUseSmsCompliance = vi.mocked(useSmsCompliance)
 const goToStep = vi.fn()
 const goToPreviousStep = vi.fn()
 
@@ -87,6 +93,11 @@ describe('PaymentStep', () => {
       goToPreviousStep,
       exit: vi.fn(),
       complete: vi.fn(),
+    })
+    mockUseSmsCompliance.mockReturnValue({
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
     })
   })
 
@@ -220,5 +231,76 @@ describe('PaymentStep', () => {
     expect(
       await screen.findByText(/already have an active pro subscription/i),
     ).toBeInTheDocument()
+  })
+
+  describe('verification line under the price', () => {
+    const VERIFICATION_LINE =
+      'Verification starts when you pay. Texting usually opens 1 to 2 weeks later.'
+    const CLOSING_LINE =
+      'Finish your upgrade by Oct. 15 to text before your election.'
+
+    const launchFrom = (channel: 'sms' | 'robocall' | null) =>
+      mockUseProUpgradeWizard.mockReturnValue({
+        currentStep: 'payment',
+        purchaseOnly: true,
+        channel,
+        goToStep,
+        goToNextStep: vi.fn(),
+        goToPreviousStep,
+        exit: vi.fn(),
+        complete: vi.fn(),
+      })
+
+    const windowIs = (smsCompliance: 'open' | 'closing' | 'closed') =>
+      mockUseSmsCompliance.mockReturnValue({
+        smsCompliance,
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      })
+
+    beforeEach(() => {
+      api.mock(CHECKOUT_SESSION_ROUTE, {
+        status: 200,
+        data: { clientSecret: 'cs_test_123' },
+      })
+    })
+
+    it.each(['sms', null] as const)(
+      'says verification starts at payment when open (channel %s)',
+      (channel) => {
+        launchFrom(channel)
+        windowIs('open')
+        render(<PaymentStep />)
+
+        expect(screen.getByText(VERIFICATION_LINE)).toBeInTheDocument()
+        expect(screen.queryByText(CLOSING_LINE)).not.toBeInTheDocument()
+      },
+    )
+
+    it('names the cutoff in the closing week', () => {
+      launchFrom(null)
+      windowIs('closing')
+      render(<PaymentStep />)
+
+      expect(screen.getByText(CLOSING_LINE)).toBeInTheDocument()
+      expect(screen.queryByText(VERIFICATION_LINE)).not.toBeInTheDocument()
+    })
+
+    it('says nothing about verification once texting has closed', () => {
+      launchFrom('sms')
+      windowIs('closed')
+      render(<PaymentStep />)
+
+      expect(screen.queryByText(VERIFICATION_LINE)).not.toBeInTheDocument()
+      expect(screen.queryByText(CLOSING_LINE)).not.toBeInTheDocument()
+    })
+
+    it('leaves the line off for a non-texting launch', () => {
+      launchFrom('robocall')
+      windowIs('open')
+      render(<PaymentStep />)
+
+      expect(screen.queryByText(VERIFICATION_LINE)).not.toBeInTheDocument()
+    })
   })
 })
