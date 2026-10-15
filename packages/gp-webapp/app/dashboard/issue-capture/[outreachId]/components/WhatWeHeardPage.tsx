@@ -45,10 +45,10 @@ const toListItem = (memo: FeedbackReportMemo): MemoListItem => ({
   pending: memo.confirmedAt === null,
 })
 
-// The newest five, the rest behind Show more, so the notes do not push the
+// The newest ten, the rest behind Show more, so the notes do not push the
 // page into a scroll of every conversation the effort had. The download is
 // the whole list either way.
-const VISIBLE_NOTES = 5
+const VISIBLE_NOTES = 10
 
 const EveryNote = ({
   memos,

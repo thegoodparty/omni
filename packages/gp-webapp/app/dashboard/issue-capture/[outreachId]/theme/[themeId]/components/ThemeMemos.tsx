@@ -4,8 +4,8 @@ import { Button } from '@styleguide'
 import { whatWeHeardCopy } from '../../../../copy'
 import MemoList from '../../../components/MemoList'
 
-// The report's All notes rule: the newest five, the rest behind Show more.
-const VISIBLE_NOTES = 5
+// The report's All notes rule: the newest ten, the rest behind Show more.
+const VISIBLE_NOTES = 10
 
 // The conversations behind the theme. Confirmed only. On a text send they
 // are the replies themselves.

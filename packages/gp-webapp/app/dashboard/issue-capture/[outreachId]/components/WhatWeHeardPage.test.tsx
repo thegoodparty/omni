@@ -484,13 +484,13 @@ describe('WhatWeHeardPage', () => {
       expect(screen.queryByRole('button', { name: /more theme/ })).toBeNull()
     })
 
-    // The newest five notes show; the rest wait behind Show more.
-    it('shows the first five notes and the rest behind Show more', async () => {
+    // The newest ten notes show; the rest wait behind Show more.
+    it('shows the first ten notes and the rest behind Show more', async () => {
       mockReport(
         report({
           run: run('completed'),
           themes: [theme()],
-          memos: [1, 2, 3, 4, 5, 6, 7].map((n) =>
+          memos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) =>
             memo({
               id: `memo-${n}`,
               personId: `person-${n}`,
@@ -502,12 +502,12 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       await screen.findByText('Note number 1.')
-      expect(screen.getByText('Note number 5.')).toBeInTheDocument()
-      expect(screen.queryByText('Note number 6.')).toBeNull()
+      expect(screen.getByText('Note number 10.')).toBeInTheDocument()
+      expect(screen.queryByText('Note number 11.')).toBeNull()
 
       fireEvent.click(screen.getByRole('button', { name: 'Show 2 more notes' }))
 
-      expect(screen.getByText('Note number 7.')).toBeInTheDocument()
+      expect(screen.getByText('Note number 12.')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: /more note/ })).toBeNull()
     })
 

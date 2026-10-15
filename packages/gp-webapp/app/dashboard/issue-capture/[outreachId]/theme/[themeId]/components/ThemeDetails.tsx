@@ -84,9 +84,7 @@ const ThemeDetails = ({
                   className="flex items-center justify-between gap-4 border-border py-2 text-sm text-foreground not-first:border-t"
                 >
                   <span>{outcome}</span>
-                  <span className="font-semibold tabular-nums">
-                    {count.toLocaleString()}
-                  </span>
+                  <span className="tabular-nums">{count.toLocaleString()}</span>
                 </li>
               ))}
             </ul>
