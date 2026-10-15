@@ -387,11 +387,11 @@ describe('PurchaseService', () => {
         calculateAmount: vi.fn().mockResolvedValue(2500),
         // No getProductName provided
       }
-      service.registerPurchaseHandler(PurchaseType.POLL, mockHandler)
+      service.registerPurchaseHandler(PurchaseType.TEXT, mockHandler)
 
       mockStripeService.createCustomCheckoutSession.mockResolvedValue({
-        id: 'cs_test_poll',
-        clientSecret: 'cs_secret_poll',
+        id: 'cs_test_text',
+        clientSecret: 'cs_secret_text',
         amount: 25,
       })
 
@@ -399,8 +399,8 @@ describe('PurchaseService', () => {
       await service.createCheckoutSession({
         user: mockUser,
         dto: {
-          type: PurchaseType.POLL,
-          metadata: { pollId: 123 },
+          type: PurchaseType.TEXT,
+          metadata: { outreachId: 123 },
         },
         metadata: {},
       })
@@ -411,7 +411,7 @@ describe('PurchaseService', () => {
       ).toHaveBeenCalledWith(
         { id: mockUser.id, email: mockUser.email, customerId: undefined },
         expect.objectContaining({
-          productName: 'Poll Credits',
+          productName: 'SMS Outreach',
         }),
       )
     })
@@ -562,7 +562,7 @@ describe('PurchaseService', () => {
     it('is a no-op for a purchase type with nothing to unwind', async () => {
       const session = mockCheckoutSession({
         id: 'cs_failed',
-        metadata: { purchaseType: PurchaseType.POLL },
+        metadata: { purchaseType: PurchaseType.SERVE_TEXT },
       })
 
       await expect(

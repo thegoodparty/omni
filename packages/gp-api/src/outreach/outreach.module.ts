@@ -281,6 +281,10 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // The queue consumer's `outreachTextSend` case calls `requestSend` on
     // this; QueueConsumerModule imports OutreachModule to reach it.
     OutreachTextDeliveryService,
+    // The onboarding poll (`POST /polls/initial-poll`, PollsModule) writes a
+    // poll outreach and claims it into the CAS queue through these two.
+    OutreachServePollCreateService,
+    OutreachServeSmsPurchaseHandlerService,
   ],
 })
 export class OutreachModule {

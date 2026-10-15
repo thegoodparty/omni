@@ -49,13 +49,8 @@ export type TextDeliverySlackMessageArgs = {
  * Posts a text send's recipient CSV to the fulfilment channel so a human can
  * send the messages.
  *
- * Deliberately a copy of the block structure of `sendTevynAPIPollMessage`
- * rather than a shared call: polls moves onto this helper in a later wave, and
- * until then the two coexist. Two differences from the poll version:
- *
- * 1. It ends with a per-send button pointing at the gp-admin results upload
- *    page instead of an `aws s3 cp` command fulfilment has to type correctly.
- * 2. The re-send note is keyed on `sendSeq > 1`.
+ * The message ends with a per-send button pointing at the gp-admin results
+ * upload page, and the re-send note is keyed on `sendSeq > 1`.
  *
  * Routing note: this posts to the existing `SlackChannel.botTevynApi` channel
  * on purpose. Channel ids come from env, and preview inherits the dev

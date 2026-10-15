@@ -12,6 +12,7 @@ import {
   Query,
   UsePipes,
 } from '@nestjs/common'
+import { type ServePollCreateResponse } from '@goodparty_org/contracts'
 import {
   ElectedOffice,
   Organization,
@@ -28,18 +29,21 @@ import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
+import { OutreachServePollCreateService } from 'src/outreach/services/outreachServePollCreate.service'
+import { OutreachServeSmsPurchaseHandlerService } from 'src/outreach/services/outreachServeSmsPurchase.service'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
-import { v7 as uuidv7 } from 'uuid'
 import z from 'zod'
 import { APIPoll, APIPollIssue, derivePollStatus } from './polls.types'
 import { AnalyzePollBiasDto } from './schemas/analyzePollBias.schema'
-import { CreatePollDto } from './schemas/poll.schema'
+import { CreateInitialPollDto } from './schemas/poll.schema'
 import { PollBiasAnalysisService } from './services/pollBiasAnalysis.service'
 import { PollIssuesService } from './services/pollIssues.service'
 import { PollResponsesDownloadService } from './services/pollResponsesDownload.service'
 import { PollsService } from './services/polls.service'
 import { BiasAnalysisResponse } from './types/pollBias.types'
+
+const INITIAL_POLL_SIZE = 500
 
 class ListPollsQueryDTO extends createZodDto(
   z.object({
@@ -97,6 +101,8 @@ export class PollsController {
     private readonly s3Service: S3Service,
     private readonly contactService: ContactsService,
     private readonly pollResponsesDownloadService: PollResponsesDownloadService,
+    private readonly serveCreate: OutreachServePollCreateService,
+    private readonly serveSmsPurchase: OutreachServeSmsPurchaseHandlerService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(this.constructor.name)
@@ -124,21 +130,29 @@ export class PollsController {
   @Get('has-polls')
   @UseElectedOffice()
   async hasPolls(@ReqElectedOffice() electedOffice: ElectedOffice) {
-    const userHasPolls: boolean = await this.pollsService.hasPolls(
-      electedOffice.id,
-    )
+    const userHasPolls: boolean =
+      await this.pollsService.hasPolls(electedOffice)
     return { hasPolls: userHasPolls }
   }
 
+  // The onboarding poll is a poll outreach claimed straight to `pending`: it
+  // is free, so there is no checkout, and staff approval in the admin queue is
+  // what sends it.
   @Post('initial-poll')
   @UseElectedOffice()
   @UseOrganization()
   async createInitialPoll(
+    @ReqUser() user: User,
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Body()
-    { message, imageUrl, swornInDate, scheduledDate }: CreatePollDto,
+    {
+      question,
+      imageUrl,
+      swornInDate,
+      scheduledLocalDate,
+    }: CreateInitialPollDto,
     @ReqOrganization() organization: Organization,
-  ) {
+  ): Promise<ServePollCreateResponse> {
     electedOffice = await this.electedOfficeService.update({
       where: { id: electedOffice.id },
       data: {
@@ -147,7 +161,7 @@ export class PollsController {
     })
 
     const [userHasPolls, districtStats] = await Promise.all([
-      this.pollsService.hasPolls(electedOffice.id),
+      this.pollsService.hasPolls(electedOffice),
       this.contactService.getDistrictStats(organization),
     ])
     if (userHasPolls) {
@@ -162,17 +176,29 @@ export class PollsController {
       )
     }
 
-    const poll = await this.pollsService.create({
-      id: uuidv7(),
-      name: 'Top Community Issues',
-      scheduledDate: scheduledDate ? new Date(scheduledDate) : new Date(),
-      messageContent: message,
-      imageUrl,
-      electedOfficeId: electedOffice.id,
-      targetAudienceSize: 500,
-    })
+    const created = await this.serveCreate.createPoll(
+      electedOffice,
+      user,
+      await this.serveCreate.resolveOffice(electedOffice),
+      {
+        topic: 'custom',
+        question,
+        imageUrl: imageUrl ?? undefined,
+        audience: { kind: 'sample', size: INITIAL_POLL_SIZE },
+        scheduledLocalDate,
+        biasOverridden: false,
+      },
+    )
 
-    return toAPIPoll(poll)
+    await this.serveSmsPurchase.executePostPurchase(
+      `free_confirmed_${Date.now()}`,
+      {
+        outreachId: created.outreachId,
+        organizationSlug: electedOffice.organizationSlug,
+      },
+    )
+
+    return created
   }
 
   @Get('/:pollId/download-responses')

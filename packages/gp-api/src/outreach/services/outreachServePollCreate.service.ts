@@ -50,6 +50,23 @@ export class OutreachServePollCreateService extends createPrismaBase(
     super()
   }
 
+  // Office name is prompt enrichment only, so a lookup failure must not fail
+  // the draft or the create; the text then names the official alone.
+  async resolveOffice(
+    electedOffice: Pick<ElectedOffice, 'organizationSlug'>,
+  ): Promise<string> {
+    try {
+      return (
+        (await this.organizationsService.resolvePositionNameByOrganizationSlug(
+          electedOffice.organizationSlug,
+        )) ?? ''
+      )
+    } catch (err) {
+      this.logger.warn({ err }, 'office resolution failed for serve poll')
+      return ''
+    }
+  }
+
   composeMessage(
     question: string,
     official: Pick<User, 'firstName' | 'lastName'>,

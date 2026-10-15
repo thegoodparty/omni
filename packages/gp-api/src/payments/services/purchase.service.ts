@@ -439,8 +439,6 @@ export class PurchaseService {
         return 'Domain Registration'
       case PurchaseType.TEXT:
         return 'SMS Outreach'
-      case PurchaseType.POLL:
-        return 'Poll Credits'
       default:
         return 'Purchase'
     }
@@ -547,8 +545,6 @@ export class PurchaseService {
       // payment-type map rather than anything about Serve SMS.
       case PurchaseType.SERVE_TEXT:
         return PaymentType.OUTREACH_PURCHASE
-      case PurchaseType.POLL:
-        return PaymentType.POLL
       default:
         throw new Error(`No payment type mapping for: ${purchaseType}`)
     }

@@ -104,10 +104,8 @@ export interface RequestSendResult {
 }
 
 /**
- * The shape fulfilment already receives from polls (`buildCsvFromContacts`
- * in queueConsumer.service.ts). Kept byte-identical so the human on the other
- * end of the handoff does not learn a second format when polls moves onto
- * this layer.
+ * The recipient CSV shape fulfilment receives. Kept stable so the human on
+ * the other end of the handoff never has to learn a second format.
  */
 const CSV_COLUMNS = ['id', 'firstName', 'lastName', 'cellPhone'] as const
 

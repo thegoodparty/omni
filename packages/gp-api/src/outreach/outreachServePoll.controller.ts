@@ -32,7 +32,6 @@ import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { FeaturesService } from '@/features/services/features.service'
-import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { SERVE_SELF_SERVE_POLLS_FLAG } from '@/shared/util/serveSelfServePollsFlag.util'
@@ -59,7 +58,6 @@ export class OutreachServePollController {
     private readonly draftService: OutreachServePollDraftService,
     private readonly createService: OutreachServePollCreateService,
     private readonly profileContext: OutreachServeComposeContextService,
-    private readonly organizations: OrganizationsService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
   ) {
@@ -76,21 +74,6 @@ export class OutreachServePollController {
     }
   }
 
-  // Office name is prompt enrichment only, so a lookup failure must not fail
-  // the draft or the create; the text then names the official alone.
-  private async resolveOffice(electedOffice: ElectedOffice): Promise<string> {
-    try {
-      return (
-        (await this.organizations.resolvePositionNameByOrganizationSlug(
-          electedOffice.organizationSlug,
-        )) ?? ''
-      )
-    } catch (err) {
-      this.logger.warn({ err }, 'office resolution failed for serve poll')
-      return ''
-    }
-  }
-
   @Post('poll/draft')
   @ResponseSchema(ServePollDraftResponseSchema)
   async draft(
@@ -101,7 +84,7 @@ export class OutreachServePollController {
   ): Promise<ServePollDraftResponse> {
     await this.assertFeatureEnabled(user)
     const [office, context] = await Promise.all([
-      this.resolveOffice(electedOffice),
+      this.createService.resolveOffice(electedOffice),
       this.profileContext.buildProfileContext(electedOffice.userId),
     ])
     return this.draftService.generateQuestion(
@@ -123,7 +106,7 @@ export class OutreachServePollController {
     input: ServePollCreate,
   ): Promise<ServePollCreateResponse> {
     await this.assertFeatureEnabled(user)
-    const office = await this.resolveOffice(electedOffice)
+    const office = await this.createService.resolveOffice(electedOffice)
     const created = await this.createService.createPoll(
       electedOffice,
       user,

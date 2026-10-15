@@ -1,7 +1,9 @@
 import { StatsResponse } from '@/contacts/contacts.types'
+import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { useTestService } from '@/test-service'
-import { Poll } from '../generated/prisma'
+import { addDays, format, isWeekend } from 'date-fns'
 import { v7 as uuidv7 } from 'uuid'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PollBiasAnalysisService } from './services/pollBiasAnalysis.service'
@@ -9,6 +11,20 @@ import { PollBiasAnalysisService } from './services/pollBiasAnalysis.service'
 const service = useTestService()
 
 const getStats = vi.fn(ContactsService.prototype.getDistrictStats)
+
+const sampleContacts = vi.fn()
+
+const people = (count: number) =>
+  Array.from({ length: count }, (_, index) => ({
+    id: `person-${index}`,
+    cellPhone: `512555${String(index).padStart(4, '0')}`,
+  }))
+
+const validDate = (): string => {
+  let date = addDays(new Date(), 14)
+  while (isWeekend(date)) date = addDays(date, 1)
+  return format(date, 'yyyy-MM-dd')
+}
 
 let eoOrgSlug: string
 
@@ -56,6 +72,18 @@ beforeEach(async () => {
 
   const contacts = service.app.get(ContactsService)
   vi.spyOn(contacts, 'getDistrictStats').mockImplementation(getStats)
+  sampleContacts
+    .mockReset()
+    .mockImplementation(async ({ size }) => people(size))
+  vi.spyOn(contacts, 'sampleContacts').mockImplementation(sampleContacts)
+  vi.spyOn(
+    service.app.get(ContactInteractionTextService),
+    'findOptedOutPersonIds',
+  ).mockResolvedValue([])
+  vi.spyOn(
+    service.app.get(OrganizationsService),
+    'resolvePositionNameByOrganizationSlug',
+  ).mockResolvedValue('City Council Member')
 })
 
 describe('POST /polls/initial-poll', () => {
@@ -63,14 +91,24 @@ describe('POST /polls/initial-poll', () => {
     headers: { 'x-organization-slug': eoOrgSlug },
   })
 
-  it.each([{ message: '', swornInDate: '2025-01-01' }])(
+  const body = (overrides: Record<string, unknown> = {}) => ({
+    question: 'What issues do you think should be our top priority?',
+    swornInDate: '2025-01-01',
+    scheduledLocalDate: validDate(),
+    ...overrides,
+  })
+
+  const postInitial = (overrides: Record<string, unknown> = {}) =>
+    service.client.post<{ outreachId: number; recipientCount: number }>(
+      '/v1/polls/initial-poll',
+      body(overrides),
+      eoHeaders(),
+    )
+
+  it.each([{ question: '' }, { scheduledLocalDate: 'tomorrow' }])(
     'blocks bad input',
-    async (payload) => {
-      const result = await service.client.post(
-        '/v1/polls/initial-poll',
-        payload,
-        eoHeaders(),
-      )
+    async (overrides) => {
+      const result = await postInitial(overrides)
       expect(result).toMatchObject({
         status: 400,
         data: { message: 'Validation failed' },
@@ -83,14 +121,7 @@ describe('POST /polls/initial-poll', () => {
       totalConstituents: 499,
       totalConstituentsWithCellPhone: 499,
     } as StatsResponse)
-    const result = await service.client.post(
-      '/v1/polls/initial-poll',
-      {
-        message: 'This is a test message',
-        swornInDate: '2025-01-01',
-      },
-      eoHeaders(),
-    )
+    const result = await postInitial()
     expect(result).toMatchObject({
       status: 400,
       data: {
@@ -100,64 +131,81 @@ describe('POST /polls/initial-poll', () => {
     })
   })
 
-  it('creates a poll when campaign has no positionId', async () => {
-    await service.prisma.campaign.updateMany({
-      where: { userId: service.user.id },
-      data: { details: {} },
-    })
-
-    const result = await service.client.post(
-      '/v1/polls/initial-poll',
-      {
-        message: 'This is a test message',
-        swornInDate: '2025-01-01',
-      },
-      eoHeaders(),
-    )
+  it('creates a poll outreach held for review and no legacy poll', async () => {
+    const result = await postInitial()
 
     expect(result).toMatchObject({
       status: 201,
+      data: { outreachId: expect.any(Number), recipientCount: 500 },
+    })
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: result.data.outreachId },
+      include: { pollDetails: true },
+    })
+    expect(outreach).toMatchObject({
+      organizationSlug: eoOrgSlug,
+      campaignId: null,
+      outreachType: 'poll',
+      status: 'pending',
+      textCount: 500,
+      pollDetails: { topic: 'custom', audienceKind: 'sample' },
+    })
+    expect(outreach.message).toContain(
+      'What issues do you think should be our top priority?',
+    )
+    expect(await service.prisma.poll.count()).toBe(0)
+  })
+
+  it('sizes the poll to the sample left after the opt-out scrub', async () => {
+    sampleContacts.mockImplementation(async () => people(497))
+
+    const result = await postInitial()
+
+    expect(result.data.recipientCount).toBe(497)
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: result.data.outreachId },
+    })
+    expect(outreach.textCount).toBe(497)
+  })
+
+  it('rejects a second initial poll', async () => {
+    await postInitial()
+
+    const second = await postInitial()
+
+    expect(second).toMatchObject({
+      status: 409,
       data: {
-        id: expect.any(String),
+        message: 'You already have a poll. You cannot create an initial poll.',
       },
     })
   })
 
-  it('creates a poll', async () => {
-    const result = await service.client.post(
-      '/v1/polls/initial-poll',
-      {
-        message: 'This is a test message',
-        swornInDate: '2025-01-01',
-      },
-      eoHeaders(),
-    )
+  it('reports has-polls once the poll outreach is submitted', async () => {
+    const before = await service.client.get('/v1/polls/has-polls', eoHeaders())
+    expect(before.data).toEqual({ hasPolls: false })
 
-    expect(result).toMatchObject({
-      status: 201,
+    await postInitial()
+
+    const after = await service.client.get('/v1/polls/has-polls', eoHeaders())
+    expect(after.data).toEqual({ hasPolls: true })
+  })
+
+  it('does not count an unsubmitted poll draft as having a poll', async () => {
+    await service.prisma.outreach.create({
       data: {
-        id: expect.any(String),
+        organizationSlug: eoOrgSlug,
+        outreachType: 'poll',
+        status: 'pending_payment',
+        name: 'Poll',
+        message: 'draft',
+        textCount: 500,
       },
     })
 
-    // Appears in list
-    const fetched = await service.client.get<{ results: Poll[] }>(
-      `/v1/polls`,
-      eoHeaders(),
-    )
-    expect(fetched.data.results).toContainEqual(
-      expect.objectContaining({ id: result.data.id }),
-    )
+    const result = await service.client.get('/v1/polls/has-polls', eoHeaders())
 
-    // Can be fetched by ID
-    const fetchedById = await service.client.get(
-      `/v1/polls/${result.data.id}`,
-      eoHeaders(),
-    )
-    expect(fetchedById).toMatchObject({
-      status: 200,
-      data: result.data,
-    })
+    expect(result.data).toEqual({ hasPolls: false })
   })
 })
 
