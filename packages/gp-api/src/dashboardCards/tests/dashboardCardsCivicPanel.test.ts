@@ -92,7 +92,7 @@ const buildCard = {
   type: 'civic_panel',
   title: 'Start with the people you represent',
   ctaLabel: 'Build my panel',
-  ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
+  ctaHref: '/dashboard/contacts/citizens-panel',
 }
 
 describe('GET /v1/dashboard/cards: the civic panel build card', () => {

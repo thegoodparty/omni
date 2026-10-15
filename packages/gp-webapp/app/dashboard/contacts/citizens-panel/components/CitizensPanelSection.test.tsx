@@ -65,7 +65,7 @@ describe('CitizensPanelSection', () => {
     ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
   })
 
-  it('points to the Chief of Staff when nobody has joined yet', async () => {
+  it('points to the panel page when nobody has joined yet', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
       data: {
@@ -83,7 +83,7 @@ describe('CitizensPanelSection', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Build your civic panel' }),
-    ).toHaveAttribute('href', '/dashboard/chief-of-staff')
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
     expect(
       screen.queryByRole('link', { name: 'See your panel' }),
     ).not.toBeInTheDocument()

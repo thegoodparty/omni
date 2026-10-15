@@ -5,13 +5,21 @@ import { GeoJsonPolygonSchema } from '../doorKnocking/DoorKnockingTurf.schema'
 // Building the civic panel across texts, calls and doors, in waves
 // (/v1/contacts/civic-panel/plan). Texts are cheap and go first; calls reach
 // the residents a text cannot; doors cover one or two walkable areas. The
-// official gives one number, the hours they and their volunteers have this
-// month, and every size below follows from it.
+// official gives one number, the hours they can give each week (at least
+// one: a text alone does not build a panel), and every size below follows
+// from it.
 
 // The panel page, the plan's home. A step's link opens it on that step.
 export const CIVIC_PANEL_PAGE_HREF = '/dashboard/contacts/citizens-panel'
 
-// A volunteer's pace on the panel ask, including the conversation. Slower
+// The weekly time a plan asks of the official. Never 0: their own calls and
+// doors reach the residents a text misses. A wave is sized from about a
+// month of it.
+export const PANEL_MIN_HOURS_PER_WEEK = 1
+export const PANEL_MAX_HOURS_PER_WEEK = 20
+export const PANEL_WEEKS_PER_WAVE = 4
+
+// The official's pace on the panel ask, including the conversation. Slower
 // than a turnout walk (45 doors an hour) because every door that answers is
 // asked a question and may want it explained.
 export const PANEL_CALLS_PER_HOUR = 15
@@ -23,7 +31,7 @@ export const PANEL_DOORS_PER_HOUR = 20
 export const PANEL_CALL_ASSUMED_JOIN_RATE = 0.05
 export const PANEL_DOOR_ASSUMED_JOIN_RATE = 0.1
 
-// How the month's hours divide when both calls and doors are possible.
+// How a wave's hours divide when both calls and doors are possible.
 export const PANEL_DOOR_SHARE_OF_HOURS = 0.5
 
 // One walkable area is about an evening's knocking, and a wave asks for at
@@ -74,7 +82,8 @@ export type CivicPanelBuildPlanStatus = z.infer<
 // waiting_on_replies: a text that went out, until its replies are in.
 // done: replies in (or their window passed); calls or knocks logged for
 //   everyone on the list, the list or walk marked done, or its window passed.
-// skipped: never started, and a later wave went ahead without it.
+// skipped: never started, and the official skipped it or a later wave went
+//   ahead without it.
 export const CIVIC_PANEL_BUILD_STEP_STATUSES = [
   'not_started',
   'in_progress',
@@ -90,10 +99,22 @@ export type CivicPanelBuildStepStatus = z.infer<
 >
 
 export const CreateCivicPanelBuildPlanInputSchema = z.object({
-  hoursPerMonth: z.number().int().min(0).max(200),
+  hoursPerWeek: z
+    .number()
+    .int()
+    .min(PANEL_MIN_HOURS_PER_WEEK)
+    .max(PANEL_MAX_HOURS_PER_WEEK),
 })
 export type CreateCivicPanelBuildPlanInput = z.infer<
   typeof CreateCivicPanelBuildPlanInputSchema
+>
+
+// PATCH /v1/contacts/civic-panel/plan: a new answer to the weekly time question.
+// Waves made from now on are sized from it; the current one stays as it is.
+export const UpdateCivicPanelBuildPlanInputSchema =
+  CreateCivicPanelBuildPlanInputSchema
+export type UpdateCivicPanelBuildPlanInput = z.infer<
+  typeof UpdateCivicPanelBuildPlanInputSchema
 >
 
 // targetSize is residents to text, residents to call, or households to
@@ -131,7 +152,7 @@ export const CivicPanelBuildPlanSchema = z.object({
   id: z.string(),
   status: CivicPanelBuildPlanStatusSchema,
   goalMembers: z.number().int(),
-  hoursPerMonth: z.number().int(),
+  hoursPerWeek: z.number().int(),
   currentWave: z.number().int(),
   createdAt: zDate(),
   completedAt: zDate().nullable(),

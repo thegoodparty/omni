@@ -190,7 +190,9 @@ const PHONE_BANKING_COUNT_OVERLAY = { hasAnyPhone: true }
 
 // The purpose union across every surface the flow can render — same
 // convention as SocialFlow's SocialFlowPurpose.
-type PhoneBankingFlowPurpose = PhoneBankingPurpose | ServePhoneBankingPurpose
+export type PhoneBankingFlowPurpose =
+  | PhoneBankingPurpose
+  | ServePhoneBankingPurpose
 
 interface PhoneBankingFlowDraftInput {
   purpose: PhoneBankingFlowPurpose
@@ -319,6 +321,9 @@ interface PhoneBankingFlowProps {
   // A script already written, from a chat card's outreach proposal. Opens on
   // the who step under `custom`, the same seed SmsFlow's `initialScript` is.
   initialScript?: string
+  // Opens past the purpose picker on this purpose and drafts for it, as an
+  // entry that already answered it (a civic panel plan's call step).
+  initialPurpose?: PhoneBankingFlowPurpose
   // The list name a chat card proposal already knows, so the script step does
   // not stop on an empty required field. Editable like any typed name.
   initialName?: string
@@ -352,6 +357,7 @@ export const PhoneBankingFlow = ({
   preselectedListId,
   preselectedRecommendedVariant,
   initialScript,
+  initialPurpose,
   initialName,
   proposedAudience,
   proposalLink,
@@ -532,10 +538,12 @@ export const PhoneBankingFlow = ({
     // tap on the card would.
     // A seeded script wins over a carried purpose: the words are already
     // chosen, so drafting for a purpose would throw them away.
-    const carriedPurpose =
-      !initialScript && preselectedRecommendedVariant
-        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-        : null
+    const carriedPurpose = initialScript
+      ? null
+      : (initialPurpose ??
+        (preselectedRecommendedVariant
+          ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+          : null))
     // The list is not resolved yet, so this lands on the who step at most;
     // the preselection below moves on to the script once it resolves.
     setStepId(
@@ -597,6 +605,7 @@ export const PhoneBankingFlow = ({
     draftMutate,
     preselectedRecommendedVariant,
     initialScript,
+    initialPurpose,
     initialName,
   ])
 

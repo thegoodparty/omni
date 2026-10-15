@@ -11,6 +11,7 @@ import {
   PANEL_SEED_ASSUMED_JOIN_RATE,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   PANEL_UNSTARTED_STEP_DAYS,
+  PANEL_WEEKS_PER_WAVE,
   type CivicPanelBuildChannel,
   type CivicPanelBuildNext,
   type CivicPanelBuildStepStatus,
@@ -40,22 +41,23 @@ export const CHANNEL_ORDER: CivicPanelBuildChannel[] = [
 const asksFor = (joins: number, rate: number) =>
   Math.ceil(Number((joins / rate).toFixed(6)))
 
-// One wave, sized to the members still missing. Doors and calls spend the
-// month's hours (doors take their share up to two walkable areas, the rest
-// goes to calls) and are never sized past what the gap needs; texts cover
-// whatever gap the calls and doors are not expected to fill. A channel with
-// no hours or nobody to reach gets no step.
+// One wave, sized to the members still missing. Doors and calls spend about
+// a month of the official's weekly time (doors take their share up to two
+// walkable areas, the rest goes to calls) and are never sized past what the
+// gap needs; texts cover whatever gap the calls and doors are not expected
+// to fill. A channel nobody can be reached on gets no step.
 export const sizePanelWave = ({
   gap,
-  hoursPerMonth,
+  hoursPerWeek,
   pools,
 }: {
   gap: number
-  hoursPerMonth: number
+  hoursPerWeek: number
   pools: PanelWavePools
 }): PlannedStep[] => {
   if (gap <= 0) return []
-  const doorHours = hoursPerMonth * PANEL_DOOR_SHARE_OF_HOURS
+  const hours = hoursPerWeek * PANEL_WEEKS_PER_WAVE
+  const doorHours = hours * PANEL_DOOR_SHARE_OF_HOURS
   const doors = Math.max(
     0,
     Math.min(
@@ -65,7 +67,7 @@ export const sizePanelWave = ({
       asksFor(gap, PANEL_DOOR_ASSUMED_JOIN_RATE),
     ),
   )
-  const callHours = hoursPerMonth - doors / PANEL_DOORS_PER_HOUR
+  const callHours = hours - doors / PANEL_DOORS_PER_HOUR
   const callGap = gap - doors * PANEL_DOOR_ASSUMED_JOIN_RATE
   const calls =
     callGap <= 0
@@ -230,17 +232,21 @@ export type StepTimeline = {
   startedAt: Date | null
   completedAt: Date | null
   expectedRepliesBy: Date | null
+  skippedAt: Date | null
 }
 
 // A step's status from what the plan read last wrote onto it. `superseded`
-// is true once a later wave exists.
+// is true once a later wave exists. A skip only holds while nothing was
+// started from the step: a list used anyway reads as what was done with it.
 export const stepStatus = (
   step: StepTimeline,
   superseded: boolean,
   now: Date,
 ): CivicPanelBuildStepStatus => {
   if (step.completedAt) return 'done'
-  if (!step.startedAt) return superseded ? 'skipped' : 'not_started'
+  if (!step.startedAt) {
+    return step.skippedAt || superseded ? 'skipped' : 'not_started'
+  }
   if (step.channel !== 'text' || !step.expectedRepliesBy) return 'in_progress'
   const sendsOn = subBusinessDays(
     step.expectedRepliesBy,
@@ -249,13 +255,16 @@ export const stepStatus = (
   return isBefore(now, sendsOn) ? 'in_progress' : 'waiting_on_replies'
 }
 
-// Whether the next wave can go: every step is done, or the rest of the
-// wave is done and whatever nobody started has waited long enough.
+// Whether the next wave can go: every step is done or skipped, or the rest
+// of the wave is done and whatever nobody started has waited long enough.
+// Skipping every step asks for the next wave straight away.
 export const waveIsDue = (
-  steps: (StepTimeline & { status: CivicPanelBuildStepStatus })[],
+  wave: (StepTimeline & { status: CivicPanelBuildStepStatus })[],
   now: Date,
 ): boolean => {
-  if (steps.length === 0) return false
+  if (wave.length === 0) return false
+  const steps = wave.filter((s) => s.status !== 'skipped')
+  if (steps.length === 0) return true
   if (steps.some((s) => s.status !== 'done' && s.status !== 'not_started')) {
     return false
   }
@@ -271,15 +280,15 @@ export const waveIsDue = (
 }
 
 const READY_LINES: Record<CivicPanelBuildChannel, string> = {
-  text: 'Text residents an invite to your civic panel',
-  phone_banking: 'Call residents and invite them to your civic panel',
-  door_knocking: 'Knock on doors and invite residents to your civic panel',
+  text: 'Invite residents to your civic panel by text',
+  phone_banking: 'Call residents to invite them to your civic panel',
+  door_knocking: 'Knock on doors to invite residents to your civic panel',
 }
 
 const IN_PROGRESS_LINES: Record<CivicPanelBuildChannel, string> = {
   text: 'Your civic panel invite is on its way',
-  phone_banking: 'Keep calling residents about your civic panel',
-  door_knocking: 'Keep knocking on doors for your civic panel',
+  phone_banking: 'Finish your civic panel calls',
+  door_knocking: 'Finish knocking on doors for your civic panel',
 }
 
 const dayOf = (date: Date) => format(date, 'EEEE, MMMM d')
@@ -337,7 +346,7 @@ export const nextStep = (
       stepId: waiting.id,
       channel: waiting.channel,
       status: waiting.status,
-      line: `Replies to your invite arrive by ${dayOf(waiting.expectedRepliesBy)}`,
+      line: `Replies to your civic panel invite should be in by ${dayOf(waiting.expectedRepliesBy)}`,
       href: null,
     }
   }

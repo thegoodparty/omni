@@ -133,10 +133,10 @@ const setPanel = (slug: string, personId: string, value: CivicPanelStatus) =>
 
 const headers = (slug: string) => ({ [ORG_SLUG_HEADER]: slug })
 
-const createPlan = (slug: string, hoursPerMonth: number) =>
+const createPlan = (slug: string, hoursPerWeek: number) =>
   service.client.post<CivicPanelBuildPlanResponse>(
     '/v1/contacts/civic-panel/plan',
-    { hoursPerMonth },
+    { hoursPerWeek },
     { headers: headers(slug), validateStatus: () => true },
   )
 
@@ -190,16 +190,18 @@ const sendText = (
   })
 
 const LARGE = { cell: 58_000, phone: 20_000, door: 60_000 }
+// Nobody to call or visit, so every wave is one text.
+const TEXT_ONLY = { cell: 58_000, phone: 0, door: 0 }
 
 describe('POST /v1/contacts/civic-panel/plan', () => {
-  it('texts only with no hours, sized from the gap at the cold rate', async () => {
+  it('texts the gap at the cold rate when nobody can be called or visited', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
+    stubPools(TEXT_ONLY)
     for (let i = 0; i < 10; i++) {
       await setPanel(slug, randomUUID(), CivicPanelStatus.member)
     }
 
-    const res = await createPlan(slug, 0)
+    const res = await createPlan(slug, 1)
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.progress).toEqual({ members: 10, goal: 100 })
@@ -212,7 +214,7 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     ).toEqual([{ channel: 'text', targetSize: 3_000, status: 'not_started' }])
     expect(res.data.next).toMatchObject({
       channel: 'text',
-      line: 'Text residents an invite to your civic panel',
+      line: 'Invite residents to your civic panel by text',
     })
   })
 
@@ -220,7 +222,7 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     const slug = await seedOffice()
     stubPools(LARGE)
 
-    const res = await createPlan(slug, 4)
+    const res = await createPlan(slug, 1)
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(
@@ -240,7 +242,7 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     const slug = await seedOffice()
     stubPools({ cell: 900, phone: 20_000, door: 60_000 })
 
-    const res = await createPlan(slug, 40)
+    const res = await createPlan(slug, 10)
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(
@@ -260,7 +262,7 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     const slug = await seedOffice()
     stubPools({ cell: 58_000, phone: 0, door: 60_000 })
 
-    const res = await createPlan(slug, 4)
+    const res = await createPlan(slug, 1)
 
     expect(res.data.plan?.steps.map((s) => s.channel)).toEqual([
       'text',
@@ -270,11 +272,11 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
 
   it('keeps one active plan per office', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
+    stubPools(TEXT_ONLY)
 
     const [first, second] = await Promise.all([
-      createPlan(slug, 0),
-      createPlan(slug, 0),
+      createPlan(slug, 1),
+      createPlan(slug, 1),
     ])
 
     expect([first.status, second.status].sort()).toEqual([
@@ -288,10 +290,18 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     ).toBe(1)
   })
 
+  it('400s for no weekly time: a text alone does not build a panel', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+
+    expect((await createPlan(slug, 0)).status).toBe(HttpStatus.BAD_REQUEST)
+    expect((await createPlan(slug, 21)).status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
   it('400s for an organization that is not an office', async () => {
     const slug = await seedOffice('campaign')
 
-    expect((await createPlan(slug, 0)).status).toBe(HttpStatus.BAD_REQUEST)
+    expect((await createPlan(slug, 1)).status).toBe(HttpStatus.BAD_REQUEST)
     expect((await readPlan(slug)).status).toBe(HttpStatus.BAD_REQUEST)
   })
 
@@ -299,7 +309,7 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     const slug = await seedOffice()
     flagOff()
 
-    expect((await createPlan(slug, 0)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await createPlan(slug, 1)).status).toBe(HttpStatus.NOT_FOUND)
     expect((await readPlan(slug)).status).toBe(HttpStatus.NOT_FOUND)
     expect((await prepare(slug, randomUUID())).status).toBe(
       HttpStatus.NOT_FOUND,
@@ -325,7 +335,7 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
 describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
   it('draws a text step away from members, leavers, the invited, opt-outs and the recently reached', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
+    stubPools(TEXT_ONLY)
     const member = randomUUID()
     const left = randomUUID()
     const invited = randomUUID()
@@ -367,7 +377,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
         manual: true,
       },
     })
-    const plan = await createPlan(slug, 0)
+    const plan = await createPlan(slug, 1)
     const draw = stubDraws()
 
     const res = await prepare(slug, stepOf(plan, 'text').id)
@@ -399,8 +409,8 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
 
   it('returns the same list when pressed again', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
-    const plan = await createPlan(slug, 0)
+    stubPools(TEXT_ONLY)
+    const plan = await createPlan(slug, 1)
     const draw = stubDraws()
     const stepId = stepOf(plan, 'text').id
 
@@ -414,7 +424,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
   it('never draws one person twice across channels', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)
-    const plan = await createPlan(slug, 4)
+    const plan = await createPlan(slug, 1)
     const draw = stubDraws()
     stubDoors(60)
 
@@ -460,7 +470,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
         electedOfficeId: theirOffice.id,
         organizationSlug: theirs,
         goalMembers: 100,
-        hoursPerMonth: 0,
+        hoursPerWeek: 1,
         steps: {
           create: { wave: 1, channel: 'text', targetSize: 3_334 },
         },
@@ -483,9 +493,9 @@ const sampleIds = (voterFileFilterId: number) =>
 describe('step status and waves', () => {
   it('reads a text from scheduled to waiting on replies to done', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
+    stubPools(TEXT_ONLY)
     stubDraws()
-    const plan = await createPlan(slug, 0)
+    const plan = await createPlan(slug, 1)
     const stepId = stepOf(plan, 'text').id
     const { data: list } = await prepare(slug, stepId)
     const send = await sendText(
@@ -511,7 +521,7 @@ describe('step status and waves', () => {
     expect(stepOf(waiting, 'text').status).toBe('waiting_on_replies')
     expect(waiting.data.next).toMatchObject({ href: null, stepId })
     expect(waiting.data.next?.line).toMatch(
-      /^Replies to your invite arrive by /,
+      /^Replies to your civic panel invite should be in by /,
     )
 
     await service.prisma.outreach.update({
@@ -524,9 +534,9 @@ describe('step status and waves', () => {
 
   it('ignores a text that never got past checkout', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
+    stubPools(TEXT_ONLY)
     stubDraws()
-    const plan = await createPlan(slug, 0)
+    const plan = await createPlan(slug, 1)
     const { data: list } = await prepare(slug, stepOf(plan, 'text').id)
     await sendText(
       slug,
@@ -545,7 +555,7 @@ describe('step status and waves', () => {
     stubPools(LARGE)
     stubDraws()
     stubDoors(60)
-    const plan = await createPlan(slug, 4)
+    const plan = await createPlan(slug, 1)
     const { data: list } = await prepare(slug, stepOf(plan, 'phone_banking').id)
     const calls = await service.prisma.phoneBankingList.create({
       data: {
@@ -581,7 +591,7 @@ describe('step status and waves', () => {
     stubPools(LARGE)
     stubDraws()
     stubDoors(60)
-    const plan = await createPlan(slug, 4)
+    const plan = await createPlan(slug, 1)
     const { data: list } = await prepare(slug, stepOf(plan, 'door_knocking').id)
     if (!list.area) throw new Error('a door step draws an area')
     const turf = await service.prisma.doorKnockingTurf.create({
@@ -617,9 +627,9 @@ describe('step status and waves', () => {
 
   it('makes the next wave once the last is done, once, sized to the gap', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
+    stubPools(TEXT_ONLY)
     const draw = stubDraws()
-    const plan = await createPlan(slug, 0)
+    const plan = await createPlan(slug, 1)
     const { data: list } = await prepare(slug, stepOf(plan, 'text').id)
     await sendText(
       slug,
@@ -657,8 +667,8 @@ describe('step status and waves', () => {
 
   it('closes the plan once the panel reaches its goal', async () => {
     const slug = await seedOffice()
-    stubPools(LARGE)
-    await createPlan(slug, 0)
+    stubPools(TEXT_ONLY)
+    await createPlan(slug, 1)
     for (let i = 0; i < 100; i++) {
       await setPanel(slug, randomUUID(), CivicPanelStatus.member)
     }
@@ -668,5 +678,159 @@ describe('step status and waves', () => {
     expect(res.data.plan?.status).toBe('completed')
     expect(res.data.next).toBeNull()
     expect(res.data.progress).toEqual({ members: 100, goal: 100 })
+  })
+})
+
+const changeHours = (slug: string, hoursPerWeek: number) =>
+  service.client.patch<CivicPanelBuildPlanResponse>(
+    '/v1/contacts/civic-panel/plan',
+    { hoursPerWeek },
+    { headers: headers(slug), validateStatus: () => true },
+  )
+
+const skip = (slug: string, stepId: string) =>
+  service.client.post<CivicPanelBuildPlanResponse>(
+    `/v1/contacts/civic-panel/plan/steps/${stepId}/skip`,
+    {},
+    { headers: headers(slug), validateStatus: () => true },
+  )
+
+describe('PATCH /v1/contacts/civic-panel/plan', () => {
+  it('keeps the current wave and sizes the next one from the new hours', async () => {
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    stubDraws()
+    stubDoors(300)
+    const plan = await createPlan(slug, 1)
+
+    stubPools(LARGE)
+    const changed = await changeHours(slug, 2)
+
+    expect(changed.status).toBe(HttpStatus.OK)
+    expect(changed.data.plan?.hoursPerWeek).toBe(2)
+    expect(changed.data.plan?.steps).toEqual(plan.data.plan?.steps)
+
+    const { data: list } = await prepare(slug, stepOf(plan, 'text').id)
+    await sendText(
+      slug,
+      list.voterFileFilterId,
+      subDays(new Date(), 20),
+      OutreachStatus.completed,
+    )
+    const next = await readPlan(slug)
+    expect(next.data.plan?.currentWave).toBe(2)
+    expect(
+      next.data.plan?.steps.filter((s) => s.wave === 2).map((s) => s.channel),
+    ).toEqual(['text', 'phone_banking', 'door_knocking'])
+  })
+
+  it('404s when the office has no plan', async () => {
+    const slug = await seedOffice()
+
+    const res = await changeHours(slug, 4)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('400s for hours out of range', async () => {
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    await createPlan(slug, 1)
+
+    expect((await changeHours(slug, 0)).status).toBe(HttpStatus.BAD_REQUEST)
+    expect((await changeHours(slug, 50)).status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('404s with the civic panel flag off', async () => {
+    const slug = await seedOffice()
+    flagOff()
+
+    const res = await changeHours(slug, 4)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/contacts/civic-panel/plan/steps/:id/skip', () => {
+  it('skips a step nobody started, and next moves past it', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDoors(60)
+    const plan = await createPlan(slug, 1)
+    const textId = stepOf(plan, 'text').id
+
+    const res = await skip(slug, textId)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(stepOf(res, 'text').status).toBe('skipped')
+    expect(res.data.next).toMatchObject({
+      channel: 'phone_banking',
+      status: 'not_started',
+    })
+    const again = await skip(slug, textId)
+    expect(again.status).toBe(HttpStatus.OK)
+  })
+
+  it('409s for a step already started', async () => {
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    stubDraws()
+    const plan = await createPlan(slug, 1)
+    const stepId = stepOf(plan, 'text').id
+    const { data: list } = await prepare(slug, stepId)
+    await sendText(slug, list.voterFileFilterId, addDays(new Date(), 10))
+    await readPlan(slug)
+
+    const res = await skip(slug, stepId)
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+  })
+
+  it('gives a prepared, skipped step’s people back to later draws', async () => {
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    const draw = stubDraws()
+    const plan = await createPlan(slug, 1)
+    const { data: list } = await prepare(slug, stepOf(plan, 'text').id)
+    const skippedPeople = await sampleIds(list.voterFileFilterId)
+
+    await skip(slug, stepOf(plan, 'text').id)
+    const next = await readPlan(slug)
+    await prepare(slug, stepOf(next, 'text', 2).id)
+
+    const wave2Draw = draw.mock.calls.at(-1)?.[0] as FilterArg
+    expect(notInIds(wave2Draw)).not.toEqual(
+      expect.arrayContaining(skippedPeople.slice(0, 1)),
+    )
+    // Nor can the skipped step hand its old list out again.
+    expect((await prepare(slug, stepOf(plan, 'text').id)).status).toBe(
+      HttpStatus.CONFLICT,
+    )
+  })
+
+  it('makes the next wave once every step was skipped', async () => {
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    const plan = await createPlan(slug, 1)
+
+    await skip(slug, stepOf(plan, 'text').id)
+    const res = await readPlan(slug)
+
+    expect(res.data.plan?.currentWave).toBe(2)
+    expect(stepOf(res, 'text', 1).status).toBe('skipped')
+    expect(stepOf(res, 'text', 2).status).toBe('not_started')
+    // The new wave waits on its own steps: reading again makes no third.
+    expect((await readPlan(slug)).data.plan?.currentWave).toBe(2)
+  })
+
+  it('404s for another office’s step', async () => {
+    const theirs = await seedOffice()
+    stubPools(TEXT_ONLY)
+    const plan = await createPlan(theirs, 1)
+    const mine = await seedOffice()
+
+    const res = await skip(mine, stepOf(plan, 'text').id)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 })

@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useSearchParams } from 'next/navigation'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
@@ -118,12 +117,6 @@ const message = (
 const REPLY =
   'A civic panel is a group of residents who said yes to a text about once a month.'
 
-const arriveWith = (params: string) => {
-  vi.mocked(useSearchParams).mockReturnValue(
-    new URLSearchParams(params) as ReturnType<typeof useSearchParams>,
-  )
-}
-
 beforeEach(() => {
   createMock.mockReset().mockResolvedValue({ conversationId: 'conv-panel' })
   listConversationsMock.mockReset().mockResolvedValue([])
@@ -155,65 +148,9 @@ beforeEach(() => {
       message('u1', 'user', BUILD_CITIZENS_PANEL_MESSAGE),
       message('a1', 'assistant', REPLY),
     ])
-  vi.mocked(router.replace!).mockReset()
   panelsFlag.ready = true
   panelsFlag.enabled = true
   window.localStorage.clear()
-})
-
-afterEach(() => {
-  vi.mocked(useSearchParams).mockReturnValue(
-    new URLSearchParams() as ReturnType<typeof useSearchParams>,
-  )
-})
-
-describe('DashboardContent: Build my panel on the civic panel card', () => {
-  it('opens the chat on the home, started by a turn the official never sees', async () => {
-    arriveWith('chat=build_citizens_panel')
-    render(<DashboardContent />)
-
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
-      ),
-    )
-    // The real chat body mounts here, which is slow on a cold run. Found and
-    // checked in one callback: the streamed reply's node is swapped for the
-    // saved transcript's once it lands, so an element found a moment earlier
-    // can already be detached by the time a separate assertion reads it.
-    await waitFor(
-      () => {
-        expect(listMessagesMock).toHaveBeenCalled()
-        expect(screen.getByText(REPLY)).toBeInTheDocument()
-      },
-      { timeout: 5000 },
-    )
-    expect(screen.queryByText(/Help me build my civic panel/)).toBeNull()
-    expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff', {
-      scroll: false,
-    })
-  })
-
-  it('opens nothing with serve-citizen-panels off', async () => {
-    panelsFlag.enabled = false
-    arriveWith('chat=build_citizens_panel')
-    render(<DashboardContent />)
-
-    await waitFor(() =>
-      expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff', {
-        scroll: false,
-      }),
-    )
-    expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(screen.queryByText('Chief of Staff')).toBeNull()
-  })
-
-  it('opens nothing on a plain visit', () => {
-    render(<DashboardContent />)
-
-    expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(router.replace).not.toHaveBeenCalled()
-  })
 })
 
 describe("DashboardContent: What's a civic panel? on the build card", () => {
@@ -263,22 +200,19 @@ describe("DashboardContent: What's a civic panel? ends on its next step", () => 
     return user
   }
 
-  it('offers Build my panel to an office with no panel, and builds in the same conversation', async () => {
+  it('offers Build my panel to an office with no panel, which opens the panel page', async () => {
+    vi.mocked(router.push!).mockClear()
     const user = await explain()
 
     const cta = await screen.findByRole('button', { name: 'Build my panel' })
     await user.click(cta)
 
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv-panel',
-          content: BUILD_CITIZENS_PANEL_MESSAGE,
-        }),
-      ),
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/contacts/citizens-panel',
     )
-    expect(createMock).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText(/Help me build my civic panel/)).toBeNull()
+    expect(streamMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
+    )
     expect(completedACard()).toBe(false)
   })
 
@@ -366,18 +300,19 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     },
   )
 
-  it('Build your civic panel starts the build turn unseen', async () => {
+  it('Build your civic panel opens the panel page', async () => {
+    vi.mocked(router.push!).mockClear()
     const user = await meet()
     await user.click(
       screen.getByRole('button', { name: /Build your civic panel/ }),
     )
 
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
-      ),
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/contacts/citizens-panel',
     )
-    expect(screen.queryByText(/Help me build my civic panel/)).toBeNull()
+    expect(streamMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
+    )
     expect(completedACard()).toBe(false)
   })
 

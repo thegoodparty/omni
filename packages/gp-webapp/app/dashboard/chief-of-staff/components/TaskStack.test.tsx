@@ -237,7 +237,7 @@ describe('<TaskStack>', () => {
     summary:
       'A civic panel is a group of residents who agree to tell you what they think before you decide.',
     ctaLabel: 'Build my panel',
-    ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
+    ctaHref: '/dashboard/contacts/citizens-panel',
     dueDate: '2026-10-21T18:00:00.000Z',
     sourceExternalId: 'build:eo-1',
   })
@@ -313,14 +313,10 @@ describe('<TaskStack>', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: 'People first' }),
     ).toBeInTheDocument()
-    // Build my panel stays on the home: it opens the chat there, never the
-    // outreach page.
+    // Build my panel opens the panel page, where the plan is made.
     expect(
       screen.getByRole('link', { name: 'Build my panel' }),
-    ).toHaveAttribute(
-      'href',
-      '/dashboard/chief-of-staff?chat=build_citizens_panel',
-    )
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
 
     withCards([card({})])
     rerender(<TaskStack onOpenCard={vi.fn()} />)

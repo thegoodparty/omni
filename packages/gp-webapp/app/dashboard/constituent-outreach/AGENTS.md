@@ -100,9 +100,9 @@ generation services, the spine scoping — are in
   `@UseElectedOffice()` is still the real check.
 - **`?compose=text&purpose=build_citizens_panel` opens the panel invite
   directly.** The Chief of Staff's civic panel build card no
-  longer links here (it opens the Chief of Staff chat on the home, whose
-  proposal card opens the same flow over the conversation), but the link
-  still works for anything that sends it. Once both `serve-sms-outreach` and
+  longer links here (it opens the panel page, whose text step opens the
+  same flow on the step's own list), but the link still works for anything
+  that sends it. Once both `serve-sms-outreach` and
   `serve-citizen-panels` have resolved, the page strips the params and opens
   the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
   district's cell phones (`hasCellPhone`, the one filter, which is also what

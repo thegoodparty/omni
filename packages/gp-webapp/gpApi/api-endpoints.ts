@@ -128,6 +128,10 @@ import type {
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
   CivicPanelRepresentation,
+  CivicPanelBuildPlanResponse,
+  CreateCivicPanelBuildPlanInput,
+  UpdateCivicPanelBuildPlanInput,
+  PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1560,6 +1564,28 @@ export type APIEndpoints = {
   'GET /v1/contacts/civic-panel/representation': {
     Request: {}
     Response: CivicPanelRepresentation
+  }
+  // The plan that builds the panel across texts, calls and doors. Reading
+  // it is what moves it on (links, dates, the next wave).
+  'GET /v1/contacts/civic-panel/plan': {
+    Request: {}
+    Response: CivicPanelBuildPlanResponse
+  }
+  'POST /v1/contacts/civic-panel/plan': {
+    Request: CreateCivicPanelBuildPlanInput
+    Response: CivicPanelBuildPlanResponse
+  }
+  'PATCH /v1/contacts/civic-panel/plan': {
+    Request: UpdateCivicPanelBuildPlanInput
+    Response: CivicPanelBuildPlanResponse
+  }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/prepare': {
+    Request: {}
+    Response: PrepareCivicPanelBuildStepResponse
+  }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
+    Request: {}
+    Response: CivicPanelBuildPlanResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}

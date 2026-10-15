@@ -1,13 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
-  CIVIC_PANEL_BUILD_CHAT_PARAM,
-  CIVIC_PANEL_BUILD_CHAT_VALUE,
+  CIVIC_PANEL_PAGE_HREF,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
@@ -16,7 +15,7 @@ import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanel
 import { Button } from '@styleguide'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
-import { chiefOfStaffArchiveHref, chiefOfStaffHref } from '../routes'
+import { chiefOfStaffArchiveHref } from '../routes'
 import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
@@ -62,14 +61,7 @@ export default function DashboardContent(): React.JSX.Element {
 
   const firstName = user?.firstName || undefined
 
-  // The build card's Build my panel links back here with the param, so the
-  // official stays on the home: the chat opens on the conversation that
-  // builds the panel, started by a turn they never see.
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const buildPanelParam =
-    searchParams?.get(CIVIC_PANEL_BUILD_CHAT_PARAM) ===
-    CIVIC_PANEL_BUILD_CHAT_VALUE
   const { ready: panelsReady, enabled: panelsEnabled } =
     useServeCitizenPanelsFlag(false)
   // The panel's members pick the civic panel step: build one, or ask it.
@@ -79,16 +71,6 @@ export default function DashboardContent(): React.JSX.Element {
     enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
   })
   const panelMembers = panelsEnabled ? panelSummary?.members : undefined
-
-  useEffect(() => {
-    if (!buildPanelParam || !panelsReady) return
-    router.replace(chiefOfStaffHref(), { scroll: false })
-    if (!panelsEnabled) return
-    setOpenerKey(null)
-    setInitialConversationId(null)
-    setPendingKickoff(BUILD_CITIZENS_PANEL_MESSAGE)
-    setChatOpen(true)
-  }, [buildPanelParam, panelsReady, panelsEnabled, router])
 
   const openNewChat = () => {
     setOpenerKey(null)
@@ -123,12 +105,16 @@ export default function DashboardContent(): React.JSX.Element {
   )
   const intro = useMemo(() => buildChiefOfStaffIntro(firstName), [firstName])
 
+  // The panel is built on its own page, which asks the hours question or
+  // shows the plan already made.
+  const openPanelPage = () => router.push(CIVIC_PANEL_PAGE_HREF)
+
   // The intro ends on a question, answered by these cards. The priorities
   // card asks its own question and a kickoff answers something already, so
   // neither gets them; the panel explainer gets its one next step instead.
   const explaining = pendingKickoff === EXPLAIN_CIVIC_PANEL_MESSAGE
   const explainStep = explaining
-    ? civicPanelExplainNextStep(panelMembers)
+    ? civicPanelExplainNextStep(panelMembers, openPanelPage)
     : undefined
   const suggestions = explaining
     ? explainStep
@@ -139,6 +125,7 @@ export default function DashboardContent(): React.JSX.Element {
       : buildChiefOfStaffNextSteps({
           panelsEnabled: panelsReady && panelsEnabled,
           panelMembers,
+          onBuildPanel: openPanelPage,
           onDraftOrdinance: () => router.push(ORDINANCE_NEW_HREF),
         })
 
