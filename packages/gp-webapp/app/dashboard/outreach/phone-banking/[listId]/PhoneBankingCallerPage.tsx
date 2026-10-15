@@ -1,5 +1,6 @@
 'use client'
 
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -91,6 +92,9 @@ export default function PhoneBankingCallerPage({
   listId,
   surface,
 }: PhoneBankingCallerPageProps): React.JSX.Element {
+  // The white title bar rides issue capture's flag with the rest of this
+  // change. Read without exposure: the capture card is the treatment.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -280,7 +284,12 @@ export default function PhoneBankingCallerPage({
       >
         {/* White like every other page's title bar (DashboardNavHeader);
             unset, the dashboard's gray canvas showed through. */}
-        <div className="flex items-center justify-between gap-2 border-b border-border bg-background px-4 py-3">
+        <div
+          className={cn(
+            'flex items-center justify-between gap-2 border-b border-border px-4 py-3',
+            issueCaptureOn && 'bg-background',
+          )}
+        >
           <div className="flex min-w-0 items-center gap-2">
             <IconButton
               asChild

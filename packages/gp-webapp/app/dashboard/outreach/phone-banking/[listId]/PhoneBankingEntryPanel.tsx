@@ -1,5 +1,6 @@
 'use client'
 
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useEffect } from 'react'
 import {
   type PhoneBankingCallResult,
@@ -123,6 +124,10 @@ export default function PhoneBankingEntryPanel({
   onSaved,
   callDrafts,
 }: PhoneBankingEntryPanelProps): React.JSX.Element {
+  // The step drawer's 92dvh and handle ride issue capture's flag; off, the
+  // panel keeps main's. Read without exposure: the capture card is the
+  // treatment.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   const isMobile = useIsMobile()
   const person =
     entry.persons.find((candidate) => candidate.personId === activePersonId) ??
@@ -310,8 +315,16 @@ export default function PhoneBankingEntryPanel({
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="flex h-[92dvh] flex-col overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:max-h-[92dvh]">
-          <DrawerHandle className="mt-3 h-1.5 w-[120px]" />
+        <DrawerContent
+          className={
+            issueCaptureOn
+              ? 'flex h-[92dvh] flex-col overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:max-h-[92dvh]'
+              : 'flex h-[85dvh] max-h-[85dvh] flex-col overflow-hidden p-0'
+          }
+        >
+          <DrawerHandle
+            className={issueCaptureOn ? 'mt-3 h-1.5 w-[120px]' : undefined}
+          />
           <DrawerHeader className="sr-only">
             <DrawerTitle>{person.name}</DrawerTitle>
           </DrawerHeader>

@@ -53,6 +53,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { VoterFileFilters } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { FetchError } from 'ofetch'
@@ -416,6 +417,10 @@ export const OutreachDetailsDrawer = ({
   // report is per turf, so a door-knocking campaign gets the drawer-level
   // link only when it IS one turf; with several, the row's id names just
   // the anchor's, and each turf card below carries its own link instead.
+  // Issue capture's flag, read without exposure: the capture card is the
+  // treatment. It also decides the footer's shape, so with it off the footer
+  // is the one main shipped.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   const reportOutreachId = isPhoneBanking
     ? (row?.id ?? null)
     : isDoorKnocking && campaignTurfs.length === 1
@@ -610,7 +615,7 @@ export const OutreachDetailsDrawer = ({
   // shares the second row with Mark campaign done or the archive shelf.
   // Side by side on a desktop, one under the other on a phone.
   const heardAction = (size?: 'large', className?: string) =>
-    reportOutreachId === null ? null : (
+    reportOutreachId === null || !issueCaptureOn ? null : (
       <WhatWeHeardAction
         outreachId={reportOutreachId}
         isServe={isServe}
@@ -938,7 +943,7 @@ export const OutreachDetailsDrawer = ({
                         <Button
                           // Ghost beside What we heard: two outlines side by side read
                           // as two equal choices, and this is the quieter one.
-                          variant="ghost"
+                          variant={issueCaptureOn ? 'ghost' : 'outline'}
                           className="w-full"
                           disabled={campaignLifecycle.pendingAction !== null}
                           onClick={() => setMarkCampaignDoneOpen(true)}

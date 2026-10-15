@@ -14,10 +14,6 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachDetailQueryKey } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import PhoneBankingCallerPage from './PhoneBankingCallerPage'
 
-// The answers open in a step drawer over the panel, and a modal hides
-// whatever is under it, so the one dialog a query can see is the one in front.
-const topDialog = () => screen.getByRole('dialog')
-
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
 }))
@@ -316,7 +312,7 @@ describe('<PhoneBankingCallerPage>', () => {
     // both names with a comma) — clicking it bubbles to that row's button.
     await user.click(await screen.findByText('Casey Household'))
 
-    await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog')
 
     // Opening the panel on Casey (the entry's first person, so no tab click
     // needed to select them) fires Contact Viewed with the entry's rank.
@@ -326,22 +322,18 @@ describe('<PhoneBankingCallerPage>', () => {
     )
 
     await user.click(
-      within(topDialog()).getByRole('tab', { name: /Casey Household/ }),
+      within(dialog).getByRole('tab', { name: /Casey Household/ }),
     )
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Answered' }),
-    )
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Engaged' }),
-    )
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
     // Will-vote only appears once a support answer is picked — click support
     // Yes first (the only "Yes" on screen), then will-vote's own Yes appears.
-    await user.click(within(topDialog()).getByRole('radio', { name: 'Yes' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
     const willVoteYes = (
-      await within(topDialog()).findAllByRole('radio', { name: 'Yes' })
+      await within(dialog).findAllByRole('radio', { name: 'Yes' })
     )[1]!
     await user.click(willVoteYes)
-    await user.click(within(topDialog()).getByRole('button', { name: 'Save' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(capturedRequest).toBeDefined())
     expect(capturedRequest).toMatchObject({
@@ -373,11 +365,9 @@ describe('<PhoneBankingCallerPage>', () => {
     // cascade form, not Casey's just-saved summary — and re-fires Contact
     // Viewed for the newly active person.
     await user.click(
-      within(topDialog()).getByRole('tab', { name: /Robin Household/ }),
+      within(dialog).getByRole('tab', { name: /Robin Household/ }),
     )
-    expect(
-      within(topDialog()).getByText('Did they answer?'),
-    ).toBeInTheDocument()
+    expect(within(dialog).getByText('Did they answer?')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.ContactViewed,
       { product: 'win', listId: LIST_ID, contactId: 'house-b', listRank: 2 },
@@ -386,6 +376,129 @@ describe('<PhoneBankingCallerPage>', () => {
 
   // The form is keyed on the person, so a tab switch remounts it. Answers
   // not yet saved are kept for the session and come back with the tab.
+  it('keeps unsaved answers across a switch to a housemate and back', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    api.mock('POST /v1/phone-banking/lists/:id/calls', () => {
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 2,
+        results: [
+          {
+            personId: 'house-a',
+            interaction: {
+              outcome: 'no_answer',
+              supportAnswer: null,
+              willVote: null,
+              followUp: null,
+              joinCivicPanel: null,
+              stayOnCivicPanel: null,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+    await user.click(screen.getByText('Casey Household, Robin Household'))
+    await user.click(await screen.findByText('Casey Household'))
+    const dialog = await screen.findByRole('dialog')
+    const tab = (name: RegExp) => within(dialog).getByRole('tab', { name })
+    const radio = (name: string) => within(dialog).getByRole('radio', { name })
+
+    await user.click(radio('Answered'))
+    await user.click(radio('Engaged'))
+    await user.click(radio('Yes'))
+    await user.click(tab(/Robin Household/))
+    expect(radio('Answered')).not.toBeChecked()
+    await user.click(tab(/Casey Household/))
+
+    expect(radio('Answered')).toBeChecked()
+    expect(radio('Engaged')).toBeChecked()
+    // Support's Yes, and the will-vote row it opened, unanswered.
+    const [supportYes, willVoteYes] = within(dialog).getAllByRole('radio', {
+      name: 'Yes',
+    })
+    expect(supportYes).toBeChecked()
+    expect(willVoteYes).not.toBeChecked()
+
+    // Saved answers are the server's from then on, not the stash's.
+    await user.click(radio('No answer'))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await within(dialog).findByRole('button', {
+      name: "Edit this call's outcome",
+    })
+    await user.click(tab(/Robin Household/))
+    await user.click(tab(/Casey Household/))
+    expect(
+      within(dialog).getByRole('button', { name: "Edit this call's outcome" }),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText('Did they answer?')).toBeNull()
+  })
+
+  // Save on a slow connection, then a tap on the housemate before the
+  // answer lands: the form has already unmounted with its answers, and the
+  // save that lands afterwards is what has to drop them.
+  it('drops the unsaved answers of a call whose save lands after a switch', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    let land: () => void = () => undefined
+    const landed = new Promise<void>((resolve) => {
+      land = resolve
+    })
+    api.mock('POST /v1/phone-banking/lists/:id/calls', async () => {
+      await landed
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 2,
+        results: [
+          {
+            personId: 'house-a',
+            interaction: {
+              outcome: 'no_answer',
+              supportAnswer: null,
+              willVote: null,
+              followUp: null,
+              joinCivicPanel: null,
+              stayOnCivicPanel: null,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+    await user.click(screen.getByText('Casey Household, Robin Household'))
+    await user.click(await screen.findByText('Casey Household'))
+    const dialog = await screen.findByRole('dialog')
+    const tab = (name: RegExp) => within(dialog).getByRole('tab', { name })
+
+    await user.click(within(dialog).getByRole('radio', { name: 'No answer' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await user.click(tab(/Robin Household/))
+    land()
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.PhoneBanking.CallLogged,
+        expect.objectContaining({ contactId: 'house-a' }),
+      ),
+    )
+    await user.click(tab(/Casey Household/))
+
+    expect(
+      await within(dialog).findByRole('button', {
+        name: "Edit this call's outcome",
+      }),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText('Did they answer?')).toBeNull()
+  })
+
   it('fires Call Sheet Downloaded from the header PDF button', async () => {
     const user = userEvent.setup()
     mockGetList(buildList())
@@ -438,25 +551,25 @@ describe('<PhoneBankingCallerPage>', () => {
     await screen.findByText('August GOTV')
 
     await user.click(screen.getByText('Alex Solo'))
-    await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog')
 
     expect(
-      within(topDialog()).getByRole('button', { name: 'Previous contact' }),
+      within(dialog).getByRole('button', { name: 'Previous contact' }),
     ).toBeDisabled()
 
     await user.click(
-      within(topDialog()).getByRole('button', { name: 'Next contact' }),
+      within(dialog).getByRole('button', { name: 'Next contact' }),
     )
 
     // Entry 2's first person is Casey Household — the sheet's sr-only title
     // also reads "Casey Household", so assert on the visible age/party line
     // instead of the ambiguous heading role.
-    expect(within(topDialog()).getByText('Age 55 · I')).toBeInTheDocument()
+    expect(within(dialog).getByText('Age 55 · I')).toBeInTheDocument()
     expect(
-      within(topDialog()).getByRole('button', { name: 'Next contact' }),
+      within(dialog).getByRole('button', { name: 'Next contact' }),
     ).toBeDisabled()
     expect(
-      within(topDialog()).getByRole('button', { name: 'Previous contact' }),
+      within(dialog).getByRole('button', { name: 'Previous contact' }),
     ).not.toBeDisabled()
   })
 
@@ -468,49 +581,41 @@ describe('<PhoneBankingCallerPage>', () => {
     await screen.findByText('August GOTV')
 
     await user.click(screen.getByText('Alex Solo'))
-    await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog')
 
     expect(
-      within(topDialog()).queryByRole('button', { name: 'Save' }),
+      within(dialog).queryByRole('button', { name: 'Save' }),
     ).not.toBeInTheDocument()
 
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Answered' }),
-    )
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    expect(within(dialog).getByText('Did they engage?')).toBeInTheDocument()
     expect(
-      within(topDialog()).getByText('Did they engage?'),
+      within(dialog).queryByText('Do they support you?'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: 'Save' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
+    expect(within(dialog).getByText('Do they support you?')).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText('Will they vote this election?'),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+    expect(
+      within(dialog).getByText('Will they vote this election?'),
     ).toBeInTheDocument()
     expect(
-      within(topDialog()).queryByText('Do they support you?'),
-    ).not.toBeInTheDocument()
-    expect(
-      within(topDialog()).queryByRole('button', { name: 'Save' }),
-    ).not.toBeInTheDocument()
-
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Engaged' }),
-    )
-    expect(
-      within(topDialog()).getByText('Do they support you?'),
-    ).toBeInTheDocument()
-    expect(
-      within(topDialog()).queryByText('Will they vote this election?'),
-    ).not.toBeInTheDocument()
-
-    await user.click(within(topDialog()).getByRole('radio', { name: 'Yes' }))
-    expect(
-      within(topDialog()).getByText('Will they vote this election?'),
-    ).toBeInTheDocument()
-    expect(
-      within(topDialog()).queryByRole('button', { name: 'Save' }),
+      within(dialog).queryByRole('button', { name: 'Save' }),
     ).not.toBeInTheDocument()
 
     const willVoteYes = (
-      await within(topDialog()).findAllByRole('radio', { name: 'Yes' })
+      await within(dialog).findAllByRole('radio', { name: 'Yes' })
     )[1]!
     await user.click(willVoteYes)
     expect(
-      within(topDialog()).getByRole('button', { name: 'Save' }),
+      within(dialog).getByRole('button', { name: 'Save' }),
     ).toBeInTheDocument()
   })
 
@@ -546,23 +651,21 @@ describe('<PhoneBankingCallerPage>', () => {
     await screen.findByText('August GOTV')
 
     await user.click(screen.getByText('Alex Solo'))
-    await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog')
 
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Answered' }),
-    )
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
     // Two "Refused" pills exist now: the top-level outcome and the engage
     // answer — the second is the engage one.
-    const engageRefused = within(topDialog()).getAllByRole('radio', {
+    const engageRefused = within(dialog).getAllByRole('radio', {
       name: 'Refused',
     })[1]!
     await user.click(engageRefused)
 
     expect(
-      within(topDialog()).queryByText('Do they support you?'),
+      within(dialog).queryByText('Do they support you?'),
     ).not.toBeInTheDocument()
 
-    await user.click(within(topDialog()).getByRole('button', { name: 'Save' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(capturedRequest).toBeDefined())
     expect(capturedRequest).toEqual({
@@ -635,20 +738,16 @@ describe('<PhoneBankingCallerPage>', () => {
     // both names with a comma) — clicking it bubbles to that row's button.
     await user.click(await screen.findByText('Casey Household'))
 
-    await screen.findByRole('dialog')
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Answered' }),
-    )
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Engaged' }),
-    )
-    await user.click(within(topDialog()).getByRole('radio', { name: 'Yes' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
     const willVoteYes = (
-      await within(topDialog()).findAllByRole('radio', { name: 'Yes' })
+      await within(dialog).findAllByRole('radio', { name: 'Yes' })
     )[1]!
     await user.click(willVoteYes)
     await user.click(
-      within(topDialog()).getByRole('button', {
+      within(dialog).getByRole('button', {
         name: 'Save & mark rest of household done',
       }),
     )
@@ -715,16 +814,14 @@ describe('<PhoneBankingCallerPage>', () => {
     // Household" (unlike the still-present collapsed row, whose span joins
     // both names with a comma) — clicking it bubbles to that row's button.
     await user.click(await screen.findByText('Casey Household'))
-    await screen.findByRole('dialog')
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'No answer' }),
-    )
-    await user.click(within(topDialog()).getByRole('button', { name: 'Save' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: 'No answer' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
-      expect(within(topDialog()).getByText('No answer')).toBeInTheDocument(),
+      expect(within(dialog).getByText('No answer')).toBeInTheDocument(),
     )
-    await user.click(within(topDialog()).getByRole('button', { name: 'Close' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
 
     // Both household rows in the list now show "No answer" — the optimistic
     // patch from the response, not a second GET.
@@ -792,15 +889,13 @@ describe('<PhoneBankingCallerPage>', () => {
     await screen.findByText('August GOTV')
 
     await user.click(screen.getByText('Alex Solo'))
-    await screen.findByRole('dialog')
-    await user.click(
-      within(topDialog()).getByRole('radio', { name: 'Answered' }),
-    )
-    const engageRefused = within(topDialog()).getAllByRole('radio', {
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    const engageRefused = within(dialog).getAllByRole('radio', {
       name: 'Refused',
     })[1]!
     await user.click(engageRefused)
-    await user.click(within(topDialog()).getByRole('button', { name: 'Save' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(testQueryClient.getQueryState(detailQueryKey)?.isInvalidated).toBe(

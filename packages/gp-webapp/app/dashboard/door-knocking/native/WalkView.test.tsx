@@ -1,5 +1,5 @@
 import { ComponentProps, useState } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
@@ -13,6 +13,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import WalkView, { stopNumeralColor } from './WalkView'
 import type { KnockDraft } from './RecordKnockForm'
 import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
@@ -36,6 +37,11 @@ vi.mock('@shared/organization-picker', () => ({
 // provider that would carry it belongs to the app shell rather than to this
 // view.
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+// The knock form is main's with issue capture off and the step drawer with it
+// on; this file tests the first, and the block at the end the second.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(() => ({ ready: true, enabled: false })),
+}))
 vi.mocked(useSnackbar).mockReturnValue({
   successSnackbar: vi.fn(),
   errorSnackbar: vi.fn(),
@@ -1235,14 +1241,61 @@ describe('WalkView', () => {
 
     // Close and reopen the sheet — the remount must not mint a new key,
     // or the server-side upsert can't dedupe the retry.
-    // Closing the step is a step back that clears its answers, which is what
-    // lets the sheet behind it close; the retry answers the door again.
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     await closePersonSheet()
     await openPersonSheet('105 Elm St')
-    knockNotHome()
+    // The failed knock's answer is still picked, so Save alone retries it.
+    saveKnock()
     await waitFor(() => expect(keys).toHaveLength(2))
     expect(keys[1]).toBe(keys[0])
+  })
+
+  // With issue capture on, the questions open in a step drawer over the
+  // person sheet, and closing that step is what lets the sheet behind it close.
+  describe('with the step drawer', () => {
+    beforeEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: true,
+      })
+    })
+    afterEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: false,
+      })
+    })
+
+    it('replays the same clientKey when the sheet is closed and reopened', async () => {
+      const keys: string[] = []
+      let failFirst = true
+      api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+        keys.push((body as { clientKey: string }).clientKey)
+        if (failFirst) {
+          failFirst = false
+          return { status: 500, data: {} }
+        }
+        return {
+          status: 200,
+          data: { personId: 'person-1', knockStatus: 'not_home' },
+        }
+      })
+
+      render(<WalkHarness turfId={3} />)
+      await openPersonSheet('105 Elm St')
+      knockNotHome()
+      await waitFor(() => expect(keys).toHaveLength(1))
+
+      // Close and reopen the sheet — the remount must not mint a new key,
+      // or the server-side upsert can't dedupe the retry.
+      // Closing the step is a step back that clears its answers, which is what
+      // lets the sheet behind it close; the retry answers the door again.
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      await closePersonSheet()
+      await openPersonSheet('105 Elm St')
+      knockNotHome()
+      await waitFor(() => expect(keys).toHaveLength(2))
+      expect(keys[1]).toBe(keys[0])
+    })
   })
 
   it('mints a fresh clientKey for the next knock after a success', async () => {
@@ -1978,6 +2031,86 @@ describe('WalkView auto-advance', () => {
   // Tapping the housemate and back used to remount the form on a blank
   // walkthrough, losing every answer and the note. Unsaved answers are the
   // walk's to keep until they are saved or cancelled.
+  it('keeps unsaved answers and the note across a switch to a housemate and back', async () => {
+    mockRoute([
+      stop(11, 1, '105 Elm St', [
+        target(21, 'Dorian Fen'),
+        target(24, 'Winnie Fen'),
+      ]),
+    ])
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-21', knockStatus: 'supporter' },
+      }
+    })
+    const radio = (label: string, option: string) =>
+      within(screen.getByText(label).parentElement as HTMLElement).getByRole(
+        'radio',
+        { name: option },
+      )
+    const noteField = () =>
+      screen.getByPlaceholderText("What did they say? We'll clean it up.")
+    const switchTo = async (name: string) => {
+      fireEvent.click(
+        screen.getByRole('button', { name: new RegExp(name), pressed: false }),
+      )
+      await expectSheetOnResident(name)
+    }
+
+    render(<WalkHarness turfId={3} />)
+    await openHouseholdMember('105 Elm St', 'Dorian Fen')
+    answerQuestion('Did they answer?', 'Answered')
+    answerQuestion('Did they engage?', 'Engaged')
+    answerQuestion('Do they support you?', 'Yes')
+    answerQuestion('Will they vote this election?', 'Unsure')
+    fireEvent.change(noteField(), { target: { value: 'Wants a crosswalk.' } })
+
+    await switchTo('Winnie Fen')
+    expect(radio('Did they answer?', 'Answered')).toHaveAttribute(
+      'data-state',
+      'off',
+    )
+    await switchTo('Dorian Fen')
+
+    expect(radio('Did they answer?', 'Answered')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(radio('Did they engage?', 'Engaged')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(radio('Do they support you?', 'Yes')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(radio('Will they vote this election?', 'Unsure')).toHaveAttribute(
+      'data-state',
+      'on',
+    )
+    expect(noteField()).toHaveValue('Wants a crosswalk.')
+
+    saveKnock()
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      stopTargetId: 21,
+      supportAnswer: 'supporter',
+      willVote: 'unsure',
+      note: 'Wants a crosswalk.',
+    })
+    await expectSheetOnResident('Winnie Fen')
+    await switchTo('Dorian Fen')
+
+    expect(radio('Did they answer?', 'Answered')).toHaveAttribute(
+      'data-state',
+      'off',
+    )
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
   it('forgets unsaved answers once they are cancelled', async () => {
     mockRoute([
       stop(11, 1, '105 Elm St', [
@@ -2250,20 +2383,96 @@ describe('WalkView auto-advance', () => {
     await waitFor(() => expect(screen.getByText(/Saving failed/)).toBeTruthy())
 
     // Back to the logged housemate, which is what asks for the fresh serve,
-    // and then forward again to retry the door that failed. The failed
-    // step is closed first: it covers the sheet, and closing it clears its
-    // answers, so the retry answers the door again.
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    // and then forward again to retry the door that failed.
     fireEvent.click(screen.getByRole('button', { name: 'Dorian Fen' }))
     await waitFor(() => expect(serves).toBe(2))
     fireEvent.click(screen.getByRole('button', { name: 'Winnie Fen' }))
     await waitFor(() =>
       expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
     )
-    knockNotHome()
+    saveKnock()
 
     await waitFor(() => expect(keys).toHaveLength(3))
     expect(keys[2]).toBe(keys[1])
+  })
+
+  // With issue capture on, the questions open in a step drawer over the
+  // person sheet, and closing that step is what lets the sheet behind it close.
+  describe('with the step drawer', () => {
+    beforeEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: true,
+      })
+    })
+    afterEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: false,
+      })
+    })
+
+    it('keeps a failed knock replayable across a feed refresh', async () => {
+      let serves = 0
+      api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+        serves += 1
+        return {
+          status: 200,
+          data: payload([
+            stop(11, 1, '105 Elm St', [
+              target(
+                21,
+                'Dorian Fen',
+                serves === 1 ? {} : { knockStatus: 'not_home' },
+              ),
+              target(24, 'Winnie Fen'),
+            ]),
+          ]),
+        }
+      })
+      const keys: string[] = []
+      api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+        const { stopTargetId, clientKey } = body as {
+          stopTargetId: number
+          clientKey: string
+        }
+        keys.push(`${stopTargetId}:${clientKey}`)
+        if (stopTargetId === 24 && keys.length === 2) {
+          return { status: 500, data: {} }
+        }
+        return {
+          status: 200,
+          data: { personId: `person-${stopTargetId}`, knockStatus: 'not_home' },
+        }
+      })
+
+      render(<WalkHarness turfId={3} />)
+      await openHouseholdMember('105 Elm St', 'Dorian Fen')
+
+      knockNotHome()
+      // Advances to the housemate, whose knock then fails.
+      await expectSheetOnResident('Winnie Fen')
+      knockNotHome()
+      await waitFor(() =>
+        expect(screen.getByText(/Saving failed/)).toBeTruthy(),
+      )
+
+      // Back to the logged housemate, which is what asks for the fresh serve,
+      // and then forward again to retry the door that failed. The failed
+      // step is closed first: it covers the sheet, and closing it clears its
+      // answers, so the retry answers the door again.
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Dorian Fen' }))
+      await waitFor(() => expect(serves).toBe(2))
+      fireEvent.click(screen.getByRole('button', { name: 'Winnie Fen' }))
+      await waitFor(() =>
+        expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
+      )
+      knockNotHome()
+
+      await waitFor(() => expect(keys).toHaveLength(3))
+      expect(keys[2]).toBe(keys[1])
+    })
   })
 
   it('gives the door it advances to a distinct clientKey', async () => {

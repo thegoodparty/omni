@@ -30,6 +30,8 @@ import {
   voterDemographicFacts,
 } from './demographicFacts'
 import RecordKnockForm, { type KnockDraft } from './RecordKnockForm'
+import { cn } from '@styleguide/lib/utils'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import {
   FOLLOW_UP_OPTIONS,
@@ -334,6 +336,10 @@ export default function PersonSheet({
   talkingPoints,
   civicPanelOnly = false,
 }: PersonSheetProps) {
+  // The step drawer and its 92dvh ride issue capture's flag; off, the sheet
+  // keeps main's height. Read without exposure: the capture card is the
+  // treatment.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   const targets = stop.addresses.flatMap((address) => address.targets)
   // The chevrons move the sheet from door to door without unmounting it, so the
   // scrolling body keeps whatever offset the last house was read at — a
@@ -394,7 +400,12 @@ export default function PersonSheet({
         className="fixed inset-0 z-30 bg-foreground/20"
         onClick={onClose}
       />
-      <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[92dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
+      <div
+        className={cn(
+          'fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border',
+          issueCaptureOn ? 'max-lg:max-h-[92dvh]' : 'max-lg:max-h-[85dvh]',
+        )}
+      >
         {/* 20px of horizontal padding through all three bands, which is
             `renderPanel`'s: the header, the scrolling body (`padding:'0 20px
             16px'`) and the sticky log bar (`'12px 20px 16px'`) all measure from
