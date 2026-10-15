@@ -73,12 +73,16 @@ describe('PollResultsSchema', () => {
       sent: 100,
       responses: 3,
       responseRate: 0.03,
+      optOutRate: 0,
       confidence: null,
       isHighConfidence: false,
       notEnoughResponses: true,
       newSinceLastAnalysis: 3,
       lastAnalysisAt: null,
       themes: [],
+      nonClustered: { count: 0 },
+      analysis: { status: 'none' },
+      expansions: [],
     })
     expect(parsed.themes).toEqual([])
     expect(parsed.confidence).toBeNull()

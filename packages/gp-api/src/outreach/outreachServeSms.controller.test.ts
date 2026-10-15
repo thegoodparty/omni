@@ -411,22 +411,50 @@ describe('Serve SMS results and replies routes', () => {
     expect(listReplies).toHaveBeenCalledWith(
       12,
       { organizationSlug: eoOrgSlug, campaignId: null },
-      { limit: 10, offset: 0 },
+      {
+        limit: 10,
+        offset: 0,
+        userId: service.user.id,
+        filter: 'all',
+        themeId: undefined,
+        nonClustered: false,
+      },
+    )
+  })
+
+  it('passes the theme, non-clustered and filter params through', async () => {
+    await getReplies(12, '?themeId=theme-1&nonClustered=true&filter=unread')
+
+    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
+      limit: 10,
+      offset: 0,
+      userId: service.user.id,
+      filter: 'unread',
+      themeId: 'theme-1',
+      nonClustered: true,
+    })
+  })
+
+  it('400s a filter that is not all, unread or favorited', async () => {
+    expect((await getReplies(12, '?filter=starred')).status).toBe(
+      HttpStatus.BAD_REQUEST,
     )
   })
 
   it('clamps the reply page: nonsense falls back, oversized caps at 200', async () => {
     await getReplies(12, '?limit=banana&offset=-5')
-    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
-      limit: 10,
-      offset: 0,
-    })
+    expect(listReplies).toHaveBeenLastCalledWith(
+      12,
+      expect.anything(),
+      expect.objectContaining({ limit: 10, offset: 0 }),
+    )
 
     await getReplies(12, '?limit=5000&offset=30')
-    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
-      limit: 200,
-      offset: 30,
-    })
+    expect(listReplies).toHaveBeenLastCalledWith(
+      12,
+      expect.anything(),
+      expect.objectContaining({ limit: 200, offset: 30 }),
+    )
   })
 
   it('serves results and replies with the rollout flag off', async () => {
