@@ -284,8 +284,8 @@ export const CaseDimensionSchema = z
 export type CaseDimension = z.infer<typeof CaseDimensionSchema>
 
 // Long enough for a mutation excerpt and the axis it tests, short enough that
-// it cannot become a second input competing with the params for the judge's
-// attention.
+// it cannot become a second input competing with the case's own input for the
+// judge's attention.
 export const MAX_CONDITION_CHARS = 2_000
 
 // One sentence, so a bound well short of a condition's.

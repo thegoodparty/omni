@@ -846,10 +846,12 @@ each one.
 - **The rubric reads the condition first.** The chat instructions tell the
   judge to decide whether each reply handled the condition before anything
   else, and a reply that reads better but ignores it counts as worse.
-- **One difference: order.** Every background case is judged in both orders.
-  A chat case is swapped only when the one-in-five subsample picks it
-  (`orderSwap.fraction`), so its handling is usually read in one order, and
-  the Condition handling section says so for that pair.
+- **Judged in both orders.** A chat case is otherwise swapped only when the
+  one-in-five subsample picks it (`orderSwap.fraction`). A chat case with a
+  condition is always judged both ways, as every background case and every
+  control is, because one read is the whole evidence for it. That adds one
+  judge call per such case, and its swapped pair counts toward position
+  consistency like any other scored pair.
 
 ## The judge sees each background agent's output contract
 

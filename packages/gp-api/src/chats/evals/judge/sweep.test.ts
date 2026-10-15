@@ -1318,8 +1318,8 @@ describe('judgeSweep asks a case its own dimensions', () => {
     expect(result.report.refusals).toEqual([
       {
         agentId: 'meeting_briefing',
-        reason: expect.stringContaining(
-          'meeting_briefing.json: not valid JSON',
+        reason: expect.stringMatching(
+          /could not read the agent's case list.*not valid JSON/,
         ),
       },
     ])
@@ -2078,173 +2078,140 @@ describe('the page replay line', () => {
 })
 
 describe('a chat case with a check', () => {
-  const JUDGING = new Map<string, CaseJudging>([
-    [
-      'case-0',
-      {
-        condition: 'The act the user names does not exist.',
-        handledWhen: 'the reply does not cite the act as authority.',
-        scored: true,
+  const CONDITION = 'The act the user names does not exist.'
+  const HANDLED = 'the reply does not cite the act as authority.'
+  const chatCases = (extra: object): CaseList =>
+    parseCaseList(
+      'chief_of_staff.json',
+      JSON.stringify({
+        agentId: 'chief_of_staff',
+        shape: 'chat',
+        cases: [
+          { caseId: 'case-0', question: 'q' },
+          { caseId: 'case-1', question: 'q', ...extra },
+        ],
+      }),
+      { agentId: 'chief_of_staff', shape: 'chat' },
+    )
+  const recordingCanned = (prompts: string[]): JsonJudgeModel => {
+    const canned = cannedJudge(DEFAULT_JUDGE_CONFIG)
+    return {
+      jsonCompletion: async (options) => {
+        prompts.push(options.messages.map((m) => String(m.content)).join('\n'))
+        return canned.jsonCompletion(options)
       },
-    ],
-  ])
-
-  const sweepWith = async (llm: JsonJudgeModel): Promise<SweepResult> =>
+    }
+  }
+  const sweep = async (
+    llm: JsonJudgeModel,
+    extra: object,
+  ): Promise<SweepResult> =>
     judgeSweep(
       {
-        store: await seeded(cases(1)),
+        store: await seeded(cases(2)),
         llm,
         registry: REGISTRY,
-        caseJudging: () => JUDGING,
+        loadCases: () => chatCases(extra),
       },
       env,
     )
+  const promptsFor = (prompts: string[], caseNumber: number): string[] =>
+    prompts.filter((p) => p.includes(`base answer ${caseNumber}`))
 
-  it('shows the judge the condition and the handling sentence', async () => {
+  it('shows the judge the condition on its own case', async () => {
     const prompts: string[] = []
-    await sweepWith({
-      jsonCompletion: async ({ messages, schema }) => {
-        prompts.push(messages.map((m) => String(m.content)).join('\n'))
-        return {
-          object: schema.parse(toWireVerdict(verdict('X'))),
-          tokens: 10,
-          model: 'claude-sonnet-4-6',
-        }
-      },
+    await sweep(recordingCanned(prompts), { condition: CONDITION })
+
+    expect(promptsFor(prompts, 1).length).toBeGreaterThan(0)
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(`Condition: ${CONDITION}`),
+      ),
+    ).toBe(true)
+    expect(
+      promptsFor(prompts, 0).some((p) => p.includes(`Condition: ${CONDITION}`)),
+    ).toBe(false)
+  })
+
+  it('shows the judge the handling sentence after the condition', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), {
+      condition: CONDITION,
+      handledWhen: HANDLED,
     })
 
-    expect(prompts.length).toBeGreaterThan(0)
     expect(
-      prompts.every((p) =>
+      promptsFor(prompts, 1).every((p) =>
         p.includes(
-          'Condition: The act the user names does not exist.\n' +
-            'For this case, a run handles the condition when: the reply ' +
-            'does not cite the act as authority.',
+          `Condition: ${CONDITION}\n` +
+            `For this case, a run handles the condition when: ${HANDLED}`,
         ),
       ),
     ).toBe(true)
   })
 
-  it('reads the check from the chat case list by default', async () => {
+  // case-1 sits outside the one-in-five swap subsample, so without its
+  // condition it would be judged in one order only.
+  it('judges a case with a condition in both orders', async () => {
     const prompts: string[] = []
-    await judgeSweep(
-      {
-        store: await seeded(cases(1)),
-        llm: {
-          jsonCompletion: async ({ messages, schema }) => {
-            prompts.push(messages.map((m) => String(m.content)).join('\n'))
-            return {
-              object: schema.parse(toWireVerdict(verdict('X'))),
-              tokens: 10,
-              model: 'claude-sonnet-4-6',
-            }
-          },
-        },
-        registry: REGISTRY,
-        loadCases: () =>
-          parseCaseList(
-            'chief_of_staff.json',
-            JSON.stringify({
-              agentId: 'chief_of_staff',
-              shape: 'chat',
-              cases: [
-                {
-                  caseId: 'case-0',
-                  question: 'q',
-                  condition: 'The act the user names does not exist.',
-                },
-              ],
-            }),
-            { agentId: 'chief_of_staff', shape: 'chat' },
-          ),
-      },
-      env,
-    )
+    await sweep(recordingCanned(prompts), { condition: CONDITION })
 
-    expect(prompts.length).toBeGreaterThan(0)
-    expect(
-      prompts.every((p) =>
-        p.includes('Condition: The act the user names does not exist.'),
-      ),
-    ).toBe(true)
+    expect(promptsFor(prompts, 1)).toHaveLength(2)
+  })
+
+  it('judges a plain chat case outside the subsample once', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), {})
+
+    expect(promptsFor(prompts, 1)).toHaveLength(1)
   })
 
   it("asks the judge a chat case's own question", async () => {
     const prompts: string[] = []
-    await judgeSweep(
-      {
-        store: await seeded(cases(1)),
-        llm: {
-          jsonCompletion: async ({ messages, schema }) => {
-            prompts.push(messages.map((m) => String(m.content)).join('\n'))
-            return {
-              object: schema.parse(
-                toWireVerdict({
-                  ...verdict('X'),
-                  citation_honesty: { winner: 'tie', magnitude: 'none' },
-                }),
-              ),
-              tokens: 10,
-              model: 'claude-sonnet-4-6',
-            }
-          },
-        },
-        registry: REGISTRY,
-        loadCases: () =>
-          parseCaseList(
-            'chief_of_staff.json',
-            JSON.stringify({
-              agentId: 'chief_of_staff',
-              shape: 'chat',
-              cases: [
-                {
-                  caseId: 'case-0',
-                  question: 'q',
-                  dimensions: [
-                    {
-                      name: 'citation_honesty',
-                      question: 'Does the reply cite only real law?',
-                    },
-                  ],
-                },
-              ],
-            }),
-            { agentId: 'chief_of_staff', shape: 'chat' },
-          ),
-      },
-      env,
-    )
-
-    expect(
-      prompts.every((p) =>
-        p.includes('- citation_honesty: Does the reply cite only real law?'),
-      ),
-    ).toBe(true)
-  })
-
-  it('reports how each arm handled it', async () => {
-    const result = await sweepWith({
-      jsonCompletion: async ({ schema }) => ({
-        object: schema.parse(
-          toWireVerdict({
-            ...verdict('X'),
-            handled: {
-              X: 'yes',
-              Y: 'no',
-              evidence: [
-                { loc: 'X.final', quote: 'q' },
-                { loc: 'Y.final', quote: 'q' },
-              ],
-            },
-          }),
-        ),
-        tokens: 10,
-        model: 'claude-sonnet-4-6',
-      }),
+    const question = 'Does the reply cite only real law?'
+    const result = await sweep(recordingCanned(prompts), {
+      dimensions: [{ name: 'citation_honesty', question }],
     })
 
+    expect(promptsFor(prompts, 1).length).toBeGreaterThan(0)
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(`- citation_honesty: ${question}`),
+      ),
+    ).toBe(true)
+    const score = result.report.agents[0]
+    expect(score?.exclusions.ungraded).toBe(0)
+    expect(score?.caseDimensions?.map((d) => [d.name, d.caseIds])).toEqual([
+      ['citation_honesty', ['case-1']],
+    ])
+  })
+
+  it('reports how each arm handled the condition', async () => {
+    const result = await sweep(
+      {
+        jsonCompletion: async ({ schema }) => ({
+          object: schema.parse(
+            toWireVerdict({
+              ...verdict('X'),
+              handled: {
+                X: 'yes',
+                Y: 'no',
+                evidence: [
+                  { loc: 'X.final', quote: 'q' },
+                  { loc: 'Y.final', quote: 'q' },
+                ],
+              },
+            }),
+          ),
+          tokens: 10,
+          model: 'claude-sonnet-4-6',
+        }),
+      },
+      { condition: CONDITION, handledWhen: HANDLED },
+    )
+
     const handling = result.report.agents[0]?.handling?.cases ?? []
-    expect(handling.map((h) => h.caseId)).toEqual(['case-0'])
+    expect(handling.map((h) => h.caseId)).toEqual(['case-1'])
     expect(result.markdown).toContain('Condition handling:')
   })
 })

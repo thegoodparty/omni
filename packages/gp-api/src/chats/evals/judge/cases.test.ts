@@ -789,7 +789,7 @@ describe('a background case condition and scored flag', () => {
     expect([...caseJudgingOf(list)]).toEqual([['one', { scored: true }]])
   })
 
-  it("reads a chat case's condition, handling sentence and control", () => {
+  it("reads a chat case's checks", () => {
     const list = parseCaseList(
       'a.json',
       chatList([

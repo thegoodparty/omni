@@ -107,10 +107,11 @@ export interface JudgingDeps {
   // a seed rather than only from a run.
   rng?: Rng
   registry?: readonly AgentEntry[]
-  // Where a case's own dimensions come from. THIS checkout's case list, not
-  // either arm's records: the judging step runs at the candidate commit, the
-  // arms never record the field, and so both slots of a pair are asked the
-  // same questions whatever the base ref knew.
+  // Where a case's own dimensions, condition, handling sentence and control
+  // flag come from. THIS checkout's case list, not either arm's records: the
+  // judging step runs at the candidate commit, the arms never record the
+  // fields, and so both slots of a pair are judged the same way whatever the
+  // base ref knew.
   loadCases?: (agent: AgentEntry) => CaseList
   // Each case's condition and scored flag, read from the case list in THIS
   // checkout. Injected so a test need not stand a case list on disk.
@@ -585,7 +586,16 @@ export const judgeSweep = async (
           meter.llm,
           normalized.judgeable,
           config,
-          unscoredCaseIds,
+          // A case with a condition is the whole evidence for it, so it is
+          // read in both orders like a control. Background cases already
+          // are; this is what extends it to a chat case outside the swap
+          // subsample.
+          new Set([
+            ...unscoredCaseIds,
+            ...[...judging]
+              .filter(([, one]) => one.condition !== undefined)
+              .map(([caseId]) => caseId),
+          ]),
         )
       } finally {
         judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
