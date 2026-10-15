@@ -104,6 +104,20 @@ describe('condition handling per case', () => {
     expect(only?.class).toBe('unsettled')
   })
 
+  it('calls an improvement when the base falls short in both orders', () => {
+    const {
+      cases: [only],
+    } = conditionHandling(
+      [
+        judged('primary', X_IS_BASE, 'partly', 'yes'),
+        judged('swapped', X_IS_CANDIDATE, 'yes', 'no'),
+      ],
+      ASKED,
+    )
+    expect(only?.base).toEqual({ primary: 'partly', swapped: 'no' })
+    expect(only?.class).toBe('improvement')
+  })
+
   it('calls a regression when the candidate falls short in both orders', () => {
     const {
       cases: [only],

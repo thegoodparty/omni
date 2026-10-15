@@ -319,7 +319,7 @@ const handlingLines = (score: AgentScore): string[] => {
       "pair(s). Judged per run against each case's handledWhen; partly, " +
       'and a value that changes with the order, count as not handled. A ' +
       'regression or improvement needs the arm that fell short to do so in ' +
-      'both orders. Not part of the verdict above.',
+      'every order it was read. Not part of the verdict above.',
     ...(notGraded === 0
       ? []
       : [

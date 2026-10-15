@@ -712,10 +712,10 @@ nothing else, so the agent never sees any of them.
   handled, a shared failure (neither said yes), a regression (the base said
   yes, the candidate did not), an improvement (the reverse) or unsettled.
   `partly`, and a value that changes between the two orders, count as not
-  handled. A regression needs the candidate to fall short in both orders,
-  and an improvement needs the same of the base; when the arm that fell short
-  got a yes in one order, the pair is unsettled and is not counted as a
-  change. On a no-change sweep, that split was the only false regression. The
+  handled; when that split is on the arm that fell short, the pair is
+  unsettled rather than a change. So a regression needs the candidate to fall
+  short in every order it was read, and an improvement the same of the base.
+  The
   quotes go to the private rulings file only. The section does not move the
   verdict label or any score. A pair whose every judgment came back ungraded
   is counted as asked but not graded, and a value read in only one of two
