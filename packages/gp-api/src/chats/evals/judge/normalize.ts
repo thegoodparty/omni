@@ -173,8 +173,8 @@ const renderJson: PayloadRenderer = (payload) =>
     ? payload.value
     : JSON.stringify(payload.value, null, 2)
 
-// A chat case whose input is more than one question: several user turns, and
-// whatever conditions the case put the agent under. Rendered as prose rather
+// A chat case whose input is more than one question: several user turns, or
+// an account state the case put the agent in. Rendered as prose rather
 // than as raw JSON because this string is what the judge reads as
 // `<shared_input>`, and a JSON blob there spends the judge's attention on
 // punctuation.
@@ -197,42 +197,10 @@ const renderTranscript: PayloadRenderer = (payload) => {
   // not recognise is still the input both arms were given, and refusing to
   // render it would turn an unreadable label into a lost comparison.
   if (!parsed.success) return renderJson(payload)
-  const { turns, seededTranscript, toolFailure, accountState } = parsed.data
-  const lines: string[] = []
-  if (seededTranscript !== undefined) {
-    lines.push('Conversation so far, written by the harness:')
-    for (const turn of seededTranscript) {
-      // Every call, IN ORDER and WITH ITS INPUT. Order is part of what the
-      // agent read, and the input is the only part of a seeded call a newer
-      // ref could differ on — see the lossless rule above.
-      const calls = (turn.toolCalls ?? [])
-        .map((call) => `${call.tool}(${JSON.stringify(call.input)})`)
-        .join(', ')
-      lines.push(
-        `  ${turn.role}: ${turn.content}` +
-          (calls.length > 0 ? ` [called ${calls}]` : ''),
-      )
-    }
-    lines.push('')
-  }
-  lines.push(
-    ...turns.map((turn, index) =>
-      turns.length === 1 ? turn : `Turn ${index + 1}: ${turn}`,
-    ),
+  const { turns, accountState } = parsed.data
+  const lines = turns.map((turn, index) =>
+    turns.length === 1 ? turn : `Turn ${index + 1}: ${turn}`,
   )
-  if (toolFailure !== undefined) {
-    // `afterMs` reaches the line for the lossless reason above: a base ref
-    // whose schema predates it strips it and drives the default instead, and
-    // a renderer that dropped it would make the two arms' inputs render
-    // byte-identically and the pair compare as like for like.
-    const after =
-      toolFailure.afterMs === undefined ? '' : ` after ${toolFailure.afterMs}ms`
-    lines.push(
-      '',
-      `Condition: the tool "${toolFailure.tool}" was forced to ` +
-        `${toolFailure.mode}${after}.`,
-    )
-  }
   if (accountState !== undefined) {
     const described = Object.entries(accountState)
       .map(([key, value]) => `${key}=${String(value)}`)
@@ -644,9 +612,6 @@ export const normalizeAgent = (
 // string by construction and there is no second copy for `blindCase` to
 // compare. Not scrubbed either, for the same reason — scrubbing strips what
 // one arm's record could reveal, and nothing here came from a record.
-//
-// Spelled the way a chat case's directives are, so the judge reads one
-// convention for "this is what the case put the agent under".
 export const withConditions = (
   normalized: NormalizedAgent,
   judging: ReadonlyMap<string, CaseJudging>,

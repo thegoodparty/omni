@@ -22,12 +22,9 @@ import {
 import { S3Client } from '@aws-sdk/client-s3'
 import { judgeAwsClientConfig } from './awsCredentials'
 
-// THE SWEEP IS CONFIGURED FROM THE ENVIRONMENT, NOT FROM ARGV, and that is
-// forced rather than chosen. The arm capture has to run under vitest, because
-// `useTestService()` registers beforeAll/beforeEach/afterAll to stand up the
-// Postgres container and the authenticated app — hooks that only exist inside
-// a vitest process. A test file has no argv of its own, so the environment is
-// the only channel left.
+// THE SWEEP IS CONFIGURED FROM THE ENVIRONMENT, NOT FROM ARGV. Three
+// processes in two worktrees read the same values, and judge.yml hands them
+// over as step environment, the one channel every step shares.
 //
 // Everything is validated up front and a missing value is a sentence naming
 // it, because the alternative is a sweep that spends money and then dies
@@ -274,9 +271,10 @@ export interface SweepEnv {
   prNumber?: number
   recordsDir?: string
   recordsBucket?: string
-  // False unless JUDGE_SPEND is exactly 'true'. On an arm it means the runner
-  // gets a canned script; on the judging entry it means a canned panel. Both
-  // have to honour it or the pipeline is not exercisable for nothing.
+  // False unless JUDGE_SPEND is exactly 'true'. On an arm it means no chat
+  // agent is driven and no background agent dispatched; on the judging entry
+  // it means a canned panel. Both have to honour it or the pipeline is not
+  // exercisable for nothing.
   spends: boolean
   // The judging entry acts on it: an identical config digest, or identical
   // output on every pair, is then reported with a qualifier instead of

@@ -1,10 +1,10 @@
-// THE NAMES THE ROLE'S CREDENTIALS TRAVEL UNDER, for the reason the model
-// key's do (modelKey.ts): vitest applies `.env.test` over the process
-// environment, and `.env.test` stubs AWS_ACCESS_KEY_ID and
-// AWS_SECRET_ACCESS_KEY. It does not define AWS_SESSION_TOKEN, so the real
-// token survives beside a stub key, and AWS answers that the key "does not
-// exist in our records" — which is how the first sweep past the queue lookup
-// ended, before anything was staged.
+// THE NAMES THE ROLE'S CREDENTIALS TRAVEL UNDER. The arms once ran under
+// vitest, which applies `.env.test` over the process environment, and
+// `.env.test` stubs AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. It does not
+// define AWS_SESSION_TOKEN, so the real token survived beside a stub key,
+// and AWS answered that the key "does not exist in our records" — which is
+// how the first sweep past the queue lookup ended. The names stay so both
+// arms read the role's credentials the same way.
 export const ARM_AWS_ENV = {
   accessKeyId: 'JUDGE_AWS_ACCESS_KEY_ID',
   secretAccessKey: 'JUDGE_AWS_SECRET_ACCESS_KEY',

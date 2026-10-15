@@ -277,9 +277,9 @@ export interface CliResult {
 }
 
 // A sweep is three processes, not one, so this CLI cannot run it. The arms
-// are two vitest invocations in two worktrees — `useTestService()` registers
-// hooks that only exist inside vitest — and the judging is `sweep.ts` under
-// tsx. Whoever drives the sweep drives those three in order; see judge.yml.
+// are two `captureArm.ts` invocations in two worktrees, and the judging is
+// `sweep.ts`. Whoever drives the sweep drives those three in order; see
+// judge.yml.
 //
 // So `run` stays the planner. That is not the placeholder it used to be: the
 // workflow's cost estimate parses this plan before anything is spent, and the
@@ -287,10 +287,10 @@ export interface CliResult {
 // model or a second checkout.
 export const SWEEP_IS_NOT_ONE_COMMAND =
   'the judge CLI plans a sweep; it does not run one. A sweep is three ' +
-  'processes: src/chats/evals/judge/sweep.eval.test.ts under vitest in the ' +
-  'base worktree (JUDGE_ARM=base), the same suite in the candidate ' +
-  'worktree (JUDGE_ARM=candidate), then src/chats/evals/judge/sweep.ts ' +
-  'under tsx to judge both arms. The arms cannot share a process because ' +
+  'processes: src/chats/evals/judge/captureArm.ts under tsx in the base ' +
+  'worktree (JUDGE_ARM=base), the same entry in the candidate worktree ' +
+  '(JUDGE_ARM=candidate), then src/chats/evals/judge/sweep.ts under tsx ' +
+  'to judge both arms. The arms cannot share a process because ' +
   'two worktrees are two module graphs. See .github/workflows/judge.yml.'
 
 export const run = (
