@@ -315,9 +315,14 @@ export class OutreachPollAdminService extends createPrismaBase(
   private questionOf(row: PollRow, office: string | null | undefined) {
     if (!row.message || !row.organization || office == null) return null
     const marker = '\u0000'
-    const [prefix, suffix] = this.pollCreate
-      .composeMessage(marker, row.organization.owner, office)
-      .split(marker)
+    const template = this.pollCreate.composeMessage(
+      marker,
+      row.organization.owner,
+      office,
+    )
+    const at = template.indexOf(marker)
+    const prefix = template.slice(0, at)
+    const suffix = template.slice(at + marker.length)
     const { message } = row
     if (
       message.length <= prefix.length + suffix.length ||

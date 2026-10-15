@@ -353,7 +353,7 @@ describe('review overdue alert', () => {
       ([, message]) => message === POLL_REVIEW_OVERDUE_LOG,
     )
     expect(lines).toHaveLength(1)
-    expect(lines[0][0]).toMatchObject({ outreachId: old.id })
+    expect(lines[0]?.[0]).toMatchObject({ outreachId: old.id })
   })
 
   it('runs once per hourly slot', async () => {

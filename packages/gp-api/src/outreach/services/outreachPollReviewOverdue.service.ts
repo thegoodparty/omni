@@ -10,7 +10,7 @@ const POLL_REVIEW_OVERDUE_CRON = '33 * * * *'
 const POLL_REVIEW_OVERDUE_JOB = 'pollReviewOverdue'
 export const POLL_REVIEW_SLA_BUSINESS_DAYS = 2
 
-// The `poll-review-overdue` alert (deploy/components/alerts.ts) counts this
+// The `serve-poll-review-overdue` alert (deploy/components/alerts.ts) counts this
 // exact line. Change both together.
 export const POLL_REVIEW_OVERDUE_LOG =
   'Poll awaiting review past its business-day SLA'
