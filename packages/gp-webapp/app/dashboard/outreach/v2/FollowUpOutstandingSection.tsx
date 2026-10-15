@@ -165,7 +165,7 @@ export const FollowUpOutstandingSection = ({
         outstanding,
       })
       // Calling saves a list too; saying so is what stops the official
-      // finding an unexplained list in Constituent Data later.
+      // finding an unexplained list in Constituents later.
       successSnackbar(SERVE_FOLLOW_UP_COPY.saved(list.name))
       onCallList(list.id, list.name)
     }

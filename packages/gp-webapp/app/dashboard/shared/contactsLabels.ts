@@ -3,7 +3,7 @@
 // title, page heading, and stat labels in one place so they can't drift apart.
 export const CONTACTS_DATA_TITLE = {
   win: 'Voter Data',
-  serve: 'Constituent Data',
+  serve: 'Constituents',
 } as const
 
 // ENG-10746: the Win voter-universe card carries two extra rows sourced from

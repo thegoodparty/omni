@@ -392,7 +392,7 @@ const SERVE_AREAS: ProductArea[] = [
   },
   {
     navId: 'contacts-dashboard',
-    name: 'Constituent Data',
+    name: 'Constituents',
     path: '/dashboard/contacts',
     modes: ['serve'],
     does: 'Browse the district’s people, filter them, and save lists to use for outreach.',
@@ -531,7 +531,7 @@ export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   ],
   serve: [
     'Priorities I record are real and appear in the product.',
-    'Saved lists I create are real, and appear under Constituent Data.',
+    'Saved lists I create are real, and appear under Constituents.',
     'I cannot edit your public page, your account, or your billing, and I cannot export anything to a file.',
   ],
 }

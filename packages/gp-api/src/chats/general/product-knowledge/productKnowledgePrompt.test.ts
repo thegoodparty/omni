@@ -94,12 +94,12 @@ describe('product knowledge blocks', () => {
     expect(prompt).toContain('Know Your Opponent')
     expect(prompt).not.toContain('Briefing Assistant')
     expect(prompt).not.toContain('Community Issues')
-    expect(prompt).not.toContain('Constituent Data')
+    expect(prompt).not.toContain('- Constituents (')
   })
 
   it('shows Serve its own tabs and none of Win’s', () => {
     const prompt = render('serve')
-    expect(prompt).toContain('Constituent Data')
+    expect(prompt).toContain('- Constituents (/dashboard/contacts)')
     expect(prompt).toContain('Briefing Assistant')
     expect(prompt).toContain('Ordinances')
     expect(prompt).not.toContain('Know Your Opponent')
