@@ -381,7 +381,15 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   ): Promise<void> {
     const now = new Date()
     for (const step of plan.steps) {
-      if (step.voterFileFilterId === null || step.completedAt) continue
+      // A skipped step stays skipped: its list is not read back into it,
+      // so its people stay free for later draws.
+      if (
+        step.voterFileFilterId === null ||
+        step.completedAt ||
+        step.skippedAt
+      ) {
+        continue
+      }
       await this.syncStep(organization, step, step.voterFileFilterId, now)
     }
     if (members >= plan.goalMembers) {

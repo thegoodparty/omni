@@ -840,9 +840,10 @@ person on the call list or walk was called or knocked or its envelope is
 marked done, or `PANEL_STEP_WINDOW_DAYS` (30) after it started; `skipped`
 for a step nobody started once a later wave exists, or that the official
 skipped (`POST …/steps/:id/skip`, current wave, not started, writes
-`skippedAt`; 409 once started). A skip only reads while nothing was started
-from the step, and a skipped step's drawn people (if it was prepared) are
-back in later draws. A text that never got
+`skippedAt`; 409 once started). A skipped step is no longer synced, so it
+stays skipped even if its list is used elsewhere, and its drawn people (if
+it was prepared) are back in later draws. Skipping a whole wave makes the
+next one on the next read; its steps start as not started. A text that never got
 past checkout (`UNSENT_OUTREACH_STATUSES`) does not count.
 
 **Waves.** `GET` moves the plan: it refreshes each step's links and dates,

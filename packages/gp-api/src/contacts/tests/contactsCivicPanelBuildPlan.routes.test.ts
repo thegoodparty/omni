@@ -815,6 +815,8 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/skip', () => {
     expect(res.data.plan?.currentWave).toBe(2)
     expect(stepOf(res, 'text', 1).status).toBe('skipped')
     expect(stepOf(res, 'text', 2).status).toBe('not_started')
+    // The new wave waits on its own steps: reading again makes no third.
+    expect((await readPlan(slug)).data.plan?.currentWave).toBe(2)
   })
 
   it('404s for another office’s step', async () => {
