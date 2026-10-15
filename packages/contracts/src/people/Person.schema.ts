@@ -4,6 +4,8 @@ import {
   type SupportStatusRollup as GeneratedSupportStatusRollup,
 } from '../generated/enums'
 import {
+  CivicPanelStatusSchema,
+  ContactStatusSourceSchema,
   FollowUpStatusSchema,
   VoterLikelihoodSchema,
 } from './ContactStatus.schema'
@@ -19,6 +21,22 @@ import {
 // contactInteraction.types.ts ties its SUPPORT_ANSWER_ROLLUP derivation to
 // this schema's inferred type via `satisfies`, so the two can't drift.
 export const SupportStatusRollupSchema = GeneratedSupportStatusRollupSchema
+
+// Serve's civic panel history on the person record (`GET /v1/contacts/:id`):
+// the latest join or leave, how and when, and when the office last reached
+// them on any channel (the rest window's rule). Null when there is none.
+export const CivicPanelActivitySchema = z.object({
+  latestChange: z
+    .object({
+      value: CivicPanelStatusSchema,
+      source: ContactStatusSourceSchema,
+      at: z.string(),
+    })
+    .nullable(),
+  lastReachedAt: z.string().nullable(),
+})
+
+export type CivicPanelActivity = z.infer<typeof CivicPanelActivitySchema>
 
 export type SupportStatusRollup = GeneratedSupportStatusRollup
 
@@ -44,16 +62,14 @@ export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
 //
 // The AddressLine is load-bearing rather than a convenience. The obvious
 // alternative — compose the line from the file's parsed components, which is
-// what DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did — cannot carry a
-// cardinal direction, because `Residence_Addresses_PrefixDirection` and
-// `Residence_Addresses_SuffixDirection` are INTEGER columns in the people-db
-// mirror. The loader `try_cast`s them, so every 'N'/'S'/'E'/'W' in the source
-// file lands as NULL and no consumer of those two columns can ever see one.
-// AddressLine is TEXT and holds the whole line, directions included.
+// what DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did — loses the cardinal
+// direction wherever `Residence_Addresses_PrefixDirection` or
+// `Residence_Addresses_SuffixDirection` comes back empty. AddressLine holds
+// the whole standardized line, directions included.
 //
-// That made this a de-duplication defect and not only a display one: with both
-// direction components permanently empty, `1234 S Main St` and `1234 N Main St`
-// in one ZIP produced byte-identical keys and were one door. Grid-addressed
+// That made this a de-duplication defect and not only a display one: with the
+// direction components empty, `1234 S Main St` and `1234 N Main St` in one ZIP
+// produced byte-identical keys and were one door. Grid-addressed
 // cities are where it bites hardest — in Salt Lake City the directions carry
 // most of the address, and `1234 S 5678 W` keyed as `1234 5678`.
 export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
@@ -94,7 +110,8 @@ export const isLegacyDoorKnockingUnitKey = (addressKey: string): boolean =>
 // people-api's PersonOutput exactly — keep them in lockstep to avoid drift.
 export const PersonSchema = z.object({
   id: z.string(),
-  lalVoterId: z.string(),
+  // Null on consumer-only rows (Serve constituents with no voter record).
+  lalVoterId: z.string().nullable(),
   firstName: z.string().nullable(),
   middleName: z.string().nullable(),
   lastName: z.string().nullable(),
@@ -184,6 +201,10 @@ export const PersonSchema = z.object({
   // field, so there is no seed to distinguish "no override" from "answered
   // no".
   followUp: FollowUpStatusSchema.optional(),
+  // Serve's civic panel membership, omitted for a Win org like followUp.
+  civicPanel: CivicPanelStatusSchema.optional(),
+  // Its history, beside it and on the same terms.
+  civicPanelActivity: CivicPanelActivitySchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

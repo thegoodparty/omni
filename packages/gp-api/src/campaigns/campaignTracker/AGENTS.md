@@ -7,16 +7,41 @@ overview: `docs/features/campaign-tracker-v3.md`.
 
 ## Key files
 
-| File                                          | Role                                                                                                                                                                                                                                   |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                                                   |
-| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                                            |
+| File                                          | Role                                                                                                                                                                                                           |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                           |
+| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                    |
 | `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`needsBallotAccessTasks`). |
-| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + `POST generate` (non-prod manual override).                                                                                                                |
-| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                                             |
-| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                                            |
+| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + skip/unskip + `POST generate` (non-prod manual override).                                                                          |
+| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                     |
+| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                    |
 
 ## Patterns / non-obvious logic
+
+- **Tasks are dated on the campaign's timeline.** `resolveTrackerTaskDate` and
+  `campaignPhaseWindows` (contracts' `CampaignTimeline.ts`) turn a catalog
+  task's timing into a date inside its phase's window, counted back from the
+  election. Rows dated before that, or before the candidate changed their
+  race, are moved on read: `alignTrackerTaskDates` runs (best-effort) before
+  the GET returns, on open default rows whose timing is signup-relative,
+  and on the voter-contact sends. A send still ahead keeps its
+  election-relative date; a late joiner's sends already past at the start
+  are compressed into the time before the next one (`voterContactSendDate`),
+  and the plan document uses the same rule. The CAS outreach post reads these
+  row dates, so a new Pro campaign's ClickUp tasks match; one already posted
+  keeps the dates it was sent with. Other election-relative rows (the GOTV
+  dates) are never moved.
+
+- **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
+  a task aside. `later` moves its `date` three days out
+  (`trackerTaskPutOffDate`); from then on the date is the candidate's, so
+  `alignTrackerTaskDates` leaves it alone. Tasks dated by fact (the Election
+  admin dates, Election Day) 400 on it (`canPutOffTask`). `notForMe` holds until
+  `DELETE /skip/:id`; ballot access 400s on it (`canSetTaskAsideForGood`), while
+  finance reporting doesn't, since not every candidate must file. Neither
+  touches `completed`, so a skipped task still counts as open work everywhere
+  that reads completion; only the webapp's next-task pick passes over a
+  `notForMe` task (`isTrackerTaskSetAside`). `snoozedUntil` is no longer set.
 
 - **Append, never replace (the central rule).** `onExperimentRunCompleted`
   stamps each run's rows with `week = max(existing dynamic week) + 1` and never
@@ -59,20 +84,24 @@ overview: `docs/features/campaign-tracker-v3.md`.
   direction only, and it short-circuits on an indexed count when the row is
   already ticked, so polling the list does not pay for a story read it cannot
   use. The full reconcile still owns the reverse.
-- **It sits at the end of pre-launch.** `phase: 'preLaunch'` with `preLaunch`
-  timing, which resolves a week past the block's anchor, alongside the two
-  catalog rows that close the phase out. `buildCampaignStoryTrackerTaskRows`
+- **It sits early in Launch.** `phase: 'preLaunch'` with `preLaunch` timing,
+  which resolves a week past the timeline's start. `buildCampaignStoryTrackerTaskRows`
   exists separately from `buildStaticTrackerTaskRows` only because the row
   carries `link`/`cta`, which the catalog schema does not model. When the
   reconcile re-adds it to a campaign materialized long ago it recovers that
   campaign's original anchor from its earliest pre-launch row rather than
   taking a fresh one, so the row lands with its siblings instead of a week out
   from today.
-  Known consequence, tracked separately: an open pre-launch row dated in the
-  present pulls a mid-campaign candidate's rail back to Pre-launch, because the
-  webapp decides "happening now" from task dates. Ticking the row does not
-  rescue it — the date is what pulls the phase in. That is the date-driven
-  phase model needing a rethink, not this row's placement.
+- **A task its button finishes closes itself once the work is scheduled.**
+  The button that opens a text, robocall, call list, social post or door
+  knocking flow passes the task's id (`trackerTaskId`), and the create stores
+  it on the outreach row (`Outreach.trackerTaskId`; door knocking on the
+  anchor turf's envelope only). `completeTasksWithScheduledOutreach` runs on
+  the GET: an outreach past `draft`/`pending_payment` (and not canceled,
+  denied or failed) ticks its task and has its link cleared in the same
+  transaction, so it happens once and a later "Mark not done" sticks. Only
+  that campaign's tasks can be ticked, so a stray id does nothing. Work
+  started anywhere else carries no id and leaves the task alone.
 - **Ballot access is gated on the candidate's ballot stage.** The catalog's
   `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
   materialization for a candidate who answered onboarding's "Are you already on

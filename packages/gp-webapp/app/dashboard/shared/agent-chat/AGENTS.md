@@ -16,11 +16,11 @@ nearest reference wrapper.
 | `useStreamingTurn.ts` | **The engine.** Drives one turn: optimistic user push, the `streamMessage` event loop, interleaved text/tool `liveSegments`, smooth reveal, the idle watchdog, the late-persistence commit poll, and abort-on-unmount. This is the only streaming loop — there is no second one. |
 | `chatUI.tsx` | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name; with the attachment props the ghost paperclip opens the file picker directly and pasted http(s) URLs call `onAttachLink` — no URL form; drag-and-drop lives in `ChiefOfStaffChatBody`, not here. Offered only where `supportsAttachments(scope)` (`attachmentScopes.ts`) is true: `chief_of_staff` and `campaign_assistant`, matching gp-api's `ATTACHMENT_SCOPES`), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
 | `streaming.ts` | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`. |
-| `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. |
+| `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. Every message carries `pagePath` (`window.location.pathname` at send time, since a dock stays open across pages); only a scope whose gp-api handler implements `describePage` reads it. |
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
 | `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below. |
 | `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
-| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent emits only text proposals (`present_outreach_proposal`). The proposal card's copy and links are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope); the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
+| `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`) and offers lists to save (`present_list_proposal`, `ChatListProposal` in `mode` `win`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
@@ -85,6 +85,13 @@ registry existed, and they had started to drift.
    `onCitationClick` if the surface has citations). The widget lands at the
    point in the text where its tool fired, with prose above and below it, and a
    reload renders the same order it streamed in.
+
+**A refused call's widget is removed.** A tool that refuses its args returns
+`{ error }` (`isToolRefusal` in contracts) so the model can fix them and call
+again. gp-api nulls that call's persisted args, so a reload never renders it,
+and the live surfaces (PriorityWorkspace, ChiefOfStaffChatBody) drop the
+widget keyed `${toolName}-${toolCallId}` on its `tool_result`, so a refused
+card and its corrected one never show side by side.
 
 **A question written right above the clarify widget is dropped.** The widget
 shows its own question, so prose that also asks it puts it on screen twice.
@@ -179,11 +186,24 @@ there is the agent's to say, once, in its message; no card repeats it.
   `ensureSmsIdentification`, which persisted cards from before the server
   guard need, since they still carry "Hi, this is [Your Name]..."), phone
   banking's name, and the audience. A card from before `audienceFilters` points at a saved list; a
-  current one carries the filter the agent counted with, and the flow opens
-  its builder already filled in (`proposedAudience`, with the proposal's
-  sample when it asks one: "Text 4,000 of 58,520, picked at random" on the
-  card, the frozen draw in the saved list) and saves the list when
-  the official confirms and names it. Door knocking is the exception: its
+  current one carries the filter the agent counted with. On Win and Serve,
+  text and phone banking open the standard flow at the step the card's
+  context calls for (`outreach/v2/landingStep.ts`): usually the message or
+  script, since the provider saves the card's audience as a list at the click
+  (`saveProposalList`: the proposal's sample, panel part or report back
+  draw, named from `listName`), once per card key (kept in the provider and
+  in localStorage under `proposal-list:<key>`, checked against the org's
+  lists before reuse), and opens the flow with `preselectedListId` (and
+  `audienceSettled` on `SmsFlow`); a card with no audience to save opens on
+  the audience step with its message held. Every step is in the stepper
+  with the purpose and the list done; Back goes to the list, picked, then
+  the purpose, and Continue goes on to the date or sheets and payment. A
+  text runs the same order from a card as from anywhere else, the message
+  before the date (`outreach/AGENTS.md`). The civic panel invite always saves its district
+  draw, never a `savedFilterId`. Win's text gate still runs before the flow
+  opens, and Win text derives its Peerly phone list for the saved list as
+  the flow opens.
+  Door knocking is the exception: its
   create flow is drawn on its own map page and takes only a saved list, so the
   card saves the list at the click, the latest point it can, and goes there,
   carrying the card's link on the URL (`?proposalKey=&priorityId=&stepId=&side=`)
@@ -203,9 +223,18 @@ there is the agent's to say, once, in its message; no card repeats it.
   turn. Chief of Staff has no check to move and sends no such turn. While the
   SMS flag reads off, a text
   proposal says texting is not available instead of offering a button.
+  A Serve text proposal may carry `purpose` (contracts' Serve SMS purposes;
+  the Chief of Staff only ever sets `build_citizens_panel`, for the civic
+  panel invite). `SmsFlow` then opens on it as `initialPurpose`, past the
+  picker, with the seeded message kept (a script otherwise opens on
+  `custom`) and the JOIN line locked on, the way the outreach page's panel
+  deep link opens it.
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
-  hub. No compose, edit or send UI lives in a card: the flows own it.
-- **Campaign Manager's text card is Win's.** `ChiefOfStaffChatBody` hands
+  hub. It reads its mode from the provider like the proposal card: Win reads
+  the campaign's send (`GET /v1/outreach/:id`) and links to
+  `/dashboard/outreach`, Serve reads the office's (`GET /v1/outreach/serve/:id`)
+  and links to `/dashboard/constituent-outreach`. No compose, edit or send UI lives in a card: the flows own it.
+- **Campaign Manager's cards are Win's.** `ChiefOfStaffChatBody` hands
   `ProposalFlowsProvider` a `mode` off its `scope` (`campaign_assistant` is
   `win`; priorities and a card outside any provider are `serve`), and the
   card reads it from the provider. In Win mode the card counts voters
@@ -217,18 +246,26 @@ there is the agent's to say, once, in its message; no card repeats it.
   shows it the card too) gets the Pro pitch (`ProPitchDialog`, source
   `campaign_manager`, channel `sms`) in place of the flow, and a Pro one
   passes only with an approved registration (`useTextOutreachGate`'s
-  compliance modal). Outreach Pro gating is fully rolled out, so the card
-  does not read the `outreach-pro-gating-v2` flag. The button waits until
-  the campaign and registration have loaded. The card's
+  compliance modal). Phone banking and door knocking take a free campaign
+  to their own pitch (`phone-bank`, `door`); social is free and opens for
+  anyone. Outreach Pro gating is fully rolled out, so the card
+  does not read the `outreach-pro-gating-v2` flag. A text's button waits
+  until the campaign and registration have loaded; the other channels wait
+  for the campaign alone (`winResolved`). The card's
   `proposalKey` rides Win's `POST /v1/outreach` create, and
   `GET /v1/outreach/by-proposal-key/:proposalKey` resolves it once paid.
   The key rides a fresh draft only, never a resume: a draft built in build
   mode and resumed later does not carry it, so that card never reads as
   sent. A create refused while carrying the key (a 409: already sent) has
   the provider re-read the card, and a card that resolves as sent closes
-  the flow. A
-  Win card for any other channel shows its line with no button: nothing
-  else has a Win flow here.
+  the flow. The other channels open Win's own flows with no `surface`:
+  `PhoneBankingFlow` and `SocialFlow` over the chat, and door knocking on
+  its map page (`?create=1&listId=&proposalKey=`), the way Serve's does.
+  Each Win create takes the key alone (`proposalKey` on
+  `POST /v1/phone-banking/lists`, `POST /v1/outreach/social` and
+  `POST /v1/door-knocking/turfs`), since a Campaign Manager card puts out no
+  priority check, so the card reads as sent once the list, post or walk
+  exists.
 
 Chief of Staff renders inside a vaul drawer, and React bubbles a portal's
 pointer events up the React tree into it, which is why the detail sheet
@@ -246,8 +283,33 @@ widget sends the checked labels in option order, not click order, as one line:
 `A`, `A and B`, `A, B, and C` (`formatClarifyChoices`). On reload
 `parseClarifyChoices` maps that line back to the set by matching whole labels in
 option order, so a label holding a comma or an "and" still parses. Anything
-that is not exactly such a line is a written-in answer and shows as written.
-The ordinance flow's stored `clarifyAnswers[].answer` holds the same line.
+that is not exactly such a line is a written-in answer. The ordinance flow
+hides the answer's user turn, so the widget echoes a written-in answer under
+its options there. The registry entry (`clarifyWidget.tsx`, Priorities and
+Chief of Staff) passes `showWrittenAnswer={false}`, because those surfaces
+already show the answer as the user's own message and an echo put it on
+screen twice. The ordinance flow's stored `clarifyAnswers[].answer` holds the
+same line.
+
+## Next steps — an intro ends on cards, not prose
+
+An assistant's intro ends on a question, answered by tappable cards
+(`ChiefOfStaffChatBody`'s `suggestions`, a `ChatSuggestion` each). Both
+products use this one mechanism: the Campaign Manager's starter cards
+(`CampaignManagerChatProvider`) and the Chief of Staff's next steps
+(`buildChiefOfStaffNextSteps` in `chief-of-staff/components/chat/chatConstants.ts`,
+passed by the Serve home's `DashboardContent` under the meet card's intro and
+on a new chat). A card does one of three things: `message` sends a question
+as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
+message such as the civic panel build), and `onSelect` runs anything else
+(open a flow). A card label with a `description` renders as a card, without
+one as a pill. Tapping a card never completes a get-started card; only that
+card's own button does.
+
+`showSuggestionsAfterKickoff` moves the cards from the empty transcript to
+under the reply to `pendingKickoff`, until anything else is sent. The Serve
+home uses it for What's a civic panel?: with no panel yet the answer ends on
+Build my panel, which sends the build message into the same conversation.
 
 ## Reference wrappers — copy the closest
 

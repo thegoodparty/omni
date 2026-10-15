@@ -100,6 +100,9 @@ export const SendChatMessageRequestSchema = z.object({
   content: z.string().min(1).max(CHAT_MESSAGE_MAX_LENGTH),
   clientMessageId: z.guid().optional(),
   attachmentIds: z.array(z.string()).max(10).optional(),
+  // The page the message was sent from. A scope that reads it resolves it
+  // against its own product map, so an unknown path adds nothing.
+  pagePath: z.string().max(300).optional(),
 })
 export type SendChatMessageRequest = z.infer<
   typeof SendChatMessageRequestSchema

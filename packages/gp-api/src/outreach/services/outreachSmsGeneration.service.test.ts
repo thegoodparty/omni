@@ -1,6 +1,10 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  SERVE_SMS_PURPOSE_VALUES,
+  SMS_PURPOSE_VALUES,
+} from '@goodparty_org/contracts'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { LlmService } from '@/llm/services/llm.service'
 import { SERVE_SMS_VOICE } from '../util/serveSmsVoice.util'
@@ -9,7 +13,9 @@ import {
   OutreachSmsGenerationService,
   type SmsImproveProtection,
   SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
   SMS_NO_NAME_PLACEHOLDER_RULE,
+  WIN_SMS_VOICE,
 } from './outreachSmsGeneration.service'
 
 const buildService = () => {
@@ -113,7 +119,7 @@ describe('OutreachSmsGenerationService — Win entry point', () => {
   })
 })
 
-const freshServePurposes = SERVE_OUTREACH_PURPOSE_VALUES.filter(
+const freshServePurposes = SERVE_SMS_PURPOSE_VALUES.filter(
   (purpose) => purpose !== 'custom',
 )
 
@@ -150,6 +156,27 @@ describe('OutreachSmsGenerationService — SERVE_SMS_VOICE', () => {
       expect(userPrompt).not.toMatch(BANNED_IN_SERVE)
     },
   )
+
+  // The flow appends the locked JOIN line; a second ask in the body would be
+  // one the reply reader does not recognize.
+  it('leaves the civic panel JOIN ask to the flow', async () => {
+    const { service, jsonCompletion } = buildService()
+
+    await service.generateDraftWithVoice(
+      { purpose: 'build_citizens_panel', tone: 'warm' },
+      'Alex Rivera',
+      'City Council',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+    )
+
+    const { userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('what their civic panel is')
+    expect(userPrompt).toContain('not a campaign')
+    expect(userPrompt).toContain('Do NOT ask the reader to reply JOIN')
+    expect(userPrompt).toContain('the app adds the line that asks them')
+  })
 
   it('polishes with the official subject and never injects a structure', async () => {
     const { service, jsonCompletion } = buildService()
@@ -510,4 +537,119 @@ describe('OutreachSmsGenerationService — event invite details', () => {
       expect(`${systemPrompt}\n${userPrompt}`).not.toMatch(LOGISTICS_BRACKET)
     },
   )
+})
+
+// The app writes the JOIN, LEAVE and STOP lines, so a copy the model writes
+// is sent twice; and drafts kept breaking the em dash and "just" bans.
+describe('OutreachSmsGenerationService — locked lines and style', () => {
+  it.each(SMS_PURPOSE_VALUES.filter((purpose) => purpose !== 'custom'))(
+    'tells a fresh Win %s draft to leave the reply lines to the app',
+    async (purpose) => {
+      const { service, jsonCompletion } = buildService()
+      await service.generateDraft(
+        { purpose, tone: 'warm' },
+        'Jane Doe',
+        'Mayor',
+        '7',
+      )
+      expect(promptsOf(jsonCompletion).systemPrompt).toContain(
+        SMS_LOCKED_LINES_AND_STYLE_RULE,
+      )
+    },
+  )
+
+  it.each(SERVE_SMS_PURPOSE_VALUES.filter((purpose) => purpose !== 'custom'))(
+    'tells a fresh Serve %s draft to leave the reply lines to the app',
+    async (purpose) => {
+      const { service, jsonCompletion } = buildService()
+      await service.generateDraftWithVoice(
+        { purpose, tone: 'warm' },
+        'Bryan Levine',
+        'City Council Member',
+        '7',
+        [],
+        SERVE_SMS_VOICE,
+      )
+      expect(promptsOf(jsonCompletion).systemPrompt).toContain(
+        SMS_LOCKED_LINES_AND_STYLE_RULE,
+      )
+    },
+  )
+
+  it('tells a polish on both surfaces the same', () => {
+    expect(WIN_SMS_VOICE.improveSystemPrompt).toContain(
+      SMS_LOCKED_LINES_AND_STYLE_RULE,
+    )
+    expect(SERVE_SMS_VOICE.improveSystemPrompt).toContain(
+      SMS_LOCKED_LINES_AND_STYLE_RULE,
+    )
+  })
+
+  it('bans JOIN, LEAVE and STOP lines, dashes and "just"', () => {
+    expect(SMS_LOCKED_LINES_AND_STYLE_RULE).toMatch(/Reply JOIN/)
+    expect(SMS_LOCKED_LINES_AND_STYLE_RULE).toMatch(/LEAVE/)
+    expect(SMS_LOCKED_LINES_AND_STYLE_RULE).toMatch(/Reply STOP/)
+    expect(SMS_LOCKED_LINES_AND_STYLE_RULE).toMatch(/em dash/)
+    expect(SMS_LOCKED_LINES_AND_STYLE_RULE).toMatch(/"just"/)
+  })
+
+  // The prompt teaches by example, so it must not use what it bans.
+  it('uses no em dash and no "just" in its own words', () => {
+    for (const voice of [WIN_SMS_VOICE, SERVE_SMS_VOICE]) {
+      const words = [
+        voice.draftSystemPrompt,
+        voice.improveSystemPrompt,
+        ...Object.values(voice.purposeStructures),
+      ]
+        .join('\n')
+        .split(SMS_LOCKED_LINES_AND_STYLE_RULE)
+        .join('')
+      expect(words).not.toMatch(/[—–]/)
+      expect(words).not.toMatch(/\bjust\b/i)
+    }
+  })
+
+  const PANEL_MESSAGE = `Hello {{first_name}}, this is Bryan Levine, your mayor. Tell me what you think.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`
+  const improvePanel = (service: OutreachSmsGenerationService) =>
+    service.generateDraftWithVoice(
+      {
+        purpose: 'build_citizens_panel',
+        tone: 'warm',
+        currentDraft: PANEL_MESSAGE,
+      },
+      'Bryan Levine',
+      'Mayor',
+      '7',
+      [],
+      SERVE_SMS_VOICE,
+      { ...SERVE_PROTECTION, candidateNames: ['Bryan Levine'] },
+    )
+  const replyWith = (...drafts: string[]) => {
+    const { service, jsonCompletion } = buildService()
+    drafts.forEach((draft) =>
+      jsonCompletion.mockResolvedValueOnce({ object: { draft } }),
+    )
+    return { service, jsonCompletion }
+  }
+
+  it('masks the JOIN line in a polish and puts it back once', async () => {
+    const { service, jsonCompletion } = replyWith(
+      'Hello ⟦1⟧, this is ⟦2⟧, your mayor. I want to hear from you.\n\n⟦3⟧\n\n⟦4⟧',
+    )
+    const polished = await improvePanel(service)
+    expect(promptsOf(jsonCompletion).userPrompt).not.toContain('Reply JOIN')
+    expect(polished.split(CIVIC_PANEL_JOIN_LINE)).toHaveLength(2)
+    expect(polished.endsWith('Reply STOP to opt out.')).toBe(true)
+  })
+
+  it('refuses a polish that writes the JOIN or STOP line a second time', async () => {
+    const { service, jsonCompletion } = replyWith(
+      `Hello ⟦1⟧, this is ⟦2⟧, your mayor. ${CIVIC_PANEL_JOIN_LINE}\n\n⟦3⟧\n\n⟦4⟧`,
+      'Hello ⟦1⟧, this is ⟦2⟧. Reply STOP.\n\n⟦3⟧\n\n⟦4⟧',
+    )
+    await expect(improvePanel(service)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+  })
 })

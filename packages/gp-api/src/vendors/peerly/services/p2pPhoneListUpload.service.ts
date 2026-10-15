@@ -1,14 +1,16 @@
 import {
   BadGatewayException,
   BadRequestException,
+  forwardRef,
   HttpException,
+  Inject,
   Injectable,
 } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { Campaign, Organization } from '../../../generated/prisma'
+import { Campaign, Organization, User } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -30,9 +32,13 @@ import {
   P2pPhoneListRequestSchema,
   p2pPhoneListRequestSchema,
 } from '../schemas/p2pPhoneListRequest.schema'
+import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
+import { PhoneListState } from '../peerly.types'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { WIN_SMS_HOLD_BILLING_FLAG } from '@/shared/util/winSmsHold.util'
+import { FeaturesService } from '@/features/services/features.service'
 
 // Mirrors outreachMaterialization.service.ts's paging shape. Not shared as an
 // export — each contacts-pipeline consumer keeps its own copy (see that
@@ -53,13 +59,6 @@ type P2pPhoneListFilterInput = Omit<
   'name'
 >
 
-// Kill switch for Voter Outreach 2.0's async build (S3b). Read live, never
-// cached at module load, so a test can `vi.stubEnv` it and so a prod
-// cutover needs no redeploy. Defaults OFF: this slice ships inert, and the
-// synchronous build below is unchanged until someone flips it.
-const isAsyncBuildEnabled = (): boolean =>
-  process.env.P2P_PHONE_LIST_ASYNC_BUILD === 'true'
-
 // A `building` row whose updatedAt is older than this is assumed abandoned
 // (the handler crashed, was OOM-killed, or lost its SQS message before
 // finishing) and is reclaimed by the sweep below. Comfortably exceeds a
@@ -78,6 +77,35 @@ const P2P_PHONE_LIST_BUILD_MAX_ATTEMPTS = 3
 // changing this — see docs/scheduled-jobs.md.
 const P2P_PHONE_LIST_BUILD_SWEEP_CRON = '14,29,44,59 * * * *'
 const P2P_PHONE_LIST_BUILD_SWEEP_JOB = 'p2pPhoneListBuildStaleSweep'
+// Every 15 minutes, on digits the sibling sweep above (4/9) and the */5 and
+// top-of-hour herds don't use. The robocall 6-lane sweep family saturates the
+// minute space in this one process, so no slot is collision-free; this one at
+// least shares no instant with the sibling p2p sweep. grep -rn '@Cron(' before
+// changing — see docs/scheduled-jobs.md.
+const P2P_PHONE_LIST_FINISH_SWEEP_CRON = '8,23,38,53 * * * *'
+const P2P_PHONE_LIST_FINISH_SWEEP_JOB = 'p2pPhoneListFinishSweep'
+// A `processing` row untouched for this long is assumed stranded: the
+// candidate's browser poll — which would otherwise stamp it `ready` — has
+// stopped (the tab closed). Comfortably exceeds the browser poll interval so
+// the finisher never races a live poll: a still-loading list under active
+// poll keeps a fresh updatedAt (isLeadsLoadedStable writes each unstable
+// read) and so stays out of the sweep until the browser gives up.
+const P2P_PHONE_LIST_FINISH_STALE_MINUTES = 10
+// Caps the Peerly reads one sweep issues (up to 2 per row), so a backlog of
+// stranded rows can't make a single pass hammer the rate-limited vendor or
+// overrun the cron cadence; the remainder are finished on the next pass,
+// oldest first.
+const P2P_PHONE_LIST_FINISH_BATCH_SIZE = 100
+// Deploys the finisher runs on. dev as well as prod — unlike the robocall
+// sweeps it moves no money and sends nothing, only advancing a build to
+// `ready`, and the project's sendless dev validation needs it running on dev,
+// which a strict prod-only guard would silently prevent. NOT an exclusion of
+// `preview`: OTEL_SERVICE_ENVIRONMENT is `preview` on every PR-preview stack
+// at once (~25), so an ungated vendor sweep would fire ~25 identical passes
+// against one shared Peerly budget (docs/scheduled-jobs.md § Not prod-only).
+// Fail-closed: an absent/unexpected value (local, vitest) isn't in the set, so
+// it skips.
+const P2P_PHONE_LIST_FINISH_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
 
 // Peerly needs state, city, and zip for geo-targeting; null fields
 // produce blank CSV cells it counts as malformed leads. The people
@@ -101,18 +129,33 @@ export class P2pPhoneListUploadService {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly queueProducer: QueueProducerService,
+    // forwardRef: OutreachModule and PeerlyModule import each other, so the
+    // capture provider is resolved through that cycle.
+    @Inject(forwardRef(() => OutreachP2pSmsCaptureService))
+    private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pPhoneListUploadService.name)
   }
 
   async uploadPhoneList(
+    user: User,
     campaign: Campaign,
     request: P2pPhoneListRequestSchema,
   ): Promise<{ token: string | null; listName: string; buildId: string }> {
     const { name: listName, ...filterInput } = request
 
-    if (isAsyncBuildEnabled()) {
+    // ENTRY: the requesting user always resolves here (an authenticated
+    // upload request), so the async build — the whole reason hold-billing
+    // exists (pay-before-ready needs a build that can still be running when
+    // checkout happens) — is gated on the SAME managed flag, evaluated once,
+    // right here.
+    const asyncBuildEnabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_SMS_HOLD_BILLING_FLAG,
+    })
+    if (asyncBuildEnabled) {
       // Nothing is validated beyond the request's own shape (already done by
       // the controller's ZodValidationPipe) before the row exists — TCR
       // compliance, organization, filter resolution, opt-out scrub, CSV
@@ -384,6 +427,139 @@ export class P2pPhoneListUploadService {
     }
   }
 
+  // Server-side build finisher. Today a `processing` build only reaches
+  // `ready` (stable leads_loaded + the numeric Peerly list id stamped) when
+  // the candidate's browser polls the status route (p2p.controller.ts
+  // resolveListStatus). If the tab closes mid-build nothing finishes it and
+  // the list strands at `processing` forever. This sweep does the same Peerly
+  // read + stamp headless.
+  //
+  // No CronLockService, mirroring sweepStaleBuilding and
+  // OutreachRobocallStagingService.sweepRobocallStaging: the stamp is a
+  // single-owner CAS (stampPeerlyListId guards on peerlyListId IS NULL), so
+  // two replicas both reading ACTIVE stamp exactly once, and a concurrent
+  // browser poll can't double-stamp either. Gated to the dev+prod deploys
+  // (not every preview stack) because it reads a rate-limited vendor (Peerly);
+  // it runs on dev as well as prod since it moves no money and sends nothing,
+  // and sendless dev validation depends on it. process.env is read live so a
+  // test can stub the gate.
+  //
+  // Selection is bounded by a stale-age floor and a batch cap (see the two
+  // constants above) so the vendor reads stay bounded per pass. A row whose
+  // Peerly list never cleanly resolves (never ACTIVE, or ACTIVE with no
+  // list_id) is re-read each pass and left `processing` — the same end state
+  // it already has today, and a terminal-failure path for it is intentionally
+  // out of this slice's scope (which is producing `ready`), mirroring how the
+  // stale-building reaper and this finisher stay separate concerns.
+  @Cron(P2P_PHONE_LIST_FINISH_SWEEP_CRON, {
+    name: P2P_PHONE_LIST_FINISH_SWEEP_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepUnfinishedBuilds(): Promise<void> {
+    if (
+      !P2P_PHONE_LIST_FINISH_DEPLOY_ENVIRONMENTS.has(
+        process.env.OTEL_SERVICE_ENVIRONMENT ?? '',
+      )
+    ) {
+      return
+    }
+
+    const staleCutoff = subMinutes(
+      new Date(),
+      P2P_PHONE_LIST_FINISH_STALE_MINUTES,
+    )
+    const candidates =
+      await this.peerlyPhoneListCapture.findUnfinishedProcessing({
+        staleCutoff,
+        take: P2P_PHONE_LIST_FINISH_BATCH_SIZE,
+      })
+
+    for (const { id: buildId, token } of candidates) {
+      if (!token) continue
+      try {
+        await this.finishBuild(buildId, token)
+      } catch (err) {
+        // Per-record isolation: one build's Peerly failure must not abort
+        // finishing the rest. The next sweep retries it.
+        this.logger.error(
+          { err, buildId },
+          'p2pPhoneListBuild finish failed for a build; continuing sweep',
+        )
+      }
+    }
+  }
+
+  // Headless counterpart to p2p.controller.ts resolveListStatus: poll Peerly,
+  // and once the list is ACTIVE with a stable leads_loaded, stamp the numeric
+  // list id + `ready`. A not-yet-ACTIVE or still-loading list is left
+  // `processing` for a later pass (isLeadsLoadedStable records the reading so
+  // the next pass can compare the same value twice). Reuses the same
+  // capture-service helpers the browser route does rather than duplicating the
+  // stability/stamp logic.
+  private async finishBuild(buildId: string, token: string): Promise<void> {
+    const statusResponse =
+      await this.peerlyPhoneListService.checkPhoneListStatus(token)
+    if (!statusResponse) return
+    if (statusResponse.Data.list_state !== PhoneListState.ACTIVE) return
+
+    const listId = statusResponse.Data.list_id
+    if (!listId) {
+      // ACTIVE with no list_id is the one shape the browser route 502s on;
+      // here no caller is waiting, so log and leave it for the next pass.
+      this.logger.warn(
+        { buildId, token },
+        'Peerly reported ACTIVE with no list_id; leaving build processing',
+      )
+      return
+    }
+
+    const details =
+      await this.peerlyPhoneListService.getPhoneListDetails(listId)
+    const stable = await this.peerlyPhoneListCapture.isLeadsLoadedStable({
+      buildId,
+      leadsLoaded: details.leads_loaded,
+      leadsSupplied: details.leads_supplied,
+    })
+    if (!stable) return
+
+    // Single-owner CAS (peerlyListId IS NULL): a no-op if a browser poll or
+    // another replica stamped it first.
+    await this.peerlyPhoneListCapture.stampPeerlyListId(
+      token,
+      listId,
+      details.leads_loaded,
+    )
+
+    // FINALIZE edge (b): the list is now `ready`. A p2p draft paid before this
+    // build finished was not submitted to Peerly at the webhook (finalize
+    // deferred on a null phoneListId); stamp its id onto the draft and submit it
+    // now. Runs before the capture edge so the draft's phoneListId is stamped
+    // before the capture half reads it. Self-gated + best-effort; the backstop
+    // sweep retries on failure.
+    try {
+      await this.p2pSmsCapture.finalizeDraftsForReadyList(listId)
+    } catch (err) {
+      this.logger.error(
+        { err, buildId, listId },
+        'win sms pre-build finalize (build-ready edge) failed; backstop sweep will retry',
+      )
+    }
+
+    // CAPTURE edge (b): the list is now `ready` with a stable count. If a Win
+    // SMS hold is already `authorized` for it, capture it now (the backstop
+    // sweep catches it otherwise). Self-gated on the flag, so inert until the
+    // cutover. Best-effort — a capture failure must not abort the finisher,
+    // which only advances builds to `ready`.
+    try {
+      await this.p2pSmsCapture.captureHoldsForReadyList(listId)
+    } catch (err) {
+      this.logger.error(
+        { err, buildId, listId },
+        'win sms capture (build-ready edge) failed; backstop sweep will retry',
+      )
+    }
+  }
+
   // FIFO group per build, so a build's own redeliveries/retries serialize
   // rather than racing each other through the claim CAS. `attempt` only
   // varies the deduplicationId — SQS's dedup window would otherwise collapse
@@ -447,6 +623,22 @@ export class P2pPhoneListUploadService {
       existingToken,
     } = params
 
+    // HARD SEND CAP (Win SMS hold, team decision 2 — never oversend): the
+    // uploaded list must not exceed what was billed, even if re-resolving the
+    // filter here yields a larger audience than the pre-pay estimate. Caps the
+    // recipients at the paid count the hold covers.
+    //
+    // ORDER-INDEPENDENT (slice D2b): the cap is persisted on the build at
+    // checkout-session creation (resolveSendCapForBuild reads that
+    // `sendCapTexts` field), which always precedes the completed payment — and
+    // thus the payment-webhook hold link. So the cap is present here whether this
+    // resolve runs before or after the hold link, closing the race where the
+    // first async build pass beat the webhook and uploaded uncapped. The only
+    // ordering with no persisted cap is a resolve that runs before the user even
+    // reaches checkout (resolve-before-estimate); there the pre-pay estimate is a
+    // genuine upper bound of this already-smaller resolve, so uncapped is safe.
+    const sendCap = await this.p2pSmsCapture.resolveSendCapForBuild(buildId)
+
     let phoneList: {
       csvBuffer: Buffer
       recipients: PhoneListRecipient[]
@@ -458,6 +650,7 @@ export class P2pPhoneListUploadService {
         organization,
         excludePersonIds,
         isInteractive,
+        sendCap,
       )
     } catch (error) {
       // The row's buildError mirrors whatever is ABOUT TO BE thrown to the
@@ -591,6 +784,10 @@ export class P2pPhoneListUploadService {
     organization: Organization,
     excludePersonIds: Set<string>,
     isInteractive: boolean,
+    // The Win SMS hold send cap: stop resolving recipients once this many have
+    // been collected, so the uploaded list never exceeds the paid count. Null
+    // applies no cap (flag off, or no hold authorized for this build yet).
+    sendCap: number | null = null,
   ): Promise<{
     csvBuffer: Buffer
     recipients: PhoneListRecipient[]
@@ -602,6 +799,7 @@ export class P2pPhoneListUploadService {
     const audience = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
+      dataset: await this.contactsService.resolvePeopleDataset(organization),
       excludePersonIds,
       pageSize: SEGMENT_PAGE_SIZE,
       maxRecipients: MAX_PHONE_LIST_RECIPIENTS,
@@ -643,6 +841,10 @@ export class P2pPhoneListUploadService {
 
     let next = await audience.next()
     while (!next.done) {
+      // SEND CAP: stop at the paid count so the uploaded list (and the Peerly
+      // send that reads it) never exceeds what the hold authorized. A capped-down
+      // send is fine — we charge the hold and send the hold's worth.
+      if (sendCap !== null && recipients.length >= sendCap) break
       const person = next.value
       recipients.push({ personId: person.id, phone: person.cellPhone })
       rows.push(
@@ -663,7 +865,12 @@ export class P2pPhoneListUploadService {
     return {
       csvBuffer: Buffer.from(rows.join('\n') + '\n', 'utf-8'),
       recipients,
-      excludedDuplicatePhoneCount: next.value.excludedDuplicatePhoneCount,
+      // The duplicate-phone tally is only available from the generator's return
+      // value, which requires exhausting it. A cap-truncated build breaks early,
+      // so that observability count is reported as 0 rather than a partial tally.
+      excludedDuplicatePhoneCount: next.done
+        ? next.value.excludedDuplicatePhoneCount
+        : 0,
     }
   }
 

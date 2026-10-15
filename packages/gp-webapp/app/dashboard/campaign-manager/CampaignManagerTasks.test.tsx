@@ -5,6 +5,13 @@ import userEvent from '@testing-library/user-event'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import CampaignManagerTasks from './CampaignManagerTasks'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+const mockTrackEvent = vi.mocked(trackEvent)
 
 const mockResult = vi.fn<() => TrackerTasksResult>()
 const mockToggle = vi.fn()
@@ -64,6 +71,7 @@ const meetButton = () =>
 beforeEach(() => {
   window.localStorage.clear()
   mockToggle.mockClear()
+  mockTrackEvent.mockClear()
 })
 
 const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
@@ -384,6 +392,86 @@ describe('CampaignManagerTasks', () => {
     )
 
     expect(onPersonalize).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CTA tracking for the next-task-experience control arm', () => {
+  const renderTasks = (onMeetManager = vi.fn()) =>
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={onMeetManager}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+  it("fires the next-task card's action event when a task CTA is clicked", async () => {
+    const t = task({
+      title: 'Knock 50 doors',
+      week: 1,
+      cta: 'Knock doors',
+      link: '/dashboard/outreach/doors',
+      flowType: 'doorKnocking',
+    })
+    mockResult.mockReturnValue(settled([t]))
+    const user = userEvent.setup()
+    renderTasks()
+
+    await user.click(screen.getByRole('link', { name: 'Knock doors' }))
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskActionTaken,
+      expect.objectContaining({
+        trackerTaskId: t.id,
+        action: 'start',
+        source: 'campaign_manager',
+        cta: 'Knock doors',
+      }),
+    )
+  })
+
+  it('fires the task completed event on Mark done', async () => {
+    const t = task({
+      title: 'Get Meta verified',
+      week: 1,
+      flowType: 'awareness',
+    })
+    mockResult.mockReturnValue(settled([t]))
+    const user = userEvent.setup()
+    renderTasks()
+
+    await user.click(screen.getByRole('button', { name: 'Mark done' }))
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskCompleted,
+      expect.objectContaining({
+        trackerTaskId: t.id,
+        source: 'campaign_manager',
+      }),
+    )
+  })
+
+  it('fires the prompt card event when a prompt card CTA is clicked', async () => {
+    mockResult.mockReturnValue(settled([]))
+    const onMeetManager = vi.fn()
+    const user = userEvent.setup()
+    renderTasks(onMeetManager)
+
+    await user.click(
+      screen.getByRole('button', { name: /meet your campaign manager/i }),
+    )
+
+    expect(onMeetManager).toHaveBeenCalled()
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.CampaignManager.PromptCardActionTaken,
+      {
+        card: 'meet_manager',
+        action: 'start',
+        cta: 'Meet your Campaign Manager',
+      },
+    )
   })
 })
 

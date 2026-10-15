@@ -53,7 +53,8 @@ describe('CreateListWizard open-reset effect', () => {
   // list to seed from — a seed written without a create-mode fallback would
   // carry the last edited list into the next "Create new list".
   it.each([
-    ['setDemographicFilters', ': {},'],
+    // A `?newList=` preset may seed the create flow; without one it is empty.
+    ['setDemographicFilters', '(initialFilters ?? {})'],
     ['setSupportStatus', '?? []'],
     ['setPrecincts', ': [],'],
     ['setActivityConditions', ': [blankActivityCondition()],'],

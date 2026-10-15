@@ -57,6 +57,9 @@ interface OutreachFlowShellProps {
   currentStep: number
   totalSteps: number
   onBack?: () => void
+  // Back on a first step leaves the flow, through the same unsaved-work
+  // confirm as Close, instead of calling onBack.
+  backExits?: boolean
   // Shell-owned, step-keyed footer CTA; null renders no footer (e.g. the
   // purpose step, where selecting a card advances the flow). Back on its
   // own also renders the footer, so a step with only a Back stays reachable.
@@ -109,6 +112,7 @@ export const OutreachFlowShell = ({
   currentStep,
   totalSteps,
   onBack,
+  backExits = false,
   cta,
   banner,
   channel,
@@ -277,7 +281,7 @@ export const OutreachFlowShell = ({
                       variant="ghost"
                       aria-label="Back"
                       className="shrink-0 lg:min-w-[140px]"
-                      onClick={onBack}
+                      onClick={backExits ? () => requestClose(false) : onBack}
                     >
                       Back
                     </Button>

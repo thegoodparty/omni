@@ -1,28 +1,30 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion, Button, Card } from '@styleguide'
-import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
-import { IS_PROD } from 'appEnv'
+import { EmptyState, Progress, Spinner, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
+import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
 import {
-  isVoterContactFlowType,
-  useGenerateTrackerTasks,
-  useToggleTrackerTaskComplete,
-  useTrackerTasks,
-} from './useTrackerTasks'
+  trackTaskAction,
+  trackerOrigin,
+  useCompleteTrackerTask,
+} from './useCompleteTrackerTask'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
-import CountModal from '../../../components/tasks/CountModal'
+import { useNewTrackerTasks } from './useNewTrackerTasks'
+import {
+  discussTaskMessage,
+  taskAction,
+  useHeadStartWeek,
+} from './NextTaskCard'
+import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import {
-  outreachChannel,
-  outreachEventProps,
-  type OutreachTrackerOrigin,
-} from 'app/dashboard/outreach/util/outreachAnalytics'
-import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
+  CampaignStrategyPhaseKeySchema,
+  timelineElectionDate,
+} from '@goodparty_org/contracts'
 
 // The "Campaign Tracker" section on the campaign plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
@@ -30,24 +32,14 @@ import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 // has gone through campaign story, so this section is rendered only for the
 // story cohort (see CampaignPlanView) — there is no client-catalog fallback.
 // While the tracker is bootstrapping (no rows yet) it shows a setup state.
-// Both halves or neither — a phase with no task id names nothing joinable.
-// `phase` is a free `String?` on the row, so it is parsed against the contract
-// rather than trusted.
-const trackerOrigin = (
-  taskId: string,
-  phase: string | null | undefined,
-): OutreachTrackerOrigin | undefined => {
-  const parsed = CampaignStrategyPhaseKeySchema.safeParse(phase)
-  return parsed.success
-    ? { trackerTaskId: taskId, phase: parsed.data }
-    : undefined
-}
-
-const CampaignStrategySection = (): React.JSX.Element => {
+const CampaignStrategySection = ({
+  bodyStart,
+}: {
+  // Rendered above the timeline card (the Campaign strategy card).
+  bodyStart?: React.ReactNode
+}): React.JSX.Element => {
   const [campaign] = useCampaign()
-  const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
-  const { generate, isGenerating } = useGenerateTrackerTasks()
-  const toggleComplete = useToggleTrackerTaskComplete()
+  const { tasks, isPending, isError } = useTrackerTasks()
   const router = useRouter()
   // "Start outreach" links into the hub rather than opening a flow here: the
   // hub owns the one mount of each channel flow and the gate in front of it,
@@ -66,84 +58,46 @@ const CampaignStrategySection = (): React.JSX.Element => {
     },
     [router, tasks],
   )
-  // An outreach task pending its voter-contact count in the modal.
-  const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
+  const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks, {
+    source: 'campaign_plan',
+  })
+  const rowFor = (id: string) => tasks.find((row) => row.id === id)
+  const chat = useCampaignManagerChat()
+  const setAside = useSetTrackerTaskAside()
 
-  // Completing an outreach/community-event task first asks how many voters were
-  // reached (legacy behavior); the count is recorded with the completion.
-  // Uncompleting, and completing anything else, goes straight through.
-  // Task completion is the primary activation metric and fired from nowhere
-  // between the legacy dashboard checklist's deletion and this: the tracker
-  // shipped with a completion toggle and no event at all. `trackerTaskId` is
-  // what joins a completed task to the outreach it produced — see
-  // docs/features/voter-outreach-analytics.md.
-  const trackTaskCompleted = (task: CampaignTrackerTask) => {
-    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskCompleted, {
-      trackerTaskId: task.id,
-      medium: outreachChannel(task.flowType ?? ''),
-      ...(task.phase ? { phase: task.phase } : {}),
-    })
-  }
+  // The same election gp-api dates the tasks from, so each task lands in the
+  // phase its date belongs to.
+  const electionDateIso = timelineElectionDate(
+    {
+      general: campaign?.details?.electionDate,
+      primary: campaign?.details?.primaryElectionDate,
+    },
+    new Date(),
+  )
 
-  const onToggleComplete = (id: string, completed: boolean) => {
-    const task = tasks.find((t) => t.id === id)
-    if (completed && task && isVoterContactFlowType(task.flowType)) {
-      // The count modal is the rest of this completion, so the event rides
-      // `onCountSubmit` instead — firing here too would count the task twice,
-      // and once before the candidate can still cancel out of the modal.
-      setCountTask(task)
-      return
-    }
-    // Completion only. Un-completing is a correction, not an activation
-    // signal, and an event named Completed must not fire on one.
-    if (task && completed) trackTaskCompleted(task)
-    toggleComplete.mutate({ id, completed })
-  }
-
-  const onCountSubmit = (count: number) => {
-    if (!countTask?.flowType) return
-    trackTaskCompleted(countTask)
-    // The count modal is a manual outreach log: the candidate is reporting
-    // voters they reached offline on this task's channel. Same event the
-    // campaign-manager modal fires, so both manual paths land in one series.
-    // No `price` — nothing here captures a cost.
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-      ...outreachEventProps({
-        channel: outreachChannel(countTask.flowType),
-        isServe: false,
-        recipientCount: count,
-        sendDate: new Date(),
-        ...(trackerOrigin(countTask.id, countTask.phase)
-          ? { tracker: trackerOrigin(countTask.id, countTask.phase) }
-          : {}),
-      }),
-      method: 'manual',
-    })
-    toggleComplete.mutate({
-      id: countTask.id,
-      completed: true,
-      type: countTask.flowType,
-      quantity: count,
-    })
-    setCountTask(null)
-  }
-
-  const metrics = campaign?.raceTargetMetrics
-  const electionDateIso =
-    metrics?.relevantElectionDate ??
-    metrics?.generalElectionDate ??
-    campaign?.details?.electionDate ??
-    campaign?.electionDate ??
-    null
-
+  // Next week pulled forward from the next-step card, so the list marks the
+  // same next task and its week navigator opens there.
+  const headStartWeek = useHeadStartWeek()
+  // Tasks that arrived in the background since the plan was last shown: the
+  // candidate is told what was added, and the rows say New for this visit.
+  const newTaskIds = useNewTrackerTasks(tasks, campaign?.id, { markSeen: true })
   // Render only from persisted rows. null until the first generation lands.
   const strategy = useMemo(() => {
     if (tasks.length === 0) return null
     const electionDate = electionDateIso
       ? new Date(electionDateIso.replace(/-/g, '/'))
       : null
-    return buildTrackerStrategy(tasks, { electionDate })
-  }, [tasks, electionDateIso])
+    const built = buildTrackerStrategy(tasks, { electionDate, headStartWeek })
+    for (const phase of built.phases) {
+      for (const task of [
+        ...phase.groups.flatMap((group) => group.tasks),
+        ...(phase.weeks ?? []).flatMap((week) => week.tasks),
+      ]) {
+        task.isNew = newTaskIds.has(task.id)
+      }
+    }
+    return built
+  }, [tasks, electionDateIso, headStartWeek, newTaskIds])
 
   // Fires only once `strategy` exists, so it means "the candidate actually saw
   // their tasks" — not merely that the route loaded (the page view already
@@ -164,18 +118,10 @@ const CampaignStrategySection = (): React.JSX.Element => {
     if (!strategy || !campaign?.id) return
     if (trackedCampaignRef.current === campaign.id) return
     trackedCampaignRef.current = campaign.id
-    // The Active phase carries its tasks in `weeks` with `groups` emptied, and
-    // its navigator opens on the current week (falling back to the last). Count
-    // that one week rather than every week: `weeks` accumulates all generations,
-    // so summing them would make taskCount climb week over week no matter what
-    // the candidate is actually looking at.
-    const rendered = strategy.phases.flatMap((phase) => {
-      if (!phase.weeks) return phase.groups.flatMap((group) => group.tasks)
-      const open =
-        phase.weeks.find((week) => week.isCurrent) ??
-        phase.weeks[phase.weeks.length - 1]
-      return open?.tasks ?? []
-    })
+    // Every phase lists its tasks in `groups`, the Active phase included.
+    const rendered = strategy.phases.flatMap((phase) =>
+      phase.groups.flatMap((group) => group.tasks),
+    )
     trackEvent(EVENTS.Dashboard.CampaignPlan.CampaignTrackerViewed, {
       taskCount: rendered.length,
       tasksCompleted: rendered.filter((task) => task.completed).length,
@@ -185,108 +131,188 @@ const CampaignStrategySection = (): React.JSX.Element => {
     })
   }, [strategy, campaign?.id])
 
-  // Open the phase(s) the candidate is in now; fall back to the first phase.
-  const autoOpenable = (strategy?.phases ?? []).filter(
-    (phase) => phase.key !== 'preLaunch',
+  // A link can name a phase to land on (`?phase=gotv`).
+  const linkedPhase = CampaignStrategyPhaseKeySchema.safeParse(
+    typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location.search).get('phase'),
   )
-  const openPhases = autoOpenable
-    .filter((phase) => phase.status === 'active')
-    .map((phase) => phase.key)
-  const defaultOpen =
-    openPhases.length > 0
-      ? openPhases
-      : autoOpenable[0]
-        ? [autoOpenable[0].key]
-        : []
+  const phases = strategy?.phases ?? []
+  const currentIndex = phases.findIndex((phase) => phase.status === 'active')
+  // Each phase's bar measures its done tasks; not-for-me ones don't count
+  // against it.
+  const sections = phases.map((phase) => {
+    const counted = phase.groups
+      .flatMap((group) => group.tasks)
+      .filter((task) => task.setAside === null)
+    return {
+      phase,
+      total: counted.length,
+      done: counted.filter((task) => task.completed).length,
+    }
+  })
+  const jumpTo = (key: string) => {
+    document
+      .getElementById(`phase-${key}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // On arrival, go to the phase a link names, else bring the "Do this next"
+  // row into view so the candidate lands on what to do now. Once per mount.
+  const scrolledRef = useRef(false)
+  useEffect(() => {
+    if (scrolledRef.current || !strategy) return
+    scrolledRef.current = true
+    const linked = linkedPhase.success ? linkedPhase.data : null
+    requestAnimationFrame(() => {
+      if (linked) {
+        document
+          .getElementById(`phase-${linked}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+      document
+        .querySelector('[data-next-task="true"]')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [strategy, linkedPhase.success, linkedPhase.data])
 
   return (
     <section>
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold">Campaign Tracker</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Everything you need to do, in order. We tell you what to do and
-            when, so you always know your next move.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          {/* Non-prod-only manual trigger: prod generates via the weekly cron,
-              but dev/qa have no cron, so this lets us dispatch a run on demand.
-              gp-api 404s the route in prod as a backstop. */}
-          {!IS_PROD && (
-            <Button
-              variant="outline"
-              size="small"
-              onClick={generate}
-              loading={isGenerating}
-              loadingText="Generating…"
-              disabled={isPending}
-            >
-              Generate tasks
-            </Button>
-          )}
-        </div>
-      </div>
       {isPending ? (
-        <Card className="flex items-center gap-3 p-4">
-          <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
-          <p className="text-muted-foreground text-sm">Loading your tasks…</p>
-        </Card>
+        <div className="mt-12 flex justify-center">
+          <Spinner />
+        </div>
       ) : isError ? (
-        <Card className="p-4">
-          <p className="text-muted-foreground text-sm">
-            We could not load your tasks just now. Refresh the page to try
-            again.
-          </p>
-        </Card>
+        <EmptyState
+          className="mx-4 mt-6 rounded-2xl border-components-input-border sm:mx-auto sm:max-w-[calc(48rem-2rem)]"
+          message="We couldn’t load your tasks. Refresh the page to try again."
+        />
       ) : !strategy ? (
-        // Plan just completed; the tracker is bootstrapping. Static rows land
-        // first (seconds), then the dynamic tasks + events (a few minutes).
-        <Card className="flex items-center gap-3 p-4">
-          <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
-          <p className="text-muted-foreground text-sm">
-            Setting up your campaign plan. Your tasks will appear here
-            automatically in a few minutes.
-          </p>
-        </Card>
+        // The plan is being made: no tasks exist yet. The first ones land in
+        // seconds to minutes, and the page polls, so they appear on their own.
+        <EmptyState
+          className="mx-4 mt-6 rounded-2xl border-components-input-border sm:mx-auto sm:max-w-[calc(48rem-2rem)]"
+          icon={<Spinner />}
+          title="Your campaign plan is being created"
+          message="This takes a few minutes. Your tasks will show up here on their own."
+        />
       ) : (
         <>
-          {(isGeneratingDynamic || isGenerating) && (
-            <Card className="mb-4 flex items-center gap-3 p-4">
-              <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
-              <p className="text-muted-foreground text-sm">
-                Finding local events and personalizing the rest of your weekly
-                tasks. They will appear here automatically in a few minutes.
-              </p>
-            </Card>
-          )}
-          <Accordion
-            type="multiple"
-            defaultValue={defaultOpen}
-            className="space-y-4"
-          >
-            {strategy.phases.map((phase) => (
-              <CampaignStrategyPhase
-                key={phase.key}
-                phase={phase}
-                onToggleComplete={onToggleComplete}
-                onStartOutreach={openOutreachFlow}
-              />
-            ))}
-          </Accordion>
+          <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10">
+            {bodyStart}
+            {/* One long card. Each phase is a heading that sticks to the
+                top while its tasks scroll, and the phases still ahead wait
+                at the bottom, tapped to jump there. */}
+            <div className="bg-card rounded-xl border [--plan-phase:2.25rem] sm:[--plan-phase:2.75rem]">
+              {sections.map((section, index) => (
+                <Fragment key={section.phase.key}>
+                  {/* Sticky at the top while its phase scrolls, and at the
+                        bottom (stacked above the later ones) until it
+                        arrives. Siblings, not nested in their sections, so
+                        each can stick past its own phase. */}
+                  <h3
+                    className="sticky z-20"
+                    style={{
+                      top: 0,
+                      bottom: `calc(var(--chat-dock-height, 0px) + ${sections.length - 1 - index} * var(--plan-phase))`,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => jumpTo(section.phase.key)}
+                      aria-label={`${section.phase.title}, ${section.done} of ${section.total} done`}
+                      aria-current={index === currentIndex ? 'step' : undefined}
+                      className={cn(
+                        'bg-muted hover:shadow-[inset_0_0_0_9999px_rgb(0_0_0/0.04)] focus-visible:ring-primary-focus flex h-(--plan-phase) w-full items-center gap-4 border-y border-border px-4 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-inset sm:px-6',
+                        // The first sits on the card's own top edge.
+                        index === 0 && 'rounded-t-xl border-t-0',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'shrink-0 text-sm font-semibold',
+                          index === currentIndex
+                            ? 'text-primary'
+                            : 'text-foreground',
+                        )}
+                      >
+                        {section.phase.title}
+                      </span>
+                      <Progress
+                        aria-hidden
+                        value={
+                          section.total > 0
+                            ? (section.done / section.total) * 100
+                            : 0
+                        }
+                        className="h-2 flex-1"
+                      />
+                    </button>
+                  </h3>
+                  <section
+                    id={`phase-${section.phase.key}`}
+                    aria-label={section.phase.title}
+                    className="scroll-mt-(--plan-phase)"
+                  >
+                    <CampaignStrategyPhase
+                      phase={section.phase}
+                      onToggleComplete={(id, completed) => {
+                        // Completing reports itself, with its source; an
+                        // undo is a choice worth seeing too.
+                        if (!completed) {
+                          trackTaskAction(
+                            rowFor(id),
+                            'mark_not_done',
+                            'campaign_plan',
+                          )
+                        }
+                        onToggleComplete(id, completed)
+                      }}
+                      onStartOutreach={openOutreachFlow}
+                      getAction={(task) => taskAction(rowFor(task.id), 'plan')}
+                      onSetAside={(task, reason) => {
+                        trackTaskAction(
+                          rowFor(task.id),
+                          reason === 'later'
+                            ? 'put_off'
+                            : reason === 'notForMe'
+                              ? 'not_for_me'
+                              : 'bring_back',
+                          'campaign_plan',
+                        )
+                        setAside.mutate({ id: task.id, reason })
+                      }}
+                      onActionTaken={(task, label) =>
+                        trackTaskAction(
+                          rowFor(task.id),
+                          'start',
+                          'campaign_plan',
+                          label,
+                        )
+                      }
+                      onDiscuss={
+                        chat
+                          ? (task) => {
+                              trackTaskAction(
+                                rowFor(task.id),
+                                'ask',
+                                'campaign_plan',
+                              )
+                              chat.discussTask(discussTaskMessage(task))
+                            }
+                          : undefined
+                      }
+                    />
+                  </section>
+                </Fragment>
+              ))}
+            </div>
+          </div>
         </>
       )}
 
-      {countTask && (
-        <CountModal
-          open
-          onOpenChange={(next) => {
-            if (!next) setCountTask(null)
-          }}
-          flowType={countTask.flowType ?? ''}
-          onSubmit={onCountSubmit}
-        />
-      )}
+      {countModal}
     </section>
   )
 }

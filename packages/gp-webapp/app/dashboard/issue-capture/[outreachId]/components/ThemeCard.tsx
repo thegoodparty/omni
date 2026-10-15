@@ -35,7 +35,7 @@ const ThemeCard = ({
               #{position}
             </div>
             <div className="min-w-0">
-              <h3 className="font-medium text-foreground">
+              <h3 className="font-semibold text-foreground">
                 <span className="sr-only">{copy.rank(position)}:</span>{' '}
                 {theme.title}
               </h3>
@@ -47,7 +47,11 @@ const ThemeCard = ({
             </div>
           </div>
           <p className="text-sm text-foreground">{theme.summary}</p>
-          <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+          {/* Null when every member is a text reply, which carries no
+              stance: four zeros would read as a finding. */}
+          {theme.stanceCounts !== null && (
+            <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+          )}
         </div>
         <Button asChild variant="outline" className="w-full">
           <Link

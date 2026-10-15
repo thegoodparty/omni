@@ -47,11 +47,12 @@ export class ChatStoreService extends createPrismaBase(
   async listRecentMessagesByConversation(
     conversationId: string,
     limit: number,
-  ): Promise<ChatMessage[]> {
+  ): Promise<ChatMessageWithSegments[]> {
     const rows = await this.client.chatMessage.findMany({
       where: { conversationId, conversation: { deletedAt: null } },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: limit,
+      include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
     })
     return rows.reverse()
   }

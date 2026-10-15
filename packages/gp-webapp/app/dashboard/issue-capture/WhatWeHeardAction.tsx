@@ -24,7 +24,7 @@ export const WhatWeHeardAction = ({
   return (
     <Link
       href={`/dashboard/issue-capture/${outreachId}`}
-      className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 no-underline"
+      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-4 no-underline transition-colors hover:bg-muted"
     >
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">

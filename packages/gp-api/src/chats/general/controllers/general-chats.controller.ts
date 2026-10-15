@@ -179,6 +179,7 @@ export class GeneralChatsController {
       signal: abortController.signal,
       ...(body.clientMessageId && { clientMessageId: body.clientMessageId }),
       ...(body.attachmentIds && { attachmentIds: body.attachmentIds }),
+      ...(body.pagePath && { pagePath: body.pagePath }),
     })
 
     let errored = false

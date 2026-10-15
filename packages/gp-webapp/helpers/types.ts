@@ -314,9 +314,6 @@ export interface VoterFileFilters {
   ethnicityUnknown?: boolean
   businessOwnerYes?: boolean
   businessOwnerUnknown?: boolean
-  registeredVoterTrue?: boolean
-  registeredVoterFalse?: boolean
-  registeredVoterUnknown?: boolean
   hasChildrenYes?: boolean
   hasChildrenNo?: boolean
   hasChildrenUnknown?: boolean
@@ -505,6 +502,7 @@ export interface Campaign {
   // Owner's display name from GET /v1/campaigns/mine — the campaign's
   // candidate for team members whose own session-user name is not it.
   ownerName?: string | null
+  ownerAvatar?: string | null
   user?: User
   organization?: {
     positionId?: string | null

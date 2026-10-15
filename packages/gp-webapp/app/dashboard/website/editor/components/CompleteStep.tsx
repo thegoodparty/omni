@@ -8,7 +8,6 @@ import { FaCheck } from 'react-icons/fa'
 import Body1 from '@shared/typography/Body1'
 import MarketingH4 from '@shared/typography/MarketingH4'
 import Image from 'next/image'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { getWebsiteUrl } from '../../util/website.util'
 import { Domain } from 'helpers/types'
 
@@ -67,13 +66,7 @@ const CompleteStep = ({
                   <Body1>Make your campaign compliant</Body1>
                 </div>
               </div>
-              <Button
-                asChild
-                className="mt-12"
-                onClick={() =>
-                  trackEvent(EVENTS.CandidateWebsite.StartedDomainSelection)
-                }
-              >
+              <Button asChild className="mt-12">
                 <Link href="/dashboard/website/domain">Add a domain</Link>
               </Button>
             </div>

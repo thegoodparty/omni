@@ -63,6 +63,13 @@ export const FOLLOW_UP_OPTIONS: Array<[FollowUpAnswer, string]> = [
   ['no', 'No'],
 ]
 
+// The Serve door's closing question, after follow-up. Optional: a canvasser
+// who never got to ask leaves it blank rather than recording a no.
+export const CIVIC_PANEL_OPTIONS: Array<[FollowUpAnswer, string]> = [
+  ['yes', 'Yes'],
+  ['no', 'No'],
+]
+
 // Serve cannot say "voter" for the `not_a_voter` ending, which is the one
 // label in the two shared option lists that carries the word. The bucket means
 // the same thing on both surfaces — the person on file isn't who lives here —
@@ -101,4 +108,9 @@ export const ENGAGEMENT_QUESTION = 'Did they engage?'
 export const SUPPORT_QUESTION = 'Do they support you?'
 export const WILL_VOTE_QUESTION = 'Will they vote this election?'
 export const FOLLOW_UP_QUESTION = 'Do they need follow-up?'
+export const CIVIC_PANEL_QUESTION = 'Do they want to join your civic panel?'
+// Asked instead on a turf of panel members only, where everyone is already on
+// it: a No takes them off the panel, which the join question's No never does.
+export const CIVIC_PANEL_STAY_QUESTION =
+  'Do they want to stay on your civic panel?'
 export const NOTE_QUESTION = 'Note'

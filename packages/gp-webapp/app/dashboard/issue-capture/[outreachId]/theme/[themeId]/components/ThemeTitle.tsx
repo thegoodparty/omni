@@ -16,11 +16,11 @@ const ThemeTitle = ({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <Link
           href={`/dashboard/issue-capture/${outreachId}`}
           aria-label={copy.back}
-          className="text-foreground"
+          className="-ml-2 inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground hover:bg-muted"
         >
           <ArrowLeftIcon size={20} />
         </Link>

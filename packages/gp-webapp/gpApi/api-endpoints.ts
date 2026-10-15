@@ -47,9 +47,10 @@ import type {
   UpdateOrdinanceRequest,
   Priority,
   CreatePriorityInput,
+  OnboardingPriorityOptions,
+  SetOnboardingPrioritiesInput,
   UpdatePriorityInput,
   PriorityStatus,
-  OutreachProposal,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -109,6 +110,14 @@ import type {
   RecommendedListsResponse,
   RecommendedListVariant,
   MyAssignmentsResponse,
+  TrackerTaskSkipReason,
+  TestModeState,
+  CreateTestOrganizationRequest,
+  ApplyTestModeRequest,
+  PriorityResults,
+  CivicPanelSummary,
+  CIVIC_PANEL_SEGMENT,
+  CivicPanelRepresentation,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -151,11 +160,13 @@ import type {
   ContactNoteListResponse,
   ContactStatuses,
   FollowUpStatusResponse,
+  CivicPanelStatusResponse,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   SupportStatusRollup,
   UpdateContactStatusInput,
   UpdateFollowUpInput,
+  UpdateCivicPanelInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
@@ -233,6 +244,11 @@ export type CampaignTrackerTask = {
   // false for the dynamic tasks + events the CAP run produces. Lets the client
   // tell "still generating" (only static present) from "done".
   isDefaultTask: boolean
+  // Set when the candidate put the task off ('later', until snoozedUntil) or
+  // set it aside ('notForMe'). Optional only so older fixtures still build;
+  // gp-api always sends them.
+  skipReason?: TrackerTaskSkipReason | null
+  snoozedUntil?: string | null
 }
 
 /** Request/response shapes for the user-agenda-upload flow. */
@@ -570,8 +586,8 @@ export type APIEndpoints = {
   // `communityInputQuestion` rides both this and the Serve sibling below, for
   // the one purpose that asks a question (Win's "Hear from voters", Serve's
   // community input). The question is what the effort exists to ask, so the
-  // card's "ask" is written to put it to the resident rather than a generic
-  // what-matters-to-you question. Sent rather than read server-side because
+  // talking points are written to put it to the resident rather than a
+  // generic what-matters-to-you question. Sent rather than read server-side because
   // the turf does not exist at draft time; refused on any other purpose.
   'POST /v1/outreach/door-knocking/draft': {
     Request: {
@@ -978,6 +994,16 @@ export type APIEndpoints = {
     Response: CampaignTrackerTask
   }
 
+  'PUT /v1/campaigns/tracker-tasks/skip/:id': {
+    Request: { id: string; reason: TrackerTaskSkipReason }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/skip/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
+  }
+
   // Manual generation override, non-prod only (gp-api 404s it in prod). Fire to
   // dispatch a tracker run for the current campaign on demand.
   'POST /v1/campaigns/tracker-tasks/generate': {
@@ -992,7 +1018,7 @@ export type APIEndpoints = {
 
   'GET /v1/elected-office/mine': {
     Request: {}
-    Response: ElectedOffice[]
+    Response: MyElectedOffice[]
   }
 
   'POST /v1/elected-office': {
@@ -1029,12 +1055,32 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'PUT /v1/dashboard/cards/:id/complete': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/cards/:id/snooze': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/cards/:id/restore': {
+    Request: {}
+    Response: void
+  }
+
   'GET /v1/dashboard/onboarding-cards': {
     Request: {}
     Response: OnboardingCardsResponse
   }
 
   'PUT /v1/dashboard/onboarding-cards/:key/skip': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/onboarding-cards/:key/complete': {
     Request: {}
     Response: void
   }
@@ -1192,6 +1238,16 @@ export type APIEndpoints = {
     Response: Priority
   }
 
+  'GET /v1/priorities/onboarding': {
+    Request: {}
+    Response: OnboardingPriorityOptions
+  }
+
+  'PUT /v1/priorities/onboarding': {
+    Request: SetOnboardingPrioritiesInput
+    Response: void
+  }
+
   'GET /v1/priorities/:id': {
     Request: {}
     Response: Priority
@@ -1216,16 +1272,15 @@ export type APIEndpoints = {
     }
   }
 
-  // A proposal key names the outreach a chat card WOULD create. A 404 is the
-  // normal "not sent yet" answer, and the PUT is an idempotent create, so a
-  // double click cannot send twice.
-  'GET /v1/outreach/by-proposal-key/:proposalKey': {
+  'GET /v1/priorities/:id/results': {
     Request: {}
-    Response: OutreachDetail
+    Response: PriorityResults
   }
 
-  'PUT /v1/outreach/by-proposal-key/:proposalKey': {
-    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId?: string }
+  // A proposal key names the outreach a chat card WOULD create. A 404 is the
+  // normal "not sent yet" answer.
+  'GET /v1/outreach/by-proposal-key/:proposalKey': {
+    Request: {}
     Response: OutreachDetail
   }
 
@@ -1440,6 +1495,20 @@ export type APIEndpoints = {
   'PATCH /v1/contacts/:personId/follow-up': {
     Request: UpdateFollowUpInput
     Response: FollowUpStatusResponse
+  }
+  'PATCH /v1/contacts/:personId/civic-panel': {
+    Request: UpdateCivicPanelInput
+    Response: CivicPanelStatusResponse
+  }
+  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
+  // off and 400 for a Win org.
+  'GET /v1/contacts/civic-panel': {
+    Request: {}
+    Response: CivicPanelSummary
+  }
+  'GET /v1/contacts/civic-panel/representation': {
+    Request: {}
+    Response: CivicPanelRepresentation
   }
   'GET /v1/contacts/:id': {
     Request: {}
@@ -1718,8 +1787,8 @@ export type APIEndpoints = {
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
-    // unfiltered district.
-    Request: { segment?: number }
+    // unfiltered district. 'civicPanel' = Serve's built-in panel list.
+    Request: { segment?: number | typeof CIVIC_PANEL_SEGMENT }
     Response: ListDetailContactsResponse
   }
   // The same payload for a filter that has not been saved (a recommended
@@ -2042,6 +2111,11 @@ export type APIEndpoints = {
     }
   }
 
+  'POST /v1/community-issues/onboarding': {
+    Request: {}
+    Response: { starterIssueCount: number }
+  }
+
   // Self-serve landing catch-up: called client-side after landing on the
   // community issues dashboard. Dispatches both experiment types if eligible
   // and not already in flight, skipping only the 90-day activity gate.
@@ -2177,6 +2251,37 @@ export type APIEndpoints = {
   'DELETE /v1/phone-banking/lists/:id': {
     Request: {}
     Response: void
+  }
+
+  // Races by zip — election-api via gp-api proxy. Filters to general-election
+  // races; callers that want only future races pass timeframe: 'future'.
+  'GET /v1/elections/races-by-year': {
+    Request: {
+      zipcode: string
+      timeframe: 'future' | 'past' | 'all'
+    }
+    Response: Race[]
+  }
+
+  // Test mode — staff-only endpoints gated by TestModeGuard on gp-api.
+  'GET /v1/test-mode': {
+    Request: {}
+    Response: TestModeState
+  }
+
+  'POST /v1/test-mode/organizations': {
+    Request: CreateTestOrganizationRequest
+    Response: TestModeState
+  }
+
+  'POST /v1/test-mode/apply': {
+    Request: ApplyTestModeRequest
+    Response: TestModeState
+  }
+
+  'DELETE /v1/test-mode/organizations/:slug': {
+    Request: {}
+    Response: TestModeState
   }
 }
 
@@ -2808,6 +2913,10 @@ export type ElectedOffice = {
   // routing must NOT send them into serve onboarding for a missing term/date.
   campaignId: number | null
 }
+
+// `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
+// gave it issues they ran on, which the Serve onboarding priorities step shows.
+export type MyElectedOffice = ElectedOffice & { hasWinIssues: boolean }
 
 export type ElectedOfficeInput = {
   swornInDate?: string | null

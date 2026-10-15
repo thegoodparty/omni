@@ -198,7 +198,6 @@ export const EVENTS = {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
-      ClickCommunity: 'Navigation - Dashboard: Click Community',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
       ClickPolls: 'Navigation - Dashboard: Click Polls',
@@ -229,12 +228,29 @@ export const EVENTS = {
     InviteSubmitted: 'Team - Invite Submitted',
   },
 
+  // The Campaign Manager home's first-run prompt cards (meet the manager, get
+  // on the ballot, personalize, plan ready), the control arm of
+  // `next-task-experience`. `card` says which and `action` whether the
+  // candidate took the CTA or skipped. Its task cards fire TaskActionTaken.
+  CampaignManager: {
+    PromptCardActionTaken: 'Campaign Manager - Prompt Card Action Taken',
+  },
+
   Dashboard: {
     CampaignPlan: {
       CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       // Completion only — an uncomplete is a correction, not an activation
       // signal, and an event named Completed must not fire on one.
       TaskCompleted: 'Dashboard - Campaign Task Completed',
+      // Every other choice a candidate makes on a plan task (start its work,
+      // ask about it, put it off, set it aside, bring it back, mark it not
+      // done), from Home's card or the plan page. `action` says which and
+      // `source` says where, matching the outreach flows' own `source`.
+      TaskActionTaken: 'Campaign Plan - Task Action Taken',
+      // The Campaign strategy window: opened, then closed with how far into
+      // the plan the candidate read (scroll depth, deepest section, time).
+      CampaignStrategyViewed: 'Campaign Plan - Campaign Strategy Viewed',
+      CampaignStrategyClosed: 'Campaign Plan - Campaign Strategy Closed',
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',
@@ -435,7 +451,6 @@ export const EVENTS = {
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
-    OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
     // Fires once per page entry when the org has no resolvable district, so the
     // page can only offer the support handoff. 437 active campaigns are in that
     // state; this measures how many actually land here, which is what would
@@ -502,9 +517,7 @@ export const EVENTS = {
     ListExported: 'Constituent Data - List Exported',
     // The boundary saved onto an existing list from the map on its detail
     // sheet. `{ listId, cleared }` — clearing a boundary is the same write
-    // and is worth telling apart from setting one. Serve-only surface (the
-    // map itself is), so there is no VoterData variant, same as
-    // ContactStatusChanged below in the other direction.
+    // and is worth telling apart from setting one.
     ListBoundarySaved: 'Constituent Data - List Boundary Saved',
     // The person-record follow-up toggle. Fires once per confirmed-successful
     // change with { from, to } — never on a failed PATCH. Serve-only
@@ -525,6 +538,8 @@ export const EVENTS = {
     ListCreated: 'Voter Data - List Created',
     ActivityListCreated: 'Voter Data - Activity List Created',
     ListExported: 'Voter Data - List Exported',
+    // See ConstituentData.ListBoundarySaved.
+    ListBoundarySaved: 'Voter Data - List Boundary Saved',
     // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
     // every "Send outreach" click in the CRM with
     // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
@@ -551,16 +566,11 @@ export const EVENTS = {
     RunningAgainst: {
       ClickAddNew: 'Profile - Running Against: Click Add New',
       SubmitAddNew: 'Profile - Running Against: Submit Add New',
-      CancelAddNew: 'Profile - Running Against: Cancel Add New',
       ClickEdit: 'Profile - Running Against: Click Edit',
       SubmitEdit: 'Profile - Running Against: Submit Edit',
-      CancelEdit: 'Profile - Running Against: Cancel Edit',
-      ClickDelete: 'Profile - Running Against: Click Delete',
       ClickSave: 'Profile - Running Against: Click Save',
     },
-    TopIssues: {
-      CancelEdit: 'Profile - Top Issues: Cancel Edit',
-    },
+    TopIssues: {},
     PolicyPriorities: {
       ClickAdd: 'Profile - Policy Priorities: Click Add',
       ClickEdit: 'Profile - Policy Priorities: Click Edit',
@@ -666,12 +676,8 @@ export const EVENTS = {
     },
   },
   CandidateWebsite: {
-    Started: 'Candidate Website - Started',
     Continued: 'Candidate Website - Continued',
-    Unpublished: 'Candidate Website - Unpublished',
     Edited: 'Candidate Website - Edited',
-    StartedDomainSelection: 'Candidate Website - Started domain selection',
-    SelectedDomain: 'Candidate Website - Selected domain',
   },
   Candidacy: {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
@@ -686,6 +692,13 @@ export const EVENTS = {
     CitationOpened: 'Chief Of Staff - Citation Opened',
     UploadGuardShown: 'Chief Of Staff - Upload Guard Shown',
     ComposeHandoffOpened: 'Chief Of Staff - Compose Handoff Opened',
+    // The front card of the home's task stack. `cardType` is the card's kind
+    // (onboarding, briefing, agenda_item, community_issue), `stackSize` how
+    // many cards were in the stack when the official acted.
+    TaskCompleted: 'Chief Of Staff - Task Completed',
+    // Every other choice on that card: `action` is start (its main button),
+    // ask (open the chat about it), or skip.
+    TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -763,6 +776,13 @@ export const EVENTS = {
     PrioritizeClicked: 'Community Issues - Prioritize Clicked',
     AskAIStarted: 'Community Issues - Ask AI Started',
     RunPollClicked: 'Community Issues - Run Poll Clicked',
+  },
+  // Serve Priorities. Creates, archives, and step and check moves are server
+  // truth and fire from gp-api under the same `Priorities -` prefix.
+  Priorities: {
+    ListViewed: 'Priorities - List Viewed',
+    PriorityViewed: 'Priorities - Priority Viewed',
+    MessageSent: 'Priorities - Message Sent',
   },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',

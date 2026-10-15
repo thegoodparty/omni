@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
+  checkSmsStandards,
+  countCivicPanelLines,
+  findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
+  isCivicPanelOnlyList,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
@@ -26,7 +31,14 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { ProposalLink } from '@goodparty_org/contracts'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
-import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
+import {
+  ElectedOffice,
+  Organization,
+  OutreachStatus,
+  OutreachType,
+  Prisma,
+} from '../../generated/prisma'
+import { OutreachReportBackService } from './outreachReportBack.service'
 
 /**
  * The Serve SMS draft-first create: `POST /v1/outreach/serve/sms`.
@@ -160,6 +172,26 @@ export function assertServeSmsSendDateAllowed(
   }
 }
 
+// The lines the composer locks, checked again on the way in, so a composer
+// bug can never reach a send: honoring STOP follows the message, and a
+// second JOIN or LEAVE line texts people the same ask twice.
+export const assertServeSmsLockedLines = (message: string): void => {
+  if (checkSmsStandards(message).failures.includes('opt_out_line')) {
+    throw new BadRequestException(
+      'Your text is missing its opt-out line. Add "Reply STOP to opt out." as the last line and try again.',
+    )
+  }
+  // A JOIN beside a LEAVE is its own refusal, further down.
+  const both =
+    findCivicPanelJoinLine(message) !== null &&
+    findCivicPanelLeaveLine(message) !== null
+  if (countCivicPanelLines(message) > (both ? 2 : 1)) {
+    throw new BadRequestException(
+      'Your text has its civic panel line more than once. Keep one and try again.',
+    )
+  }
+}
+
 @Injectable()
 export class OutreachServeSmsCreateService extends createPrismaBase(
   MODELS.Outreach,
@@ -169,8 +201,55 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     private readonly organizationsService: OrganizationsService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
+    private readonly reportBack: OutreachReportBackService,
   ) {
     super()
+  }
+
+  // A report back answers one of the office's own priority texts whose
+  // replies are in. It is linked through that send, never to the priority
+  // or a check itself, so it is never read as another ask; and it never asks
+  // anyone to join the panel.
+  async assertReportBackTarget(
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+    outreachId: number,
+    draft: { message: string; link: ProposalOutreachLink },
+  ): Promise<void> {
+    if (
+      draft.link.priorityId !== undefined ||
+      draft.link.priorityStepId !== undefined
+    ) {
+      throw new BadRequestException(
+        'A report back is linked through the text it reports on',
+      )
+    }
+    if (findCivicPanelJoinLine(draft.message) !== null) {
+      throw new BadRequestException(
+        "A report back doesn't ask people to join your civic panel. Remove that line and try again.",
+      )
+    }
+    // One report back per send: a paid one closes it. Unpaid drafts are left
+    // alone, since re-entering the flow makes a fresh draft by design; the
+    // checkout refuses a second once one is paid.
+    const sent = await this.reportBack.sentReportBacks([outreachId])
+    if (sent.has(outreachId)) {
+      throw new BadRequestException('You already reported back on that text.')
+    }
+    const target = await this.model.findFirst({
+      where: {
+        id: outreachId,
+        ...this.reportBack.repliesInWhere(
+          electedOffice.organizationSlug,
+          electedOffice.id,
+        ),
+      },
+      select: { id: true },
+    })
+    if (!target) {
+      throw new BadRequestException(
+        "That text can't be reported back on yet. Wait until its replies are in.",
+      )
+    }
   }
 
   /**
@@ -198,6 +277,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     // Cheapest rejection first: no point resolving an audience for a date
     // fulfilment cannot work.
     assertServeSmsSendDateAllowed(input.scheduledLocalDate)
+    assertServeSmsLockedLines(input.message)
 
     const organization = await this.organizationsService.findFirst({
       where: { slug: organizationSlug },
@@ -219,12 +299,148 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const filterInput: ContactsFilterResolutionInput = { ...filter }
 
+    // The LEAVE line belongs to a send that reaches panel members alone, and
+    // a send never carries both civic panel lines: one asks people on, the
+    // other offers members a way off.
+    const asksToJoinCivicPanel = findCivicPanelJoinLine(input.message) !== null
+    const offersCivicPanelLeave =
+      findCivicPanelLeaveLine(input.message) !== null
+    if (asksToJoinCivicPanel && offersCivicPanelLeave) {
+      throw new BadRequestException(
+        "A text can't ask people to join your civic panel and offer a way to leave it. Remove one of those lines and try again.",
+      )
+    }
+    if (offersCivicPanelLeave && !isCivicPanelOnlyList(filter)) {
+      throw new BadRequestException(
+        'Only a text to your civic panel can offer a way to leave it. Remove that line and try again.',
+      )
+    }
+
+    const {
+      recipientCount,
+      excludedOptedOutCount,
+      excludedDuplicatePhoneCount,
+    } = await this.resolveListAudienceCount(
+      organization,
+      filterInput,
+      organizationSlug,
+    )
+
+    if (recipientCount < MIN_SERVE_SMS_RECIPIENTS) {
+      throw new BadRequestException(
+        `This list reaches ${recipientCount} ` +
+          `${recipientCount === 1 ? 'constituent' : 'constituents'} with a ` +
+          `mobile number. A text send needs at least ` +
+          `${MIN_SERVE_SMS_RECIPIENTS} — widen the list and try again.`,
+      )
+    }
+
+    const data = {
+      // Serve scope: org only, never a campaign. The Outreach CHECK
+      // enforces exactly one scoping path.
+      campaignId: null,
+      organizationSlug,
+      outreachType: OutreachType.text,
+      // The payment handler's CAS moves this to `pending`. Nothing else
+      // may: the create schema refuses a client-sent status.
+      status: OutreachStatus.pending_payment,
+      name: input.name,
+      message: input.message,
+      // Read off the message, never a request flag, so the stored text and
+      // whether the ingest honors JOIN cannot disagree.
+      asksToJoinCivicPanel,
+      offersCivicPanelLeave,
+      imageUrl: input.imageUrl,
+      // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
+      // null: Serve sends at a fixed 11am local, so there is no chosen
+      // time to store, and completion is derived as
+      // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
+      scheduledLocalDate: input.scheduledLocalDate,
+      voterFileFilterId: input.voterFileFilterId,
+      reportBackForOutreachId: input.reportBackForOutreachId ?? null,
+      // Server-derived, and the only number the purchase handler prices
+      // from.
+      textCount: recipientCount,
+      ...link,
+    } satisfies Prisma.OutreachUncheckedCreateInput
+    const outreach =
+      link.proposalKey === undefined
+        ? await this.model.create({ data, select: { id: true } })
+        : await createUnderProposalKey(
+            this.client,
+            {
+              proposalKey: link.proposalKey,
+              organizationSlug,
+              outreachType: OutreachType.text,
+            },
+            (tx) => tx.outreach.create({ data, select: { id: true } }),
+            async (id) => ({ id }),
+          )
+
+    // One payable report back per send: a new draft supersedes the unpaid
+    // ones before it, so a stale draft left open in another tab can no
+    // longer reach checkout. The same card pressed twice already lands on
+    // one draft through its proposal key.
+    if (input.reportBackForOutreachId !== undefined) {
+      await this.model.updateMany({
+        where: {
+          reportBackForOutreachId: input.reportBackForOutreachId,
+          status: OutreachStatus.pending_payment,
+          id: { not: outreach.id },
+        },
+        data: {
+          status: OutreachStatus.canceled,
+          canceledAt: new Date(),
+          canceledBy: 'superseded_report_back',
+        },
+      })
+    }
+
+    this.logger.info(
+      {
+        outreachId: outreach.id,
+        organizationSlug,
+        voterFileFilterId: input.voterFileFilterId,
+        recipientCount,
+        excludedOptedOutCount,
+        excludedDuplicateCount: excludedDuplicatePhoneCount,
+      },
+      'Serve SMS draft created',
+    )
+
+    return {
+      outreachId: outreach.id,
+      recipientCount,
+      // How many people THIS list lost to the scrub: they matched the filter,
+      // had a cell phone, and were dropped for having opted out. Not the size
+      // of the org's opt-out history — an org with 1,000 past opt-outs whose
+      // list reaches 5 of them quotes 5.
+      excludedOptedOutCount,
+      excludedDuplicateCount: excludedDuplicatePhoneCount,
+    }
+  }
+
+  /**
+   * How many people a saved list reaches once the opt-out scrub and the phone
+   * dedupe have run. Shared with the Serve poll create so a poll to a list is
+   * counted and billed exactly as a text to it.
+   */
+  async resolveListAudienceCount(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    organizationSlug: string,
+  ): Promise<{
+    recipientCount: number
+    excludedOptedOutCount: number
+    excludedDuplicatePhoneCount: number
+  }> {
     const optedOutPersonIds = await this.resolveOptOutScrub(organizationSlug)
     let excludedOptedOutCount = 0
 
     const audience = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
+      dataset: await this.contactsService.resolvePeopleDataset(organization),
       // Empty on purpose, with the scrub applied through `isEligible` below.
       // Handing the ids to people-api as an exclusion filter means those rows
       // never come back, so this route could only ever report how many people
@@ -264,73 +480,10 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const { excludedDuplicatePhoneCount } = next.value
 
-    if (recipientCount < MIN_SERVE_SMS_RECIPIENTS) {
-      throw new BadRequestException(
-        `This list reaches ${recipientCount} ` +
-          `${recipientCount === 1 ? 'constituent' : 'constituents'} with a ` +
-          `mobile number. A text send needs at least ` +
-          `${MIN_SERVE_SMS_RECIPIENTS} — widen the list and try again.`,
-      )
-    }
-
-    const data = {
-      // Serve scope: org only, never a campaign. The Outreach CHECK
-      // enforces exactly one scoping path.
-      campaignId: null,
-      organizationSlug,
-      outreachType: OutreachType.text,
-      // The payment handler's CAS moves this to `pending`. Nothing else
-      // may: the create schema refuses a client-sent status.
-      status: OutreachStatus.pending_payment,
-      name: input.name,
-      message: input.message,
-      imageUrl: input.imageUrl ?? null,
-      // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
-      // null: Serve sends at a fixed 11am local, so there is no chosen
-      // time to store, and completion is derived as
-      // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
-      scheduledLocalDate: input.scheduledLocalDate,
-      voterFileFilterId: input.voterFileFilterId,
-      // Server-derived, and the only number the purchase handler prices
-      // from.
-      textCount: recipientCount,
-      ...link,
-    } satisfies Prisma.OutreachUncheckedCreateInput
-    const outreach =
-      link.proposalKey === undefined
-        ? await this.model.create({ data, select: { id: true } })
-        : await createUnderProposalKey(
-            this.client,
-            {
-              proposalKey: link.proposalKey,
-              organizationSlug,
-              outreachType: OutreachType.text,
-            },
-            (tx) => tx.outreach.create({ data, select: { id: true } }),
-            async (id) => ({ id }),
-          )
-
-    this.logger.info(
-      {
-        outreachId: outreach.id,
-        organizationSlug,
-        voterFileFilterId: input.voterFileFilterId,
-        recipientCount,
-        excludedOptedOutCount,
-        excludedDuplicateCount: excludedDuplicatePhoneCount,
-      },
-      'Serve SMS draft created',
-    )
-
     return {
-      outreachId: outreach.id,
       recipientCount,
-      // How many people THIS list lost to the scrub: they matched the filter,
-      // had a cell phone, and were dropped for having opted out. Not the size
-      // of the org's opt-out history — an org with 1,000 past opt-outs whose
-      // list reaches 5 of them quotes 5.
       excludedOptedOutCount,
-      excludedDuplicateCount: excludedDuplicatePhoneCount,
+      excludedDuplicatePhoneCount,
     }
   }
 
@@ -349,9 +502,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
    * The only remaining truncation is the `LIMIT` inside
    * `findOptedOutPersonIds`, which is loud rather than silent.
    */
-  private async resolveOptOutScrub(
-    organizationSlug: string,
-  ): Promise<Set<string>> {
+  async resolveOptOutScrub(organizationSlug: string): Promise<Set<string>> {
     const optedOutIds =
       await this.contactInteractionTextService.findOptedOutPersonIds(
         organizationSlug,

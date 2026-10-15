@@ -595,6 +595,28 @@ describe('serve phone banking routes', () => {
       ).toBe(0)
     })
 
+    it('refuses an archived priority', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075770099' })])
+      const priority = await officePriority()
+      await service.prisma.priority.update({
+        where: { id: priority.id },
+        data: { archivedAt: new Date() },
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody({ proposalKey: PROPOSAL_KEY, priorityId: priority.id }),
+        eoHeaders(),
+      )
+
+      expect(res.status).toBe(404)
+      expect(
+        await service.prisma.phoneBankingList.count({
+          where: { organizationSlug: eoSlug },
+        }),
+      ).toBe(0)
+    })
+
     it('refuses a key another organization already spent', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075770004' })])
       const otherSlug = `${eoSlug}-spent`

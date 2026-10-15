@@ -63,6 +63,7 @@ const CONTROLLER_OWNERS: Partial<
   // SMS console: the sends it takes results for are elected officials' texts
   // to constituents, and polls joins it later on the same side.
   'outreach/admin/results': [SERVE],
+  'outreach/admin/polls': [SERVE],
   priorities: [SERVE],
   // Send-from-a-chat-card. Serve because the only thing that mints a proposal
   // key is a priority chat, and a failure here is an elected official pressing
@@ -100,6 +101,9 @@ const CONTROLLER_OWNERS: Partial<
   'campaigns/:id/positions': [WIN],
   'campaigns/tasks': [WIN],
   'campaigns/tcr-compliance': [WIN],
+  // Staff-only test organizations; a 5xx here blocks whoever is testing
+  // either product, and the flag keeps real candidates off the route.
+  'test-mode': BOTH,
   'campaigns/mine/update-history': [WIN],
   'admin/campaign': [WIN],
   'admin/campaigns': [WIN],
@@ -307,46 +311,31 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'campaigns/tcr-compliance',
 ]
 
-/**
- * Log-query spend as a fraction of what the plan includes.
+/*
+ * EVENT RULES. A log rule with `threshold: 0` that pages on any occurrence of a
+ * line reads a [1m] window, every minute, ending 30 seconds before the
+ * evaluation, with `for: 0m` and a `keepFiringFor`.
  *
- * The allowance is 100x ingest, so this is `bytes read / (100 * bytes
- * written)` — one expression shared by the 50% and 80% rules, because two
- * thresholds on one measurement should not be able to drift into measuring
- * two different things.
+ * The window only has to cover the gap between evaluations to see every line,
+ * and the 30-second offset is what lets it see the late ones: windows tile
+ * [t-90s, t-30s], [t-30s, t+30s], so nothing is read twice and nothing falls
+ * between (see MINUTE_WINDOW in alerting/route-alerts.ts, which works the same
+ * way). That is one read of the stream per day, 1x ingest, and a page 30 to 90
+ * seconds after the line is written.
  *
- * Both sides are 6h-averaged. `:rate5m` on either alone is spiky enough that
- * one wide ad-hoc query would clear 50% on its own, and a budget alert that
- * fires on a single query is a budget alert nobody keeps. An hour turned out
- * not to be enough of that smoothing — see the window note on the 50% rule.
+ * The query ends in `or vector(0)`, and the hold depends on it. An idle
+ * `sum(count_over_time(...))` returns no series, which `noDataState: OK`
+ * turns straight back into Normal and skips `keepFiringFor` entirely, so a
+ * burst a minute apart would page twice. The explicit zero makes an idle
+ * minute a real evaluation that fails the threshold, which is the only state
+ * `keepFiringFor` holds through. It costs nothing to read.
+ *
+ * These rules used to carry 5-minute to 1-hour windows, read as range queries,
+ * and the width was doing a different job: holding the alert open after the
+ * event, so a burst spread over a few minutes stayed one page. `keepFiringFor`
+ * does that now without reading anything. Set it to how long a reader should
+ * see one incident as one page.
  */
-const LOKI_QUERY_BUDGET_RATIO = [
-  'sum(avg_over_time(grafanacloud_logs_instance_query_bytes:rate5m[6h]))',
-  '/',
-  '(100 * sum(avg_over_time(grafanacloud_logs_instance_billable_bytes_received_per_second[6h])))',
-].join(' ')
-
-/**
- * How to find out which query is spending the budget.
- *
- * Attribution is per-rule and it is obtainable, which is the difference
- * between a useful budget alert and a puzzle — so the query goes in the
- * notification rather than in a doc the reader has to know exists.
- * `grafanacloud-usage-insights` is Grafana's own usage stream and does not
- * bill against the allowance it reports on, so running this while over budget
- * is safe.
- */
-const LOKI_ATTRIBUTION_PROSE = [
-  'Find the offender in Explore on the `grafanacloud-usage-insights` datasource — it reports bytes scanned per rule and does not bill against the allowance it measures:',
-  '```',
-  'topk(10, sum by (rule_name) (sum_over_time(',
-  '  {instance_type="logs"} | logfmt | __error__="" | source="grafana-alert"',
-  '  | unwrap total_bytes [24h]',
-  ')))',
-  '```',
-  'Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the rules.',
-].join('\n')
-
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //
   {
@@ -383,6 +372,35 @@ export const GLOBAL_ALERTS: Alert[] = [
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
   },
+  {
+    slug: 'shared-synthesis-prompt-fallback',
+    name: '[Shared] Synthesis fell back to the in-repo theme prompt',
+    type: 'log',
+    // The polls and issue-feedback synthesis pipeline (packages/gp-ai) loads
+    // its cluster-naming prompt from Braintrust in strict mode: a hosted
+    // placeholder the code does not supply raises, and the pipeline falls
+    // back to its in-repo prompt and still completes the run — themes still
+    // land, so nothing on screen looks wrong. The consumer logs this one
+    // line, from both handlePollAnalysisComplete and the
+    // feedbackSynthesisComplete case, whichever product the run was for.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Synthesis run used the in-repo theme prompt"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '5m',
+    message: [
+      'A polls (Serve) or issue-feedback (Win and Serve) synthesis run named its cluster themes from the in-repo fallback prompt instead of the hosted Braintrust one, in the 60 seconds ending 30 seconds before this check. The run still produced themes from the older in-repo prompt — nothing in the report looks wrong, so this is the only signal.',
+      'Click *View in Grafana* to find the line (search "Synthesis run used the in-repo theme prompt") for the pollId, or the sourceType and sourceId, naming the run. Then compare the hosted Braintrust prompt `cluster-analysis` (project `hierarchical-discovery`) placeholders against the variables `cluster_analyzer.py` (packages/gp-ai/serve/hierarchical_discovery/stages) actually supplies — a placeholder the hosted prompt asks for that those variables do not cover is what raises in strict mode and triggers the fallback.',
+    ].join('\n\n'),
+    notify: BOTH,
+  },
   // ------ Serve Alerts ------ //
   {
     slug: 'serve-background-job-failed',
@@ -392,12 +410,40 @@ export const GLOBAL_ALERTS: Alert[] = [
     // message_Body; match its `type` (pollCreation / pollExpansion /
     // pollAnalysisComplete) so sibling jobs that share the consumer (AI
     // content, websites) don't page the serve-bugs group.
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [5m]))',
+    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [1m])) or vector(0)',
     threshold: 0,
     for: '0m',
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '5m',
     message: [
-      'A Serve-related background SQS job has failed in the last 5 minutes.',
+      'A Serve-related background SQS job failed in the 60 seconds ending 30 seconds before this check.',
       'Click *View in Grafana* to find the failing log lines, then check the associated error message and stack trace to understand what went wrong. Look at the SQS message payload to identify which job failed and whether it can be safely retried.',
+    ].join('\n\n'),
+    notify: 'serve-bugs',
+  },
+  {
+    slug: 'serve-poll-review-overdue',
+    name: '[Serve] Paid poll waiting on staff review past 2 business days',
+    type: 'log',
+    // OutreachPollReviewOverdueService logs this line once an hour per paid
+    // poll still unreviewed, so an hour-wide vector read once an hour sees
+    // each emission exactly once and costs 1x ingest.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Poll awaiting review past its business-day SLA"',
+      '[1h])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    timeRangeSeconds: 3600,
+    timeRangeOffsetSeconds: 30,
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'At least one paid Serve poll has been waiting on staff review for more than 2 business days. Nothing sends until it is approved, and the official has already paid.',
+      'Click *View in Grafana* and read `outreachId` and `organizationSlug` off the matched lines, then approve, edit or deny each poll from the gp-admin poll queue.',
     ].join('\n\n'),
     notify: 'serve-bugs',
   },
@@ -416,19 +462,18 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| json',
       '| detected_level = "error"',
       '| context =~ "Peerly.+Service"',
-      '[15m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '1m',
-    // Explicitly pins the pre-timeRangeSeconds default. The 600s fetch caps
-    // the [15m] vector to an effective 10-minute window; that has always been
-    // this alert's firing behavior and is kept as-is — widening it would
-    // lengthen re-firing after a transient error burst. Retune deliberately.
-    // The message quotes the effective window, not the vector, so nobody
-    // triaging this searches a span the query never covered.
-    timeRangeSeconds: 600,
+    // Zero, because one error has always paged here and a one-minute window
+    // sees it on exactly one evaluation, which a `for` of 1m would ignore.
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '10m',
     message: [
-      'Peerly-related endpoint errors detected in the last 10 minutes.',
+      'Peerly API errors were logged in the 60 seconds ending 30 seconds before this check.',
       'Dashboard: https://goodparty.grafana.net/d/peerly-prod/peerly-e28094-prod',
     ].join('\n\n'),
     notify: 'win-bugs',
@@ -449,23 +494,19 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "P2P outreach finalize failed after payment"',
-      '[1h]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '5m',
-    // The [1h] range vector needs a matching fetch window; the default 600s
-    // would let the engine see only 10 minutes of logs and miss this
-    // low-frequency event.
-    timeRangeSeconds: 3600,
-    // An hour of logs on the 60s default re-read the same hour 1,440 times a
-    // day — 60x our ingest for one rule, against a query allowance of 100x that
-    // every rule and both environments share. At 5m it is 12x. `for` is 5m, so
-    // the rule still fires on its first evaluation past the threshold and the
-    // worst case is ~5 minutes later than before, on an event whose remedy is
-    // a human reading a log line.
-    evaluationIntervalSeconds: 300,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. This used to read a
+    // [1h] window every 5 minutes (12x ingest, and 5 to 10 minutes before it
+    // paged); the hour was only ever holding the alert open, which
+    // `keepFiringFor` now does without reading anything.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
     message: [
-      'A paid P2P outreach draft failed to submit to Peerly in the last hour. The candidate has been charged and no texts are scheduled.',
+      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has been charged and no texts are scheduled.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId, the campaignId, the checkout session that paid (`chargeRef`) and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
       'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, the candidate has to edit the message and schedule again, and scheduling again CHARGES THEM A SECOND TIME. So the charge named on the log line is the one to refund in Stripe, and nothing refunds it for us. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
       'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
@@ -490,22 +531,54 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "CRITICAL robocall"',
-      '[1h]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '5m',
-    // A rare event matched on a [1h] range vector; the default 600s fetch would
-    // see only 10 minutes and miss it (same reason as the paid-not-scheduled
-    // alert above).
-    timeRangeSeconds: 3600,
-    // 12x ingest rather than 60x, for the reason given on the sibling above.
-    // These events are money-integrity ones that need a human, not a rollback,
-    // so ~5 minutes of extra detection latency costs nothing real.
-    evaluationIntervalSeconds: 300,
+    // An event rule, for the reason given on the paid-not-scheduled sibling.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
     message: [
-      'A robocall send/settlement CRITICAL was logged in the last hour — a money- or delivery-integrity event that needs a human.',
+      'A robocall send/settlement CRITICAL was logged in the 60 seconds ending 30 seconds before this check — a money- or delivery-integrity event that needs a human.',
       'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
       'These are not self-healing beyond the automatic sweeps; check the settleState and the Stripe hold/charge for the named outreachId before assuming recovery.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
+    slug: 'win-sms-critical',
+    name: '[Win] p2p SMS send/settlement CRITICAL',
+    type: 'log',
+    // The Win p2p SMS hold-billing chain (capture, cancel/deny release, and the
+    // slice-F reconcile sweeps) logs `CRITICAL win sms ...` on every exceptional
+    // money path a human must look at: a hold captured at Stripe whose DB commit
+    // was lost, a captured satellite whose PI is not succeeded, a succeeded PI
+    // with no charge to refund, a free-texts offer whose restore failed after an
+    // unwind, and a stranded `refunding` row the reconcile sweep could not
+    // resolve. Every one shares the `CRITICAL win sms` prefix, so a single line
+    // filter catches every path. They should almost never fire; each is a money-
+    // integrity event, not routine error noise — the p2p SMS counterpart of
+    // win-robocall-critical above.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "CRITICAL win sms"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule, for the reason given on the paid-not-scheduled sibling.
+    // It read [5m] every 5 minutes before, which was already one read per log
+    // line but paged up to 5 minutes late and, with no offset, could miss a
+    // line that reached Loki after its window closed.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
+    message: [
+      'A Win p2p SMS send/settlement CRITICAL was logged in the 60 seconds ending 30 seconds before this check — a money-integrity event that needs a human.',
+      'Click *View in Grafana* and search "CRITICAL win sms" for the log line: it names the outreachId and the exact failure (capture commit lost / captured-but-PI-not-succeeded / succeeded-PI-no-charge / free-texts restore failed / stranded refunding). The refunding and captured cases are the money-sensitive ones — money owed back that no refund recorded, or a charge in an unexpected state.',
+      'These are not self-healing beyond the automatic reconcile sweeps; check the OutreachP2pSms settleState and the Stripe hold/charge/refund for the named outreachId before assuming recovery.',
     ].join('\n\n'),
     notify: 'win-bugs',
   },
@@ -599,12 +672,18 @@ export const GLOBAL_ALERTS: Alert[] = [
       '|= "DoorKnockingPackBuildFailed"',
       '| json',
       '| event = "DoorKnockingPackBuildFailed"',
-      '[10m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '1m',
+    // Zero for the reason given on win-peerly-warnings: one failed build has
+    // always paged, and a one-minute window sees it on one evaluation only.
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '10m',
     message: [
-      'A door-knocking voter-map build failed after gp-api had already started the response, in the last 10 minutes.',
+      'A door-knocking voter-map build failed after gp-api had already started the response, in the 60 seconds ending 30 seconds before this check.',
       'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
       'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. Every line names a `districtId`: the district resolve and the voter-data eligibility gate both run before the response head, so an organization that was never eligible answers 4xx and cannot reach this alert.',
     ].join('\n\n'),
@@ -741,6 +820,12 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join(' '),
     threshold: 0,
     for: '15m',
+    // A sustained-failure rule, so the window is not shrunk to a minute the
+    // way the event rules are: `for` needs a failure inside every window for
+    // 15 minutes running, and a 5m window asks for one every 5 minutes rather
+    // than every minute. Pinned to the vector's width so Grafana shows the
+    // window that is read (5x ingest).
+    timeRangeSeconds: 300,
     message: [
       "gp-api has been unable to read subjects' contact addresses from election-api for 15 minutes.",
       "Every profile-completion nudge in this window was skipped for want of an address, which is indistinguishable from ordinary thin coverage in the metric — this log line is the only thing that separates the two. Visitors' asks are unaffected and remain stored in `person_profile_claim_request`.",
@@ -834,9 +919,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // too close to a plausible threshold to place one safely; against non-404s
     // the same period reads 21-100%, nowhere near the 10% below.
     //
-    // The `and` clause is a volume floor: below 20 resolvable lookups in the
-    // window a ratio is noise, and one stray 500 would page. Under the floor
-    // the query returns no data, which grafana.ts maps to OK (noDataState),
+    // The `> 20` on the denominator is a volume floor: below 20 resolvable
+    // lookups in the window a ratio is noise, and one stray 500 would page. A
+    // comparison without `bool` drops the series that fail it, so under the
+    // floor there is nothing to divide by and the query returns no data, which grafana.ts maps to OK (noDataState),
     // not Alerting. The cost is that a large drop in traffic (e.g. if
     // gp-marketing starts caching this call) silences the alert.
     //
@@ -859,22 +945,20 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| response_statusCode >= 500',
       '[10m]))',
       '/',
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint = "GET /v1/public-campaigns"',
-      '| response_statusCode != 404',
-      '[10m])) )',
-      'and',
       '( sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Request completed" | json',
       '| request_endpoint = "GET /v1/public-campaigns"',
       '| response_statusCode != 404',
-      '[10m])) > 20 )',
+      '[10m])) > 20 ) )',
     ].join(' '),
     threshold: 0.1,
     for: '10m',
+    // Two reads of the window, where it used to be three: the floor was a
+    // separate `and` leg that counted the denominator a second time. Filtering
+    // the denominator in place gives the same series (verified against prod
+    // on 2026-10-09) for two thirds of the bytes, 20x ingest.
+    timeRangeSeconds: 600,
     message: [
       'More than 10% of the campaign lookups that resolved to a claimed candidate returned a server error in the last 10 minutes.',
       'This endpoint backs the public candidate profiles on the marketing site: while it fails, claimed candidates render as unclaimed. 404s are excluded — most requests legitimately miss, because the caller asks about every candidate, not only claimed ones.',
@@ -908,14 +992,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'admin-impersonation-email-fallback-spike',
     name: '[Admin] Impersonation falling back to email actor',
     type: 'log',
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [15m]))',
+    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [10m]))',
     threshold: 5,
     for: '5m',
-    // Explicitly pins the pre-timeRangeSeconds default: effectively >5 events
-    // per 10 minutes, this alert's firing behavior since it shipped. Kept
-    // as-is; raising to 900 would make it more sensitive. Retune deliberately.
-    // The message quotes the effective window, not the vector, so nobody
-    // triaging this searches a span the query never covered.
+    // >5 events in 10 minutes, which is what this rule has always said it
+    // does. It actually counted [15m] as a range query over a 600s fetch, so
+    // it read 25 minutes of logs every minute and counted 15 of them; as an
+    // instant query it reads exactly the ten its message quotes (10x ingest).
     timeRangeSeconds: 600,
     message: [
       'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 10 minutes.',
@@ -1098,8 +1181,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     // them buries a total outage in a rounding error. Against non-404s the
     // August failure reads 100%, and normal weeks read under 0.01%.
     //
-    // The volume floor is the same 20-in-the-window guard, per route: under it
-    // the series drops out, which grafana.ts maps to OK via noDataState, so a
+    // The volume floor is the same 20-in-the-window guard, per route, applied
+    // to the denominator in place: under it the series drops out, which grafana.ts maps to OK via noDataState, so a
     // single 500 on a quiet route does not page. It also means a route that
     // stops being called cannot alert — acceptable, since a route with no
     // traffic has no users to fail.
@@ -1135,22 +1218,20 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| ( response_statusCode >= 500 ) or ( response_statusCode = "" )',
       '[10m]))',
       '/',
-      'sum by (request_endpoint) (count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
-      '[10m])) )',
-      'and',
       '( sum by (request_endpoint) (count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Request completed" | json',
       '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
       '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
-      '[10m])) > 20 )',
+      '[10m])) > 20 ) )',
     ].join(' '),
     threshold: 0.1,
     for: '10m',
+    // Two reads of the window rather than three, as on
+    // public-campaigns-lookup-error-ratio: the floor filters the denominator
+    // in place instead of counting it again in an `and` leg. `sum by` on both
+    // sides keeps the division one-to-one per route. 20x ingest.
+    timeRangeSeconds: 600,
     summaryDetail: '`{{ $labels.request_endpoint }}`',
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
@@ -1161,7 +1242,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   },
   // ------ Our own Grafana Cloud spend ------ //
   //
-  // These four exist because on 2026-09-28 the vendor was the first to tell us
+  // These exist because on 2026-09-28 the vendor was the first to tell us
   // anything was wrong, and it told us by refusing every Loki query with a 429.
   // 154 alert rules failed to evaluate, `exec_err_state` is `Alerting`
   // (deliberately, and it stays), and every one of them fired at once claiming
@@ -1173,52 +1254,6 @@ export const GLOBAL_ALERTS: Alert[] = [
   // against the log-query allowance they measure. That is the point: a budget
   // alert paid for out of the budget it watches goes silent exactly when it
   // matters.
-  {
-    slug: 'loki-query-budget-half',
-    name: 'Loki query budget half spent',
-    type: 'usage',
-    // The plan includes log queries up to 100x what we ingest, so ingest is the
-    // denominator and the ratio is the only number worth alerting on — an
-    // absolute GB/day threshold goes stale the moment log volume moves, in
-    // whichever direction.
-    //
-    // Both sides are averaged over SIX hours, and the pending period is two.
-    // An hour was the first guess and it flapped: on 2026-09-29 the 1h ratio
-    // swung between 0.79 and 1.5 within a single hour (and spiked to 23 on one
-    // ad-hoc query), so it crossed the 0.8 threshold several times an hour and
-    // sent a fresh page on every re-cross. `repeat_interval` is 2d, so a
-    // sustained firing is one notification — the spam was entirely the
-    // resolve/re-fire cycle. Over the same window the 6h ratio is monotone.
-    //
-    // A long window costs nothing here because of what this measures: the
-    // allowance is billed monthly, so the thing worth paging on is a trend that
-    // holds for hours. Anything that resolves faster than that was never going
-    // to show up on an invoice.
-    expr: LOKI_QUERY_BUDGET_RATIO,
-    threshold: 0.5,
-    for: '120m',
-    timeRangeSeconds: 21600,
-    message: [
-      'Loki log queries are running at more than **50%** of the included allowance (100x ingest), averaged over the last 6 hours. Nothing is broken yet; this is the point at which somebody should look at what is reading.',
-      LOKI_ATTRIBUTION_PROSE,
-      'The usual cause is a rule whose fetch window is wide and whose evaluation interval is fast — a rule re-reads its whole window every interval, so a 6h window on the 60s default reads the same six hours 1,440 times a day. See gp-api `docs/observability.md` § Query cost.',
-    ].join('\n\n'),
-  },
-  {
-    slug: 'loki-query-budget-critical',
-    name: 'Loki query budget nearly spent',
-    type: 'usage',
-    expr: LOKI_QUERY_BUDGET_RATIO,
-    threshold: 0.8,
-    for: '120m',
-    timeRangeSeconds: 21600,
-    message: [
-      'Loki log queries are running at more than **80%** of the included allowance (100x ingest), averaged over the last 6 hours. Past 100% Grafana Cloud bills the overage and, sustained, starts answering queries with HTTP 429 — at which point every log-backed alert rule fails to evaluate and fires.',
-      LOKI_ATTRIBUTION_PROSE,
-      '**Reducing log ingest does not fix this.** Ingest is the denominator of the allowance, so writing fewer logs lowers the budget by the same proportion it lowers nothing else. The fix is always a narrower stream selector, a shorter window, or a slower evaluation interval on whatever is doing the reading.',
-    ].join('\n\n'),
-    notify: BOTH,
-  },
   {
     slug: 'loki-stream-count-approaching-cap',
     name: 'Loki active stream count approaching the cap',
@@ -1269,7 +1304,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'More than **20%** of Grafana alert rule evaluations are failing. **Alerting is blind.** Treat every alert currently firing as unverified and every alert currently silent as unchecked — this says nothing about whether any particular route, job or service is healthy.',
       'Rules that cannot evaluate are configured to fire (`exec_err_state: Alerting`), so a burst of identical-looking pages naming different routes is the symptom of this, not of those routes breaking. Read this rule first and the others second.',
-      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check `loki-query-budget-critical`, then Grafana Alerting → the rule list for the actual evaluation error.',
+      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check Grafana Alerting → the rule list for the actual evaluation error.',
     ].join('\n\n'),
     notify: BOTH,
   },

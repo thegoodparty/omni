@@ -2,29 +2,7 @@
 
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
-import {
-  ClockIcon,
-  FileTextIcon,
-  MailIcon,
-} from '@styleguide/components/ui/icons'
-
-const ROWS = [
-  {
-    icon: FileTextIcon,
-    title: 'Your filing details',
-    body: 'The committee name and filing link or document from your election authority',
-  },
-  {
-    icon: MailIcon,
-    title: 'Contact details',
-    body: 'The email, phone or address exactly as it appears on your filing',
-  },
-  {
-    icon: ClockIcon,
-    title: 'About 1 to 2 weeks',
-    body: 'A PIN arrives once the carriers clear your campaign',
-  },
-]
+import { VERIFICATION_INTRO_ROWS } from '../verificationCopy'
 
 interface VerificationIntroProps {
   onContinue: () => void
@@ -50,7 +28,7 @@ export const VerificationIntro = ({
         </p>
       </div>
       <ul className="overflow-hidden rounded-xl border border-base-border bg-card">
-        {ROWS.map(({ icon: Icon, title, body }) => (
+        {VERIFICATION_INTRO_ROWS.map(({ icon: Icon, title, body }) => (
           <li
             key={title}
             className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"

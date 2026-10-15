@@ -167,6 +167,7 @@ export class OutreachRobocallService extends createPrismaBase(
             scheduledLocalDate: input.scheduledAt.slice(0, 10),
             voterFileFilterId: input.voterFileFilterId,
             campaignPlanDueDate: input.campaignPlanDueDate,
+            trackerTaskId: input.trackerTaskId,
           },
         })
         await tx.outreachRobocall.create({
@@ -317,6 +318,7 @@ export class OutreachRobocallService extends createPrismaBase(
             // must not dial one list and bill another.
             voterFileFilterId: input.voterFileFilterId,
             campaignPlanDueDate: input.campaignPlanDueDate,
+            trackerTaskId: input.trackerTaskId,
           },
         })
         if (claimed.count === 0) {

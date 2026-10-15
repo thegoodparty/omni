@@ -619,13 +619,17 @@ export const useOutreachAudience = ({
     isError: createListError,
   } = createListMutation
 
+  // Back to the picker. An audience the caller handed in is what the builder
+  // returns to, not blank, so leaving the builder and coming back does not
+  // lose a card's seeded draw.
   const resetBuilder = useCallback(() => {
+    const proposed = proposedAudienceRef.current
     setMode('picker')
-    setBuilderFilters({})
-    setBuilderSupportStatus([])
-    setBuilderPrecincts([])
-    setBuilderName('')
-    setBuilderSample(undefined)
+    setBuilderFilters(proposed?.filters ?? {})
+    setBuilderSupportStatus(proposed?.supportStatus ?? [])
+    setBuilderPrecincts(proposed?.precincts ?? [])
+    setBuilderName(proposed?.name ?? '')
+    setBuilderSample(proposed?.sample)
     setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])

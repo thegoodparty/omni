@@ -155,9 +155,6 @@ export const convertVoterFileFilterToFilters = (
     'campaignId',
     'campaign',
     'outreaches',
-    'registeredVoterTrue',
-    'registeredVoterFalse',
-    'registeredVoterUnknown',
     // Resolved by the activity-condition/support-status resolution engine
     // (CRM feature 4 task 05), not this generic key->filter loop — an
     // activityConditions array of objects or a supportStatus string array
@@ -230,6 +227,14 @@ export const convertVoterFileFilterToFilters = (
     'contactsMade5Plus',
     // Resolves against contact_current_status, not a voter-file column.
     'followUpRequested',
+    'civicPanelMember',
+    'civicPanelLeft',
+    'civicPanelNeverInvited',
+    'civicPanelJoinedByText',
+    'civicPanelJoinedByDoor',
+    'civicPanelJoinedByPhone',
+    'civicPanelJoinedByHand',
+    'notContactedRecently',
     'independentAffinity',
     'ideologyConservative',
     'ideologyLiberal',

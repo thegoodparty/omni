@@ -5,6 +5,7 @@ import type { LlmMessage } from '../../../llm/types/llmMessages.types'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import type { JudgePayload, NormalizedCase, SlotMap } from './normalize'
 import { withSwappedSlots } from './normalize'
+import { JsonValueSchema, type JsonValue } from './record'
 import { scrubReason } from './sweepArm'
 
 // Runs the blind comparison.
@@ -66,14 +67,19 @@ export const FLAG_TYPES = [
 export const FlagTypeSchema = z.enum(FLAG_TYPES)
 export type FlagType = z.infer<typeof FlagTypeSchema>
 
+const isFlagType = (value: string): value is FlagType =>
+  FLAG_TYPES.some((type) => type === value)
+
 const FlagSchema = z.object({
   run: z.enum(['X', 'Y']),
-  // Caught rather than refused. Anthropic's tool mode does not hold a model to
-  // an enum, and one off-list type failing the parse would throw away the
-  // seat's whole verdict over a label. The model is still shown the list (the
-  // JSON Schema keeps the enum), and the invented name is replaced here, so it
-  // reaches neither the stored ruling nor the report.
-  type: FlagTypeSchema.catch('other_severe'),
+  // Mapped rather than refused, so one off-list type does not throw away the
+  // seat's whole verdict over a label. The model is still shown the list, and
+  // the invented name is replaced here, so it reaches neither the stored
+  // ruling nor the report. A union and not `.catch()`: a caught field is
+  // optional in the JSON Schema the model is sent, and the API caps those.
+  type: z
+    .union([FlagTypeSchema, z.string()])
+    .transform((type): FlagType => (isFlagType(type) ? type : 'other_severe')),
   loc: z.string().optional(),
   quote: z.string().optional(),
   explanation: z.string(),
@@ -92,6 +98,36 @@ const AbsoluteFloorSchema = z.object({
 })
 export type AbsoluteFloor = z.infer<typeof AbsoluteFloorSchema>
 
+// Whether a run reached the outcome its case's `handledWhen` sentence
+// describes. Absolute and per run, unlike every other field here, and asked
+// only on a case that carries the sentence. No "not applicable": a case
+// without the sentence is never asked, so the judge has no value to hedge
+// with. `partly` is kept distinct, and the report counts it as not handled.
+export const HANDLED_VALUES = ['yes', 'partly', 'no'] as const
+export const HandledValueSchema = z.enum(HANDLED_VALUES)
+export type HandledValue = z.infer<typeof HandledValueSchema>
+
+// ON THE WIRE, TWO VALUES AND NOTHING ELSE. The location and quote per run
+// ride in the verdict's one evidence list under the name `handled`, as a
+// dimension's do: a handled object carrying its own loc and quote per run
+// pushed the compiled grammar past the API's limit at four case dimensions,
+// measured against the live API.
+const WireHandledSchema = z.object({
+  X: HandledValueSchema,
+  Y: HandledValueSchema,
+})
+type WireHandled = z.infer<typeof WireHandledSchema>
+
+const HandledSchema = WireHandledSchema.extend({
+  evidence: z.array(EvidenceSchema).optional(),
+})
+export type Handled = z.infer<typeof HandledSchema>
+
+// The evidence list's name for a `handled` citation. Not a dimension, so it
+// can never collide with one: a case dimension must be snake_case and is
+// refused if it equals a reserved name, and this is checked below.
+export const HANDLED = 'handled'
+
 export const CaseVerdictSchema = z.object({
   rubric_version: z.string(),
   shared_observations: z.string().optional(),
@@ -99,6 +135,7 @@ export const CaseVerdictSchema = z.object({
   overall: OverallVerdictSchema,
   flags: z.array(FlagSchema).optional(),
   absolute_floor: AbsoluteFloorSchema.optional(),
+  handled: HandledSchema.optional(),
 })
 export type CaseVerdict = z.infer<typeof CaseVerdictSchema>
 
@@ -114,24 +151,178 @@ export type CaseVerdict = z.infer<typeof CaseVerdictSchema>
 // from `CaseVerdictSchema` because that one is the shape of a verdict anybody
 // may hold, including a canned one, while this is the shape one particular
 // panel must be made to return.
+// THE SHAPE ON THE WIRE, and it is not `CaseVerdict`. The structured-output
+// API refuses a schema with more than 24 optional parameters or 16 union ones
+// (a nullable field is one), and refuses a schema whose compiled grammar is
+// too large; the dimension object repeats once per dimension, so anything in
+// it is paid for once per dimension. Optional fields there put the default
+// rubric at 25 and failed every panel call, and an evidence list inside each
+// dimension compiled too large at two case dimensions. So a dimension carries
+// only required, non-nullable scalars, with `none` and the empty string
+// standing for an absent magnitude and an absent `needed_to_decide`, and the
+// evidence is one list beside the dimensions, each item naming the dimension
+// it supports. The transform turns the reply back into a `CaseVerdict`, so
+// nothing downstream sees the wire shape.
+const NO_MAGNITUDE = 'none'
+
+const WireDimensionSchema = z.object({
+  reasoning: z.string(),
+  verdict: SlotVerdictSchema,
+  magnitude: z.enum([...MagnitudeSchema.options, NO_MAGNITUDE]),
+  needed_to_decide: z.string(),
+})
+type WireDimension = z.infer<typeof WireDimensionSchema>
+
+const WireEvidenceSchema = z.object({
+  dimension: z.string(),
+  loc: z.string(),
+  quote: z.string(),
+  note: z.string(),
+})
+type WireEvidence = z.infer<typeof WireEvidenceSchema>
+
+const fromWireDimension = (
+  wire: WireDimension,
+  cited: readonly WireEvidence[],
+): DimensionVerdict => {
+  const evidence = cited.map(({ loc, quote, note }) =>
+    note === '' ? { loc, quote } : { loc, quote, note },
+  )
+  return {
+    reasoning: wire.reasoning,
+    ...(evidence.length > 0 && { evidence }),
+    verdict: wire.verdict,
+    magnitude: wire.magnitude === NO_MAGNITUDE ? null : wire.magnitude,
+    ...(wire.needed_to_decide !== '' && {
+      needed_to_decide: wire.needed_to_decide,
+    }),
+  }
+}
+
+const toWireDimension = (
+  name: string,
+  d: DimensionVerdict,
+): { dimension: WireDimension; evidence: WireEvidence[] } => ({
+  dimension: {
+    reasoning: d.reasoning,
+    verdict: d.verdict,
+    magnitude: d.magnitude ?? NO_MAGNITUDE,
+    needed_to_decide: d.needed_to_decide ?? '',
+  },
+  evidence: (d.evidence ?? []).map(({ loc, quote, note }) => ({
+    dimension: name,
+    loc,
+    quote,
+    note: note ?? '',
+  })),
+})
+
+// The reply a model would have had to send to produce `verdict`. For the
+// canned judge and for tests, which hold verdicts in their stored shape and
+// hand them to the same schema the model's reply goes through.
+export const toWireVerdict = (verdict: CaseVerdict): JsonValue => {
+  const dimensions = Object.entries(verdict.dimensions).map(
+    ([name, d]) => [name, toWireDimension(name, d)] as const,
+  )
+  const overall = toWireDimension(OVERALL, verdict.overall)
+  const { overall_tradeoff, tradeoff_note } = verdict.overall
+  const { handled, ...stored } = verdict
+  return JsonValueSchema.parse({
+    ...stored,
+    ...(handled !== undefined && { handled: { X: handled.X, Y: handled.Y } }),
+    dimensions: Object.fromEntries(
+      dimensions.map(([name, wire]) => [name, wire.dimension]),
+    ),
+    overall: {
+      ...overall.dimension,
+      ...(overall_tradeoff !== undefined && { overall_tradeoff }),
+      ...(tradeoff_note !== undefined && { tradeoff_note }),
+    },
+    evidence: [
+      ...dimensions.flatMap(([, wire]) => wire.evidence),
+      ...overall.evidence,
+      ...(handled?.evidence ?? []).map(({ loc, quote, note }) => ({
+        dimension: HANDLED,
+        loc,
+        quote,
+        note: note ?? '',
+      })),
+    ],
+  })
+}
+
 export const caseVerdictSchemaFor = (
   dimensions: readonly string[],
+  asksHandled = false,
 ): z.ZodType<CaseVerdict> => {
   // Object.fromEntries, not an assignment into a literal. `o['__proto__'] = x`
   // sets the prototype instead of creating an own property, so `z.object`
   // would see no key for that one name and accept `dimensions: {}` again —
   // this bug, reintroduced for exactly one dimension name. fromEntries
   // defines an own property whatever the key is.
-  const shape: Record<string, typeof DimensionVerdictSchema> =
-    Object.fromEntries(dimensions.map((d) => [d, DimensionVerdictSchema]))
-  return z.object({
+  const shape: Record<string, typeof WireDimensionSchema> = Object.fromEntries(
+    dimensions.map((d) => [d, WireDimensionSchema]),
+  )
+  const wire = z.object({
     rubric_version: z.string(),
     shared_observations: z.string().optional(),
     dimensions: z.object(shape),
-    overall: OverallVerdictSchema,
+    overall: WireDimensionSchema.extend({
+      overall_tradeoff: z.boolean().optional(),
+      tradeoff_note: z.string().nullish(),
+    }),
+    evidence: z.array(WireEvidenceSchema),
     flags: z.array(FlagSchema).optional(),
     absolute_floor: AbsoluteFloorSchema.optional(),
   })
+  const toVerdict = ({
+    dimensions: named,
+    overall,
+    evidence,
+    handled,
+    ...rest
+  }: z.output<typeof wire> & { handled?: WireHandled }): CaseVerdict => {
+    // An item naming no dimension the verdict carries is kept under
+    // overall rather than dropped: it is still evidence the seat cited.
+    const citedFor = (name: string): WireEvidence[] =>
+      evidence.filter((item) =>
+        name === OVERALL
+          ? item.dimension === OVERALL ||
+            (!Object.hasOwn(named, item.dimension) &&
+              (handled === undefined || item.dimension !== HANDLED))
+          : item.dimension === name,
+      )
+    const handledEvidence = citedFor(HANDLED).map(({ loc, quote, note }) =>
+      note === '' ? { loc, quote } : { loc, quote, note },
+    )
+    const { overall_tradeoff, tradeoff_note, ...overallDimension } = overall
+    return {
+      ...rest,
+      dimensions: Object.fromEntries(
+        Object.entries(named).map(([name, wire]) => [
+          name,
+          fromWireDimension(wire, citedFor(name)),
+        ]),
+      ),
+      overall: {
+        ...fromWireDimension(overallDimension, citedFor(OVERALL)),
+        ...(overall_tradeoff !== undefined && { overall_tradeoff }),
+        ...(tradeoff_note !== undefined && { tradeoff_note }),
+      },
+      ...(handled !== undefined && {
+        handled: {
+          ...handled,
+          ...(handledEvidence.length > 0 && { evidence: handledEvidence }),
+        },
+      }),
+    }
+  }
+  // Required exactly when the case carries a handling sentence, and absent
+  // otherwise, so a case without one sends the schema it sent before the
+  // field existed.
+  return asksHandled
+    ? wire.extend({ handled: WireHandledSchema }).transform(toVerdict)
+    : wire.transform(toVerdict)
 }
 
 // The key scoring joins on. Never sent to the model.
@@ -194,6 +385,13 @@ export interface GradedJudgment {
   seatFailures: readonly SeatFailure[]
   flags: readonly Flag[]
   absoluteFloor: AbsoluteFloor | null
+  // Slot-keyed like the floor. Absent when the case asked nothing.
+  handled?: CombinedHandled
+}
+
+export interface CombinedHandled {
+  X: HandledValue
+  Y: HandledValue
 }
 
 // A judge failure is not a verdict. It is reported as ungraded, apart from
@@ -216,13 +414,18 @@ export type Judgment = GradedJudgment | UngradedJudgment
 // https://goodparty.clickup.com/90132012119/docs/2ky4jq2q-154253/2ky4jq2q-139173
 // ---------------------------------------------------------------------------
 
-export const RUBRIC_VERSION = 'uj-rubric-0.5'
+export const RUBRIC_VERSION = 'uj-rubric-0.9'
 
 const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
   chat: [
     'AGENT SHAPE: conversational. The user input is identical across X and',
     'Y; only the agent replies differ. Where a tool failed or returned',
     'partial data, look at whether the reply tells the user.',
+    'When the shared input has a line starting "Condition:", it says',
+    'what this case tests or puts the agent under. Judge first whether',
+    'each reply handled that condition appropriately. A reply that reads',
+    'better but ignores or is misled by the condition is worse than one',
+    'that handles it.',
   ].join(' '),
   background: [
     'AGENT SHAPE: artifact. The final output is a structured artifact.',
@@ -232,11 +435,16 @@ const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
     'attached to them, whether the artifact adds claims that appear in no',
     'source, and whether it uses its declared fallback when inputs are',
     'insufficient instead of inventing content.',
-    'When the shared input ends with a line starting "Condition:", it says',
+    'When the shared input has a line starting "Condition:", it says',
     'what this case planted in or removed from the input. Judge first',
     'whether each run handled that condition appropriately. A run that',
     'reads better but ignores or is misled by the condition is worse than',
     'one that handles it.',
+    'When the shared input lists an output contract, a field it requires is',
+    'never an unrequested addition, and a run missing a required field is',
+    'worse for it. When it says the runs may have had different contracts, a',
+    'field required by only one of them is neither an addition nor an',
+    'omission.',
   ].join(' '),
 }
 
@@ -274,7 +482,8 @@ export const dimensionsFor = (
 ): string[] => {
   const own = (payload.caseDimensions ?? []).map((d) => d.name)
   const taken = own.filter(
-    (name) => name === OVERALL || config.dimensions.includes(name),
+    (name) =>
+      name === OVERALL || name === HANDLED || config.dimensions.includes(name),
   )
   if (taken.length > 0) {
     throw new CaseDimensionCollisionError(
@@ -298,6 +507,19 @@ const caseDimensionLines = (payload: JudgePayload): string[] => {
     ...own.map((d) => `- ${d.name}: ${d.question}`),
   ]
 }
+
+// Empty for a case with no handling sentence, so its prompt is unchanged.
+const handledLines = (payload: JudgePayload): string[] =>
+  payload.handledWhen === undefined
+    ? []
+    : [
+        'This case says what handling its condition looks like. In',
+        '`handled`, answer yes, partly or no for each run: did its output',
+        'reach that outcome? Judge the outcome the sentence describes, not',
+        'whether the run mentions the problem; a run that quietly does the',
+        'right thing has handled it. In `evidence`, cite one location and a',
+        `short quote per run under the name ${HANDLED}.`,
+      ]
 
 const buildUserPrompt = (
   payload: JudgePayload,
@@ -326,7 +548,11 @@ const buildUserPrompt = (
     'careful reviewer would notice), clear (the user would notice and it',
     'would change their trust or their workload), strong (one run fails at',
     'something the other handles).',
+    'Every field is required. Write magnitude "none" for a tie or a call',
+    'you cannot make, and leave needed_to_decide as "" when nothing more',
+    'would have decided it.',
     ...caseDimensionLines(payload),
+    ...handledLines(payload),
     '</rubric>',
     '',
     '<flags>',
@@ -336,6 +562,8 @@ const buildUserPrompt = (
     '',
     '<evidence_locations>',
     `Cite evidence by location: ${x.id}.final, ${y.id}.final, or input.`,
+    'List it in `evidence`, each item naming the dimension it supports, or',
+    `${OVERALL}.`,
     '</evidence_locations>',
     `<rubric_version>${RUBRIC_VERSION}</rubric_version>`,
   ].join('\n')
@@ -363,7 +591,12 @@ export const selectSwapped = (
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
 ): NormalizedCase[] => {
-  const { enabled, fraction } = config.orderSwap
+  const { enabled } = config.orderSwap
+  // One agent's cases per call, so one shape: background takes its own share.
+  const fraction =
+    cases[0]?.payload.agentShape === 'background'
+      ? (config.orderSwap.backgroundFraction ?? config.orderSwap.fraction)
+      : config.orderSwap.fraction
   if (!enabled || fraction <= 0 || cases.length === 0) return []
   const stride = Math.max(1, Math.round(1 / fraction))
   return [...cases]
@@ -375,16 +608,31 @@ export const selectSwapped = (
     .filter((_, index) => index % stride === 0)
 }
 
+// CONTROLS ARE JUDGED IN BOTH ORDERS, every one of them, whatever the
+// subsample picks. A control pairs two runs of unchanged code, so the one
+// thing it can show beyond noise is whether the judge prefers a slot, and a
+// single order cannot show that. Controls are left out of the subsample's
+// input and swapped on their own, so a list gaining a control does not move
+// which scored pairs the subsample picks, and no control takes a swap that
+// counts toward minSwappedPairs.
 export const planJudgments = (
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  alwaysSwapped: ReadonlySet<string> = new Set(),
 ): PlannedJudgment[] => {
   const primary = cases.map((c) => ({
     key: { caseId: c.caseId, attempt: c.attempt, order: 'primary' as const },
     payload: c.payload,
     slotMap: c.slotMap,
   }))
-  const swapped = selectSwapped(cases, config).map((c) => {
+  const toSwap = [
+    ...selectSwapped(
+      cases.filter((c) => !alwaysSwapped.has(c.caseId)),
+      config,
+    ),
+    ...cases.filter((c) => alwaysSwapped.has(c.caseId)),
+  ]
+  const swapped = toSwap.map((c) => {
     const flipped = withSwappedSlots(c)
     return {
       key: {
@@ -467,6 +715,24 @@ const combineFloor = (seats: readonly SeatVerdict[]): AbsoluteFloor | null => {
   }
 }
 
+// Taken like the floor, not by majority: one seat that saw a run miss the
+// outcome is a finding about that run.
+const worstHandled = (values: readonly HandledValue[]): HandledValue =>
+  values.includes('no') ? 'no' : values.includes('partly') ? 'partly' : 'yes'
+
+const combineHandled = (
+  seats: readonly SeatVerdict[],
+): CombinedHandled | undefined => {
+  const answers = seats
+    .map((s) => s.verdict.handled)
+    .filter((h): h is Handled => h !== undefined)
+  if (answers.length === 0) return undefined
+  return {
+    X: worstHandled(answers.map((h) => h.X)),
+    Y: worstHandled(answers.map((h) => h.Y)),
+  }
+}
+
 const dimensionOf = (
   verdict: CaseVerdict,
   dimension: string,
@@ -523,7 +789,10 @@ const runSeat = async (
   try {
     const { object } = await llm.jsonCompletion({
       messages: buildMessages(payload, config),
-      schema: caseVerdictSchemaFor(dimensionsFor(payload, config)),
+      schema: caseVerdictSchemaFor(
+        dimensionsFor(payload, config),
+        payload.handledWhen !== undefined,
+      ),
       models: [model],
       temperature: config.panel.temperature,
       retries: SEAT_RETRIES,
@@ -619,16 +888,22 @@ export const judgeCase = async (
     // scoring's job with that judgment's own slot map.
     flags: seats.flatMap((s) => s.verdict.flags ?? []),
     absoluteFloor: combineFloor(seats),
+    ...withHandled(combineHandled(seats)),
   }
 }
+
+const withHandled = (
+  handled: CombinedHandled | undefined,
+): { handled?: CombinedHandled } => (handled === undefined ? {} : { handled })
 
 export const judgeAll = async (
   llm: JsonJudgeModel,
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  alwaysSwapped: ReadonlySet<string> = new Set(),
 ): Promise<Judgment[]> => {
   const judgments: Judgment[] = []
-  for (const planned of planJudgments(cases, config)) {
+  for (const planned of planJudgments(cases, config, alwaysSwapped)) {
     judgments.push(await judgeCase(llm, planned, config))
   }
   return judgments

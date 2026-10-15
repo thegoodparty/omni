@@ -1,6 +1,6 @@
 import type {
-  ConstituentFeedbackChannel,
   ConstituentFeedbackStance,
+  FeedbackReportChannel,
   FeedbackReportResponse,
 } from '@goodparty_org/contracts'
 
@@ -8,6 +8,16 @@ type Denominators = FeedbackReportResponse['denominators']
 
 const count = (value: number, one: string, many: string): string =>
   `${value.toLocaleString()} ${value === 1 ? one : many}`
+
+// A text send's entries are the constituents' own replies, not a
+// canvasser's notes, so the lines that say "note" say "reply" there. The
+// door and the phone read exactly as they did.
+const isText = (channel: FeedbackReportChannel): boolean => channel === 'text'
+
+// On a text send every reply counts and nothing waits for review, so the
+// caption is the replies and the people they came from.
+const textCaptionCounts = (d: Denominators): string =>
+  `${count(d.memos, 'reply', 'replies')} from ${count(d.conversations, 'person', 'people')}`
 
 // Both products reach every screen here, so the copy is mode-keyed
 // (docs/product-vocabulary.md) and the Serve branch is where the vocabulary
@@ -24,26 +34,35 @@ export const WHAT_WE_HEARD_COPY = {
     // numbers on the cards cannot be read as more than they are. The
     // waiting clause follows as a link to the review list, and the
     // sentence ends after whichever comes last.
-    captionCounts: (d: Denominators): string =>
-      [
-        `${count(d.conversations, 'person', 'people')} answered.`,
-        `${d.memos.toLocaleString()} left a note.`,
-        `${d.confirmed.toLocaleString()} confirmed`,
-      ].join(' '),
+    captionCounts: (d: Denominators, channel: FeedbackReportChannel): string =>
+      isText(channel)
+        ? textCaptionCounts(d)
+        : [
+            `${count(d.conversations, 'person', 'people')} answered.`,
+            `${d.memos.toLocaleString()} left a note.`,
+            `${d.confirmed.toLocaleString()} confirmed`,
+          ].join(' '),
     waitingForReview: (pending: number): string =>
       `${pending.toLocaleString()} waiting for review`,
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
-    floorLine: (floor: number): string =>
-      `Themes appear after ${floor.toLocaleString()} confirmed notes.`,
+    floorLine: (floor: number, channel: FeedbackReportChannel): string =>
+      isText(channel)
+        ? `Themes appear after ${floor.toLocaleString()} replies.`
+        : `Themes appear after ${floor.toLocaleString()} confirmed notes.`,
     themesHeading: 'Top themes',
-    everyNoteHeading: 'Every note',
+    everyNoteHeading: (channel: FeedbackReportChannel): string =>
+      isText(channel) ? 'Every reply' : 'Every note',
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize what we heard',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
-    noNotes: 'No notes yet. Notes from conversations with voters show up here.',
+    downloadNotes: 'Download notes',
+    noNotes: (channel: FeedbackReportChannel): string =>
+      isText(channel)
+        ? 'No replies yet. Replies from voters show up here.'
+        : 'No notes yet. Notes from conversations with voters show up here.',
     drawerCaption: 'Notes from conversations with voters.',
     loadFailed: 'This page could not load. Refresh to try again.',
     loading: 'Loading what you heard',
@@ -60,6 +79,9 @@ export const WHAT_WE_HEARD_COPY = {
     // the other person's words, and it says so.
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
+    // A text reply is the person's own words, so it is not a summary and
+    // is not credited to anyone on the team.
+    theirReply: 'Their reply',
     recordedBy: (actorName: string | null): string =>
       `Recorded by ${actorName ?? 'your team'}`,
     wants: 'Wants',
@@ -74,9 +96,15 @@ export const WHAT_WE_HEARD_COPY = {
     backToOutreach: 'Back to Voter Outreach',
     details: 'Details',
     whatPeopleWant: 'What people want',
-    theNotes: 'The notes',
-    entryCounts: (d: Pick<Denominators, 'conversations' | 'memos'>): string =>
-      `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
+    theNotes: (channel: FeedbackReportChannel): string =>
+      isText(channel) ? 'The replies' : 'The notes',
+    entryCounts: (
+      d: Pick<Denominators, 'conversations' | 'memos'>,
+      channel: FeedbackReportChannel,
+    ): string =>
+      isText(channel)
+        ? count(d.memos, 'reply', 'replies')
+        : `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
     // "Notes to review": memos nobody who was there has confirmed yet,
     // including the ones recorded with no signal and transcribed since.
     notesToReview: (pending: number): string =>
@@ -114,27 +142,35 @@ export const WHAT_WE_HEARD_COPY = {
   },
   serve: {
     title: 'What we heard',
-    captionCounts: (d: Denominators): string =>
-      [
-        `${count(d.conversations, 'person', 'people')} answered.`,
-        `${d.memos.toLocaleString()} left a note.`,
-        `${d.confirmed.toLocaleString()} confirmed`,
-      ].join(' '),
+    captionCounts: (d: Denominators, channel: FeedbackReportChannel): string =>
+      isText(channel)
+        ? textCaptionCounts(d)
+        : [
+            `${count(d.conversations, 'person', 'people')} answered.`,
+            `${d.memos.toLocaleString()} left a note.`,
+            `${d.confirmed.toLocaleString()} confirmed`,
+          ].join(' '),
     waitingForReview: (pending: number): string =>
       `${pending.toLocaleString()} waiting for review`,
     summarizing:
       'Summarizing what you heard. This usually takes a few minutes.',
     soFarHeading: 'What people said so far',
-    floorLine: (floor: number): string =>
-      `Themes appear after ${floor.toLocaleString()} confirmed notes.`,
+    floorLine: (floor: number, channel: FeedbackReportChannel): string =>
+      isText(channel)
+        ? `Themes appear after ${floor.toLocaleString()} replies.`
+        : `Themes appear after ${floor.toLocaleString()} confirmed notes.`,
     themesHeading: 'Top themes',
-    everyNoteHeading: 'Every note',
+    everyNoteHeading: (channel: FeedbackReportChannel): string =>
+      isText(channel) ? 'Every reply' : 'Every note',
     failed: "We couldn't summarize this time.",
     summarize: 'Summarize what we heard',
     coolingDown: 'This was summarized a few minutes ago. Try again later.',
     summarizeFailed: "We couldn't start a summary. Try again in a moment.",
-    noNotes:
-      'No notes yet. Notes from conversations with constituents show up here.',
+    downloadNotes: 'Download notes',
+    noNotes: (channel: FeedbackReportChannel): string =>
+      isText(channel)
+        ? 'No replies yet. Replies from constituents show up here.'
+        : 'No notes yet. Notes from conversations with constituents show up here.',
     drawerCaption: 'Notes from conversations with constituents.',
     loadFailed: 'This page could not load. Refresh to try again.',
     loading: 'Loading what you heard',
@@ -147,6 +183,9 @@ export const WHAT_WE_HEARD_COPY = {
     notYetReviewed: 'Not yet reviewed',
     summaryBy: (actorName: string | null): string =>
       `Summary by ${actorName ?? 'your team'}`,
+    // A text reply is the person's own words, so it is not a summary and
+    // is not credited to anyone on the team.
+    theirReply: 'Their reply',
     recordedBy: (actorName: string | null): string =>
       `Recorded by ${actorName ?? 'your team'}`,
     wants: 'Wants',
@@ -161,9 +200,15 @@ export const WHAT_WE_HEARD_COPY = {
     backToOutreach: 'Back to Constituent Outreach',
     details: 'Details',
     whatPeopleWant: 'What people want',
-    theNotes: 'The notes',
-    entryCounts: (d: Pick<Denominators, 'conversations' | 'memos'>): string =>
-      `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
+    theNotes: (channel: FeedbackReportChannel): string =>
+      isText(channel) ? 'The replies' : 'The notes',
+    entryCounts: (
+      d: Pick<Denominators, 'conversations' | 'memos'>,
+      channel: FeedbackReportChannel,
+    ): string =>
+      isText(channel)
+        ? count(d.memos, 'reply', 'replies')
+        : `${count(d.conversations, 'conversation', 'conversations')} · ${count(d.memos, 'note', 'notes')}`,
     // "Notes to review": memos nobody who was there has confirmed yet,
     // including the ones recorded with no signal and transcribed since.
     notesToReview: (pending: number): string =>
@@ -234,7 +279,8 @@ export const STANCE_ORDER: ConstituentFeedbackStance[] = [
 ]
 
 // The person record's words for where a conversation happened.
-export const CHANNEL_LABELS: Record<ConstituentFeedbackChannel, string> = {
+export const CHANNEL_LABELS: Record<FeedbackReportChannel, string> = {
   door_knock: 'At the door',
   phone_bank: 'On the phone',
+  text: 'By text',
 }

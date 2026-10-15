@@ -48,6 +48,9 @@ export interface CampaignPlanData {
 // both entry points.
 export const useCampaignPlanData = (
   initialUser: User | null,
+  // The tracker's start, so the plan's contact schedule compresses a late
+  // joiner's past sends the way the tracker does.
+  planStartIso: string | null = null,
 ): CampaignPlanData => {
   const [clientUser] = useUser()
   const user = clientUser ?? initialUser
@@ -228,6 +231,7 @@ export const useCampaignPlanData = (
       state: stateValue,
       partisanType,
       electionDateIso,
+      planStartIso,
       filingDateStartIso,
       filingDateEndIso,
       winNumber,
@@ -265,6 +269,7 @@ export const useCampaignPlanData = (
     stateValue,
     partisanType,
     electionDateIso,
+    planStartIso,
     filingDateStartIso,
     filingDateEndIso,
     winNumber,

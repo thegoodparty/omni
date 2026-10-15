@@ -6,6 +6,14 @@ import { of } from 'rxjs'
 import { useTestService } from '@/test-service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
+import { subDays } from 'date-fns'
+import {
+  CivicPanelStatus,
+  ContactStatusField,
+  ContactStatusSource,
+} from '@/generated/prisma'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 
 const service = useTestService()
 
@@ -339,6 +347,131 @@ describe('lists saved as a sample', () => {
     expect(await sampleMemberIds(second.data.id)).toEqual([rest])
   })
 
+  // One list that asks the civic panel and grows it: a draw from the
+  // members and an equal draw from everyone else, frozen as one sample.
+  describe('with a panel part', () => {
+    const setMember = (organizationSlug: string, personId: string) =>
+      service.app.get(ContactStatusService).changeStatus({
+        organizationSlug,
+        personId,
+        field: ContactStatusField.civic_panel,
+        toValue: CivicPanelStatus.member,
+        source: ContactStatusSource.manual,
+        actorUserId: service.user.id,
+        fallbackFromValue: CivicPanelStatus.left,
+      })
+
+    const textedLastWeek = (organizationSlug: string, personId: string) =>
+      service.app.get(ContactInteractionTextService).create({
+        organizationSlug,
+        personId,
+        occurredAt: subDays(new Date(), 7),
+      })
+
+    type IdOperator = { operator: string; values: string[] } | undefined
+    const idOperatorOf = (request: unknown): IdOperator =>
+      (
+        request as {
+          filters?: { filterOperators?: { id?: IdOperator } }
+        }
+      ).filters?.filterOperators?.id
+
+    it('freezes the union of a rested panel draw and a fresh draw of non-members', async () => {
+      const slug = await setupServeOrg('panel')
+      const rested = [randomUUID(), randomUUID()]
+      const recentMember = randomUUID()
+      const recentResident = randomUUID()
+      for (const id of [...rested, recentMember]) await setMember(slug, id)
+      await textedLastWeek(slug, recentMember)
+      await textedLastWeek(slug, recentResident)
+      const fresh = [randomUUID(), randomUUID()]
+      stubAudience(58_520)
+      const draw = vi
+        .spyOn(service.app.get(VoterQueryService), 'samplePeople')
+        .mockClear()
+        .mockImplementation(async (request) => {
+          const id = idOperatorOf(request)
+          const ids = id?.operator === 'in' ? id.values : fresh
+          return ids.map((personId) => ({ id: personId }) as PersonOutput)
+        })
+
+      const response = await createFilter(slug, {
+        name: 'Panel and new residents',
+        hasCellPhone: true,
+        notContactedRecently: true,
+        sample: { size: 4, panelSize: 2, seedKey: 'proposal-2' },
+      })
+
+      expect(response.status).toBe(HttpStatus.CREATED)
+      expect(draw).toHaveBeenCalledTimes(2)
+      const [panelRequest] = draw.mock.calls[0] ?? []
+      const [freshRequest] = draw.mock.calls[1] ?? []
+      expect(panelRequest).toMatchObject({
+        size: 2,
+        seedKey: 'proposal-2:panel',
+      })
+      expect(freshRequest).toMatchObject({
+        size: 2,
+        seedKey: 'proposal-2:fresh',
+      })
+      // The panel part is rested members only.
+      const panelIds = idOperatorOf(panelRequest)
+      expect(panelIds?.operator).toBe('in')
+      expect([...(panelIds?.values ?? [])].sort()).toEqual([...rested].sort())
+      // The fresh part holds no member and nobody contacted recently.
+      const freshIds = idOperatorOf(freshRequest)
+      expect(freshIds?.operator).toBe('notIn')
+      expect(freshIds?.values).toEqual(
+        expect.arrayContaining([...rested, recentMember, recentResident]),
+      )
+      expect(await sampleMemberIds(response.data.id)).toEqual(
+        [...rested, ...fresh].sort(),
+      )
+      const row = await service.prisma.voterFileFilter.findUniqueOrThrow({
+        where: { id: response.data.id },
+      })
+      expect(row.sampleSize).toBe(4)
+    })
+
+    it('draws the fresh part alone when nobody is on the panel', async () => {
+      const slug = await setupServeOrg('no-panel')
+      const fresh = [randomUUID(), randomUUID()]
+      stubAudience(58_520)
+      const draw = stubDraw(fresh)
+
+      const response = await createFilter(slug, {
+        name: 'New residents',
+        hasCellPhone: true,
+        notContactedRecently: true,
+        sample: { size: 4, panelSize: 2 },
+      })
+
+      expect(response.status).toBe(HttpStatus.CREATED)
+      expect(draw).toHaveBeenCalledTimes(1)
+      expect(draw.mock.calls[0]?.[0]).toMatchObject({ size: 2 })
+      expect(await sampleMemberIds(response.data.id)).toEqual([...fresh].sort())
+    })
+
+    it('refuses a panel part for a Win campaign', async () => {
+      const slug = `campaign-panel-sample-${Date.now()}`
+      await service.prisma.organization.create({
+        data: {
+          slug,
+          ownerId: service.user.id,
+          overrideDistrictId: randomUUID(),
+        },
+      })
+
+      const response = await createFilter(slug, {
+        name: 'Panel',
+        hasCellPhone: true,
+        sample: { size: 4, panelSize: 2 },
+      })
+
+      expect(response.status).toBe(HttpStatus.BAD_REQUEST)
+    })
+  })
+
   it('refuses a sample on a list drawn on the map', async () => {
     const slug = await setupServeOrg('geo')
 
@@ -359,5 +492,79 @@ describe('lists saved as a sample', () => {
     })
 
     expect(response.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  // A report back goes to exactly who a send reached, so its list is that
+  // send's recipient rows, frozen, minus anyone who has opted out since.
+  describe('a report back on a send', () => {
+    const seedSend = async (slug: string, personIds: string[]) => {
+      const send = await service.prisma.outreach.create({
+        data: {
+          organizationSlug: slug,
+          campaignId: null,
+          outreachType: 'text',
+          status: 'completed',
+        },
+      })
+      await service.prisma.outreachTextRecipient.createMany({
+        data: personIds.map((personId, index) => ({
+          outreachId: send.id,
+          organizationSlug: slug,
+          personId,
+          phone: `+1555000${String(index).padStart(4, '0')}`,
+        })),
+      })
+      return send
+    }
+
+    it('freezes the people the send reached, minus opt-outs', async () => {
+      const slug = await setupServeOrg('report-back')
+      const [kept, alsoKept, optedOut] = [
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+      ]
+      const send = await seedSend(slug, [kept, alsoKept, optedOut])
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: slug,
+          personId: optedOut,
+          occurredAt: new Date(),
+          outreachId: send.id,
+          respondedAt: new Date(),
+          optedOutAt: new Date(),
+        },
+      })
+      const draw = stubDraw([])
+
+      const response = await createFilter(slug, {
+        name: 'Everyone you texted about parking',
+        sample: { size: 3, recipientsOfOutreachId: send.id },
+      })
+
+      expect(response.status).toBe(HttpStatus.CREATED)
+      expect(draw).not.toHaveBeenCalled()
+      expect(await sampleMemberIds(response.data.id)).toEqual(
+        [kept, alsoKept].sort(),
+      )
+    })
+
+    it("reaches nobody from another office's send", async () => {
+      const other = await setupServeOrg('report-back-other')
+      const send = await seedSend(other, [randomUUID()])
+      const slug = await setupServeOrg('report-back-mine')
+
+      const response = await createFilter(slug, {
+        name: 'Not mine',
+        sample: { size: 1, recipientsOfOutreachId: send.id },
+      })
+
+      expect(response.status).toBe(HttpStatus.CREATED)
+      expect(await sampleMemberIds(response.data.id)).toEqual([])
+      const row = await service.prisma.voterFileFilter.findUniqueOrThrow({
+        where: { id: response.data.id },
+      })
+      expect(row.sampleSize).toBe(1)
+    })
   })
 })

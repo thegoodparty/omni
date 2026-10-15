@@ -40,6 +40,12 @@ export const setFlagOverrides = async (
   ])
 }
 
+// The next-task Home and timeline plan's flag. The Campaign Manager home
+// specs pin it off: a PR preview turns every flag on (no Amplitude key),
+// while dev keeps it off for test users. Mirrors NEXT_TASK_EXPERIENCE_FLAG_KEY
+// in app/shared/experiments/nextTaskExperienceFlag.ts.
+export const NEXT_TASK_EXPERIENCE_FLAG = 'next-task-experience'
+
 // Pre-accept the cookie-consent banner so its snackbar (fixed bottom-4,
 // pointer-events-auto) never mounts and intercepts clicks on bottom-of-page
 // controls. The banner reads `cookiesAccepted` from document.cookie once on

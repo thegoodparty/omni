@@ -125,15 +125,6 @@ describe('describeFilter', () => {
     ).toBe('matching search "Oakwood".')
   })
 
-  // In the column set but absent from the catalog, like precincts.
-  it('labels registration', () => {
-    expect(
-      describeFilter(filter({ registeredVoterTrue: true }), {
-        isServe: false,
-      }),
-    ).toBe('Registered voter Yes.')
-  })
-
   // The catalog already encodes which dimensions a Serve org may express, so
   // reading it rather than a second copy of the labels is what keeps this
   // from describing an elected official's file in Win-only terms.
@@ -149,6 +140,23 @@ describe('describeFilter', () => {
     expect(
       describeFilter(filter({ precincts: ['travis|0104'] }), { isServe: true }),
     ).toBe('Everyone in your file — no filters applied.')
+  })
+
+  it('describes the civic panel history dimensions for a serve org', () => {
+    expect(
+      describeFilter(
+        filter({
+          civicPanelMember: true,
+          civicPanelJoinedByText: true,
+          civicPanelJoinedFrom: '2026-10-01',
+          civicPanelJoinedTo: '2026-10-09',
+          lastReachedTo: '2026-09-30',
+        }),
+        { isServe: true },
+      ),
+    ).toBe(
+      'Civic panel On your civic panel, How they joined By text, When they joined between Oct 1, 2026 and Oct 9, 2026, and Last asked on or before Sep 30, 2026.',
+    )
   })
 })
 
@@ -185,7 +193,6 @@ describe('describeFilterForTalkingPoints', () => {
     ['prior contacts made', { contactsMade0: true }],
     ['support status', { supportStatus: ['supporter' as const] }],
     ['phone presence', { hasCellPhone: true }],
-    ['registration', { registeredVoterTrue: true }],
     ['ideology', { ideologyModerate: true }],
     ['independent affinity', { independentAffinity: true }],
   ])('drops %s', (_label, columns) => {

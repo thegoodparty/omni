@@ -176,4 +176,29 @@ describe('RecordPhoneBankingCallSchema', () => {
       /markHouseholdDone is only valid when outcome is answered/,
     )
   })
+
+  it('accepts a panel member asked to stay on the civic panel', () => {
+    const call = {
+      entryId: 1,
+      outcome: 'answered',
+      personId: 'person-1',
+      followUp: 'no',
+      stayOnCivicPanel: 'no',
+    }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
+  })
+
+  it('never takes both civic panel questions on one call', () => {
+    const call = {
+      entryId: 1,
+      outcome: 'answered',
+      personId: 'person-1',
+      followUp: 'no',
+      joinCivicPanel: 'yes',
+      stayOnCivicPanel: 'no',
+    }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
+      /never asked together/,
+    )
+  })
 })

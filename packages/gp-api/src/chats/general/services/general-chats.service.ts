@@ -5,7 +5,11 @@ import {
   ChatMessageRole,
   ChatScope,
 } from '../../../generated/prisma'
-import type { ChatMessageFeedback as ChatMessageFeedbackDTO } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+  type ChatMessageFeedback as ChatMessageFeedbackDTO,
+} from '@goodparty_org/contracts'
 import { ChatMessageFeedbackService } from '@/chats/services/chatMessageFeedback.prisma'
 import {
   ChatMessageWithSegments,
@@ -19,6 +23,7 @@ import { ChatScopeRegistry } from './chatScopeRegistry.service'
 import { GeneralChatStoreService } from './generalChatStore.prisma'
 import {
   ChatScopeHandler,
+  hasFinalizeAssistantText,
   ResolveConversationParams,
   ResolveConversationResult,
 } from '../types/chatScopeHandler'
@@ -58,9 +63,18 @@ export interface SendMessageArgs {
   signal?: AbortSignal
   clientMessageId?: string
   attachmentIds?: string[]
+  pagePath?: string
 }
 
+// The build card's hidden turns would title the conversation with their
+// markers, which the history list then shows the official.
+const BUILD_CITIZENS_PANEL_TITLE = 'Build your civic panel'
+const EXPLAIN_CIVIC_PANEL_TITLE = "What's a civic panel?"
+
 const toTitle = (message: string): string => {
+  if (message === BUILD_CITIZENS_PANEL_MESSAGE)
+    return BUILD_CITIZENS_PANEL_TITLE
+  if (message === EXPLAIN_CIVIC_PANEL_MESSAGE) return EXPLAIN_CIVIC_PANEL_TITLE
   const trimmed = message.trim().replace(/\s+/g, ' ')
   return trimmed.length <= TITLE_MAX_LENGTH
     ? trimmed
@@ -307,9 +321,15 @@ export class GeneralChatsService {
         )
       }
 
-      const systemPrompt = handler.buildSystemPrompt(ctx)
+      const page = args.pagePath
+        ? (handler.describePage?.(args.pagePath, ctx) ?? null)
+        : null
+      const systemPrompt = page
+        ? `${handler.buildSystemPrompt(ctx)}\n\n${page}`
+        : handler.buildSystemPrompt(ctx)
       const tools = handler.buildTools(ctx)
 
+      const finalizing = hasFinalizeAssistantText(handler) ? handler : null
       const inner = self.chatStream.stream({
         conversationId: args.conversationId,
         ownerUserId: args.userId,
@@ -326,8 +346,9 @@ export class GeneralChatsService {
         ...(handler.onTurnUsage && {
           onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
         }),
-        ...(handler.finalizeAssistantText && {
-          finalizeText: (text) => handler.finalizeAssistantText!(text),
+        ...(finalizing && {
+          finalizeText: (text, turn) =>
+            finalizing.finalizeAssistantText(text, turn),
         }),
       })
 

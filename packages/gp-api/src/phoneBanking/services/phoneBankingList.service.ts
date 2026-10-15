@@ -11,6 +11,7 @@ import {
 } from '@/priorities/util/proposalLink.util'
 import {
   IdOverrides,
+  isCivicPanelOnlyList,
   PHONE_BANKING_SHEET_SIZE,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
@@ -23,6 +24,7 @@ import {
   type ProposalLink,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 import {
   ContactsFilterResolutionInput,
   ContactsService,
@@ -30,6 +32,7 @@ import {
 import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { ListPeopleDTO } from '@/peopleDb/schemas/people.schema'
 import {
   ContactStatusField,
@@ -85,6 +88,7 @@ const LIST_WITH_ENTRIES_INCLUDE = {
     orderBy: { seq: Prisma.SortOrder.asc },
     include: { persons: true },
   },
+  voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT },
 } as const satisfies Prisma.PhoneBankingListInclude
 
 type ListWithEntries = Prisma.PhoneBankingListGetPayload<{
@@ -110,6 +114,8 @@ type PersonName = { personId: string; name: string; firstName: string | null }
 export type PhoneBankingScope = {
   campaignId: number | null
   organizationSlug: string
+  // The campaign-plan task a Win list was built from, if any.
+  trackerTaskId?: string
 } & ProposalOutreachLink
 
 const formatAddress = (address: Person['address']): string | null => {
@@ -236,8 +242,8 @@ export class PhoneBankingListService extends createPrismaBase(
     scope: PhoneBankingScope | null,
     input: PhoneBankingCreate | ServePhoneBankingCreate,
   ): Promise<PhoneBankingCreateResponse> {
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
+    const { districtId, dataset } =
+      await this.contacts.resolveEligibleDistrict(organization)
 
     const filterInput = await this.loadPersistedFilter(
       input.voterFileFilterId,
@@ -298,6 +304,7 @@ export class PhoneBankingListService extends createPrismaBase(
     const maxEntries = input.sheetCount * PHONE_BANKING_SHEET_SIZE
     const { grouped, hasMore, skippedPriorBatch } = await this.pageAudience({
       districtId,
+      dataset,
       search: filterInput.search || undefined,
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,
@@ -371,6 +378,7 @@ export class PhoneBankingListService extends createPrismaBase(
 
   private async pageAudience(args: {
     districtId: string
+    dataset: PeopleDataset
     search?: string
     filters: FilterObject
     idOverrides?: IdOverrides
@@ -386,6 +394,7 @@ export class PhoneBankingListService extends createPrismaBase(
   }> {
     const {
       districtId,
+      dataset,
       search,
       filters,
       idOverrides,
@@ -422,6 +431,7 @@ export class PhoneBankingListService extends createPrismaBase(
           groupByHousehold: false,
           skipCount: true,
         }),
+        dataset,
       )
 
       for (const person of people) {
@@ -589,6 +599,7 @@ export class PhoneBankingListService extends createPrismaBase(
               priorityId: scope.priorityId,
               priorityStepId: scope.priorityStepId,
               priorityCheckSide: scope.priorityCheckSide,
+              trackerTaskId: scope.trackerTaskId,
               outreachType: OutreachType.nativePhoneBanking,
               status: OutreachStatus.in_progress,
               name: input.name,
@@ -671,6 +682,9 @@ export class PhoneBankingListService extends createPrismaBase(
       // signal (src/contacts/AGENTS.md), not derived from the Outreach
       // envelope: a Win list can exist with none at all (continueIfNotFound).
       isServe: organization.slug.startsWith('eo-'),
+      civicPanelOnly:
+        organization.slug.startsWith('eo-') &&
+        isCivicPanelOnlyList(list.voterFileFilter),
     }
   }
 
@@ -684,8 +698,8 @@ export class PhoneBankingListService extends createPrismaBase(
   ): Promise<Map<string, Person>> {
     if (personIds.length === 0) return new Map()
 
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
+    const { districtId, dataset } =
+      await this.contacts.resolveEligibleDistrict(organization)
     const { people } = await this.voterQuery.findPeople(
       ListPeopleDTO.create({
         districtId,
@@ -695,6 +709,7 @@ export class PhoneBankingListService extends createPrismaBase(
         groupByHousehold: false,
         skipCount: true,
       }),
+      dataset,
     )
     return new Map(people.map((person) => [person.id, person]))
   }
@@ -716,6 +731,8 @@ export class PhoneBankingListService extends createPrismaBase(
           supportAnswer: interaction.supportAnswer,
           willVote: interaction.willVote,
           followUp: interaction.followUp,
+          joinCivicPanel: interaction.joinCivicPanel,
+          stayOnCivicPanel: interaction.stayOnCivicPanel,
           occurredAt: interaction.occurredAt,
         },
       ]),

@@ -318,6 +318,7 @@ describe('CampaignsController', () => {
         positionName: 'Mayor',
         raceTargetMetrics: null,
         ownerName: 'Jared Smith',
+        ownerAvatar: null,
       })
       expect(result).not.toHaveProperty('user')
     })
@@ -332,6 +333,22 @@ describe('CampaignsController', () => {
       const result = await controller.findMine(campaignWithRelations)
 
       expect(result.ownerName).toBeNull()
+    })
+
+    it('returns the owner avatar, and null when it is blank', async () => {
+      const withAvatar = await controller.findMine({
+        ...mockCampaign,
+        organization: {} as Organization,
+        user: { ...owner, avatar: 'https://assets.example/avatar.jpg' },
+      })
+      const blankAvatar = await controller.findMine({
+        ...mockCampaign,
+        organization: {} as Organization,
+        user: { ...owner, avatar: '   ' },
+      })
+
+      expect(withAvatar.ownerAvatar).toBe('https://assets.example/avatar.jpg')
+      expect(blankAvatar.ownerAvatar).toBeNull()
     })
 
     it('includes live metrics in raceTargetMetrics', async () => {

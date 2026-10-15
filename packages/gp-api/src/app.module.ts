@@ -73,6 +73,7 @@ import { loggerModule } from './observability/logging/logger-module'
 // circular-dependency "undefined at runtime" error in CampaignsService.
 import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
+import { TestModeModule } from '@/testMode/testMode.module'
 import { DevEnvModule } from '@/devEnv/devEnv.module'
 
 @Module({
@@ -140,6 +141,7 @@ import { DevEnvModule } from '@/devEnv/devEnv.module'
     BriefingChatsModule,
     GeneralChatsModule,
     TestFixturesModule,
+    TestModeModule,
     DevEnvModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,

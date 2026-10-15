@@ -77,6 +77,7 @@ import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { outreachLandingStep } from '../landingStep'
 
 type StepId =
   | 'purpose'
@@ -209,6 +210,9 @@ interface PhoneBankingFlowCreateInput extends ProposalLink {
   voterFileFilterId: number
   // community_input only, where the contract requires it on both surfaces.
   communityInputQuestion?: string
+  // Win only: the campaign-plan task the flow was opened from, which the
+  // task list marks done once the list is built.
+  trackerTaskId?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -255,9 +259,11 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       purpose,
       communityInputQuestion,
       voterFileFilterId,
+      trackerTaskId,
+      proposalKey,
     }) => {
-      // Named, not rest-spread: a proposal link is a Serve chat card's, and
-      // Win's create is strict, so a link field added later must not leak.
+      // Named, not rest-spread: Win's create is strict and takes a
+      // Campaign Manager card's key alone, never the rest of a Serve link.
       const { data } = await clientRequest('POST /v1/phone-banking/lists', {
         name,
         script,
@@ -265,6 +271,8 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
         purpose,
         communityInputQuestion,
         voterFileFilterId,
+        trackerTaskId,
+        ...(proposalKey !== undefined && { proposalKey }),
       } as PhoneBankingCreate)
       return data
     },
@@ -393,13 +401,11 @@ export const PhoneBankingFlow = ({
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
-  // Tracks whether the box holds unmodified AI output vs. candidate-typed
-  // text — same purpose as SocialFlow's manuallyEdited, scoped narrower:
-  // phone banking has no per-tone memory/Undo, so this only gates whether a
-  // tone change is allowed to send the current text as previousDraft (an
-  // explicit Regenerate click still does, since that's the candidate asking
-  // to discard whatever's on screen).
-  const [scriptManuallyEdited, setScriptManuallyEdited] = useState(false)
+  // Whether the words are the candidate's (typed, seeded or polished) rather
+  // than an untouched fresh draft, as on SMS and social: a tone change
+  // polishes them instead of replacing them, and a walkback never re-drafts
+  // over them.
+  const [ownWords, setOwnWords] = useState(false)
   const [instructions, setInstructions] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
   // Whether the candidate has manually changed the sheet count — gates the
@@ -414,6 +420,10 @@ export const PhoneBankingFlow = ({
   // Guards against an out-of-order draft response (or one from a closed
   // flow) clobbering a newer draft — same convention as SocialFlow.
   const draftRequestRef = useRef(0)
+  // Whether the last draft call was an Improve, so Try again repeats the
+  // kind of call that failed (a Regenerate or an Improve) with what is on
+  // screen now, such as instructions edited since.
+  const lastDraftWasImproveRef = useRef(false)
 
   // Reference equality against the Win singleton default, not a purpose
   // check: recommended lists are Win-only (the endpoint 400s an eo- org
@@ -462,6 +472,9 @@ export const PhoneBankingFlow = ({
         voterFileFilterId,
         ...(purpose === COMMUNITY_INPUT_PURPOSE
           ? { communityInputQuestion: question.trim() }
+          : {}),
+        ...(tracker && !surface.isServe
+          ? { trackerTaskId: tracker.trackerTaskId }
           : {}),
         ...proposalLink,
       })
@@ -523,11 +536,21 @@ export const PhoneBankingFlow = ({
       !initialScript && preselectedRecommendedVariant
         ? purposeForRecommendedVariant(preselectedRecommendedVariant)
         : null
-    setStepId(initialScript || carriedPurpose ? 'who' : 'purpose')
+    // The list is not resolved yet, so this lands on the who step at most;
+    // the preselection below moves on to the script once it resolves.
+    setStepId(
+      outreachLandingStep({
+        purposeSettled: carriedPurpose !== null,
+        audienceSettled: false,
+        messageSettled: Boolean(initialScript),
+      }) === 'purpose'
+        ? 'purpose'
+        : 'who',
+    )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
     setScript(initialScript ?? '')
-    setScriptManuallyEdited(Boolean(initialScript))
+    setOwnWords(Boolean(initialScript))
     setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
@@ -553,13 +576,14 @@ export const PhoneBankingFlow = ({
       // which the reset above has not flushed yet, and this effect cannot
       // depend on a closure that is fresh every render.
       const requestId = ++draftRequestRef.current
+      lastDraftWasImproveRef.current = false
       draftMutate(
         { purpose: carriedPurpose, tone: 'warm' },
         {
           onSuccess: (generated) => {
             if (requestId !== draftRequestRef.current) return
             setScript(generated)
-            setScriptManuallyEdited(false)
+            setOwnWords(false)
           },
         },
       )
@@ -604,7 +628,12 @@ export const PhoneBankingFlow = ({
       // card's proposal) lands on the script, but only once the list really
       // resolved: a script with no audience behind it would strand the
       // official on a step whose Continue cannot pass.
-      if (initialScript) setStepId('script')
+      const landing = outreachLandingStep({
+        purposeSettled: false,
+        audienceSettled: true,
+        messageSettled: Boolean(initialScript),
+      })
+      if (landing === 'message') setStepId('script')
     }
   }, [
     open,
@@ -668,6 +697,7 @@ export const PhoneBankingFlow = ({
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    lastDraftWasImproveRef.current = currentDraft !== undefined
     const trimmedInstructions = instructionsOverride.trim()
     // Read here and passed as a variable, the way `instructions` is: the
     // question is what a community-input effort exists to ask, so the script
@@ -693,13 +723,15 @@ export const PhoneBankingFlow = ({
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           setScript(generated)
-          setScriptManuallyEdited(false)
+          setOwnWords(currentDraft !== undefined)
         },
       },
     )
   }
 
   const handleSelectPurpose = (selected: PhoneBankingFlowPurpose) => {
+    // A draft that failed for another purpose is not this one's to retry.
+    if (selected !== purpose) resetDraftMutation()
     setPurpose(selected)
     // Reset tone/script/instructions state on every purpose pick (including
     // re-picks after Back), not just the first one — otherwise picking
@@ -711,7 +743,7 @@ export const PhoneBankingFlow = ({
     // draft request.
     setTone('warm')
     setScript('')
-    setScriptManuallyEdited(false)
+    setOwnWords(false)
     setInstructions('')
     // Same staleness as the four above, and the one with teeth: the question
     // step's Continue only guards emptiness, so a question typed for an
@@ -741,7 +773,7 @@ export const PhoneBankingFlow = ({
       draftedEventRef.current = drafted
       setTone('warm')
       setScript('')
-      setScriptManuallyEdited(false)
+      setOwnWords(false)
       requestDraft(purpose, 'warm')
     }
     setStepId('who')
@@ -750,22 +782,21 @@ export const PhoneBankingFlow = ({
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
     setTone(nextTone)
+    // The candidate's own words are polished in the new tone, never
+    // replaced by a fresh draft in it.
+    if (ownWords) {
+      if (script.trim()) requestDraft(purpose, nextTone, script.trim())
+      return
+    }
     if (!purpose || purpose === 'custom') return
-    // A tone change is not the candidate asking to discard their edits —
-    // only send previousDraft (and so invite the model to diverge) when the
-    // box still holds an unmodified AI generation. An explicit Regenerate
-    // click below is a discard request, so it always sends the current text.
-    requestDraft(
-      purpose,
-      nextTone,
-      undefined,
-      scriptManuallyEdited ? undefined : script.trim() || undefined,
-    )
+    // An untouched draft is the model's, so the new tone is a fresh draft
+    // that should not repeat it.
+    requestDraft(purpose, nextTone, undefined, script.trim() || undefined)
   }
 
   const handleScriptChange = (value: string) => {
     setScript(value)
-    setScriptManuallyEdited(true)
+    setOwnWords(true)
     // An edit wins over a reply still in flight, which would otherwise land
     // on top of it. Dropping the call also clears a failed one's error.
     draftRequestRef.current += 1
@@ -924,7 +955,7 @@ export const PhoneBankingFlow = ({
               // walkback to change the question must not throw away wording
               // the official has already made theirs — Regenerate is how they
               // ask for a rewrite.
-              if (!scriptManuallyEdited) {
+              if (!ownWords) {
                 requestDraft(purpose, tone, undefined, undefined, instructions)
               }
             },
@@ -1170,6 +1201,16 @@ export const PhoneBankingFlow = ({
           canImprove={script.trim().length > 0 && !draftMutation.isPending}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
+          onRetry={() =>
+            lastDraftWasImproveRef.current
+              ? requestDraft(purpose, tone, script.trim())
+              : requestDraft(
+                  purpose,
+                  tone,
+                  undefined,
+                  script.trim() || undefined,
+                )
+          }
           isCustomPurpose={purpose === 'custom'}
         />
       ) : stepId === 'sheets' ? (

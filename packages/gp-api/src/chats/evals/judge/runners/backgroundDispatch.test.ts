@@ -473,6 +473,30 @@ describe('the wave refusal', () => {
     )
   })
 
+  // A LOCAL RUN WALKS A LIST'S OWN ATTEMPTS, so its slots are spent at that
+  // count: 3 cases x the list's 3 attempts is 9 runs against 4 slots, where
+  // the budget's 1 attempt alone would have fit.
+  it("spends the slots at a list's own attempts", () => {
+    const load = caseLoaderFor(
+      {},
+      {
+        budgetMs: HUGE_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 3,
+        maxInFlight: 4,
+      },
+      {
+        load: (agent) => ({
+          ...caseList('background', agent.agentId, eight),
+          attemptsPerCase: 3,
+        }),
+        loadBackground: () => eight,
+        loadConfig: () => config({ timeout_seconds: 600 }),
+      },
+    )
+    expect(() => load(background)).toThrow(/needs 9 runs in flight at once/)
+  })
+
   // THE RUNNING TOTAL, which is what the per-agent check alone cannot see.
   // Two agents that each fit the slots can still overfill them together, and
   // the message has to say what was already taken or the numbers read as a

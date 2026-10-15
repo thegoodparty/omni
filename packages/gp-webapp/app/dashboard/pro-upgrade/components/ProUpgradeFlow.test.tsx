@@ -85,6 +85,31 @@ describe('ProUpgradeFlow', () => {
     expect(screen.getByText('step:status')).toBeInTheDocument()
   })
 
+  it('collects filing details between the EIN and payment', () => {
+    const onPositionChange = vi.fn()
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.EIN}
+        channel="robocall"
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+        onPositionChange={onPositionChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('next'))
+    expect(screen.getByText('step:filing-details')).toBeInTheDocument()
+    expect(onPositionChange).toHaveBeenLastCalledWith({
+      currentStep: 4,
+      totalSteps: 6,
+    })
+
+    fireEvent.click(screen.getByText('next'))
+    expect(screen.getByText('step:payment')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('back'))
+    expect(screen.getByText('step:filing-details')).toBeInTheDocument()
+  })
+
   it('exits from the first step on back, and forwards exit/complete', () => {
     const onExit = vi.fn()
     const onComplete = vi.fn()

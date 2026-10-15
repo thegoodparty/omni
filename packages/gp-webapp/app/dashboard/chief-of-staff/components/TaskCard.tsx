@@ -13,13 +13,16 @@ export interface TaskCardProps {
   ctaLabel?: string
   /** When set, the CTA navigates here. */
   ctaHref?: string
-  /** When set (and no href), the CTA fires this instead. */
+  /** Fires on a CTA click; with no href it is the CTA's whole action. */
   onCta?: () => void
   /** When set, renders a secondary "Mark done" action. */
   onComplete?: () => void
   completeDisabled?: boolean
   onSkip?: () => void
   skipDisabled?: boolean
+  /** When set, renders "Bring it back" for a card set aside. */
+  onRestore?: () => void
+  restoreDisabled?: boolean
   /** Subtle top-to-bottom tint, for a featured (top) card. */
   gradient?: boolean
 }
@@ -48,6 +51,8 @@ export default function TaskCard({
   completeDisabled = false,
   onSkip,
   skipDisabled = false,
+  onRestore,
+  restoreDisabled = false,
   gradient = false,
 }: TaskCardProps): React.JSX.Element {
   return (
@@ -80,13 +85,20 @@ export default function TaskCard({
           (ctaHref ? (
             isExternalHref(ctaHref) ? (
               <Button asChild className="w-full">
-                <a href={ctaHref} target="_blank" rel="noreferrer">
+                <a
+                  href={ctaHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={onCta}
+                >
                   {ctaLabel}
                 </a>
               </Button>
             ) : (
               <Button asChild className="w-full">
-                <Link href={ctaHref}>{ctaLabel}</Link>
+                <Link href={ctaHref} onClick={onCta}>
+                  {ctaLabel}
+                </Link>
               </Button>
             )
           ) : (
@@ -112,6 +124,16 @@ export default function TaskCard({
             className="self-center text-sm font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
           >
             Skip
+          </button>
+        )}
+        {onRestore && (
+          <button
+            type="button"
+            onClick={onRestore}
+            disabled={restoreDisabled}
+            className="self-center text-sm font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+          >
+            Bring it back
           </button>
         )}
       </div>

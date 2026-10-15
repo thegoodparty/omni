@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -13,7 +14,10 @@ import {
   OutreachType,
   PollIndividualMessageSender,
 } from '../../generated/prisma'
-import { OutreachSmsRepliesService } from './outreachSmsReplies.service'
+import {
+  type ListRepliesOptions,
+  OutreachSmsRepliesService,
+} from './outreachSmsReplies.service'
 
 const service = useTestService()
 
@@ -25,11 +29,12 @@ const WIN_ORG_SLUG = 'campaign-replies-test'
 const PERSON_1 = '11111111-1111-4111-8111-111111111111'
 const PERSON_2 = '22222222-2222-4222-8222-222222222222'
 
-const resolveEligibleDistrictId = vi.fn()
+const resolveEligibleDistrict = vi.fn()
 const findPeople = vi.fn()
 
 let replies: OutreachSmsRepliesService
 let outreach: Outreach
+let page: ListRepliesOptions
 
 const seedReply = (
   personId: string,
@@ -51,9 +56,10 @@ const seedReply = (
   })
 
 beforeEach(async () => {
-  resolveEligibleDistrictId
-    .mockReset()
-    .mockResolvedValue('33333333-3333-4333-8333-333333333333')
+  resolveEligibleDistrict.mockReset().mockResolvedValue({
+    districtId: '33333333-3333-4333-8333-333333333333',
+    dataset: 'voters',
+  })
   findPeople.mockReset().mockResolvedValue({
     people: [
       {
@@ -96,18 +102,24 @@ beforeEach(async () => {
       { provide: PrismaService, useValue: service.prisma },
       {
         provide: ContactsService,
-        useValue: { resolveEligibleDistrictId },
+        useValue: { resolveEligibleDistrict },
       },
       { provide: VoterQueryService, useValue: { findPeople } },
+      {
+        provide: ContactStatusService,
+        useValue: {
+          currentStatusForPeople: vi.fn().mockResolvedValue(new Map()),
+        },
+      },
       { provide: PinoLogger, useValue: createMockLogger() },
     ],
   }).compile()
   await module.init()
   replies = module.get(OutreachSmsRepliesService)
+  page = { limit: 10, offset: 0, userId: service.user.id, filter: 'all' }
 })
 
 const serveScope = { organizationSlug: ORG_SLUG, campaignId: null } as const
-const page = { limit: 10, offset: 0 }
 
 describe('OutreachSmsRepliesService.listReplies', () => {
   it('returns inbound replies newest first, named from the People DB', async () => {
@@ -163,6 +175,7 @@ describe('OutreachSmsRepliesService.listReplies', () => {
     await seedReply(PERSON_2, 'Second', new Date('2026-09-02T12:00:00Z'))
 
     const result = await replies.listReplies(outreach.id, serveScope, {
+      ...page,
       limit: 1,
       offset: 0,
     })

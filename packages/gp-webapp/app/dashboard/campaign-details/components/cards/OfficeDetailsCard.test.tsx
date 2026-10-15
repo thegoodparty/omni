@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  beforeAll,
+  afterAll,
+} from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
@@ -119,6 +127,30 @@ describe('OfficeDetailsCard — candidate (campaign) mode', () => {
     expect(screen.getByText('Rockland, ME, 04841')).toBeInTheDocument()
     expect(screen.getByText('Election date')).toBeInTheDocument()
     expect(screen.queryByText('Term length')).not.toBeInTheDocument()
+  })
+
+  describe('election date', () => {
+    // Pin a zone behind UTC: in UTC (CI) the old `new Date('YYYY-MM-DD')`
+    // parse happened to render the right day, hiding the off-by-one.
+    let originalTz: string | undefined
+    beforeAll(() => {
+      originalTz = process.env.TZ
+      process.env.TZ = 'America/Los_Angeles'
+    })
+    afterAll(() => {
+      process.env.TZ = originalTz
+    })
+
+    it('shows the stored calendar day, not the day before', () => {
+      render(
+        <OfficeDetailsCard
+          campaign={campaign({ state: 'TX', electionDate: '2027-05-01' })}
+        />,
+      )
+
+      expect(screen.getByText('May 1, 2027')).toBeInTheDocument()
+      expect(screen.queryByText('April 30, 2027')).not.toBeInTheDocument()
+    })
   })
 
   it('opens the campaign office-selection flow on "Change office"', async () => {

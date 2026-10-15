@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test'
 import {
+  NEXT_TASK_EXPERIENCE_FLAG,
+  setFlagOverrides,
+} from 'src/helpers/campaignStory.helper'
+import {
   setupElectedOfficeUser,
   switchOrganization,
   getSelectedOrgName,
@@ -13,6 +17,8 @@ import {
 test.describe('Navigation Menu by Org Type', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    // The menu these specs check is the one beside the Campaign Manager home.
+    await setFlagOverrides(page, { [NEXT_TASK_EXPERIENCE_FLAG]: 'off' })
   })
 
   test('campaign org shows campaign menu items', async ({ page }) => {
@@ -39,7 +45,9 @@ test.describe('Navigation Menu by Org Type', () => {
 
     // The Website tab was retired with the new compliance flow (ENG-10505).
     await expect(sidebar.getByText('Website')).not.toBeVisible()
-    await expect(sidebar.getByText('Constituent Data')).not.toBeVisible()
+    await expect(
+      sidebar.getByText('Constituents', { exact: true }),
+    ).not.toBeVisible()
     await expect(sidebar.getByText('Polls')).not.toBeVisible()
   })
 
@@ -50,7 +58,9 @@ test.describe('Navigation Menu by Org Type', () => {
 
     const sidebar = page.locator('[data-sidebar="content"]')
 
-    await expect(sidebar.getByText('Constituent Data')).toBeVisible({
+    await expect(
+      sidebar.getByText('Constituents', { exact: true }),
+    ).toBeVisible({
       timeout: 10000,
     })
     await expect(sidebar.getByText('Polls')).toBeVisible()

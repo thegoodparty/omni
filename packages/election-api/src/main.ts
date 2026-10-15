@@ -1,3 +1,4 @@
+// @ts-expect-error resolves only from dist/src at runtime, to the package-root module-alias.js
 import '../../module-alias'
 import './configrc'
 import { Logger } from '@nestjs/common'

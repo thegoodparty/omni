@@ -46,7 +46,7 @@ const stateWith = (
   peerlyVerificationId: 'cv-1',
   peerlyCvStatus,
   pinDelivery: null,
-  internalTestingApprovedAt: null,
+  internalTestingAt: null,
   hasComplianceRecord: true,
   committeeName: null,
   filingUrl: null,

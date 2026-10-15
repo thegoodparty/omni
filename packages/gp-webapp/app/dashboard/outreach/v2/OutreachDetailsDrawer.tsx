@@ -56,6 +56,7 @@ import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudience
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { WhatWeHeardAction } from 'app/dashboard/issue-capture/WhatWeHeardAction'
+import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import {
@@ -1037,13 +1038,12 @@ export const OutreachDetailsDrawer = ({
                     />
                   )}
                   {isSms && (
-                    // No per-campaign opt-out feed exists yet (the results
-                    // sweep is a later slice), so this reads 0 — the same
-                    // value the design shows for a not-yet-sent row.
+                    // The same count as Statistics' Opted out, so the two
+                    // cannot disagree. 0 until the send has results.
                     <Metric
                       icon={<UserMinusIcon />}
                       label="Unsubscribes"
-                      value="0"
+                      value={(results?.optedOut ?? 0).toLocaleString()}
                     />
                   )}
                 </MetricGrid>
@@ -1117,7 +1117,19 @@ export const OutreachDetailsDrawer = ({
                 because reply CONTENT only exists for sends that came back
                 through the shared ingest. */}
             {isServe && isSms && isCompleted && (
-              <ServeSmsRepliesSection outreachId={row.id} />
+              <>
+                {/* The replies are grouped into themes the way a turf's
+                    notes are, so a send with replies gets the same way into
+                    its report. The counted link rather than the drawer's
+                    action: it says nothing until somebody has replied, which
+                    for a text send is the whole question. */}
+                <WhatWeHeardLink
+                  outreachId={row.id}
+                  isServe
+                  className="rounded-lg border border-border bg-card p-4"
+                />
+                <ServeSmsRepliesSection outreachId={row.id} />
+              </>
             )}
 
             {isPaidFlowSms && (
@@ -1263,6 +1275,7 @@ export const OutreachDetailsDrawer = ({
                 isServe={isServe}
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
+                canAddTurfs={!isCompleted && !isArchived}
                 onOverlayOpenChange={setTurfOverlay}
                 onTurfCompleted={handleTurfCompleted}
               />

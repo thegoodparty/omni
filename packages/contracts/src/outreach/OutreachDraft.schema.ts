@@ -14,6 +14,9 @@ export const CreateOutreachDraftRequestSchema = z
     script: z.string().trim().min(1).optional(),
     audioKey: z.string().min(1).optional(),
     callbackNumber: z.string().min(1).optional(),
+    // The campaign-plan task the flow was opened from. Kept on the draft so
+    // the task still closes once a later resume schedules it.
+    trackerTaskId: z.string().min(1).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.outreachType === 'p2p' && !data.script) {

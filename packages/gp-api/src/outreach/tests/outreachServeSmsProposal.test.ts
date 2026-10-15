@@ -102,7 +102,9 @@ describe('a Serve text carrying a proposal link', () => {
       '/v1/outreach/serve/sms',
       {
         name: 'Flood block renters',
-        message: 'this is Bryan, your City Council Member. Is it the drains?',
+        message:
+          'this is Bryan, your City Council Member. Is it the drains?\n\nReply STOP to opt out.',
+        imageUrl: 'https://assets.test/header.png',
         scheduledLocalDate: format(
           addBusinessDays(new Date(), 5),
           'yyyy-MM-dd',

@@ -5,14 +5,17 @@ import {
   emptyPriorityStatus,
   mintProposalKey,
   PROPOSAL_SENT_MARKER,
+  reportBackMessage,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
+import { router } from 'helpers/test-utils/router-mocking'
 import { render } from 'helpers/test-utils/render'
 import type {
   ChatMessageDto,
   ChatStreamEvent,
 } from '../../../shared/agent-chat/chatClient'
 import { PriorityWorkspace } from './PriorityWorkspace'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 const CONVERSATION_ID = 'conv-1'
 
@@ -21,9 +24,19 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchPriorityStatus: vi.fn(),
+  citizenPanels: { ready: true, enabled: false },
   sentListener: null as
     | null
     | ((proposal: Record<string, string | number | boolean>) => void),
+}))
+
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: () => mocks.citizenPanels,
+}))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 
 vi.mock('../data/chat-api', () => ({
@@ -122,6 +135,7 @@ const proposalArgs = {
 
 const renderWorkspace = (
   initialStatus: PriorityStatus = emptyPriorityStatus(),
+  reportBackOutreachId: number | null = null,
 ) =>
   render(
     <PriorityWorkspace
@@ -130,6 +144,8 @@ const renderWorkspace = (
       description="Storm drains back up after every heavy rain."
       initialStatus={initialStatus}
       initialNextAction={null}
+      initialCurrentStep="define"
+      reportBackOutreachId={reportBackOutreachId}
     />,
   )
 
@@ -144,9 +160,29 @@ beforeEach(() => {
   mocks.listMessages.mockResolvedValue([])
   mocks.streamMessage.mockImplementation(streamOf([]))
   mocks.fetchPriorityStatus.mockResolvedValue(null)
+  mocks.citizenPanels = { ready: true, enabled: false }
 })
 
 describe('PriorityWorkspace', () => {
+  it('links to constituent feedback under the rail with serve-citizen-panels on', async () => {
+    mocks.citizenPanels = { ready: true, enabled: true }
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    const links = screen.getAllByRole('link', { name: 'What we heard' })
+    expect(links[0]).toHaveAttribute(
+      'href',
+      '/dashboard/priorities/pri-1/results',
+    )
+  })
+
+  it('shows no constituent feedback link with serve-citizen-panels off', async () => {
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    expect(
+      screen.queryByRole('link', { name: 'What we heard' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('opens the conversation anchored on the priority and takes the first turn', async () => {
     renderWorkspace()
     await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
@@ -157,6 +193,50 @@ describe('PriorityWorkspace', () => {
       }),
     )
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.PriorityViewed, {
+      priorityId: 'pri-1',
+      currentStep: 'define',
+      isNewConversation: true,
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Priorities.MessageSent,
+      expect.anything(),
+    )
+  })
+
+  it('waits for the reply to a turn left mid-stream, without starting another', async () => {
+    const kickoff: ChatMessageDto = {
+      id: 'u1',
+      conversationId: CONVERSATION_ID,
+      role: 'user',
+      content:
+        "Let's begin. Tell me where this stands and what we should work on first.",
+      createdAt: '2026-09-01T00:00:00.000Z',
+    }
+    const reply: ChatMessageDto = {
+      id: 'a1',
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: 'Nothing has started on this yet.',
+      createdAt: '2026-09-01T00:00:05.000Z',
+      segments: [{ kind: 'text', text: 'Nothing has started on this yet.' }],
+    }
+    mocks.listMessages
+      .mockResolvedValueOnce([kickoff])
+      .mockResolvedValue([kickoff, reply])
+
+    renderWorkspace()
+
+    expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Nothing has started on this yet.',
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(mocks.streamMessage).not.toHaveBeenCalled()
   })
 
   it('moves the rail while the turn is still streaming, then reconciles', async () => {
@@ -430,6 +510,10 @@ describe('PriorityWorkspace', () => {
     await waitFor(() =>
       expect(screen.getAllByText('The two by the school')).toHaveLength(2),
     )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
+      priorityId: 'pri-1',
+      via: 'clarify',
+    })
     gate.resolve()
   })
 
@@ -827,5 +911,61 @@ describe('PriorityWorkspace', () => {
     )
     expect(mocks.fetchPriorityStatus).toHaveBeenCalledWith('pri-1')
     expect(screen.queryByText(new RegExp(proposalKey))).toBeNull()
+  })
+
+  describe('opened from a report back card', () => {
+    const reply: ChatMessageDto = {
+      id: 'a1',
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: 'Here is where this stands.',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      segments: [{ kind: 'text', text: 'Here is where this stands.' }],
+    }
+
+    it('opens a fresh thread on the report back, never the kickoff', async () => {
+      renderWorkspace(emptyPriorityStatus(), 77)
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: reportBackMessage(77) }),
+      )
+      expect(router.replace).toHaveBeenCalledWith(
+        '/dashboard/priorities/pri-1',
+        {
+          scroll: false,
+        },
+      )
+    })
+
+    it('starts the report back once in a thread already under way, hidden', async () => {
+      mocks.listMessages.mockResolvedValue([reply])
+      renderWorkspace(emptyPriorityStatus(), 77)
+      await screen.findByText('Here is where this stands.')
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: reportBackMessage(77) }),
+      )
+      expect(screen.queryByText(/Help me report back/)).toBeNull()
+    })
+
+    it('does not ask again for a send it already started on', async () => {
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: reportBackMessage(77),
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+      ])
+      renderWorkspace(emptyPriorityStatus(), 77)
+      await screen.findByText('Here is where this stands.')
+
+      expect(screen.queryByText(/Help me report back/)).toBeNull()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+    })
   })
 })

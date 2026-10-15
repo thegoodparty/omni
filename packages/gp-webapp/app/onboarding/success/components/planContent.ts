@@ -1,4 +1,7 @@
-import { VOTER_CONTACT_SCHEDULE } from '@goodparty_org/contracts'
+import {
+  VOTER_CONTACT_SCHEDULE,
+  voterContactSendDate,
+} from '@goodparty_org/contracts'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type { StrategicLandscapeData } from 'gpApi/api-endpoints'
 import type { RaceCandidate, RaceMilestones } from 'helpers/types'
@@ -71,6 +74,10 @@ export interface PlanInput {
   state: string
   partisanType: string
   electionDateIso: string | null | undefined
+  // When the campaign's plan timeline started (the tracker's start), so a late
+  // joiner's past-due sends are compressed the same way the tracker does.
+  // Unset before the tracker exists, when the plan is starting today.
+  planStartIso?: string | null
   filingDateStartIso: string | null | undefined
   filingDateEndIso: string | null | undefined
   winNumber: number
@@ -593,13 +600,20 @@ const buildTimeline = (
   return { timeline, keyDates }
 }
 
-// The send offsets/tactics/purposes come from the shared canonical schedule so
-// this section, the tracker's outreach tasks, and the CAS ClickUp feed always
-// show identical dates.
-const buildContactSchedule = (electionDate: Date | null): ContactSend[] => {
+// The send offsets/tactics/purposes come from the shared canonical schedule,
+// and the dates from the same compression the tracker applies for a late
+// joiner (voterContactSendDate), so this section, the tracker's outreach tasks,
+// and the CAS ClickUp feed always show identical dates.
+const buildContactSchedule = (
+  electionDate: Date | null,
+  planStart: Date,
+): ContactSend[] => {
   if (!electionDate) return []
   return VOTER_CONTACT_SCHEDULE.map((send) => ({
-    date: formatDate(addDays(electionDate, -send.daysBeforeElection)),
+    date: formatDate(
+      voterContactSendDate(send.catalogId, electionDate, planStart) ??
+        addDays(electionDate, -send.daysBeforeElection),
+    ),
     tactic: send.tactic,
     purpose: send.purpose,
   }))
@@ -1102,7 +1116,13 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     input.milestones,
     input.state,
   )
-  const contactSchedule = buildContactSchedule(electionDateValid)
+  const contactSchedule = buildContactSchedule(
+    electionDateValid,
+    // Local midnight, like the election date, so the two compare by day.
+    input.planStartIso
+      ? new Date(input.planStartIso.slice(0, 10).replace(/-/g, '/'))
+      : new Date(new Date().setHours(0, 0, 0, 0)),
+  )
 
   const confidenceEstimates = buildConfidenceEstimates(
     registeredVoters,

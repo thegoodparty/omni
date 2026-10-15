@@ -1,14 +1,12 @@
 'use client'
 
-import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import ManagerPromptCard from './ManagerPromptCard'
-import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import {
-  isVoterContactFlowType,
-  useToggleTrackerTaskComplete,
-  useTrackerTasks,
-} from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
+  trackTaskAction,
+  useCompleteTrackerTask,
+} from '../campaign-plan/components/campaignStrategy/useCompleteTrackerTask'
 import TaskCard from '../chief-of-staff/components/TaskCard'
 import GetOnBallotCard from './GetOnBallotCard'
 import PersonalizeStoryCard from './PersonalizeStoryCard'
@@ -18,7 +16,6 @@ import {
   parseTrackerOrigin,
   type ComposeFlowType,
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
-import CountModal from '../components/tasks/CountModal'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 
 // Fallback when a task has no action link of its own.
@@ -107,33 +104,17 @@ export default function CampaignManagerTasks({
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
 
-  const toggleComplete = useToggleTrackerTaskComplete()
-  // A count-flowType task pending its voter-contact count in the modal.
-  const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
-
-  const onComplete = (task: CampaignTrackerTask): void => {
-    if (isVoterContactFlowType(task.flowType)) {
-      setCountTask(task)
-      return
-    }
-    toggleComplete.mutate({ id: task.id, completed: true })
-  }
-
-  const onCountSubmit = (count: number): void => {
-    if (!countTask?.flowType) return
-    toggleComplete.mutate({
-      id: countTask.id,
-      completed: true,
-      type: countTask.flowType,
-      quantity: count,
-    })
-    setCountTask(null)
-  }
+  // The same completion path and events as Home's next-task card, so both
+  // arms of `next-task-experience` report completions in one series.
+  const { onToggleComplete, countModal } = useCompleteTrackerTask(tasks, {
+    source: 'campaign_manager',
+  })
 
   return (
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
       {showMeetCard && (
         <ManagerPromptCard
+          card="meet_manager"
           title="Meet your virtual Campaign Manager"
           description="Introducing your Campaign Manager. Get a quick tour for how it can help."
           ctaLabel="Meet your Campaign Manager"
@@ -175,6 +156,16 @@ export default function CampaignManagerTasks({
           <div className="flex flex-col gap-4">
             {top.map((task, index) => {
               const composeType = composeFlowType(task)
+              // With its own action link, "Open" it (like the tracker);
+              // text/robocall start the outreach flow; otherwise route to
+              // the tracker to act on it there.
+              const ctaLabel =
+                task.cta?.trim() ||
+                (taskLink(task)
+                  ? 'Open'
+                  : composeType
+                    ? 'Start outreach'
+                    : 'See details')
               return (
                 <TaskCard
                   key={task.id}
@@ -182,20 +173,14 @@ export default function CampaignManagerTasks({
                   title={task.title}
                   meta={[formatDue(task.date)]}
                   summary={task.description || undefined}
-                  // With its own action link, "Open" it (like the tracker);
-                  // text/robocall start the outreach flow; otherwise route to
-                  // the tracker to act on it there.
-                  ctaLabel={
-                    task.cta?.trim() ||
-                    (taskLink(task)
-                      ? 'Open'
-                      : composeType
-                        ? 'Start outreach'
-                        : 'See details')
-                  }
+                  ctaLabel={ctaLabel}
                   ctaHref={taskHref(task)}
-                  onComplete={() => onComplete(task)}
-                  completeDisabled={toggleComplete.isPending}
+                  // Same event and shape as Home's next-task card, so CTA
+                  // clicks compare across both arms of the experiment.
+                  onCta={() =>
+                    trackTaskAction(task, 'start', 'campaign_manager', ctaLabel)
+                  }
+                  onComplete={() => onToggleComplete(task.id, true)}
                   // Only the top priority card gets the subtle gradient.
                   gradient={index === 0}
                 />
@@ -205,16 +190,7 @@ export default function CampaignManagerTasks({
         )}
       </div>
 
-      {countTask && (
-        <CountModal
-          open
-          onOpenChange={(next) => {
-            if (!next) setCountTask(null)
-          }}
-          flowType={countTask.flowType ?? ''}
-          onSubmit={onCountSubmit}
-        />
-      )}
+      {countModal}
     </section>
   )
 }

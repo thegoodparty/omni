@@ -8,6 +8,9 @@ import type {
 import { formatDistance } from '../native/routeFormat'
 import {
   ANSWER_OPTIONS,
+  CIVIC_PANEL_OPTIONS,
+  CIVIC_PANEL_QUESTION,
+  CIVIC_PANEL_STAY_QUESTION,
   ENGAGEMENT_OPTIONS,
   FOLLOW_UP_OPTIONS,
   FOLLOW_UP_QUESTION,
@@ -65,12 +68,42 @@ const SERVE_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
   column.key === 'support' ? { ...column, label: FOLLOW_UP_QUESTION } : column,
 ) as unknown as typeof WALK_COLUMNS
 
+// With the civic panel on, Serve's column carries two questions,
+// follow-up and then the panel, in the order the form asks them. Both go in
+// the heading so the second run of Yes / No boxes is never read as more
+// answers to the first.
+const SERVE_PANEL_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
+  column.key === 'support'
+    ? { ...column, label: `${FOLLOW_UP_QUESTION} ${CIVIC_PANEL_QUESTION}` }
+    : column,
+) as unknown as typeof WALK_COLUMNS
+
+// A turf of panel members asks whether they want to stay on instead.
+const SERVE_PANEL_STAY_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
+  column.key === 'support'
+    ? {
+        ...column,
+        label: `${FOLLOW_UP_QUESTION} ${CIVIC_PANEL_STAY_QUESTION}`,
+      }
+    : column,
+) as unknown as typeof WALK_COLUMNS
+
 // Which grid a sheet prints, off the payload's own `isServe`. Paper is the
 // reason that flag is on the payload at all: `print/[turfId]` and its PDF
 // sibling render server-side with no organization provider over them, so the
 // route is the only thing on the page that knows which product it belongs to.
-export const walkColumns = (isServe: boolean): typeof WALK_COLUMNS =>
-  isServe ? SERVE_WALK_COLUMNS : WALK_COLUMNS
+export const walkColumns = (
+  isServe: boolean,
+  asksCivicPanel: boolean,
+  civicPanelOnly = false,
+): typeof WALK_COLUMNS =>
+  !isServe
+    ? WALK_COLUMNS
+    : asksCivicPanel
+      ? civicPanelOnly
+        ? SERVE_PANEL_STAY_WALK_COLUMNS
+        : SERVE_PANEL_WALK_COLUMNS
+      : SERVE_WALK_COLUMNS
 
 // The three answer columns a blank form fills, in order. What a skip
 // instruction or an already-logged answer spans, on both surfaces.
@@ -128,6 +161,15 @@ export const answerBoxes = (
   isServe: boolean,
 ): ReadonlyArray<readonly [string, string]> =>
   isServe ? FOLLOW_UP_BOXES : SUPPORT_BOXES
+
+// The civic panel ask, printed after follow-up in the same column on Serve
+// with serve-citizen-panels on, and nowhere else. No `Refused` here: a door
+// that refused was already marked in the run before it, and a blank pair means
+// the canvasser never got to ask.
+export const civicPanelBoxes = (
+  asksCivicPanel: boolean,
+): ReadonlyArray<readonly [string, string]> | null =>
+  asksCivicPanel ? CIVIC_PANEL_OPTIONS : null
 
 // The one sentence above the grid: how to fill the sheet in.
 export const MARK_INSTRUCTION =

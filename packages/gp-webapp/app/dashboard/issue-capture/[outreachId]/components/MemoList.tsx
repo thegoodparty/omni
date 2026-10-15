@@ -1,6 +1,6 @@
 import type {
-  ConstituentFeedbackChannel,
   ConstituentFeedbackIssue,
+  FeedbackReportChannel,
 } from '@goodparty_org/contracts'
 import { EmptyState } from '@styleguide'
 import { CHANNEL_LABELS, STANCE_LABELS, whatWeHeardCopy } from '../../copy'
@@ -10,7 +10,7 @@ export interface MemoListItem {
   transcript: string | null
   issues: ConstituentFeedbackIssue[]
   actorName: string | null
-  channel: ConstituentFeedbackChannel
+  channel: FeedbackReportChannel
   occurredAt: Date
   // Listed, never counted: a note nobody who was there has confirmed.
   pending: boolean
@@ -24,33 +24,49 @@ const formatDate = (value: Date): string =>
   })
 
 // The notes themselves, on the report while there are no themes to show and
-// under them once there are, and as a theme's members on its own page.
+// under them once there are, and as a theme's members on its own page. On a
+// text send, the replies constituents wrote.
 const MemoList = ({
   memos,
+  channel,
   isServe,
 }: {
   memos: MemoListItem[]
+  // The effort's own channel, for the empty state: a text send with nothing
+  // yet is waiting on replies, not notes.
+  channel: FeedbackReportChannel
   isServe: boolean
 }) => {
   const copy = whatWeHeardCopy(isServe)
   const stanceLabels = STANCE_LABELS[isServe ? 'serve' : 'win']
 
-  if (memos.length === 0) return <EmptyState message={copy.noNotes} />
+  if (memos.length === 0) {
+    return <EmptyState message={copy.noNotes(channel)} />
+  }
 
   return (
     <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
       {memos.map((memo) => (
         <li key={memo.id} className="flex flex-col gap-1 px-4 py-3">
           <p className="text-xs font-medium text-muted-foreground">
-            {copy.summaryBy(memo.actorName)}
+            {memo.channel === 'text'
+              ? copy.theirReply
+              : copy.summaryBy(memo.actorName)}
           </p>
+          {/* Upright, not italic: it is the canvasser's summary, and italics
+              read as the other person's own words. */}
           {memo.transcript !== null && (
-            <p className="text-sm italic text-foreground">{memo.transcript}</p>
+            <p className="text-sm text-foreground">{memo.transcript}</p>
           )}
           {memo.issues.length > 0 && (
             <ul aria-label={copy.issues} className="flex flex-col gap-0.5">
               {memo.issues.map((issue) => (
-                <li key={issue.position} className="text-sm text-foreground">
+                // `block`: globals.css makes every li under a data-slot a
+                // flex row, which drops the space before each " · ".
+                <li
+                  key={issue.position}
+                  className="block text-sm text-foreground"
+                >
                   <span className="font-medium">{issue.issueLabel}</span>
                   {issue.stance !== null && ` · ${stanceLabels[issue.stance]}`}
                   {issue.desiredOutcome !== null &&

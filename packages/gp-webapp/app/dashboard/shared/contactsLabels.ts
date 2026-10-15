@@ -3,7 +3,7 @@
 // title, page heading, and stat labels in one place so they can't drift apart.
 export const CONTACTS_DATA_TITLE = {
   win: 'Voter Data',
-  serve: 'Constituent Data',
+  serve: 'Constituents',
 } as const
 
 // ENG-10746: the Win voter-universe card carries two extra rows sourced from
@@ -37,9 +37,8 @@ export interface ContactsLabels {
   listDetailsTitle: string
   // crm/wizard/CreateListWizard.tsx's step-2 voter-file-branch title.
   wizardVoterFileStepTitle: string
-  // The boundary step and the list map's draw surface. Only Serve renders
-  // them today, but this helper is mode-keyed and not mode-gated: a Win
-  // literal saying "constituents" is exactly the drift it exists to prevent.
+  // The boundary step and the list map's draw surface, which both products
+  // render.
   boundaryStepTitle: string
   // Above the wizard step's card that opens the drawing surface.
   boundaryGatewayHint: string

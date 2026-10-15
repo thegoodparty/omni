@@ -39,6 +39,7 @@ import type {
   PartyAffiliation,
   SelectedOffice,
 } from './onboardingTypes'
+import { FIRST_LANDING_PARAM } from 'app/dashboard/campaign-manager/homeHeadlines'
 
 // These option sets and party mappings intentionally mirror OnboardingFlow's.
 // They live here (rather than being shared) so the first-time onboarding flow
@@ -464,7 +465,7 @@ export default function FollowOnFlow({
         )
         return
       }
-      router.push('/dashboard')
+      router.push(`/dashboard?${FIRST_LANDING_PARAM}=1`)
       return
     }
 

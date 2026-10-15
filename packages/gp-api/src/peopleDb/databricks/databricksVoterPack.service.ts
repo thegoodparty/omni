@@ -15,6 +15,7 @@ import {
   statusesToBytes,
 } from '../utils/packEncoder.utils'
 import { buildPackSql, PACK_CSV_COLUMNS } from './databricksVoterSql.util'
+import type { PeopleDataset } from '../services/peopleDataset.service'
 import { DatabricksVoterService } from './databricksVoter.service'
 import { readCsvChunkBody } from './csvChunkBody.util'
 import {
@@ -89,9 +90,13 @@ export class DatabricksVoterPackService {
   // and dropped before the next link is requested.
   async build(
     request: DoorKnockingPackRequest,
+    dataset: PeopleDataset,
     signal?: AbortSignal,
   ): Promise<Buffer> {
-    const district = await this.voters.resolveDistrict(request.districtId)
+    const district = await this.voters.resolveDistrict(
+      request.districtId,
+      dataset,
+    )
     const encoder = new PackEncoder(
       statusesToBytes(request.knockStatuses ?? []),
       contactsMadeToBytes(request.contactsMade),

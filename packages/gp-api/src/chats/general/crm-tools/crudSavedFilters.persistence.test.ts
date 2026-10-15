@@ -30,6 +30,7 @@ const buildTool = (organization: Organization) =>
     voterFileFilters: service.app.get(VoterFileFilterService),
     contacts: service.app.get(ContactsService),
     organization,
+    peopleDataset: 'voters',
   })
 
 const seedWinOrg = async (slug: string, isPro = true) => {

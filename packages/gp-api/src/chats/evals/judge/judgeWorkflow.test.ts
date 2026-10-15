@@ -1138,6 +1138,8 @@ describe('judge.yml hands both arms one background budget', () => {
     admitted: 'JUDGE_BACKGROUND_ADMITTED',
     refused: 'JUDGE_BACKGROUND_REFUSED',
     arm_budget_ms: 'JUDGE_ARM_BUDGET_MS',
+    extra_cases: 'JUDGE_BACKGROUND_EXTRA_CASES',
+    agent_attempts: 'JUDGE_BACKGROUND_AGENT_ATTEMPTS',
   }
 
   it('covers every output the resolver writes', () => {
@@ -1646,11 +1648,11 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([900, 600, 4800])
+    expect(cents).toEqual([900, 900, 4900])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=63\.00$/m)
+    expect(result.outputs).toMatch(/^usd=67\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
@@ -1658,10 +1660,10 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
     expect(result.comment).toMatch(
-      row('race_opponent_summary', 'background', dollars(600)),
+      row('race_opponent_summary', 'background', dollars(900)),
     )
     expect(result.comment).toMatch(
-      row('self_research', 'background', `${dollars(4800)} \\(unmeasured\\)`),
+      row('self_research', 'background', `${dollars(4900)} \\(unmeasured\\)`),
     )
   })
 
@@ -1805,7 +1807,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       return agent === undefined ? -1 : estimateAgent(agent).cents
     }
     expect(worst('ordinance_flow')).toBe(3750)
-    expect(worst('self_research')).toBe(4800)
+    expect(worst('self_research')).toBe(4900)
     const result = runEstimate(
       'Universal Judge — plan (4 agents)\n\n' +
         '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
@@ -1815,7 +1817,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=123\.00$/m)
+    expect(result.outputs).toMatch(/^usd=124\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
     )
@@ -1824,7 +1826,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', '37\\.50'))
     expect(result.comment).toMatch(row('ordinance_flow', '37\\.50'))
-    expect(result.comment).toMatch(row('self_research', '48\\.00'))
+    expect(result.comment).toMatch(row('self_research', '49\\.00'))
   })
 })
 
@@ -1967,4 +1969,111 @@ describe('judge workflows stay under the expression length limit', () => {
       expect(offenders).toEqual([])
     },
   )
+})
+
+// THE API IS ASKED ABOUT THE SCHEMA BEFORE ANYTHING IS PAID FOR. Every judge
+// test drives a fake model, so a verdict schema the API refuses passed the
+// suite and failed every judgment of the next sweep (#2534). The preflight
+// makes one real panel call at the largest schema, and it only helps if it
+// runs before the base worktree is made and before either arm dispatches.
+describe('judge.yml checks the judge schema before spending', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const names = steps.map((step) => step.name)
+  const PREFLIGHT = "Check the model API accepts the judge's schema"
+  const preflight = steps.find((step) => step.name === PREFLIGHT)
+
+  // After credentials, so a branch the role would let into AWS has already
+  // been through the same gate a sweep goes through before it holds a key.
+  it('runs after the credentials step', () => {
+    expect(names.indexOf(PREFLIGHT)).toBeGreaterThan(
+      names.indexOf('Get credentials for staging and dispatching'),
+    )
+    expect(
+      names.indexOf('Get credentials for staging and dispatching'),
+    ).toBeGreaterThan(-1)
+  })
+
+  it('runs before the base worktree and both arms', () => {
+    const at = names.indexOf(PREFLIGHT)
+    expect(at).toBeGreaterThan(-1)
+    for (const later of [
+      'Check out the base arm into its own worktree',
+      'Capture the base arm',
+      'Capture the candidate arm',
+    ]) {
+      expect(names.indexOf(later)).toBeGreaterThan(at)
+    }
+  })
+
+  it('runs the preflight entry, only under spend, with the real key', () => {
+    expect(preflight?.body).toContain('npx tsx "$PREFLIGHT_ENTRY"')
+    expect(spendsLive(preflight?.body ?? '')).toBe(true)
+    expect(envValue(preflight?.body ?? '', KEY_ENV)).toBe(
+      '${{ secrets.ANTHROPIC_API_KEY }}',
+    )
+  })
+
+  it('points at an entry that exists', () => {
+    const entry = /^ {2}PREFLIGHT_ENTRY: (.+)$/m.exec(yaml)?.[1]
+    expect(entry).toBe('src/chats/evals/judge/schemaPreflight.ts')
+    expect(
+      statSync(path.resolve(__dirname, '../../../..', entry ?? '')).isFile(),
+    ).toBe(true)
+  })
+
+  // A branch from before the check has no entry; the sweep goes on rather
+  // than failing on a file the branch never had.
+  it('skips a branch that predates the entry', () => {
+    const stdout = execFileSync(
+      'bash',
+      ['-c', runBlockOf(preflight?.body ?? '')],
+      {
+        env: {
+          ...process.env,
+          PREFLIGHT_ENTRY: '/nonexistent/schemaPreflight.ts',
+        },
+        encoding: 'utf8',
+      },
+    )
+    expect(stdout).toContain('predates the schema preflight')
+  })
+})
+
+// THE POST-MERGE CHECK RUNS MAIN'S CODE ONLY. omni gives same-repo pull
+// request workflows its secrets, so a PR trigger would hand the Anthropic key
+// to unreviewed code.
+describe('judge-schema-check.yml', () => {
+  const yaml = readFileSync(
+    path.resolve(path.dirname(WORKFLOW), 'judge-schema-check.yml'),
+    'utf8',
+  )
+  const triggers = /^on:\n((?: {2}.*\n|\s*\n)*)/m.exec(yaml)?.[1] ?? ''
+
+  it('never runs on a pull request', () => {
+    expect(triggers).not.toMatch(/pull_request/)
+    expect(triggers).toMatch(/^ {2}push:\n {4}branches: \[main\]/m)
+  })
+
+  it('runs when the judge changes', () => {
+    expect(triggers).toContain("'packages/gp-api/src/chats/evals/judge/**'")
+  })
+
+  it('runs only on main', () => {
+    expect(yaml).toMatch(/^ {4}if: github\.ref == 'refs\/heads\/main'$/m)
+  })
+
+  it('reads the repository and nothing more', () => {
+    expect(/^permissions:\n((?: {2}.*\n)*)/m.exec(yaml)?.[1]).toBe(
+      '  contents: read\n',
+    )
+  })
+
+  it('runs the preflight under spend with the real key', () => {
+    expect(yaml).toContain('npx tsx src/chats/evals/judge/schemaPreflight.ts')
+    expect(yaml).toMatch(/^ {10}JUDGE_SPEND: 'true'$/m)
+    expect(yaml).toContain(
+      'ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+    )
+  })
 })

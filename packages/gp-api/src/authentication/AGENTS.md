@@ -15,10 +15,12 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `decorators/PublicAccess.decorator.ts`   | Skip auth on a controller or route                                                              |
 | `decorators/Roles.decorator.ts`          | `@Roles(UserRole.ADMIN, ...)` — role gate via `RolesGuard`                                      |
 | `decorators/ReqUser.decorator.ts`        | Inject the authed `User`                                                                        |
-| `guards/Session.guard.ts`                | `SessionGuard` — accepts user JWTs from cookies; also verifies Clerk M2M `mt_*` tokens (global) |
+| `guards/Session.guard.ts`                | `SessionGuard` — accepts user JWTs from cookies; also verifies Clerk M2M tokens (global)        |
 | `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                           |
 | `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                            |
 | `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                           |
+| `guards/ServiceRead.guard.ts`            | Route-level: JWT-format M2M service reader, `mt_*` M2M, or admin                                |
+| `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param            |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                          |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                          |
 | `util/effectiveUser.util.ts`             | Resolves the acting human (the admin, when impersonating) for global-role checks                |
@@ -26,6 +28,18 @@ Auth state is enforced globally via three guards registered in order. Most route
 ## Patterns
 
 - **Global guards run in order**: `SessionGuard` → `RolesGuard` (`SessionGuard` wired as `APP_GUARD` in `app.module.ts`, `RolesGuard` in `authentication.module.ts`). M2M `mt_*` tokens are verified inside `SessionGuard`. New guards belong route-level, not global, unless they're truly cross-cutting.
+- **Clerk M2M has two tiers.** An opaque `mt_*` token is verified by Clerk
+  against `GP_API_MACHINE_SECRET`, which enforces machine scope, and sets
+  `request.m2mToken` — full M2M, trusted by `AdminOrM2MGuard`, `M2MOnly` and
+  `UserOrM2M`. A JWT-format M2M token (`sub` starts with `mch_`) is verified
+  only against the instance JWKS; Clerk checks neither its scopes nor our
+  secret, so any machine in the instance can mint one. It sets
+  `request.serviceReader`, never `m2mToken`, and passes `SessionGuard` only on
+  `@PublicAccess()` routes (401 elsewhere). Gate a read for it with
+  `ServiceReadGuard`. Use `ServiceReadOrOwnerGuard` only where the
+  `personId` query param names the one record returned; on a list route it
+  would let any user with a `personId` self-authorize. gp-marketing reads the
+  public person-profile endpoints this way.
 - **`@PublicAccess()` is the only escape hatch.** Don't conditionally skip auth inside a guard — opt out at the route level.
 - **Absence of `@Roles()` = "any authenticated user".** `routeIsPublicAndNoRoles.util.ts` is what makes that work; don't rely on the decorator being present to imply auth.
 - Password resets issue a **short-lived JWT**, not a DB-stored token. Side effects after consumption must be done in the same request.
@@ -97,3 +111,13 @@ Auth state is enforced globally via three guards registered in order. Most route
   `vendors/clerk/clerk.consts.ts`) and wrapped in `clerkCall()`, which also
   emits the span — the SDK uses undici, which our OTel setup does not
   instrument, so a call made without that wrapper is invisible in Tempo.
+- **gp-api owns the user's first and last name; Clerk holds a copy.** The
+  name enters through Clerk at sign-up and `findOrProvisionByClerk` copies it
+  once. After that the only writers are `PUT /v1/users/me` (the webapp's
+  Account Settings "Edit details" modal) and `PUT /v1/users/:id` (gp-admin),
+  both through `UsersService.updateUser`, which rebuilds `User.name` and pushes
+  the new first/last name to Clerk. A failed Clerk push is logged, not
+  thrown. The webapp hides Clerk's own name section
+  (`profileSection__profile`) wherever it opens Clerk's profile modal, so
+  there is no Clerk-side writer to drift from. The data pipeline builds the
+  public `/people/<slug>` from this name too.

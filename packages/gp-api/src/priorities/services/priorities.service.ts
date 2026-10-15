@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma, PrioritySource } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
+import {
+  trackForOffice,
+  type PrioritySurface,
+} from '../util/priorityAnalytics.util'
 
 export type CreatePriorityData = {
   title: string
@@ -16,6 +22,10 @@ type TxClient = Prisma.TransactionClient
 
 @Injectable()
 export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
+  constructor(private readonly analytics: AnalyticsService) {
+    super()
+  }
+
   listActive(electedOfficeId: string) {
     return this.model.findMany({
       where: { electedOfficeId, archivedAt: null },
@@ -23,12 +33,13 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
     })
   }
 
-  create(
+  async create(
     electedOfficeId: string,
     data: CreatePriorityData,
     source: PrioritySource,
+    surface: PrioritySurface,
   ) {
-    return this.model.create({
+    const created = await this.model.create({
       data: {
         electedOfficeId,
         title: data.title,
@@ -36,6 +47,13 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
         source,
       },
     })
+    await trackForOffice(this.client, this.analytics, { id: electedOfficeId }, [
+      [
+        EVENTS.Priorities.PriorityCreated,
+        { priorityId: created.id, source, surface },
+      ],
+    ])
+    return created
   }
 
   async update(id: string, electedOfficeId: string, patch: UpdatePriorityData) {
@@ -53,12 +71,68 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
       : this.model.findFirst({ where: { id, electedOfficeId } })
   }
 
-  async archive(id: string, electedOfficeId: string) {
+  async archive(id: string, electedOfficeId: string, surface: PrioritySurface) {
     const { count } = await this.model.updateMany({
       where: { id, electedOfficeId, archivedAt: null },
       data: { archivedAt: new Date() },
     })
-    return count > 0
+    if (count === 0) return false
+    await trackForOffice(this.client, this.analytics, { id: electedOfficeId }, [
+      [EVENTS.Priorities.PriorityArchived, { priorityId: id, surface }],
+    ])
+    return true
+  }
+
+  // The offices whose onboarding priorities step will offer issues they ran
+  // on: rows seedFromWin already copied, or, for an office it has not seeded
+  // yet, a linked campaign with something for it to copy.
+  async officesWithWinIssues(
+    offices: { id: string; campaignId: number | null }[],
+  ): Promise<Set<string>> {
+    const linked = offices.filter(
+      (office): office is { id: string; campaignId: number } =>
+        office.campaignId !== null,
+    )
+    if (linked.length === 0) return new Set()
+
+    const imported = await this.model.findMany({
+      where: {
+        electedOfficeId: { in: linked.map((office) => office.id) },
+        source: PrioritySource.win_import,
+      },
+      select: { electedOfficeId: true, archivedAt: true },
+    })
+    const seeded = new Set(imported.map((row) => row.electedOfficeId))
+    const result = new Set(
+      imported
+        .filter((row) => row.archivedAt === null)
+        .map((row) => row.electedOfficeId),
+    )
+
+    const unseeded = linked.filter((office) => !seeded.has(office.id))
+    if (unseeded.length === 0) return result
+
+    const campaigns = await this.client.campaign.findMany({
+      where: { id: { in: unseeded.map((office) => office.campaignId) } },
+      select: {
+        id: true,
+        details: true,
+        _count: { select: { campaignPositions: true } },
+      },
+    })
+    const withSource = new Set(
+      campaigns
+        .filter(
+          (campaign) =>
+            (campaign.details?.customIssues?.length ?? 0) > 0 ||
+            campaign._count.campaignPositions > 0,
+        )
+        .map((campaign) => campaign.id),
+    )
+    for (const office of unseeded) {
+      if (withSource.has(office.campaignId)) result.add(office.id)
+    }
+    return result
   }
 
   async seedFromWin(electedOfficeId: string, tx?: TxClient): Promise<void> {

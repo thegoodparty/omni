@@ -7,6 +7,10 @@ import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
+import {
+  createPreviewSharedAlb,
+  PREVIEW_SHARED_ALB_NAME,
+} from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
@@ -21,10 +25,6 @@ export = async () => {
     | 'preview'
     | 'dev'
     | 'prod'
-  const imageUri = config.require('imageUri')
-
-  const prNumber =
-    environment === 'preview' ? config.require('prNumber') : undefined
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
@@ -34,6 +34,14 @@ export = async () => {
     private: ['subnet-053357b931f0524d4', 'subnet-0bb591861f72dcb7f'],
   }
   const vpcSecurityGroupIds = ['sg-01de8d67b0f0ec787']
+
+  const previewCertificateArn =
+    'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786'
+
+  const imageUri = config.require('imageUri')
+
+  const prNumber =
+    environment === 'preview' ? config.require('prNumber') : undefined
 
   const stage = {
     preview: `pr-${prNumber}`,
@@ -77,14 +85,22 @@ export = async () => {
     throw new Error('DB_PASSWORD must be set in the secret.')
   }
 
+  // The task role and task definition below name these queues by string
+  // rather than through the resources' outputs. An SQS create waits ~25s for
+  // its attributes to settle, and the DLQ-then-queue chain put ~50s in front
+  // of the ECS service on every new preview. Nothing in the task needs the
+  // queues until it has booted, by which time they exist.
+  const dlqName = `${stage}-DLQ.fifo`
+  const queueName = `${stage}-Queue.fifo`
+
   const dlq = new aws.sqs.Queue('main-dlq', {
-    name: `${stage}-DLQ.fifo`,
+    name: dlqName,
     fifoQueue: true,
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  const queue = new aws.sqs.Queue('main-queue', {
-    name: `${stage}-Queue.fifo`,
+  new aws.sqs.Queue('main-queue', {
+    name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
@@ -332,6 +348,12 @@ export = async () => {
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
   // docker-entrypoint.sh) instead of provisioning a cluster per PR.
   if (environment === 'dev') {
+    createPreviewSharedAlb({
+      vpcId,
+      publicSubnetIds: vpcSubnetIds.public,
+      hostedZoneId,
+      certificateArn: previewCertificateArn,
+    })
     createPreviewSharedCluster({
       vpcId,
       privateSubnetIds: vpcSubnetIds.private,
@@ -339,6 +361,18 @@ export = async () => {
       dbPassword: secret.DB_PASSWORD,
     })
   }
+
+  // Falls back to a per-PR ALB while the shared one does not exist (until
+  // the dev stack has deployed it), so previews keep deploying.
+  const sharedPreviewListener =
+    environment === 'preview'
+      ? await aws.lb
+          .getLoadBalancer({ name: PREVIEW_SHARED_ALB_NAME })
+          .then((lb) =>
+            aws.lb.getListener({ loadBalancerArn: lb.arn, port: 443 }),
+          )
+          .catch(() => undefined)
+      : undefined
 
   const sharedPreviewCluster = skipPerPrRds
     ? await aws.rds.getCluster({
@@ -434,14 +468,9 @@ export = async () => {
     dev: 'agent-dispatch-dev.fifo',
     prod: 'agent-dispatch-prod.fifo',
   })
-  const staticQueueArns = [agentDispatchQueueName]
-    .filter((name): name is string => name !== '')
+  const taskRoleQueueArns = [queueName, dlqName, agentDispatchQueueName]
+    .filter((name) => name !== '')
     .map((name) => `arn:aws:sqs:${region}:${accountId}:${name}`)
-  const taskRoleQueueArns: pulumi.Input<string>[] = [
-    queue.arn,
-    dlq.arn,
-    ...staticQueueArns,
-  ]
 
   // The curated local-dev bundle POST /v1/dev-env/bundle vends. Dev only:
   // preview and prod never get the id, so the endpoint stays dark there even
@@ -460,44 +489,15 @@ export = async () => {
           `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
         ]
 
-  // Preview stacks seed the E2E test accounts from these and the preview E2E
-  // suite signs in with them. They sit in the shared GP_API_DEV blob under
-  // E2E_ names so dev tasks, which share that blob, never receive them.
-  const e2eCredentialKeys: Record<string, string> = {
-    ADMIN_EMAIL: 'E2E_ADMIN_EMAIL',
-    ADMIN_PASSWORD: 'E2E_ADMIN_PASSWORD',
-    CANDIDATE_EMAIL: 'E2E_CANDIDATE_EMAIL',
-    CANDIDATE_PASSWORD: 'E2E_CANDIDATE_PASSWORD',
-  }
-  const e2eCredentialSecretKeys = Object.values(e2eCredentialKeys)
-  const e2eCredentialsInSecret = e2eCredentialSecretKeys.every(
-    (key) => key in secret,
+  const containerSecrets: Record<
+    string,
+    pulumi.Output<string>
+  > = Object.fromEntries(
+    Object.keys(secret).map((key) => [
+      key,
+      pulumi.interpolate`${secretInfo.arn}:${key}::`,
+    ]),
   )
-  // Keeps preview deploys working until the four keys are added to the blob.
-  if (environment === 'preview' && !e2eCredentialsInSecret) {
-    console.warn(
-      `WARNING: ${secretName} is missing ${e2eCredentialSecretKeys.join(', ')}. ` +
-        'Preview E2E credentials fall back to plain environment values from ' +
-        'the deploy runner. Add those keys to the secret to reference them ' +
-        'via valueFrom instead.',
-    )
-  }
-
-  const containerSecrets: Record<string, pulumi.Output<string>> = {
-    ...Object.fromEntries(
-      Object.keys(secret)
-        .filter((key) => !e2eCredentialSecretKeys.includes(key))
-        .map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
-    ),
-    ...(environment === 'preview' && e2eCredentialsInSecret
-      ? Object.fromEntries(
-          Object.entries(e2eCredentialKeys).map(([name, key]) => [
-            name,
-            pulumi.interpolate`${secretInfo.arn}:${key}::`,
-          ]),
-        )
-      : {}),
-  }
 
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
@@ -510,9 +510,9 @@ export = async () => {
     privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain,
+    sharedPreviewListenerArn: sharedPreviewListener?.arn,
     certificateArn: select({
-      preview:
-        'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786',
+      preview: previewCertificateArn,
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
@@ -542,7 +542,7 @@ export = async () => {
       }),
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
-      SQS_QUEUE: queue.name,
+      SQS_QUEUE: queueName,
       // Where the per-send button in a fulfilment Slack message points. Not
       // select()-ed by environment on purpose: gp-admin is a single
       // deployment fronting dev and prod (see gp-webapp/appEnv.ts, which
@@ -576,6 +576,28 @@ export = async () => {
         dev: '',
         prod: 'true',
       }),
+      // Dev and previews write to prod's HubSpot portal, so the Office Holder
+      // sync and its ids are prod only.
+      HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
+        preview: '',
+        dev: '',
+        prod: 'true',
+      }),
+      HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '2-65502604',
+      }),
+      HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '76',
+      }),
+      HUBSPOT_OFFICE_HOLDER_COMPANY_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '73',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
@@ -596,21 +618,8 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      SECRETS_MANAGER_KEYS: [
-        ...Object.keys(containerSecrets),
-        ...(environment === 'preview' && !e2eCredentialsInSecret
-          ? Object.keys(e2eCredentialKeys)
-          : []),
-      ].join(','),
+      SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
-      ...(environment === 'preview' && !e2eCredentialsInSecret
-        ? {
-            ADMIN_EMAIL: process.env.ADMIN_EMAIL,
-            ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
-            CANDIDATE_EMAIL: process.env.CANDIDATE_EMAIL,
-            CANDIDATE_PASSWORD: process.env.CANDIDATE_PASSWORD,
-          }
-        : {}),
     },
     permissions: [
       {

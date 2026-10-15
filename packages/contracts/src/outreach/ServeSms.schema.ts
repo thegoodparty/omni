@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { OutreachEventDetailsSchema } from './OutreachEvent.schema'
-import { ServeOutreachPurposeSchema } from './OutreachPurpose.schema'
+import { ServeSmsPurposeSchema } from './OutreachPurpose.schema'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
 import { ProposalLinkSchema } from '../chats/ChatCard.schema'
@@ -16,9 +16,9 @@ import { ProposalLinkSchema } from '../chats/ChatCard.schema'
 
 // Mirrors SmsDraftRequestSchema with the purpose swapped to the serve
 // vocabulary, the same way ServePhoneBankingScriptDraftRequestSchema mirrors
-// its Win twin.
+// its Win twin. The SMS list, so it carries the panel-building purpose too.
 export const ServeSmsDraftRequestSchema = z.object({
-  purpose: ServeOutreachPurposeSchema,
+  purpose: ServeSmsPurposeSchema,
   tone: SocialToneSchema,
   currentDraft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH).optional(),
   event: OutreachEventDetailsSchema.optional(),
@@ -44,12 +44,17 @@ export const ServeSmsCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(255),
     message: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
-    imageUrl: z.string().url().optional(),
+    // Required: the image makes every Serve text an MMS, which is what lets
+    // the message run to SMS_COMPOSED_MAX_LENGTH without segmenting.
+    imageUrl: z.string().url(),
     // The send day as a local calendar date. At least 2 business days out and
     // no more than 30, weekends excluded; enforced server-side, not just by the
     // picker.
     scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     voterFileFilterId: z.number().int().positive(),
+    // The earlier text this one reports back on. It marks the send as a
+    // report back rather than a new ask, and is how its card is completed.
+    reportBackForOutreachId: z.number().int().positive().optional(),
   })
   .extend(ProposalLinkSchema.shape)
 export type ServeSmsCreateRequest = z.infer<typeof ServeSmsCreateRequestSchema>

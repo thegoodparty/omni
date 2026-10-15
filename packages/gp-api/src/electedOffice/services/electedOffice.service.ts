@@ -25,6 +25,7 @@ import {
   electedOfficeToApi,
   type ApiElectedOffice,
 } from '../util/electedOffice.util'
+import { CrmOfficeHolderService } from './crmOfficeHolder.service'
 
 export type CreateElectedOfficeArgs = {
   swornInDate?: Date | null
@@ -96,6 +97,7 @@ export class ElectedOfficeService extends createPrismaBase(
     private readonly priorities: PrioritiesService,
     private readonly communityIssueDispatch: CommunityIssueDispatchService,
     private readonly ordinanceDispatch: OrdinanceDispatchService,
+    private readonly crmOfficeHolder: CrmOfficeHolderService,
   ) {
     super()
   }
@@ -114,7 +116,10 @@ export class ElectedOfficeService extends createPrismaBase(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ELECTED_OFFICE_CREATE_ADVISORY_LOCK_KEY}::integer, ${args.userId}::integer)`
 
       const existingForUser = await tx.electedOffice.findMany({
-        where: { userId: args.userId },
+        where: {
+          userId: args.userId,
+          organization: { testModeCreatedAt: null },
+        },
       })
 
       const hasNewTerm = Boolean(newStart || newEnd)
@@ -298,6 +303,10 @@ export class ElectedOfficeService extends createPrismaBase(
     // the queue round-trip.
     await this.dispatchScheduleAfterCreate(office)
 
+    await this.crmOfficeHolder.syncElectedOffice(office.id, {
+      sendSeatFields: freshlyCreated || args.onboardingCompletedAt != null,
+    })
+
     return office
   }
 
@@ -337,7 +346,11 @@ export class ElectedOfficeService extends createPrismaBase(
   }
 
   async update(args: Prisma.ElectedOfficeUpdateArgs) {
-    return this.model.update(args)
+    const updated = await this.model.update(args)
+    await this.crmOfficeHolder.syncElectedOffice(updated.id, {
+      sendSeatFields: args.data.onboardingCompletedAt instanceof Date,
+    })
+    return updated
   }
 
   delete(args: Prisma.ElectedOfficeDeleteArgs) {

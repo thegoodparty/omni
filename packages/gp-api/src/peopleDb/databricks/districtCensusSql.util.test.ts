@@ -2,12 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { buildDistrictCensusSql, CENSUS_TABLE } from './districtCensusSql.util'
 import type { DbxDistrict } from './databricksVoterSql.util'
 
+const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
+
 const DISTRICT: DbxDistrict = {
   districtId: 'd-1',
   state: 'WA',
   districtType: 'Water_District',
   districtName: 'EAST WENATCHEE WATER',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 describe('buildDistrictCensusSql', () => {

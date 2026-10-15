@@ -1,0 +1,30 @@
+// The managed Amplitude flag key for Win p2p SMS hold-billing: the checkout
+// places a manual-capture authorization HOLD instead of an immediate charge,
+// recorded on the OutreachP2pSms satellite. snake_case is the LITERAL
+// Amplitude flag key (all-caps was rejected by Amplitude) — gp-api and the
+// webapp must both reference this exact string. Evaluated per-user via
+// FeaturesService.isFeatureEnabled ONLY at entry (checkout-session creation,
+// the draft phoneListId relaxation, the buildId acceptance, and the async
+// build decision) — never re-read downstream. Settlement (capture, sweeps,
+// release) and the webhook that records a placed hold key on durable state
+// (the OutreachP2pSms satellite, or the live PaymentIntent's capture_method)
+// instead, so a flag flip after entry can never strand a hold Stripe already
+// placed or block its settlement.
+export const WIN_SMS_HOLD_BILLING_FLAG = 'win_sms_hold_billing'
+
+// Stripe refuses an authorization under 50 cents, so an undiscounted hold below
+// this floor is forgiven (treated as covered, no hold placed) rather than
+// blocking checkout — mirrors the robocall ROBOCALL_MIN_HOLD_CENTS rule.
+export const WIN_SMS_HOLD_MIN_CENTS = 50
+
+// Fallback hold lifetime when Stripe omits capture_before on the authorization.
+// A card authorization is valid ~7 days; the real deadline is read off the PI
+// when present (see the hold service).
+export const WIN_SMS_HOLD_WINDOW_DAYS = 7
+
+// How long a satellite must have sat untouched in an in-flight claim before the
+// reconcile sweeps treat it as stranded (the owner crashed between its CAS claim
+// and the Stripe call). A refund/release commits in well under a second, so 15
+// minutes is far longer than any live owner holds a claim — it never races a
+// release still in flight (outreachP2pSmsReconcile.service.ts).
+export const P2P_SMS_REFUNDING_STALE_MINUTES = 15

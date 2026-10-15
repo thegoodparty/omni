@@ -1,7 +1,15 @@
 import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
-import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
+import type {
+  ChatStreamChunk,
+  FinalizeTurn,
+  StreamArgs,
+} from '@/chats/services/chatStream.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { GeneralChatsService } from './general-chats.service'
 import { ChatScopeRegistry } from './chatScopeRegistry.service'
@@ -303,6 +311,95 @@ describe('GeneralChatsService', () => {
       })
     },
   )
+
+  it.each([
+    [BUILD_CITIZENS_PANEL_MESSAGE, 'Build your civic panel'],
+    [EXPLAIN_CIVIC_PANEL_MESSAGE, "What's a civic panel?"],
+  ])(
+    "titles the build card's hidden turn %s by what it does",
+    async (userMessage, title) => {
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: null }),
+        ) as never,
+      })
+      const chatStream = {
+        stream: vi.fn(() => ({
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        })),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        {} as never,
+        chatStream as never,
+        {} as never,
+      )
+      await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage,
+        }),
+      )
+      expect(store.setTitleIfUnset).toHaveBeenCalledWith('c1', title)
+    },
+  )
+
+  it('adds what the handler says about the page, for that turn only', async () => {
+    const describePage = vi.fn((path: string) =>
+      path === '/dashboard/contacts' ? 'CURRENT PAGE: Voter Data' : null,
+    )
+    const pageHandler = buildHandler({ describePage })
+    const pageStore = buildStore({
+      findOwnedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'c1', title: 'existing' }),
+      ) as never,
+    })
+    const prompts: string[] = []
+    const chatStream = {
+      stream: vi.fn((args: { systemPrompt: string }) => {
+        prompts.push(args.systemPrompt)
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        }
+      }),
+    }
+    const service = new GeneralChatsService(
+      buildRegistry(pageHandler),
+      pageStore,
+      {} as never,
+      chatStream as never,
+      {} as never,
+    )
+    const send = (pagePath?: string) =>
+      collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: 'hi',
+          ...(pagePath && { pagePath }),
+        }),
+      )
+
+    await send('/dashboard/contacts')
+    await send('/dashboard/nowhere')
+    await send()
+
+    expect(prompts).toEqual([
+      'system\n\nCURRENT PAGE: Voter Data',
+      'system',
+      'system',
+    ])
+  })
 
   it('passes the handler scope to the chat stream', async () => {
     for (const scope of [
@@ -716,5 +813,78 @@ describe('GeneralChatsService', () => {
       'c1',
       'a normal question',
     )
+  })
+})
+
+describe('finalizeAssistantText forwarding', () => {
+  // Streams one message through a handler and returns the args the stream
+  // engine was called with.
+  const streamArgsFor = async (
+    handler: ChatScopeHandler,
+  ): Promise<StreamArgs | undefined> => {
+    const store = buildStore({
+      findOwnedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'c1', title: null }),
+      ) as never,
+    })
+    const streamArgs: { value?: StreamArgs } = {}
+    const chatStream = {
+      stream: vi.fn((args: StreamArgs) => {
+        streamArgs.value = args
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        }
+      }),
+    }
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      {} as never,
+      chatStream as never,
+      {} as never,
+    )
+    await collect(
+      service.sendMessage({
+        conversationId: 'c1',
+        scope: SCOPE,
+        userId: USER_ID,
+        organizationSlug: ORG,
+        userMessage: 'hello',
+      }),
+    )
+    return streamArgs.value
+  }
+
+  it('passes the text and the turn through to the handler hook', async () => {
+    const hook = vi.fn((text: string, turn: FinalizeTurn) =>
+      turn.toolEvents.length ? `\n\n${text.length} chars, tools ran` : null,
+    )
+    const args = await streamArgsFor(
+      buildHandler({ finalizeAssistantText: hook }),
+    )
+
+    const turn: FinalizeTurn = {
+      toolEvents: [
+        {
+          toolCallId: 't1',
+          name: 'count_contacts',
+          args: {},
+          status: 'returned',
+          result: {},
+        },
+      ],
+    }
+    expect(args?.finalizeText?.('reply', turn)).toBe('\n\n5 chars, tools ran')
+    expect(hook).toHaveBeenCalledWith('reply', turn)
+  })
+
+  it('omits finalizeText when the handler has no hook', async () => {
+    const args = await streamArgsFor(
+      buildHandler({ finalizeAssistantText: undefined }),
+    )
+
+    expect(args?.finalizeText).toBeUndefined()
   })
 })

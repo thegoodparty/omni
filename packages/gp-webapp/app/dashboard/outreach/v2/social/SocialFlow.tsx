@@ -73,6 +73,9 @@ interface SocialFlowSaveInput extends ProposalLink {
   purpose: SocialFlowPurpose
   draftMessage: string
   assets: SocialAsset[]
+  // Win only: the campaign-plan task the flow was opened from, which the
+  // task list marks done once the post is saved.
+  trackerTaskId?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -123,14 +126,23 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
       )
       return data.assets
     },
-    save: async ({ name, purpose, draftMessage, assets }) => {
-      // Named, not rest-spread: a proposal link is a Serve chat card's, and
-      // Win's save never carries one, whatever fields the link grows.
+    save: async ({
+      name,
+      purpose,
+      draftMessage,
+      assets,
+      proposalKey,
+      trackerTaskId,
+    }) => {
+      // Named, not rest-spread: Win's save takes a Campaign Manager card's
+      // key alone, never the rest of a Serve link.
       const { data } = await clientRequest('POST /v1/outreach/social', {
         name,
         purpose,
         draftMessage,
         assets,
+        trackerTaskId,
+        ...(proposalKey !== undefined && { proposalKey }),
       } as SocialSaveRequest)
       return data
     },
@@ -236,7 +248,12 @@ export const SocialFlow = ({
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
   const [draft, setDraft] = useState('')
-  const [manuallyEdited, setManuallyEdited] = useState(false)
+  // Whether the words are the candidate's (typed, prefilled or polished)
+  // rather than an untouched fresh draft, as on SMS: a tone change polishes
+  // them instead of replacing them, and Improve stays on offer.
+  const [ownWords, setOwnWords] = useState(false)
+  // The candidate's words from just before the last AI change replaced
+  // them. Typing clears it: going back would throw the typing away.
   const [undoText, setUndoText] = useState<string | null>(null)
   // Last text shown under each tone this compose session (generated or
   // manually edited). Revisiting a tone restores from here; only the
@@ -255,6 +272,10 @@ export const SocialFlow = ({
   // Guards against an out-of-order response (or one from a closed flow)
   // clobbering a newer draft.
   const draftRequestRef = useRef(0)
+  // Whether the last draft call was an Improve, so Try again repeats the
+  // kind of call that failed (a Regenerate or an Improve) with what is on
+  // screen now, such as instructions edited since.
+  const lastDraftWasImproveRef = useRef(false)
 
   const draftMutation = useMutation({
     mutationFn: (input: SocialFlowDraftInput) => surface.endpoints.draft(input),
@@ -288,6 +309,9 @@ export const SocialFlow = ({
         purpose: purpose as SocialFlowPurpose,
         draftMessage: draft.trim(),
         assets: assets as SocialAsset[],
+        ...(tracker && !surface.isServe
+          ? { trackerTaskId: tracker.trackerTaskId }
+          : {}),
         ...prefill?.proposalLink,
       }),
     onSuccess: (detail) => {
@@ -342,7 +366,7 @@ export const SocialFlow = ({
     setPurpose(null)
     setTone('warm')
     setDraft('')
-    setManuallyEdited(false)
+    setOwnWords(false)
     setUndoText(null)
     setPlatforms(ALL_SOCIAL_PLATFORM_IDS)
     setAssets(null)
@@ -359,7 +383,7 @@ export const SocialFlow = ({
       if (matchedPurpose) {
         setPurpose(prefill.purpose as SocialFlowPurpose)
         setDraft(prefill.draftText)
-        setManuallyEdited(true)
+        setOwnWords(true)
         const excluded = surface.excludedPlatforms(
           prefill.purpose as SocialFlowPurpose,
         )
@@ -369,7 +393,7 @@ export const SocialFlow = ({
         setStepId('platforms')
       } else {
         setDraft(prefill.draftText)
-        setManuallyEdited(true)
+        setOwnWords(true)
         setStepId('compose')
       }
     }
@@ -403,12 +427,13 @@ export const SocialFlow = ({
     nextPurpose: SocialFlowPurpose | null,
     nextTone: SocialTone,
     priorDraft: string,
-    priorManuallyEdited: boolean,
+    priorOwnWords: boolean,
     currentDraft?: string,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    lastDraftWasImproveRef.current = currentDraft !== undefined
     draftMutation.mutate(
       {
         purpose: nextPurpose,
@@ -418,12 +443,14 @@ export const SocialFlow = ({
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
-          if (priorManuallyEdited) {
-            setUndoText(priorDraft)
-            setManuallyEdited(false)
-          }
+          setUndoText(priorOwnWords ? priorDraft : null)
           setDraft(generated)
-          setToneDrafts((prev) => ({ ...prev, [nextTone]: generated }))
+          setOwnWords(currentDraft !== undefined)
+          // Only fresh drafts are remembered per tone: a polish is of the
+          // candidate's words, which a tone switch must not swap away.
+          if (currentDraft === undefined) {
+            setToneDrafts((prev) => ({ ...prev, [nextTone]: generated }))
+          }
           invalidateAssets()
         },
       },
@@ -433,7 +460,7 @@ export const SocialFlow = ({
   const handleSelectPurpose = (selected: SocialFlowPurpose) => {
     setPurpose(selected)
     setTone('warm')
-    setManuallyEdited(false)
+    setOwnWords(false)
     setUndoText(null)
     setDraft('')
     setToneDrafts({})
@@ -451,6 +478,15 @@ export const SocialFlow = ({
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
+    // The candidate's own words are polished in the new tone, never
+    // replaced by a fresh draft in it.
+    if (ownWords) {
+      setTone(nextTone)
+      if (draft.trim().length > 0) {
+        requestDraft(purpose, nextTone, draft, true, draft)
+      }
+      return
+    }
     if (!purpose || purpose === 'custom') {
       setTone(nextTone)
       return
@@ -469,16 +505,19 @@ export const SocialFlow = ({
       draftRequestRef.current += 1
       resetDraftMutation()
       setDraft(remembered)
-      setManuallyEdited(false)
+      setOwnWords(false)
+      // Undo belonged to the words just swapped out, not to this draft.
+      setUndoText(null)
       invalidateAssets()
       return
     }
-    requestDraft(purpose, nextTone, draft, manuallyEdited)
+    requestDraft(purpose, nextTone, draft, ownWords)
   }
 
   const handleDraftChange = (value: string) => {
     setDraft(value)
-    setManuallyEdited(true)
+    setOwnWords(true)
+    setUndoText(null)
     invalidateAssets()
     // An edit wins over a reply still in flight, which would otherwise land
     // on top of it. Dropping the call also clears a failed one's error.
@@ -488,7 +527,7 @@ export const SocialFlow = ({
 
   const handleImprove = () => {
     if (draft.trim().length === 0) return
-    requestDraft(purpose, tone, draft, manuallyEdited, draft)
+    requestDraft(purpose, tone, draft, ownWords, draft)
   }
 
   const handleUndo = () => {
@@ -497,7 +536,7 @@ export const SocialFlow = ({
     resetDraftMutation()
     setDraft(undoText)
     setUndoText(null)
-    setManuallyEdited(true)
+    setOwnWords(true)
     invalidateAssets()
   }
 
@@ -598,15 +637,18 @@ export const SocialFlow = ({
           onToneChange={handleToneChange}
           draft={draft}
           onDraftChange={handleDraftChange}
-          onRegenerate={() =>
-            requestDraft(purpose, tone, draft, manuallyEdited)
-          }
+          onRegenerate={() => requestDraft(purpose, tone, draft, ownWords)}
           onImprove={handleImprove}
-          canImprove={manuallyEdited && draft.trim().length > 0}
+          canImprove={ownWords && draft.trim().length > 0}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           canUndo={undoText !== null}
           onUndo={handleUndo}
+          onRetry={() =>
+            lastDraftWasImproveRef.current
+              ? handleImprove()
+              : requestDraft(purpose, tone, draft, ownWords)
+          }
           isCustomPurpose={purpose === 'custom'}
         />
       ) : stepId === 'platforms' ? (

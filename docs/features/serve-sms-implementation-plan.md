@@ -293,7 +293,7 @@ Per-task smoke tests are in the task notes. Because nothing merges to main, the
 preview stack is the integration environment, and it has three properties worth
 planning around.
 
-- **Each preview has its own database**, freshly migrated and seeded. Good:
+- **Each preview has its own database**, freshly migrated. Good:
   the migration is proven per PR. Also means no shared state between previews.
 - **Previews share dev's S3 buckets** (`environment === 'preview' ? 'dev' :
   environment`). Mostly helpful, since the recipient CSV write is exercised for

@@ -23,15 +23,16 @@ const STEP_POSITION: Record<VerificationStep, StepPosition | null> = {
 const CampaignVerificationFlow = (): React.JSX.Element => {
   const router = useRouter()
   const searchParams = useSearchParams()
-  // Only 'submitted' is trusted from the URL — a refresh mid-form should
-  // land back on the intro, not reopen an empty ElectionFilingForm.
-  const initialStep: VerificationStep =
-    searchParams?.get('step') === 'submitted' ? 'submitted' : 'intro'
+  // Only 'submitted' is trusted from the URL. Otherwise the steps pick the
+  // form or the intro from whether a draft is saved.
+  const submittedOnLoad = searchParams?.get('step') === 'submitted'
   // Mirrors the steps' own state, for the bar above — the steps component
   // owns the state machine (and the URL sync belongs here, not inside the
   // embeddable component, so a caller mounting it in a sheet doesn't get a
   // surprise navigation).
-  const [step, setStep] = useState<VerificationStep>(initialStep)
+  const [step, setStep] = useState<VerificationStep>(
+    submittedOnLoad ? 'submitted' : 'intro',
+  )
 
   const handleStepChange = (next: VerificationStep) => {
     setStep(next)
@@ -49,7 +50,7 @@ const CampaignVerificationFlow = (): React.JSX.Element => {
       onExit={exit}
     >
       <CampaignVerificationSteps
-        initialStep={initialStep}
+        initialStep={submittedOnLoad ? 'submitted' : undefined}
         onStepChange={handleStepChange}
         onExit={exit}
         onComplete={exit}

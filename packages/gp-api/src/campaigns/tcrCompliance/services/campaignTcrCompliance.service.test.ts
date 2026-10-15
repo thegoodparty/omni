@@ -637,6 +637,19 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
 
+    it('does nothing for a synthetic test-org record after payment', async () => {
+      mockModel.findUnique.mockResolvedValueOnce({
+        ...paidRecord,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+      })
+      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
+
+      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
+
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
     it('does nothing when the campaign has no Clerk user', async () => {
       mockModel.findUnique.mockResolvedValueOnce(paidRecord)
       mockCampaigns.findUnique.mockResolvedValueOnce({
@@ -694,6 +707,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
             status: TcrComplianceStatus.submitted,
             peerlyIdentityId: null,
             kickoffSentAt: null,
+            internalTestingAt: null,
             createdAt: { lt: expect.any(Date) },
             campaign: { isPro: true },
           },
@@ -3329,6 +3343,37 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     })
   })
 
+  it('retrieveCampaignVerifyToken returns the bypass token for a synthetic row in prod without calling Peerly', async () => {
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken('any-pin', {
+        ...tcrCompliance,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+        peerlyIdentityId: 'test-mode-123',
+      })
+
+      expect(token).toBe('non-prod-bypass-cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
+    })
+  })
+
+  it("submitCampaignVerifyToken never posts a synthetic row's token to Peerly in prod", async () => {
+    await withEnv('prod', async () => {
+      const result = await service.submitCampaignVerifyToken(
+        {
+          ...tcrCompliance,
+          internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+          peerlyIdentityId: 'test-mode-123',
+        },
+        'non-prod-bypass-cv-token',
+      )
+
+      expect(result).toBeUndefined()
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
+    })
+  })
+
   const tcrWithIdentity = {
     id: 'tcr-2',
     peerlyIdentityId: 'peerly-1',
@@ -4035,6 +4080,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: { not: null },
         peerlyCvStatus: 'VERIFIED',
+        internalTestingAt: null,
       },
     })
   })
@@ -4200,7 +4246,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
     const { data } = firstOrThrow(mockModel.create.mock.calls)[0]
     expect(data.campaignId).toBe(campaign.id)
     expect(data.status).toBe(TcrComplianceStatus.approved)
-    expect(data.internalTestingApprovedAt).toBeInstanceOf(Date)
+    expect(data.internalTestingAt).toBeInstanceOf(Date)
     expect(data.email).toBe(internalUser.email)
     expect(created.status).toBe(TcrComplianceStatus.approved)
   })
@@ -4216,7 +4262,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('is idempotent when the marker row already exists', async () => {
     const existing = {
       id: 'tcr-1',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
       status: TcrComplianceStatus.approved,
     }
     mockModel.findUnique.mockResolvedValueOnce(existing)
@@ -4230,7 +4276,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('refuses to overwrite a real compliance record', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: null,
+      internalTestingAt: null,
       status: TcrComplianceStatus.pending,
     })
 
@@ -4243,7 +4289,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('returns the raced marker row when a concurrent grant wins the create', async () => {
     const raced = {
       id: 'tcr-raced',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
       status: TcrComplianceStatus.approved,
     }
     mockModel.findUnique
@@ -4278,7 +4324,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('409s when a real compliance record wins the create race', async () => {
     mockModel.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
       id: 'tcr-real',
-      internalTestingApprovedAt: null,
+      internalTestingAt: null,
       status: TcrComplianceStatus.submitted,
     })
     mockModel.create.mockRejectedValueOnce(
@@ -4296,7 +4342,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('revoke deletes the marker row', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
     })
 
     await service.revokeInternalTestingApproval(campaign.id)
@@ -4309,7 +4355,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('revoke resolves even when a concurrent revoke already removed the row', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
     })
     mockModel.deleteMany.mockResolvedValueOnce({ count: 0 })
 
@@ -4330,7 +4376,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('revoke refuses to delete a real compliance record', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: null,
+      internalTestingAt: null,
       status: TcrComplianceStatus.pending,
     })
 

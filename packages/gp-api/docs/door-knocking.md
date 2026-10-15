@@ -100,8 +100,15 @@ it makes, narrowest first:
 
 - A turf **joining** an existing campaign inherits that campaign's title,
   read off the anchor row the create already fetches to validate the scope.
-  A late "Add another turf" therefore cannot rename a campaign it is only
-  joining, whatever it sends.
+  A late "Add turf" therefore cannot rename a campaign it is only
+  joining, whatever it sends. It inherits the rest of what the campaign
+  settled before its map too: the audience (`voterFileFilterId`), the
+  purpose, the community-input question and the talking points
+  (`Outreach.script`), all read off the anchor in `withCampaignSettings`.
+  The drawer's "Add turf" opens straight onto the drawing surface
+  and asks none of them. A campaign whose every turf is done is refused
+  (400), matching the drawer, which hides Add turf on a done campaign; one
+  whose anchor alone is done still takes turfs, since its siblings are live.
 - A turf **starting** one takes `campaignName`.
 - A client that sends neither is the single-turf flow, where the turf's name
   IS the campaign's.
@@ -421,7 +428,7 @@ table is the plain-language version CS reads.
 | `votersPersuaded`       | People who answered `non_supporter` at one door and `supporter` at a later one                                               |
 | `uniqueTurfsCreated`    | Lists the organization has drawn and still has                                                                               |
 | `uniqueTurfsCompleted`  | The subset of those whose envelope reached `completed` ("End knocking session")                                              |
-| `lastCanvassActivityAt` | The newest `occurredAt` on any knock, as epoch millis. Omitted from the payload entirely when the org has never knocked |
+| `lastCanvassActivityAt` | The newest `occurredAt` on any knock, as epoch millis. Omitted from the payload entirely when the org has never knocked      |
 
 The edges worth knowing:
 
@@ -580,7 +587,7 @@ The steps:
    org's suppressed people — do-not-knock plus not-a-voter — are read
    _before_ the transaction and passed as one deduped `excludePersonIds`
    (see "Do-not-knock" and "'Not a voter'").
-5. Group the stops into **block faces** — one side of one street, by house
+4. Group the stops into **block faces** — one side of one street, by house
    number parity — in `blockFace.util.ts`. Then one Geoapify Route Planner
    call to order those faces (coords + opaque job ids only — no PII leaves;
    loop → start=end anchor at the first face by address order; open →
@@ -616,7 +623,8 @@ The steps:
    **A walk spanning more than 100 km is refused before the call.** Geoapify
    rejects one with a 400 the client would re-raise as a 502, blaming the
    vendor for a request that was ours. Walk only: driving has no such ceiling.
-6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
+
+5. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
    immediately, on the plain client and NOT the transaction. The vendor has
    been paid by this point, so the ledger row has to commit whether or not the
    freeze below it succeeds — reading spend off the frozen stop rows instead
@@ -629,7 +637,7 @@ The steps:
    was introduced (`20260813170000_backfill_...`), so the table describes every
    route the vendor has ever billed us for rather than only those since it
    landed.
-7. Create the route (when one was bought), then the stops and stop targets,
+6. Create the route (when one was bought), then the stops and stop targets,
    then the `Outreach` envelope. The stops are written whether or not a route
    was bought — they are the turf — and carry the walk order already when one
    was. They go AFTER the vendor call on purpose: a failure writing them must
@@ -1010,7 +1018,7 @@ Route Planner, none had ever fired in prod, and all three used to surface as
 the same 502 and the same "try again in a moment" — advice that is wrong for
 every one of them, because each is deterministic.
 
-**The refusal rule is narrower than it looks.** A request fails when *every*
+**The refusal rule is narrower than it looks.** A request fails when _every_
 location in it — both anchors and all jobs — is a single coordinate. Two
 identical jobs with the anchor on them fails and names both; move the anchor
 somewhere else and the same two jobs plan fine. That is why the single-face
@@ -1019,7 +1027,7 @@ short-circuit above is a complete fix rather than a patch: stops dedupe on a
 coordinates, and one face always carries exactly one.
 
 **An unreachable stop** — a geocode in open water, a parcel with no way to it
-— comes back as a plan that covers every *other* face, with the bad one in
+— comes back as a plan that covers every _other_ face, with the bad one in
 `issues.unassigned_jobs`, in under a second. `planRoute` reconciles requested
 against planned and raises `RoutePlanRejectedError` carrying the job ids it
 could not place; the create service maps those back to the faces'
@@ -1031,13 +1039,13 @@ the only coordinate the vendor was ever shown.
 in step 5 comes from. An agent anchored on a coordinate the network cannot
 reach is the worst input this API takes: it holds the request for 120s before
 its own gateway 504s (3 of 3 attempts), well past the 30s `PLAN_TIMEOUT_MS`,
-and when it does answer it marks *every* job unassigned — so the one broken
+and when it does answer it marks _every_ job unassigned — so the one broken
 address becomes indistinguishable from an unwalkable turf. On an 8-face turf
 with one bad stop, the far-edge anchor returns no plan and all 9 jobs
 unassigned; the central anchor returns 8 planned and `unassigned_jobs: [8]`.
 
 **A walk spanning over 100 km** is a 400 from the vendor, not a routing
-failure: *"Distance should not exceed 100000 meters for a regular API call"*.
+failure: _"Distance should not exceed 100000 meters for a regular API call"_.
 99 km plans, 101 km does not. `orderFaces` checks the max pairwise distance
 across the face representatives before spending anything. Walk only — 120 km
 plans normally in drive mode.
@@ -1170,29 +1178,36 @@ fork the district cache. `PACK_FORMAT_REVISION` does not move.
 
 ### The talking-points card
 
-The payload carries `talkingPoints` when the list has one: the card the
-candidate wrote in the wizard, read at every door on the walk. It is one
-string, four sections newline-separated, off `Outreach.script` — the column
-every other outreach channel already keeps its script in, which is why this
-feature added no column of its own. `ROUTE_INCLUDE` selects it beside the
-envelope id the volunteer assignment check already needed, so it costs no
-query. The field is **optional and never `''`**: absent means a list frozen
-before this shipped or a candidate who skipped the step, and the door script
-falls back to the static build for both, so absent and empty must not be
-distinguishable.
+The payload carries `talkingPoints` when the list has one: the talking points
+the candidate wrote in the wizard, read at every door on the walk. It is one
+free-text string off `Outreach.script`, the column every other outreach
+channel already keeps its script in, which is why this feature added no column
+of its own. `ROUTE_INCLUDE` selects it beside the envelope id the volunteer
+assignment check already needed, so it costs no query. The field is
+**optional and never `''`**: absent means a list frozen before this shipped or
+a candidate who skipped the step, and the door script falls back to the static
+build for both, so absent and empty must not be distinguishable.
 
-**The card is five sections and only three of them were written by a model.**
-Sections 1a (the identity clause — "Hi, I'm Jane Doe, running for City
-Council") and 5 (the thank-you) are composed at RENDER time by the webapp,
-because they depend on who is reading the card rather than on which list it
-is: a candidate freezing a list on a laptop cannot write the opener a
-volunteer will speak at a door three weeks later. Section 3 (the call to
-action) is composed at CREATE time from `campaign.details.website` and stored,
-because it is real data a model asked to phrase it could equally well invent.
-Sections 1b (the engagement question), 2 (context) and 4 (the ask) are the
-generated ones. `POST /v1/outreach/door-knocking/draft` and its `serve/`
-sibling return exactly those three; the wizard stores four (those plus the
-composed CTA) in card order.
+**The text is the candidate's, and the server never reshapes it.** A line that
+starts with contracts `DOOR_KNOCKING_BULLET` reads as a bullet at the door, any
+other line reads as written. Lists frozen before free text hold exactly four
+plain lines (question, context, a call to action that may be empty, ask) and
+are not migrated; the webapp's walk reader recognizes that shape and keeps
+reading it the old way.
+
+**The model writes the whole card, from the opening to the close.** The first
+bullet is how to open and the last is how to close (where the ask goes), both
+as notes rather than a scripted greeting. The candidate is named by first name
+(a Serve official by full name) in the third person and never as "I", so the card reads correctly whether the
+candidate or a volunteer is holding it; the webapp shows every stored card as written,
+with no composed introduction or thank-you around it. `POST /v1/outreach/door-knocking/draft` and its
+`serve/` sibling return one `draft`. A fresh draft is 4 or 5 bullets, one
+action each, about the campaign's (or the office's) goal rather than the
+person at the door, assembled server-side so every line starts with the bullet marker. An
+Improve is a light polish that keeps whatever shape the candidate wrote. For
+one release the response also carries the optional `engagementQuestion`,
+`context` and `ask` filled from the draft's lines, so a tab open across the
+deploy keeps working.
 
 **The list's purpose and its audience are the whole prompt input that is
 specific to this channel.** `DoorKnockingTurf.purpose` takes the same nine
@@ -1701,7 +1716,7 @@ Three consequences worth knowing before changing this:
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
 - **So anything decidable about the request runs in front of the envelope.**
-  `DoorKnockingPackService.stream` awaits `resolveEligibleDistrictId` — the
+  `DoorKnockingPackService.stream` awaits `resolveEligibleDistrict` — the
   district resolve and the voter-data eligibility gate — and only then opens the
   stream, handing the resolved `districtId` to the build. An org with no
   district is not a failed build, it is a request that was never answerable, and
@@ -1824,7 +1839,7 @@ to resolve first. That is what lets it fire on a list pick rather than on an
 explicit press: [ADR 0010](adr/0010-draw-time-address-preview.md) made the
 preview explicit because each firing costs a scan, and moving the emptiness check
 earlier would have moved that cost earlier with it if it were answered the same
-way. It deliberately skips `resolveEligibleDistrictId` for the same reason — an
+way. It deliberately skips `resolveEligibleDistrict` for the same reason — an
 election-api round trip to find a district nothing here scans. An org with no
 resolvable district meets that problem at the draw step, where
 `districtUnavailable` already says so.
@@ -1854,7 +1869,7 @@ address at all, so it cannot; this runs the knock's own evaluation instead.
 `DoorKnockingPreviewService` repeats what
 [`doorKnockingKnock.service.ts`](../src/doorKnocking/services/doorKnockingKnock.service.ts)
 does right up to the vendor call and then stops:
-`resolveEligibleDistrictId`, `resolveSavedFilterForQuery` on the **unsaved**
+`resolveEligibleDistrict`, `resolveSavedFilterForQuery` on the **unsaved**
 filter draft (so activity conditions, support status, contacts-made and the
 voter-likelihood overrides are applied, exactly as they will be at knock time),
 ADR 0007 + ADR 0008 exclusions deduped into one `excludePersonIds`, then
@@ -1963,7 +1978,7 @@ which is a separate instruction from an observed refusal and gets its own ADR.
 
 **Still out.** There is no **top-issue or district filter**:
 `voterFilterBaseSchema` carries neither, and a district is _resolved_ from the
-organization (`resolveEligibleDistrictId`) rather than chosen, so the one
+organization (`resolveEligibleDistrict`) rather than chosen, so the one
 sub-district cut that exists — precinct — narrows the district an official
 already serves instead of picking a different one. No **voter record
 mutation**: nothing under `doorKnocking/`, `contacts/` or `peopleDb/` issues

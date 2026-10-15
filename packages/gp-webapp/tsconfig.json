@@ -9,12 +9,13 @@
         "name": "next"
       }
     ],
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["app/shared/*"],
+      "@shared/*": ["./app/shared/*"],
       "@styleguide": ["../styleguide/src"],
-      "@styleguide/*": ["../styleguide/src/*"]
+      "@styleguide/*": ["../styleguide/src/*"],
+      "*": ["./*"]
     },
+    "types": ["node", "google.maps"],
     "jsx": "react-jsx",
     "allowJs": true,
     "skipLibCheck": true,

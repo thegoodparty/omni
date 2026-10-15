@@ -1,4 +1,11 @@
 import {
+  oneOrderOnly,
+  ordersDisagree,
+  type ArmHandling,
+  type CaseHandling,
+  type HandlingClass,
+} from './handling'
+import {
   actualCostLines,
   formatTotal,
   type ActualCost,
@@ -12,11 +19,13 @@ import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
-import type {
-  AgentScore,
-  ControlReading,
-  DimensionScore,
-  ToolErrorCause,
+import {
+  controlPosition,
+  type AgentScore,
+  type ControlPosition,
+  type ControlReading,
+  type DimensionScore,
+  type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
 
@@ -48,6 +57,26 @@ export interface SeededTranscripts {
   agentId: string
   caseIds: readonly string[]
 }
+
+// How each replaying agent's candidate runs were served. Only counts, never a
+// URL: this page is public.
+export type PageReplaySummary =
+  | {
+      agentId: string
+      state: 'counted'
+      hits: number
+      misses: number
+      seeded: boolean
+      // A seeded case whose base arm ran without the seeded pages, which is
+      // what a PR adding seedPages to an existing case looks like.
+      baseUnseeded?: boolean
+    }
+  | {
+      agentId: string
+      state: 'inactive'
+      why: 'baseDidNotRecord' | 'keyMismatch' | 'noMarkers'
+    }
+  | { agentId: string; state: 'unreadable'; why: 'listFailed' | 'localStore' }
 
 export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
@@ -97,6 +126,8 @@ export interface SweepReport {
   // Where each agent's per-case rulings were stored. Only the location, never
   // a ruling: a ruling quotes the agent's output and this page is public.
   rulings?: readonly StoredRulings[]
+  // Absent for an agent whose candidate runs did not ask for page replay.
+  pageReplay?: readonly PageReplaySummary[]
 }
 
 // `location` is null when the write failed. The verdict above it still
@@ -207,6 +238,22 @@ const CONTROL_OUTCOMES: Readonly<Record<ControlReading['outcome'], string>> = {
   not_judged: 'never saw the pair',
 }
 
+// What the two orders together say, in words. Only the first two are a reading
+// of the judge: "the same slot" is a position preference, "the same call" is
+// the judge following the outputs.
+const CONTROL_POSITIONS: Readonly<Record<ControlPosition, string>> = {
+  sameCall: 'the same call in both orders',
+  sameSlot: 'picked the same slot in both orders, a position preference',
+  changed: 'changed its call between orders',
+  unread: 'no comparison of the two orders',
+}
+
+const orderText = (
+  one: Pick<ControlReading, 'outcome' | 'magnitude'>,
+): string =>
+  CONTROL_OUTCOMES[one.outcome] +
+  (one.magnitude === null ? '' : ` (${one.magnitude})`)
+
 // Its own block, after the verdict and outside every number in it. A control
 // is the zero reading: on an input built to show no difference, how often and
 // how strongly the judge calls one anyway. Read every other line against it.
@@ -219,6 +266,68 @@ const SCORED_ANYWAY: Readonly<
   baseUnread:
     "marked scored: false, but the base ref's case list could not be read, " +
     'so scored as ordinary cases',
+}
+
+// Fixed sentences: the report is public.
+const CONTRACT_NOTES: Readonly<
+  Record<NonNullable<AgentScore['outputContractNote']>, string>
+> = {
+  noRequired:
+    'Output contract not shown to the judge: the manifest requires no ' +
+    'top-level field.',
+  unread:
+    'Output contract not shown to the judge: the manifest could not be read.',
+  baseUnread:
+    "Output contract shown without comparison: the base ref's manifest " +
+    'could not be read, so a contract change in this PR would go unnoticed.',
+}
+
+const contractNoteLines = (score: AgentScore): string[] =>
+  score.outputContractNote === undefined
+    ? []
+    : [CONTRACT_NOTES[score.outputContractNote], '']
+
+const HANDLING_CLASSES: Readonly<Record<HandlingClass, string>> = {
+  bothHandled: 'both handled',
+  sharedFailure: 'shared failure',
+  regression: 'regression (the base handled it, the candidate did not)',
+  improvement: 'improvement (the candidate handled it, the base did not)',
+}
+
+const armText = (h: CaseHandling, arm: ArmHandling): string =>
+  [arm.primary, arm.swapped].filter((v) => v !== undefined).join(' / ') +
+  (ordersDisagree(arm) ? ' (orders disagree)' : '') +
+  (oneOrderOnly(h, arm) ? ' (one order only; the other was not graded)' : '')
+
+// Values and case ids only. The judge's quotes and locations are in the
+// private rulings file: they quote the agent's output, and this is public.
+const handlingLines = (score: AgentScore): string[] => {
+  const handling = score.handling?.cases ?? []
+  const notGraded = score.handling?.notGraded ?? 0
+  if (handling.length === 0 && notGraded === 0) return []
+  const count = (c: HandlingClass): number =>
+    handling.filter((h) => h.class === c).length
+  return [
+    `Condition handling: ${count('bothHandled')} both handled, ` +
+      `${count('sharedFailure')} shared failure(s), ${count('regression')} ` +
+      `regression(s), ${count('improvement')} improvement(s), over ` +
+      `${handling.length} case pair(s). Judged per run against each case's ` +
+      'handledWhen; partly, and a value that changes with the order, count ' +
+      'as not handled. Not part of the verdict above.',
+    ...(notGraded === 0
+      ? []
+      : [
+          `${notGraded} case pair(s) asked but not graded: the judge ` +
+            'returned no verdict, so nothing was read.',
+        ]),
+    ...handling.map(
+      (h) =>
+        `- ${h.caseId} attempt ${h.attempt}: base ${armText(h, h.base)}, ` +
+        `candidate ${armText(h, h.candidate)}: ` +
+        HANDLING_CLASSES[h.class],
+    ),
+    '',
+  ]
 }
 
 const controlLines = (score: AgentScore): string[] => {
@@ -234,14 +343,21 @@ const controlLines = (score: AgentScore): string[] => {
   const called = score.controls.filter(
     (c) => c.outcome === 'candidate' || c.outcome === 'base',
   ).length
+  const sameSlot = score.controls.filter(
+    (c) => controlPosition(c) === 'sameSlot',
+  ).length
   return [
     ...anyway,
     `Controls (not scored): the judge called a difference on ${called} ` +
-      `of ${score.controls.length} control pair(s).`,
+      `of ${score.controls.length} control pair(s), and picked the same ` +
+      `slot in both orders on ${sameSlot}.`,
     ...score.controls.map(
       (c) =>
-        `- ${c.caseId} attempt ${c.attempt}: ${CONTROL_OUTCOMES[c.outcome]}` +
-        (c.magnitude === null ? '' : ` (${c.magnitude})`),
+        `- ${c.caseId} attempt ${c.attempt}: ${orderText(c)}` +
+        (c.swapped === undefined
+          ? ''
+          : `; swapped: ${orderText(c.swapped)}; ` +
+            CONTROL_POSITIONS[controlPosition(c)]),
     ),
     '',
   ]
@@ -386,10 +502,49 @@ const toolErrorCauseLines = (score: AgentScore): string[] => {
   return [...excluded, '', 'Tool errors (scored, not excluded):', ...scored]
 }
 
+// Never "0%" for a replay that did not run. Zero markers means the
+// candidate's dispatch was not served by replay at all, which says nothing
+// about whether the two arms fetched the same pages.
+const replayLine = (replay: PageReplaySummary): string => {
+  if (replay.state === 'unreadable') {
+    return replay.why === 'listFailed'
+      ? 'Page replay: hit rate unavailable. Its outcome markers could not ' +
+          'be listed.'
+      : "Page replay: hit rate unavailable. This sweep's records are not " +
+          'in the artifacts bucket, where the broker leaves its markers.'
+  }
+  if (replay.state === 'inactive') {
+    return {
+      baseDidNotRecord:
+        'Page replay: not active. The base arm recorded nothing, usually ' +
+        'because its code predates replay.',
+      keyMismatch:
+        'Page replay: not active. No candidate run replayed the store its ' +
+        'base run recorded into.',
+      noMarkers:
+        'Page replay: not active. The candidate runs left no outcome ' +
+        'markers, so no page request went through replay.',
+    }[replay.why]
+  }
+  const total = replay.hits + replay.misses
+  // Rounded down, so one live request never reads as 100%.
+  const percent = Math.floor((replay.hits / total) * 100)
+  const source = replay.seeded ? 'the seeded pages' : "the base run's copy"
+  const unseeded =
+    replay.baseUnseeded === true
+      ? ' The base arm ran without the seeded pages, so it saw the live web.'
+      : ''
+  return (
+    `Page replay: ${replay.hits} of ${total} page requests (${percent}%) ` +
+    `used ${source}; ${replay.misses} went live.${unseeded}`
+  )
+}
+
 const agentSection = (
   score: AgentScore,
   config: JudgeConfig,
   spend: AgentSpend | undefined,
+  replays: readonly PageReplaySummary[],
 ): string[] => {
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
@@ -448,8 +603,11 @@ const agentSection = (
     lines.push('')
   }
 
+  lines.push(...handlingLines(score))
   lines.push(...controlLines(score))
+  lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))
+  for (const replay of replays) lines.push(`- ${replayLine(replay)}`)
   lines.push('')
   lines.push(exclusionLine(score))
   lines.push(...toolErrorCauseLines(score))
@@ -821,6 +979,7 @@ export const renderReport = (
         score,
         config,
         report.actualCost?.agents.find((a) => a.agentId === score.agentId),
+        (report.pageReplay ?? []).filter((r) => r.agentId === score.agentId),
       ),
     )
     lines.push('')

@@ -13,11 +13,13 @@ import type { QueuedMemo } from 'app/dashboard/shared/dictation/offlineMemoQueue
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import IssueCaptureConfirmCard, {
   wasCorrected,
 } from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
+  FollowUpAnswer,
   PhoneBankingCallResult,
   PhoneBankingInteraction,
   ConfirmedConstituentFeedbackIssue,
@@ -26,6 +28,7 @@ import type {
 import { CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
+  CircleCheckIcon,
   FilterPill,
   FilterPillGroup,
   IconButton,
@@ -50,6 +53,8 @@ import {
   draftFromInteraction,
   draftWithEngagement,
   draftWithFollowUp,
+  draftWithJoinCivicPanel,
+  draftWithStayOnCivicPanel,
   draftWithOutcome,
   draftWithSupportAnswer,
   draftWithWillVote,
@@ -113,6 +118,9 @@ interface PhoneBankingOutcomeFormProps {
   // `isDraftComplete`. Threaded from the caller page's `list.isServe` rather
   // than re-derived, so one loaded list cannot answer it two ways.
   isServe: boolean
+  // The list is civic panel members only: the closing question asks whether
+  // they want to stay on the panel, and a No takes them off it.
+  civicPanelOnly?: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
   // Owned by the caller page, keyed by `entryId:personId`: a tab switch
   // remounts this form, and this is what brings the answers back.
@@ -132,6 +140,7 @@ export default function PhoneBankingOutcomeForm({
   interaction,
   householdHasOthersUnlogged,
   isServe,
+  civicPanelOnly = false,
   onSaved,
   drafts,
 }: PhoneBankingOutcomeFormProps): React.JSX.Element {
@@ -152,6 +161,7 @@ export default function PhoneBankingOutcomeForm({
   // Issue capture. Behind its flag, and only once the call is
   // answered — there is nothing to summarize about a voicemail.
   const { enabled: captureEnabled } = useIssueCaptureFlag()
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(isServe)
   const product = outreachProduct(isServe)
   const [memo, setMemo] = useState(stashed?.memo ?? '')
   const [spoken, setSpoken] = useState(stashed?.spoken ?? false)
@@ -360,6 +370,8 @@ export default function PhoneBankingOutcomeForm({
             supportAnswer: request.supportAnswer ?? null,
             willVote: request.willVote ?? null,
             followUp: request.followUp ?? null,
+            joinCivicPanel: request.joinCivicPanel ?? null,
+            stayOnCivicPanel: request.stayOnCivicPanel ?? null,
             occurredAt: new Date(),
           },
         },
@@ -478,7 +490,12 @@ export default function PhoneBankingOutcomeForm({
   // Held on the phone with nothing the server has said back to summarize.
   if (queued !== null && !interaction) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="flex items-start gap-2 text-sm text-foreground">
+        <CircleCheckIcon
+          size={16}
+          aria-hidden="true"
+          className="mt-0.5 shrink-0 text-success-dark"
+        />
         {OFFLINE_MEMO_COPY[queued]}
       </p>
     )
@@ -488,7 +505,12 @@ export default function PhoneBankingOutcomeForm({
     return (
       <div className="flex flex-col gap-2">
         {queued !== null && (
-          <p className="text-sm text-muted-foreground">
+          <p className="flex items-start gap-2 text-sm text-foreground">
+            <CircleCheckIcon
+              size={16}
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-success-dark"
+            />
             {OFFLINE_MEMO_COPY[queued]}
           </p>
         )}
@@ -652,6 +674,38 @@ export default function PhoneBankingOutcomeForm({
                   <FilterPill value="no">No</FilterPill>
                 </FilterPillGroup>
               </div>
+              {citizenPanelsEnabled && draft.followUp !== undefined && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {civicPanelOnly
+                      ? 'Do they want to stay on your civic panel?'
+                      : 'Do they want to join your civic panel?'}
+                  </p>
+                  <div className="mt-2">
+                    <FilterPillGroup
+                      type="single"
+                      value={
+                        (civicPanelOnly
+                          ? draft.stayOnCivicPanel
+                          : draft.joinCivicPanel) ?? ''
+                      }
+                      onValueChange={(value) =>
+                        setDraft((current) => {
+                          const answer = (value || undefined) as
+                            | FollowUpAnswer
+                            | undefined
+                          return civicPanelOnly
+                            ? draftWithStayOnCivicPanel(current, answer)
+                            : draftWithJoinCivicPanel(current, answer)
+                        })
+                      }
+                    >
+                      <FilterPill value="yes">Yes</FilterPill>
+                      <FilterPill value="no">No</FilterPill>
+                    </FilterPillGroup>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <>
@@ -734,7 +788,12 @@ export default function PhoneBankingOutcomeForm({
             />
           </div>
           {offline.audio !== null && (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CircleCheckIcon
+                size={14}
+                aria-hidden="true"
+                className="shrink-0 text-success-dark"
+              />
               {OFFLINE_MEMO_COPY.recorded}
             </p>
           )}

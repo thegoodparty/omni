@@ -74,14 +74,19 @@ plus TCPA revocation rights, which is not the same thing, and in a compliance
 product for candidates an overclaim is a trust problem. Give each span its own
 accurate reason:
 
-| Span                     | Message                                                                   |
-| ------------------------ | ------------------------------------------------------------------------- |
-| opt-out                  | Every text has to offer a way to opt out. You can write around this line. |
-| paid for by              | Campaign finance rules require this line. You can write around it.        |
-| `{first_name}` (atom)    | The first name tag is required. You can move it, not remove it.           |
-| candidate name           | Your name has to appear in the message. You can reword the rest.          |
-| robocall name and office | A recorded call has to say who you are and what you are running for.      |
-| robocall callback number | A recorded call has to give a callback number. Read it as written.        |
+| Span                | Message                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| opt-out             | Every text has to offer a way to opt out, but you can write around it.               |
+| paid for by         | The law requires this line, but you can write around it.                             |
+| `{first_name}`      | Keep the first name so each person sees their own.                                   |
+| candidate name      | Your name stays so people know who's texting, but you can reword anything around it. |
+| anything else       | This part is required, but you can reword anything around it.                        |
+| robocall name       | A recorded call has to say who's calling, but you can reword the rest.               |
+| robocall disclosure | The law requires this line, read exactly as written.                                 |
+
+Each says why the part stays and what the candidate can still do, in one
+sentence. The SMS strings are shared by Win and Serve, so none names a
+campaign, a voter or a candidate.
 
 ### Partial overlap is the one real design detail
 
@@ -272,6 +277,12 @@ Three system-owned regions wrap the editable body:
 | identification sentence                               | prepended _into_ the editable body | yes, and deleting it blocks Continue |
 | `Paid for by <committee>.` + `Reply STOP to opt out.` | muted text below the field         | no                                   |
 
+The identification sentence is `identificationIntro`'s: the candidate's full
+name and office in one of four tone variants ("this is Jane Doe, candidate for
+City Council.", "Jane Doe here, running for City Council."). Full name, not
+first name: a voter texted by an unknown number could not tell which Jane was
+asking for their vote.
+
 `composeScript(body, committeeName)` in `v2/sms/smsCompose.util.ts` concatenates
 the three. `checkSmsStandards`
 (`packages/contracts/src/outreach/SmsAdminConsole.schema.ts`) runs on the
@@ -288,6 +299,12 @@ candidate-facing update route, so after registration only staff can change it
 
 Opt-out line only, double-brace `{{first_name}}`, `paid_for_by` rule ignored.
 **No server-side standards check exists on the Serve create path.**
+
+The identification sentence is `serveIdentificationIntro`'s: the official's
+full name and the office they hold ("this is Jane Doe, your City Council
+Member."), as polls introduce them. An official asked to be named in full
+every time, so the Chief of Staff, the priority flow and the Serve phone
+banking and door knocking prompts ask for the full name too.
 
 ### Robocall
 

@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ALERT_FILTER_WEBHOOK_URLS } from './grafana'
+import { GLOBAL_ALERTS } from './alerts'
+import { routeErrorAlerts } from './alerting/route-alerts'
+import { ALERT_FILTER_WEBHOOK_URLS, alertQueryModel } from './grafana'
 import {
   recordingRuleExpression,
   RECORDING_RULES,
@@ -129,5 +131,43 @@ describe('the recording rule expression', () => {
   it('substitutes the environment into the query', () => {
     expect(expression.model.expr).toContain('deployment_environment_name="dev"')
     expect(expression.model.expr).not.toContain('$ENV')
+  })
+})
+
+describe('the alert query model', () => {
+  // The same trap the recording rule fell into, on every log alert. Loki's
+  // backend reads `queryType` out of the model JSON, and without it each rule
+  // ran as a range query that read its fetch window on top of its range
+  // vector: 2.4x to 3x the bytes, measured on 2026-10-09, for the single value
+  // `reduce: last` keeps.
+  it('runs every log rule as an instant query', () => {
+    const logAlerts = [...GLOBAL_ALERTS, ...routeErrorAlerts()].filter(
+      (alert) => alert.type === 'log',
+    )
+    expect(logAlerts.length).toBeGreaterThan(0)
+
+    for (const alert of logAlerts) {
+      const model = JSON.parse(alertQueryModel(alert, 'prod'))
+      expect(model.queryType, alert.slug).toBe('instant')
+      expect(model.instant, alert.slug).toBe(true)
+      expect(model.range, alert.slug).toBe(false)
+    }
+  })
+
+  it('leaves Prometheus queries as they were', () => {
+    const metricAlert = GLOBAL_ALERTS.find((alert) => alert.type === 'metric')
+    if (!metricAlert) throw new Error('no metric alert to assert against')
+
+    const model = JSON.parse(alertQueryModel(metricAlert, 'prod'))
+    expect(model).not.toHaveProperty('queryType')
+  })
+
+  it('substitutes the environment into the query', () => {
+    const [alert] = routeErrorAlerts()
+    if (!alert) throw new Error('no route alert to assert against')
+
+    const model = JSON.parse(alertQueryModel(alert, 'prod'))
+    expect(model.expr).toContain('deployment_environment_name="prod"')
+    expect(model.expr).not.toContain('$ENV')
   })
 })

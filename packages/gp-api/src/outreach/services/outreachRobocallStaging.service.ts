@@ -339,6 +339,9 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         callhubCampaignPkStr: created.pk_str,
         callhubStartingDate: created.startingDate,
         callhubExpirationDate: created.expirationDate,
+        // Freeze the rate CallHub dials THIS campaign at, so the completion
+        // estimate never reads a later-raised live rate for a run staged slow.
+        stagedCallsPerMinute: created.callsPerMinute,
       },
     })
     if (commit.count === 0) {

@@ -17,11 +17,8 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
 
   const buildService = () =>
     new AdminCampaignsService(
-      {} as never,
-      {} as never,
       { findMany } as unknown as CampaignsService,
       { canDownload } as unknown as VoterFileDownloadAccessService,
-      {} as never,
       {} as never,
       {} as never,
       {
@@ -109,15 +106,12 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
 
   const buildService = () =>
     new AdminCampaignsService(
-      {} as never,
-      {} as never,
       {
         findUniqueOrThrow,
         update,
       } as unknown as CampaignsService,
       {} as never,
       { trackCampaign } as unknown as CrmCampaignsService,
-      {} as never,
       { track } as never,
       {} as never,
       { cancelSubscription } as unknown as StripeService,

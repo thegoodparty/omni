@@ -48,6 +48,10 @@ export interface CustomCheckoutSessionPayload {
   allowPromoCodes?: boolean
   returnUrl: string
   metadata?: Record<string, string | number | undefined>
+  // When set, the session's PaymentIntent authorizes a manual-capture hold
+  // instead of charging immediately (Win SMS hold billing). The funds are
+  // reserved at checkout and captured in a later step.
+  manualCapture?: boolean
 }
 
 export type PaymentIntentPayload<T extends PaymentType> = {

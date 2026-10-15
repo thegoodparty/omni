@@ -5,8 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, User } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { P2pController } from './p2p.controller'
 import { PhoneListState } from './peerly.types'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
@@ -43,6 +44,8 @@ const mockCampaign: Campaign = {
   details: { state: 'CA', electionDate: '2026-11-03' },
 }
 
+const mockUser = { id: 1, email: 'user@example.com' } as User
+
 function createMockReply(): FastifyReply {
   return { status: vi.fn().mockReturnThis() } as unknown as FastifyReply
 }
@@ -60,6 +63,10 @@ describe('P2pController', () => {
     stampPeerlyListId: ReturnType<typeof vi.fn>
     findFirst: ReturnType<typeof vi.fn>
     isLeadsLoadedStable: ReturnType<typeof vi.fn>
+  }
+  let mockP2pSmsCapture: {
+    captureHoldsForReadyList: ReturnType<typeof vi.fn>
+    finalizeDraftsForReadyList: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
 
@@ -84,11 +91,16 @@ describe('P2pController', () => {
       // tests against the real service in p2pPhoneListUpload.routes.test.ts.
       isLeadsLoadedStable: vi.fn().mockResolvedValue(true),
     }
+    mockP2pSmsCapture = {
+      captureHoldsForReadyList: vi.fn().mockResolvedValue(undefined),
+      finalizeDraftsForReadyList: vi.fn().mockResolvedValue(undefined),
+    }
     mockRes = createMockReply()
     controller = new P2pController(
       mockPeerlyPhoneListService as unknown as PeerlyPhoneListService,
       mockPeerlyPhoneListCapture as unknown as PeerlyPhoneListCaptureService,
       mockP2pPhoneListUploadService as unknown as P2pPhoneListUploadService,
+      mockP2pSmsCapture as unknown as OutreachP2pSmsCaptureService,
       createMockLogger(),
     )
   })
@@ -250,6 +262,16 @@ describe('P2pController', () => {
       expect(mockPeerlyPhoneListCapture.stampPeerlyListId).toHaveBeenCalledWith(
         'test-token',
         123,
+        500,
+      )
+      // Edge (b): the browser poll that first stamps ready also finalizes any
+      // pre-build paid draft (deferred at the webhook) and fires the capture, so
+      // neither is left to the backstop.
+      expect(mockP2pSmsCapture.finalizeDraftsForReadyList).toHaveBeenCalledWith(
+        123,
+      )
+      expect(mockP2pSmsCapture.captureHoldsForReadyList).toHaveBeenCalledWith(
+        123,
       )
     })
 
@@ -317,6 +339,12 @@ describe('P2pController', () => {
       expect(
         mockPeerlyPhoneListCapture.isLeadsLoadedStable,
       ).not.toHaveBeenCalled()
+      // Already ready before this poll: the finalize + capture edges fired on
+      // the original transition, so a repeat poll must not re-fire them.
+      expect(
+        mockP2pSmsCapture.finalizeDraftsForReadyList,
+      ).not.toHaveBeenCalled()
+      expect(mockP2pSmsCapture.captureHoldsForReadyList).not.toHaveBeenCalled()
       expect(mockRes.status).not.toHaveBeenCalled()
       expect(result).toEqual({
         phoneListId: 123,
@@ -417,7 +445,7 @@ describe('P2pController', () => {
         buildId: 'build-row-1',
       })
 
-      const result = await controller.uploadPhoneList(mockCampaign, {
+      const result = await controller.uploadPhoneList(mockUser, mockCampaign, {
         name: 'My List',
       })
 
@@ -433,10 +461,14 @@ describe('P2pController', () => {
       ).mockRejectedValue(new Error('Upload failed'))
 
       await expect(
-        controller.uploadPhoneList(mockCampaign, { name: 'My List' }),
+        controller.uploadPhoneList(mockUser, mockCampaign, {
+          name: 'My List',
+        }),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.uploadPhoneList(mockCampaign, { name: 'My List' }),
+        controller.uploadPhoneList(mockUser, mockCampaign, {
+          name: 'My List',
+        }),
       ).rejects.toMatchObject({
         message: 'Failed to upload phone list.',
       })
@@ -453,7 +485,9 @@ describe('P2pController', () => {
       ).mockRejectedValue(structured)
 
       await expect(
-        controller.uploadPhoneList(mockCampaign, { name: 'My List' }),
+        controller.uploadPhoneList(mockUser, mockCampaign, {
+          name: 'My List',
+        }),
       ).rejects.toBe(structured)
     })
   })
@@ -546,6 +580,7 @@ describe('P2pController', () => {
       expect(mockPeerlyPhoneListCapture.stampPeerlyListId).toHaveBeenCalledWith(
         'peerly-token',
         123,
+        500,
       )
     })
 

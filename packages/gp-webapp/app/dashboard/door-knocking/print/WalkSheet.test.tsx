@@ -375,6 +375,53 @@ describe('WalkSheet', () => {
     expect(document.querySelectorAll('.ws-boxes')).toHaveLength(2)
   })
 
+  // Serve asks follow-up and then the civic panel, in the form's order, in one
+  // column whose heading names both so the second Yes / No is never read as
+  // more answers to the first.
+  it('asks the civic panel question after follow-up on a serve sheet', () => {
+    render(
+      <WalkSheet
+        turfId="3"
+        turfName="Elm & Cedar"
+        payload={{ ...payload([stop()]), isServe: true }}
+        citizenPanelsEnabled
+      />,
+    )
+
+    expect(screen.getAllByRole('columnheader')[6]?.textContent).toBe(
+      'Do they need follow-up? Do they want to join your civic panel?',
+    )
+    const offered = Array.from(
+      rowFor('Dorian Fen').querySelectorAll('.ws-opt span:not(.ws-box)'),
+    ).map((label) => label.textContent)
+    expect(offered).toEqual([
+      'Answered',
+      'Not home',
+      'Inaccessible',
+      'Refused',
+      'Yes',
+      'No',
+      'Yes',
+      'No',
+    ])
+    expect(rowFor('Dorian Fen').querySelectorAll('.ws-boxes')).toHaveLength(3)
+  })
+
+  it('asks follow-up alone on a serve sheet with serve-citizen-panels off', () => {
+    render(
+      <WalkSheet
+        turfId="3"
+        turfName="Elm & Cedar"
+        payload={{ ...payload([stop()]), isServe: true }}
+      />,
+    )
+
+    expect(screen.getAllByRole('columnheader')[6]?.textContent).toBe(
+      'Do they need follow-up?',
+    )
+    expect(rowFor('Dorian Fen').querySelectorAll('.ws-boxes')).toHaveLength(2)
+  })
+
   // The template rules a Phone column and this is the field that fills it — the
   // one screen-side value that crossed onto paper, and deliberately the only
   // one. Cell first with the landline as the fallback, which is the order

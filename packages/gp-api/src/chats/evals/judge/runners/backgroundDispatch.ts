@@ -9,6 +9,7 @@ import {
   isChatCase,
   loadBackgroundCases,
   loadCaseList,
+  loadSeedPages,
 } from '../cases'
 import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
@@ -131,18 +132,38 @@ const modelOf = (config: AgentConfig): string => {
   return model
 }
 
-// The cases an arm will actually walk for an agent: the first `maxCases` of
-// its list, as the loader caps them. A value only a later case needs is not
-// a reason anything was refused.
+// THE CASES AN ARM WALKS: the first `maxCases` of the list, plus any control
+// cases past the cap that the sweep named for this agent. A control is the
+// zero reading, and Melecia's sits ninth in a list capped at three, so a cap
+// alone would never run it. The extra ids are decided once for both arms by
+// armBudget.ts, never by an arm reading its own list: the base arm marks
+// controls in the base ref's list, and two arms walking different cases pay
+// for runs that pair with nothing. In list order, so both arms take the same
+// order too.
+export const walkedCases = <T extends { caseId: string }>(
+  all: readonly T[],
+  maxCases: number | undefined,
+  extraCaseIds: readonly string[] = [],
+): T[] => {
+  const capped = maxCases === undefined ? all : all.slice(0, maxCases)
+  const taken = new Set(capped.map((one) => one.caseId))
+  return all.filter(
+    (one) => taken.has(one.caseId) || extraCaseIds.includes(one.caseId),
+  )
+}
+
+// The cases an arm will actually walk for an agent, as the loader takes them.
+// A value only a later case needs is not a reason anything was refused.
 export const walkedBackgroundCases = (
   agent: AgentEntry,
   env: ArmEnv,
   load: (agent: AgentEntry) => BackgroundCase[] = loadBackgroundCases,
-): BackgroundCase[] => {
-  const all = load(agent)
-  const { maxCases } = armConfigFor(env).background
-  return maxCases === undefined ? all : all.slice(0, maxCases)
-}
+): BackgroundCase[] =>
+  walkedCases(
+    load(agent),
+    armConfigFor(env).background.maxCases,
+    env.backgroundExtraCases?.get(agent.agentId),
+  )
 
 // WHETHER A BACKGROUND AGENT IS REFUSED BY DESIGN, before anything is staged:
 // the sweep did not admit it, resolved no identifiers for it, or could not
@@ -264,7 +285,13 @@ export const backgroundRunInputFor = (
     agentId: request.agent.agentId,
     arm: request.arm,
     attempt: request.attempt,
-    agentCase: request.case,
+    agentCase: {
+      ...request.case,
+      seedPages:
+        request.case.seedPages === undefined
+          ? undefined
+          : loadSeedPages(request.agent.agentId, request.case),
+    },
     // Built from the published manifest rather than passed through: a judge
     // run may change what the agent is told to do, never what it is allowed
     // to touch.
@@ -321,6 +348,9 @@ export interface BackgroundBudgetInput {
   // named here, because the resolver refuses one only for its turns not
   // fitting the arm.
   refusedReasons?: ReadonlyMap<string, string>
+  // Control cases past the cap that both arms walk, per agent, decided once by
+  // armBudget.ts. See walkedCases.
+  extraCases?: ReadonlyMap<string, readonly string[]>
 }
 
 export interface CaseLoaderDeps {
@@ -345,6 +375,7 @@ export const caseLoaderFor = (
     maxInFlight,
     admitted,
     refusedReasons,
+    extraCases,
   } = budget
   if (maxCases !== undefined && maxCases < 1) {
     throw new Error(
@@ -393,7 +424,7 @@ export const caseLoaderFor = (
     // fourth structural one.
     const all = loadBackground(agent)
     const cases = substituteBackgroundCases(
-      maxCases === undefined ? all : all.slice(0, maxCases),
+      walkedCases(all, maxCases, extraCases?.get(agent.agentId)),
       fixtureValuesFor(agent, values),
     )
     const config = loadConfig(agent.agentId)
@@ -405,7 +436,9 @@ export const caseLoaderFor = (
     if (admitted === undefined) {
       // Refused BEFORE deducting, so a refused agent leaves its share for
       // the ones after it.
-      const runs = cases.length * attemptsPerCase
+      // A local run walks the list's own attempts when it sets them (see
+      // attemptsFor), so the slots are spent at that count.
+      const runs = cases.length * (list.attemptsPerCase ?? attemptsPerCase)
       const why = waveRefusal(
         runs,
         pollTimeoutMs(config),
@@ -463,6 +496,7 @@ export const armCaseLoader = (
   config: JudgeConfig,
   admitted?: ReadonlySet<string>,
   refusedReasons?: ReadonlyMap<string, string>,
+  extraCases?: ReadonlyMap<string, readonly string[]>,
 ): ((agent: AgentEntry) => CaseList) =>
   caseLoaderFor(values, {
     budgetMs,
@@ -471,6 +505,7 @@ export const armCaseLoader = (
     maxInFlight: config.background.maxInFlight,
     ...(admitted !== undefined && { admitted }),
     ...(refusedReasons !== undefined && { refusedReasons }),
+    ...(extraCases !== undefined && { extraCases }),
   })
 
 // THE TWO THINGS AN ARM HANDS captureArm FROM ITS RESOLVED ENVIRONMENT, built
@@ -496,6 +531,7 @@ export const armDeps = (
     config,
     env.backgroundAdmitted,
     withChatRefusals(env, config).backgroundRefused,
+    env.backgroundExtraCases,
   ),
 })
 

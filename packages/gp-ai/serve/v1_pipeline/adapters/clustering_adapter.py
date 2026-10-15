@@ -25,11 +25,17 @@ class ClusteringAdapter:
     Adapter for the existing hierarchical discovery pipeline to work with unified records
     """
 
-    def __init__(self, config_path: str | None = None):
+    def __init__(self, config_path: str | None = None, theme_prompt_name: str | None = None):
         """Initialize clustering adapter"""
         self.config_path = config_path or str(
             Path(__file__).parent.parent.parent / "hierarchical_discovery/config.yaml"
         )
+
+        # Which hosted Braintrust prompt ClusterAnalyzer loads to name each
+        # cluster's theme; set by the v1_pipeline orchestrator from the run's
+        # source type. None lets ClusterAnalyzer fall back to its own default
+        # (the poll slug).
+        self.theme_prompt_name = theme_prompt_name
 
         # Load the config to understand the system
         try:
@@ -91,6 +97,14 @@ class ClusteringAdapter:
         logger.info("✅ AI processing ENABLED for message cleaning")
 
         temp_config["dendrogram"]["enabled"] = False
+
+        if self.theme_prompt_name:
+            # Copy rather than mutate self.config["analysis"] in place --
+            # temp_config is a shallow copy of self.config, so the two dicts
+            # are otherwise the same object.
+            analysis_config = dict(temp_config.get("analysis") or {})
+            analysis_config["theme_prompt_name"] = self.theme_prompt_name
+            temp_config["analysis"] = analysis_config
 
         if "hierarchical" not in temp_config:
             temp_config["hierarchical"] = {}

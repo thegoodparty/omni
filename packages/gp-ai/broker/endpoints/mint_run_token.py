@@ -15,6 +15,7 @@ from broker.dynamodb_client import (
     JUDGE_RUN_ID_RE,
     ExperimentOverrideRef,
     InputFileRef,
+    JudgeReplayRef,
     ScopeTicket,
     ScopeTicketStore,
     TicketAlreadyExistsError,
@@ -32,6 +33,7 @@ from broker.endpoints.experiment_manifest import (
     get_experiment_metadata_bucket,
     get_s3_client,
 )
+from broker.page_replay import replay_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +118,10 @@ class MintRequest(BaseModel):
     # the override manifest and vetted every field it will honor; this is the
     # allowlist that lets the broker serve the same bytes it vetted.
     experiment_override: ExperimentOverrideRef | None = None
+    # Optional — the store a judge run records its page fetches into or replays
+    # them from. Honored only for a judge run, in dev, on a broker with
+    # REPLAY_ENABLED set.
+    replay: JudgeReplayRef | None = None
 
 
 class MintResponse(BaseModel):
@@ -290,6 +296,34 @@ def _validate_judge_fields(
         )
 
 
+def _validate_judge_replay(replay: JudgeReplayRef | None, experiment_id: str, is_eval: bool, run_id: str) -> None:
+    """Hold `replay` to the same rules as the override: a judge run only, bound
+    to its own agent. `is_eval` already implies a `_judge-` run id in dev, so
+    requiring it carries both of those. REPLAY_ENABLED is the extra switch.
+    """
+    if replay is None:
+        return
+    if not is_eval:
+        logger.warning("mint_run_token replay_without_is_eval run_id=%s experiment_id=%s", run_id, experiment_id)
+        raise HTTPException(
+            status_code=400, detail="replay requires is_eval=true; only a judge run may record or replay"
+        )
+    if not replay_enabled():
+        logger.warning("mint_run_token replay_disabled run_id=%s experiment_id=%s", run_id, experiment_id)
+        raise HTTPException(status_code=400, detail="replay is not enabled on this broker")
+    if replay.agent_id != experiment_id:
+        logger.warning(
+            "mint_run_token replay_agent_mismatch run_id=%s experiment_id=%s agent_id=%s",
+            run_id,
+            experiment_id,
+            replay.agent_id,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"replay agentId segment {replay.agent_id!r} does not match experiment_id {experiment_id!r}",
+        )
+
+
 def _published_fields_an_override_cannot_carry(s3_client, bucket: str, experiment_id: str, run_id: str) -> list[str]:
     """Which of JUDGE_OVERRIDE_REFUSED_FIELDS the PUBLISHED manifest sets.
 
@@ -371,6 +405,7 @@ async def mint_run_token(
         request.is_eval,
         request.run_id,
     )
+    _validate_judge_replay(request.replay, request.experiment_id, request.is_eval, request.run_id)
     broker_token = str(uuid.uuid4())
     now = int(time.time())
 
@@ -465,6 +500,7 @@ async def mint_run_token(
         input_files=request.input_files,
         is_eval=request.is_eval,
         experiment_override=request.experiment_override,
+        replay=request.replay,
     )
 
     try:
@@ -478,13 +514,14 @@ async def mint_run_token(
         raise HTTPException(status_code=409, detail="Ticket already exists") from None
 
     logger.info(
-        "mint_run_token ok run_id=%s experiment_id=%s exp=%d clerk_user=%s is_eval=%s experiment_override=%s",
+        "mint_run_token ok run_id=%s experiment_id=%s exp=%d clerk_user=%s is_eval=%s experiment_override=%s replay=%s",
         request.run_id,
         request.experiment_id,
         exp,
         "present" if request.clerk_user_id else "absent",
         request.is_eval,
         request.experiment_override.manifest_key if request.experiment_override else "absent",
+        request.replay.mode if request.replay else "absent",
     )
 
     return MintResponse(

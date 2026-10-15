@@ -28,6 +28,9 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
 import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
+import { OutreachPollAdminController } from './outreachPollAdmin.controller'
+import { OutreachPollAdminService } from './services/outreachPollAdmin.service'
+import { OutreachPollReviewOverdueService } from './services/outreachPollReviewOverdue.service'
 import { OutreachResultsAdminController } from './outreachResultsAdmin.controller'
 import { OutreachResultsAdminService } from './services/outreachResultsAdmin.service'
 import { registerResultsUploadBodyLimit } from './util/outreachResultsBodyLimit.util'
@@ -37,6 +40,7 @@ import { OutreachDraftController } from './outreachDraft.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachServeSmsController } from './outreachServeSms.controller'
+import { OutreachServePollController } from './outreachServePoll.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachServePhoneBankingController } from './outreachServePhoneBanking.controller'
 import { OutreachDoorKnockingController } from './outreachDoorKnocking.controller'
@@ -65,7 +69,11 @@ import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneB
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
+import { OutreachPollResultsService } from './services/outreachPollResults.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
+import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
+import { OutreachServePollDraftService } from './services/outreachServePollDraft.service'
+import { OutreachReportBackModule } from './outreachReportBack.module'
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
@@ -78,6 +86,8 @@ import { OutreachRobocallDeferredHoldService } from './services/outreachRobocall
 import { OutreachRobocallStrandedService } from './services/outreachRobocallStranded.service'
 import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
+import { OutreachRobocallOverdueAlertService } from './services/outreachRobocallOverdueAlert.service'
+import { OutreachRobocallBacklogAlertService } from './services/outreachRobocallBacklogAlert.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
 import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
 import { OutreachRobocallCancelService } from './services/outreachRobocallCancel.service'
@@ -95,6 +105,11 @@ import { OutreachServeComposeContextService } from './services/outreachServeComp
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
+import { OutreachP2pSmsHoldService } from './services/outreachP2pSmsHold.service'
+import { OutreachP2pSmsCaptureService } from './services/outreachP2pSmsCapture.service'
+import { OutreachP2pSmsCancelService } from './services/outreachP2pSmsCancel.service'
+import { OutreachP2pSmsReconcileService } from './services/outreachP2pSmsReconcile.service'
+import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTexts.service'
 
 @Module({
   imports: [
@@ -119,6 +134,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OrganizationsModule,
     ElectedOfficeModule,
     ContactInteractionModule,
+    OutreachReportBackModule,
     CallhubModule,
     // For DoorKnockingTurfCountsService, behind the detail read's doorKnocking
     // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
@@ -152,9 +168,11 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     // Carries BOTH Serve SMS routes: POST /v1/outreach/serve/sms/draft and
     // POST /v1/outreach/serve/sms. Neither path existed until this line.
     OutreachServeSmsController,
+    OutreachServePollController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
+    OutreachPollAdminController,
     // The staff results surface: the awaiting-results queue and the per-send
     // upload that replaced fulfilment's `aws s3 cp` line, for both
     // text sends and polls.
@@ -189,6 +207,8 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
       }),
     },
     OutreachSmsAdminService,
+    OutreachPollAdminService,
+    OutreachPollReviewOverdueService,
     // Depends only on OutreachTextIngestService (provided above) and Prisma,
     // so registering it cannot unbind the module. That matters: a provider
     // with an unbindable dependency takes down every suite that builds
@@ -202,9 +222,12 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     // The reply list behind the Serve results surface. Reads
     // poll_individual_message, the only table that stores inbound SMS text.
     OutreachSmsRepliesService,
+    OutreachPollResultsService,
     // The Serve SMS product layer: draft-first create, and the purchase
     // handler its checkout runs through.
     OutreachServeSmsCreateService,
+    OutreachServePollCreateService,
+    OutreachServePollDraftService,
     OutreachServeSmsPurchaseHandlerService,
     OutreachRobocallGenerationService,
     OutreachRobocallService,
@@ -217,6 +240,8 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachRobocallStrandedService,
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
+    OutreachRobocallOverdueAlertService,
+    OutreachRobocallBacklogAlertService,
     OutreachRobocallHoldFailureService,
     OutreachRobocallWebhookService,
     OutreachRobocallCancelService,
@@ -237,6 +262,11 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachNotificationService,
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
+    OutreachP2pSmsHoldService,
+    OutreachP2pSmsCaptureService,
+    OutreachP2pSmsCancelService,
+    OutreachP2pSmsReconcileService,
+    OutreachP2pSmsFreeTextsService,
     OutreachMaterializationService,
     OutreachAssignmentService,
   ],
@@ -244,6 +274,9 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachService,
     OutreachDraftService,
     OutreachPurchaseHandlerService,
+    // The build finisher (PeerlyModule) calls this on the build-ready edge;
+    // PeerlyModule imports OutreachModule (forwardRef) to reach it.
+    OutreachP2pSmsCaptureService,
     OutreachAssignmentService,
     // The queue consumer's `outreachTextSend` case calls `requestSend` on
     // this; QueueConsumerModule imports OutreachModule to reach it.

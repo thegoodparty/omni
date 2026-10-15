@@ -19,6 +19,10 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  // Unavailable, not none: the fixture has a race and an election date, so
+  // "no race linked" would contradict the ballot tool the evals register. The
+  // one sentence this adds is the same for every case built on the fixture.
+  liveRace: { status: 'unavailable' },
   ballotStatus: 'qualified-not-filed',
   filingPeriodStart: '2026-09-01',
   filingPeriodEnd: '2026-09-15',

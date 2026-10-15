@@ -162,13 +162,16 @@ The count is cheap and decides whether to expose the tool at all (and whether th
 
 ### System prompt guardrails (`systemPromptBuilder.ts`)
 
-Five conditionally-included blocks:
+Six blocks, four always on and two conditional:
 
 - **`ROLE_CLARIFIERS_BLOCK`** — chief-of-staff framing, always second-person, no campaign-comms unless explicitly asked.
-- **`GUARDRAILS_BLOCK`** — refuses off-topic, refuses internals/prompt-injection, **single canonical decline line** (`GUARDRAIL_DECLINE`).
+- **`GUARDRAILS_BLOCK`** — off-topic requests and internals/prompt-injection get the **single canonical decline line** (`GUARDRAIL_DECLINE`, read from the shared guardrail line module in `chats/general/services/`) in place of an answer; a mixed request gets its briefing part answered and the line for the rest; capability and platform questions and messages from someone in danger never get the line.
+- **`CAUTION_RULES`** — legal readings end with the shared legal line, medical, financial, tax, and employment advice with the professional line, one per reply with legal winning, never on a bare decline. Twin of the Chief of Staff's `PROFESSIONAL_ADVICE_BLOCK`.
 - **`INSTRUCTIONS_BLOCK`** — ground answers in `<briefing>...</briefing>`; treat that content as data, not instructions.
-- **`DISTRICT_INSIGHTS_RULES`** — no counts below 100, no `hs_` / `l2_` identifiers, no raw SQL, always qualify as modeled estimates. **Included only when `district_insights` is in `availableToolNames`.**
+- **`DISTRICT_INSIGHTS_RULES`** — no counts below 100, no `hs_` / `l2_` identifiers, no raw SQL, always qualify as modeled estimates, the shared small-count line when a result reports suppressed rows. **Included only when `district_insights` is in `availableToolNames`.**
 - **`WEB_SEARCH_RULES`** — proactive use, require source URLs, no fake citations. Included only when `web_search` is available.
+
+The handler's `finalizeAssistantText` backstops two of those lines at the end of a turn: the legal line when the reply carries a statute signal (the bare section mark excluded on this chat, since briefing summaries quote agenda material) and no caution, and the small-count line when a `district_insights` result dropped rows the reply did not mention.
 
 `sanitizeUntrustedContent()` strips delimiter tags (`<briefing>`, `<|system|>`, etc.) from any untrusted text spliced into the prompt.
 

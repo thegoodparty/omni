@@ -5,7 +5,6 @@
     "node_modules",
     "test",
     "dist",
-    "e2e-tests",
     "scripts",
     // Eval harnesses, not product code. The judge's runners patch a Nest
     // singleton and a live Databricks provider by assignment, and
@@ -24,7 +23,6 @@
     // type-check disagree on scope is one edit away from shipping something
     // nothing checked.
     "src/chats/evals/**",
-    "**/*spec.ts",
-    "**/*.e2e.ts"
+    "**/*spec.ts"
   ]
 }

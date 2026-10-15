@@ -4,11 +4,13 @@ import {
   AUTH_PROVIDER_TOKEN,
   AuthProvider,
 } from '@/authentication/interfaces/auth-provider.interface'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
+import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 
 const service = useTestService()
 
@@ -229,6 +231,75 @@ describe('ElectedOfficeController', () => {
       const ids = (result.data as { id: string }[]).map((o) => o.id)
       expect(ids).toEqual([mineEarlier.id, mineLater.id])
       expect(ids).not.toContain(theirs.id)
+    })
+
+    it('says which offices have issues they ran on to offer in onboarding', async () => {
+      const issuesSlug = `campaign-issues-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: issuesSlug, ownerId: service.user.id },
+      })
+      const withIssues = await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: issuesSlug,
+          organizationSlug: issuesSlug,
+          details: {
+            customIssues: [{ title: 'Parks', position: 'More green space' }],
+          },
+        },
+      })
+      const unseeded = await createOfficeForUser(service.user.id, {
+        campaignId: withIssues.id,
+        termStartDate: new Date('2020-01-01T00:00:00.000Z'),
+      })
+      const seeded = await createOfficeForUser(service.user.id, {
+        campaignId: campaign.id,
+        termStartDate: new Date('2021-01-01T00:00:00.000Z'),
+      })
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: seeded.id,
+          title: 'Roads',
+          description: 'Fix potholes',
+          source: 'win_import',
+        },
+      })
+      const allRemoved = await createOfficeForUser(service.user.id, {
+        campaignId: withIssues.id,
+        termStartDate: new Date('2022-01-01T00:00:00.000Z'),
+      })
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: allRemoved.id,
+          title: 'Parks',
+          description: 'More green space',
+          source: 'win_import',
+          archivedAt: new Date(),
+        },
+      })
+      const emptyCampaign = await createOfficeForUser(service.user.id, {
+        campaignId: campaign.id,
+        termStartDate: new Date('2023-01-01T00:00:00.000Z'),
+      })
+      const noCampaign = await createOfficeForUser(service.user.id, {
+        termStartDate: new Date('2024-01-01T00:00:00.000Z'),
+      })
+
+      const result = await service.client.get('/v1/elected-office/mine')
+
+      expect(result.status).toBe(200)
+      expect(
+        (result.data as { id: string; hasWinIssues: boolean }[]).map((o) => [
+          o.id,
+          o.hasWinIssues,
+        ]),
+      ).toEqual([
+        [unseeded.id, true],
+        [seeded.id, true],
+        [allRemoved.id, false],
+        [emptyCampaign.id, false],
+        [noCampaign.id, false],
+      ])
     })
 
     it('returns an empty array when the user holds no offices', async () => {
@@ -489,9 +560,23 @@ describe('ElectedOfficeController', () => {
       expect(electedOffice?.campaignId).toBeNull()
     })
 
-    it('creates a campaign-less elected office with office identity from the body when there is no organization', async () => {
+    it("resolves a ballotReadyPositionId from the body to election-api's own position id when there is no organization", async () => {
       // No x-organization-slug header → no organization context, so the office
-      // identity must come from the request body.
+      // identity comes from the request body. positionId must be election-api's
+      // id, never the BallotReady id verbatim — later reads (e.g. getPositionById)
+      // reject a BallotReady id.
+      const electionsService = service.app.get(ElectionsService)
+      vi.spyOn(
+        electionsService,
+        'getPositionByBallotReadyId',
+      ).mockResolvedValue({
+        id: 'election-api-pos-from-body',
+        brPositionId: 'br-pos-from-body',
+        brDatabaseId: 'br-db-from-body',
+        state: 'TX',
+        name: 'Mayor',
+      })
+
       const result = await service.client.post('/v1/elected-office', {
         swornInDate: '2024-01-15',
         ballotReadyPositionId: 'br-pos-from-body',
@@ -502,7 +587,42 @@ describe('ElectedOfficeController', () => {
       const organization = await service.prisma.organization.findUnique({
         where: { slug: `eo-${result.data.id}` },
       })
-      expect(organization?.positionId).toBe('br-pos-from-body')
+      expect(organization?.positionId).toBe('election-api-pos-from-body')
+    })
+
+    it('rejects a ballotReadyPositionId from the body that election-api cannot resolve', async () => {
+      const electionsService = service.app.get(ElectionsService)
+      vi.spyOn(
+        electionsService,
+        'getPositionByBallotReadyId',
+      ).mockResolvedValue(null)
+
+      const result = await service.client.post('/v1/elected-office', {
+        swornInDate: '2024-01-15',
+        ballotReadyPositionId: 'br-pos-unknown',
+      })
+
+      expect(result.status).toBe(400)
+
+      const offices = await service.prisma.electedOffice.findMany({
+        where: { userId: service.user.id },
+      })
+      expect(offices).toHaveLength(0)
+    })
+
+    it('stores a null positionId and the custom name when there is no organization and no ballotReadyPositionId', async () => {
+      const result = await service.client.post('/v1/elected-office', {
+        swornInDate: '2024-01-15',
+        customPositionName: 'Water District Director',
+      })
+
+      expect(result.status).toBe(200)
+
+      const organization = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${result.data.id}` },
+      })
+      expect(organization?.positionId).toBeNull()
+      expect(organization?.customPositionName).toBe('Water District Director')
     })
 
     it('rejects an elected office whose term overlaps an existing one', async () => {
@@ -728,6 +848,28 @@ describe('ElectedOfficeController', () => {
 
       expect(result.status).toBe(200)
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+    })
+
+    it('sends the seat snapshot to HubSpot on the completing PUT', async () => {
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const sync = vi.spyOn(
+        service.app.get(CrmOfficeHolderService),
+        'syncElectedOffice',
+      )
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' },
+      )
+
+      expect(result.status).toBe(200)
+      expect(sync).toHaveBeenCalledWith(created.data.id, {
+        sendSeatFields: true,
+      })
     })
 
     it('persists the selfReported marker via a partial PUT (defaults to false)', async () => {
@@ -1018,6 +1160,33 @@ describe('ElectedOfficeController', () => {
         where: { slug: `eo-${created.data.id}` },
       })
       expect(organization?.overrideDistrictId).toBe('resolved-district')
+    })
+
+    it('syncs the office to HubSpot after the district changes', async () => {
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+
+      vi.spyOn(
+        service.app.get(OrganizationsService),
+        'resolveOverrideDistrictId',
+      ).mockResolvedValue('resolved-district')
+      vi.spyOn(
+        service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+        'verifyM2MToken',
+      ).mockResolvedValue({ id: 'mt_test', subject: 'test-machine' })
+      const sync = vi.spyOn(
+        service.app.get(CrmOfficeHolderService),
+        'syncElectedOffice',
+      )
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}/district`,
+        { state: 'CA', L2DistrictType: 'CITY', L2DistrictName: 'OAKLAND' },
+        { headers: { Authorization: 'Bearer mt_test' } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(sync).toHaveBeenCalledWith(created.data.id)
     })
   })
 })

@@ -17,10 +17,6 @@ import {
 // Schema fields deliberately absent from the catalog:
 // - search: free-text carryover from a saved search-result list, not a
 //   dimension the assistant should compose.
-// - registeredVoterTrue/False: accepted by the schema but dropped by
-//   convertVoterFileFilterToFilters (excludeFields), so filtering on them is
-//   a no-op — advertising them would let the assistant build filters that
-//   silently don't filter.
 // - age18_25/age25_35/age35_50/age50Plus: the overlapping split ENG-10752
 //   retired. Saved rows keep converting with their original bounds, but the
 //   catalog only advertises the mutually exclusive replacement ranges so the
@@ -33,8 +29,6 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // them would invite the assistant to invent precinct names. See the note
   // at the top of filterDimensions.catalog.ts.
   'precincts',
-  'registeredVoterTrue',
-  'registeredVoterFalse',
   'age18_25',
   'age25_35',
   'age35_50',
@@ -45,16 +39,25 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   'homeownerLikely',
 ])
 
+const valueKeysOf = (key: string): string[] => {
+  const dimension = FILTER_DIMENSIONS.find((d) => d.key === key)
+  return dimension && 'values' in dimension
+    ? dimension.values.map((value) => value.key)
+    : []
+}
+
 const schemaFieldKeys = new Set(Object.keys(voterFilterBaseSchema.shape))
 
-// Every schema field the catalog claims to cover: boolean-group value keys
-// plus multi-value/activity dimension keys (those dimensions' keys ARE the
+// Every schema field the catalog claims to cover: boolean-group value keys,
+// date-range from/to keys, plus multi-value/activity dimension keys (those dimensions' keys ARE the
 // schema array fields).
 const catalogSchemaFields = new Set(
   FILTER_DIMENSIONS.flatMap((dimension) =>
     dimension.kind === 'boolean-group'
       ? dimension.values.map((value) => value.key)
-      : [dimension.key],
+      : dimension.kind === 'date-range'
+        ? [dimension.fromKey, dimension.toKey]
+        : [dimension.key],
   ),
 )
 
@@ -102,10 +105,7 @@ describe('FILTER_DIMENSIONS catalog', () => {
   // (override-only, ENG-10833) alongside the four derivable ones, so the
   // assistant/wizard can safely build a filter on any of them.
   it('sources supportStatus values from the full SupportStatusRollup vocabulary', () => {
-    const supportStatus = FILTER_DIMENSIONS.find(
-      (d) => d.key === 'supportStatus',
-    )
-    expect(supportStatus?.values.map((value) => value.key)).toEqual([
+    expect(valueKeysOf('supportStatus')).toEqual([
       'supporter',
       'non_supporter',
       'unknown',
@@ -115,12 +115,10 @@ describe('FILTER_DIMENSIONS catalog', () => {
   })
 
   it('sources income and language values from the conversion maps', () => {
-    const income = FILTER_DIMENSIONS.find((d) => d.key === 'incomeRanges')
-    expect(income?.values.map((value) => value.key)).toEqual(
+    expect(valueKeysOf('incomeRanges')).toEqual(
       Object.keys(INCOME_RANGE_MAPPING),
     )
-    const language = FILTER_DIMENSIONS.find((d) => d.key === 'languageCodes')
-    expect(language?.values.map((value) => value.key)).toEqual(
+    expect(valueKeysOf('languageCodes')).toEqual(
       Object.keys(LANGUAGE_CODE_TO_LABEL),
     )
   })
@@ -219,15 +217,40 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
   const organization = (slug: string): Organization =>
     ({ slug }) as Organization
+  const PANELS_ON = { citizenPanels: true }
+
+  it('leaves the civic panel dimensions out while the flag is off', () => {
+    const off = buildService()
+      .getFilterDimensions(organization('eo-city-council'), {
+        citizenPanels: false,
+      })
+      .map((d) => d.key)
+    const on = buildService()
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
+      .map((d) => d.key)
+    expect(off).not.toContain('civicPanel')
+    expect(off).not.toContain('contactHistory')
+    expect(on).toEqual(expect.arrayContaining(['civicPanel', 'contactHistory']))
+    expect(on.filter((key) => !off.includes(key)).sort()).toEqual([
+      'civicPanel',
+      'civicPanelJoinedBy',
+      'civicPanelJoinedWhen',
+      'contactHistory',
+      'lastAsked',
+    ])
+  })
 
   it('includes party for a Win organization', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('win-campaign'),
+      PANELS_ON,
     )
     expect(dimensions.map((d) => d.key)).toContain('party')
   })
@@ -235,6 +258,7 @@ describe('ContactsService.getFilterDimensions', () => {
   it('strips party (and any Win-only dimension) for an eo- organization', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('eo-city-council'),
+      PANELS_ON,
     )
     expect(dimensions.some((d) => d.modes === 'win')).toBe(false)
     expect(dimensions.map((d) => d.key)).not.toContain('party')
@@ -246,10 +270,10 @@ describe('ContactsService.getFilterDimensions', () => {
   // reverted, so Serve is the half that must hold.
   it('offers ethnicity to Win and never to an eo- organization', () => {
     const winKeys = buildService()
-      .getFilterDimensions(organization('win-campaign'))
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
       .map((d) => d.key)
     const serveKeys = buildService()
-      .getFilterDimensions(organization('eo-city-council'))
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
       .map((d) => d.key)
     expect(winKeys).toContain('ethnicity')
     expect(serveKeys).not.toContain('ethnicity')
@@ -267,10 +291,10 @@ describe('ContactsService.getFilterDimensions', () => {
     const winOnlyKeys = keysForMode('win')
     const serveOnlyKeys = keysForMode('serve')
     const winKeys = buildService()
-      .getFilterDimensions(organization('win-campaign'))
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
       .map((d) => d.key)
     const serveKeys = buildService()
-      .getFilterDimensions(organization('eo-city-council'))
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
       .map((d) => d.key)
 
     expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(
@@ -289,6 +313,7 @@ describe('ContactsService.getFilterDimensions', () => {
   it('preserves provenance on every classified dimension for a Serve org', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('eo-city-council'),
+      PANELS_ON,
     )
     expect(dimensions.length).toBeGreaterThan(0)
     const classified = dimensions.filter(
@@ -308,6 +333,7 @@ describe('ContactsService.getFilterDimensions', () => {
   it('preserves provenance on the Win-only dimensions', () => {
     const dimensions = buildService().getFilterDimensions(
       organization('win-campaign'),
+      PANELS_ON,
     )
     expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
       'modeled',

@@ -15,6 +15,7 @@ import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ANALYTICS_CHANNEL } from '../../analytics'
 import { whatWeHeardCopy } from '../../copy'
 import { reportQueryOptions } from '../queries'
+import DownloadNotesLink from './DownloadNotesLink'
 import MemoList, { type MemoListItem } from './MemoList'
 import NewTagsStrip from './NewTagsStrip'
 import ReportCaption from './ReportCaption'
@@ -35,18 +36,33 @@ const toListItem = (memo: FeedbackReportMemo): MemoListItem => ({
 
 const EveryNote = ({
   memos,
+  channel,
+  outreachId,
   isServe,
 }: {
   memos: MemoListItem[]
+  channel: FeedbackReportResponse['channel']
+  outreachId: number
   isServe: boolean
 }) => {
   const headingId = useId()
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      <h2 id={headingId} className="text-lg font-semibold text-foreground">
-        {whatWeHeardCopy(isServe).everyNoteHeading}
-      </h2>
-      <MemoList memos={memos} isServe={isServe} />
+      <div className="flex items-center justify-between gap-3">
+        <h2 id={headingId} className="text-lg font-semibold text-foreground">
+          {whatWeHeardCopy(isServe).everyNoteHeading(channel)}
+        </h2>
+        {/* The export is the canvassers' notes; a text send's replies are
+            already a file on the results page that received them. */}
+        {channel !== 'text' && (
+          <DownloadNotesLink
+            outreachId={outreachId}
+            hasNotes={memos.length > 0}
+            isServe={isServe}
+          />
+        )}
+      </div>
+      <MemoList memos={memos} channel={channel} isServe={isServe} />
     </section>
   )
 }
@@ -72,14 +88,25 @@ const ReportBody = ({
     return (
       <>
         <SummarizingBanner isServe={isServe} />
-        <EveryNote memos={memos} isServe={isServe} />
+        <EveryNote
+          memos={memos}
+          channel={report.channel}
+          outreachId={outreachId}
+          isServe={isServe}
+        />
       </>
     )
   }
 
   if (report.denominators.confirmed < report.floor) {
     return (
-      <UnderFloorList floor={report.floor} memos={memos} isServe={isServe} />
+      <UnderFloorList
+        floor={report.floor}
+        memos={memos}
+        channel={report.channel}
+        outreachId={outreachId}
+        isServe={isServe}
+      />
     )
   }
 
@@ -109,7 +136,12 @@ const ReportBody = ({
           />
         </>
       )}
-      <EveryNote memos={memos} isServe={isServe} />
+      <EveryNote
+        memos={memos}
+        channel={report.channel}
+        outreachId={outreachId}
+        isServe={isServe}
+      />
     </>
   )
 }
@@ -157,7 +189,7 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
                 ? '/dashboard/constituent-outreach'
                 : `/dashboard/outreach?outreachId=${outreachId}`
             }
-            className="inline-flex w-fit items-center gap-2 text-sm text-foreground"
+            className="inline-flex w-fit items-center gap-2 text-sm text-foreground underline-offset-4 hover:underline"
           >
             <ArrowLeftIcon size={16} />
             {copy.backToOutreach}
@@ -171,6 +203,7 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
                   </h1>
                   <ReportCaption
                     denominators={report.denominators}
+                    channel={report.channel}
                     outreachId={outreachId}
                     isServe={isServe}
                   />
@@ -192,7 +225,9 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
               />
             </div>
           ) : reportQuery.isError ? (
-            <p className="text-sm text-destructive">{copy.loadFailed}</p>
+            <Alert variant="destructive" role="alert">
+              <AlertDescription>{copy.loadFailed}</AlertDescription>
+            </Alert>
           ) : (
             <div className="flex items-center justify-center gap-3 py-20">
               <Spinner />

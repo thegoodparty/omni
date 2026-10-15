@@ -16,7 +16,8 @@ import {
   type VoterFileFilterService,
 } from '@/voters/services/voterFileFilter.service'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
-import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
+import { dataSourceRoutingRules } from '@/llm/tools/dataSourceRouting'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
 // Mirrors the webapp wizard's MAX_SEGMENT_NAME_LENGTH (client-enforced there);
 // enforced here because the tool description promises the cap.
@@ -28,11 +29,8 @@ export const MAX_SAVED_FILTER_NAME_LENGTH = 40
 // fields are enforced in execute below. The filter fields are the SAME Zod
 // shape the voter-file filter routes consume (Create/UpdateVoterFileFilterSchema
 // wrap voterFilterBaseSchema), so per-channel activity-outcome validity is
-// inherited at parse time, never re-implemented. The two legacy registration
-// keys are omitted and unknown keys rejected, as in count_contacts: the
-// filter engine silently ignores them.
+// inherited at parse time, never re-implemented.
 const crudSavedFiltersInputSchema = voterFilterBaseSchema
-  .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
   .extend({
     action: z.enum(['list', 'get', 'create', 'update', 'delete']),
     id: z.number().int().positive().optional(),
@@ -111,6 +109,7 @@ export const buildCrudSavedFiltersTool = (deps: {
     'countContacts' | 'countSegment' | 'drawListSample'
   >
   organization: Organization
+  peopleDataset: PeopleDataset
 }): LlmStreamTool<typeof crudSavedFiltersInputSchema> => ({
   description:
     "Manage this organization's saved contact lists (saved filters). " +
@@ -138,7 +137,7 @@ export const buildCrudSavedFiltersTool = (deps: {
     'individual records, and returns a structured error when the ' +
     'organization cannot manage lists (e.g. a Win campaign without Pro).' +
     '\n\n' +
-    DATA_SOURCE_ROUTING_RULES,
+    dataSourceRoutingRules(deps.peopleDataset),
   inputSchema: crudSavedFiltersInputSchema,
   execute: async (input): Promise<CrudSavedFiltersOutput> => {
     const { voterFileFilters, contacts, organization } = deps

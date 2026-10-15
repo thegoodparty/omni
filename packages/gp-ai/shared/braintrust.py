@@ -4,7 +4,7 @@ import os
 import re
 import threading
 from contextlib import contextmanager
-from typing import Optional, Dict, Any, Callable, Iterator, TypeVar
+from typing import Optional, Dict, Any, Callable, Iterator, Literal, TypeVar
 
 from dotenv import load_dotenv
 from shared.logger import get_logger
@@ -14,6 +14,13 @@ load_dotenv()
 logger = get_logger(__name__)
 
 T = TypeVar('T')
+
+# Whether a prompt returned by `load_prompt` came from the hosted Braintrust
+# build or the in-repo fallback (strict mode raises on an unsupplied
+# placeholder, which is the case this exists to surface — see
+# docs/braintrust.md). Carried onto the pipeline's completion events so a
+# fallback is visible somewhere logs actually reach Grafana.
+PromptSource = Literal['hosted', 'fallback']
 
 
 def flatten_prompt_messages(rendered: Any) -> str:
@@ -78,6 +85,7 @@ class BraintrustClient:
         self._initialized = False
         self._cached_prompts: Dict[str, Any] = {}
         self._prompt_cache_lock = threading.Lock()
+        self._prompt_sources: Dict[str, PromptSource] = {}
 
     @classmethod
     def get_instance(cls) -> 'BraintrustClient':
@@ -105,6 +113,7 @@ class BraintrustClient:
         self._enabled = False
         self._initialized = False
         self._cached_prompts = {}
+        self._prompt_sources = {}
 
     def init(self, project: str, api_key: Optional[str] = None) -> bool:
         if self._initialized:
@@ -291,6 +300,7 @@ class BraintrustClient:
         variables: Optional[Dict[str, Any]] = None,
     ) -> str:
         if not self._enabled or self._braintrust_module is None:
+            self._prompt_sources[prompt_name] = 'fallback'
             return self._render_prompt(fallback_prompt, variables)
 
         try:
@@ -300,14 +310,31 @@ class BraintrustClient:
 
             if prompt is None:
                 logger.debug(f"Prompt '{prompt_name}' not found in Braintrust, using fallback")
+                self._prompt_sources[prompt_name] = 'fallback'
                 return self._render_prompt(fallback_prompt, variables)
 
-            rendered = prompt.build(**(variables or {}))
+            rendered = prompt.build(**(variables or {}), strict=True)
+            # Sticky to 'fallback': one run calls this many times for the
+            # same prompt name (once per cluster), and a single fallback
+            # among otherwise-hosted calls is exactly the case this exists
+            # to surface. Don't let a later hosted call paper over it.
+            if self._prompt_sources.get(prompt_name) != 'fallback':
+                self._prompt_sources[prompt_name] = 'hosted'
             return flatten_prompt_messages(rendered)
 
         except Exception as e:
             logger.warning(f"Failed to load prompt '{prompt_name}' from Braintrust: {e}")
+            self._prompt_sources[prompt_name] = 'fallback'
             return self._render_prompt(fallback_prompt, variables)
+
+    def get_prompt_source(self, prompt_name: str) -> Optional[PromptSource]:
+        """Where `load_prompt` got this name's prompt from, across every
+        call made for it since the client was (re)initialized. Sticky to
+        'fallback': a run calls `load_prompt` once per cluster for the same
+        prompt name, and once any of those calls falls back this stays
+        'fallback' even if a later call for the same name renders hosted.
+        None if `load_prompt` has never been called for it."""
+        return self._prompt_sources.get(prompt_name)
 
     def _render_prompt(self, prompt: str, variables: Optional[Dict[str, Any]]) -> str:
         if not variables:
@@ -449,6 +476,10 @@ def load_prompt_from_braintrust(
     return BraintrustClient.get_instance().load_prompt(
         prompt_name, fallback_prompt, variables
     )
+
+
+def get_prompt_source(prompt_name: str) -> Optional[PromptSource]:
+    return BraintrustClient.get_instance().get_prompt_source(prompt_name)
 
 
 def flush_logs() -> None:

@@ -56,6 +56,9 @@ export {
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
+  type PollAudienceKind,
+  POLL_AUDIENCE_KIND_VALUES,
+  PollAudienceKindSchema,
   type PollStatus,
   POLL_STATUS_VALUES,
   PollStatusSchema,
@@ -110,6 +113,9 @@ export {
   type PrioritySource,
   PRIORITY_SOURCE_VALUES,
   PrioritySourceSchema,
+  type TrackerTaskSkipReason,
+  TRACKER_TASK_SKIP_REASON_VALUES,
+  TrackerTaskSkipReasonSchema,
 } from './generated/enums'
 
 export {
@@ -125,6 +131,8 @@ export {
   isLegacyDoorKnockingUnitKey,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
+  CivicPanelActivitySchema,
+  type CivicPanelActivity,
 } from './people/Person.schema'
 
 export {
@@ -150,6 +158,13 @@ export {
   type UpdateFollowUpInput,
   FollowUpStatusResponseSchema,
   type FollowUpStatusResponse,
+  CivicPanelStatusSchema,
+  type CivicPanelStatus,
+  UpdateCivicPanelInputSchema,
+  type UpdateCivicPanelInput,
+  CivicPanelStatusResponseSchema,
+  type CivicPanelStatusResponse,
+  CIVIC_PANEL_STATUS_LABELS,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
   DO_NOT_KNOCK_LABELS,
@@ -157,6 +172,18 @@ export {
   FOLLOW_UP_STATUS_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
+
+export {
+  CIVIC_PANEL_SEGMENT,
+  CivicPanelSummarySchema,
+  type CivicPanelSummary,
+  CivicPanelRepresentationSchema,
+  type CivicPanelRepresentation,
+} from './people/CivicPanelSummary.schema'
+export {
+  isCivicPanelOnlyList,
+  type CivicPanelOnlyCriteria,
+} from './people/CivicPanelOnlyList'
 
 export {
   ContactNoteSchema,
@@ -411,6 +438,29 @@ export {
 } from './campaigns/CampaignTaskCatalog.data'
 
 export {
+  ACTIVE_WEEKS_BEFORE_ELECTION,
+  GOTV_WINDOW_DAYS,
+  campaignPhaseWindows,
+  timelineElectionDate,
+  phaseForDate,
+  phaseStart,
+  resolveTrackerTaskDate,
+  timelinePhase,
+  trackerTimelineStart,
+  voterContactSendDate,
+  type CampaignPhaseWindows,
+  type CampaignTimelinePhase,
+} from './campaigns/CampaignTimeline'
+
+export {
+  TRACKER_TASK_SNOOZE_DAYS,
+  canPutOffTask,
+  canSetTaskAsideForGood,
+  isTrackerTaskSetAside,
+  trackerTaskPutOffDate,
+} from './campaigns/TrackerTaskSkip'
+
+export {
   VOTER_CONTACT_SCHEDULE,
   voterContactSendOffsetDays,
   type VoterContactSend,
@@ -523,6 +573,11 @@ export {
   UpdateCommitteeNameOutputSchema,
   type UpdateCommitteeNameOutput,
 } from './campaigns/UpdateCommitteeName.schema'
+export {
+  COMMITTEE_NAME_PLACEHOLDER_MESSAGE,
+  CommitteeNameSchema,
+  isPlaceholderCommitteeName,
+} from './campaigns/CommitteeName.schema'
 
 export {
   UpdateFilingUrlSchema,
@@ -665,6 +720,14 @@ export {
   judgeRunId,
 } from './agentRuns/JudgeOverride.schema'
 export type { JudgeOverride } from './agentRuns/JudgeOverride.schema'
+export {
+  JUDGE_REPLAY_KEY_PREFIX,
+  JudgeReplaySchema,
+  judgeReplayBaseKey,
+  judgeReplaySeedKey,
+  judgeReplaySweepKey,
+} from './agentRuns/JudgeReplay.schema'
+export type { JudgeReplay } from './agentRuns/JudgeReplay.schema'
 
 export {
   BRIEFING_DATE_RANGE_VALUES,
@@ -740,6 +803,10 @@ export {
   ChatCardSchema,
   ProposalLinkSchema,
   PROPOSAL_SENT_MARKER,
+  REPORT_BACK_MARKER,
+  reportBackMessage,
+  isReportBackMessage,
+  isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
   type ProposalLink,
@@ -763,6 +830,41 @@ export {
 } from './priorities/Priority.schema'
 
 export {
+  ONBOARDING_PRIORITY_OPTION_KINDS,
+  OnboardingPriorityOptionKindSchema,
+  type OnboardingPriorityOptionKind,
+  OnboardingPriorityOptionSchema,
+  type OnboardingPriorityOption,
+  OnboardingPriorityOptionsSchema,
+  type OnboardingPriorityOptions,
+  OnboardingOtherPrioritySchema,
+  type OnboardingOtherPriority,
+  SetOnboardingPrioritiesInputSchema,
+  type SetOnboardingPrioritiesInput,
+} from './priorities/PriorityOnboarding.schema'
+
+export {
+  MIN_RESPONDENTS_FOR_REPRESENTATION,
+  PRIORITY_RESULTS_CHANNELS,
+  PriorityResultsChannelSchema,
+  type PriorityResultsChannel,
+  PriorityResultsSendSchema,
+  type PriorityResultsSend,
+  PriorityResultsPointSchema,
+  REPRESENTATION_DIMENSIONS,
+  RepresentationDimensionSchema,
+  type RepresentationDimension,
+  RepresentationGroupSchema,
+  type RepresentationGroup,
+  PriorityRepresentationSchema,
+  type PriorityRepresentation,
+  PriorityResultsSchema,
+  type PriorityResults,
+  PriorityThemeSchema,
+  type PriorityTheme,
+} from './priorities/PriorityResults.schema'
+
+export {
   DASHBOARD_CARD_TYPE_VALUES,
   DashboardCardTypeSchema,
   type DashboardCardType,
@@ -775,6 +877,12 @@ export {
   type DashboardCard,
   DashboardCardsResponseSchema,
   type DashboardCardsResponse,
+  DASHBOARD_CARD_SNOOZE_DAYS,
+  civicPanelBuildCardSourceId,
+  isCivicPanelBuildCard,
+  CIVIC_PANEL_BUILD_CHAT_PARAM,
+  CIVIC_PANEL_BUILD_CHAT_VALUE,
+  CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 
 export {
@@ -931,6 +1039,11 @@ export {
   type OutreachPurpose,
   SERVE_OUTREACH_PURPOSE_VALUES,
   ServeOutreachPurposeSchema,
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  REPORT_BACK_PURPOSE,
+  SERVE_SMS_PURPOSE_VALUES,
+  ServeSmsPurposeSchema,
+  type ServeSmsPurpose,
   COMMUNITY_INPUT_PURPOSE,
   COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   type ServeOutreachPurpose,
@@ -1014,7 +1127,7 @@ export {
   type DoorKnockingTalkingPointsPurpose,
   ServeDoorKnockingTalkingPointsPurposeSchema,
   type ServeDoorKnockingTalkingPointsPurpose,
-  DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
+  DOOR_KNOCKING_BULLET,
   DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
   DoorKnockingTalkingPointsDraftResponseSchema,
@@ -1111,7 +1224,14 @@ export {
   type SmsOutreachReplies,
   SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
   SMS_OUTREACH_REPLIES_MAX_LIMIT,
+  SmsOutreachRepliesFilterSchema,
+  type SmsOutreachRepliesFilter,
+  SmsOutreachRepliesQuerySchema,
+  type SmsOutreachRepliesQuery,
 } from './outreach/OutreachResults.schema'
+export * from './outreach/ServePoll.schema'
+export * from './outreach/PollResults.schema'
+export * from './outreach/PollAdmin.schema'
 
 export {
   SMS_PURPOSE_VALUES,
@@ -1430,6 +1550,8 @@ export {
   type FeedbackSynthesisResponseRows,
   SynthesisRunSchema,
   type SynthesisRun,
+  FeedbackReportChannelSchema,
+  type FeedbackReportChannel,
   StanceCountsSchema,
   type StanceCounts,
   FeedbackThemeSummarySchema,
@@ -1515,6 +1637,12 @@ export {
   type TestFixtureSessionResponse,
   DeleteTestFixtureUsersResponseSchema,
   type DeleteTestFixtureUsersResponse,
+  TEST_FIXTURE_ACTIVITY_MAX_PEOPLE,
+  SeedTestFixtureActivityRequestSchema,
+  type SeedTestFixtureActivityRequest,
+  TestFixtureActivityEffortSchema,
+  SeedTestFixtureActivityResponseSchema,
+  type SeedTestFixtureActivityResponse,
 } from './testFixtures/testFixtures.schema'
 
 export {
@@ -1526,3 +1654,61 @@ export {
   DevEnvBundleResponseSchema,
   type DevEnvBundleResponse,
 } from './devEnv/devEnv.schema'
+
+export {
+  TEST_MODE_ORGANIZATION_TYPE_VALUES,
+  TestModeOrganizationTypeSchema,
+  type TestModeOrganizationType,
+  TEST_MODE_FAMILY_VALUES,
+  TestModeFamilySchema,
+  type TestModeFamily,
+  TEST_MODE_ONBOARDING_PRESET_VALUES,
+  TestModeOnboardingPresetSchema,
+  type TestModeOnboardingPreset,
+  TEST_MODE_PRO_PRESET_VALUES,
+  TestModeProPresetSchema,
+  type TestModeProPreset,
+  TEST_MODE_ELECTION_PRESET_VALUES,
+  TestModeElectionPresetSchema,
+  type TestModeElectionPreset,
+  TEST_MODE_TERM_PRESET_VALUES,
+  TestModeTermPresetSchema,
+  type TestModeTermPreset,
+  TEST_MODE_TEN_DLC_PRESET_VALUES,
+  TestModeTenDlcPresetSchema,
+  type TestModeTenDlcPreset,
+  TestModeRaceSchema,
+  type TestModeRace,
+  CreateTestOrganizationRequestSchema,
+  type CreateTestOrganizationRequest,
+  ApplyTestModeRequestSchema,
+  type ApplyTestModeRequest,
+  TestModeFamilyStateSchema,
+  type TestModeFamilyState,
+  TestModeOrganizationSchema,
+  type TestModeOrganization,
+  TestModeActiveOrganizationSchema,
+  type TestModeActiveOrganization,
+  TestModeStateSchema,
+  type TestModeState,
+} from './testMode/testMode.schema'
+
+export {
+  CIVIC_PANEL_JOIN_KEYWORD,
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
+  findCivicPanelJoinLine,
+  CIVIC_PANEL_LEAVE_KEYWORD,
+  CIVIC_PANEL_LEAVE_LINE,
+  findCivicPanelLeaveLine,
+  countCivicPanelLines,
+  PANEL_ASSUMED_REPLY_RATE,
+  CONTACT_REST_DAYS,
+  PANEL_SEED_TARGET_MEMBERS,
+  PANEL_SEED_ASSUMED_JOIN_RATE,
+  PANEL_SEED_SAMPLE_SIZE,
+  BUILD_CITIZENS_PANEL_MARKER,
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MARKER,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from './outreach/CivicPanelJoin'

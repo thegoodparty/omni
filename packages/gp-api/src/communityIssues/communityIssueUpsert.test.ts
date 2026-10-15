@@ -610,6 +610,33 @@ describe('CommunityIssueService analytics events', () => {
     expect(callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)).toHaveLength(0)
   })
 
+  it('treats the first run after onboarding starter issues as the first generation', async () => {
+    const starter = await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
+        title: 'Starter issue',
+        summary: 'From onboarding.',
+        rank: 1,
+      },
+    })
+
+    await generate('trending_issues', 'trending', [makeIssue(1)])
+    expect(
+      callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
+    ).toHaveLength(0)
+
+    await generate('top_community_issues', 'top_community', [
+      makeIssue(1, { existing_issue_id: starter.id }),
+    ])
+    expect(
+      callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
+    ).toHaveLength(1)
+    expect(callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)).toHaveLength(0)
+  })
+
   it('does not fire Initial Issues Generated when the other list has no live issues', async () => {
     // Trending generates, then empties (the AI returns no issues, archiving
     // all rows). Top then has its first generation: the org has "ever
@@ -633,6 +660,7 @@ describe('CommunityIssueService analytics events', () => {
         title: 'Pothole backlog',
         summary: 'Crews are behind on road repairs.',
         rank: 1,
+        lastRefreshedRunId: 'earlier-run',
       },
     })
     await generate('trending_issues', 'trending', [makeIssue(1)])

@@ -240,6 +240,68 @@ export class OutreachNotificationService {
     )
   }
 
+  /**
+   * Alert CAS when a robocall is past its scheduled date and still has not
+   * dialed — failure-mode-agnostic, so it surfaces a silent tail (a stuck
+   * staged/authorized run) no settle-state-specific sweep catches. Carries the
+   * campaign/outreach id, the scheduled date, how overdue it is, and the current
+   * settle state so ops can triage without a DB read. Best-effort.
+   */
+  async notifyRobocallOverdue(
+    campaignSlug: string,
+    outreachId: number,
+    scheduledLabel: string,
+    overdueLabel: string,
+    settleState: string,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `🚨 Robocall overdue — ${campaignSlug} · outreach #${outreachId} · ` +
+        `scheduled ${scheduledLabel}, ~${overdueLabel} overdue and still not ` +
+        `dialed (state: ${settleState}). Needs manual review.`,
+      outreachId,
+    )
+  }
+
+  /**
+   * Proactively warn CAS when the serial send queue's backlog is projected to
+   * push a robocall past its scheduled DAY — before it is actually late (that
+   * is `notifyRobocallOverdue`). Carries the campaign/outreach id, the scheduled
+   * day, and the projected dial day so ops can act (split a big list, reschedule,
+   * or raise the dial rate) while there is still time. Best-effort.
+   */
+  async notifyRobocallBacklogDelayed(
+    campaignSlug: string,
+    outreachId: number,
+    scheduledLabel: string,
+    projectedLabel: string,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `⏳ Robocall backlog — ${campaignSlug} · outreach #${outreachId} · ` +
+        `scheduled ${scheduledLabel} but the send queue won't reach it until ` +
+        `~${projectedLabel}. The backlog will push it past its day; consider ` +
+        `rescheduling or splitting a large list.`,
+      outreachId,
+    )
+  }
+
+  /**
+   * Notify CAS when a robocall is canceled before it dials (CAS request: the
+   * monitoring team wants cancels surfaced the way sends and completions are).
+   * Names who ended it — staff vs the candidate — so a canceled run doesn't
+   * silently vanish from the channel's narrative. Best-effort.
+   */
+  async notifyRobocallCanceled(
+    campaignSlug: string,
+    outreachId: number,
+    canceledByAdmin: boolean,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `🚫 Robocall canceled (by ${canceledByAdmin ? 'staff' : 'candidate'}) — ` +
+        `${campaignSlug} · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
   private async postRobocallLine(
     text: string,
     outreachId: number,

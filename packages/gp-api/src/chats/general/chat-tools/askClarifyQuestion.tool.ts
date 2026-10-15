@@ -1,6 +1,15 @@
 import { ChatClarifyQuestionSchema } from '@goodparty_org/contracts'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 
+// How to ask, said once for every scope that registers the tool, so a card
+// on one assistant never behaves differently from the same card on another.
+export const CLARIFY_QUESTION_RULES = [
+  '- Set `multiSelect` on `ask_clarify_question` when more than one answer can be true, such as options they could pursue together or symptoms of one problem. Leave it off when the answers rule each other out.',
+  '- When the user has to pick between real options, ask with `ask_clarify_question`, one question at a time, never as a list in prose. Put the question and options only in the call.',
+  '- Never end a message with an either/or or a pick-one question in prose. A "Yes" back tells you nothing. When the user has to choose, call `ask_clarify_question`.',
+  '- The app shows the question above its options, so never write it, or any rewording of it, as chat text. Anything before the call is context that never ends in a question. If no context is needed, write nothing and just call the tool.',
+]
+
 // A no-op presenter: the call itself is the question. Its args persist as the
 // tool segment the webapp widget renders and replays from, and the answer
 // comes back as an ordinary user turn.

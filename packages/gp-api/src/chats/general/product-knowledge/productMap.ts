@@ -62,7 +62,7 @@ const SHARED_AREAS: ProductArea[] = [
     name: 'Profile',
     path: '/dashboard/profile',
     modes: ['win', 'serve'],
-    does: 'Edit your own name, contact details, and campaign or office details.',
+    does: 'Edit your profile photo, party, bio, occupation, website, and campaign or office details.',
     inside: ['In the account menu, at the bottom of the left-hand menu'],
   },
   {
@@ -78,7 +78,11 @@ const SHARED_AREAS: ProductArea[] = [
     name: 'Account Settings',
     path: '/dashboard/account',
     modes: ['win', 'serve'],
-    does: 'Billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
+    does: 'Your name, sign-in details, notifications, billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
+    inside: [
+      'Edit details, on the first card, changes your first and last name',
+      'Manage sign-in, next to it, changes your sign-in email, phone, and password',
+    ],
   },
   {
     navId: 'nav-dash-support',
@@ -113,14 +117,14 @@ const SHARED_AREAS: ProductArea[] = [
   },
 ]
 
-// Win: the candidate product. Campaign Manager is the home tab.
+// Win: the candidate product. Home is the home tab.
 const WIN_AREAS: ProductArea[] = [
   {
     navId: 'campaign-tracker-dashboard',
-    name: 'Campaign Manager',
+    name: 'Home',
     path: '/dashboard',
     modes: ['win'],
-    does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
+    does: 'The home tab, and where this chat lives, leading with the plan’s next task. While it rolls out, some candidates still see this tab named Campaign Manager, with the week’s top tasks listed under their progress.',
     inside: [
       'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
       'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
@@ -130,7 +134,11 @@ const WIN_AREAS: ProductArea[] = [
       'Pasting a link attaches it as a source the assistant can read',
       'A citation in a reply opens the document it points to, to the cited page when there is one',
       'Asking to turn a reply into a social post opens Voter Outreach’s social flow with the draft already written in, to review before you post it',
-      'Asking the chat to text voters gets a text outreach card, which can go to a random sample of them instead of everyone, sized the way polls are, with the cost of each. The card’s button opens Voter Outreach’s text flow with the audience and message filled in, to review and pay for before it sends',
+      'Asking the chat to reach voters gets an outreach card for one channel: a text, phone banking, door knocking or a social post. The card’s button opens that channel’s Voter Outreach flow with the audience and message filled in, to review before it goes out; a text or phone banking card opens on the message or script, its list already saved and picked, and Back goes to the list and the purpose; a text is paid for there',
+      'A text card can go to a random sample of voters instead of everyone, sized the way polls are, with the cost of each',
+      'Asking the chat to build a list of voters gets a list card with a Create list button; once pressed, the card turns into the list on a map',
+      'A list shown on a map here has Draw shapes / Edit shapes beside Open list, which narrows that list to the shapes without leaving the conversation',
+      'Asking how an earlier send did gets its numbers in the reply, and can leave cards for those sends that open each one in Voter Outreach',
     ],
   },
   {
@@ -149,7 +157,7 @@ const WIN_AREAS: ProductArea[] = [
     name: 'Campaign Plan',
     path: '/dashboard/campaign-plan',
     modes: ['win'],
-    does: 'The generated campaign plan and the week-by-week task list. Every candidate can generate one; finishing the Campaign Story personalizes it.',
+    does: 'The campaign as a timeline of tasks in three phases (Launch, Active campaign, Get out the vote), with the full written plan under the Campaign strategy card at the top. Every candidate gets one; finishing the Campaign Story personalizes it. A task started from its own button (a text, a robocall, a call list, a social post, door knocking) is marked done on its own once that outreach is scheduled. Skip on the next task offers Show in 3 days (never past its due date) or, for anything but ballot access, Not for me; either can be brought back with Bring it back in the task menu. While it rolls out, some candidates still see the earlier page: the plan with their tasks grouped by phase below it.',
     gate: 'No gate. A candidate with no Campaign Story still gets a campaign and outreach plan, just a generic one, and completing the story regenerates it from their own answers.',
   },
   {
@@ -161,7 +169,9 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'Each channel starts by asking who to reach, which reads from your saved lists',
+      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
       'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
       'A saved one waits in the outreach history, labeled with what it still needs — Pro needed, Verification needed, Verification in review, PIN needed, or Ready to schedule',
@@ -185,6 +195,10 @@ const WIN_AREAS: ProductArea[] = [
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
+      'Opening a list also shows a map of where its voters are',
+      'Draw shapes on that map to narrow the list to one or more parts of the district',
+      'The create-list flow asks for those shapes too, between the filters and the name, and it can be skipped',
+      'Shapes can be added, renamed, recoloured, redrawn or deleted until the list has been used for outreach',
       'A voter’s record can carry What they told us: what they said at the door or on the phone, the issues they raised, where they stand on each and what they want, and any accepted tags. It is being rolled out account by account',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
@@ -228,9 +242,8 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Upgrade to Pro, which is what unlocks filtering the voter file and Know Your Opponent.',
     inside: [
-      'One flow, and which screens it asks for depends on the campaign: some candidates answer whether they have filed, give their campaign EIN, and pay, and nothing else',
-      'Other candidates are asked for their filing details and candidate profile before paying, in the same flow',
-      'When those are not asked for up front they are collected afterwards, under Campaign verification',
+      'One flow: the candidate answers whether they have filed, gives their campaign EIN and their campaign filing details (plus a candidate profile if they have not written one), then pays',
+      'Candidates who were already Pro without filing details on record add them under Campaign verification',
       'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
       'The Welcome to Pro screen shows the receipt for the $10 monthly charge, with the card used and a download',
     ],
@@ -270,8 +283,16 @@ const SERVE_AREAS: ProductArea[] = [
     name: 'Chief of Staff',
     path: '/dashboard/chief-of-staff',
     modes: ['serve'],
-    does: 'The home tab, and where this chat lives.',
+    does: 'The home tab, and where this chat lives, leading with one task at a time: the get-started cards first (with the civic panel build card between them where the civic panel is on), then the week’s meeting, agenda and community issue tasks by due date.',
     inside: [
+      'The task in front has its main button, Mark done, Ask about this and Skip; finishing or skipping it brings the next task forward',
+      'Ask about this opens a new chat with your Chief of Staff about that task. The civic panel cards do not have it, since their own button already opens a conversation',
+      'Two get-started cards: Get the staff your office never had, which opens this chat to meet your Chief of Staff, and Get help focused on what you care about, which opens it to share your priorities. A new official always sees Get the staff your office never had first, until they open it or skip it; chatting from anywhere else does not count. They have no Mark done or Ask about this; they leave on their own once you have opened the first one, or shared your priorities',
+      'Meeting your Chief of Staff, from that card or on your first chat, it says what it does and asks what you want to start with, with a card for each: Get ready for your next meeting, See what residents are raising, Move a priority forward, Build your civic panel (Ask your civic panel once it has members; only where the civic panel is on), Draft an ordinance (opens a new ordinance) and Reach your constituents. Each one starts that conversation; none of them finishes the get-started card. A new chat from the chat bar shows the same cards',
+      'Where the civic panel is on, the card right after Get the staff your office never had (the first card once that one is done or skipped), under People first, is Start with the people you represent, ahead of Get help focused on what you care about. It builds your civic panel, for every official, however long ago they joined. It shows no due date and no price; the cost comes in the chat and the pay step. What’s a civic panel? on it opens this chat on the home to explain the panel, and builds nothing unless you say yes: with no panel yet, the answer ends with a Build my panel button that goes on to the build in the same conversation, and with members, an Ask your panel about a priority button. Build my panel opens this chat on the home, where your Chief of Staff explains the panel and the numbers for your district, then offers the invite text as a card: a random group of residents with a cell phone, picked to reach about 100 members. Start the text opens it over the chat with the ask to reply JOIN locked on, and the price shown before it sends. It has no Mark done; it is done once that text is paid for. Skip offers Show in 3 days, which brings it back to the front three days later, or Not for me, which sets it aside until Bring it back on it under Archive, Skipped',
+      'Where the civic panel is on, Next steps on your priorities sit under the build card, whether it is open, put off, set aside or done: a card for each open priority with its next step, the same line as Next under Where this stands (or, with none, the step the Priorities page shows), and an Open priority button. It has no Mark done; it stays until the priority is archived or its plan is ready, and comes back if the priority is unarchived or a step opens up again. Skip offers Show in 3 days or Not for me, and Bring it back under Archive, Skipped. Meeting, agenda and community issue tasks show throughout, behind the build card while it leads',
+      'Where the civic panel is on, once a priority’s text has its replies in, a Show people their voice counted on <priority> card appears, due two weeks later. Report back opens that priority’s conversation, which walks through what came back and drafts a text telling the same people what you heard and what you will do next. It is done once that text is paid for, or with Mark done. Skip offers Show in 3 days or Not for me, and Bring it back under Archive, Skipped',
+      'Archive, in the page’s title bar, lists this week’s tasks, the ones marked done, the ones skipped and the ones missed',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
       'When the chat offers a list, it appears as a card with the list name, its size and a Create list button; pressing it saves the list and the card turns into the list on a map',
@@ -279,6 +300,7 @@ const SERVE_AREAS: ProductArea[] = [
       'A list already used for outreach is locked, so its map offers no draw button',
       'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, and someone outside your records to call, with a script',
       'A phone banking outreach card is sent from its Send button without leaving the chat; a text or social one opens its outreach flow to finish there',
+      'A text or phone banking card opens its outreach flow over the chat on the message or script, with the purpose already picked and the list already saved and picked. Back goes to the list, then the purpose, to change either; Continue goes on to the date (or call sheets) and payment. A card with no list to save opens on choosing who to reach instead',
       'A text outreach card can go to a random sample of its audience instead of everyone, sized the way polls are, and reads like "Text 2,767 of 58,520, picked at random". Asking for everyone instead gets a card for the whole audience',
       'When there is a choice to make, the chat asks it as a multiple-choice question, with room to write your own answer',
       'The paperclip in the message box attaches a PDF, Word document, image, or text file to the message; dragging a file onto the chat does the same',
@@ -321,9 +343,13 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Add a priority writes down what you want to get done and why it matters',
       'An issue from Community Issues can be pulled in as a priority',
+      'Issues picked during sign-up, from the campaign or the community, start here as priorities. The sign-up step that asks for them is being rolled out account by account',
       'Each row shows the step it is on and the next thing to do about it',
       'Opening a priority works it forward one step at a time',
       'Before a step is done, it offers to check it with the constituents it affects most and least, with the lists and the question ready',
+      'Where the civic panel is on, that check is one text to your civic panel and as many residents not on it, inviting them to join. The most and least affected come after, if what comes back is thin or one-sided',
+      'Where the civic panel is on, What we heard, under Where this stands on an open priority, pools every text, call and door knock sent for it: how many answered, how many joined your civic panel, the themes in what they said, a map of where answers came from, and how those neighborhoods compare with the whole district',
+      'Where the civic panel is on, once a text’s replies are in, the priority offers to report back: it shows who the text went to, how many answered and the main themes, asks what you will do next, and drafts a short text to everyone it reached who has not opted out since. It never quotes anyone, never asks them to join the panel, and goes out from the card’s Start the text button like any other text',
     ],
     gate: 'Priorities is being rolled out, so it is not on every account yet.',
   },
@@ -355,15 +381,19 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Four channels: Social media, SMS, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
+      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay',
+      'Where the civic panel is on, SMS has a Build your civic panel purpose: the draft introduces you and the panel, and the ask to reply JOIN is always on',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, filled in from your next public meeting when there is one',
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
+      'Once a text send’s replies are in, its row in outreach history lists them under Responses and links to What we heard, where the replies are grouped into themes',
     ],
     gate: 'Texting is being rolled out office by office, so the SMS channel is not on every account yet. It is paid for per message at checkout, with no subscription.',
   },
   {
     navId: 'contacts-dashboard',
-    name: 'Constituent Data',
+    name: 'Constituents',
     path: '/dashboard/contacts',
     modes: ['serve'],
     does: 'Browse the district’s people, filter them, and save lists to use for outreach.',
@@ -377,6 +407,16 @@ const SERVE_AREAS: ProductArea[] = [
       'The create-list flow asks for those shapes too, between the filters and the name, and it can be skipped',
       'Shapes can be added, renamed, recoloured, redrawn or deleted until the list has been used for outreach',
       'A constituent’s record carries an "Asked for follow-up" toggle, and the record’s activity history shows who set it and when',
+      'The civic panel, being rolled out so not on every account yet, is the group of residents who said yes to being asked for their views',
+      'Where the civic panel is on, a constituent’s record also carries an "On your civic panel" toggle, with the same history. Under it one line says how and when they last joined or left (for example "Joined by text on Oct 2" or "Removed by you on Oct 9") and when your office last asked them, by any text, call or door knock',
+      'Where the civic panel is on, Create new list has a Civic panel filter (On your civic panel, Left, or Never invited, meaning nobody ever asked them to join by text, at the door or on a call), How they joined (By text, At the door, On a call, Added by you), When they joined (a From and To date), and Last asked (Not in the last 30 days, or a From and To date for the last time your office reached them). The joined filters only match current members. So the panel, or any part of it, can be saved as a list and sent outreach like any other',
+      'Where the civic panel is on, a "Your civic panel" section on this page shows its members, how many were reached in the last 30 days, and how many can be asked now. With nobody on it yet, it points to the Chief of Staff home to build it',
+      'Where the civic panel is on, "See your panel" in that section opens the panel’s own page, which compares the neighborhoods members live in with the whole district once it has 10 members, and whose "See members" button opens the built-in Civic panel list',
+      'Where the civic panel is on, "Make a list of who can be asked now", on the panel’s page and on the built-in Civic panel list, opens Create new list already filtered to members not asked in the last 30 days',
+      'Where the civic panel is on and it has at least one member, Constituent lists has a built-in "Civic panel" row under All constituents with the live member count and when the panel was last reached. Its Details opens the same detail as any other list: a map of where members live (no drawing shapes), their demographics, how they can be reached and outreach history, with a Download. Its outreach history is every text, call or door knock the office sent that reached someone on the panel now, such as the invite, priority asks and report backs. It is always the current members, is never a saved list, and cannot be edited or deleted',
+      'Where the civic panel is on, a text can ask people to join it with a checkbox, and door knocking and phone banking ask it as their last question, on screen and on the printed sheets',
+      'Where the civic panel is on, residents leave it in four ways: replying LEAVE to any text from your office, saying no at the door or on a call when asked whether they want to stay on it, you switching it off on their record, or replying STOP. LEAVE only takes them off the panel and they still get your other texts; STOP also ends every text from your office',
+      'Where the civic panel is on, outreach to a list of panel members only offers a way off it instead of asking them to join: a text carries "Reply LEAVE to leave my civic panel." locked in the message, and door knocking and phone banking ask "Do they want to stay on your civic panel?", where No takes them off',
       'A finished phone banking campaign’s results show how many constituents are still owed a follow-up, and can turn them into a call list or a saved list',
       'Party is not a filter in this product',
     ],
@@ -411,14 +451,16 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
     name: 'What we heard',
     path: '/dashboard/issue-capture/[outreachId]',
     modes: ['win', 'serve'],
-    does: 'Read what people said on one door knocking turf or phone banking list, grouped into themes ranked by how many conversations raised them.',
+    does: 'Read what people said on one door knocking turf, phone banking list or, for an elected official, text send, grouped into themes ranked by how many conversations raised them.',
     inside: [
-      'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top',
+      'Reached from What we heard in outreach history: open a phone banking row, or a door knocking campaign of one turf, at any status. A campaign of several turfs carries it on each turf’s card once somebody there has answered. A phone banking call list also shows it at the top. An elected official’s text send shows it once constituents have replied',
+      'On a text send the notes are the replies themselves, listed as each person’s own words with no review step. Themes appear after enough replies, and a theme made of replies shows no Where people stand split',
       'The line under the title counts who answered, who left a note, and how many notes are confirmed. Only confirmed notes count toward a theme',
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
       'Summarize what we heard groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
       'Each theme opens to its details, where people stand, what they want, and the notes behind it',
       'New tags to review lists the suggested tags of the themes shown: Accept puts one on people’s records, Dismiss drops it',
+      'Download notes, next to Every note, saves every note on the effort as a spreadsheet file, not just the ones listed on the page',
     ],
     gate: 'Being rolled out account by account, so not every account has it yet.',
   },
@@ -451,6 +493,32 @@ export const PRODUCT_AREAS: ProductArea[] = [
 export const areasForMode = (mode: ProductMode): ProductArea[] =>
   PRODUCT_AREAS.filter((a) => a.modes.includes(mode))
 
+// The area a dashboard URL is on, by the most specific path that holds it.
+// Only real routes take part, never an alias (its label never renders), a
+// bracketed segment matches any one segment, and the home tab matches only
+// exactly, since every page sits under it.
+export const areaForPath = (
+  mode: ProductMode,
+  pathname: string,
+): ProductArea | null => {
+  const matches = (path: string): boolean => {
+    const pattern = new RegExp(
+      `^${path.replace(/\[[^/\]]+\]/g, '[^/]+')}${
+        path === '/dashboard' ? '' : '(/.*)?'
+      }$`,
+    )
+    return pattern.test(pathname)
+  }
+  return (
+    areasForMode(mode)
+      .filter(
+        (area) =>
+          !area.aliasOf && area.path.startsWith('/') && matches(area.path),
+      )
+      .sort((a, b) => b.path.length - a.path.length)[0] ?? null
+  )
+}
+
 // What chat cannot reach. Every line here is something a user has assumed the
 // chat does. Stating them is what keeps the assistant from inventing a reason
 // a save "did not go through" and sending someone to check a setting that had
@@ -464,7 +532,7 @@ export const CHAT_LINKAGE: Record<ProductMode, string[]> = {
   ],
   serve: [
     'Priorities I record are real and appear in the product.',
-    'Saved lists I create are real, and appear under Constituent Data.',
+    'Saved lists I create are real, and appear under Constituents.',
     'I cannot edit your public page, your account, or your billing, and I cannot export anything to a file.',
   ],
 }

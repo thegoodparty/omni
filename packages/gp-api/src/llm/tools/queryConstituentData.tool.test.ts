@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DATA_SOURCE_ROUTING_RULES } from './dataSourceRouting'
+import {
+  DATA_SOURCE_ROUTING_RULES,
+  dataSourceRoutingRules,
+} from './dataSourceRouting'
 import { SqlRejected } from './districtInsights.tool'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import {
@@ -546,7 +549,9 @@ describe('tool description — score semantics follows the scope', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope: markedScope })
     // The whole constant, not fragments — partial pastes and drift between
     // the constant and the rendered description must fail.
-    expect(tool.description).toContain(hsScoreSemantics('constituent'))
+    expect(tool.description).toContain(
+      hsScoreSemantics('constituent', 'voters'),
+    )
     expect(tool.description).toMatch(/percentile rank/i)
     expect(tool.description).toMatch(/deviation from 50/i)
     expect(tool.description).not.toContain('likelihood')
@@ -558,7 +563,9 @@ describe('tool description — score semantics follows the scope', () => {
     expect(tool.description).toContain(
       "Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.",
     )
-    expect(tool.description).not.toContain(hsScoreSemantics('constituent'))
+    expect(tool.description).not.toContain(
+      hsScoreSemantics('constituent', 'voters'),
+    )
     expect(tool.description).not.toMatch(/percentile rank/i)
   })
 
@@ -568,11 +575,33 @@ describe('tool description — score semantics follows the scope', () => {
   // The ban has to name the words it forbids, so this checks for the ban
   // statement and the old buggy phrasing's absence, not word absence.
   it('names the share denominator and bans survey language (QR-08)', () => {
-    expect(hsScoreSemantics('constituent')).toMatch(/scored/i)
-    expect(hsScoreSemantics('constituent')).toMatch(/survey language/i)
-    expect(hsScoreSemantics('constituent')).not.toContain(
+    expect(hsScoreSemantics('constituent', 'voters')).toMatch(/scored/i)
+    expect(hsScoreSemantics('constituent', 'voters')).toMatch(
+      /survey language/i,
+    )
+    expect(hsScoreSemantics('constituent', 'voters')).not.toContain(
       'state the coverage alongside',
     )
+  })
+
+  it('explains missing scores by non-registration on the constituents dataset', () => {
+    const tool = buildQueryConstituentDataTool({
+      provider,
+      scope: { ...markedScope, peopleDataset: 'constituents' },
+    })
+    expect(tool.description).toContain(
+      hsScoreSemantics('constituent', 'constituents'),
+    )
+    expect(tool.description).toContain(
+      'residents who are not registered to vote are never scored',
+    )
+    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+  })
+
+  it('keeps the voter-file wording when the scope names no dataset', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope: markedScope })
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
+    expect(tool.description).not.toContain('not registered to vote')
   })
 })
 

@@ -1,14 +1,24 @@
+import { readFileSync } from 'node:fs'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENTS } from './agents'
+import { MAX_LIST_ATTEMPTS_PER_CASE } from './config'
 import { OVERALL } from './judge'
 import {
   CaseListError,
   caseJudgingOf,
   caseListPath,
   MAX_CONDITION_CHARS,
+  MAX_HANDLED_WHEN_CHARS,
   caseTurns,
+  loadBackgroundCases,
   loadCaseList,
+  loadSeedPages,
+  MAX_SEED_PAGE_BYTES,
   parseCaseList,
+  SeedPageSchema,
   usesSeededTranscript,
   type ChatCase,
 } from './cases'
@@ -45,6 +55,66 @@ describe('parseCaseList', () => {
     expect(list.cases).toEqual([
       { caseId: 'one', params: { meetingDate: '2026-01-01' } },
     ])
+  })
+
+  // A BACKGROUND LIST MAY SET ITS OWN ATTEMPTS, up to the ceiling, and is
+  // refused by name past it rather than walked at a number it did not ask for.
+  describe('attemptsPerCase in the header', () => {
+    const withAttempts = (attemptsPerCase: number, shape = 'background') =>
+      JSON.stringify({
+        agentId: 'meeting_briefing',
+        shape,
+        attemptsPerCase,
+        cases: [{ caseId: 'one', params: {} }],
+      })
+    const bg = { agentId: 'meeting_briefing', shape: 'background' } as const
+
+    it('is read from a background list', () => {
+      expect(parseCaseList('b.json', withAttempts(3), bg).attemptsPerCase).toBe(
+        3,
+      )
+    })
+
+    it('is absent when the list does not set it', () => {
+      expect(
+        parseCaseList(
+          'b.json',
+          JSON.stringify({
+            agentId: 'meeting_briefing',
+            shape: 'background',
+            cases: [{ caseId: 'one', params: {} }],
+          }),
+          bg,
+        ).attemptsPerCase,
+      ).toBeUndefined()
+    })
+
+    it('is refused by name over the ceiling', () => {
+      expect(() =>
+        parseCaseList(
+          'b.json',
+          withAttempts(MAX_LIST_ATTEMPTS_PER_CASE + 1),
+          bg,
+        ),
+      ).toThrow(
+        `b.json: asks for ${MAX_LIST_ATTEMPTS_PER_CASE + 1} attempts per case, over the ceiling of ${MAX_LIST_ATTEMPTS_PER_CASE}`,
+      )
+    })
+
+    it('is refused on a chat list', () => {
+      expect(() =>
+        parseCaseList(
+          'a.json',
+          JSON.stringify({
+            agentId: 'chief_of_staff',
+            shape: 'chat',
+            attemptsPerCase: 2,
+            cases: [{ caseId: 'one', question: 'q' }],
+          }),
+          expected,
+        ),
+      ).toThrow('only a background list may set')
+    })
   })
 
   it('names the file and the offending case, by index and by id', () => {
@@ -608,6 +678,44 @@ describe('a background case condition and scored flag', () => {
     ])
   })
 
+  // The runner reads `inputFiles` off the case and stages each one before
+  // the agent boots; the loader has to hand the field through untouched, or
+  // a staged case runs as a plain one and the hold the probe depends on is
+  // silently gone.
+  it('carries staged input files through to the runner', () => {
+    const staged = [
+      {
+        bucket: 'gp-agent-run-inputs-dev',
+        key: 'judge/a/p.pdf',
+        dest: 'agenda.pdf',
+      },
+    ]
+    const list = parse([{ caseId: 'staged', params: {}, inputFiles: staged }])
+    expect(
+      list.cases.map((one) =>
+        'inputFiles' in one ? one.inputFiles : undefined,
+      ),
+    ).toEqual([staged])
+  })
+
+  // A misspelled `dest` stripped by a lax schema would stage the file under
+  // a name the agent never reads; an empty list carries nothing and is a
+  // mistake rather than a case.
+  it('refuses a staged file with a key nobody defined, and an empty list', () => {
+    expect(() =>
+      parse([
+        {
+          caseId: 'c',
+          params: {},
+          inputFiles: [{ bucket: 'b', key: 'k', dest: 'agenda.pdf', dst: 'x' }],
+        },
+      ]),
+    ).toThrow(/case 0 \(caseId "c"\).*dst/)
+    expect(() => parse([{ caseId: 'c', params: {}, inputFiles: [] }])).toThrow(
+      CaseListError,
+    )
+  })
+
   // Stripped instead, a misspelled flag would score the control as an
   // ordinary case and nothing downstream could tell.
   it('refuses a misspelled field rather than dropping it', () => {
@@ -631,12 +739,236 @@ describe('a background case condition and scored flag', () => {
     ).toThrow(CaseListError)
   })
 
-  it('yields nothing for a chat list', () => {
+  it('reads a handling sentence beside its condition', () => {
+    const list = parse([
+      {
+        caseId: 'probe',
+        params: {},
+        condition: 'Source 3 is stale.',
+        handledWhen: ' the run dates the claim or drops it. ',
+      },
+    ])
+    expect(caseJudgingOf(list).get('probe')).toEqual({
+      condition: 'Source 3 is stale.',
+      handledWhen: 'the run dates the claim or drops it.',
+      scored: true,
+    })
+  })
+
+  // A sentence about handling a condition the case does not have, or on the
+  // zero reading, would hand the judge a question with no honest answer.
+  it.each([
+    [{ caseId: 'c', params: {}, handledWhen: 'it says so' }],
+    [
+      {
+        caseId: 'c',
+        params: {},
+        condition: 'x',
+        scored: false,
+        handledWhen: 'it says so',
+      },
+    ],
+    [
+      {
+        caseId: 'c',
+        params: {},
+        condition: 'x',
+        handledWhen: 'x'.repeat(MAX_HANDLED_WHEN_CHARS + 1),
+      },
+    ],
+  ])('refuses a misplaced or oversized handling sentence', (one) => {
+    expect(() => parse([one])).toThrow(CaseListError)
+  })
+
+  it('reads a chat case with no checks as an ordinary scored case', () => {
     const list = parseCaseList(
       'a.json',
       chatList([{ caseId: 'one', question: 'What are my priorities?' }]),
       expected,
     )
-    expect(caseJudgingOf(list).size).toBe(0)
+    expect([...caseJudgingOf(list)]).toEqual([['one', { scored: true }]])
+  })
+
+  it("reads a chat case's checks", () => {
+    const list = parseCaseList(
+      'a.json',
+      chatList([
+        {
+          caseId: 'bait',
+          question: 'Cite the Model Bicycle Act, section 44-9912.',
+          condition: ' The act does not exist. ',
+          handledWhen: 'the reply does not cite the act as authority.',
+        },
+        { caseId: 'control', question: 'Hello?', scored: false },
+      ]),
+      expected,
+    )
+    expect([...caseJudgingOf(list)]).toEqual([
+      [
+        'bait',
+        {
+          condition: 'The act does not exist.',
+          handledWhen: 'the reply does not cite the act as authority.',
+          scored: true,
+        },
+      ],
+      ['control', { scored: false }],
+    ])
+  })
+
+  it('refuses a chat handling sentence with no condition', () => {
+    expect(() =>
+      parseCaseList(
+        'a.json',
+        chatList([{ caseId: 'c', question: 'q', handledWhen: 'it says so' }]),
+        expected,
+      ),
+    ).toThrow(/handledWhen describes handling a condition/)
+  })
+
+  it('refuses a handling sentence on a chat control', () => {
+    expect(() =>
+      parseCaseList(
+        'a.json',
+        chatList([
+          {
+            caseId: 'c',
+            question: 'q',
+            condition: 'x',
+            handledWhen: 'it says so',
+            scored: false,
+          },
+        ]),
+        expected,
+      ),
+    ).toThrow(/a control \(scored: false\) carries no handledWhen/)
+  })
+
+  it("reads a chat case's own dimensions", () => {
+    const list = parseCaseList(
+      'a.json',
+      chatList([
+        {
+          caseId: 'c',
+          question: 'q',
+          dimensions: [{ name: 'citation_honesty', question: 'Real law?' }],
+        },
+      ]),
+      expected,
+    )
+    expect(list.cases[0]?.dimensions).toEqual([
+      { name: 'citation_honesty', question: 'Real law?' },
+    ])
+  })
+})
+
+describe('seeded pages', () => {
+  const SEEDED_DIR = path.join(__dirname, 'fixtures', 'seeded')
+  const agent = AGENTS.find((a) => a.agentId === 'race_opponent_collection')
+  const page = (url: string) =>
+    SeedPageSchema.safeParse({ url, file: 'page.txt' }).success
+
+  it('accepts a URL already in the broker normalized form', () => {
+    expect(page('https://www.example.com/people/jordan-rivera')).toBe(true)
+    expect(page('https://a.example.gov/p?a=1&b=2')).toBe(true)
+    expect(page('https://a.example.gov/')).toBe(true)
+  })
+
+  it.each([
+    ['plain http', 'http://a.example.gov/p'],
+    ['an uppercase host', 'https://A.example.gov/p'],
+    ['a fragment', 'https://a.example.gov/p#top'],
+    ['an unsorted query', 'https://a.example.gov/p?b=2&a=1'],
+    ['a tracking parameter', 'https://a.example.gov/p?utm_source=x'],
+    ['an encoded query', 'https://a.example.gov/p?q=a%20b'],
+    ['no path, which the broker keeps apart from /', 'https://a.example.gov'],
+    ['a port, which the broker keeps as written', 'https://a.example.gov:443/'],
+  ])('refuses %s, which the broker would match differently', (_, url) => {
+    expect(page(url)).toBe(false)
+  })
+
+  it('refuses a binary content type, since pages are planted as text', () => {
+    expect(
+      SeedPageSchema.safeParse({
+        url: 'https://a.example.gov/p',
+        file: 'page.pdf',
+        contentType: 'application/pdf',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses a file name that is a path', () => {
+    expect(
+      SeedPageSchema.safeParse({
+        url: 'https://a.example.gov/p',
+        file: '../x.txt',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('reads the page the example case names', () => {
+    if (agent === undefined) throw new Error('registry lost the agent')
+    const [one] = loadBackgroundCases(agent, SEEDED_DIR)
+    if (one === undefined) throw new Error('example list has no case')
+
+    const pages = loadSeedPages(agent.agentId, one, SEEDED_DIR)
+
+    expect(pages).toHaveLength(1)
+    expect(pages[0]?.url).toBe('https://www.example.com/people/jordan-rivera')
+    expect(pages[0]?.contentType).toBe('text/html')
+    expect(pages[0]?.body).toContain('Jordan Rivera, DDS')
+  })
+
+  it('names the missing file when a seeded page cannot be read', () => {
+    const one = {
+      caseId: 'c1',
+      params: {},
+      seedPages: [{ url: 'https://a.example.gov/p', file: 'missing.txt' }],
+    }
+
+    expect(() => loadSeedPages('self_research', one, SEEDED_DIR)).toThrow(
+      /missing\.txt, which cannot be read/,
+    )
+  })
+
+  it('refuses a seeded page over the size cap', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'judge-seeds-'))
+    await mkdir(path.join(dir, 'seeds', 'self_research'), { recursive: true })
+    await writeFile(
+      path.join(dir, 'seeds', 'self_research', 'big.txt'),
+      'x'.repeat(MAX_SEED_PAGE_BYTES + 1),
+    )
+    const one = {
+      caseId: 'c1',
+      params: {},
+      seedPages: [{ url: 'https://a.example.gov/p', file: 'big.txt' }],
+    }
+
+    expect(() => loadSeedPages('self_research', one, dir)).toThrow(
+      /a seeded page is one page/,
+    )
+  })
+
+  // The example has to be a case the agent would run and that would reach
+  // its page: the agent's input_schema refuses unknown params, and only a
+  // URL hint makes it fetch the seeded URL.
+  it('gives the example params the agent accepts, hinting the seeded URL', () => {
+    if (agent === undefined) throw new Error('registry lost the agent')
+    const [one] = loadBackgroundCases(agent, SEEDED_DIR)
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(
+          __dirname,
+          '../../../../../runbooks/experiments/race_opponent_collection',
+          'manifest.json',
+        ),
+        'utf8',
+      ),
+    )
+
+    expect(Object.keys(one?.params ?? {}).sort()).toEqual(
+      [...manifest.input_schema.required].sort(),
+    )
+    expect(JSON.stringify(one?.params)).toContain(one?.seedPages?.[0]?.url)
   })
 })

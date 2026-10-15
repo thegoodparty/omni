@@ -17,6 +17,7 @@ import {
   MARK_INSTRUCTION,
   recordsNotice,
   answerBoxes,
+  civicPanelBoxes,
   targetPhone,
   walkColumns,
   WALK_COLUMNS,
@@ -81,6 +82,7 @@ interface ResidentRowProps {
   // Which surface's answer column this row prints, off the route payload. Paper
   // has no organization above it to ask.
   isServe: boolean
+  asksCivicPanel: boolean
 }
 
 const ResidentRow = ({
@@ -92,9 +94,11 @@ const ResidentRow = ({
   travel,
   alsoHere,
   isServe,
+  asksCivicPanel,
 }: ResidentRowProps) => {
   const meta = describeTarget(target)
   const lastContact = lastContactLine(target, isServe)
+  const panelBoxes = civicPanelBoxes(asksCivicPanel)
   // Already recorded in the app: print the answer instead of blank boxes, so a
   // door isn't knocked twice and a transcriber doesn't overwrite it.
   const recorded = target.knockStatus !== 'unknown'
@@ -165,7 +169,14 @@ const ResidentRow = ({
               app's walkthrough does, so the ending and the answer share a
               column. Assembled in `walkFacts` from the form's own constants. */}
           <td>
-            <MarkBoxes options={answerBoxes(isServe)} />
+            {panelBoxes === null ? (
+              <MarkBoxes options={answerBoxes(isServe)} />
+            ) : (
+              <span className="ws-answer-runs">
+                <MarkBoxes options={answerBoxes(isServe)} />
+                <MarkBoxes options={panelBoxes} />
+              </span>
+            )}
           </td>
           {/* Empty and stays empty. This is the column the canvasser writes in;
               the ruled line the old layout drew inside it only limited them to
@@ -283,6 +294,9 @@ interface WalkSheetProps {
   turfId: string
   turfName: string
   payload: DoorKnockingRoutePayload
+  // serve-citizen-panels, resolved by the page: this component has no flag
+  // provider above it.
+  citizenPanelsEnabled?: boolean
 }
 
 // The paper fallback for a walk with no signal: the same route the walk view
@@ -294,12 +308,18 @@ export default function WalkSheet({
   turfId,
   turfName,
   payload,
+  citizenPanelsEnabled = false,
 }: WalkSheetProps) {
   const stops = payload.stops.slice().sort((a, b) => a.seq - b.seq)
   // Absent reads as Win: every route frozen before `isServe` shipped belonged
   // to that surface, and a service worker's snapshot carries no such key.
   const isServe = Boolean(payload.isServe)
-  const columns = walkColumns(isServe)
+  const asksCivicPanel = isServe && citizenPanelsEnabled
+  const columns = walkColumns(
+    isServe,
+    asksCivicPanel,
+    Boolean(payload.civicPanelOnly),
+  )
 
   return (
     <div className="ws mx-auto max-w-[10in] p-6 print:max-w-none print:p-0">
@@ -379,7 +399,12 @@ export default function WalkSheet({
             {stops.map((stop) => (
               <Fragment key={stop.id}>
                 {stopRows(stop).map(({ key, ...row }) => (
-                  <ResidentRow key={key} {...row} isServe={isServe} />
+                  <ResidentRow
+                    key={key}
+                    {...row}
+                    isServe={isServe}
+                    asksCivicPanel={asksCivicPanel}
+                  />
                 ))}
               </Fragment>
             ))}

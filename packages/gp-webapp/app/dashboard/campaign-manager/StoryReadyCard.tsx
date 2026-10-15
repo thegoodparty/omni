@@ -43,6 +43,7 @@ export default function StoryReadyCard(): React.JSX.Element | null {
 
   return (
     <ManagerPromptCard
+      card="plan_ready"
       title="Your campaign plan is ready"
       description="Your personalized campaign and outreach plan are ready for you."
       ctaLabel="Review your campaign plan"

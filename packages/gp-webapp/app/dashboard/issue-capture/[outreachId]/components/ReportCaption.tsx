@@ -8,23 +8,25 @@ import { whatWeHeardCopy } from '../../copy'
 // The ones still waiting link to the list where they get confirmed.
 const ReportCaption = ({
   denominators,
+  channel,
   outreachId,
   isServe,
 }: {
   denominators: FeedbackReportResponse['denominators']
+  channel: FeedbackReportResponse['channel']
   outreachId: number
   isServe: boolean
 }) => {
   const copy = whatWeHeardCopy(isServe)
   return (
     <p className="text-sm text-muted-foreground">
-      {copy.captionCounts(denominators)}
+      {copy.captionCounts(denominators, channel)}
       {denominators.pending > 0 ? (
         <>
           {', '}
           <Link
             href={`/dashboard/issue-capture/${outreachId}/review`}
-            className="underline"
+            className="font-medium text-foreground underline underline-offset-2"
           >
             {copy.waitingForReview(denominators.pending)}
           </Link>

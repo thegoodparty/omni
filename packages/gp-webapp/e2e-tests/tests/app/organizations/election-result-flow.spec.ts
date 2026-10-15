@@ -46,7 +46,7 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
   expect(selectedOrg).toBeTruthy()
 
   const sidebar = page.locator('[data-sidebar="content"]')
-  await expect(sidebar.getByText('Constituent Data')).toBeVisible({
+  await expect(sidebar.getByText('Constituents', { exact: true })).toBeVisible({
     timeout: 10_000,
   })
   await expect(sidebar.getByText('Polls')).toBeVisible({ timeout: 10_000 })

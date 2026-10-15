@@ -7,10 +7,19 @@ import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 // The contract carries it loosely because the card only passes it through.
 const presentListProposalInput = ListProposalSchema.extend({
   filters: voterFilterBaseSchema
-    .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
     .strict()
     .describe('The exact filter you counted with in count_contacts.'),
 })
+
+const listProposalResult = ({ count }: { count: number }) =>
+  count === 0
+    ? {
+        error:
+          'That filter counted nobody, so there is no list to save. ' +
+          'Loosen or change it, count again, and offer it once it ' +
+          'reaches people.',
+      }
+    : { presented: true }
 
 // A display tool, like present_outreach_proposal: the args are the card, and
 // execute only acks. Nothing is saved here. The list is created when the
@@ -29,13 +38,23 @@ export const buildPresentListProposalTool = (): LlmStreamTool<
     'map, where they can draw shapes to narrow it. Use it instead of ' +
     'asking whether to save a list, and never save one yourself.',
   inputSchema: presentListProposalInput,
-  execute: ({ count }) =>
-    count === 0
-      ? {
-          error:
-            'That filter counted nobody, so there is no list to save. ' +
-            'Loosen or change it, count again, and offer it once it ' +
-            'reaches people.',
-        }
-      : { presented: true },
+  execute: listProposalResult,
+})
+
+// Candidate words for the same card, which also becomes the list on a map.
+export const buildCampaignManagerListProposalTool = (): LlmStreamTool<
+  typeof presentListProposalInput
+> => ({
+  description:
+    'Offer a list of voters for the candidate to save, as a card with a ' +
+    'Create list button. Count the voters with count_contacts first and ' +
+    'pass that same filter as filters, with its count, a name of at most ' +
+    '40 characters named after the filters it actually applies, and one ' +
+    'plain sentence on who it holds. Nothing is saved until the candidate ' +
+    'presses the button, and once they do the card becomes the list on a ' +
+    'map, where they can draw shapes to narrow it, with a link to the list ' +
+    'in Voter Data. Use it instead of asking whether to save a list, and ' +
+    'never save one yourself.',
+  inputSchema: presentListProposalInput,
+  execute: listProposalResult,
 })

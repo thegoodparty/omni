@@ -43,7 +43,7 @@ export const NotesToReviewLink = ({
     <Link
       href={href ?? `/dashboard/issue-capture/${outreachId}/review`}
       className={cn(
-        'flex items-center justify-between gap-3 text-sm font-medium text-foreground no-underline',
+        'flex items-center justify-between gap-3 text-sm font-medium text-foreground no-underline underline-offset-4 hover:underline',
         className,
       )}
     >

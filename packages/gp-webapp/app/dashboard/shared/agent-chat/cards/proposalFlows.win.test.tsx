@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -28,6 +28,28 @@ vi.mock('app/dashboard/outreach/v2/sms/SmsFlow', () => ({
   SmsFlow: (props: Record<string, unknown>) => {
     smsFlow.props = props
     return <div data-testid="sms-flow" />
+  },
+}))
+
+const phoneBankingFlow = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}))
+vi.mock('app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow', () => ({
+  SERVE_PHONE_BANKING_SURFACE: { isServe: true },
+  PhoneBankingFlow: (props: Record<string, unknown>) => {
+    phoneBankingFlow.props = props
+    return <div data-testid="phone-banking-flow" />
+  },
+}))
+
+const socialFlow = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}))
+vi.mock('app/dashboard/outreach/v2/social/SocialFlow', () => ({
+  SERVE_SOCIAL_SURFACE: { isServe: true },
+  SocialFlow: (props: Record<string, unknown>) => {
+    socialFlow.props = props
+    return <div data-testid="social-flow" />
   },
 }))
 
@@ -103,23 +125,38 @@ const card: Proposal = {
   deepLinkOnly: false,
 }
 
-const Opener = () => {
+const Opener = ({ proposal }: { proposal: Proposal }) => {
   const flows = useProposalFlows()
   return (
     <button
       type="button"
       disabled={!flows?.textResolved}
-      onClick={() => flows?.open(card)}
+      onClick={() => flows?.open(proposal)}
     >
       Start the text
     </button>
   )
 }
 
-const openCard = async () => {
+// Every list a card saves, as the server would return them.
+let saved: Record<string, unknown>[] = []
+const mockSavedLists = () => {
+  saved = []
+  window.localStorage.clear()
+  api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+    saved.push(body)
+    return { status: 200, data: { id: 500 + saved.length, name: 'List' } }
+  })
+  api.mock('GET /v1/voters/voter-file/filters', () => ({
+    status: 200,
+    data: saved.map((_, i) => ({ id: 501 + i, name: 'List' })),
+  }))
+}
+
+const openCard = async (proposal: Proposal = card) => {
   render(
     <ProposalFlowsProvider mode="win">
-      <Opener />
+      <Opener proposal={proposal} />
     </ProposalFlowsProvider>,
   )
   const button = await screen.findByRole('button', { name: 'Start the text' })
@@ -130,6 +167,7 @@ const openCard = async () => {
 describe('a Campaign Manager text card', () => {
   beforeEach(() => {
     smsFlow.props = null
+    mockSavedLists()
     campaign.current = { id: 9, isPro: false }
     tcr.current = null
     vi.mocked(trackEvent).mockClear()
@@ -164,7 +202,9 @@ describe('a Campaign Manager text card', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
-  it("opens Win's text flow, filled in, for a verified Pro campaign", async () => {
+  // The card settled who gets it, so its audience is saved as a list once
+  // and the standard flow opens on the message with that list picked.
+  it("opens Win's text flow on the message, its list saved, for a verified Pro campaign", async () => {
     campaign.current = { id: 9, isPro: true }
     tcr.current = APPROVED
 
@@ -177,10 +217,46 @@ describe('a Campaign Manager text card', () => {
     expect(props?.source).toBe('campaign_manager')
     expect(props?.tcrCompliance).toEqual(APPROVED)
     expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
-    expect(props?.proposedAudience).toMatchObject({
+    expect(props?.audienceSettled).toBe(true)
+    expect(props?.preselectedListId).toBe(501)
+    expect(props).not.toHaveProperty('proposedAudience')
+    expect(saved).toHaveLength(1)
+    expect(saved[0]).toMatchObject({
       name: 'Ward 3 likely voters',
+      homeownerNo: true,
       sample: { size: 4_000, seedKey: PROPOSAL_KEY },
     })
+  })
+
+  // Nothing settled who gets it, so the flow lands on the audience step with
+  // the message held for compose.
+  it('opens on the audience step when the card carries no audience', async () => {
+    campaign.current = { id: 9, isPro: true }
+    tcr.current = APPROVED
+    const { audienceFilters: _filters, ...noAudience } = card
+
+    await openCard(noAudience)
+
+    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+    const props = smsFlow.props
+    expect(props?.initialScript).toBe(MESSAGE)
+    expect(props?.audienceSettled).toBe(false)
+    expect(props).not.toHaveProperty('preselectedListId')
+    expect(saved).toHaveLength(0)
+  })
+
+  it('reuses the list it saved when the card is opened again', async () => {
+    campaign.current = { id: 9, isPro: true }
+    tcr.current = APPROVED
+
+    await openCard()
+    await screen.findByTestId('sms-flow')
+    cleanup()
+    await openCard()
+    await screen.findByTestId('sms-flow')
+
+    expect(saved).toHaveLength(1)
+    expect(smsFlow.props?.preselectedListId).toBe(501)
   })
 
   it('closes the flow when a refused create turns out to be a sent card', async () => {
@@ -224,5 +300,90 @@ describe('a Campaign Manager text card', () => {
     await act(() => failed())
 
     await waitFor(() => expect(screen.queryByTestId('sms-flow')).toBeNull())
+  })
+})
+
+describe('a Campaign Manager card for another channel', () => {
+  beforeEach(() => {
+    phoneBankingFlow.props = null
+    socialFlow.props = null
+    mockSavedLists()
+    campaign.current = { id: 9, isPro: false }
+    tcr.current = null
+    vi.mocked(trackEvent).mockClear()
+    vi.mocked(router.push!).mockClear()
+  })
+
+  const calls: Proposal = { ...card, channel: 'phoneBanking' }
+  const walk: Proposal = { ...card, channel: 'doorKnocking', savedFilterId: 77 }
+  const post: Proposal = { ...card, channel: 'social' }
+
+  it.each([
+    ['phone banking', calls, 'phone-bank', 'phoneBanking'],
+    ['door knocking', walk, 'door', 'doorKnocking'],
+  ])(
+    'takes a free campaign to the %s Pro pitch',
+    async (_, proposal, pitch, type) => {
+      await openCard(proposal)
+
+      expect(await screen.findByTestId('pro-pitch')).toHaveTextContent(
+        `campaign_manager:${pitch}`,
+      )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.LockedItemClicked,
+        { type },
+      )
+      expect(screen.queryByTestId('phone-banking-flow')).toBeNull()
+      expect(router.push).not.toHaveBeenCalled()
+    },
+  )
+
+  it("opens Win's phone banking flow with the card's key alone", async () => {
+    campaign.current = { id: 9, isPro: true }
+
+    await openCard(calls)
+
+    expect(await screen.findByTestId('phone-banking-flow')).toBeInTheDocument()
+    const props = phoneBankingFlow.props
+    expect(props?.surface).toBeUndefined()
+    expect(props?.initialScript).toBe(MESSAGE)
+    expect(props?.initialName).toBe('Ward 3 likely voters')
+    expect(props?.source).toBe('campaign_manager')
+    expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
+    expect(props?.preselectedListId).toBe(501)
+    expect(props).not.toHaveProperty('proposedAudience')
+    expect(saved).toHaveLength(1)
+  })
+
+  it("opens Win's social flow for a free campaign, since a post is free", async () => {
+    await openCard(post)
+
+    expect(await screen.findByTestId('social-flow')).toBeInTheDocument()
+    const props = socialFlow.props
+    expect(props?.surface).toBeUndefined()
+    expect(props?.prefill).toEqual({
+      draftText: MESSAGE,
+      proposalLink: { proposalKey: PROPOSAL_KEY },
+    })
+    expect(props?.source).toBe('campaign_manager')
+    expect(screen.queryByTestId('pro-pitch')).toBeNull()
+  })
+
+  it("starts Win's door knocking on the card's list and key", async () => {
+    campaign.current = { id: 9, isPro: true }
+
+    await openCard(walk)
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1))
+    const url = new URL(
+      vi.mocked(router.push!).mock.calls[0]?.[0] as string,
+      'https://app.test',
+    )
+    expect(url.pathname).toBe('/dashboard/door-knocking')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      create: '1',
+      listId: '77',
+      proposalKey: PROPOSAL_KEY,
+    })
   })
 })

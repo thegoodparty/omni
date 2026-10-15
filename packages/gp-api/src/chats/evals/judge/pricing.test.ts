@@ -7,6 +7,12 @@ import {
   UnpriceableRunError,
 } from './pricing'
 import { CHAT_PAIR } from './fixtures/records'
+import { DEFAULT_JUDGE_CONFIG } from './config'
+import { BRIEFING_CHAT_MODELS } from '@/chats/briefing-chats/briefingAnnotation.handler'
+import { CAMPAIGN_MANAGER_MODELS } from '@/chats/general/campaign-manager/campaignManager.handler'
+import { CHIEF_OF_STAFF_MODELS } from '@/chats/general/chief-of-staff/chiefOfStaff.handler'
+import { ORDINANCE_FLOW_MODELS } from '@/chats/general/ordinance-flow/ordinanceFlow.handler'
+import { PRIORITY_FLOW_MODELS } from '@/chats/general/priority-flow/priorityFlow.handler'
 
 const tokens = (o: Partial<Parameters<typeof priceUsd>[0]> = {}) => ({
   input: 0,
@@ -94,5 +100,25 @@ describe('re-deriving cost rather than trusting it', () => {
   it('flags arms priced under different tables', () => {
     expect(sharesPricing('2026-09', '2026-09')).toBe(true)
     expect(sharesPricing('2026-09', '2027-01')).toBe(false)
+  })
+})
+
+// Every model a chat arm can record and every judge seat has to be priceable,
+// or its spend reads as "at least $X" on the report. Listed from the handlers'
+// own constants, so a new model fails here by name rather than in a sweep.
+describe('every chat model and judge seat has rates', () => {
+  const models = [
+    ...new Set([
+      ...CHIEF_OF_STAFF_MODELS,
+      ...CAMPAIGN_MANAGER_MODELS,
+      ...ORDINANCE_FLOW_MODELS,
+      ...PRIORITY_FLOW_MODELS,
+      ...BRIEFING_CHAT_MODELS,
+      ...DEFAULT_JUDGE_CONFIG.panel.seats,
+    ]),
+  ]
+
+  it.each(models)('%s', (model) => {
+    expect(() => ratesFor(model)).not.toThrow()
   })
 })

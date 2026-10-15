@@ -37,11 +37,12 @@ afterEach(() => {
 })
 
 describe('Textarea', () => {
-  it('drops the border and padding but keeps the focus ring when seamless', () => {
+  it('drops the border, padding and focus ring when seamless, and marks itself for the card', () => {
     render(<Textarea aria-label="Message" variant="seamless" />)
     const el = screen.getByLabelText('Message')
-    expect(el).toHaveClass('border-0', 'p-0', 'focus-visible:ring-[3px]')
-    expect(el).not.toHaveClass('px-3', 'py-2')
+    expect(el).toHaveClass('border-0', 'p-0', 'focus-visible:ring-0')
+    expect(el).not.toHaveClass('px-3', 'py-2', 'focus-visible:ring-[3px]')
+    expect(el).toHaveAttribute('data-variant', 'seamless')
   })
 
   it('keeps the bordered, padded field by default', () => {

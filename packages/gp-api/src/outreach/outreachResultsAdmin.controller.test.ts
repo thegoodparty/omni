@@ -1,8 +1,9 @@
 import { addBusinessDays, addDays, parseISO } from 'date-fns'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FastifyAdapter } from '@nestjs/platform-fastify'
 import { vi } from 'vitest'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { useTestService } from '@/test-service'
 import { RESULTS_UPLOAD_BODY_LIMIT_BYTES } from './util/outreachResultsBodyLimit.util'
 import {
@@ -713,5 +714,234 @@ describe('poll results through the same surface', () => {
     )
 
     expect(result.status).toBe(400)
+  })
+})
+
+// Results landing is what completes a text send, so it starts a synthesis
+// run the way a turf's Done does. Fire-and-forget: the upload's own answer
+// never waits on it, and a dry run, which writes nothing, starts nothing.
+describe('synthesis after results land', () => {
+  const PEOPLE = Array.from({ length: 5 }, (_, i) => ({
+    personId: `person-syn-${i}`,
+    phone: `+1303555020${i}`,
+  }))
+  const REPLIES_CSV = [
+    'Contact Phone Number,Message Text,Sent At,Send Direction',
+    ...PEOPLE.map(
+      (person, i) =>
+        `${person.phone},Fix Elm Street first ${i},2026-08-11T15:0${i}:00.000Z,INBOUND`,
+    ),
+  ].join('\n')
+
+  let send: Outreach
+  let requested: ReturnType<typeof vi.spyOn>
+
+  beforeEach(async () => {
+    send = await createSend(OutreachStatus.in_progress)
+    await service.prisma.outreachTextRecipient.createMany({
+      data: PEOPLE.map((person) => ({
+        outreachId: send.id,
+        organizationSlug: ORG_SLUG,
+        personId: person.personId,
+        phone: person.phone,
+      })),
+    })
+    await service.prisma.contactInteractionText.createMany({
+      data: PEOPLE.map((person) => ({
+        outreachId: send.id,
+        organizationSlug: ORG_SLUG,
+        personId: person.personId,
+        occurredAt: new Date(),
+      })),
+    })
+    requested = vi.spyOn(
+      service.app.get(FeedbackSynthesisService),
+      'requestRunOnEffortCompleted',
+    )
+  })
+
+  afterEach(() => {
+    requested.mockRestore()
+  })
+
+  it('starts a run over the replies once the upload commits', async () => {
+    const result = await upload(REPLIES_CSV, false, send.id)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    expect(requested).toHaveBeenCalledWith({
+      organizationSlug: ORG_SLUG,
+      outreachId: send.id,
+    })
+    await vi.waitFor(async () => {
+      const runs = await service.prisma.feedbackSynthesisRun.findMany({
+        where: { outreachId: send.id },
+      })
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        organizationSlug: ORG_SLUG,
+        confirmed: 5,
+        requestedByUserId: null,
+      })
+    })
+  })
+
+  // A reply row is what a theme's member points at, with cascade on delete.
+  // A re-upload (a corrected file, a double click) lands on the same ids
+  // and must update them in place, or the last run's themes empty out.
+  it('keeps a run’s theme members through a re-upload and updates a changed reply in place', async () => {
+    requested.mockImplementation(() => undefined)
+    await upload(REPLIES_CSV, false, send.id)
+    const before = await service.prisma.pollIndividualMessage.findMany({
+      where: { outreachId: send.id },
+      orderBy: { sentAt: 'asc' },
+    })
+    expect(before).toHaveLength(5)
+    const run = await service.prisma.feedbackSynthesisRun.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        scope: 'effort',
+        outreachId: send.id,
+        status: 'completed',
+        conversations: 5,
+        memos: 5,
+        confirmed: 5,
+        engine: 'mock',
+      },
+    })
+    const theme = await service.prisma.feedbackTheme.create({
+      data: {
+        runId: run.id,
+        rank: 1,
+        title: 'Elm Street',
+        summary: 'Elm first.',
+        details: 'Everyone named Elm.',
+        members: {
+          create: before.map((message) => ({ textReplyId: message.id })),
+        },
+      },
+    })
+
+    await upload(REPLIES_CSV, false, send.id)
+
+    expect(
+      await service.prisma.feedbackThemeMember.count({
+        where: { themeId: theme.id },
+      }),
+    ).toBe(5)
+
+    const corrected = REPLIES_CSV.replace(
+      'Fix Elm Street first 0',
+      'Fix Elm Street first by the school',
+    )
+    await upload(corrected, false, send.id)
+
+    const after = await service.prisma.pollIndividualMessage.findMany({
+      where: { outreachId: send.id },
+      orderBy: { sentAt: 'asc' },
+    })
+    expect(after.map((message) => message.id)).toEqual(
+      before.map((message) => message.id),
+    )
+    expect(after[0]!.content).toBe('Fix Elm Street first by the school')
+    expect(
+      await service.prisma.feedbackThemeMember.count({
+        where: { themeId: theme.id },
+      }),
+    ).toBe(5)
+  })
+
+  it('starts nothing on a dry run', async () => {
+    const result = await upload(REPLIES_CSV, true, send.id)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(false)
+    expect(requested).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.feedbackSynthesisRun.count({
+        where: { outreachId: send.id },
+      }),
+    ).toBe(0)
+  })
+
+  // Under the floor the trigger is refused quietly and the upload is
+  // unaffected: two replies are two replies, not a theme.
+  it('keeps the upload whole when the send has too few replies for a run', async () => {
+    const result = await upload(RESULTS_CSV, false)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    expect(requested).toHaveBeenCalledWith({
+      organizationSlug: ORG_SLUG,
+      outreachId: outreach.id,
+    })
+    expect(
+      await service.prisma.feedbackSynthesisRun.count({
+        where: { outreachId: outreach.id },
+      }),
+    ).toBe(0)
+  })
+})
+
+describe('a Serve poll send through the same surface', () => {
+  const PEOPLE = Array.from({ length: 5 }, (_, i) => ({
+    personId: `person-poll-${i}`,
+    phone: `+1303555030${i}`,
+  }))
+  const REPLIES_CSV = [
+    'Contact Phone Number,Message Text,Sent At,Send Direction',
+    ...PEOPLE.map(
+      (person, i) =>
+        `${person.phone},Fix the splash pad ${i},2026-08-11T15:0${i}:00.000Z,INBOUND`,
+    ),
+  ].join('\n')
+
+  let poll: Outreach
+
+  beforeEach(async () => {
+    poll = await createSend(OutreachStatus.in_progress, OutreachType.poll)
+    await service.prisma.outreachTextRecipient.createMany({
+      data: PEOPLE.map((person) => ({
+        outreachId: poll.id,
+        organizationSlug: ORG_SLUG,
+        personId: person.personId,
+        phone: person.phone,
+      })),
+    })
+  })
+
+  it('lists an in-progress poll in the awaiting queue', async () => {
+    const result = await getQueue()
+
+    expect(result.data.items).toContainEqual(
+      expect.objectContaining({
+        kind: 'sms',
+        id: String(poll.id),
+        outreachType: OutreachType.poll,
+        recipientCount: 5,
+      }),
+    )
+  })
+
+  it('ingests its replies and starts a synthesis run', async () => {
+    const result = await upload(REPLIES_CSV, false, poll.id)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    expect(
+      await service.prisma.pollIndividualMessage.count({
+        where: { outreachId: poll.id },
+      }),
+    ).toBe(5)
+    await vi.waitFor(async () => {
+      const runs = await service.prisma.feedbackSynthesisRun.findMany({
+        where: { outreachId: poll.id },
+      })
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        organizationSlug: ORG_SLUG,
+        confirmed: 5,
+      })
+    })
   })
 })

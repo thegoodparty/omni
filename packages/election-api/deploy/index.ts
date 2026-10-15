@@ -77,7 +77,7 @@ export = async () => {
     finalSnapshotIdentifier: `election-api-db-${stage}-final-snapshot`,
   })
 
-  new aws.rds.ClusterInstance('rdsInstance', {
+  const rdsInstance = new aws.rds.ClusterInstance('rdsInstance', {
     identifier: select({
       dev: 'tf-20250328152646832200000003',
       prod: 'tf-20250422023552728500000001',
@@ -86,6 +86,49 @@ export = async () => {
     instanceClass: 'db.serverless',
     engine: aws.rds.EngineType.AuroraPostgresql,
     engineVersion: rdsCluster.engineVersion,
+  })
+
+  // RDS keeps its event history for 14 days. Copying the cluster's events to
+  // a log group keeps them for a year and lets Grafana's CloudWatch data
+  // source show them next to the service's own errors.
+  const rdsEventsLogGroup = new aws.cloudwatch.LogGroup('rdsEventsLogGroup', {
+    name: pulumi.interpolate`/aws/events/rds/${rdsCluster.clusterIdentifier}`,
+    retentionInDays: 365,
+  })
+
+  new aws.cloudwatch.LogResourcePolicy('rdsEventsLogPolicy', {
+    policyName: pulumi.interpolate`eventbridge-to-${rdsCluster.clusterIdentifier}-events`,
+    policyDocument: pulumi.jsonStringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Principal: {
+            Service: ['events.amazonaws.com', 'delivery.logs.amazonaws.com'],
+          },
+          Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+          Resource: pulumi.interpolate`${rdsEventsLogGroup.arn}:*`,
+        },
+      ],
+    }),
+  })
+
+  const rdsEventsRule = new aws.cloudwatch.EventRule('rdsEventsRule', {
+    description: pulumi.interpolate`RDS events for ${rdsCluster.clusterIdentifier}`,
+    eventPattern: pulumi.jsonStringify({
+      source: ['aws.rds'],
+      detail: {
+        SourceIdentifier: [
+          rdsCluster.clusterIdentifier,
+          rdsInstance.identifier,
+        ],
+      },
+    }),
+  })
+
+  new aws.cloudwatch.EventTarget('rdsEventsTarget', {
+    rule: rdsEventsRule.name,
+    arn: rdsEventsLogGroup.arn,
   })
 
   createService({
@@ -124,8 +167,8 @@ export = async () => {
       AWS_REGION: 'us-west-2',
       // Per-task Prisma pool size. The default of 10 exhausted under gp-api
       // fan-out bursts (P2024 "Timed out fetching a connection" → 502s on the
-      // org list); 2 prod tasks x 25 = 50 connections, well within Aurora
-      // Serverless v2 capacity.
+      // org list); 6-16 prod tasks x 25 = 150-400 connections, well within
+      // Aurora Serverless v2 capacity.
       PRISMA_CONNECTION_LIMIT: select({ dev: '10', prod: '25' }),
     },
     permissions: [

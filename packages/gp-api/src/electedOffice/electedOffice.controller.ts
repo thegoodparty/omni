@@ -7,9 +7,11 @@ import {
   ConflictException,
   Controller,
   ForbiddenException,
+  forwardRef,
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   NotFoundException,
   Param,
   Post,
@@ -39,7 +41,9 @@ import {
   ElectedOfficeService,
 } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { electedOfficeToApi } from './util/electedOffice.util'
+import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   SupportEstimate,
@@ -53,6 +57,9 @@ export class ElectedOfficeController {
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly organizationsService: OrganizationsService,
     private readonly supportEstimateService: SupportEstimateService,
+    private readonly crmOfficeHolder: CrmOfficeHolderService,
+    @Inject(forwardRef(() => PrioritiesService))
+    private readonly prioritiesService: PrioritiesService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -86,7 +93,14 @@ export class ElectedOfficeController {
         where: { userId: user.id },
         orderBy: { termStartDate: 'asc' },
       })
-    return offices.map((office) => this.toApi(office))
+    // Serve onboarding holds back paid community issues research until an
+    // official with issues they ran on confirms they are in office.
+    const withWinIssues =
+      await this.prioritiesService.officesWithWinIssues(offices)
+    return offices.map((office) => ({
+      ...this.toApi(office),
+      hasWinIssues: withWinIssues.has(office.id),
+    }))
   }
 
   @UseElectedOffice()
@@ -149,10 +163,16 @@ export class ElectedOfficeController {
         overrideDistrictId: organization.overrideDistrictId,
       }
     } else {
-      orgData = {
-        positionId: ballotReadyPositionId ?? null,
-        customPositionName: customPositionName ?? null,
-        overrideDistrictId: null,
+      // positionId is election-api's own id, never the BallotReady id the
+      // body carries — resolve it the same way a campaign or a self-service
+      // PATCH does, so later reads of this org don't hand election-api a BR
+      // id and 400.
+      orgData = await this.organizationsService.resolveOrgData({
+        ballotReadyPositionId,
+        customPositionName,
+      })
+      if (ballotReadyPositionId && !orgData.positionId) {
+        throw new BadRequestException('Position not found')
       }
     }
 
@@ -359,6 +379,7 @@ export class ElectedOfficeController {
       where: { slug: orgSlug },
       data: { overrideDistrictId },
     })
+    await this.crmOfficeHolder.syncElectedOffice(id)
 
     return { electedOfficeId: id, overrideDistrictId }
   }

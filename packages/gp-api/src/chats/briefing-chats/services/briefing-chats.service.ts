@@ -6,10 +6,16 @@ import {
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import {
+  type ChatScopeHandler,
+  hasFinalizeAssistantText,
+} from '@/chats/general/types/chatScopeHandler'
 import {
   BriefingAnnotationHandler,
   requireConversationId,
 } from '../briefingAnnotation.handler'
+import type { BriefingChatContext } from '../briefingAnnotation.handler'
 import { BriefingContextService } from './briefingContext.service'
 import { BriefingNotesService } from './briefingNotes.service'
 import { DistrictResolverService } from './districtResolver.service'
@@ -46,12 +52,15 @@ export class BriefingChatsService {
     databricks?: DatabricksProvider,
     @Optional()
     districtResolver?: DistrictResolverService,
+    @Optional()
+    peopleDatasets?: PeopleDatasetService,
   ) {
     this.handler = new BriefingAnnotationHandler(
       briefingContext,
       notesService,
       databricks,
       districtResolver,
+      peopleDatasets,
     )
   }
 
@@ -66,6 +75,13 @@ export class BriefingChatsService {
         args.userId,
       )
 
+      // The registry route forwards finalizeAssistantText through
+      // general-chats.service; this route calls the stream directly, so it
+      // forwards the same hook itself, or the two routes drift.
+      const scopeHandler: ChatScopeHandler<BriefingChatContext> = self.handler
+      const finalizing = hasFinalizeAssistantText(scopeHandler)
+        ? scopeHandler
+        : null
       const inner = self.chatStream.stream({
         conversationId: ctx.conversationId,
         ownerUserId: args.userId,
@@ -76,6 +92,10 @@ export class BriefingChatsService {
         traceName: self.handler.traceName,
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(finalizing && {
+          finalizeText: (text, turn) =>
+            finalizing.finalizeAssistantText(text, turn),
+        }),
       })
 
       for await (const chunk of inner) yield chunk

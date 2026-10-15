@@ -34,6 +34,7 @@ model User {
   campaigns                   Campaign[] //TODO: Pretty sure this is supposed to be a 1-to-1 relation here
   passwordResetToken          String?                          @map("password_reset_token")
   aiChats                     AiChat[]
+  outreachReplyFlags          OutreachReplyFlag[]
   electedOffices              ElectedOffice[]
   annotations                 Annotation[]
   chatConversations           ChatConversation[]

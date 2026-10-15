@@ -66,6 +66,13 @@ describe('TokenField', () => {
     expect(span?.getAttribute('class')).toBeNull()
   })
 
+  it('gives its focus ring to the card when seamless, as Textarea does', async () => {
+    const { box } = await mount({ variant: 'seamless' })
+    expect(box).toHaveClass('focus-visible:ring-0')
+    expect(box).not.toHaveClass('focus-visible:ring-[3px]')
+    expect(box).toHaveAttribute('data-variant', 'seamless')
+  })
+
   it('reports edits as the flat string, tokens back as their text', async () => {
     const { editor, onChange } = await mount()
     act(() => {

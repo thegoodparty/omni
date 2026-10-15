@@ -3,8 +3,16 @@
 import { Button, Card } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import { MoreMenu } from 'app/shared/utils/MoreMenu'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+
+export type PromptCardId =
+  | 'meet_manager'
+  | 'get_on_ballot'
+  | 'personalize'
+  | 'plan_ready'
 
 interface ManagerPromptCardProps {
+  card: PromptCardId
   title: string
   description: string
   ctaLabel: string
@@ -19,12 +27,21 @@ interface ManagerPromptCardProps {
 // "Campaign Manager" overline, an overflow menu to skip, and a right-aligned
 // CTA. Kept separate so the shared TaskCard (tracker + archive) is unaffected.
 export default function ManagerPromptCard({
+  card,
   title,
   description,
   ctaLabel,
   onCta,
   onSkip,
 }: ManagerPromptCardProps): React.JSX.Element {
+  const track = (action: 'start' | 'skip'): void => {
+    void trackEvent(EVENTS.CampaignManager.PromptCardActionTaken, {
+      card,
+      action,
+      cta: ctaLabel,
+    })
+  }
+
   return (
     <Card className="gap-3 rounded-2xl border border-grayscale-300 p-5 shadow-sm lg:p-6">
       <div className="flex items-start justify-between gap-2">
@@ -32,14 +49,31 @@ export default function ManagerPromptCard({
           <SparklesIcon className="size-3.5" aria-hidden />
           Campaign Manager
         </span>
-        <MoreMenu menuItems={[{ label: 'Skip', onClick: onSkip }]} />
+        <MoreMenu
+          menuItems={[
+            {
+              label: 'Skip',
+              onClick: () => {
+                track('skip')
+                onSkip()
+              },
+            },
+          ]}
+        />
       </div>
 
       <h2 className="text-xl font-semibold text-card-foreground">{title}</h2>
       <p className="text-sm text-muted-foreground">{description}</p>
 
       <div className="flex justify-end pt-2">
-        <Button type="button" className="rounded-full" onClick={onCta}>
+        <Button
+          type="button"
+          className="rounded-full"
+          onClick={() => {
+            track('start')
+            onCta()
+          }}
+        >
           {ctaLabel}
         </Button>
       </div>

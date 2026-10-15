@@ -213,7 +213,11 @@ export class CommunityIssueService extends createPrismaBase(
           ? CommunityIssueList.trending
           : CommunityIssueList.top_community
       const otherListCount = await this.model.count({
-        where: { organizationSlug: run.organizationSlug, list: otherList },
+        where: {
+          organizationSlug: run.organizationSlug,
+          list: otherList,
+          lastRefreshedRunId: { not: null },
+        },
       })
       if (otherListCount > 0) {
         const [topIssues, trendingIssues] = await this.loadCurrentIssues(

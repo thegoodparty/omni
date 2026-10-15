@@ -12,9 +12,16 @@ import {
   SheetTrigger,
   Skeleton,
 } from '@styleguide'
-import { ListChecksIcon } from '@styleguide/components/ui/icons'
+import Link from 'next/link'
 import {
+  ChartColumnIcon,
+  ListChecksIcon,
+} from '@styleguide/components/ui/icons'
+import {
+  isReportBackMessage,
+  isToolRefusal,
   parsePriorityStatus,
+  reportBackMessage,
   type ChatAnchor,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
@@ -59,6 +66,8 @@ import {
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { priorityFlowChatApi } from '../data/chat-api'
 import { fetchPriorityStatus } from '../data/priority-api'
 import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
@@ -106,6 +115,13 @@ const GENERATING_LABELS: Record<string, string> = {
 
 const FINDING_TOOLS = [COMPARABLES_TOOL, CURRENT_LAW_TOOL, AUTHORITY_TOOL]
 
+// Leaving mid-turn aborts the stream, but the server finishes and saves the
+// reply anyway. Coming back before it lands loads a transcript that ends on the
+// official's turn, and no turn here is running to wait for it. Same budget as
+// the shared engine's doneless commit poll: a turn can write for minutes.
+const REPLY_POLL_MS = 2_000
+const REPLY_POLL_MAX_TRIES = 90
+
 type Phase = 'loading' | 'ready' | 'error'
 
 type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
@@ -126,6 +142,31 @@ const statusMarker = (
 })
 
 const RAIL_TITLE = 'Where this stands'
+const RESULTS_LINK = 'What we heard'
+
+const ResultsLink = ({
+  priorityId,
+}: {
+  priorityId: string
+}): React.JSX.Element | null => {
+  const { enabled } = useServeCitizenPanelsFlag()
+  if (!enabled) return null
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="small"
+      className="mt-3 w-full gap-1.5"
+    >
+      <Link
+        href={`/dashboard/priorities/${encodeURIComponent(priorityId)}/results`}
+      >
+        <ChartColumnIcon className="size-4" aria-hidden />
+        {RESULTS_LINK}
+      </Link>
+    </Button>
+  )
+}
 
 type PriorityWorkspaceProps = {
   priorityId: string
@@ -133,6 +174,9 @@ type PriorityWorkspaceProps = {
   description: string
   initialStatus: PriorityStatus
   initialNextAction: string | null
+  initialCurrentStep: string | null
+  // The send a "Report back" card opened this priority on, if one did.
+  reportBackOutreachId?: number | null
 }
 
 const PriorityWorkspaceBody = ({
@@ -141,8 +185,13 @@ const PriorityWorkspaceBody = ({
   description,
   initialStatus,
   initialNextAction,
+  initialCurrentStep,
+  reportBackOutreachId = null,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
+  // Read once: the param is dropped from the address after the turn is
+  // queued, so a reload never asks twice.
+  const reportBackRef = useRef(reportBackOutreachId)
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -169,6 +218,7 @@ const PriorityWorkspaceBody = ({
   const [streamError, setStreamError] = useState<string | null>(null)
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [streamDone, setStreamDone] = useState(false)
+  const [awaitingReply, setAwaitingReply] = useState(false)
   // A finding card can be the last thing in a turn, so the shimmer stays off
   // right after one lands and comes back with the agent's next tool.
   const [afterFinding, setAfterFinding] = useState(false)
@@ -213,6 +263,14 @@ const PriorityWorkspaceBody = ({
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (
+        event.type === 'tool_result' &&
+        event.toolCallId &&
+        isToolRefusal(event.result)
+      ) {
+        const key = `${event.toolName}-${event.toolCallId}`
+        setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
+      }
       if (event.type === 'tool_input_start') {
         setGeneratingTool(event.toolName)
         setAfterFinding(false)
@@ -292,8 +350,11 @@ const PriorityWorkspaceBody = ({
   // ordinary user turn, and the agent decides for itself whether it settles a
   // step and calls update_priority_status.
   const answerClarify = useCallback(
-    (answer: string): void => send(answer),
-    [send],
+    (answer: string): void => {
+      trackEvent(EVENTS.Priorities.MessageSent, { priorityId, via: 'clarify' })
+      send(answer)
+    },
+    [send, priorityId],
   )
   const sendRef = useRef(send)
   useEffect(() => {
@@ -330,10 +391,12 @@ const PriorityWorkspaceBody = ({
     ),
   )
   useEffect(() => {
-    if (sending || phase !== 'ready' || !conversationId) return
+    if (sending || awaitingReply || phase !== 'ready' || !conversationId) {
+      return
+    }
     const next = pendingSent.current.shift()
     if (next) send(next, { hidden: true })
-  }, [sending, phase, conversationId, sentTick, send])
+  }, [sending, awaitingReply, phase, conversationId, sentTick, send])
 
   useEffect(() => {
     let cancelled = false
@@ -352,8 +415,56 @@ const PriorityWorkspaceBody = ({
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
+        trackEvent(EVENTS.Priorities.PriorityViewed, {
+          priorityId,
+          currentStep: initialCurrentStep,
+          isNewConversation: history.length === 0,
+        })
+        // A report back card's turn is the opener on a fresh thread, and
+        // otherwise waits its turn behind anything in flight, once per send.
+        const reportBackId = reportBackRef.current
+        reportBackRef.current = null
+        if (reportBackId !== null) {
+          router.replace(`/dashboard/priorities/${priorityId}`, {
+            scroll: false,
+          })
+        }
+        const reportBackTurn =
+          reportBackId === null ? null : reportBackMessage(reportBackId)
         if (history.length === 0) {
-          sendRef.current(KICKOFF, { hidden: true, idOverride: id })
+          sendRef.current(reportBackTurn ?? KICKOFF, {
+            hidden: true,
+            idOverride: id,
+          })
+          return
+        }
+        if (
+          reportBackTurn !== null &&
+          !history.some((m) => m.content === reportBackTurn)
+        ) {
+          pendingSent.current.push(reportBackTurn)
+          setSentTick((tick) => tick + 1)
+        }
+        if (history[history.length - 1]?.role !== 'user') return
+        setAwaitingReply(true)
+        let latest = history
+        try {
+          for (
+            let tries = 0;
+            tries < REPLY_POLL_MAX_TRIES &&
+            latest[latest.length - 1]?.role === 'user';
+            tries++
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, REPLY_POLL_MS))
+            if (cancelled) return
+            latest = await priorityFlowChatApi.listMessages(id)
+            if (cancelled) return
+          }
+          setMessages(latest)
+        } catch {
+          // The transcript already on screen stays; the composer reopens.
+        } finally {
+          if (!cancelled) setAwaitingReply(false)
         }
       } catch {
         if (!cancelled) setPhase('error')
@@ -363,7 +474,15 @@ const PriorityWorkspaceBody = ({
     return () => {
       cancelled = true
     }
-  }, [priorityId, title, description, setMessages, retryNonce])
+  }, [
+    priorityId,
+    title,
+    description,
+    initialCurrentStep,
+    setMessages,
+    retryNonce,
+    router,
+  ])
 
   const markers = useMemo(() => replayStatusMarkers(messages), [messages])
   // The question still waiting on an answer: the last assistant turn that
@@ -396,7 +515,8 @@ const PriorityWorkspaceBody = ({
           (later) =>
             later.role === 'user' &&
             later.content !== KICKOFF &&
-            !isProposalSentMessage(later.content),
+            !isProposalSentMessage(later.content) &&
+            !isReportBackMessage(later.content),
         )
       if (reply) answers[message.id] = reply.content
     })
@@ -408,7 +528,9 @@ const PriorityWorkspaceBody = ({
         (m) =>
           !(
             m.role === 'user' &&
-            (m.content === KICKOFF || isProposalSentMessage(m.content))
+            (m.content === KICKOFF ||
+              isProposalSentMessage(m.content) ||
+              isReportBackMessage(m.content))
           ),
       ),
     [messages],
@@ -443,10 +565,11 @@ const PriorityWorkspaceBody = ({
     (widget) => widget.instance.toolName === CLARIFY_TOOL,
   )
   const working =
-    sending &&
-    !clarifyLive &&
-    !afterFinding &&
-    (blocks.length === 0 || (revealDone && !pillRunning && !streamDone))
+    awaitingReply ||
+    (sending &&
+      !clarifyLive &&
+      !afterFinding &&
+      (blocks.length === 0 || (revealDone && !pillRunning && !streamDone)))
   const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
   const workingLabel =
     (generatingTool && GENERATING_LABELS[generatingTool]) ||
@@ -514,6 +637,7 @@ const PriorityWorkspaceBody = ({
                       nextAction={nextAction}
                       className="border-0 shadow-none"
                     />
+                    <ResultsLink priorityId={priorityId} />
                   </SheetBody>
                 </SheetContent>
               </Sheet>
@@ -598,9 +722,13 @@ const PriorityWorkspaceBody = ({
               onSubmit={() => {
                 const text = composer
                 setComposer('')
+                trackEvent(EVENTS.Priorities.MessageSent, {
+                  priorityId,
+                  via: 'composer',
+                })
                 send(text)
               }}
-              disabled={sending || phase !== 'ready'}
+              disabled={sending || awaitingReply || phase !== 'ready'}
               placeholder="Ask about this priority, or tell me what changed..."
               ariaLabel="Message about this priority"
               dictation={dictation}
@@ -611,6 +739,7 @@ const PriorityWorkspaceBody = ({
 
       <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
         <PriorityStatusRail status={status} nextAction={nextAction} />
+        <ResultsLink priorityId={priorityId} />
       </aside>
       <CardDetailSheetHost />
     </div>

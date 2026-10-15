@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../..'),
   transpilePackages: ['@goodparty_org/styleguide'],
   reactStrictMode: true,
+  // The build scripts type-check with `tsc --noEmit` (TypeScript 7) before
+  // `next build`, which would otherwise repeat the check on the slower TS 6 API.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   images: {
     remotePatterns: [
       'assets.goodparty.org',

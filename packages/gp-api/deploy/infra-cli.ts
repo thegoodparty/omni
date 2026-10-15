@@ -150,37 +150,37 @@ const setupStack = async (env: string) => {
 
   run('pulumi login s3://goodparty-iac-state', { stdio: setupStdio })
   run(`pulumi stack select ${stack} --create`, { stdio: setupStdio })
-  run(`pulumi config set aws:region ${AWS_REGION}`, { stdio: setupStdio })
-  run(`pulumi config set environment ${env}`, { stdio: setupStdio })
-  run(`pulumi config set imageUri ${imageUri}`, { stdio: setupStdio })
-  run('pulumi config set grafana:url https://goodparty.grafana.net', {
-    stdio: setupStdio,
-  })
-  // Grafana's app-platform APIs address resources by namespace, and the
-  // provider builds that as `stacks-<stackId>`. Left unset, its autodiscovery
-  // falls back to `default` — the namespace a self-hosted Grafana uses — and
-  // Grafana Cloud rejects every write to it as a bare HTTP 403, with no hint
-  // that the namespace is what it objected to. Only the newer resource kinds
-  // go through that API, which is why the legacy alert rules provision fine
-  // without this and the recording rules do not.
-  run(`pulumi config set grafana:stackId ${GRAFANA_STACK_ID}`, {
-    stdio: setupStdio,
-  })
+
+  // One `set-all` rather than a `pulumi config set` per key: each call is a
+  // separate CLI start, and the dozen of them added ~10s to every deploy.
+  // `--path` is what lets the defaultTags keys address into the tags map; for
+  // the flat keys it is a no-op.
+  const config: Record<string, string> = {
+    'aws:region': AWS_REGION,
+    environment: env,
+    imageUri,
+    'grafana:url': 'https://goodparty.grafana.net',
+    // Grafana's app-platform APIs address resources by namespace, and the
+    // provider builds that as `stacks-<stackId>`. Left unset, its autodiscovery
+    // falls back to `default` — the namespace a self-hosted Grafana uses — and
+    // Grafana Cloud rejects every write to it as a bare HTTP 403, with no hint
+    // that the namespace is what it objected to. Only the newer resource kinds
+    // go through that API, which is why the legacy alert rules provision fine
+    // without this and the recording rules do not.
+    'grafana:stackId': String(GRAFANA_STACK_ID),
+    'grafana:smUrl': 'https://synthetic-monitoring-api-us-east-3.grafana.net',
+    ...(env === 'preview'
+      ? { prNumber: String(process.env.GITHUB_PR_NUMBER) }
+      : {}),
+    'aws:defaultTags.tags.Environment': env,
+    'aws:defaultTags.tags.Project': 'gp-api',
+  }
   run(
-    'pulumi config set grafana:smUrl https://synthetic-monitoring-api-us-east-3.grafana.net',
+    `pulumi config set-all --path ${Object.entries(config)
+      .map(([key, value]) => `--plaintext '${key}=${value}'`)
+      .join(' ')}`,
     { stdio: setupStdio },
   )
-  if (env === 'preview') {
-    run(`pulumi config set prNumber ${process.env.GITHUB_PR_NUMBER}`, {
-      stdio: setupStdio,
-    })
-  }
-  run(`pulumi config set --path aws:defaultTags.tags.Environment ${env}`, {
-    stdio: setupStdio,
-  })
-  run(`pulumi config set --path aws:defaultTags.tags.Project gp-api`, {
-    stdio: setupStdio,
-  })
 }
 
 yargs(hideBin(process.argv))
@@ -235,7 +235,14 @@ yargs(hideBin(process.argv))
     async (argv) => {
       await setupStack(argv.environment)
       if (process.env.CI) {
-        run('pulumi up --diff --yes')
+        // A preview stack is throwaway, so the plan-then-apply pass `up`
+        // runs by default only cost it ~15s of a second program run. dev and
+        // prod keep it.
+        run(
+          argv.environment === 'preview'
+            ? 'pulumi up --diff --yes --skip-preview'
+            : 'pulumi up --diff --yes',
+        )
       } else {
         run('pulumi up --diff')
       }

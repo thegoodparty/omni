@@ -1,5 +1,11 @@
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { Test } from '@nestjs/testing'
-import { ServeSmsCreateRequestSchema } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
+  CIVIC_PANEL_LEAVE_LINE,
+  ServeSmsCreateRequestSchema,
+} from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -15,6 +21,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { OutreachStatus, OutreachType } from 'src/generated/prisma'
 import {
+  assertServeSmsLockedLines,
   assertServeSmsSendDateAllowed,
   MIN_SERVE_SMS_RECIPIENTS,
   OutreachServeSmsCreateService,
@@ -34,6 +41,7 @@ const request = (overrides: Record<string, unknown> = {}) => ({
   name: 'Budget hearing reminder',
   message:
     'The budget hearing is Thursday at 6pm at City Hall. Reply STOP to opt out.',
+  imageUrl: 'https://assets.test/header.png',
   scheduledLocalDate: VALID_DATE,
   voterFileFilterId: FILTER_ID,
   ...overrides,
@@ -67,7 +75,10 @@ const page = (people: unknown[], totalResults?: number) => ({
 describe('OutreachServeSmsCreateService', () => {
   let service: OutreachServeSmsCreateService
   let prisma: { outreach: { create: ReturnType<typeof vi.fn> } }
-  let contacts: { findContactsForFilter: ReturnType<typeof vi.fn> }
+  let contacts: {
+    findContactsForFilter: ReturnType<typeof vi.fn>
+    resolvePeopleDataset: ReturnType<typeof vi.fn>
+  }
   let organizations: { findFirst: ReturnType<typeof vi.fn> }
   let filters: { findByIdAndOrganizationSlug: ReturnType<typeof vi.fn> }
   let texts: { findOptedOutPersonIds: ReturnType<typeof vi.fn> }
@@ -81,6 +92,7 @@ describe('OutreachServeSmsCreateService', () => {
     }
     contacts = {
       findContactsForFilter: vi.fn().mockResolvedValue(page(people(120))),
+      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
     }
     organizations = {
       findFirst: vi.fn().mockResolvedValue({ id: 1, slug: ORG }),
@@ -102,6 +114,7 @@ describe('OutreachServeSmsCreateService', () => {
         { provide: OrganizationsService, useValue: organizations },
         { provide: VoterFileFilterService, useValue: filters },
         { provide: ContactInteractionTextService, useValue: texts },
+        { provide: OutreachReportBackService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -111,6 +124,153 @@ describe('OutreachServeSmsCreateService', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  describe('the civic panel ask', () => {
+    const createdData = () =>
+      (
+        firstOrThrow(prisma.outreach.create.mock.calls)[0] as {
+          data: Record<string, unknown>
+        }
+      ).data
+
+    it('marks a send as asking when the message carries the JOIN line', async () => {
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(
+          request({
+            message: `The budget hearing is Thursday. ${CIVIC_PANEL_JOIN_LINE} Reply STOP to opt out.`,
+          }),
+        ),
+      )
+
+      expect(createdData().asksToJoinCivicPanel).toBe(true)
+    })
+
+    // Sends composed before the line was rewritten still carry an old one.
+    it.each(CIVIC_PANEL_JOIN_LINES.slice(1))(
+      'still marks a send carrying an earlier wording of the line: %s',
+      async (legacy) => {
+        await service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `The budget hearing is Thursday.\n\n${legacy}\n\nReply STOP to opt out.`,
+            }),
+          ),
+        )
+
+        expect(createdData().asksToJoinCivicPanel).toBe(true)
+      },
+    )
+
+    it('leaves a send without the line unmarked', async () => {
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(request()),
+      )
+
+      expect(createdData().asksToJoinCivicPanel).toBe(false)
+      expect(createdData().offersCivicPanelLeave).toBe(false)
+    })
+
+    const leaveMessage = `What do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`
+
+    it('marks a send to the panel alone as offering LEAVE', async () => {
+      filters.findByIdAndOrganizationSlug.mockResolvedValue({
+        id: FILTER_ID,
+        organizationSlug: ORG,
+        civicPanelMember: true,
+        notContactedRecently: true,
+      })
+
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(request({ message: leaveMessage })),
+      )
+
+      expect(createdData().offersCivicPanelLeave).toBe(true)
+      expect(createdData().asksToJoinCivicPanel).toBe(false)
+    })
+
+    it('refuses the LEAVE line on a list that reaches beyond the panel', async () => {
+      filters.findByIdAndOrganizationSlug.mockResolvedValue({
+        id: FILTER_ID,
+        organizationSlug: ORG,
+        civicPanelMember: true,
+        civicPanelNeverInvited: true,
+      })
+
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(request({ message: leaveMessage })),
+        ),
+      ).rejects.toThrow('Only a text to your civic panel')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
+    it('never takes a send carrying both civic panel lines', async () => {
+      filters.findByIdAndOrganizationSlug.mockResolvedValue({
+        id: FILTER_ID,
+        organizationSlug: ORG,
+        civicPanelMember: true,
+      })
+
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `What do you think?\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`,
+            }),
+          ),
+        ),
+      ).rejects.toThrow('join your civic panel and offer a way to leave')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the locked lines', () => {
+    it('refuses a text with no opt-out line', async () => {
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `The budget hearing is Thursday.\n\n${CIVIC_PANEL_JOIN_LINE}`,
+            }),
+          ),
+        ),
+      ).rejects.toThrow('missing its opt-out line')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      [`${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}`],
+      [`${CIVIC_PANEL_JOIN_LINES[1]}\n\n${CIVIC_PANEL_JOIN_LINE}`],
+      [`${CIVIC_PANEL_LEAVE_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}`],
+    ])('refuses a civic panel line sent twice: %s', async (lines) => {
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `The budget hearing is Thursday.\n\n${lines}\n\nReply STOP to opt out.`,
+            }),
+          ),
+        ),
+      ).rejects.toThrow('civic panel line more than once')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
+    it('accepts one line and the opt-out, however STOP is quoted', () => {
+      expect(() =>
+        assertServeSmsLockedLines(
+          `Hi.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply "STOP" to opt out.`,
+        ),
+      ).not.toThrow()
+    })
   })
 
   describe('the count is server-derived', () => {

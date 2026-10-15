@@ -51,6 +51,13 @@ brand-new thread gets one hidden kickoff so the official arrives at a
 conversation that has already started; it is filtered out of the transcript on
 both send and reload.
 
+Leaving mid-turn aborts the stream, but the server finishes the turn and saves
+it. A transcript that loads ending on the official's turn (most often the
+kickoff, when someone backs out within seconds) is a reply still being written,
+so the workspace shows "Thinking..." and polls `listMessages` until it lands,
+on the shared engine's doneless commit-poll budget. It never sends a second
+kickoff, which would leave two in the thread.
+
 ## The rail moves in three passes, and the last one is the truth
 
 1. **`tool_call update_priority_status`** — `applyStatusUpdate` runs the
@@ -113,7 +120,28 @@ runbook), counts the group without saving it, writes the one question, and offer
 work already done through `present_outreach_proposal` on whichever channel
 those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
-inverted, same gates), each on its own card. The official can take both, one,
+inverted, same gates), each on its own card.
+
+Behind `serve-citizen-panels` the default is one card instead
+(`buildCivicPanelFirstBlock`, "THE CIVIC PANEL COMES FIRST"): one text to
+the panel members who can be asked now (`civicPanelMember`, cell phone,
+`notContactedRecently`, sized at `PANEL_ASSUMED_REPLY_RATE`) plus as many
+residents not on the panel, with `civicPanelAsk` on so the fresh half can
+reply JOIN. With nobody on the panel to ask, the card is the fresh sample
+alone, sized as a cold text. The proposal carries both parts as one
+`sampleSize` with `panelSampleSize` inside it, over the shared criteria (cell
+phone, `notContactedRecently`), and the saved list freezes the union of the
+two draws. The targeted groups wait for that send's read
+(`read_outreach_feedback`): only a thin or one-sided read brings the most or
+least affected group, as its own card with `widensOutreachIds` set to
+every send the check has had; a thin read is never widened to more of the
+same audience, and a side never offered is never recorded declined. A side not yet sent may name the other side's sends there
+(`PriorityFlowHandler.proposalRefusal`), which is how the least affected
+group leaves out everyone the first send asked. The handler reads the panel
+size per turn (`countCivicPanelMembers`) for the `<priority>` "Civic
+panel" line, only with the flag on.
+
+The official can take both, one,
 or neither, from the cards' own buttons: the agent asks no follow-up question
 about them and never rebuilds a card already in the thread, because a second
 ask and a second set of cards read as redundant. The check is the ask for its stage. `listen_problem` and
@@ -179,6 +207,74 @@ records it with `record_check_reminder`, a narrow write in
 `PriorityStatusService.recordCheckReminder` that touches only that step's
 check and spends the same raise counter, so the two surfaces never nag
 separately.
+
+## Reporting back
+
+Behind `serve-citizen-panels`, once a priority text's replies are in (gp-api
+`OutreachReportBackService`: the results upload has landed and no summary of
+them is still running), the Chief of Staff home shows a report back card
+("Show people their voice counted on" the priority), linking here with
+`?reportBack=<outreachId>`. `page.tsx` reads the param and the workspace sends `reportBackMessage(id)` (contracts,
+`REPORT_BACK_MARKER`) as one hidden turn: the opener on a fresh thread instead
+of the kickoff, otherwise queued behind any turn in flight, never twice for a
+send already in the transcript, and the param is dropped from the address.
+
+The agent (`REPORT_BACK_BLOCK` in `priorityFlow.prompt.ts`) reads the send
+with `read_report_back`, walks the official through who it went to, how many
+answered and the top themes, asks what they will do next (it never writes a
+next step they did not give), drafts the text with themes and counts and no
+quote or identifying detail, gets their review, and presents it with
+`reportBackForOutreachId`. The handler refuses that card unless its audience
+line and count are the ones the read gave, and with anything else about who
+gets it. The card's list is everyone the send reached minus opt-outs since
+(see `outreach/AGENTS.md`). `<report_backs>` tells the agent, every turn,
+which sends are reported back on already, and the Chief of Staff reads the
+same list so neither asks what the record answers.
+
+## What we heard (`results/`)
+
+`/dashboard/priorities/[priorityId]/results`, titled "What we heard on" the
+priority to match each send's own "What we heard" report, and reached from
+the "What we heard" link under "Where this stands" in the rail, pools every send linked to the
+priority (`Outreach.priorityId`) through `GET /v1/priorities/:id/results`
+(gp-api `PriorityResultsService`): who answered (with the channels that
+brought answers under the count), how many of those people are now civic
+panel members, a heat grid of where they live, and over/under bars against
+the district. The response also carries reach and answers per send; the page
+does not list sends, since the tiles already give those counts.
+
+- **Behind `serve-citizen-panels`.** The link renders only with the flag on,
+  the page reads the flag server-side (`getFlagVariants`) and 404s when off,
+  and gp-api 404s the endpoint the same way.
+- **Who counts as answering:** a text with `respondedAt`, a call or a knock
+  with outcome `answered`. A knock counts toward the walk whose envelope it
+  was logged under (`ContactInteractionDoorKnock.outreachId`), never by the
+  turf's stops, since a person can sit in two turfs.
+- **The map never pins a house.** Coordinates arrive rounded to about 100 m
+  with no ids, and `respondentGrid.ts` bins them into fixed ~400 m squares on
+  the contact map's tile style, so no new map dependency.
+- **The bars compare places, not people** (product decision Q10): each
+  respondent stands for their census block group's makeup, averaged, against
+  the district's, so both sides read one census source. Race shows only from
+  25 respondents and only for groups at 2% or more of the district; nothing
+  shows below 10 respondents.
+- **The census figures are a sample for now, and the page does not say so.**
+  gp-api reads them through `CENSUS_COMPOSITION_SOURCE`, bound once in
+  `CensusCompositionModule` (shared with the civic panel page) to
+  `SampleCensusComposition` until gp-data-platform's district ACS columns,
+  block group table and per person block group geoid reach `mart_gp_api`.
+  The response says `source: 'sample'`; the label was taken off the page by
+  product call, so swapping the binding before the flag reaches an official
+  is required, not optional.
+- **Themes are pooled across every send.** "Top themes" reads the
+  priority's latest completed `priority`-scope synthesis run (gp-api
+  `FeedbackSynthesisService.requestPriorityRun`): text replies, door notes
+  and call notes grouped together. Any send on the priority finishing (a
+  results upload, a turf's Done, a list's last call) starts a new run that
+  replaces the last, so a door walk after a text feeds the same themes.
+  `people` counts distinct people, and `summarizing` shows while a run is in
+  flight with the previous themes still up. Each send's own report keeps its
+  own themes and tags; a pooled run tags nothing.
 
 ## A check asks a sample, not everyone
 

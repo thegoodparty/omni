@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -15,6 +16,11 @@ import {
   FollowUpStatusResponseSchema,
   UpdateFollowUpInputSchema,
   type UpdateFollowUpInput,
+  CivicPanelStatusResponseSchema,
+  CivicPanelSummarySchema,
+  CivicPanelRepresentationSchema,
+  UpdateCivicPanelInputSchema,
+  type UpdateCivicPanelInput,
   ListDetailContactsResponseSchema,
   PersonSchema,
   type UpdateContactStatusInput,
@@ -29,6 +35,8 @@ import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.de
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
+import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
 import { ListDetailContactsDTO } from './schemas/listDetailContacts.schema'
@@ -40,13 +48,18 @@ import {
 } from './schemas/listContacts.schema'
 import { UpdateContactStatusParamsDTO } from './schemas/updateContactStatus.schema'
 import { ContactsService } from './services/contacts.service'
+import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
 
 @Controller('contacts')
 @UseOrganization()
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
 export class ContactsController {
-  constructor(private readonly contactsService: ContactsService) {}
+  constructor(
+    private readonly contactsService: ContactsService,
+    private readonly civicPanelSummary: CivicPanelSummaryService,
+    private readonly features: FeaturesService,
+  ) {}
 
   @Get()
   async listContacts(
@@ -139,6 +152,26 @@ export class ContactsController {
     return this.contactsService.getFilterDetail(filters, organization)
   }
 
+  @Get('civic-panel')
+  @ResponseSchema(CivicPanelSummarySchema)
+  async getCivicPanelSummary(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelSummary.summaryFor(organization)
+  }
+
+  @Get('civic-panel/representation')
+  @ResponseSchema(CivicPanelRepresentationSchema)
+  async getCivicPanelRepresentation(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelSummary.representationFor(organization)
+  }
+
   @Get(':id')
   @ResponseSchema(PersonSchema)
   async getContact(
@@ -169,6 +202,24 @@ export class ContactsController {
     )
   }
 
+  @Patch(':personId/civic-panel')
+  @ResponseSchema(CivicPanelStatusResponseSchema)
+  async updateCivicPanel(
+    @Param() { personId }: UpdateContactStatusParamsDTO,
+    @Body(new ZodValidationPipe(UpdateCivicPanelInputSchema))
+    body: UpdateCivicPanelInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.contactsService.updateCivicPanel(
+      personId,
+      body.value,
+      organization,
+      user.id,
+    )
+  }
+
   @Patch(':personId/status')
   @ResponseSchema(ContactStatusesSchema)
   async updateContactStatus(
@@ -184,5 +235,15 @@ export class ContactsController {
       organization,
       user.id,
     )
+  }
+
+  // 404 rather than 403 when the flag is off: a surface the user has not
+  // been rolled out to should not advertise that it exists.
+  private async assertCivicPanelsOn(user: User): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
   }
 }

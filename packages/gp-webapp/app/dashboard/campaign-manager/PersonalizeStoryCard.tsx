@@ -56,6 +56,7 @@ export default function PersonalizeStoryCard({
     // differently. The CTA label stays as-is: it mirrors the manager's own
     // "Personalize your campaign" starter chip, which opens the same flow.
     <ManagerPromptCard
+      card="personalize"
       title="Tell us your campaign story"
       description="Share your why, your background, and the issues you care about to sharpen your plan."
       ctaLabel="Personalize your campaign"

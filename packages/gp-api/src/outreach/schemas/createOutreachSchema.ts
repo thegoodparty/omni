@@ -66,6 +66,9 @@ export class CreateOutreachSchema extends createZodDto(
           'campaignPlanDueDate must be a valid calendar date',
         )
         .optional(),
+      // The campaign-plan task the flow was opened from. Stored on the row so
+      // the task list can mark that task done once the text is scheduled.
+      trackerTaskId: z.string().min(1).optional(),
       // Metadata for the CAS Slack message, persisted so a payment-webhook
       // finalize can rebuild the notification after the request is gone.
       textCount: z.coerce.number().int().nonnegative().optional(),
@@ -81,13 +84,14 @@ export class CreateOutreachSchema extends createZodDto(
     })
     .strict()
     .superRefine((data, ctx) => {
-      if (data.outreachType === OutreachType.p2p && !data.phoneListId) {
-        ctx.addIssue({
-          path: ['phoneListId'],
-          code: z.ZodIssueCode.custom,
-          message: 'Phone list ID is required for P2P outreach',
-        })
-      }
+      // Win SMS hold pay-before-build: under the managed flag
+      // (`win_sms_hold_billing`, per-user) a p2p draft may be created before
+      // its phone-list build finishes, so phoneListId is not required here —
+      // R1's build-ready edge stamps it later. The flag is per-user and this
+      // DTO has no request context to evaluate it against, so the schema
+      // never enforces this requirement; OutreachService.create (which has
+      // the user) is the single enforcement point and 400s the same way when
+      // the flag is off for this caller.
       if (data.outreachType === OutreachType.p2p && !data.script) {
         ctx.addIssue({
           path: ['script'],

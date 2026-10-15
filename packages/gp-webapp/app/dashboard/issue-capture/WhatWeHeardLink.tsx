@@ -41,16 +41,16 @@ export const WhatWeHeardLink = ({
     <Link
       href={`/dashboard/issue-capture/${outreachId}`}
       className={cn(
-        'flex items-center justify-between gap-3 text-sm no-underline',
+        'group flex items-center justify-between gap-3 text-sm no-underline',
         className,
       )}
     >
-      <span className="flex items-center gap-2 font-medium text-foreground">
+      <span className="flex items-center gap-2 font-medium text-foreground underline-offset-4 group-hover:underline">
         <MessageSquareIcon size={16} aria-hidden="true" />
         {copy.title}
       </span>
       <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
-        {copy.entryCounts(data.denominators)}
+        {copy.entryCounts(data.denominators, data.channel)}
         <ChevronRightIcon size={16} aria-hidden="true" />
       </span>
     </Link>

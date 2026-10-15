@@ -43,6 +43,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  peopleDataset: 'voters',
   ...overrides,
 })
 
@@ -66,6 +67,57 @@ const ALL_TOOLS = [
 ]
 
 describe('buildChiefOfStaffSystemPrompt', () => {
+  describe('reporting back, behind serve-citizen-panels', () => {
+    const send = {
+      outreachId: 77,
+      priorityId: 'pri-1',
+      priorityTitle: 'Downtown parking',
+      sentOn: '2026-10-05',
+      audience: 'Everyone you texted about Downtown parking on October 5',
+      reached: 240,
+      canReach: 236,
+      answered: 31,
+      themes: [],
+      reportBack: null,
+    }
+
+    it('knows a report back is due and points into the priority', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ reportBacks: [send] }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        'Priority pri-1 (Downtown parking), outreach 77: 240 texted on 2026-10-05, 31 answered. Not reported back yet.',
+      )
+      expect(prompt).toContain(
+        '/dashboard/priorities/PRIORITY_ID?reportBack=OUTREACH_ID',
+      )
+      expect(prompt).toContain('Never draft the report back here')
+      expect(prompt).toContain('Never ask them whether they reported back')
+    })
+
+    it('knows a report back already went out', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          reportBacks: [
+            { ...send, reportBack: { outreachId: 90, sentOn: '2026-10-12' } },
+          ],
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('Reported back 2026-10-12.')
+    })
+
+    it('says nothing about reporting back with the flag off', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: TOOLS,
+      })
+      expect(prompt).not.toContain('REPORTING BACK')
+      expect(prompt).not.toContain('<report_backs>')
+    })
+  })
+
   it('frames the assistant as a governance chief of staff', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
@@ -84,8 +136,9 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: TOOLS,
     })
     expect(prompt).toContain(
-      'A text message you draft for the user to send to constituents must say who is sending it: their first name and the office they hold',
+      'A text message you draft for the user to send to constituents must say who is sending it: their full name and the office they hold',
     )
+    expect(prompt).toContain('never the first name alone')
     expect(prompt).toContain('never write a placeholder such as [Your Name]')
   })
 
@@ -191,6 +244,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(
       buildChiefOfStaffSystemPrompt({ ctx: baseCtx(), toolNames: TOOLS }),
     ).not.toContain('multiSelect')
+  })
+
+  it('offers several outreach pieces as one multi-select question', () => {
+    const rule = 'never list them in prose'
+    const both = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [
+        ...TOOLS,
+        'ask_clarify_question',
+        'present_outreach_proposal',
+      ],
+    })
+    expect(both).toContain(rule)
+    expect(both).toContain('picks from a list you gave earlier')
+    expect(
+      buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: [...TOOLS, 'present_outreach_proposal'],
+      }),
+    ).not.toContain(rule)
   })
 
   it('checks in on a put-off check only with the reminder tool', () => {
@@ -532,6 +605,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain(
       'exclude unknowns rather than counting them as zero',
+    )
+  })
+
+  it('sizes the unknown group against the voter file on the voters dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain('a fifth to a third of the file')
+    expect(prompt).not.toContain('not registered to vote')
+  })
+
+  it('blames missing scores on non-registration on the constituents dataset', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ peopleDataset: 'constituents' }),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).not.toContain('of the file')
+    expect(prompt).toContain(
+      'residents who are not registered to vote are never scored',
     )
   })
 

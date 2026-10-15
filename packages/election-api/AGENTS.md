@@ -15,7 +15,7 @@ npx vitest run src/path/to/file.test.ts        # single file
 npx vitest                     # watch mode
 npm run lint                   # eslint --fix on {src,apps,libs,test}/**/*.ts
 npm run lint-format            # lint + prettier --write
-npm run build                  # nest build → dist/
+npm run build                  # tsc --noEmit (TS 7), then nest build (SWC, no type check) → dist/
 
 npm run migrate:dev            # create/apply a migration
 npm run migrate:reset          # reset DB + migrate (LOCAL ONLY)
@@ -49,7 +49,7 @@ npm run test -w packages/election-api               # vitest run
 - **No semicolons**, single quotes, trailing commas (`.prettierrc`)
 - `unused-imports/no-unused-imports` is an **error**
 - `@typescript-eslint/no-explicit-any` is currently **off** (relaxed). Prefer typed code anyway — `any` should be a last resort, not a habit.
-- `noImplicitAny` is `false` and `tsconfig` `baseUrl` is `./`, so imports look like `import { X } from 'src/<feature>/...'` rather than `@/<feature>/...`.
+- `noImplicitAny` is `false` and `tsconfig` `paths` maps `"*"` to `./*` (TS 7 has no `baseUrl`), so imports look like `import { X } from 'src/<feature>/...'` rather than `@/<feature>/...`. `.swcrc` sets `jsc.baseUrl` because SWC needs one to rewrite those `paths` imports in `nest build` (and vitest's SWC transform).
 - Arrow functions over `function` declarations
 - Bias to WET over premature DRY
 

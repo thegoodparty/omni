@@ -61,7 +61,7 @@ describe('runCostUsd', () => {
   it('is unmeasured for a model with no rates rather than throwing', () => {
     const unpriced = {
       ...withCost(BASE, undefined),
-      variant: { ...BASE.variant, model: 'claude-opus-4-7' },
+      variant: { ...BASE.variant, model: 'claude-unpriced-model' },
     }
     expect(runCostUsd(unpriced)).toBe('unpricedModel')
   })

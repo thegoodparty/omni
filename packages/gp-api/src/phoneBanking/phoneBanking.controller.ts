@@ -71,13 +71,16 @@ export class PhoneBankingController {
     input: PhoneBankingCreate,
   ) {
     await this.contacts.assertProAccess(organization)
+    const { trackerTaskId, proposalKey, ...list } = input
     return this.listService.create(
       organization,
       campaign && {
         campaignId: campaign.id,
         organizationSlug: campaign.organizationSlug,
+        trackerTaskId,
+        ...(proposalKey !== undefined && { proposalKey }),
       },
-      input,
+      list,
     )
   }
 

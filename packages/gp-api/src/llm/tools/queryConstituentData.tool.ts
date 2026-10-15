@@ -6,9 +6,10 @@ import {
   SqlRejected,
   validateInsightsSql,
 } from './districtInsights.tool'
-import { DATA_SOURCE_ROUTING_RULES } from './dataSourceRouting'
+import { dataSourceRoutingRules } from './dataSourceRouting'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import type { DatabricksProvider } from './queryDatabricks.tool'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { isRecord } from './util/isRecord.util'
 import { parseSingleSelect } from './util/sqlAst.util'
 
@@ -77,6 +78,11 @@ export interface ConstituentDataScope {
   // have no marks or tokens, so the semantics block would reference entries
   // that do not exist. Give a catalog the same treatment before flipping this.
   catalogCarriesScoreMarks?: boolean
+  // Which people the table holds, from PeopleDatasetService for the chat's
+  // org. 'constituents' (Serve with the consumer-data flag) adds adult
+  // residents who are not registered to vote, so the description names that
+  // base. Scopes that omit it (Win) read voters only.
+  peopleDataset?: PeopleDataset
 }
 
 const normalizeColumn = (name: string): string => name.toLowerCase()
@@ -381,7 +387,7 @@ Write ONE SELECT against this exact table — you MUST include the FROM clause:
 The WHERE clause is your district scope — copy it verbatim, AND-combined with any extra filters. The GROUP BY is optional; omit it for a single district-wide total.
 
 Breakdown dimensions: call describe_constituent_data first to see the recommended dimensions and what each one means. Most are modeled issue-support scores (columns named hs_*${scope.catalogCarriesScoreMarks ? '' : ', each a 0-100 likelihood where a higher score means more aligned with the named position — report them as approximate shares/averages, never as exact head counts'}), plus age and urbanicity. Break down or filter by those. Do NOT group by a district or geography column: your district scope above already pins every row to one district, so a district breakdown just returns one meaningless row.
-${scope.catalogCarriesScoreMarks ? `\n${hsScoreSemantics(scope.audienceNoun)}\n` : ''}
+${scope.catalogCarriesScoreMarks ? `\n${hsScoreSemantics(scope.audienceNoun, scope.peopleDataset ?? 'voters')}\n` : ''}
 RULES:
   - Single SELECT, and it MUST contain "FROM ${table}".
   - ALWAYS include COUNT(*) (e.g. COUNT(*) AS count); any alias is fine. Queries with no COUNT are rejected.
@@ -401,7 +407,7 @@ ${
 
 Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.
 
-${DATA_SOURCE_ROUTING_RULES}`
+${dataSourceRoutingRules(scope.peopleDataset ?? 'voters')}`
 }
 
 export const buildQueryConstituentDataTool = (deps: {
@@ -462,7 +468,7 @@ export const buildDescribeConstituentDataTool = (deps: {
 }): LlmStreamTool<Record<string, never>, ConstituentDataMetadata> => ({
   description:
     'List the table, recommended breakdown dimensions (with labels), and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.\n\n' +
-    DATA_SOURCE_ROUTING_RULES,
+    dataSourceRoutingRules(deps.scope.peopleDataset ?? 'voters'),
   inputSchema: z.object({}),
   execute: () => ({
     table: [...deps.scope.allowedTables][0] ?? '',

@@ -6,7 +6,12 @@ import { useSmsResults } from 'app/dashboard/outreach/v2/useOutreachResults'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { CardNote, CompactCardLink, CompactCardLoading } from './cardShell'
 import { pastOutreachQueryOptions } from './cardQueries'
-import { outreachDetailHref, peopleCount } from './proposalPresentation'
+import {
+  type CardMode,
+  outreachDetailHref,
+  peopleCount,
+} from './proposalPresentation'
+import { useProposalFlows } from './proposalFlows'
 
 export const SERVE_PAST_OUTREACH_COPY = {
   untitled: 'Untitled send',
@@ -15,14 +20,20 @@ export const SERVE_PAST_OUTREACH_COPY = {
 
 // One chip per send, opening that send in the outreach history's own
 // drawer: history already owns what a send looks like after the fact.
-const PastOutreachChip = ({ row }: { row: OutreachDetail }) => {
+const PastOutreachChip = ({
+  row,
+  mode,
+}: {
+  row: OutreachDetail
+  mode: CardMode
+}) => {
   const isText =
     row.outreachType === OUTREACH_TYPES.text ||
     row.outreachType === OUTREACH_TYPES.p2p
   const { data: results } = useSmsResults(
     row.id,
     isText && row.status === 'completed',
-    'serve',
+    mode,
   )
   const when = row.date ?? row.createdAt
   const count = row.textCount ?? row.billableTextCount
@@ -31,13 +42,13 @@ const PastOutreachChip = ({ row }: { row: OutreachDetail }) => {
       title={row.name || row.title || SERVE_PAST_OUTREACH_COPY.untitled}
       subtitle={[
         getChannelLabel(row.outreachType),
-        typeof count === 'number' ? peopleCount(count) : '',
+        typeof count === 'number' ? peopleCount(count, mode) : '',
         results ? SERVE_PAST_OUTREACH_COPY.responses(results.responded) : '',
         when ? shortOutreachDate(when) : '',
       ]
         .filter(Boolean)
         .join(' · ')}
-      href={outreachDetailHref(row.id)}
+      href={outreachDetailHref(row.id, mode)}
     />
   )
 }
@@ -47,8 +58,9 @@ export const PastOutreachCard = ({
 }: {
   card: Extract<ChatCard, { kind: 'past_outreach' }>
 }) => {
+  const mode = useProposalFlows()?.mode ?? 'serve'
   const results = useQueries({
-    queries: card.outreachIds.map((id) => pastOutreachQueryOptions(id)),
+    queries: card.outreachIds.map((id) => pastOutreachQueryOptions(id, mode)),
   })
 
   if (results.some((result) => result.isPending)) {
@@ -65,7 +77,7 @@ export const PastOutreachCard = ({
   return (
     <div className="flex w-full max-w-md flex-col gap-2">
       {rows.map((row) => (
-        <PastOutreachChip key={row.id} row={row} />
+        <PastOutreachChip key={row.id} row={row} mode={mode} />
       ))}
       <CardNote>{card.note}</CardNote>
     </div>

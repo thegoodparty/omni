@@ -31,6 +31,7 @@ export type FriendlyOrganization = {
   slug: string
   hasDistrictOverride: boolean
   customPositionName: string | null
+  testModeCreatedAt: Date | null
   position: {
     id: string
     name: string
@@ -145,7 +146,10 @@ export class OrganizationsService extends createPrismaBase(
   async listOrganizations(userId: number) {
     const orgs = await this.model.findMany({
       where: {
-        OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
+        OR: [
+          { ownerId: userId },
+          { memberships: { some: { userId } }, testModeCreatedAt: null },
+        ],
       },
       // Oldest first, slug (the @id, so unique) to break exact-timestamp ties.
       // Without an explicit order Postgres may return these rows in any order,
@@ -761,6 +765,7 @@ export class OrganizationsService extends createPrismaBase(
       slug: org.slug,
       hasDistrictOverride: !!org.overrideDistrictId,
       customPositionName: org.customPositionName,
+      testModeCreatedAt: org.testModeCreatedAt,
       position: position
         ? {
             id: position.id,

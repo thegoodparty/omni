@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
+  isCivicPanelOnlyList,
   RecordPhoneBankingCall,
   RecordPhoneBankingCallResponse,
 } from '@goodparty_org/contracts'
@@ -13,6 +14,7 @@ import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbac
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { mapWillVoteToLikelihood } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import {
+  CivicPanelStatus,
   ContactInteractionPhoneBanking,
   ContactStatusField,
   ContactStatusSource,
@@ -25,6 +27,7 @@ import {
   SupportAnswer,
   WillVoteAnswer,
 } from '../../generated/prisma'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 import { PhoneBankingAccessService } from './phoneBankingAccess.service'
 
 type EntryWithPersons = Prisma.PhoneBankingListEntryGetPayload<{
@@ -40,6 +43,8 @@ type RowInput = {
   supportAnswer: SupportAnswer | null
   willVote: WillVoteAnswer | null
   followUp: FollowUpAnswer | null
+  joinCivicPanel: FollowUpAnswer | null
+  stayOnCivicPanel: FollowUpAnswer | null
   note: string | null
   actorUserId: number
 }
@@ -88,11 +93,18 @@ export class PhoneBankingCallService extends createPrismaBase(
   ): Promise<RecordPhoneBankingCallResponse> {
     const list = await this.client.phoneBankingList.findFirst({
       where: { id: listId, organizationSlug },
-      select: { id: true },
+      select: {
+        id: true,
+        voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT },
+      },
     })
     if (!list) {
       throw new NotFoundException('Phone banking list not found')
     }
+    // Only a list of panel members asks whether they want to stay on, so an
+    // answer from any other list answers nothing and must not take a member
+    // off the panel.
+    const civicPanelOnly = isCivicPanelOnlyList(list.voterFileFilter)
     await this.access.assertVolunteerAccess(listId, role, actorUserId)
 
     const entry = await this.client.phoneBankingListEntry.findFirst({
@@ -116,7 +128,7 @@ export class PhoneBankingCallService extends createPrismaBase(
         organizationSlug,
         listId,
         entry,
-        input,
+        civicPanelOnly ? input : { ...input, stayOnCivicPanel: undefined },
         occurredAt,
         actorUserId,
       ),
@@ -129,6 +141,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     // recordIdempotent() use.
     await this.emitLikelihoodEvents(rows)
     await this.emitFollowUpEvents(rows)
+    await this.emitCivicPanelEvents(rows)
 
     // The list just finished: its memos can be summarized. Fire-and-forget,
     // resolved lazily like the turf's trigger. The call is already saved, so
@@ -158,6 +171,8 @@ export class PhoneBankingCallService extends createPrismaBase(
           supportAnswer: row.supportAnswer,
           willVote: row.willVote,
           followUp: row.followUp,
+          joinCivicPanel: row.joinCivicPanel,
+          stayOnCivicPanel: row.stayOnCivicPanel,
           occurredAt: row.occurredAt,
         },
       })),
@@ -210,6 +225,8 @@ export class PhoneBankingCallService extends createPrismaBase(
           supportAnswer: input.supportAnswer ?? null,
           willVote: input.willVote ?? null,
           followUp: input.followUp ?? null,
+          joinCivicPanel: input.joinCivicPanel ?? null,
+          stayOnCivicPanel: input.stayOnCivicPanel ?? null,
           note: input.note ?? null,
           actorUserId,
         }),
@@ -240,6 +257,8 @@ export class PhoneBankingCallService extends createPrismaBase(
             supportAnswer: null,
             willVote: null,
             followUp: null,
+            joinCivicPanel: null,
+            stayOnCivicPanel: null,
             note: input.note ?? null,
             actorUserId,
           }),
@@ -300,6 +319,8 @@ export class PhoneBankingCallService extends createPrismaBase(
         supportAnswer: null,
         willVote: null,
         followUp: null,
+        joinCivicPanel: null,
+        stayOnCivicPanel: null,
         note: null,
         actorUserId,
       })),
@@ -421,6 +442,41 @@ export class PhoneBankingCallService extends createPrismaBase(
         // Nobody is born flagged, so an answer of "no" against no prior flag
         // is a no-op rather than a logged transition that never happened.
         fallbackFromValue: FollowUpStatus.cleared,
+      })
+    }
+  }
+
+  // Serve-only, like follow-up. On the join question only a yes writes:
+  // declining on one call is not leaving the panel, so a "no" must never
+  // demote an existing member. The stay question, asked only on a list of
+  // panel members (recordCall drops it anywhere else), is the one a no
+  // answers: it takes them off. Unlike the follow-up twin, the sourceId is
+  // stable per call and answer: re-saving a yes on someone who has since
+  // left must not put them back, nor a no take off someone who rejoined.
+  private async emitCivicPanelEvents(
+    rows: ContactInteractionPhoneBanking[],
+  ): Promise<void> {
+    for (const row of rows) {
+      if (!row.organizationSlug.startsWith('eo-')) continue
+      const toValue =
+        row.joinCivicPanel === FollowUpAnswer.yes
+          ? CivicPanelStatus.member
+          : row.stayOnCivicPanel === FollowUpAnswer.no
+            ? CivicPanelStatus.left
+            : null
+      if (!toValue) continue
+      await this.contactStatus.changeStatus({
+        organizationSlug: row.organizationSlug,
+        personId: row.personId,
+        field: ContactStatusField.civic_panel,
+        toValue,
+        source: ContactStatusSource.phone_banking,
+        actorUserId: row.actorUserId,
+        sourceId:
+          toValue === CivicPanelStatus.member
+            ? `${row.id}:${row.joinCivicPanel}`
+            : `${row.id}:stay:${row.stayOnCivicPanel}`,
+        fallbackFromValue: CivicPanelStatus.left,
       })
     }
   }

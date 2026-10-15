@@ -8,6 +8,7 @@ import type {
   PriorityTier,
   TaskChannel,
   TaskStatus,
+  TrackerTaskSkipReason,
 } from '@goodparty_org/contracts'
 
 export type {
@@ -41,6 +42,11 @@ export interface CampaignStrategyTask {
   unlocksAfter: string | null
   isNext: boolean
   completed: boolean
+  // 'notForMe' when the candidate set it aside, so never the next task. A
+  // put-off task is just dated later, so it reads as null.
+  setAside: TrackerTaskSkipReason | null
+  // Added since this browser last showed the plan; marked for one visit.
+  isNew?: boolean
 }
 
 export interface CampaignStrategyGroup {
@@ -71,7 +77,6 @@ export interface CampaignStrategyPhase {
   key: CampaignStrategyPhaseKey
   title: string
   status: CampaignStrategyPhaseStatus
-  summary: string
   groups: CampaignStrategyGroup[]
   gate?: CampaignStrategyGate
   // The active phase renders as a week navigator (one Mon-Sun week at a time,

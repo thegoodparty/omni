@@ -7,9 +7,14 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
+from serve.hierarchical_discovery.stages.cluster_analyzer import (
+    CLUSTER_ANALYSIS_PROMPT_NAME,
+    FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME,
+)
 from serve.v1_pipeline.models.unified_record import ConsolidatedMessage
 from serve.v1_pipeline.pipeline import orchestrator, sqs_publisher
 from serve.v1_pipeline.pipeline.orchestrator import V1PipelineOrchestrator
+from shared.braintrust import load_prompt_from_braintrust
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "pipeline_config.yaml"
 POLL_GOLDEN_PATH = Path(__file__).resolve().parent / "fixtures" / "poll_golden.json"
@@ -171,7 +176,7 @@ async def _run_pipeline(
     aws = _AwsRecorder()
     monkeypatch.setattr(sqs_publisher.boto3, "client", aws.client)
     clusterer = _KeywordClusterer()
-    monkeypatch.setattr(orchestrator, "ClusteringAdapter", lambda: clusterer)
+    monkeypatch.setattr(orchestrator, "ClusteringAdapter", lambda **_kwargs: clusterer)
 
     result = await V1PipelineOrchestrator(str(config_path)).run_pipeline(campaign_name)
     assert result.errors == []
@@ -315,3 +320,42 @@ class TestFeedbackSource:
         assert event["data"]["sourceId"] == RUN_ID
         assert event["data"]["totalResponses"] == 0
         assert event["data"]["issues"] == []
+
+
+class TestPromptSourceReflectsTheSlugUsed:
+    """Orchestrator reads `get_prompt_source` for the slug the run actually
+    used (ClusterAnalyzer is faked out here by `_KeywordClusterer`, so these
+    seed the BraintrustClient singleton directly rather than driving a real
+    fallback through clustering)."""
+
+    @pytest.mark.asyncio
+    async def test_poll_run_reports_the_poll_slugs_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        load_prompt_from_braintrust(prompt_name=CLUSTER_ANALYSIS_PROMPT_NAME, fallback_prompt="x", variables={})
+
+        run = await _run_pipeline(tmp_path, monkeypatch, POLL_CAMPAIGN, POLL_CSV, env={})
+
+        assert _only_event(run)["data"]["promptSource"] == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_feedback_run_reports_the_feedback_slugs_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        load_prompt_from_braintrust(
+            prompt_name=FEEDBACK_CLUSTER_ANALYSIS_PROMPT_NAME, fallback_prompt="x", variables={}
+        )
+
+        run = await _run_pipeline(tmp_path, monkeypatch, RUN_ID, _feedback_csv(FEEDBACK_ROWS), _feedback_env())
+
+        assert _only_event(run)["data"]["promptSource"] == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_feedback_run_ignores_a_poll_only_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        load_prompt_from_braintrust(prompt_name=CLUSTER_ANALYSIS_PROMPT_NAME, fallback_prompt="x", variables={})
+
+        run = await _run_pipeline(tmp_path, monkeypatch, RUN_ID, _feedback_csv(FEEDBACK_ROWS), _feedback_env())
+
+        assert "promptSource" not in _only_event(run)["data"]

@@ -29,6 +29,12 @@ export const CALLHUB_VB_STATUS = {
 export const CreateVbCampaignBodySchema = z.object({
   name: z.string(),
   phonebooks: z.array(z.string()),
+  // Calls per minute for THIS campaign (top-level, per CallHub's VB campaign
+  // object). The account-wide VB cap is ~60 calls/min SHARED across every
+  // scheduled/running campaign, and CallHub defaults a new campaign to 60 — the
+  // whole pool — so a second campaign's START 400s `over_cps_limit`. Set low so
+  // several coexist under the cap (incident 2026-10-08).
+  frequency: z.number().int().positive(),
   script: z.object({
     label: z.string(),
     live_message: z.object({ audiofile: z.string() }),

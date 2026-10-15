@@ -7,12 +7,10 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
-  Post,
   Put,
   UsePipes,
 } from '@nestjs/common'
 import { AdminCampaignsService } from './adminCampaigns.service'
-import { AdminCreateCampaignSchema } from './schemas/adminCreateCampaign.schema'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { AdminUpdateCampaignSchema } from './schemas/adminUpdateCampaign.schema'
 import { Roles } from '../../authentication/decorators/Roles.decorator'
@@ -31,12 +29,6 @@ export class AdminCampaignsController {
     private readonly campaigns: CampaignsService,
     private readonly slack: SlackService,
   ) {}
-
-  @Post()
-  @Roles(UserRole.admin, UserRole.sales)
-  create(@Body() body: AdminCreateCampaignSchema) {
-    return this.adminCampaigns.create(body)
-  }
 
   @Put(':id')
   @Roles(UserRole.admin, UserRole.sales)

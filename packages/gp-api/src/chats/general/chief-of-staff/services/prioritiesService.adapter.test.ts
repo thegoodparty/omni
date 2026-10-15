@@ -30,7 +30,7 @@ describe('PrioritiesServiceAdapter', () => {
         title: 'Affordable housing',
         description: 'Three projects this term.',
         archivedAt: null,
-        flow: { currentStep: null, nextAction: null, checks: [] },
+        flow: { currentStep: 'define', nextAction: null, checks: [] },
       },
     ])
   })

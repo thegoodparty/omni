@@ -1,4 +1,5 @@
 'use client'
+import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
@@ -205,11 +206,16 @@ const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
-const getMobilePageTitle = (pathname: string | null): string | null => {
+const getMobilePageTitle = (
+  pathname: string | null,
+  nextTaskExperience: boolean,
+): string | null => {
   if (!pathname) return null
   // Exact matches, ahead of the table: a '/dashboard' entry in it would
   // prefix-match (and mistitle) every dashboard subroute that isn't listed.
-  if (pathname === '/dashboard') return NAV_LABELS.campaignManager
+  if (pathname === '/dashboard') {
+    return nextTaskExperience ? NAV_LABELS.home : NAV_LABELS.campaignManager
+  }
   if (pathname === '/dashboard/campaign-plan') {
     return NAV_LABELS.campaignPlan
   }
@@ -223,16 +229,17 @@ const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
   // The Contacts route is shared: Win reads "Voter Data", Serve reads
-  // "Constituent Data". Use the same Win/Serve source as the page body
+  // "Constituents". Use the same Win/Serve source as the page body
   // (useWinVoterContext) so the header and content always agree — and wait for
-  // isReady so a Win user never flashes "Constituent Data" during load.
+  // isReady so a Win user never flashes "Constituents" during load.
   const { isWin, isReady } = useWinVoterContext()
+  const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
   const pageTitle =
     pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
-      : getMobilePageTitle(pathname)
+      : getMobilePageTitle(pathname, nextTaskExperience)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

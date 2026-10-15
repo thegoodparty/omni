@@ -22,7 +22,6 @@ export const EVENTS = {
     UserDeleted: 'Account - User Deleted',
   },
   Onboarding: {
-    UserCreated: 'Onboarding - User Created',
     // Top of the magic-link funnel. Emitted when sales generates an onboarding
     // magic link for a lead, keyed to the provisioned user id + email. A single
     // funnel event for both flows — the `type` property ('serve' | 'win')
@@ -110,6 +109,8 @@ export const EVENTS = {
     ContentGenerated: 'Content Builder: Generation Completed',
   },
   Polls: {
+    PollCreated: 'Polls - Poll Created',
+    PollSubmitted: 'Polls - Poll Submitted For Review',
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
   // Meeting Briefings (Serve). Fires when the daily cron skips an
@@ -261,6 +262,17 @@ export const EVENTS = {
   },
   ChiefOfStaff: {
     AttachedDocumentQueried: 'Chief Of Staff - Attached Document Queried',
+  },
+  // Serve Priorities. A priority is created and archived from the Priorities
+  // page, Community Issues and the Chief of Staff, and its steps and checks
+  // are moved by the agent's tool calls and by real sends, so the browser
+  // never sees the whole picture. Attributed to the office's user.
+  Priorities: {
+    PriorityCreated: 'Priorities - Priority Created',
+    PriorityArchived: 'Priorities - Priority Archived',
+    StepStateChanged: 'Priorities - Step State Changed',
+    CheckStateChanged: 'Priorities - Check State Changed',
+    PlanCompleted: 'Priorities - Plan Completed',
   },
 }
 

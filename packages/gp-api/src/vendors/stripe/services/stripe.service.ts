@@ -527,6 +527,31 @@ export class StripeService {
     )
   }
 
+  // Full refund issued against the CHARGE rather than the PaymentIntent (Win SMS
+  // hold release). The durable charge id is recorded on the satellite at capture
+  // time, so a refund keyed on it survives a lapsed hold and keys its idempotency
+  // to the specific money movement — a deny and a cancel racing the same charge
+  // pass the same key and so can never refund twice. Callers pass a stable
+  // charge-derived key.
+  async refundCharge(chargeId: string, idempotencyKey: string) {
+    return await this.stripe.refunds.create(
+      { charge: chargeId },
+      { idempotencyKey },
+    )
+  }
+
+  // Lists the refunds already issued against a charge. The Win SMS refunding
+  // reconcile sweep reads this BEFORE acting on a row stranded in `refunding`,
+  // so it can tell a refund that already committed (the owner crashed after
+  // Stripe landed it) from one that never ran — and stamp refunded without a
+  // second refund in the former case. The charge-keyed idempotency key would
+  // replay the pre-crash refund at most once anyway, but reading first avoids a
+  // needless Stripe write and is what lets the sweep verify before it moves money.
+  async listChargeRefunds(chargeId: string): Promise<Stripe.Refund[]> {
+    const refunds = await this.stripe.refunds.list({ charge: chargeId })
+    return refunds.data
+  }
+
   async retrieveCheckoutSession(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
@@ -736,7 +761,19 @@ export class StripeService {
         : email
           ? { customer_email: email }
           : {}),
-      ...(email ? { payment_intent_data: { receipt_email: email } } : {}),
+      // receipt_email is unchanged; capture_method 'manual' is added only when
+      // the caller asked for a hold (Win SMS hold billing), so every other
+      // checkout keeps its immediate (automatic) capture byte-for-byte.
+      ...(email || payload.manualCapture
+        ? {
+            payment_intent_data: {
+              ...(email ? { receipt_email: email } : {}),
+              ...(payload.manualCapture
+                ? { capture_method: 'manual' as const }
+                : {}),
+            },
+          }
+        : {}),
       line_items: [
         {
           price_data: {

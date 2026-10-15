@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import event_reach as er
 import governance_guard as gg
 import sem_anchors as sa
 
@@ -490,8 +491,11 @@ def test_the_committed_watchlist_accepts_an_appended_intent_row():
     from pathlib import Path
     import yaml
     text = (Path(gg.REPO_ROOT) / gg.WATCHLIST).read_text()
+    # A PR may already carry the rows the guard asked it for, so the appended
+    # one must land after them, not be the only one.
+    committed = yaml.safe_load(text).get("intents") or []
     doc = yaml.safe_load(text + ROW)
-    assert len(doc["intents"]) == 1
+    assert len(doc["intents"]) == len(committed) + 1
 
 
 def test_a_watchlist_this_change_breaks_is_a_block_not_a_crash():
@@ -668,6 +672,33 @@ def test_reviving_a_dead_component_elsewhere_warns():
     base = {k: v for k, v in REDIRECTED.items() if "dashboard/profile" not in k}
     report = _surface_report(base, REDIRECTED)
     assert [f.event for f in report.warns if f.rule == "surface_moved"] == ["Onboarding - Candidate Office Searched"]
+
+
+def _profile_at(route, name="Profile"):
+    return {
+        OFFICE_STEP: LIVE_ONBOARDING[OFFICE_STEP],
+        APPD + route.lstrip("/") + "/page.tsx": "import OfficeStep from 'app/onboarding/step/components/OfficeStep'\nexport default function P() { return <OfficeStep/> }",
+        gg.PRODUCT_MAP: f"name: '{name}',\n    path: '{route}',",
+    }
+
+
+def test_a_page_that_moves_route_under_the_same_area_name_does_not_warn():
+    report = _surface_report(_profile_at("/dashboard/profile"), _profile_at("/profile"))
+    assert not [f for f in report.warns if f.rule == "surface_moved"]
+
+
+def test_a_page_that_moves_into_a_differently_named_area_still_warns():
+    report = _surface_report(_profile_at("/dashboard/profile"), _profile_at("/account", "Account"))
+    hits = [f for f in report.warns if f.rule == "surface_moved"]
+    assert [f.event for f in hits] == ["Onboarding - Candidate Office Searched"]
+    assert "from Profile" in hits[0].detail and "only from Account" in hits[0].detail
+
+
+def test_area_names_that_differ_only_in_case_are_listed_once():
+    none = frozenset()
+    reach = er.Reach((er.Area("/a", "briefings", none), er.Area("/b", "Briefings", none)),
+                     none, none, none, False, none)
+    assert gg._areas_text(reach) == "briefings"
 
 
 def test_flow_prefix_events_are_skipped():

@@ -4,7 +4,7 @@ import { whatWeHeardCopy } from '../../../../copy'
 import MemoList from '../../../components/MemoList'
 
 // The conversations behind the theme. Confirmed only, so none of them is
-// waiting for review.
+// waiting for review. On a text send they are the replies themselves.
 const ThemeMemos = ({
   theme,
   isServe,
@@ -13,16 +13,21 @@ const ThemeMemos = ({
   isServe: boolean
 }) => {
   const headingId = useId()
+  // A theme page has no effort to read a channel from; its members say
+  // where they came from, and a theme with none has nothing to list.
+  const channel = theme.members[0]?.channel ?? 'door_knock'
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <h2 id={headingId} className="text-lg font-semibold text-foreground">
-        {whatWeHeardCopy(isServe).theNotes}
+        {whatWeHeardCopy(isServe).theNotes(channel)}
       </h2>
       <MemoList
         isServe={isServe}
+        channel={channel}
         memos={theme.members.map((member) => ({
-          id: member.feedbackId,
+          // Exactly one of the two is set.
+          id: member.feedbackId ?? member.textReplyId ?? '',
           transcript: member.transcript,
           issues: member.issues,
           actorName: member.actorName,
