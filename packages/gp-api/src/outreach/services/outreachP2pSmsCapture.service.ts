@@ -458,7 +458,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // A promotion code covered the whole checkout, so Stripe placed no hold:
     // there is nothing to capture or void. Once the send is out (the billing
     // rendezvous below) it settles captured at $0, which is what lets CAS
-    // approve it.
+    // approve it. A list scrubbed to nobody sent nothing, so that one voids
+    // and hands the free-texts offer back.
     if (sms.promoCoversTotal && authorizationIntentId == null) {
       const billing = await this.resolveCaptureBilling(outreachId)
       if (!billing) {
@@ -466,6 +467,11 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           outreachId,
           P2pSmsSettleState.authorized,
         )
+        return
+      }
+      if (billing.leadsLoaded === 0) {
+        await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+        await this.restoreFreeTextsBestEffort(outreachId)
         return
       }
       await this.commitCaptured(outreachId, 0, null, billing.peerlyPhoneListId)
@@ -513,8 +519,12 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       Math.max(0, discountedAmount - promoDiscount),
       authorizedAmountInCents,
     )
+    // Only a send that reached someone: a list scrubbed to nobody sent
+    // nothing, so it voids and hands the free-texts offer back as before.
     const promoCovered =
-      captureAmount < WIN_SMS_HOLD_MIN_CENTS && promoDiscount > 0
+      captureAmount < WIN_SMS_HOLD_MIN_CENTS &&
+      promoDiscount > 0 &&
+      billing.leadsLoaded > 0
 
     // FRESH re-read: never trust the persisted state before moving money. The
     // live PI status decides the branch (preferring Stripe's own state over the

@@ -464,6 +464,37 @@ describe('OutreachP2pSmsCaptureService', () => {
       expect(freeTexts.restore).not.toHaveBeenCalled()
     })
 
+    it('voids and hands back the free texts when the list was scrubbed to nobody', async () => {
+      arrange({
+        smsRow: promoRow(),
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: 0 },
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.voidHold).toHaveBeenCalledWith(INTENT_ID)
+      expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+      expect(settingState()(P2pSmsSettleState.captured)).toBeUndefined()
+      expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
+    })
+
+    it('voids a covered send whose list was scrubbed to nobody', async () => {
+      arrange({
+        smsRow: promoRow({
+          authorizationIntentId: null,
+          authorizedAmountInCents: 0,
+          promoCoversTotal: true,
+        }),
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: 0 },
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.voidHold).not.toHaveBeenCalled()
+      expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+      expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
+    })
+
     it('settles at $0 when the released hold is already gone (crash recovery)', async () => {
       arrange({
         smsRow: promoRow(),
