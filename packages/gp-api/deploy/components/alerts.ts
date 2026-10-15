@@ -302,46 +302,6 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'campaigns/tcr-compliance',
 ]
 
-/**
- * Log-query spend as a fraction of what the plan includes.
- *
- * The allowance is 100x ingest, so this is `bytes read / (100 * bytes
- * written)` — one expression shared by the 50% and 80% rules, because two
- * thresholds on one measurement should not be able to drift into measuring
- * two different things.
- *
- * Both sides are 6h-averaged. `:rate5m` on either alone is spiky enough that
- * one wide ad-hoc query would clear 50% on its own, and a budget alert that
- * fires on a single query is a budget alert nobody keeps. An hour turned out
- * not to be enough of that smoothing — see the window note on the 50% rule.
- */
-const LOKI_QUERY_BUDGET_RATIO = [
-  'sum(avg_over_time(grafanacloud_logs_instance_query_bytes:rate5m[6h]))',
-  '/',
-  '(100 * sum(avg_over_time(grafanacloud_logs_instance_billable_bytes_received_per_second[6h])))',
-].join(' ')
-
-/**
- * How to find out which query is spending the budget.
- *
- * Attribution is per-rule and it is obtainable, which is the difference
- * between a useful budget alert and a puzzle — so the query goes in the
- * notification rather than in a doc the reader has to know exists.
- * `grafanacloud-usage-insights` is Grafana's own usage stream and does not
- * bill against the allowance it reports on, so running this while over budget
- * is safe.
- */
-const LOKI_ATTRIBUTION_PROSE = [
-  'Find the offender in Explore on the `grafanacloud-usage-insights` datasource — it reports bytes scanned per rule and does not bill against the allowance it measures:',
-  '```',
-  'topk(10, sum by (rule_name) (sum_over_time(',
-  '  {instance_type="logs"} | logfmt | __error__="" | source="grafana-alert"',
-  '  | unwrap total_bytes [24h]',
-  ')))',
-  '```',
-  'Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the rules.',
-].join('\n')
-
 /*
  * EVENT RULES. A log rule with `threshold: 0` that pages on any occurrence of a
  * line reads a [1m] window, every minute, ending 30 seconds before the
@@ -1273,7 +1233,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   },
   // ------ Our own Grafana Cloud spend ------ //
   //
-  // These four exist because on 2026-09-28 the vendor was the first to tell us
+  // These exist because on 2026-09-28 the vendor was the first to tell us
   // anything was wrong, and it told us by refusing every Loki query with a 429.
   // 154 alert rules failed to evaluate, `exec_err_state` is `Alerting`
   // (deliberately, and it stays), and every one of them fired at once claiming
@@ -1285,52 +1245,6 @@ export const GLOBAL_ALERTS: Alert[] = [
   // against the log-query allowance they measure. That is the point: a budget
   // alert paid for out of the budget it watches goes silent exactly when it
   // matters.
-  {
-    slug: 'loki-query-budget-half',
-    name: 'Loki query budget half spent',
-    type: 'usage',
-    // The plan includes log queries up to 100x what we ingest, so ingest is the
-    // denominator and the ratio is the only number worth alerting on — an
-    // absolute GB/day threshold goes stale the moment log volume moves, in
-    // whichever direction.
-    //
-    // Both sides are averaged over SIX hours, and the pending period is two.
-    // An hour was the first guess and it flapped: on 2026-09-29 the 1h ratio
-    // swung between 0.79 and 1.5 within a single hour (and spiked to 23 on one
-    // ad-hoc query), so it crossed the 0.8 threshold several times an hour and
-    // sent a fresh page on every re-cross. `repeat_interval` is 2d, so a
-    // sustained firing is one notification — the spam was entirely the
-    // resolve/re-fire cycle. Over the same window the 6h ratio is monotone.
-    //
-    // A long window costs nothing here because of what this measures: the
-    // allowance is billed monthly, so the thing worth paging on is a trend that
-    // holds for hours. Anything that resolves faster than that was never going
-    // to show up on an invoice.
-    expr: LOKI_QUERY_BUDGET_RATIO,
-    threshold: 0.5,
-    for: '120m',
-    timeRangeSeconds: 21600,
-    message: [
-      'Loki log queries are running at more than **50%** of the included allowance (100x ingest), averaged over the last 6 hours. Nothing is broken yet; this is the point at which somebody should look at what is reading.',
-      LOKI_ATTRIBUTION_PROSE,
-      'The usual cause is a rule whose fetch window is wide and whose evaluation interval is fast — a rule re-reads its whole window every interval, so a 6h window on the 60s default reads the same six hours 1,440 times a day. See gp-api `docs/observability.md` § Query cost.',
-    ].join('\n\n'),
-  },
-  {
-    slug: 'loki-query-budget-critical',
-    name: 'Loki query budget nearly spent',
-    type: 'usage',
-    expr: LOKI_QUERY_BUDGET_RATIO,
-    threshold: 0.8,
-    for: '120m',
-    timeRangeSeconds: 21600,
-    message: [
-      'Loki log queries are running at more than **80%** of the included allowance (100x ingest), averaged over the last 6 hours. Past 100% Grafana Cloud bills the overage and, sustained, starts answering queries with HTTP 429 — at which point every log-backed alert rule fails to evaluate and fires.',
-      LOKI_ATTRIBUTION_PROSE,
-      '**Reducing log ingest does not fix this.** Ingest is the denominator of the allowance, so writing fewer logs lowers the budget by the same proportion it lowers nothing else. The fix is always a narrower stream selector, a shorter window, or a slower evaluation interval on whatever is doing the reading.',
-    ].join('\n\n'),
-    notify: BOTH,
-  },
   {
     slug: 'loki-stream-count-approaching-cap',
     name: 'Loki active stream count approaching the cap',
@@ -1381,7 +1295,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'More than **20%** of Grafana alert rule evaluations are failing. **Alerting is blind.** Treat every alert currently firing as unverified and every alert currently silent as unchecked — this says nothing about whether any particular route, job or service is healthy.',
       'Rules that cannot evaluate are configured to fire (`exec_err_state: Alerting`), so a burst of identical-looking pages naming different routes is the symptom of this, not of those routes breaking. Read this rule first and the others second.',
-      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check `loki-query-budget-critical`, then Grafana Alerting → the rule list for the actual evaluation error.',
+      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check Grafana Alerting → the rule list for the actual evaluation error.',
     ].join('\n\n'),
     notify: BOTH,
   },

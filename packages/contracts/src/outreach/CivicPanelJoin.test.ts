@@ -5,6 +5,7 @@ import {
   CIVIC_PANEL_LEAVE_LINE,
   findCivicPanelLeaveLine,
   CIVIC_PANEL_JOIN_LINES,
+  countCivicPanelLines,
   findCivicPanelJoinLine,
   PANEL_SEED_ASSUMED_JOIN_RATE,
   PANEL_SEED_SAMPLE_SIZE,
@@ -67,5 +68,22 @@ describe('CIVIC_PANEL_LEAVE_LINE', () => {
     })
     expect(findCivicPanelJoinLine(message)).toBeNull()
     expect(findCivicPanelLeaveLine('Reply STOP to opt out.')).toBeNull()
+  })
+})
+
+describe('countCivicPanelLines', () => {
+  it('counts every JOIN wording and the LEAVE line', () => {
+    expect(countCivicPanelLines('Hello. Reply STOP to opt out.')).toBe(0)
+    expect(countCivicPanelLines(`Hi.\n\n${CIVIC_PANEL_JOIN_LINE}`)).toBe(1)
+    expect(
+      countCivicPanelLines(
+        `${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`,
+      ),
+    ).toBe(2)
+    expect(
+      countCivicPanelLines(
+        `${CIVIC_PANEL_JOIN_LINES[1]} ${CIVIC_PANEL_LEAVE_LINE}`,
+      ),
+    ).toBe(2)
   })
 })

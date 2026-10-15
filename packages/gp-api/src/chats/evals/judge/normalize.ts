@@ -638,7 +638,7 @@ export const normalizeAgent = (
   }
 }
 
-// A background case's authored condition, added to the shared input AFTER
+// A case's authored condition, added to the shared input AFTER
 // blinding. Not through `renderPayload`, because the condition is not in
 // either record: it comes from the judging checkout's case list, so it is one
 // string by construction and there is no second copy for `blindCase` to

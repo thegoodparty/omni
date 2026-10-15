@@ -5,7 +5,11 @@ import { Button, Checkbox, Input, Label, Textarea } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
 import { Check, LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
-import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
+import type {
+  ElectedOffice,
+  MyElectedOffice,
+  Organization,
+} from 'gpApi/api-endpoints'
 import type { OnboardingPriorityOption } from '@goodparty_org/contracts'
 import { setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
@@ -59,18 +63,11 @@ import {
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
 
-// Steps that come after the office is saved. Leaving for one of them is when
-// community issues can start, since they need the office to search.
-const STEPS_AFTER_OFFICE: ServeStepId[] = [
-  'confirm',
-  'term-dates',
-  'constituents',
-  'priorities',
-]
-
 // The priorities step waits this long for starter issues, then shows what it
-// has. The search usually finishes while the official is on earlier steps.
-const STARTER_ISSUES_WAIT_MS = 30_000
+// has and keeps checking in the background so late issues still appear.
+const STARTER_ISSUES_WAIT_MS = 10_000
+const STARTER_ISSUES_POLL_MS = 4_000
+const STARTER_ISSUES_POLL_LIMIT_MS = 120_000
 
 // Screens whose "Viewed" event fires once on view (in a useEffect). The two
 // selection screens (`inOffice`, `party`) are deliberately absent: their
@@ -120,6 +117,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     undefined,
   )
   const [orgState, setOrgState] = useState<string | undefined>(undefined)
+  // True once the office is on the EO org server-side, which is what the
+  // community issues search reads. A pick that is not saved yet does not count.
+  const [officeOnOrg, setOfficeOnOrg] = useState(false)
+  // The issues they ran on, carried over from their Win campaign, already give
+  // the priorities step something to offer.
+  const [hasWinIssues, setHasWinIssues] = useState(false)
   const [zip, setZip] = useState<string | undefined>(undefined)
   const [manualEntry, setManualEntry] = useState(false)
 
@@ -139,6 +142,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     new Set(),
   )
   const [otherPrioritySelected, setOtherPrioritySelected] = useState(false)
+  // When the priorities step stops checking for late starter issues.
+  const starterIssuesPollUntilRef = useRef(0)
   const [otherPriorityTitle, setOtherPriorityTitle] = useState('')
   const [otherPriorityDescription, setOtherPriorityDescription] = useState('')
   const otherPriorityComplete =
@@ -173,7 +178,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         const currentEOData = currentRes.ok
           ? (currentRes.data as ElectedOffice)
           : null
-        const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+        const mine = mineRes.ok ? (mineRes.data as MyElectedOffice[]) : []
         // `current` resolves only the active-slug org's office, so it 404s when
         // a campaign org is the active org. Fall back to the user's own offices
         // (preferring one whose onboarding is unfinished) before treating them
@@ -186,6 +191,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           null
         setCurrentEO(eo)
         currentEORef.current = eo
+        setHasWinIssues(
+          !!eo && !!mine.find((office) => office.id === eo.id)?.hasWinIssues,
+        )
 
         let officePrefilled = false
         let prefillPositionId: string | undefined = undefined
@@ -221,6 +229,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             if (org.position?.state) setOrgState(org.position.state)
           }
         }
+        if (officePrefilled) setOfficeOnOrg(true)
 
         const disabledRanges = buildDisabledRanges(mine, eo?.id)
         setOtherRanges(disabledRanges)
@@ -360,6 +369,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     })
   }, [loading, step, branch, currentEO?.id])
 
+  // Research is paid. Without issues they ran on, it starts as early as it
+  // can so the priorities step has something to offer. With them, it waits
+  // until the official has said they are in office, so nobody who is still
+  // campaigning or just testing spends it.
+  const researchAllowed =
+    !hasWinIssues ||
+    (inOffice === 'in-office' && step !== 'welcome' && step !== 'inOffice')
+
   useEffect(() => {
     if (
       loading ||
@@ -370,11 +387,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       return
     }
     let cancelled = false
+    starterIssuesPollUntilRef.current =
+      Date.now() + STARTER_ISSUES_POLL_LIMIT_MS
     void (async () => {
       try {
         await ensureElectedOffice()
         const starting =
-          communityIssuesStartRef.current ?? startCommunityIssues()
+          communityIssuesStartRef.current ??
+          (researchAllowed ? startCommunityIssues() : Promise.resolve())
         await Promise.race([
           starting,
           new Promise((resolve) => setTimeout(resolve, STARTER_ISSUES_WAIT_MS)),
@@ -395,6 +415,60 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     }
   }, [loading, step, priorityOptions, priorityLoadFailed])
 
+  // Starter issues can land after the list first loads. Keep checking until
+  // they do, then add them without touching what the official already picked.
+  const priorityOptionsLoaded = priorityOptions !== null
+  const hasCommunityOptions =
+    priorityOptions?.some((option) => option.kind === 'community') ?? false
+  useEffect(() => {
+    if (
+      step !== 'priorities' ||
+      !priorityOptionsLoaded ||
+      hasCommunityOptions
+    ) {
+      return
+    }
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const check = async () => {
+      if (cancelled || Date.now() >= starterIssuesPollUntilRef.current) return
+      try {
+        const res = await clientRequest('GET /v1/priorities/onboarding', {})
+        if (cancelled) return
+        const community = res.data.options.filter(
+          (option) => option.kind === 'community',
+        )
+        if (community.length > 0) {
+          setPriorityOptions((prev) => {
+            const shown = new Set((prev ?? []).map((option) => option.key))
+            return [
+              ...(prev ?? []),
+              ...community.filter((option) => !shown.has(option.key)),
+            ]
+          })
+          setSelectedPriorityKeys((prev) => {
+            const next = new Set(prev)
+            for (const option of community) {
+              if (option.selected) next.add(option.key)
+            }
+            return next
+          })
+          return
+        }
+      } catch (err) {
+        reportErrorToSentry(err, {
+          context: 'serveOnboarding.pollStarterIssues',
+        })
+      }
+      timer = setTimeout(check, STARTER_ISSUES_POLL_MS)
+    }
+    timer = setTimeout(check, STARTER_ISSUES_POLL_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [step, priorityOptionsLoaded, hasCommunityOptions])
+
   // One-shot guards for the two selection screens whose "Viewed" event fires on
   // Continue (with the chosen card title) rather than on view, so re-advancing
   // after a Back doesn't double-count them.
@@ -409,20 +483,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     (branch === 'prefill' && officeLabel !== DEFAULT_OFFICE_LABEL),
   )
 
-  // A resumed official's office is already on the org, so the search starts
-  // as soon as they land past the office step, not only after a fresh pick.
-  const officeKnown = officeIsChosen || !!orgPositionId
+  // Start the search the moment the office is on the org and research is
+  // allowed: on load for a prefill or resumed official, right after the
+  // office is saved for a net-new one.
   useEffect(() => {
-    if (
-      loading ||
-      !citizenPanels ||
-      !officeKnown ||
-      !STEPS_AFTER_OFFICE.includes(step)
-    ) {
-      return
-    }
+    if (loading || !citizenPanels || !officeOnOrg || !researchAllowed) return
     void startCommunityIssues()
-  }, [loading, citizenPanels, officeKnown, step])
+  }, [loading, citizenPanels, officeOnOrg, researchAllowed])
 
   const datesValid =
     !!termStartDate &&
@@ -551,6 +618,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           customPositionName: officeToPatch.customPositionName,
         })
         patchedOfficeRef.current = patchKey
+        setOfficeOnOrg(true)
       }
     }
     await clientRequest('PUT /v1/elected-office/:id', {

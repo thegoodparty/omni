@@ -133,7 +133,9 @@ export const checkSmsStandards = (
   // Whole word, as the composer's lock matches it (deriveSmsProtectedParts):
   // "reply stoppage" must fail here rather than pass with nothing locked,
   // where the opt-out instruction could then be deleted before the send.
-  if (!/reply\s+stop\b/i.test(script)) {
+  // A quoted STOP ("Reply "STOP" to opt out") is the same instruction, so a
+  // person retyping the line is not held to our exact punctuation.
+  if (!/reply\s+["'“”‘’]?stop\b/i.test(script)) {
     failures.push('opt_out_line')
   }
   if (!script.includes('{first_name}')) {
@@ -286,7 +288,7 @@ export const deriveSmsProtectedParts = (
       // in it included ("St. Louis"). It stops short of an opt-out on the
       // same line, which is a part of its own.
       const line = /^[^\n]*/.exec(after)?.[0] ?? ''
-      const optOutAt = line.search(/\s+reply\s+stop\b/i)
+      const optOutAt = line.search(/\s+reply\s+["'“”‘’]?stop\b/i)
       const rest = (optOutAt === -1 ? line : line.slice(0, optOutAt)).trimEnd()
       return { start: index, text: phrase[0] + rest }
     }
@@ -382,7 +384,9 @@ export const deriveSmsProtectedParts = (
     // The last one: the composed opt-out line closes the message, and a body
     // that mentions replying STOP earlier must not take the lock from it.
     const optOut = [
-      ...script.matchAll(/reply\s+stop\b(?:\s+to\s+opt[\s-]?out)?\.?/gi),
+      ...script.matchAll(
+        /reply\s+["'“”‘’]?stop\b["'“”‘’]?(?:\s+to\s+opt[\s-]?out)?\.?/gi,
+      ),
     ].pop()
     if (optOut) {
       parts.push({

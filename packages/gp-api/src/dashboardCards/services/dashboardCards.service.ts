@@ -94,8 +94,8 @@ const reportBackCardContent = (
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   title: 'Start with the people you represent',
   summary:
-    'A civic panel is residents who agree to tell you what they think ' +
-    'before you decide.',
+    'A civic panel is a group of residents who agree to tell you what ' +
+    'they think before you decide.',
   ctaLabel: 'Build my panel',
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }

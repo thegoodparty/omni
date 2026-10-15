@@ -743,11 +743,33 @@ describe('ChiefOfStaffHandler', () => {
         'channel text, purpose build_citizens_panel, civicPanelAsk true',
       )
       expect(prompt).toContain('Never write the line asking people to reply')
+      expect(prompt).toContain(
+        'picked at random, so it is not only the people who already reach out',
+      )
 
       expect(await proposalTool(tools).execute(invite)).toEqual({
         presented: true,
         deepLinkOnly: true,
       })
+    })
+
+    // Two lines a build reply produced: "not just the people who already
+    // reach out" (banned word) and "the panel ends up looking like
+    // Asheville" (a representativeness claim the panel brief forbids).
+    it('bans "just" and any claim that the panel looks like the community', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      const civicPanel = prompt.slice(prompt.indexOf('CIVIC PANEL ('))
+      expect(civicPanel).toContain('Never use the word "just".')
+      expect(civicPanel).toContain(
+        'Never say or imply the panel will look like, match, mirror or ' +
+          'represent the district, the city or the community.',
+      )
+      expect(civicPanel).not.toContain('looks like the district')
+      const explained = prompt.slice(prompt.indexOf('CIVIC PANEL EXPLAINED'))
+      expect(explained).toContain('Never use the word "just".')
     })
 
     it('texts all of a district smaller than the random group', async () => {
@@ -831,6 +853,18 @@ describe('ChiefOfStaffHandler', () => {
         )
         expect(prompt).toContain('They asked what it is, not to build one.')
         expect(prompt).toContain('do they want to build theirs?')
+        expect(prompt).toContain(
+          'The app shows a Build my panel button under your reply',
+        )
+        // Pressing it sends the build turn into this conversation, which
+        // goes straight to the math rather than explaining a second time.
+        expect(prompt).toContain(
+          `If they press it ("${BUILD_CITIZENS_PANEL_MESSAGE}" arrives next)`,
+        )
+        expect(prompt).toContain(
+          'Skip this when you already explained the panel earlier in this ' +
+            'conversation',
+        )
         expect(prompt).toContain(
           'never count the district, size an invite, draft a text or ' +
             'present a card',

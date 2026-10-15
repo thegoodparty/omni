@@ -1018,7 +1018,7 @@ export type APIEndpoints = {
 
   'GET /v1/elected-office/mine': {
     Request: {}
-    Response: ElectedOffice[]
+    Response: MyElectedOffice[]
   }
 
   'POST /v1/elected-office': {
@@ -2913,6 +2913,10 @@ export type ElectedOffice = {
   // routing must NOT send them into serve onboarding for a missing term/date.
   campaignId: number | null
 }
+
+// `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
+// gave it issues they ran on, which the Serve onboarding priorities step shows.
+export type MyElectedOffice = ElectedOffice & { hasWinIssues: boolean }
 
 export type ElectedOfficeInput = {
   swornInDate?: string | null

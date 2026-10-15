@@ -95,6 +95,9 @@ describe('checkSmsStandards opt_out_line', () => {
       'reply stop',
       'Reply STOP.',
       'Reply STOP, and we will stop.',
+      'Reply "STOP" to opt out.',
+      'reply “stop” to opt out',
+      "Reply 'STOP' to opt out.",
     ]) {
       expect(failures(line)).not.toContain('opt_out_line')
     }
