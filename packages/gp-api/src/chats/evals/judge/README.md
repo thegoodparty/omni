@@ -1220,6 +1220,15 @@ the list is replaced with `other_severe` rather than failing the seat. Changing
 the list is a rubric change: edit the doc and `FLAG_TYPES` together and bump
 `RUBRIC_VERSION`.
 
+**The report headlines a flag only when it repeats.** A flag type the
+candidate raised and the base did not goes at the top of the agent's section
+once it appears on two or more cases, or on one case for `restricted_data`.
+Every flag still prints on the `Flags (cases affected)` line. On unchanged
+code the judge raised single-case flags on the candidate (three on one
+chief_of_staff sweep), while each flag from a deliberate break repeated across
+cases, so a one-case flag is a reason to look, not a finding. Flags never move
+the verdict.
+
 **The schema the panel is sent has to fit the structured-output API's
 limits**: at most 24 optional parameters and 16 union parameters (a nullable
 field is one) across the whole schema, and a compiled grammar under a size
