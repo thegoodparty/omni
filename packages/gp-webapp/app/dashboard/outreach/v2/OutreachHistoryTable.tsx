@@ -31,6 +31,11 @@ import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import {
   fetchOutreachDetail,
@@ -415,16 +420,17 @@ const BASE_STATUS_FILTERS = [
   'Canceled',
 ] as const
 
-// The five names a saved draft's status can take (historyStatus.util.ts's
+// The six names a saved draft's status can take (historyStatus.util.ts's
 // DRAFT_LABELS). They are offered only when the caller passes a membership:
 // with the flag off the hub passes none AND filters every draft row out, so
-// these would be five checkboxes matching nothing.
+// these would be six checkboxes matching nothing.
 const DRAFT_STATUS_FILTERS = [
   'Pro needed',
   'Verification needed',
   'Verification in review',
   'PIN needed',
   'Ready to schedule',
+  'Texting closed',
 ] as const
 
 type StatusFilterKey =
@@ -453,6 +459,10 @@ export const OutreachHistoryTable = ({
   membership = null,
   isServe = false,
 }: OutreachHistoryTableProps) => {
+  const { smsCutoffDate } = useSmsCompliance()
+  const textingClosedReason = SMS_CUTOFF_COPY.closedReason(
+    smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+  )
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
   const [channelFilter, setChannelFilter] = useState<Set<ChannelFilterKey>>(
@@ -725,7 +735,10 @@ export const OutreachHistoryTable = ({
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <HistoryStatusText label={displayStatusLabel(row)} />
+                      <HistoryStatusText
+                        label={displayStatusLabel(row)}
+                        textingClosedReason={textingClosedReason}
+                      />
                     </TableCell>
                   </TableRow>
                 )
@@ -767,7 +780,10 @@ export const OutreachHistoryTable = ({
                     <span>{rowDisplayDate(row) ?? 'n/a'}</span>
                     <ChannelBadge type={row.outreachType} />
                   </div>
-                  <HistoryStatusText label={displayStatusLabel(row)} />
+                  <HistoryStatusText
+                    label={displayStatusLabel(row)}
+                    textingClosedReason={textingClosedReason}
+                  />
                 </div>
                 <span className="flex items-center gap-2 text-base font-medium text-foreground">
                   <span className="min-w-0 truncate">

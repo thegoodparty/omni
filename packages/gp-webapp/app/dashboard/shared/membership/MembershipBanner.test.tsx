@@ -18,6 +18,23 @@ const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
   }),
 )
 
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    } as {
+      smsCompliance: string
+      smsCutoffDate: string | null
+      generalElectionDate: string | null
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
+
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
@@ -71,6 +88,11 @@ const setup = ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
 })
 
 describe('resolveMembershipAction', () => {
@@ -93,6 +115,15 @@ describe('resolveMembershipAction', () => {
         membership({ tier: 'free', isElectedOffice: true }),
       ),
     ).toBe(null)
+  })
+
+  it('has no action for closed texting, and still pitches Pro to a free campaign', () => {
+    expect(resolveMembershipAction(membership({ texting: 'closed' }))).toBe(
+      null,
+    )
+    expect(
+      resolveMembershipAction(membership({ tier: 'free', texting: 'closed' })),
+    ).toBe('pitch')
   })
 })
 
@@ -223,6 +254,47 @@ describe('MembershipBanner', () => {
       EVENTS.ProUpgrade.Membership.BannerClicked,
       expect.anything(),
     )
+  })
+
+  it('counts down to the cutoff while the window is closing', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'needs_verification' }) })
+
+    expect(
+      screen.getByText('Get verified to send SMS by Oct. 15'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button')).toHaveTextContent('Start verification')
+  })
+
+  it('renders nothing, and fires nothing, once texting is closed for a Pro campaign', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'closed' }) })
+
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(mockExposure).not.toHaveBeenCalled()
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('still pitches Pro to a free campaign once texting is closed', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ tier: 'free', texting: 'closed' }) })
+
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.free.body),
+    ).toBeInTheDocument()
   })
 
   it('renders nothing once a Pro campaign is cleared to text', () => {

@@ -2497,6 +2497,68 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
     })
 
+    const CLOSED_GATE: OutreachGateState = {
+      enabled: true,
+      resolved: true,
+      requirement: 'closed',
+      twoStep: true,
+      membership: {
+        tier: 'free',
+        texting: 'closed',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    it('shows the cutoff notice instead of the build once texting is closed', async () => {
+      gateRef.set(CLOSED_GATE)
+      const { onClose } = openFlow()
+
+      expect(
+        await screen.findByText('How else do you want to reach voters?'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getAllByText(/deadline to get verified for texting has passed/)
+          .length,
+      ).toBeGreaterThan(0)
+      expect(
+        screen.queryByText('Introduce myself to voters'),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.SmsCutoff.NoticeViewed,
+        expect.objectContaining({ surface: 'sms_flow' }),
+      )
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Back to outreach' }),
+      )
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('shows the notice over a resumed draft and never opens the gate', async () => {
+      gateRef.set(CLOSED_GATE)
+      render(
+        <SmsFlow
+          source="draft"
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={draftDetail()}
+        />,
+      )
+
+      expect(
+        await screen.findByRole('button', { name: 'Back to outreach' }),
+      ).toBeInTheDocument()
+      expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('When do you want to send it?'),
+      ).not.toBeInTheDocument()
+    })
+
     it('renders no banner and keeps the message step with the flag off', async () => {
       mockDraft()
       openFlow()

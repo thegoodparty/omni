@@ -248,7 +248,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   passes only with an approved registration (`useTextOutreachGate`'s
   compliance modal). Phone banking and door knocking take a free campaign
   to their own pitch (`phone-bank`, `door`); social is free and opens for
-  anyone. Outreach Pro gating is fully rolled out, so the card
+  anyone. Once gp-api reports the campaign's SMS compliance window closed
+  (`useSmsCompliance`), `textAvailable` is false on Win and an unsent text
+  card renders nothing. Outreach Pro gating is fully rolled out, so the card
   does not read the `outreach-pro-gating-v2` flag. A text's button waits
   until the campaign and registration have loaded; the other channels wait
   for the campaign alone (`winResolved`). The card's

@@ -14,6 +14,11 @@ import {
   useOutreachProGatingV2Flag,
 } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
 import { MEMBERSHIP_COPY } from './membershipCopy'
@@ -45,26 +50,49 @@ export const resolveMembershipAction = (
 
 // A free campaign with cleared texting is a lapsed Pro subscriber whose 10DLC
 // registration is still approved. Cleared texting alone doesn't hide the
-// surface: without Pro they can't send, so the upsell stays.
+// surface: without Pro they can't send, so the upsell stays. A Pro campaign
+// whose texting window gp-api has closed has nothing left to do here, so the
+// surface stays out of the way rather than announcing the gap; a free one
+// still gets the Pro pitch, which is not about texting.
 export const isMembershipSurfaceVisible = (
   state: MembershipState | null,
 ): boolean =>
   Boolean(
     state &&
     !state.isElectedOffice &&
-    !(state.tier === 'pro' && state.texting === 'cleared'),
+    !(
+      state.tier === 'pro' &&
+      (state.texting === 'cleared' || state.texting === 'closed')
+    ),
   )
 
 const BANNER_CLASS_NAME =
   'mb-2 flex w-full flex-col items-start gap-1.5 rounded-lg bg-info-50 p-3 text-left'
 
-const bannerCopy = (state: MembershipState) => {
+// `countdownCutoff` is the last open day while gp-api reports the window
+// closing. A cleared or closed Pro campaign never shows the banner
+// (isMembershipSurfaceVisible), so neither has copy.
+const bannerCopy = (
+  state: MembershipState,
+  countdownCutoff: string | null,
+): { body: string; cta: string | null } | null => {
   if (state.tier === 'free') return MEMBERSHIP_COPY.banner.free
-  if (state.texting === 'awaiting_pin') {
-    return MEMBERSHIP_COPY.banner.awaitingPin
+  switch (state.texting) {
+    case 'needs_verification':
+      return countdownCutoff
+        ? {
+            body: SMS_CUTOFF_COPY.countdownBanner(countdownCutoff),
+            cta: MEMBERSHIP_COPY.banner.needsVerification.cta,
+          }
+        : MEMBERSHIP_COPY.banner.needsVerification
+    case 'in_review':
+      return MEMBERSHIP_COPY.banner.inReview
+    case 'awaiting_pin':
+      return MEMBERSHIP_COPY.banner.awaitingPin
+    case 'closed':
+    case 'cleared':
+      return null
   }
-  if (state.texting === 'in_review') return MEMBERSHIP_COPY.banner.inReview
-  return MEMBERSHIP_COPY.banner.needsVerification
 }
 
 export const MembershipBanner = (): React.JSX.Element | null => {
@@ -73,6 +101,7 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   const { enabled } = useOutreachProGatingV2Flag(false)
   const { exposure } = useFeatureFlags()
   const { ready, state, tcrCompliance } = useMembershipState({ enabled })
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
@@ -90,10 +119,18 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   if (!visible || !state) return null
 
   const action = resolveMembershipAction(state)
-  const copy = bannerCopy(state)
+  const copy = bannerCopy(
+    state,
+    smsCompliance === 'closing' && smsCutoffDate
+      ? formatSmsCutoffDate(smsCutoffDate)
+      : null,
+  )
+  if (!copy) return null
 
   const handleClick = () => {
-    if (action) trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
+    if (action) {
+      trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
+    }
     if (action === 'pitch') setPitchOpen(true)
     else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)

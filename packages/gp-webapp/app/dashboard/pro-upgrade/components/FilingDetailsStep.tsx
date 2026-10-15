@@ -35,10 +35,11 @@ import {
   FILING_CONTACT_TITLE,
   FILING_DETAILS_CAPTION,
   FILING_DETAILS_TITLE,
-  SUBMITTED_BODY,
-  SUBMITTED_TITLE,
+  DETAILS_SAVED_BODY,
+  DETAILS_SAVED_TITLE,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   submitTcrCompliance,
   TcrComplianceSubmitError,
@@ -515,6 +516,7 @@ const PurchaseOnlyFilingDetailsStep = (): React.JSX.Element => {
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
   })
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
 
   // createAgentic returns an existing record unchanged, so a candidate who
   // submitted and came back without paying would retype a form that saves
@@ -536,10 +538,12 @@ const PurchaseOnlyFilingDetailsStep = (): React.JSX.Element => {
     return (
       <div className="flex min-h-full flex-1 flex-col">
         <div className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold">{SUBMITTED_TITLE}</h1>
-          <p className="text-base text-base-muted-foreground">
-            {SUBMITTED_BODY}
-          </p>
+          <h1 className="text-xl font-semibold">{DETAILS_SAVED_TITLE}</h1>
+          {!smsClosed && (
+            <p className="text-base text-base-muted-foreground">
+              {DETAILS_SAVED_BODY}
+            </p>
+          )}
         </div>
         <StepFooter>
           <Button
