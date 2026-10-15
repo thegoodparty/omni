@@ -63,6 +63,7 @@ const CONTROLLER_OWNERS: Partial<
   // SMS console: the sends it takes results for are elected officials' texts
   // to constituents, and polls joins it later on the same side.
   'outreach/admin/results': [SERVE],
+  'outreach/admin/polls': [SERVE],
   priorities: [SERVE],
   // Send-from-a-chat-card. Serve because the only thing that mints a proposal
   // key is a priority chat, and a failure here is an elected official pressing
@@ -450,6 +451,30 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'A Serve-related background SQS job failed in the 60 seconds ending 30 seconds before this check.',
       'Click *View in Grafana* to find the failing log lines, then check the associated error message and stack trace to understand what went wrong. Look at the SQS message payload to identify which job failed and whether it can be safely retried.',
+    ].join('\n\n'),
+    notify: 'serve-bugs',
+  },
+  {
+    slug: 'serve-poll-review-overdue',
+    name: '[Serve] Paid poll waiting on staff review past 2 business days',
+    type: 'log',
+    // OutreachPollReviewOverdueService logs this line once an hour per paid
+    // poll still unreviewed, so an hour-wide vector read once an hour sees
+    // each emission exactly once and costs 1x ingest.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Poll awaiting review past its business-day SLA"',
+      '[1h])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    timeRangeSeconds: 3600,
+    timeRangeOffsetSeconds: 30,
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'At least one paid Serve poll has been waiting on staff review for more than 2 business days. Nothing sends until it is approved, and the official has already paid.',
+      'Click *View in Grafana* and read `outreachId` and `organizationSlug` off the matched lines, then approve, edit or deny each poll from the gp-admin poll queue.',
     ].join('\n\n'),
     notify: 'serve-bugs',
   },
