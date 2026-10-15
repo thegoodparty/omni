@@ -1077,6 +1077,13 @@ export {
   isHighConfidence,
 } from './outreach/SampleSizing.const'
 export {
+  ANSWERS_CONFIDENCE_Z,
+  ANSWERS_MARGIN_OF_ERROR,
+  ANSWERS_SPLIT_VARIANCE,
+  ANSWERS_NEEDED_UNCORRECTED,
+  answersNeeded,
+} from './outreach/AnswersNeeded.const'
+export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
   type OutreachPurpose,
