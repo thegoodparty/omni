@@ -515,7 +515,12 @@ import { dirname, join, relative } from 'node:path'
 // 2026-10-14: 593 -> 594 for the Serve poll create flow. PollFlow owns the
 // step, draft, audience and checkout state of a multi-step flow; its topic and
 // question steps carry no directive and inherit the boundary from it.
-const BASELINE = 594
+// 2026-10-15: 594 -> 595 for the Serve poll results page. PollResultsPage is
+// the client boundary for the live results read (a 15s refetch while a poll
+// runs), the favorite and read marks, and the Gather more feedback flow; the
+// theme list, theme detail, comment list and CRM panel carry no directive and
+// inherit it, and the server page above it only validates the route.
+const BASELINE = 595
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
