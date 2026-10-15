@@ -93,6 +93,12 @@ describe('deriveSmsProtectedParts', () => {
     })
   })
 
+  it('locks a retyped opt-out line with STOP in quotes as one unit', () => {
+    const script =
+      'Hi {first_name}, Sarah Chen here.\n\nReply "STOP" to opt out.'
+    expect(textsFor(script).opt_out_line).toBe('Reply "STOP" to opt out.')
+  })
+
   it('falls back to the first word of the name the script uses', () => {
     const script =
       "Hi {first_name}, it's Sarah! Paid for by Friends of Sarah Chen. Reply STOP"

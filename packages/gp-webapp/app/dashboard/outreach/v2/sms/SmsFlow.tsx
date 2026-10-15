@@ -108,8 +108,13 @@ import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import {
+  addGreetingBack,
+  addIdentificationBack,
+  addOptOutBack,
+  addPaidForByBack,
   composeScript,
   composeServeScript,
+  paidForByLine,
   withCivicPanelJoin,
   withCivicPanelLines,
   ensureSmsIdentification,
@@ -1242,16 +1247,25 @@ export const SmsFlow = ({
   // wrote them, because gp-api masks them. One that does not (a gp-api from
   // before masking, mid-deploy) has them composed back around its body, so a
   // polish can never send without the disclaimer or opt-out.
+  // The regions come from the message without its civic panel line: with
+  // one, the second paragraph is the JOIN line, not the footer, and taking
+  // it as the footer sent the ask twice and dropped the opt-out. The line
+  // the message should carry goes back above the opt-out afterwards.
   const keepSystemRegions = (reply: string): string => {
-    const [greeting = '', footer = ''] = composeMessage(
-      '',
-      footerCommittee,
-    ).split('\n\n')
-    return restoreSmsSystemRegions(reply, {
-      greeting,
-      footer,
-      token: mergeTagToken('first_name', surface.isServe ? 'serve' : 'peerly'),
-    })
+    const [greeting = '', footer = ''] = surface
+      .composeMessage('', footerCommittee)
+      .split('\n\n')
+    return withCivicPanelLines(
+      restoreSmsSystemRegions(reply, {
+        greeting,
+        footer,
+        token: mergeTagToken(
+          'first_name',
+          surface.isServe ? 'serve' : 'peerly',
+        ),
+      }),
+      panelLines,
+    )
   }
 
   const requestDraft = (
@@ -1412,6 +1426,27 @@ export const SmsFlow = ({
     }
     if (!hasWrittenBody) return
     requestDraft(purpose, tone, message, ownWords, message)
+  }
+
+  // A required line the official deleted, put back where the flow writes it.
+  const handleAddRequiredBack = (rule: SmsStandardsRule) => {
+    const [greeting = ''] = surface.composeMessage('', null).split('\n\n')
+    const next =
+      rule === 'opt_out_line'
+        ? addOptOutBack(message)
+        : rule === 'first_name_token'
+          ? addGreetingBack(message, greeting)
+          : rule === 'candidate_name'
+            ? addIdentificationBack(message, {
+                greeting,
+                intro: introFor(tone),
+              })
+            : rule === 'paid_for_by' && footerCommittee
+              ? addPaidForByBack(message, footerCommittee)
+              : message
+    if (next === message) return
+    handleMessageChange(next)
+    setLockSource(next)
   }
 
   const handleUndo = () => {
@@ -2346,6 +2381,10 @@ export const SmsFlow = ({
           standardsFailures={standards.failures}
           unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}
+          paidForByText={
+            footerCommittee ? paidForByLine(footerCommittee) : null
+          }
+          onAddRequiredBack={handleAddRequiredBack}
           message={message}
           onMessageChange={handleMessageChange}
           protectedParts={protectedParts}

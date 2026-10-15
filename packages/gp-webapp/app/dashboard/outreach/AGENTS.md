@@ -117,6 +117,23 @@ list resolving, or going back for another list) the flow swaps the line to
 match. A chat card that asked to join on a panel-only list therefore opens
 with LEAVE.
 
+Every rewrite (fresh draft, Improve, a tone pill, a carried-in body, the list
+swap) ends in `withCivicPanelLines`, which strips every JOIN or LEAVE wording
+it finds (all of contracts' `CIVIC_PANEL_JOIN_LINES`, plus a model's partial
+echo of the ask) and puts back exactly one line above the opt-out; a body the
+model wrote also loses any exact opt-out or "Paid for by" copy before it is
+composed. An Improve reply is restored against the surface's footer alone
+(`keepSystemRegions`), never the panel-line message: taking the JOIN line for
+the footer once sent the ask twice and dropped STOP. gp-api refuses a Serve
+create with no opt-out or a second panel line, so a composer bug cannot reach
+a send.
+
+A compliance error on the compose step says what is missing and shows the
+exact line to restore (`standardsFailureCopy` in `SmsComposeStep.tsx`), with an
+"Add it back" button for the opt-out, greeting, name and disclaimer that puts
+the line back where the flow writes it (`addOptOutBack` and siblings in
+`smsCompose.util.ts`).
+
 `report_back` is never in the picker: its audience is one earlier send, which
 only a priority's report back card names. That card opens the Serve `SmsFlow`
 with `initialPurpose: 'report_back'`, its message seeded (the purpose is kept
