@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
-import { PITCH_PANEL_COPY, PRO_COPY, type GateChannel } from './gateCopy'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
+import {
+  PITCH_PANEL_COPY,
+  PRO_COPY,
+  PRO_COPY_SMS_CLOSED,
+  type GateChannel,
+} from './gateCopy'
 import { ProPitchPanel } from './ProPitchPanel'
 
 const CHANNELS: GateChannel[] = ['sms', 'robocall', 'door', 'phone-bank']
@@ -65,5 +72,51 @@ describe('ProPitchPanel', () => {
     const { container } = render(<ProPitchPanel channel="robocall" hideValue />)
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  describe('with texting closed for the race', () => {
+    const closedReason =
+      'The Oct. 15 deadline to get verified for texting has passed.'
+    const renderClosed = (ui: React.ReactElement) =>
+      render(
+        <CampaignContext.Provider
+          value={[
+            {
+              smsCompliance: 'closed',
+              smsCutoffDate: '2026-10-15',
+              generalElectionDate: '2026-11-03',
+            } as Campaign,
+          ]}
+        >
+          {ui}
+        </CampaignContext.Provider>,
+      )
+
+    it('sells the channels Pro still unlocks in place of texting, with the closed reason', () => {
+      renderClosed(<ProPitchPanel channel="sms" />)
+
+      expect(screen.getByText(closedReason)).toBeInTheDocument()
+      expect(screen.getByText(PRO_COPY_SMS_CLOSED.headline)).toBeInTheDocument()
+      PRO_COPY_SMS_CLOSED.bullets.forEach((bullet) => {
+        expect(screen.getByText(bullet)).toBeInTheDocument()
+      })
+      expect(screen.queryByText(PRO_COPY.sms.headline)).toBeNull()
+      expect(screen.queryByText(PITCH_PANEL_COPY.verifyTitle)).toBeNull()
+    })
+
+    it("keeps another channel's pitch and adds the closed reason before purchase", () => {
+      renderClosed(<ProPitchPanel channel="robocall" />)
+
+      expect(screen.getByText(closedReason)).toBeInTheDocument()
+      expect(screen.getByText(PRO_COPY.robocall.headline)).toBeInTheDocument()
+    })
+
+    it('renders nothing once the value card is hidden and there is no verification to show', () => {
+      const { container } = renderClosed(
+        <ProPitchPanel channel="sms" hideValue />,
+      )
+
+      expect(container).toBeEmptyDOMElement()
+    })
   })
 })

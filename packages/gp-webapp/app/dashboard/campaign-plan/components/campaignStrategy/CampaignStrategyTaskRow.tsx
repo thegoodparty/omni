@@ -3,6 +3,7 @@
 import { taskClosesItself } from './taskClosesItself'
 import { differenceInCalendarDays, format, startOfDay } from 'date-fns'
 import { useRouter } from 'next/navigation'
+import { MessageSquareOff } from 'lucide-react'
 import { MoreMenu } from 'app/shared/utils/MoreMenu'
 import {
   TRACKER_TASK_SNOOZE_DAYS,
@@ -16,8 +17,16 @@ import {
   CheckIcon,
   CircleSlash2Icon,
   LockIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
 } from '@styleguide'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type {
   CampaignStrategyTask,
   TaskChannel,
@@ -105,13 +114,22 @@ const CampaignStrategyTaskRow = ({
   onActionTaken,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
-  const composeChannel = isComposeChannel(task.channel) ? task.channel : null
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  // gp-api swaps text sends out once texting closes; a text task still here
+  // loses its way into the text flow and says why on hover.
+  const textClosed =
+    smsCompliance === 'closed' &&
+    task.channel === 'text' &&
+    !task.completed &&
+    !task.href
+  const composeChannel =
+    isComposeChannel(task.channel) && !textClosed ? task.channel : null
 
   // Every action that does or closes the task lives in the row's menu, asking
   // about it included; only the next task also shows its action in place.
   const href = task.href
   const resolvedAction = getAction ? getAction(task) : null
-  const action = task.completed ? null : resolvedAction
+  const action = task.completed || textClosed ? null : resolvedAction
   // Same rule as the next-task card: only a task that closes itself whatever
   // happens (the story) goes without a manual toggle.
   const completesItself = taskClosesItself(task.title)
@@ -251,6 +269,25 @@ const CampaignStrategyTaskRow = ({
               {due.label}
             </p>
           )
+        )}
+        {textClosed && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-disabled="true"
+                tabIndex={0}
+                className="text-muted-foreground flex w-fit cursor-default items-center gap-1.5 text-sm"
+              >
+                <MessageSquareOff className="size-4 shrink-0" aria-hidden />
+                {SMS_CUTOFF_COPY.closedLabel}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {SMS_CUTOFF_COPY.closedReason(
+                smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+              )}
+            </TooltipContent>
+          </Tooltip>
         )}
         {task.unlocksAfter && (
           <p className="text-muted-foreground flex items-center gap-1 text-xs">

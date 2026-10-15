@@ -1,6 +1,7 @@
 import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
 import {
   SAMPLE_TARGET_REPLIES,
+  SmsComplianceWindow,
   SOCIAL_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
@@ -100,6 +101,11 @@ export interface CampaignManagerContext {
   // From the campaign row, where someone has recorded how a contest went.
   primaryResult: string | null
   didWin: boolean | null
+  // The SMS compliance cutoff from smsComplianceWindow, null when no campaign
+  // resolved. Closed means texting cannot be set up in time for this race.
+  smsCompliance: SmsComplianceWindow | null
+  // yyyy-MM-dd, 19 days before the general election; null without a date.
+  smsCutoffDate: string | null
   // The live sources' view of the race, cut once per campaign per local day
   // by the handler, rendered under its own source tags so the model can tell
   // it from the record above.
@@ -764,9 +770,25 @@ const people = (n: number): string => n.toLocaleString('en-US')
 const dollars = (texts: number): string =>
   `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
 
+const textingClosedBlock = (ctx: CampaignManagerContext): string | null => {
+  if (ctx.smsCompliance !== SmsComplianceWindow.closed) return null
+  const cutoff = parseDay(ctx.smsCutoffDate)
+  const date = cutoff ? ` was ${format(cutoff, LONG_DATE)} and` : ''
+  const deadline = `deadline to get verified for texting${date} has passed`
+  return [
+    'TEXTING IS CLOSED FOR THIS RACE (overrides every texting rule below):',
+    `- The ${deadline}. It falls 19 days before the general election, and this campaign did not file and pay for Pro by then. Verification takes about two weeks, so texting cannot be set up in time for this race.`,
+    '- Never propose, recommend, draft or schedule a text, never put texts in a plan or a sequence, and never present a card with channel text. Reach voters with door knocking, robocalls, phone banking and social media instead. A robocall has no card here; it is built in Voter Outreach.',
+    `- If the candidate asks about texting, say in one line that the ${deadline}, then offer one of those channels. Never call it a legal or carrier deadline, never say texting is banned, and never promise a refund or credit.`,
+  ].join('\n')
+}
+
 // Gated on the tools the handler actually registered, so the prompt can
 // never ask for a card or a sample size the model has no tool for.
-const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
+const outreachSamplingBlock = (
+  ctx: CampaignManagerContext,
+  toolNames: readonly string[],
+): string | null =>
   toolNames.includes('size_outreach_sample') &&
   toolNames.includes('present_outreach_proposal')
     ? [
@@ -781,7 +803,9 @@ const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
           card: true,
         }),
         '- Present outreach with present_outreach_proposal once the message is final: the filter you counted with as audienceFilters, count as every voter it matched (with a cell phone, for a text), a short listName, the channel, and the message. Do not save a list for it with crud_saved_filters: the list is saved when the candidate starts the outreach from the card.',
-        '- Pick ONE channel by who these voters are and how they can be reached. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the voters are a few blocks or one neighborhood, or when few of them have a phone on file. A social post when the message is for everyone who follows the campaign rather than a list.',
+        ctx.smsCompliance === SmsComplianceWindow.closed
+          ? '- Pick ONE channel by who these voters are and how they can be reached. A phone bank for a real conversation, an older group, or a question with more than one answer. Door knocking when the voters are a few blocks or one neighborhood, or when few of them have a phone on file. A social post when the message is for everyone who follows the campaign rather than a list. Never a text: texting is closed for this race.'
+          : '- Pick ONE channel by who these voters are and how they can be reached. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the voters are a few blocks or one neighborhood, or when few of them have a phone on file. A social post when the message is for everyone who follows the campaign rather than a list.',
         PICKED_OPTION_RULE,
         WIN_OUTREACH_MESSAGE_RULES,
       ].join('\n')
@@ -974,14 +998,21 @@ const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
       ].join('\n')
     : null
 
-const clarifyQuestionBlock = (toolNames: readonly string[]): string | null =>
+const clarifyQuestionBlock = (
+  ctx: CampaignManagerContext,
+  toolNames: readonly string[],
+): string | null =>
   toolNames.includes('ask_clarify_question')
     ? [
         'QUESTIONS (apply whenever the candidate has to choose):',
         ...CLARIFY_QUESTION_RULES,
         ...(toolNames.includes('present_outreach_proposal')
           ? [
-              '- When you recommend more than one piece of outreach (a sequence of texts, a text and a call, or outreach to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
+              '- When you recommend more than one piece of outreach (' +
+                (ctx.smsCompliance === SmsComplianceWindow.closed
+                  ? 'a phone bank and a door knock, a call and a social post'
+                  : 'a sequence of texts, a text and a call') +
+                ', or outreach to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
             ]
           : []),
       ].join('\n')
@@ -1039,9 +1070,10 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     listMapBlock(toolNames),
-    outreachSamplingBlock(toolNames),
+    textingClosedBlock(ctx),
+    outreachSamplingBlock(ctx, toolNames),
     pastOutreachBlock(toolNames),
-    clarifyQuestionBlock(toolNames),
+    clarifyQuestionBlock(ctx, toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
     LEGAL_AND_COMPLIANCE_RULES,

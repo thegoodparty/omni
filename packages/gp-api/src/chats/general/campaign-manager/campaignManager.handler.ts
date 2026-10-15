@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+  SmsComplianceWindow,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import {
@@ -60,6 +61,7 @@ import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { smsComplianceWindow } from '@/campaigns/util/eligibility.util'
 import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
@@ -143,15 +145,20 @@ export const buildStoryGreeting = (story: StoryState): string => {
 // Canned reply for the product-overview sentinel (the "Learn more about the
 // product" chip). Independent of the candidate's Campaign Story state, so it
 // answers the same way whether the story is missing, in progress, or done.
-const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
-  "I'm your campaign manager, here to help you run and win.",
-  'GoodParty.org gives you a personalized campaign and outreach plan with ' +
-    'your highest-impact tasks each week, voter outreach tools like texting, ' +
-    'door-knocking scripts, and social posts, and a free candidate website.',
-  'Tell me what you are working on and I will point you to the next best ' +
-    'step. When you are ready, tap Personalize your campaign and I will ' +
-    'tailor everything to your race.',
-].join('\n\n')
+// Past the SMS cutoff it leaves texting out rather than announcing the cutoff.
+const buildProductOverview = (textingClosed: boolean): string =>
+  [
+    "I'm your campaign manager, here to help you run and win.",
+    'GoodParty.org gives you a personalized campaign and outreach plan with ' +
+      'your highest-impact tasks each week, voter outreach tools like ' +
+      (textingClosed
+        ? 'robocalls, door-knocking scripts, and social posts'
+        : 'texting, door-knocking scripts, and social posts') +
+      ', and a free candidate website.',
+    'Tell me what you are working on and I will point you to the next best ' +
+      'step. When you are ready, tap Personalize your campaign and I will ' +
+      'tailor everything to your race.',
+  ].join('\n\n')
 
 // Injection tokens for the aggregate-only Databricks provider and the in-code
 // table allowlist, provided by CampaignManagerModule.
@@ -212,6 +219,8 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   liveRace: { status: 'none', reason: 'no-election-date' },
   ballotStatus: null,
   filingPeriodStart: null,
@@ -351,6 +360,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
             },
           },
         },
+        tcrCompliance: {
+          select: { kickoffSentAt: true, internalTestingAt: true },
+        },
       },
     })
     if (!campaign) return this.emptyContext()
@@ -373,6 +385,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
     const ballotStatus = parseBallotStatus(campaign.ballotStatus)
+    const { smsCompliance, smsCutoffDate } = smsComplianceWindow({
+      electionDate: details.electionDate,
+      tcrCompliance: campaign.tcrCompliance ?? null,
+      now: new Date(),
+    })
 
     // Scope constituent queries to the campaign's district (from its org's
     // position), same shape Chief of Staff uses. Folding districtFilters into
@@ -433,6 +450,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       primaryElectionDate: details.primaryElectionDate ?? null,
       primaryResult: campaign.primaryResult ?? null,
       didWin: campaign.didWin ?? null,
+      smsCompliance,
+      smsCutoffDate,
       liveRace,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,
@@ -709,9 +728,12 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       // which a free campaign can use too, so this follows the saved-list
       // signal rather than the Pro-only tool.
       if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-        tools.size_outreach_sample = buildSizeOutreachSampleTool()
+        const textingClosed = ctx.smsCompliance === SmsComplianceWindow.closed
+        tools.size_outreach_sample = buildSizeOutreachSampleTool({
+          textingClosed,
+        })
         tools.present_outreach_proposal =
-          buildCampaignManagerOutreachProposalTool()
+          buildCampaignManagerOutreachProposalTool({ textingClosed })
       }
     }
 
@@ -742,7 +764,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   ): string | null {
     const message = userMessage.trim()
     if (message === CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL) {
-      return CAMPAIGN_MANAGER_PRODUCT_OVERVIEW
+      return buildProductOverview(
+        ctx.smsCompliance === SmsComplianceWindow.closed,
+      )
     }
     if (message !== CAMPAIGN_MANAGER_START_STORY_SENTINEL) {
       return null
