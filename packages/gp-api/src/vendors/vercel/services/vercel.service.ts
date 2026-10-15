@@ -38,6 +38,11 @@ const resolveVercelConfig = (): VercelConfig | null => {
   }
 }
 
+// Vercel's registrar buy is an order submission that normally answers in
+// seconds. Without a bound, a hung call waits out undici's ~300s headers
+// timeout, long after the ~120s gateway has dropped the caller.
+export const VERCEL_PURCHASE_TIMEOUT_MS = 60_000
+
 const vercelConfig = resolveVercelConfig()
 const vercelClient = vercelConfig
   ? new Vercel({ bearerToken: vercelConfig.token })
@@ -232,29 +237,32 @@ export class VercelService {
         )
       }
 
-      const result = await client.domainsRegistrar.buySingleDomain({
-        domain: domainName.trim(),
-        teamId,
-        requestBody: {
-          autoRenew,
-          years,
-          expectedPrice,
-          contactInformation: {
-            firstName: contact.firstName.trim(),
-            lastName: contact.lastName.trim(),
-            email: contact.email.trim(),
-            phone: formattedPhone,
-            address1: contact.addressLine1.trim(),
-            ...(contact.addressLine2?.trim()
-              ? { address2: contact.addressLine2.trim() }
-              : {}),
-            city: contact.city.trim(),
-            state: contact.state.trim(),
-            zip: contact.zipCode.trim(),
-            country: 'US',
+      const result = await client.domainsRegistrar.buySingleDomain(
+        {
+          domain: domainName.trim(),
+          teamId,
+          requestBody: {
+            autoRenew,
+            years,
+            expectedPrice,
+            contactInformation: {
+              firstName: contact.firstName.trim(),
+              lastName: contact.lastName.trim(),
+              email: contact.email.trim(),
+              phone: formattedPhone,
+              address1: contact.addressLine1.trim(),
+              ...(contact.addressLine2?.trim()
+                ? { address2: contact.addressLine2.trim() }
+                : {}),
+              city: contact.city.trim(),
+              state: contact.state.trim(),
+              zip: contact.zipCode.trim(),
+              country: 'US',
+            },
           },
         },
-      })
+        { timeoutMs: VERCEL_PURCHASE_TIMEOUT_MS },
+      )
 
       this.logger.debug(result, `Domain purchase result for ${domainName}:`)
       return result
