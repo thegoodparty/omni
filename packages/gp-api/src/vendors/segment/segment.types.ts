@@ -67,6 +67,11 @@ export const EVENTS = {
     // (rejection_source 'cv_status_check'). Drives Campaign Success
     // fix-your-filing outreach from HubSpot.
     ComplianceRejected: 'Voter Outreach - 10DLC Compliance Rejected',
+    // Fired when gp-api refuses to start texting compliance because the
+    // campaign is past the SMS compliance cutoff (19 days before the general
+    // election). `path` is agentic | legacy | kickoff (the Pro payment) |
+    // submit_to_peerly.
+    ComplianceSubmissionBlocked: '10DLC - Compliance Submission Blocked',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
     // Carries peerlyIdentityId so Segment can stamp it onto the campaign's
@@ -111,6 +116,7 @@ export const EVENTS = {
   Polls: {
     PollCreated: 'Polls - Poll Created',
     PollSubmitted: 'Polls - Poll Submitted For Review',
+    GatherMoreStarted: 'Polls - Gather More Started',
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
   // Meeting Briefings (Serve). Fires when the daily cron skips an

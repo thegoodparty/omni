@@ -134,6 +134,7 @@ gating is per-action inside the services (see Access control).
 | `PATCH /v1/contacts/:personId/follow-up`                                               | Serve's standing follow-up flag (`{ value: 'requested' \| 'cleared' }` → `{ followUp }`). 400s for a non-`eo-` org, the mirror of the status route's Serve rejection. Its own route rather than a third `field` on that one, whose response promises both of Win's editable statuses and which a Serve write can honestly supply neither of                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `PATCH /v1/contacts/:personId/civic-panel`                                             | Serve's civic panel membership (`{ value: 'member' \| 'left' }` → `{ civicPanel }`). Same gates and reasoning as the follow-up route: 400s for a non-`eo-` org, its own route so Win's two-status response is untouched. 404s with `serve-citizen-panels` off                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `GET /v1/contacts/civic-panel` · `GET /v1/contacts/civic-panel/representation`         | Serve's civic panel as a whole (`CivicPanelSummaryService`): `{ members, reachedRecently, askableNow, lastOutreachAt }`, and the members compared with the district (`{ representation }`, the priority results' shape). 400 for a non-`eo-` org, 404 with `serve-citizen-panels` off                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `GET/POST/PATCH /v1/contacts/civic-panel/plan` · `POST …/plan/steps/:id/prepare` · `POST …/plan/steps/:id/skip` | Serve's plan to build the panel across texts, calls and doors (`CivicPanelBuildPlanService`). 404 with the flag off, 400 for a non-`eo-` org. See "Building the panel across channels" |
 | `POST /v1/contacts/:personId/interactions`                                             | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET /v1/contact-engagement/:id/activities`                                            | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`      | Saved-filter CRUD; PUT/DELETE 409 once locked. Create is not Pro-gated (outreach-pro-gating-v2, a free candidate can save a list before upgrading); PUT/DELETE still call `filterAccessCheck`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -682,15 +683,17 @@ two `date-range` dimensions (`civicPanelJoinedWhen`, `lastAsked`), all in
 before it lists (with it off, it lists no `civic_panel` card at all). The
 office's one build card (`sourceExternalId` from contracts'
 `civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) links to
-contracts' `CIVIC_PANEL_BUILD_CARD_HREF`, the home itself with
-`?chat=build_citizens_panel`: the home opens the Chief of Staff chat with the
-hidden turn `BUILD_CITIZENS_PANEL_MESSAGE`, and the agent explains the panel,
-counts the district's cell phones, sizes the invite with `size_panel_invite`
-and presents one text card with `purpose: build_citizens_panel` (see
-`chats/general/chief-of-staff`, `civicPanelBuildBlock`). The card's quiet
-What's a civic panel? opens the same chat with the hidden turn
-`EXPLAIN_CIVIC_PANEL_MESSAGE` instead: the agent explains the panel and
-builds nothing unless the official says yes (`civicPanelExplainLines`).
+contracts' `CIVIC_PANEL_BUILD_CARD_HREF`, the panel page
+(`CIVIC_PANEL_PAGE_HREF`), which asks the weekly time question or shows the
+plan already made (see "Building the panel across channels"). Asked in chat
+to build the panel, the Chief of Staff explains it and links that page; the
+single invite text it can still present (`size_panel_invite`, one text card
+with `purpose: build_citizens_panel`) is only the fallback for an office the
+page could not make a plan for (see `chats/general/chief-of-staff`,
+`civicPanelBuildBlock`). The card's quiet What's a civic panel? opens the
+Chief of Staff chat with the hidden turn `EXPLAIN_CIVIC_PANEL_MESSAGE`: the
+agent explains the panel and builds nothing unless the official says yes
+(`civicPanelExplainLines`).
 Old words or the old outreach link on a card are rewritten on the next
 read. The card is done once any `text` row of the org with `asksToJoinCivicPanel` is past
 checkout (not `pending_payment`, `draft`, `canceled`, `denied` or `failed`):
@@ -767,6 +770,93 @@ member, so a send that reached only them is not in it. The summary's
 `lastOutreachAt` is that history's newest row (`date`, else `createdAt`), so
 the list row's "Last outreach" agrees with the sheet without its voter-file
 aggregates.
+
+### Building the panel across channels
+
+The panel is built by one plan that splits the work across texts, calls and
+doors, in waves (`CivicPanelBuildPlanService`, pure math in
+`utils/civicPanelBuild.util.ts`, contracts in
+`people/CivicPanelBuildPlan.schema.ts`). The webapp's panel page
+(`/dashboard/contacts/citizens-panel`) is its home: the weekly time
+question, the steps, Next and members against the goal.
+
+**The model.** `CivicPanelBuildPlan` is one per office while `active`, held
+by the partial unique index `civic_panel_build_plan_one_active_per_office`
+(Prisma cannot declare it), plus an advisory lock per office around every
+write. It ends `completed` once members reach `goalMembers` (100, contracts'
+`PANEL_SEED_TARGET_MEMBERS`) or `exhausted` once a wave can reach nobody;
+either way a new plan can be made. `CivicPanelBuildStep` is one text, one
+call list or one walkable area in a wave (`wave`, `channel`, `position`,
+`targetSize`: residents to text, residents to call, households to knock).
+`voterFileFilterId` is the frozen sample list the step drew; `outreachId`,
+`phoneBankingListId`, `doorKnockingTurfId` and the three dates are written by
+the plan read from what it finds made from that list. The official never
+sets a flag.
+
+**Sizing** (`sizePanelWave`, constants in contracts). One question: the
+official's own hours each week, `hoursPerWeek`, `PANEL_MIN_HOURS_PER_WEEK`
+(1) to `PANEL_MAX_HOURS_PER_WEEK` (20); 0 is a 400, because a text alone
+does not build a panel. A wave spends `PANEL_WEEKS_PER_WAVE` (4) weeks of
+it. Doors take `PANEL_DOOR_SHARE_OF_HOURS` (half) at
+`PANEL_DOORS_PER_HOUR` (20), capped at `PANEL_MAX_DOOR_AREAS` (2) areas of
+`PANEL_DOORS_PER_AREA` (100); the rest of the hours go to calls at
+`PANEL_CALLS_PER_HOUR` (15). Neither is sized past the members it can be
+expected to bring (`PANEL_DOOR_ASSUMED_JOIN_RATE` 10%,
+`PANEL_CALL_ASSUMED_JOIN_RATE` 5%, assumptions until offices measure them),
+and the text covers the rest of the gap at the cold 3%, capped at the
+reachable cell phones and `MAX_LIST_SAMPLE_SIZE`. A channel nobody can be
+reached on gets no step. `PATCH` changes `hoursPerWeek` (same bounds); only
+waves made after it are sized from the new time. The pools are
+`ContactsService.countWithin` over each channel's criteria.
+
+**Sampling** (`prepare`). Every step list's criteria are
+`civicPanelNeverInvited` + `notContactedRecently` (so no member, nobody who
+left, nobody already invited, nobody reached in 30 days) plus the channel's
+reach: `hasCellPhone` for texts, `hasAnyPhone` for calls, none for doors.
+Each draw also leaves out, by id, everyone any step of the office's plans
+already drew and everyone opted out of the office's texts, so steps never
+overlap across channels or waves (`drawListSample`'s server-only
+`excludePersonIds`, which always freezes the draw). Calls draw `hasLandline`
+first, the residents a text cannot reach, and fill from anyone with a phone.
+Doors pick a walkable area (`pickWalkableArea`): eligible rooftop-geocoded
+people (`doorPointsWithin`, capped like the map) grouped into households by
+`addressKey`, households into ~200m grid cells, the cell whose 3x3
+neighborhood holds the most households is the seed, and the households
+nearest that neighborhood's center are taken until the step's size; a
+second area in the wave is drawn after the first, so it lands elsewhere. The
+response's `area` is the padded box around those households, for the
+turf's map; do-not-knock is left to the turf create, as for any turf. A
+step drawn again returns its list. The text opens the flow on
+`build_citizens_panel` (the locked JOIN line); calls and doors on
+`introduce_myself`, closing with the Serve join question.
+
+**Statuses** (`stepStatus`, read on every GET, never stored).
+`not_started` until something is made from the step's list; `in_progress`
+for a text past checkout before its send date, or a call list or turf that
+exists; `waiting_on_replies` for a sent text until its replies are in
+(`PANEL_TEXT_REPLY_BUSINESS_DAYS`, 3 business days after the send date);
+`done` once the text's results are in or that date passed, once every
+person on the call list or walk was called or knocked or its envelope is
+marked done, or `PANEL_STEP_WINDOW_DAYS` (30) after it started; `skipped`
+for a step nobody started once a later wave exists, or that the official
+skipped (`POST …/steps/:id/skip`, current wave, not started, writes
+`skippedAt`; 409 once started). A skipped step is no longer synced, so it
+stays skipped even if its list is used elsewhere, and its drawn people (if
+it was prepared) are back in later draws; `prepare` on a skipped step is a
+409. Skipping a whole wave makes the
+next one on the next read; its steps start as not started. A text that never got
+past checkout (`UNSENT_OUTREACH_STATUSES`) does not count.
+
+**Waves.** `GET` moves the plan: it refreshes each step's links and dates,
+closes the plan at the goal, and makes wave N+1 once wave N is due (every
+step done or skipped, or the started ones done and the rest untouched for
+`PANEL_UNSTARTED_STEP_DAYS`, 14, after the last finished; a wave whose every
+step was skipped is due at once), sized to the gap that remains. The counts run before the lock; under it the read re-checks
+the latest wave, so concurrent reads make one wave. `next` is the current
+wave's first ready step (texts, then calls, then doors), else one being
+worked, else the replies to wait for, with a plain line and a link to the
+panel page (`CIVIC_PANEL_PAGE_HREF?step=<id>`). Waiting on a text has no
+link; with nothing left to do or wait on, `next` is null.
 
 ### Saved-filter lifecycle
 

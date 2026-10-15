@@ -103,6 +103,9 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     const { systemPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
     expect(systemPrompt).toContain(SERVE_PHONE_BANKING_VOICE.openerRule)
     expect(systemPrompt).toContain('[your name]')
+    expect(systemPrompt).toContain(
+      "official's full name given below, never the first name alone",
+    )
     expect(systemPrompt).toContain(CONSTITUENT_NAME_TOKEN)
     expect(systemPrompt).not.toContain(VOTER_NAME_TOKEN)
   })

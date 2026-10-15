@@ -428,6 +428,12 @@ export class OutreachTextIngestService extends createPrismaBase(
       where: { id: outreachId, status: OutreachStatus.in_progress },
       data: { status: OutreachStatus.completed },
     })
+    // Not gated on the spine advancing: a re-upload finds it already
+    // completed, and an expansion delivered since would stay in_progress.
+    await this.client.outreachPollExpansion.updateMany({
+      where: { outreachId, status: OutreachStatus.in_progress },
+      data: { status: OutreachStatus.completed },
+    })
     return advanced.count > 0
   }
 

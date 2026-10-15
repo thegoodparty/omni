@@ -157,6 +157,40 @@ describe('SmsReviewStep pay-before-ready ceiling copy', () => {
     expect(screen.queryByText('$1197.42 due today')).not.toBeInTheDocument()
   })
 
+  it('states the discounted ceiling once a promo applies to the hold', async () => {
+    live.dollars = 847.42
+
+    renderStep({ priceIsCeiling: true })
+
+    expect(await screen.findByText('Up to $847.42')).toBeInTheDocument()
+    expect(screen.getByText('$847.42')).toBeInTheDocument()
+    expect(screen.queryByText('Up to $1197.42')).not.toBeInTheDocument()
+  })
+
+  it('completes through the paid path when a promo covers the whole hold', async () => {
+    live.dollars = 0
+    const onComplete = vi.fn()
+    let completedSessionId: string | null = null
+    mswServer.use(
+      http.post(
+        '/api/v1/payments/purchase/complete-checkout-session',
+        async ({ request }) => {
+          const body = (await request.json()) as { checkoutSessionId: string }
+          completedSessionId = body.checkoutSessionId
+          return HttpResponse.json({ alreadyProcessed: false })
+        },
+      ),
+    )
+
+    renderStep({ priceIsCeiling: true, onComplete })
+
+    expect(await screen.findByText('Up to $0.00')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Complete purchase' }))
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true))
+    expect(completedSessionId).toBe('cs_test')
+  })
+
   it('states a flat due-today charge when the price is exact (default)', async () => {
     renderStep()
 

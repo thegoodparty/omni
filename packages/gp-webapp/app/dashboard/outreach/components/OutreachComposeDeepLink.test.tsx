@@ -505,3 +505,117 @@ describe('OutreachComposeDeepLink — flag on: the flows own the gate', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 })
+
+// Every link that opens a new text passes through here, so this is the one
+// place a closed texting window has to stop them, on both sides of the flag.
+describe('OutreachComposeDeepLink — texting closed for this race', () => {
+  const CUTOFF_TITLE =
+    'The Oct. 15 deadline to get verified for texting has passed.'
+  const renderClosed = ({ isPro }: { isPro: boolean }) =>
+    render(
+      <CampaignContext.Provider
+        value={[
+          {
+            id: 1,
+            isPro,
+            smsCompliance: 'closed',
+            smsCutoffDate: '2026-10-15',
+            generalElectionDate: '2026-11-03',
+          } as Campaign,
+        ]}
+      >
+        <OutreachComposeDeepLink onCompose={onCompose} />
+      </CampaignContext.Provider>,
+    )
+
+  beforeEach(() => {
+    mockSearchParams = new URLSearchParams()
+    mockReplace.mockClear()
+    mockPush.mockClear()
+    onCompose.mockClear()
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  afterEach(() => {
+    proGatingV2.enabled = false
+  })
+
+  it.each([
+    ['off', false],
+    ['on', true],
+  ])(
+    'shows the cutoff notice for ?compose=text with the flag %s',
+    async (_label, flagOn) => {
+      proGatingV2.enabled = flagOn
+      mockSearchParams = new URLSearchParams('compose=text&message=Hi')
+      renderClosed({ isPro: true })
+
+      expect(
+        await screen.findByRole('dialog', { name: CUTOFF_TITLE }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'You can still reach voters with door knocking, robocalls, phone banking and social media.',
+        ),
+      ).toBeInTheDocument()
+      expect(onCompose).not.toHaveBeenCalled()
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
+        scroll: false,
+      })
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Outreach.ClickCreate,
+        expect.anything(),
+      )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.SmsCutoff.NoticeViewed,
+        {
+          surface: 'compose_deep_link',
+          cutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        },
+      )
+    },
+  )
+
+  it('shows the notice to a free candidate instead of the Pro wizard', async () => {
+    mockSearchParams = new URLSearchParams('compose=text')
+    renderClosed({ isPro: false })
+
+    expect(
+      await screen.findByRole('dialog', { name: CUTOFF_TITLE }),
+    ).toBeInTheDocument()
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(onCompose).not.toHaveBeenCalled()
+  })
+
+  it('closes the notice when the candidate picks another channel', async () => {
+    mockSearchParams = new URLSearchParams('compose=text')
+    renderClosed({ isPro: true })
+
+    const robocalls = await screen.findByRole('link', { name: /Robocalls/ })
+    expect(robocalls).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?compose=robocall',
+    )
+    robocalls.click()
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.SmsCutoff.NoticeCompleted,
+      { surface: 'compose_deep_link', channel: 'robocall' },
+    )
+  })
+
+  it('still opens the other channels', async () => {
+    proGatingV2.enabled = true
+    mockSearchParams = new URLSearchParams('compose=robocall')
+    renderClosed({ isPro: true })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest()).toMatchObject({ type: 'robocall' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})

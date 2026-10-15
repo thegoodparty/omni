@@ -21,6 +21,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { OutreachStatus, OutreachType } from 'src/generated/prisma'
 import {
+  assertServeSmsLockedLines,
   assertServeSmsSendDateAllowed,
   MIN_SERVE_SMS_RECIPIENTS,
   OutreachServeSmsCreateService,
@@ -227,6 +228,48 @@ describe('OutreachServeSmsCreateService', () => {
         ),
       ).rejects.toThrow('join your civic panel and offer a way to leave')
       expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the locked lines', () => {
+    it('refuses a text with no opt-out line', async () => {
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `The budget hearing is Thursday.\n\n${CIVIC_PANEL_JOIN_LINE}`,
+            }),
+          ),
+        ),
+      ).rejects.toThrow('missing its opt-out line')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      [`${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}`],
+      [`${CIVIC_PANEL_JOIN_LINES[1]}\n\n${CIVIC_PANEL_JOIN_LINE}`],
+      [`${CIVIC_PANEL_LEAVE_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}`],
+    ])('refuses a civic panel line sent twice: %s', async (lines) => {
+      await expect(
+        service.createDraft(
+          ORG,
+          ServeSmsCreateRequestSchema.parse(
+            request({
+              message: `The budget hearing is Thursday.\n\n${lines}\n\nReply STOP to opt out.`,
+            }),
+          ),
+        ),
+      ).rejects.toThrow('civic panel line more than once')
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
+    it('accepts one line and the opt-out, however STOP is quoted', () => {
+      expect(() =>
+        assertServeSmsLockedLines(
+          `Hi.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply "STOP" to opt out.`,
+        ),
+      ).not.toThrow()
     })
   })
 

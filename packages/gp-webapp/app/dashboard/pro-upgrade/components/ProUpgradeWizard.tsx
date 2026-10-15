@@ -8,6 +8,7 @@ import { Button, Spinner, Stepper } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   FullScreenStepChrome,
   type StepPosition,
@@ -210,10 +211,15 @@ const ProUpgradeWizard = ({
   // Purchase-only hands off to campaign verification instead of the
   // dashboard: an already-Pro candidate who never submitted their filing is
   // routed to the success step, and finishes it there. The success step
-  // exits instead once a filing is in.
+  // exits instead once a filing is in. Once texting has closed there is no
+  // verification to finish, so the candidate goes to the dashboard.
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
   const complete = useCallback(
-    () => router.push(purchaseOnly ? CAMPAIGN_VERIFICATION_PATH : '/dashboard'),
-    [purchaseOnly, router],
+    () =>
+      router.push(
+        purchaseOnly && !smsClosed ? CAMPAIGN_VERIFICATION_PATH : '/dashboard',
+      ),
+    [purchaseOnly, smsClosed, router],
   )
 
   const contextValue = useMemo<ProUpgradeWizardContextValue>(

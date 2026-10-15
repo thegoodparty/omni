@@ -92,7 +92,7 @@ const buildCard = {
   type: 'civic_panel',
   title: 'Start with the people you represent',
   ctaLabel: 'Build my panel',
-  ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
+  ctaHref: '/dashboard/contacts/citizens-panel',
 }
 
 describe('GET /v1/dashboard/cards: the civic panel build card', () => {
@@ -112,8 +112,8 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       completedAt: null,
     })
     expect(build?.summary).toBe(
-      'A civic panel is residents who agree to tell you what they think ' +
-        'before you decide.',
+      'A civic panel is a group of residents who agree to tell you what ' +
+        'they think before you decide.',
     )
     expect(build?.summary.split(' ').length).toBeLessThanOrEqual(20)
     expect(
@@ -273,7 +273,7 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       ctaLabel: buildCard.ctaLabel,
       completedAt: null,
     })
-    expect(after?.summary).toMatch(/^A civic panel is residents/)
+    expect(after?.summary).toMatch(/^A civic panel is a group of residents/)
   })
 
   it('renames the build card as the text that finishes it is read', async () => {

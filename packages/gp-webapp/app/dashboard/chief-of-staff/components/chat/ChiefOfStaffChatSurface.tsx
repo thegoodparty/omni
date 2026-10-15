@@ -38,6 +38,8 @@ interface Props {
   suggestions?: ChatSuggestion[]
   /** Show the chips alongside a seeded greeting, not only on empty. */
   showSuggestionsWithGreeting?: boolean
+  /** Show the chips under the kickoff's reply instead of on empty. */
+  showSuggestionsAfterKickoff?: boolean
   /** Quick-prompt pills threaded to the body (below the suggestions). */
   quickPrompts?: string[]
   /** Composer placeholder threaded to the body. */
@@ -97,6 +99,7 @@ export default function ChiefOfStaffChatSurface({
   defaultIntro,
   suggestions,
   showSuggestionsWithGreeting,
+  showSuggestionsAfterKickoff,
   quickPrompts,
   composerPlaceholder,
   pendingKickoff,
@@ -183,6 +186,7 @@ export default function ChiefOfStaffChatSurface({
           defaultIntro={defaultIntro}
           suggestions={suggestions}
           showSuggestionsWithGreeting={showSuggestionsWithGreeting}
+          showSuggestionsAfterKickoff={showSuggestionsAfterKickoff}
           quickPrompts={quickPrompts}
           composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}

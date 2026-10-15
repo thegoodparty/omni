@@ -18,6 +18,7 @@ import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
+import { guardrailLine } from '../services/guardrailLines'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
@@ -101,7 +102,12 @@ describe('ChiefOfStaffHandler', () => {
         }),
       ),
       civicPanelBuildState: vi.fn((_slug: string, textingEnabled: boolean) =>
-        Promise.resolve({ members: 0, inviteSent: false, textingEnabled }),
+        Promise.resolve({
+          members: 0,
+          inviteSent: false,
+          textingEnabled,
+          hasPlan: false,
+        }),
       ),
     } as unknown as ChiefOfStaffContextService
   })
@@ -691,10 +697,14 @@ describe('ChiefOfStaffHandler', () => {
       return { handler, features }
     }
 
-    const withPanel = (state: { members: number; inviteSent: boolean }) => {
+    const withPanel = (state: {
+      members: number
+      inviteSent: boolean
+      hasPlan?: boolean
+    }) => {
       context.civicPanelBuildState = vi.fn(
         (_slug: string, textingEnabled: boolean) =>
-          Promise.resolve({ ...state, textingEnabled }),
+          Promise.resolve({ hasPlan: false, ...state, textingEnabled }),
       )
     }
 
@@ -724,7 +734,40 @@ describe('ChiefOfStaffHandler', () => {
       deepLinkOnly: false,
     }
 
-    it('counts the district and proposes one invite card on the build turn', async () => {
+    it('sends a build ask to the panel page instead of proposing a text', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      expect(prompt).toContain(
+        'It asks how much time they can give each week, an hour at least',
+      )
+      expect(prompt).toContain(
+        'link it as [Build your civic panel](/dashboard/contacts/citizens-panel)',
+      )
+      expect(prompt).toContain(
+        'Do not count the district, size an invite or present a card.',
+      )
+      expect(prompt).toContain(
+        'Only when they say their panel page could not make a plan',
+      )
+    })
+
+    it('points at the plan an office already has', async () => {
+      withPanel({ members: 0, inviteSent: false, hasPlan: true })
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      expect(prompt).toContain(
+        '[See your panel plan](/dashboard/contacts/citizens-panel)',
+      )
+      expect(prompt).not.toContain(
+        'Only when they say their panel page could not make a plan',
+      )
+    })
+
+    it('keeps the single invite text as the fallback, counted and priced', async () => {
       const { handler } = buildPanelHandler({ panels: true, texting: true })
       const ctx = await handler.loadContext('c1', USER_ID)
       const tools = handler.buildTools(ctx)
@@ -743,11 +786,33 @@ describe('ChiefOfStaffHandler', () => {
         'channel text, purpose build_citizens_panel, civicPanelAsk true',
       )
       expect(prompt).toContain('Never write the line asking people to reply')
+      expect(prompt).toContain(
+        'picked at random, so it is not only the people who already reach out',
+      )
 
       expect(await proposalTool(tools).execute(invite)).toEqual({
         presented: true,
         deepLinkOnly: true,
       })
+    })
+
+    // Two lines a build reply produced: "not just the people who already
+    // reach out" (banned word) and "the panel ends up looking like
+    // Asheville" (a representativeness claim the panel brief forbids).
+    it('bans "just" and any claim that the panel looks like the community', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      const civicPanel = prompt.slice(prompt.indexOf('CIVIC PANEL ('))
+      expect(civicPanel).toContain('Never use the word "just".')
+      expect(civicPanel).toContain(
+        'Never say or imply the panel will look like, match, mirror or ' +
+          'represent the district, the city or the community.',
+      )
+      expect(civicPanel).not.toContain('looks like the district')
+      const explained = prompt.slice(prompt.indexOf('CIVIC PANEL EXPLAINED'))
+      expect(explained).toContain('Never use the word "just".')
     })
 
     it('texts all of a district smaller than the random group', async () => {
@@ -831,6 +896,14 @@ describe('ChiefOfStaffHandler', () => {
         )
         expect(prompt).toContain('They asked what it is, not to build one.')
         expect(prompt).toContain('do they want to build theirs?')
+        expect(prompt).toContain(
+          'The app shows a Build my panel button under your reply',
+        )
+        expect(prompt).toContain('that opens their panel page')
+        expect(prompt).toContain(
+          'Skip this when you already explained the panel earlier in this ' +
+            'conversation',
+        )
         expect(prompt).toContain(
           'never count the district, size an invite, draft a text or ' +
             'present a card',
@@ -1069,54 +1142,94 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
-  describe('finalizeAssistantText (professional-advice backstop)', () => {
-    it('appends the disclaimer to an eval-style legal-advice answer', () => {
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        NO_TABLES,
+  describe('finalizeAssistantText (guardrail backstops)', () => {
+    const LEGAL = guardrailLine('legal_advice', 'chief_of_staff')
+    const SMALL = guardrailLine('small_count', 'chief_of_staff')
+    const HANDOFF = guardrailLine('handoff_draft', 'chief_of_staff')
+    const noTools = { toolEvents: [] }
+    const returned = (name: string, result: unknown) => ({
+      toolEvents: [
+        {
+          toolCallId: `call-${name}`,
+          name,
+          args: {},
+          status: 'returned' as const,
+          result,
+        },
+      ],
+    })
+    const handler = () =>
+      new ChiefOfStaffHandler(context, buildBriefings(), port, NO_TABLES)
+    // The CoS eval failure that shipped with no caution: a statute citation,
+    // a colleague's criminal exposure, and a complaint-filing path.
+    const legalAnswer =
+      'Under RCW 42.30.120 the vote is void. A colleague who knew and ' +
+      'voted anyway could face criminal liability, and a resident can ' +
+      'file a complaint with the county prosecutor.'
+
+    it('ends an uncautioned legal reading with the legal line', () => {
+      expect(handler().finalizeAssistantText(legalAnswer, noTools)).toBe(
+        `\n\n${LEGAL}`,
       )
-      // The CoS eval failure that shipped with no disclaimer: a statute
-      // citation, a colleague's criminal exposure, and a complaint-filing
-      // path. Nothing appended a disclaimer before this change; the backstop
-      // does now.
-      const answer =
-        'Under RCW 42.30.120 the vote is void. A colleague who knew and ' +
-        'voted anyway could face criminal liability, and a resident can ' +
-        'file a complaint with the county prosecutor.'
-      const appended = handler.finalizeAssistantText(answer)
-      expect(appended?.startsWith('\n\n')).toBe(true)
-      expect(appended).toContain('qualified professional')
     })
 
     it('leaves an ordinary office answer untouched', () => {
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        NO_TABLES,
-      )
       expect(
-        handler.finalizeAssistantText(
+        handler().finalizeAssistantText(
           'Turnout in your district was about 65% last cycle.',
+          noTools,
         ),
       ).toBeNull()
     })
 
-    it("does not double the model's own disclaimer", () => {
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        NO_TABLES,
-      )
+    it('reads a bare section number in a summary as no legal signal', () => {
       expect(
-        handler.finalizeAssistantText(
-          'RCW 42.30 applies. This is not a substitute for professional ' +
-            'advice; check with your city attorney.',
+        handler().finalizeAssistantText(
+          'Item 4 amends § 3.2 of the fee schedule; staff recommend approval.',
+          noTools,
         ),
       ).toBeNull()
+    })
+
+    it("adds no second caution to the model's own", () => {
+      expect(
+        handler().finalizeAssistantText(
+          'RCW 42.30 applies. This is not a substitute for professional ' +
+            'advice; check with your city attorney.',
+          noTools,
+        ),
+      ).toBeNull()
+    })
+
+    it('adds the small-count line when a data result reports suppressed rows', () => {
+      expect(
+        handler().finalizeAssistantText(
+          'Residents under 30 lean toward the levy.',
+          returned('query_constituent_data', { rows: [], rowsSuppressed: 2 }),
+        ),
+      ).toBe(`\n\n${SMALL}`)
+    })
+
+    it('adds the handoff line when compose_handoff returned', () => {
+      expect(
+        handler().finalizeAssistantText(
+          'The drawer is open with your post.',
+          returned('compose_handoff', { ok: true }),
+        ),
+      ).toBe(`\n\n${HANDOFF}`)
+    })
+
+    it('stacks legal, then small count, then handoff', () => {
+      const turn = {
+        toolEvents: [
+          ...returned('query_constituent_data', { rows: [], rowsSuppressed: 1 })
+            .toolEvents,
+          ...returned('compose_handoff', { ok: true }).toolEvents,
+        ],
+      }
+      expect(handler().finalizeAssistantText(legalAnswer, turn)).toBe(
+        `\n\n${LEGAL}\n\n${SMALL}\n\n${HANDOFF}`,
+      )
     })
   })
 })

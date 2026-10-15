@@ -3,6 +3,8 @@ import { parsePriorityStatus } from '@goodparty_org/contracts'
 import {
   checkPanelPart,
   checkProposalRefusal,
+  OUTREACH_MESSAGE_RULES,
+  WIN_OUTREACH_MESSAGE_RULES,
 } from './presentOutreachProposal.tool'
 
 const status = parsePriorityStatus(null)
@@ -65,5 +67,26 @@ describe('checkPanelPart', () => {
         audienceFilters: { civicPanelMember: true, hasCellPhone: true },
       }),
     ).toBeNull()
+  })
+})
+
+// An official asked to be introduced by full name every time; a card that
+// already names them is carried into the composer as written, so the rule
+// has to ask for it here.
+describe('OUTREACH_MESSAGE_RULES', () => {
+  it('signs a Serve text and call script with the full name', () => {
+    expect(OUTREACH_MESSAGE_RULES).toContain(
+      'signed as the official by full name and office',
+    )
+    expect(OUTREACH_MESSAGE_RULES).toContain(
+      "calling for by the official's full name and office",
+    )
+    expect(OUTREACH_MESSAGE_RULES).not.toContain('first name and office')
+  })
+
+  it('leaves Win phone banking on the first name', () => {
+    expect(WIN_OUTREACH_MESSAGE_RULES).toContain(
+      "calling for by the candidate's first name and office",
+    )
   })
 })

@@ -13,6 +13,7 @@ import {
   ListCampaignsPaginationSchema,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
+  SmsComplianceWindowSchema,
   UpdateCampaignM2MSchema,
 } from '@goodparty_org/contracts'
 import {
@@ -61,6 +62,7 @@ import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
 import { toCampaignGroupTraits } from './util/campaignGroupTraits.util'
+import { smsComplianceWindow } from './util/eligibility.util'
 
 class ListCampaignsPaginationDto extends createZodDto(
   ListCampaignsPaginationSchema,
@@ -75,6 +77,9 @@ class ListCampaignsPaginationDto extends createZodDto(
 // SMS composer can attach the candidate's photo, not a team member's.
 const CampaignMineSchema = CampaignWithLiveContextSchema.extend({
   ownerName: z.string().nullable(),
+  smsCompliance: SmsComplianceWindowSchema.optional(),
+  smsCutoffDate: z.string().nullable().optional(),
+  generalElectionDate: z.string().nullable().optional(),
   ownerAvatar: z.string().nullable(),
 })
 
@@ -105,15 +110,22 @@ export class CampaignsController {
       'Use this on startup to understand who the user is, what office they are running for, ' +
       'and what state the campaign is in.',
   })
-  @UseCampaign({ include: { organization: true, user: true } })
+  @UseCampaign({
+    include: { organization: true, user: true, tcrCompliance: true },
+  })
   async findMine(
     @ReqCampaign()
-    campaign: CampaignWith<'organization' | 'user'>,
+    campaign: CampaignWith<'organization' | 'user' | 'tcrCompliance'>,
   ) {
     // The user relation is the campaign OWNER (Campaign.userId), not the
     // caller — a team member's request still resolves the owner here. Strip
     // the row from the response; only the display name leaves the API.
-    const { organization: org, user: owner, ...campaignFields } = campaign
+    const {
+      organization: org,
+      user: owner,
+      tcrCompliance,
+      ...campaignFields
+    } = campaign
 
     const [{ positionName }, liveMetrics] = await Promise.all([
       this.organizations.resolvePositionContext({
@@ -129,6 +141,11 @@ export class CampaignsController {
       positionName,
       raceTargetMetrics: liveMetrics,
       ownerName: (owner && getUserFullName(owner)) || null,
+      ...smsComplianceWindow({
+        electionDate: campaign.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
       ownerAvatar: owner?.avatar?.trim() || null,
     }
   }
@@ -366,7 +383,21 @@ export class CampaignsController {
       isAdminSlugOverride ? {} : { resetStaleElectionResults: true },
     )
     if (!updated) throw new NotFoundException('Campaign not found after update')
-    return updated
+
+    // The webapp writes this response straight into its campaign cache, so it
+    // carries the same SMS window fields as GET mine or the cutoff UI reopens.
+    const tcrCompliance = await this.campaigns.client.tcrCompliance.findUnique({
+      where: { campaignId: updated.id },
+      select: { kickoffSentAt: true, internalTestingAt: true },
+    })
+    return {
+      ...updated,
+      ...smsComplianceWindow({
+        electionDate: updated.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
+    }
   }
 
   @UseGuards(M2MOnly)

@@ -2,8 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -19,6 +22,12 @@ import {
   CivicPanelStatusResponseSchema,
   CivicPanelSummarySchema,
   CivicPanelRepresentationSchema,
+  CivicPanelBuildPlanResponseSchema,
+  CreateCivicPanelBuildPlanInputSchema,
+  UpdateCivicPanelBuildPlanInputSchema,
+  type UpdateCivicPanelBuildPlanInput,
+  type CreateCivicPanelBuildPlanInput,
+  PrepareCivicPanelBuildStepResponseSchema,
   UpdateCivicPanelInputSchema,
   type UpdateCivicPanelInput,
   ListDetailContactsResponseSchema,
@@ -49,6 +58,7 @@ import {
 import { UpdateContactStatusParamsDTO } from './schemas/updateContactStatus.schema'
 import { ContactsService } from './services/contacts.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
+import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
 
 @Controller('contacts')
 @UseOrganization()
@@ -58,6 +68,7 @@ export class ContactsController {
   constructor(
     private readonly contactsService: ContactsService,
     private readonly civicPanelSummary: CivicPanelSummaryService,
+    private readonly civicPanelBuildPlan: CivicPanelBuildPlanService,
     private readonly features: FeaturesService,
   ) {}
 
@@ -170,6 +181,64 @@ export class ContactsController {
   ) {
     await this.assertCivicPanelsOn(user)
     return this.civicPanelSummary.representationFor(organization)
+  }
+
+  @Get('civic-panel/plan')
+  @ResponseSchema(CivicPanelBuildPlanResponseSchema)
+  async getCivicPanelBuildPlan(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.read(organization)
+  }
+
+  @Post('civic-panel/plan')
+  @ResponseSchema(CivicPanelBuildPlanResponseSchema)
+  async createCivicPanelBuildPlan(
+    @Body(new ZodValidationPipe(CreateCivicPanelBuildPlanInputSchema))
+    body: CreateCivicPanelBuildPlanInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.create(organization, body.hoursPerWeek)
+  }
+
+  @Patch('civic-panel/plan')
+  @ResponseSchema(CivicPanelBuildPlanResponseSchema)
+  async updateCivicPanelBuildPlan(
+    @Body(new ZodValidationPipe(UpdateCivicPanelBuildPlanInputSchema))
+    body: UpdateCivicPanelBuildPlanInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.updateHours(organization, body.hoursPerWeek)
+  }
+
+  @Post('civic-panel/plan/steps/:id/skip')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(CivicPanelBuildPlanResponseSchema)
+  async skipCivicPanelBuildStep(
+    @Param('id', ParseUUIDPipe) id: string,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.skip(organization, id)
+  }
+
+  @Post('civic-panel/plan/steps/:id/prepare')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(PrepareCivicPanelBuildStepResponseSchema)
+  async prepareCivicPanelBuildStep(
+    @Param('id', ParseUUIDPipe) id: string,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.prepare(organization, id)
   }
 
   @Get(':id')

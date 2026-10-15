@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { listDetailsFooterMode } from './footerMode'
+import { DRAFT_LABELS } from '../historyStatus.util'
+import { draftFooterAction, listDetailsFooterMode } from './footerMode'
 
 // The canvas's footer is a closed set of four modes. The point of a table
 // rather than a test per branch is that the set stays closed: a fifth mode
@@ -32,5 +33,24 @@ describe('listDetailsFooterMode', () => {
   it('renders no footer for a lifecycle the canvas does not draw', () => {
     expect(listDetailsFooterMode(null, true)).toBe('none')
     expect(listDetailsFooterMode(null, false)).toBe('none')
+  })
+})
+
+describe('draftFooterAction', () => {
+  it('disables a texting draft once the window is closed', () => {
+    expect(draftFooterAction(DRAFT_LABELS.closed, 'Schedule text')).toEqual({
+      label: 'Texting closed',
+      disabled: true,
+    })
+  })
+
+  it('still names the step in the way for an open window', () => {
+    expect(
+      draftFooterAction(DRAFT_LABELS.verification, 'Schedule text'),
+    ).toEqual({ label: 'Start verification', disabled: false })
+    expect(draftFooterAction(DRAFT_LABELS.ready, 'Schedule text')).toEqual({
+      label: 'Schedule text',
+      disabled: false,
+    })
   })
 })

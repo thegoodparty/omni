@@ -28,6 +28,9 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
 import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
+import { OutreachPollAdminController } from './outreachPollAdmin.controller'
+import { OutreachPollAdminService } from './services/outreachPollAdmin.service'
+import { OutreachPollReviewOverdueService } from './services/outreachPollReviewOverdue.service'
 import { OutreachResultsAdminController } from './outreachResultsAdmin.controller'
 import { OutreachResultsAdminService } from './services/outreachResultsAdmin.service'
 import { registerResultsUploadBodyLimit } from './util/outreachResultsBodyLimit.util'
@@ -69,6 +72,7 @@ import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service
 import { OutreachPollResultsService } from './services/outreachPollResults.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
+import { OutreachServePollExpansionService } from './services/outreachServePollExpansion.service'
 import { OutreachServePollDraftService } from './services/outreachServePollDraft.service'
 import { OutreachReportBackModule } from './outreachReportBack.module'
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
@@ -169,6 +173,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachRobocallController,
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
+    OutreachPollAdminController,
     // The staff results surface: the awaiting-results queue and the per-send
     // upload that replaced fulfilment's `aws s3 cp` line, for both
     // text sends and polls.
@@ -203,6 +208,8 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
       }),
     },
     OutreachSmsAdminService,
+    OutreachPollAdminService,
+    OutreachPollReviewOverdueService,
     // Depends only on OutreachTextIngestService (provided above) and Prisma,
     // so registering it cannot unbind the module. That matters: a provider
     // with an unbindable dependency takes down every suite that builds
@@ -221,6 +228,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // handler its checkout runs through.
     OutreachServeSmsCreateService,
     OutreachServePollCreateService,
+    OutreachServePollExpansionService,
     OutreachServePollDraftService,
     OutreachServeSmsPurchaseHandlerService,
     OutreachRobocallGenerationService,
@@ -275,6 +283,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // The queue consumer's `outreachTextSend` case calls `requestSend` on
     // this; QueueConsumerModule imports OutreachModule to reach it.
     OutreachTextDeliveryService,
+    OutreachServePollExpansionService,
   ],
 })
 export class OutreachModule {

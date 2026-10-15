@@ -5,7 +5,8 @@ import {
   LEGAL_LINE,
   type LiveRaceData,
 } from './campaignManagerPrompt'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import { legalAdviceBackstop } from '../services/guardrailBackstops'
+import { guardrailLine } from '../services/guardrailLines'
 import {
   GUARDRAIL_DECLINE,
   HONEST_REPORTING_BLOCK,
@@ -51,6 +52,7 @@ const ctx = (
   isPro: null,
   story: null,
   plan: null,
+  publicProfile: { status: 'not-live' },
   ...over,
 })
 
@@ -955,7 +957,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain(
       'snapshot taken when the candidate set up the race',
     )
-    expect(prompt).toContain('confirm it with the filing office')
+    expect(prompt).toContain('the line from ELECTION RULES')
     expect(prompt).not.toContain('refreshed monthly')
   })
 
@@ -1209,10 +1211,15 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
   it('pins the legal line to one the finish-time check recognizes', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(`include this line: "${LEGAL_LINE}"`)
+    expect(prompt).toContain(
+      `in place of any caution of your own: "${LEGAL_LINE}"`,
+    )
     // A statute-citing reply that carries the line gets nothing appended.
     expect(
-      professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
+      legalAdviceBackstop(
+        `RCW 42.17A applies. ${LEGAL_LINE}`,
+        'campaign_assistant',
+      ),
     ).toBeNull()
   })
 
@@ -1247,5 +1254,104 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).toContain('the candidate clearly wants')
       expect(prompt).not.toContain('the official')
     })
+  })
+})
+
+describe('public profile address', () => {
+  const URL = 'https://goodparty.org/people/renee-diaz-0189abcd'
+
+  it('hands over the live address verbatim and forbids building one', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'live', url: URL } }),
+    )
+    expect(prompt).toContain(
+      `The candidate's public profile is live at ${URL}. That is its only address`,
+    )
+    expect(prompt).toContain("never build one from the candidate's name")
+  })
+
+  it('withholds an address while the profile is not published, without claiming no page exists', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'not-live' } }),
+    )
+    expect(prompt).toContain(
+      "The candidate's public profile is not published. Do not give or print an address for it until it is live; they publish it from the Public Profile page.",
+    )
+    expect(prompt).not.toContain('no public address')
+    expect(prompt).not.toContain('/people/')
+  })
+
+  it('withholds an address while a removal is on record, without sending them to publish', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'removed' } }),
+    )
+    expect(prompt).toContain(
+      "The candidate's public profile page is not being served: a removal is on record. Do not give or print an address for it.",
+    )
+    expect(prompt).not.toContain('they publish it')
+    expect(prompt).not.toContain('/people/')
+  })
+
+  it('says the address could not be determined instead of guessing', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'unknown' } }),
+    )
+    expect(prompt).toContain(
+      "The address of the candidate's public profile could not be determined today. Do not give one",
+    )
+    expect(prompt).not.toContain('/people/')
+  })
+})
+
+describe('guardrail lines on the Campaign Manager', () => {
+  it('gives the decline in place of an answer and splits a mixed request', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      `do not do it; give this line in its place, in these exact words: "${GUARDRAIL_DECLINE.win}"`,
+    )
+    expect(prompt).toContain(
+      'If a request mixes their campaign with something unrelated, answer the part that belongs here and give the line in place of the rest.',
+    )
+    expect(prompt).toContain('respond to the danger first')
+    expect(prompt).toContain('reply with the same line and nothing more')
+    expect(prompt).not.toContain('entire reply')
+    expect(prompt).not.toContain('exact line and nothing else')
+  })
+
+  it('asks for the legal line once, in exact words, in place of its own caution', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      `include this line, once, in these exact words and in place of any caution of your own: "${LEGAL_LINE}"`,
+    )
+    expect(LEGAL_LINE).toBe(guardrailLine('legal_advice', 'campaign_assistant'))
+  })
+
+  it('closes a stated election rule with the registry line', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'ELECTION RULES (apply whenever you state a rule of this race)',
+    )
+    expect(prompt).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('election_rule_verify', 'campaign_assistant')}"`,
+    )
+  })
+
+  it('asks for the small-count line only where the data tool is registered', () => {
+    const line = guardrailLine('small_count', 'campaign_assistant')
+    expect(
+      buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: true })),
+    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    expect(
+      buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: false })),
+    ).not.toContain(line)
+  })
+
+  it('asks for the search line in exact words when search is on', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: true }),
+    )
+    expect(prompt).toContain(
+      `include this line in the draft, in these exact words: "${guardrailLine('search_provenance', 'campaign_assistant')}"`,
+    )
   })
 })

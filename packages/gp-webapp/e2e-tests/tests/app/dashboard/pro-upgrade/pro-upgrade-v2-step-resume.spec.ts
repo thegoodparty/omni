@@ -94,10 +94,10 @@ test.describe('Pro upgrade v2 resume', () => {
 
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`)
     await expect(
-      page.getByRole('heading', { name: 'Submitted for verification' }),
+      page.getByRole('heading', { name: 'Your details are saved' }),
     ).toBeVisible({ timeout: 30_000 })
     await expect(
-      page.getByText('Your campaign has been submitted for verification.'),
+      page.getByText('Verification starts when you finish your upgrade.'),
     ).toBeVisible()
     await expect(
       page.getByText('What are your campaign filing details?'),

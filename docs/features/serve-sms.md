@@ -542,6 +542,14 @@ poll awaiting review" notice to the fulfilment channel, so a redelivered
 Stripe webhook, which loses the claim, posts nothing. The staff approval is what
 enqueues `outreachTextSend`.
 
+Staff review it at `/v1/outreach/admin/polls` (gp-admin, admin or M2M). Approve
+is a compare-and-set on `approvedAt IS NULL AND deniedAt IS NULL`, so of two
+approvals exactly one enqueues and the other gets a 409; if the enqueue fails,
+the claim is reverted by its own timestamp and the poll can be approved again.
+Deny is terminal and refunds nothing. A staff edit recomposes the text and
+stamps `adminEditedAt`. A poll still unreviewed two business days after it was
+created logs a line the `serve-poll-review-overdue` alert pages on.
+
 The consumer refuses a poll with no `approvedAt` (error log, ack, no send). An
 approved poll's first send (`sendSeq` 1) delivers a `sample` audience of
 `textCount` people for a sample poll, or the saved filter for a list poll.

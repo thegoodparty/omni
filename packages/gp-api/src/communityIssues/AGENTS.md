@@ -68,7 +68,12 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   moment the office is on the org (on load for a prefilled or resumed
   official, right after the office PATCH for a net-new one), only while the
   `serve-citizen-panels` flag is on (it feeds the onboarding priorities step
-  that flag gates). Called before the PATCH it would find no serve context and
+  that flag gates). Each call costs about $1-2, so an official whose office
+  already has issues they ran on (`hasWinIssues` on
+  `GET /v1/elected-office/mine`, from `PrioritiesService.officesWithWinIssues`:
+  the same campaign source `seedFromWin` copies) is held back until they answer
+  "I'm an elected official" and move past that question. Someone who picks
+  "still campaigning" or "just testing" never triggers it in that case. Called before the PATCH it would find no serve context and
   write nothing, so the client waits for the saved office, not the pick. The
   priorities step keeps polling `GET /v1/priorities/onboarding` for a while
   so starter issues that land late still appear. Writes up to 5

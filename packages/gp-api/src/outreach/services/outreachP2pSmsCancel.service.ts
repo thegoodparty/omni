@@ -262,6 +262,7 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
           settleState: true,
           authorizationIntentId: true,
           chargeIntentId: true,
+          capturedAmountInCents: true,
         },
       })
       if (!satellite) return { refunded: false }
@@ -307,12 +308,31 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
         )
       }
 
+      // Settled at $0 because a promotion code covered it: nothing was charged,
+      // so there is nothing to refund and no hold left to void. Release it the
+      // same way a never-held row is released.
+      if (
+        satellite.settleState === P2pSmsSettleState.captured &&
+        satellite.capturedAmountInCents === 0
+      ) {
+        const claimed = await this.claim(
+          outreachId,
+          [P2pSmsSettleState.captured],
+          P2pSmsSettleState.voided,
+        )
+        if (claimed) {
+          await this.restoreFreeTextsBestEffort(outreachId)
+          return { refunded: false }
+        }
+        continue
+      }
+
       // No hold intent was ever recorded (a pending_payment / hold_pending
       // satellite whose authorize never committed, or a data anomaly): there is
       // no money to move. Freeze the row voided so the cancel/deny completes
       // rather than looping to a 502, hand back any offer, and return. Claims
-      // from the pre-hold states (an `authorized` row always carries an intent,
-      // so it never reaches here).
+      // from the pre-hold states, plus `authorized` for a send a promotion code
+      // covered in full, which Stripe placed no hold for.
       if (!satellite.authorizationIntentId) {
         const claimed = await this.claim(
           outreachId,
