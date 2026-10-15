@@ -13,11 +13,10 @@ vi.mock('@shared/layouts/navigation/NavDropdowns', () => ({
 describe('LeftSide', () => {
   // gp-webapp has no /pricing route; a relative href 404s on prefetch
   // (ENG-11308).
-  it('points Pricing at the marketing site', () => {
+  it('opens Pricing on the marketing site in a new tab', () => {
     render(<LeftSide />)
-    expect(screen.getByTestId('nav-pricing').closest('a')).toHaveAttribute(
-      'href',
-      getMarketingUrl('/pricing'),
-    )
+    const link = screen.getByTestId('nav-pricing').closest('a')
+    expect(link).toHaveAttribute('href', getMarketingUrl('/pricing'))
+    expect(link).toHaveAttribute('target', '_blank')
   })
 })

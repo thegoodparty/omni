@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation'
 import { NavDropdowns } from '@shared/layouts/navigation/NavDropdowns'
 import { useMemo } from 'react'
-import NavButton from './NavButton'
+import { Button } from '@styleguide'
 import { getMarketingUrl } from 'helpers/linkhelper'
 
 const HIDE_NAV_PATHS = [
@@ -28,18 +28,25 @@ const LeftSide = (): React.JSX.Element | null => {
     <div className="items-center hidden lg:flex">
       <NavDropdowns dropdownIndices={[0, 1]} />
 
-      <NavButton
-        href={getMarketingUrl('/pricing')}
+      <Button
+        asChild
+        variant="ghost"
         id="nav-pricing"
-        className="lg:ml-3 xl:ml-6 inline-flex items-center justify-center"
+        className="!py-2 !leading-6 hover:!bg-secondary focus-visible:hover:!bg-secondary hover:!text-white focus-visible:!bg-white focus-visible:!outline-secondary/30 lg:ml-3 xl:ml-6 inline-flex items-center justify-center"
       >
-        <span
-          className="font-medium text-base leading-6!"
-          data-testid="nav-pricing"
+        <a
+          href={getMarketingUrl('/pricing')}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
         >
-          Pricing
-        </span>
-      </NavButton>
+          <span
+            className="font-medium text-base leading-6!"
+            data-testid="nav-pricing"
+          >
+            Pricing
+          </span>
+        </a>
+      </Button>
 
       <NavDropdowns dropdownIndices={[2]} />
     </div>
