@@ -37,6 +37,7 @@ import { OutreachDraftController } from './outreachDraft.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachServeSmsController } from './outreachServeSms.controller'
+import { OutreachServePollController } from './outreachServePoll.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachServePhoneBankingController } from './outreachServePhoneBanking.controller'
 import { OutreachDoorKnockingController } from './outreachDoorKnocking.controller'
@@ -65,6 +66,7 @@ import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneB
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
+import { OutreachPollResultsService } from './services/outreachPollResults.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { OutreachReportBackModule } from './outreachReportBack.module'
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
@@ -161,6 +163,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // Carries BOTH Serve SMS routes: POST /v1/outreach/serve/sms/draft and
     // POST /v1/outreach/serve/sms. Neither path existed until this line.
     OutreachServeSmsController,
+    OutreachServePollController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
@@ -211,6 +214,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // The reply list behind the Serve results surface. Reads
     // poll_individual_message, the only table that stores inbound SMS text.
     OutreachSmsRepliesService,
+    OutreachPollResultsService,
     // The Serve SMS product layer: draft-first create, and the purchase
     // handler its checkout runs through.
     OutreachServeSmsCreateService,
