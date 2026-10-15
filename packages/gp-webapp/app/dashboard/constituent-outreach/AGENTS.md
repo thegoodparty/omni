@@ -47,7 +47,7 @@ byte-identical when they're omitted):
   (`GET /v1/outreach/serve/:id`, in `outreach/v2/useOutreachDetail.ts`)
   instead of Win's campaign-scoped default.
 - **`rowClickable`** scopes row clicks to `socialMedia`,
-  `nativePhoneBanking`, `nativeDoorKnocking` and `text` — the wired serve
+  `nativePhoneBanking`, `nativeDoorKnocking`, `text` and `poll` — the wired serve
   channels — so any other row type (robocall) renders as plain content,
   never a dead clickable. Door knocking joined the list in 3.0, when Serve
   orgs started getting an `Outreach` envelope at all; before that a Serve
@@ -56,7 +56,9 @@ byte-identical when they're omitted):
   surface) and it is deliberately NOT gated on `serve-sms-outreach`: only an
   org that has already sent has a text row, and an org whose flag is later
   turned off must not lose the results for a send it paid for. The flag
-  gates the way IN, not the record of what went out.
+  gates the way IN, not the record of what went out. A `poll` row is the same: its drawer shows the
+  question from the row's own `message` (no detail read) and, once completed,
+  a "View full results" link to `/dashboard/polls/results/:id`.
 - **Purpose vocabularies** live beside Win's:
   `outreach/v2/serveSocialPurposes.ts` / `servePhoneBankingPurposes.ts`
   mirror the Win files with constituent-framed copy. Slugs deliberately reuse
