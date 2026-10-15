@@ -2,15 +2,12 @@ import { basename } from 'node:path'
 import { AGENTS, type AgentEntry } from './agents'
 import {
   describeIssues,
-  isChatCase,
   loadCaseList,
-  usesSeededTranscript,
   type CaseList,
   type JudgeCase,
 } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { selectAgents } from './cli'
-import { ARM_KEY_ENV } from './modelKey'
 import { isoUtc, RunRecordSchema, type RunRecord } from './record'
 import {
   MANIFEST_SCHEMA_VERSION,
@@ -39,9 +36,9 @@ export interface ArmCaseRequest {
   sweepId: string
   arm: ArmEnv['arm']
   variant: { ref: string; commit: string }
-  // False unless the environment affirmatively said to spend. The caller is
-  // expected to hand the runner a canned script when this is false, which is
-  // how the whole pipeline is exercised end to end for nothing.
+  // False unless the environment affirmatively said to spend. When it is
+  // false captureArm.ts skips every chat agent by name and a background
+  // dispatch refuses, which is how the arm is exercised for nothing.
   spends: boolean
 }
 
@@ -81,10 +78,8 @@ const SECRET_SHAPES: readonly [RegExp, string][] = [
 // So the known secret-bearing variables are redacted by VALUE as well.
 const SECRET_VARS: readonly string[] = [
   'ANTHROPIC_API_KEY',
-  // The name the real key reaches a spending arm under; see modelKey.ts. On
-  // a dry run ANTHROPIC_API_KEY still holds the stub, so redacting that one
-  // alone would redact the stub and leave the real value in the clear.
-  ARM_KEY_ENV,
+  // The dev Clerk instance's secret a chat arm makes its test users with.
+  'JUDGE_CLERK_SECRET_KEY',
   'DATABRICKS_CLIENT_SECRET',
   'DATABRICKS_CLIENT_ID',
   'DATABASE_URL',
@@ -114,9 +109,9 @@ export const scrubReason = (
 // WHAT THE CAPTURE MUST NOT GO GREEN ON, and it is not the same thing on the
 // two paths.
 //
-// Under the canned script every turn is deterministic, so an infraError is a
-// harness bug and every one of them is a failure worth failing the step over.
-// Under real spend it is a provider 429 or a dropped stream: `runners/chat.ts`
+// Without spend nothing real is called, so an infraError is a judge bug and
+// every one of them is a failure worth failing the step over. Under real
+// spend it is a provider 429 or a dropped stream: `runners/chatHttp.ts`
 // classifies that as infraError and RETURNS the record rather than throwing,
 // and the rest of the pipeline is built to survive exactly that — normalize
 // excludes the pair, score counts it as an exclusion, report prints it.
@@ -206,9 +201,6 @@ const captureAgent = async (
       err instanceof Error ? err : new Error(String(err)),
     )
   }
-  const seeded = list.cases
-    .filter((one) => isChatCase(one) && usesSeededTranscript(one))
-    .map((one) => one.caseId)
   return {
     agentId: agent.agentId,
     // The basename, not the absolute path it was read from: the manifest is
@@ -216,7 +208,6 @@ const captureAgent = async (
     // nobody's business.
     caseList: basename(list.source),
     placeholderCases: list.placeholder,
-    ...(seeded.length > 0 && { seededTranscriptCases: seeded }),
     cases: list.cases.length,
     attempts: attemptsPerCase,
     recordsWritten: progress.recordsWritten,
@@ -315,8 +306,8 @@ const walkCases = async (
 ): Promise<void> => {
   const requests = requestsFor(env, agent, list, attemptsPerCase)
   if (agent.shape !== 'background') {
-    // One at a time. A chat case runs inside this process against the test
-    // app and its one database, and a seeded transcript is per case.
+    // One at a time: the chat time budget (armBudget.ts) prices an arm's
+    // chat turns as run one after another against the deployment.
     for (const request of requests) await runOne(deps, request, progress)
     return
   }

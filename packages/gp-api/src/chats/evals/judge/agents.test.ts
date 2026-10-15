@@ -152,17 +152,28 @@ describe('the agent registry', () => {
   })
 })
 
-// The runner opens a briefing chat through POST /v1/briefing-chats and the
-// seed gives it a briefing to open on, so the scope is judgeable like any
-// other chat agent.
-describe('briefing_annotation', () => {
-  it('is a pending chat agent with its own case list', () => {
-    expect(findAgent('briefing_annotation')).toEqual({
-      agentId: 'briefing_annotation',
+// A chat arm drives a deployed gp-api, and only chief_of_staff has its state
+// set up through the product routes so far. The other four are refused by
+// name, in the plan and on both arms, rather than driven half set up.
+describe('the chat agents not yet driven against a deployment', () => {
+  it.each([
+    'campaign_assistant',
+    'ordinance_flow',
+    'priority_flow',
+    'briefing_annotation',
+  ])('blocks %s with a reason, keeping its case list', (agentId) => {
+    expect(findAgent(agentId)).toMatchObject({
       shape: 'chat',
-      cases: 'briefing_annotation.json',
-      status: 'pending',
+      cases: `${agentId}.json`,
+      status: 'blocked',
+      blockedReason: expect.stringMatching(
+        /^Not yet driven against a deployment/,
+      ),
     })
+  })
+
+  it('leaves chief_of_staff to be driven', () => {
+    expect(findAgent('chief_of_staff')?.status).toBe('wired')
   })
 })
 
@@ -170,9 +181,15 @@ describe('coverage', () => {
   it('excludes blocked agents from the denominator', () => {
     const { wired, judgeable, blocked } = coverage()
     // Named rather than dropped, so the gap stays visible: compliance_setup
-    // must not be swept at all.
-    expect(blocked.map((a) => a.agentId).sort()).toEqual(['compliance_setup'])
-    expect(judgeable).toBe(20)
+    // must not be swept at all, and four chat agents are not driven yet.
+    expect(blocked.map((a) => a.agentId).sort()).toEqual([
+      'briefing_annotation',
+      'campaign_assistant',
+      'compliance_setup',
+      'ordinance_flow',
+      'priority_flow',
+    ])
+    expect(judgeable).toBe(16)
     expect(wired).toBe(3)
   })
 

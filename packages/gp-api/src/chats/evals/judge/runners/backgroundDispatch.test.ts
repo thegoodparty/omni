@@ -29,8 +29,8 @@ import { loadCaseList } from '../cases'
 import type { BackgroundCase, CaseList, JudgeCase } from '../cases'
 
 // WHAT THIS FILE IS FOR. Every argument of the dispatch used to be built
-// inline inside `sweep.eval.test.ts`, a suite that only executes when
-// JUDGE_ARM is set — so in CI it was dead text. Two deliberate mis-wirings
+// inline inside the old vitest arm suite, which only executed when
+// JUDGE_ARM was set — so in CI it was dead text. Two deliberate mis-wirings
 // proved the gap: swapping metadataBucket for artifactBucket, and hardcoding
 // one agent id in place of request.agent.agentId. Both typecheck. Both
 // survived the entire suite. One `toEqual` over the whole returned object is
@@ -1379,10 +1379,17 @@ describe('the chat budget', () => {
     cases: `${agentId}.json`,
     status: 'pending',
   })
+  // Read as pending: four chat agents are blocked in agents.ts until they are
+  // driven against a deployment, and the budget rules are about several.
   const registered = (agentId: string): AgentEntry => {
     const found = findAgent(agentId)
     if (found === undefined) throw new Error(`${agentId} is not registered`)
-    return found
+    return {
+      agentId: found.agentId,
+      shape: found.shape,
+      cases: found.cases,
+      status: 'pending',
+    }
   }
 
   // 65 minutes for chat. chief_of_staff 8 minutes, priority_flow 48, and
@@ -1501,20 +1508,16 @@ describe('the chat budget', () => {
   })
 
   // A LOCAL RUN, through the arm's own entry points and the real lists: no
-  // resolver, so the arm works the refusal out itself, and the suite's final
-  // check reads the same refusal as one by design rather than a failure.
+  // resolver, so the arm works the refusals out itself, and expects neither a
+  // chat agent it refused nor one the registry blocks.
   it('refuses on a local run by the same rule, and expects only the rest', () => {
-    const ids = ['chief_of_staff', 'campaign_assistant', 'priority_flow']
+    const ids = ['chief_of_staff', 'priority_flow']
     const arm = parseArmEnv(armEnvFor({ JUDGE_AGENTS: ids.join(',') }))
     expect(arm.backgroundRefused).toBeUndefined()
     const { loadCases } = armDeps(arm, DEFAULT_JUDGE_CONFIG)
     expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(8)
-    expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(8)
-    expect(() => loadCases(registered('priority_flow'))).toThrow(
-      /^priority_flow was not admitted to this sweep: would take about 48 minutes for 24 chat turns at 120s each/,
-    )
     expect(capturableAgents(ids, arm, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
-      ['chief_of_staff', 'campaign_assistant'],
+      ['chief_of_staff'],
     )
   })
 
