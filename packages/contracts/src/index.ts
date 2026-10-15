@@ -218,11 +218,25 @@ export {
   type CivicPanelBuildNext,
   CivicPanelBuildPlanSchema,
   type CivicPanelBuildPlan,
+  CivicPanelBuildProgressSchema,
+  type CivicPanelBuildProgress,
   CivicPanelBuildPlanResponseSchema,
   type CivicPanelBuildPlanResponse,
   PrepareCivicPanelBuildStepResponseSchema,
   type PrepareCivicPanelBuildStepResponse,
 } from './people/CivicPanelBuildPlan.schema'
+export {
+  ANSWERS_MARGIN_OF_ERROR,
+  ANSWERS_CONFIDENCE_Z,
+  ANSWERS_ASSUMED_SPLIT,
+  answersNeeded,
+  panelGoalMembers,
+  panelExpectedAnswers,
+  sizePanelAsk,
+  type PanelAskSize,
+  panelSeedSampleSize,
+  PANEL_SEED_SAMPLE_SIZE,
+} from './people/PanelAnswers'
 
 export {
   ContactNoteSchema,
@@ -1747,9 +1761,7 @@ export {
   countCivicPanelLines,
   PANEL_ASSUMED_REPLY_RATE,
   CONTACT_REST_DAYS,
-  PANEL_SEED_TARGET_MEMBERS,
   PANEL_SEED_ASSUMED_JOIN_RATE,
-  PANEL_SEED_SAMPLE_SIZE,
   BUILD_CITIZENS_PANEL_MARKER,
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MARKER,
