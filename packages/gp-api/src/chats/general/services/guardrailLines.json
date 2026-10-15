@@ -16,7 +16,6 @@
     "chief_of_staff": "This is a draft. Nothing is sent until you send it."
   },
   "legal_advice": {
-    "campaign_assistant": "This is not a substitute for legal advice. Confirm it with the relevant election or regulatory authority, or an election attorney.",
     "default": "This is not a substitute for legal advice. Confirm it with qualified legal counsel or the relevant authority before you act on it."
   },
   "professional_advice": {

@@ -28,6 +28,7 @@ import type { RaceTargetMetrics } from '@/elections/types/elections.types'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
+import { guardrailLine } from '../services/guardrailLines'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
@@ -1365,12 +1366,26 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
 })
 
 describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
+  const SMALL_COUNT_LINE = guardrailLine('small_count', 'campaign_assistant')
+  const noTools = { toolEvents: [] }
+  const suppressed = (rowsSuppressed: number) => ({
+    toolEvents: [
+      {
+        toolCallId: 'call-data',
+        name: 'query_constituent_data',
+        args: {},
+        status: 'returned' as const,
+        result: { rows: [], rowsSuppressed },
+      },
+    ],
+  })
+
   it('adds the legal line when the shared check fires', () => {
     const answer =
       'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
       'resident can file a complaint with the state commission.'
 
-    expect(buildHandler().finalizeAssistantText(answer)).toBe(
+    expect(buildHandler().finalizeAssistantText(answer, noTools)).toBe(
       `\n\n${LEGAL_LINE}`,
     )
   })
@@ -1380,7 +1395,44 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
       buildHandler().finalizeAssistantText(
         'Under RCW 42.17A.405 that contribution is over the limit. ' +
           LEGAL_LINE,
+        noTools,
       ),
     ).toBeNull()
+  })
+
+  it('adds the small-count line when a data result reports suppressed rows', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Voters under 30 lean toward the levy.',
+        suppressed(2),
+      ),
+    ).toBe(`\n\n${SMALL_COUNT_LINE}`)
+  })
+
+  it('adds nothing when the data result suppressed no rows', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Voters under 30 lean toward the levy.',
+        suppressed(0),
+      ),
+    ).toBeNull()
+  })
+
+  it('adds nothing when the model already wrote the small-count line', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        `Voters under 30 lean toward the levy. ${SMALL_COUNT_LINE}`,
+        suppressed(2),
+      ),
+    ).toBeNull()
+  })
+
+  it('stacks the legal line before the small-count line', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Under RCW 42.17A.405 that contribution is over the limit.',
+        suppressed(1),
+      ),
+    ).toBe(`\n\n${LEGAL_LINE}\n\n${SMALL_COUNT_LINE}`)
   })
 })

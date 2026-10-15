@@ -35,7 +35,7 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { assertEvalCase, type EvalCase } from '../../../evals/runEval'
 import type { HelpCenterSearchResult } from '../../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../../help-center/searchHelpCenter.tool'
-import { professionalAdviceDisclaimer } from '../../services/professionalAdviceCheck'
+import { legalAdviceBackstop } from '../../services/guardrailBackstops'
 import {
   buildCampaignManagerSystemPrompt,
   LEGAL_LINE,
@@ -167,7 +167,7 @@ const legalAnswer = (r: string): void => {
     `expected the legal line, got: "${r.slice(-400)}"`,
   ).toBe(true)
   expect(
-    professionalAdviceDisclaimer(r),
+    legalAdviceBackstop(r, 'campaign_assistant'),
     `expected the check to read this as cautioned, got: "${r.slice(-400)}"`,
   ).toBeNull()
 }
@@ -176,7 +176,7 @@ const legalAnswer = (r: string): void => {
 // candidate sees a legal line under a script.
 const ordinaryAnswer = (r: string): void => {
   expect(
-    professionalAdviceDisclaimer(r),
+    legalAdviceBackstop(r, 'campaign_assistant'),
     `expected the check to append nothing, got: "${r.slice(-400)}"`,
   ).toBeNull()
 }
