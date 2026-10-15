@@ -374,12 +374,16 @@ between session-creation and this webhook can never make an already-placed
 hold fall through to the ACH deferral below and strand it. When the PI is
 `capture_method: 'manual'` and `requires_capture`, it fulfills instead of
 deferring; capture is a later slice. Every other `unpaid` session (no PI, or
-an automatic-capture one) still defers.
+an automatic-capture one) still defers. Hold checkouts take promotion codes
+like every other checkout: Stripe takes the code off the hold, and
+`outreachP2pSmsHold.service.ts` records the discount (or, for a code that
+covered everything, a send with no hold) — see `outreach/AGENTS.md`.
 
-A promotion code that covers the whole order completes checkout with
-`payment_status: no_payment_required` and no PaymentIntent. Stripe's own
-fulfillment rule is "unless `unpaid`", so `completeCheckoutSession` runs the
-handler right away. The `postPurchaseCompletedAt` marker needs a
+A promotion code that covers the whole order completes checkout with no
+PaymentIntent and `payment_status: paid` (what Stripe test mode returned
+2026-10-14 on API version 2026-02-25.clover; older docs say
+`no_payment_required`). Stripe's own fulfillment rule is "unless `unpaid`", so
+`completeCheckoutSession` runs the handler right away. The `postPurchaseCompletedAt` marker needs a
 PaymentIntent, so for these sessions the handlers' own claims (the
 TEXT/SERVE_TEXT `pending_payment → pending` CAS, the poll create's reconcile)
 are the only guard against the client-vs-webhook race. Before 2026-10-06 the
