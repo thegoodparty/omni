@@ -7,6 +7,11 @@ import {
   isLegacyDoorKnockingUnitKey,
   type IdOverrides,
 } from '@goodparty_org/contracts'
+import {
+  AFFINITY_COLUMNS,
+  type AffinityColumn,
+  DEFAULT_AFFINITY_COLUMN,
+} from '../affinityColumns.const'
 import { FilterData, type FilterOperator } from '../schemas/filters.schema'
 import { VALUE_MAPPERS } from '../utils/valueMappers.util'
 import {
@@ -126,6 +131,7 @@ export type DbxScopeArgs = {
   search?: string
   idOverrides?: IdOverrides
   contactsMadeIdOverrides?: IdOverrides
+  affinityColumn?: AffinityColumn
 }
 
 const hasIdOverrides = (
@@ -295,15 +301,29 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
   return null
 }
 
-// Voter_Independent_Affinity is a BOOLEAN set on every voter, so this compares
+// The experiment's columns exist only on the voter table, so a constituents
+// query always reads the default column, whatever the organization resolved.
+const affinityColumnForDataset = (
+  args: Pick<DbxScopeArgs, 'district' | 'affinityColumn'>,
+): AffinityColumn | undefined =>
+  args.district.dataset === 'constituents' ? undefined : args.affinityColumn
+
+// Every affinity column is a BOOLEAN set on every voter, so this compares
 // against a boolean literal instead of taking the presence-check path every
 // other has-* filter uses: `IS NOT NULL` there would match all 219M voters and
-// silently un-filter the request. It is NULL on the consumer-only rows of the
-// constituents table, which neither literal matches. Selecting both values is likewise no
-// constraint at all, so it returns null rather than an always-true clause.
-const buildIndependentAffinityFilter = (op?: FilterOperator): string | null => {
+// silently un-filter the request. Voter_Independent_Affinity is NULL on the
+// consumer-only rows of the constituents table, which neither literal matches.
+// Selecting both values is likewise no constraint at all, so it returns null
+// rather than an always-true clause.
+const buildIndependentAffinityFilter = (
+  op?: FilterOperator,
+  column: AffinityColumn = DEFAULT_AFFINITY_COLUMN,
+): string | null => {
   if (!op) return null
-  const target = col('Voter_Independent_Affinity')
+  if (!AFFINITY_COLUMNS.includes(column)) {
+    throw new Error(`Refusing to filter on an unknown affinity column`)
+  }
+  const target = col(column)
   const selected =
     op.operator === 'in' && op.values
       ? op.values.map(String)
@@ -514,6 +534,7 @@ export const buildVoterFiltersSql = (
   filterData: FilterData,
   idOverrides?: IdOverrides,
   contactsMadeIdOverrides?: IdOverrides,
+  affinityColumn?: AffinityColumn,
 ): string | null => {
   const { filters, filterOperators } = filterData
   const andClauses: string[] = []
@@ -604,7 +625,7 @@ export const buildVoterFiltersSql = (
         )
         break
       case 'independentAffinity':
-        sql = buildIndependentAffinityFilter(op)
+        sql = buildIndependentAffinityFilter(op, affinityColumn)
         break
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)
@@ -720,6 +741,7 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
     filters,
     idOverrides,
     args.contactsMadeIdOverrides,
+    affinityColumnForDataset(args),
   )
   if (filterSql) parts.push(filterSql)
 
@@ -789,7 +811,14 @@ export const buildOverlapCountSql = (
   // bare TRUE rather than being dropped from the OR; zero saved sets is the
   // union of nothing, so it becomes FALSE.
   const savedClauses = args.savedFilterSets.map(
-    (saved) => buildVoterFiltersSql(bag, saved) ?? 'TRUE',
+    (saved) =>
+      buildVoterFiltersSql(
+        bag,
+        saved,
+        undefined,
+        undefined,
+        affinityColumnForDataset(args),
+      ) ?? 'TRUE',
   )
   const savedSetsClause =
     savedClauses.length > 0 ? `(${savedClauses.join(' OR ')})` : 'FALSE'

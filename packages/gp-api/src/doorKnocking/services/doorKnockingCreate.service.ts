@@ -409,6 +409,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,
       contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      affinityColumn: await this.contacts.affinityColumnFor(
+        organization,
+        resolved.filters,
+      ),
       excludePersonIds,
     })
     const stops = this.buildStops(people, input.geoPoly, isServe)
