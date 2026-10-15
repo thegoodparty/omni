@@ -469,7 +469,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'A note is confirmed at the door or on the call: Looks right saves the issues it found, and Skip saves the note with no issues. Either way its words go into the summary',
       'Every note is listed. Themes appear once there are enough confirmed notes, and the page says how many that is',
       'The Summarize notes button groups the confirmed notes into themes. It takes a few minutes, and the page fills in when it is done. Finishing a turf or a call list starts one too, once there are enough confirmed notes',
-      'Each theme opens to its details, where people stand, what people want (the most asked first, with how many asked), and the notes behind it',
+      'Each theme opens to its details, where people stand, what people want (the most asked first), and the notes behind it',
       'A note is checked and saved where it is taken, at the door or on the call. The page only lists notes: they cannot be edited or deleted there',
       'All notes shows the newest ten, with Show more for the rest. A theme’s own page lists its notes the same way',
       'Each note links to the record of the person it is about, which opens in a side panel without leaving the page',

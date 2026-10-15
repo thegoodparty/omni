@@ -146,7 +146,7 @@ describe('ThemeDetailPage', () => {
       within(asks)
         .getAllByRole('listitem')
         .map((item) => item.textContent),
-    ).toEqual(['Move the loading zone1', 'Keep the lanes1'])
+    ).toEqual(['Move the loading zone', 'Keep the lanes'])
   })
 
   it('ranks the asks by how many named them and keeps five in view', async () => {
@@ -183,11 +183,11 @@ describe('ThemeDetailPage', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'More lighting3',
-      'More patrols2',
-      'Fix the park gate1',
-      'Close the alley1',
-      'Cameras on Elm1',
+      'More lighting',
+      'More patrols',
+      'Fix the park gate',
+      'Close the alley',
+      'Cameras on Elm',
     ])
 
     await userEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
