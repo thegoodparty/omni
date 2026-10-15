@@ -28,6 +28,9 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
 import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
+import { OutreachPollAdminController } from './outreachPollAdmin.controller'
+import { OutreachPollAdminService } from './services/outreachPollAdmin.service'
+import { OutreachPollReviewOverdueService } from './services/outreachPollReviewOverdue.service'
 import { OutreachResultsAdminController } from './outreachResultsAdmin.controller'
 import { OutreachResultsAdminService } from './services/outreachResultsAdmin.service'
 import { registerResultsUploadBodyLimit } from './util/outreachResultsBodyLimit.util'
@@ -169,6 +172,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachRobocallController,
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
+    OutreachPollAdminController,
     // The staff results surface: the awaiting-results queue and the per-send
     // upload that replaced fulfilment's `aws s3 cp` line, for both
     // text sends and polls.
@@ -203,6 +207,8 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
       }),
     },
     OutreachSmsAdminService,
+    OutreachPollAdminService,
+    OutreachPollReviewOverdueService,
     // Depends only on OutreachTextIngestService (provided above) and Prisma,
     // so registering it cannot unbind the module. That matters: a provider
     // with an unbindable dependency takes down every suite that builds

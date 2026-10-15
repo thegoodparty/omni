@@ -2,6 +2,7 @@ import { HttpClient } from './http/HttpClient'
 import { AdminAgentRunsResource } from './resources/AdminAgentRunsResource'
 import { SmsOutreachAdminResource } from './resources/SmsOutreachAdminResource'
 import { OutreachResultsAdminResource } from './resources/OutreachResultsAdminResource'
+import { PollOutreachAdminResource } from './resources/PollOutreachAdminResource'
 import { AdminResource } from './resources/AdminResource'
 import { CampaignsResource } from './resources/CampaignsResource'
 import { CommunityIssuesResource } from './resources/CommunityIssuesResource'
@@ -24,6 +25,7 @@ export class GoodPartyClient {
   readonly adminAgentRuns: AdminAgentRunsResource
   readonly smsOutreachAdmin: SmsOutreachAdminResource
   readonly outreachResultsAdmin: OutreachResultsAdminResource
+  readonly pollOutreachAdmin: PollOutreachAdminResource
   readonly users: UsersResource
   readonly campaigns: CampaignsResource
   readonly electedOffices: ElectedOfficesResource
@@ -42,6 +44,7 @@ export class GoodPartyClient {
     this.adminAgentRuns = new AdminAgentRunsResource(httpClient)
     this.smsOutreachAdmin = new SmsOutreachAdminResource(httpClient)
     this.outreachResultsAdmin = new OutreachResultsAdminResource(httpClient)
+    this.pollOutreachAdmin = new PollOutreachAdminResource(httpClient)
     this.users = new UsersResource(httpClient)
     this.campaigns = new CampaignsResource(httpClient)
     this.electedOffices = new ElectedOfficesResource(httpClient)

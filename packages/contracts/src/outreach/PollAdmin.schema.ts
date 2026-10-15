@@ -40,6 +40,12 @@ export const PollQueueItemSchema = z.object({
 })
 export type PollQueueItem = z.infer<typeof PollQueueItemSchema>
 
+// The queue's tabs. Defaults to the rows awaiting review.
+export const PollQueueQuerySchema = z.object({
+  status: PollApprovalStatusSchema.default('awaiting_review'),
+})
+export type PollQueueQuery = z.infer<typeof PollQueueQuerySchema>
+
 export const PollQueueResponseSchema = z.object({
   items: z.array(PollQueueItemSchema),
 })
@@ -47,6 +53,8 @@ export type PollQueueResponse = z.infer<typeof PollQueueResponseSchema>
 
 export const PollReviewDetailSchema = z.object({
   item: PollQueueItemSchema,
+  // The full text as it will send: greeting, question and opt-out line.
+  message: z.string().nullable(),
   imageUrl: z.string().nullable(),
   tone: z.string().nullable(),
   audienceKind: PollAudienceKindSchema,
@@ -55,8 +63,10 @@ export const PollReviewDetailSchema = z.object({
 })
 export type PollReviewDetail = z.infer<typeof PollReviewDetailSchema>
 
+// `expansionId` approves one expansion instead of the first send.
 export const ApprovePollRequestSchema = z.object({
   approvedBy: z.string().min(1).max(255),
+  expansionId: z.string().min(1).optional(),
 })
 export type ApprovePollRequest = z.infer<typeof ApprovePollRequestSchema>
 
