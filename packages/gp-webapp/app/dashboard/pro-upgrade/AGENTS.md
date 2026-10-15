@@ -52,9 +52,10 @@ caller, the banner and chip included, reads the flag with `useOutreachProGatingV
 
 gp-api computes `smsCompliance` (`open` / `closing` / `closed` /
 `not_applicable`), `smsCutoffDate` and `generalElectionDate` on
-`GET /v1/campaigns/mine`; read them through `useSmsCompliance()`
+`GET` and `PUT /v1/campaigns/mine`; read them through `useSmsCompliance()`
 (`app/dashboard/shared/smsCutoff/`). The webapp never does date math, a
-missing field reads as `open`, and `closed` wins over any TCR status. Closed
+missing field reads as `open` (so any campaign-cache write must come from a
+response that carries them, as `EinStep` and `FilingStatusStep` do), and `closed` wins over any TCR status. Closed
 means verification never started (no filing, or details saved without
 payment). gp-api still saves filing details once closed; it only never starts
 the paid compliance work.

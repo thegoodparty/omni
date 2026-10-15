@@ -169,7 +169,12 @@ describe('CampaignsController', () => {
       fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
       setIsPro: vi.fn(),
     }
-    campaignsService = campaignsServiceMock as CampaignsService
+    campaignsService = {
+      ...campaignsServiceMock,
+      client: {
+        tcrCompliance: { findUnique: vi.fn().mockResolvedValue(null) },
+      },
+    } as unknown as CampaignsService
 
     const planVersionsServiceMock: Partial<CampaignPlanVersionsService> = {
       findByCampaignId: vi.fn(),
@@ -982,7 +987,12 @@ describe('CampaignsController', () => {
         undefined,
         { resetStaleElectionResults: true },
       )
-      expect(result).toEqual(mockCampaign)
+      expect(result).toEqual({
+        ...mockCampaign,
+        smsCompliance: 'closed',
+        smsCutoffDate: '2025-10-16',
+        generalElectionDate: '2025-11-04',
+      })
     })
   })
 

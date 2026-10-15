@@ -858,8 +858,9 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   `agentic | legacy | kickoff | submit_to_peerly` (`isPastSmsCutoff`); `agentic` fires
   only for the already-Pro submit, since a free candidate's submit never kicks off. The sweep does not fire it because
   it would repeat every 10 minutes per record. `internal-testing-approval` is exempt.
-  The window rides on `GET campaigns/mine` and both compliance-state routes; the
-  webapp reads it and never does its own date math.
+  The window rides on `GET campaigns/mine`, `PUT campaigns/mine` (the Pro wizard
+  writes that response into its campaign cache) and both compliance-state routes;
+  the webapp reads it and never does its own date math.
 - **Non-prod short-circuit:** `submitCampaignVerifyToken` / Peerly approval are
   short-circuited when `OTEL_SERVICE_ENVIRONMENT !== 'prod'`, and `submit-cv-pin` accepts
   a bypass token — so testers can walk the flow without a real Peerly PIN. Status

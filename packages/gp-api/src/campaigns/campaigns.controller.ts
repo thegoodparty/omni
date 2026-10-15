@@ -380,7 +380,21 @@ export class CampaignsController {
       isAdminSlugOverride ? {} : { resetStaleElectionResults: true },
     )
     if (!updated) throw new NotFoundException('Campaign not found after update')
-    return updated
+
+    // The webapp writes this response straight into its campaign cache, so it
+    // carries the same SMS window fields as GET mine or the cutoff UI reopens.
+    const tcrCompliance = await this.campaigns.client.tcrCompliance.findUnique({
+      where: { campaignId: updated.id },
+      select: { kickoffSentAt: true, internalTestingAt: true },
+    })
+    return {
+      ...updated,
+      ...smsComplianceWindow({
+        electionDate: updated.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
+    }
   }
 
   @UseGuards(M2MOnly)

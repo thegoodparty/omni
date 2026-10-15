@@ -394,6 +394,38 @@ describe('SMS compliance window on reads', () => {
     expect(res.data).not.toHaveProperty('tcrCompliance')
   })
 
+  it('returns the window on PUT /v1/campaigns/mine', async () => {
+    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
+
+    const res = await service.client.put(
+      '/v1/campaigns/mine',
+      { details: { einNumber: '12-3456789' } },
+      orgHeaders(campaign.slug),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data).toMatchObject({
+      details: { einNumber: '12-3456789' },
+      smsCompliance: 'closed',
+      smsCutoffDate: electionDateIn(CLOSED_DAYS_OUT - 19),
+      generalElectionDate: electionDateIn(CLOSED_DAYS_OUT),
+    })
+  })
+
+  it('returns not_applicable on PUT /v1/campaigns/mine once the kickoff was sent', async () => {
+    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
+    await seedRecord(campaign.id, { kickoffSentAt: new Date() })
+
+    const res = await service.client.put(
+      '/v1/campaigns/mine',
+      { details: { einNumber: '12-3456789' } },
+      orgHeaders(campaign.slug),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data.smsCompliance).toBe('not_applicable')
+  })
+
   it('returns not_applicable on compliance-state once the kickoff was sent', async () => {
     const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
     await seedRecord(campaign.id, { kickoffSentAt: new Date() })
