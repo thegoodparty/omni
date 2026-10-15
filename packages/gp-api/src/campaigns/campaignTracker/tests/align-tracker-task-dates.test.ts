@@ -1,7 +1,11 @@
 import { useTestService } from '@/test-service'
 import { HttpStatus } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
-import { CampaignTrackerTask } from '../../../generated/prisma'
+import {
+  CampaignTaskType,
+  CampaignTrackerTask,
+  OfficeLevel,
+} from '../../../generated/prisma'
 
 const service = useTestService()
 
@@ -87,5 +91,220 @@ describe('Campaign tracker tasks - dates on the timeline', () => {
       result.data.find((task) => task.id === intro.id)?.date,
     ).slice(0, 7)
     expect(date).toBe('2099-10')
+  })
+})
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const utcToday = () => {
+  const now = new Date()
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+}
+const daysFromToday = (days: number) => new Date(utcToday() + days * DAY_MS)
+
+// Texting closes 19 days before the general election, so a race 10 days out
+// is closed and one in 2099 is open.
+const setupOutreach = async (
+  electionDate: Date,
+  rows: [
+    title: string,
+    flowType: CampaignTaskType | null,
+    date: Date,
+    completed?: boolean,
+  ][],
+  filedAndPaid = false,
+) => {
+  const org = await service.prisma.organization.create({
+    data: { slug: ORG_SLUG, ownerId: service.user.id },
+  })
+  const campaign = await service.prisma.campaign.create({
+    data: {
+      userId: service.user.id,
+      slug: 'align-tracker-dates-campaign',
+      details: { electionDate: electionDate.toISOString().slice(0, 10) },
+      organizationSlug: org.slug,
+    },
+  })
+  if (filedAndPaid) {
+    await service.prisma.tcrCompliance.create({
+      data: {
+        campaignId: campaign.id,
+        ein: '12-3456789',
+        postalAddress: '123 Main St',
+        committeeName: 'Committee',
+        websiteDomain: 'example.org',
+        filingUrl: 'https://sos.example.gov/filing',
+        phone: '555-000-1234',
+        email: 'candidate@example.com',
+        officeLevel: OfficeLevel.local,
+        kickoffSentAt: new Date(),
+      },
+    })
+  }
+  const created = []
+  for (const [title, flowType, date, completed = false] of rows) {
+    created.push(
+      await service.prisma.campaignTrackerTask.create({
+        data: {
+          campaignId: campaign.id,
+          title,
+          description: '',
+          flowType,
+          week: 0,
+          date,
+          phase: 'active',
+          isDefaultTask: true,
+          completed,
+        },
+      }),
+    )
+  }
+  return created
+}
+
+const outreachOf = (tasks: CampaignTrackerTask[]) =>
+  tasks
+    .filter((task) => task.flowType === 'text' || task.flowType === 'robocall')
+    .map((task) => ({
+      title: task.title,
+      flowType: task.flowType,
+      date: String(task.date).slice(0, 10),
+      completed: task.completed,
+    }))
+    .sort(
+      (a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title),
+    )
+
+describe('Campaign tracker tasks - text sends once texting closes', () => {
+  // An early joiner whose race is now 10 days out.
+  const election = daysFromToday(10)
+  const sendDate = (daysBefore: number) =>
+    new Date(election.getTime() - daysBefore * DAY_MS)
+  const day = (date: Date) => date.toISOString().slice(0, 10)
+  const earlyJoinerRows = (): [
+    string,
+    CampaignTaskType | null,
+    Date,
+    boolean?,
+  ][] => [
+    ['Get your EIN', null, sendDate(80)],
+    ['Introduction Text', CampaignTaskType.text, sendDate(56)],
+    ['Introduction Robocall', CampaignTaskType.robocall, sendDate(49)],
+    ['Persuasion Text', CampaignTaskType.text, sendDate(35), true],
+    ['Early Voting Text', CampaignTaskType.text, sendDate(14)],
+    ['Election Day Reminder Robocall', CampaignTaskType.robocall, sendDate(1)],
+    ['Election Day Reminder Text', CampaignTaskType.text, sendDate(0)],
+  ]
+
+  it('swaps open text sends for robocalls on their dates and keeps completed ones', async () => {
+    await setupOutreach(election, earlyJoinerRows())
+
+    const result = await service.client.get<CampaignTrackerTask[]>(
+      BASE_PATH,
+      orgHeaders,
+    )
+
+    expect(result.status).toBe(HttpStatus.OK)
+    expect(outreachOf(result.data)).toEqual([
+      {
+        title: 'Early Introduction Robocall',
+        flowType: 'robocall',
+        date: day(sendDate(56)),
+        completed: false,
+      },
+      {
+        title: 'Introduction Robocall',
+        flowType: 'robocall',
+        date: day(sendDate(49)),
+        completed: false,
+      },
+      {
+        title: 'Persuasion Text',
+        flowType: 'text',
+        date: day(sendDate(35)),
+        completed: true,
+      },
+      {
+        title: 'Early Voting Robocall',
+        flowType: 'robocall',
+        date: day(sendDate(14)),
+        completed: false,
+      },
+      {
+        title: 'Election Day Reminder Robocall',
+        flowType: 'robocall',
+        date: day(sendDate(1)),
+        completed: false,
+      },
+    ])
+
+    // The swapped rows stay on their text send's date on the next read.
+    const again = await service.client.get<CampaignTrackerTask[]>(
+      BASE_PATH,
+      orgHeaders,
+    )
+    expect(outreachOf(again.data)).toEqual(outreachOf(result.data))
+  })
+
+  it('drops a text send that lands on a robocall date', async () => {
+    // A late joiner three days out: the intro sends both crowd onto the
+    // start day, so the text there goes rather than doubling the robocall.
+    const lateElection = daysFromToday(3)
+    await setupOutreach(lateElection, [
+      ['Get your EIN', null, daysFromToday(0)],
+      ['Introduction Text', CampaignTaskType.text, daysFromToday(-50)],
+      ['Introduction Robocall', CampaignTaskType.robocall, daysFromToday(-46)],
+    ])
+
+    const result = await service.client.get<CampaignTrackerTask[]>(
+      BASE_PATH,
+      orgHeaders,
+    )
+
+    expect(outreachOf(result.data)).toEqual([
+      {
+        title: 'Introduction Robocall',
+        flowType: 'robocall',
+        date: day(daysFromToday(0)),
+        completed: false,
+      },
+    ])
+  })
+
+  it('leaves text sends alone while texting is open', async () => {
+    await setupOutreach(new Date('2099-11-03T00:00:00.000Z'), [
+      ['Get your EIN', null, new Date('2099-01-05T00:00:00.000Z')],
+      [
+        'Early Voting Text',
+        CampaignTaskType.text,
+        new Date('2099-10-20T00:00:00.000Z'),
+      ],
+    ])
+
+    const result = await service.client.get<CampaignTrackerTask[]>(
+      BASE_PATH,
+      orgHeaders,
+    )
+
+    expect(outreachOf(result.data)).toEqual([
+      {
+        title: 'Early Voting Text',
+        flowType: 'text',
+        date: '2099-10-20',
+        completed: false,
+      },
+    ])
+  })
+
+  it('leaves text sends alone for a candidate who filed and paid before the cutoff', async () => {
+    await setupOutreach(election, earlyJoinerRows(), true)
+
+    const result = await service.client.get<CampaignTrackerTask[]>(
+      BASE_PATH,
+      orgHeaders,
+    )
+
+    expect(
+      outreachOf(result.data).filter((task) => task.flowType === 'text'),
+    ).toHaveLength(4)
   })
 })

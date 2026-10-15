@@ -128,6 +128,26 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `electionRelative` dates off the **general** election). Belt and suspenders:
   the catalog attachment excludes them (see the generator) and
   `onExperimentRunCompleted` drops any `text`/`robocall` rows the agent emits.
+- **No text sends once texting is closed.** When `smsComplianceWindow`
+  (`campaigns/util/eligibility.util.ts`) reads `closed` for the campaign (it
+  did not file and pay before the cutoff, 19 days before the general), each
+  text send becomes a robocall on the same date, per
+  `TEXT_SEND_ROBOCALL_SWAPS`:
+  - Introduction Text -> Early Introduction Robocall
+  - Persuasion Text -> Early Persuasion Robocall
+  - Early Voting Text -> Early Voting Robocall
+  - Election Day Reminder Text has no swap and is dropped (the reminder
+    robocall lands the day before).
+
+  A text whose date already has a robocall is dropped instead of doubled. New
+  rows get this in `buildOutreachTrackerTaskRows`; existing open rows get it
+  on the GET in `alignTrackerTaskDates`, which dates a swap off the text send
+  it replaced. The swaps have their own titles because align finds a row's
+  catalog entry by title, and the catalog robocall titles sit on other dates.
+  Completed text rows are never touched. Rows only swap on that read, so the
+  two CAS posts, the weekly digest SQL and the legacy `campaign_task`
+  Pro-upgrade post also leave text rows out for a closed race.
+
 - **A past election date anchors nothing.** `resolveElectionDate` takes the
   general date, falls back to the primary, and ignores whichever has already
   passed; with no upcoming date `buildOutreachTrackerTaskRows` emits **no**

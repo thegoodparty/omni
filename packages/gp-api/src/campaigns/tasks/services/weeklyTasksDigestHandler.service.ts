@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common'
 import { CampaignTaskType, Prisma } from '../../../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { toDateOnlyString } from 'src/shared/util/date.util'
+import { EASTERN_TIMEZONE, toDateOnlyString } from 'src/shared/util/date.util'
+import { SMS_CUTOFF_LEAD_DAYS } from 'src/campaigns/util/eligibility.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { WeeklyTasksDigestMessage } from 'src/queue/queue.types'
 
@@ -301,6 +302,27 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
                   c.details->>'primaryElectionDate'
                 )
               )::date - NOW()::date <= 30
+            )
+          )
+          -- Once texting is closed for the race (smsComplianceWindow), no text
+          -- send is emailed. The tracker only swaps the rows when it is read,
+          -- so a candidate who never opens it can still hold some.
+          AND NOT (
+            COALESCE(t.flow_type::text, '') = ${CampaignTaskType.text}
+            AND CASE
+              WHEN c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
+              THEN (c.details->>'electionDate')::date
+                - (NOW() AT TIME ZONE ${EASTERN_TIMEZONE}::text)::date
+                < ${SMS_CUTOFF_LEAD_DAYS}
+              ELSE false
+            END
+            AND NOT EXISTS (
+              SELECT 1 FROM tcr_compliance tc
+              WHERE tc.campaign_id = c.id
+                AND (
+                  tc.kickoff_sent_at IS NOT NULL
+                  OR tc.internal_testing_at IS NOT NULL
+                )
             )
           )
       ),
