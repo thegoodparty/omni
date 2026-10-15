@@ -65,7 +65,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     key: 'poll',
     label: 'Poll / Survey',
     icon: <ClipboardListIcon />,
-    iconClassName: 'bg-info-light',
+    iconClassName: 'bg-brand-bright-yellow-200',
   },
   {
     key: 'phoneBanking',
@@ -77,7 +77,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     key: 'doorKnocking',
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconClassName: 'bg-primary-light',
+    iconClassName: 'bg-brand-halo-green-200',
   },
 ]
 
