@@ -33,9 +33,10 @@ export interface SmsImproveProtection {
   ignoredRules: SmsStandardsRule[]
 }
 
-// One retry: a reply that drops or reorders a marker is usually a one-off,
-// and a second miss is better reported than looped on.
-const IMPROVE_ATTEMPTS = 2
+// Two retries: a reply that drops or reorders a marker is usually a one-off,
+// but prod saw two misses in a row (ENG-11297), so a third try is cheaper
+// than a 502 the candidate has to retry by hand.
+const IMPROVE_ATTEMPTS = 3
 import { eventDetailsContext } from '../util/eventDetails.util'
 
 // The per-surface voice a draft/improve request writes in. Win and Serve

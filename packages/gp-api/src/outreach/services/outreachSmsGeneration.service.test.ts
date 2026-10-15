@@ -265,7 +265,7 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
     )
   })
 
-  it('retries once when the reply drops a marker, then uses the good one', async () => {
+  it('retries when the reply drops a marker, then uses the good one', async () => {
     const { service, jsonCompletion } = replyWith(
       "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.",
       "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
@@ -274,13 +274,28 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
   })
 
+  it('still recovers when only the last attempt keeps every marker', async () => {
+    const { service, jsonCompletion } = replyWith(
+      'No markers at all.',
+      'Still none.',
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
+    )
+    await expect(improve(service)).resolves.toContain('Reply STOP to opt out.')
+    expect(jsonCompletion).toHaveBeenCalledTimes(3)
+  })
+
   it('gives up with a 502 rather than return changed locked text', async () => {
-    const { service } = replyWith('No markers at all.', 'Still none.')
+    const { service } = replyWith(
+      'No markers at all.',
+      'Still none.',
+      'None again.',
+    )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
   })
 
   it('refuses a polish that breaks a rule the original passed', async () => {
     const { service } = replyWith(
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
       "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
       "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
     )
@@ -318,7 +333,7 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
       `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`,
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
-    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    expect(jsonCompletion).toHaveBeenCalledTimes(3)
   })
 
   it('refuses to polish without the message protection', async () => {
