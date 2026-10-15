@@ -28,8 +28,9 @@ memos).
 | `services/pipelineSynthesisEngine.ts`               | CSV to S3, trigger the polls pipeline                |
 | `services/mockSynthesisEngine.ts`                   | In-process stand-in for laptops and dev              |
 | `services/feedbackSynthesisIngest.service.ts`       | The one write path for a run's results               |
+| `services/feedbackThemeIssueMatch.service.ts`       | After a run: each issue to one of its note's themes  |
 | `services/feedbackReport.service.ts`                | The effort report and theme page, counted at read    |
-| `services/feedbackNotesExport.service.ts`           | Every note on an effort as a CSV download             |
+| `services/feedbackNotesExport.service.ts`           | Every note on an effort as a CSV download            |
 | `services/issueTag.service.ts`                      | Tag list and curation: accept, rename, merge, retire |
 | `services/issueTagSeed.service.ts`                  | Win: accepted tags from declared positions           |
 | `services/feedbackSeed.service.ts`                  | Dev-only fake memos on an effort                     |
@@ -88,6 +89,10 @@ replies come back as timestamps, never words, so it is not one).
   is set (DB CHECK `feedback_theme_member_source_check`), under a surrogate
   id and a unique pair per source. Counts are computed from these rows at
   read time, never stored.
+- `FeedbackThemeIssue`: one issue a member memo raised, assigned to one of
+  that memo's themes, keyed on the `(themeId, issueId)` pair and deleted
+  with either side. `FeedbackSynthesisRun.issuesMatchedAt` is set when the
+  run's matching completed (see The ingest).
 
 A run never overwrites a human's tag row. It skips any
 `ConstituentFeedbackTag` pair that already exists, and superseding a run
@@ -289,6 +294,24 @@ One transaction, claimed first with a conditional update on
   `AnalyticsService`, attributed to the requester or, for a triggered run,
   the org's owner: `scope`, `outreachId`, `themeCount`, `confirmedCount`,
   `product`. Never a transcript, label or outcome.
+- **Then it matches issues to themes**, after the commit and not awaited
+  (the queue consumer awaits `handle`, and a model call there would hold up
+  the messages behind it). Membership is per memo, because the pipeline
+  clusters memo text only, so a memo about schools and safety sits in both
+  themes with both issues. `FeedbackThemeIssueMatchService.matchRun` makes
+  one `LlmService.jsonCompletion` call for the run (no retries, a two-minute
+  timeout): the run's themes (title, summary) and, for every confirmed
+  member memo, its issues (label and outcome, clamped) and the themes that
+  memo is in, under short refs rather than row ids. The model assigns each
+  issue to at most one of ITS memo's themes, or none. The answer is checked:
+  an unknown ref, a theme the memo is not in, or a second theme for one
+  issue is dropped. The rows and `issuesMatchedAt` are written together.
+  A failure (model error, timeout, invalid output) logs a warn with the
+  `runId` and leaves the run unmarked, so the report falls back; it never
+  fails or rolls back the run. A run with no issue to send (a text send's
+  replies, memos that named none) is marked with no call. Only effort runs
+  are matched: a priority run's themes are read for their people, never
+  their stances (`PriorityResultsService`, `read_outreach_feedback`).
 
 ## The report
 
@@ -307,14 +330,19 @@ its `extractionStatus`; with no transcript, `pending` is a recording still
 being transcribed and `failed` one no job could read.
 
 A theme's `conversationCount` is distinct confirmed member memos plus reply
-members, but `stanceCounts` and `desiredOutcomes` are stances from every
-issue raised in the memos in this theme; a memo that raised two issues
-contributes two, so counts can exceed `conversationCount`. That is the interim
-rule: membership is per memo, and matching an issue to its theme by label
-missed nearly every multi-issue memo. Per-issue membership through the
-pipeline is the follow-up that lets the split count only this theme's issues.
-An issue with no stance counts as unclear; a memo that named no issue adds no
-stance, and a reply names none, so a theme with no memo in it has
+members. When its run's matching completed, `stanceCounts` and
+`desiredOutcomes` come only from the issues assigned to this theme
+(`FeedbackThemeIssue`), among its confirmed member memos, so a memo about
+schools and safety adds its schools stance to one theme and its safety
+stance to the other. A theme with no assigned issue has `stanceCounts: null`.
+When matching did not complete (in flight, failed, or a run from before it
+existed), they come from every issue raised in the theme's memos, and a memo
+that raised two issues contributes two. Either way the theme page lists
+every member memo in full with all its issues. An issue edited after the
+run keeps its assignment (confirm updates rows in place by id); an issue
+added after the run is in no theme until the next run, and a re-recorded
+memo's issues are replaced, which deletes their assignments. An issue with
+no stance counts as unclear; a reply names none, so a theme of replies has
 `stanceCounts: null`, which the page reads as nothing to show rather than
 four zeros. `channel` is
 the effort's own (a turf's envelope is `door_knock`, a list's `phone_bank`,
@@ -418,7 +446,8 @@ copy around them is mode-keyed by the UI. So the prompt says "the person they
 spoke with", never voter or constituent: a product noun there steers the
 model into writing one product's word into the other's record.
 `constituentFeedbackExtraction.test.ts` asserts neither word appears. The
-mock engine's grouping prompt follows the same rule.
+mock engine's grouping prompt and the theme issue matching prompt follow the
+same rule; `feedbackSynthesis.routes.test.ts` asserts it for the latter.
 
 ## Why extraction is synchronous
 

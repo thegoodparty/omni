@@ -179,6 +179,8 @@ model ConstituentFeedbackIssue {
   proposedStance         String? @map("proposed_stance")
   proposedDesiredOutcome String? @map("proposed_desired_outcome") @db.Text
 
+  themes FeedbackThemeIssue[]
+
   @@unique([feedbackId, position])
   @@map("constituent_feedback_issue")
 }

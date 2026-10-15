@@ -1,11 +1,12 @@
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   IssueTagSource,
   IssueTagStatus,
   SynthesisRunStatus,
   SynthesisScope,
 } from '@/generated/prisma'
+import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { FeedbackSynthesisIngestService } from '../services/feedbackSynthesisIngest.service'
 import {
@@ -22,6 +23,12 @@ describe('issue tag routes', () => {
   let slug: string
 
   beforeEach(async () => {
+    // A completed run asks the model to match its issues to themes; this
+    // suite reads tags, not counts, so the call just fails.
+    const llm = vi
+      .spyOn(service.app.get(LlmService), 'jsonCompletion')
+      .mockRejectedValue(new Error('No model in this suite'))
+    onTestFinished(() => llm.mockRestore())
     slug = await createServeOrg(service)
   })
 

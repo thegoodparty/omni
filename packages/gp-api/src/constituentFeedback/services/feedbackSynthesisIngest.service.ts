@@ -19,6 +19,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { cleanTagName, normalizeTagName } from '../util/issueTagName.util'
+import { FeedbackThemeIssueMatchService } from './feedbackThemeIssueMatch.service'
 
 type Issue = FeedbackSynthesisCompleteEvent['data']['issues'][number]
 
@@ -36,6 +37,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly analytics: AnalyticsService,
+    private readonly issueMatch: FeedbackThemeIssueMatchService,
   ) {
     super()
   }
@@ -190,6 +192,24 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       'Feedback synthesis completed',
     )
     if (written) this.trackCompleted(run, issues.length)
+    // A priority run's themes are read for their people, never their
+    // stances, so only an effort's run is matched.
+    if (written && run.scope === SynthesisScope.effort) this.matchIssues(run)
+  }
+
+  // After the commit and not awaited: the queue consumer awaits handle(),
+  // and a model call there would hold up every message behind this one.
+  // A failure leaves the run unmatched, and the report counts every issue
+  // in each theme's notes; it never fails or rolls back the run.
+  private matchIssues(run: FeedbackSynthesisRun): void {
+    void this.issueMatch
+      .matchRun(run.id)
+      .catch((err: Error) =>
+        this.logger.warn(
+          { err, runId: run.id },
+          "Theme issue matching failed; counting every issue in each theme's notes",
+        ),
+      )
   }
 
   // Attributed to whoever pressed the button, or to the org's owner when

@@ -20,11 +20,13 @@ import {
 } from '@/generated/prisma'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ConstituentFeedbackExtractionService } from '../services/constituentFeedbackExtraction.service'
 import { FeedbackSynthesisIngestService } from '../services/feedbackSynthesisIngest.service'
+import { FeedbackThemeIssueMatchService } from '../services/feedbackThemeIssueMatch.service'
 import { MockSynthesisEngine } from '../services/mockSynthesisEngine'
 import {
   call,
@@ -68,6 +70,13 @@ describe('feedback synthesis routes', () => {
         scheduled.push(args)
       })
     onTestFinished(() => spy.mockRestore())
+    // Every completed run asks the model to match its issues to themes.
+    // Unanswered, the report counts every issue in each theme's notes; the
+    // matching tests answer it themselves.
+    const llm = vi
+      .spyOn(service.app.get(LlmService), 'jsonCompletion')
+      .mockRejectedValue(new Error('No model in this suite'))
+    onTestFinished(() => llm.mockRestore())
 
     slug = await createServeOrg(service)
     effort = await seedTurfEffort(service, slug, {
@@ -1088,11 +1097,11 @@ describe('feedback synthesis routes', () => {
       expect(runId).toBe(res.data.run.id)
     })
 
-    // Membership is per conversation, but a stance belongs to an issue. Until
-    // membership is per issue, the split counts every issue each member
-    // raised, so a conversation that raised two issues contributes two and
-    // the split can sum past conversationCount.
-    it('counts every issue each member memo raised', async () => {
+    // Membership is per conversation, but a stance belongs to an issue. When
+    // the run's issues were never matched to its themes, the split counts
+    // every issue each member raised, so a conversation that raised two
+    // issues contributes two and the split can sum past conversationCount.
+    it('counts every issue each member memo raised when matching failed', async () => {
       const { opposes, supports, mixed } = ConstituentFeedbackStance
       const issue = (
         issueLabel: string,
@@ -1167,6 +1176,256 @@ describe('feedback synthesis routes', () => {
         opposes: 3,
         mixed: 1,
         unclear: 0,
+      })
+    })
+
+    describe('issues matched to themes', () => {
+      const { opposes, supports, mixed } = ConstituentFeedbackStance
+      const issue = (
+        issueLabel: string,
+        stance: ConstituentFeedbackStance,
+        desiredOutcome: string | null = null,
+      ) => ({ issueLabel, stance, desiredOutcome })
+
+      // Memo 0 raised two issues and sits in both themes; memo 3 sits only
+      // in Drainage.
+      const seedMemos = async () => {
+        const shapes = [
+          [
+            issue('Street flooding', opposes, 'Clear the drain'),
+            issue('Property taxes', supports, 'A freeze for seniors'),
+          ],
+          [issue('Street flooding', supports)],
+          [issue('Property taxes', opposes, 'Lower the levy')],
+          [
+            issue('Street flooding', opposes),
+            issue('Parks', mixed, 'More shade'),
+          ],
+          [issue('Street flooding', opposes, 'Clear the drain')],
+        ]
+        const ids: string[] = []
+        for (const [i, issues] of shapes.entries()) {
+          const { memo } = await seedKnockMemo(service, {
+            slug,
+            outreachId: effort.outreachId,
+            personId: effort.targets[i]!.personId,
+            issues,
+          })
+          ids.push(memo.id)
+        }
+        return ids
+      }
+
+      const twoThemes = (ids: string[]) => [
+        { theme: 'Drainage', memberIds: [ids[0]!, ids[1]!, ids[3]!, ids[4]!] },
+        { theme: 'Taxes', memberIds: [ids[0]!, ids[2]!] },
+      ]
+
+      const between = (text: string, tag: string): string =>
+        text.split(`<${tag}>\n`)[1]!.split(`\n</${tag}>`)[0]!
+
+      // Answers the matching call the way a model would, by reading the
+      // prompt: each issue label goes to the theme title `pick` names, or to
+      // none.
+      const answer = (pick: Record<string, string | null>) =>
+        vi
+          .spyOn(service.app.get(LlmService), 'jsonCompletion')
+          .mockImplementation(async ({ messages }) => {
+            const user = String(messages[1]?.content)
+            const themes: Array<{ ref: string; title: string }> = JSON.parse(
+              between(user, 'themes'),
+            )
+            const notes: Array<{
+              issues: Array<{ ref: string; issue: string }>
+            }> = JSON.parse(between(user, 'notes'))
+            const refOf = new Map(themes.map((t) => [t.title, t.ref]))
+            return {
+              object: {
+                assignments: notes.flatMap((note) =>
+                  note.issues.map((row) => {
+                    const title = pick[row.issue] ?? null
+                    return {
+                      issue: row.ref,
+                      theme: title === null ? null : (refOf.get(title) ?? null),
+                    }
+                  }),
+                ),
+              },
+              tokens: 1,
+              inputTokens: 1,
+              outputTokens: 1,
+              model: 'claude-test',
+            }
+          })
+
+      // The ingest starts matching after its commit and does not wait for
+      // it; the test does.
+      const completeAndMatch = async (
+        issues: Array<{ theme: string; memberIds: string[] }>,
+      ) => {
+        const match = vi.spyOn(
+          service.app.get(FeedbackThemeIssueMatchService),
+          'matchRun',
+        )
+        onTestFinished(() => match.mockRestore())
+        const runId = await completeRun(issues)
+        expect(match).toHaveBeenCalledTimes(1)
+        await match.mock.results[0]!.value
+        return runId
+      }
+
+      const themeNamed = (
+        themes: Array<{ title: string }>,
+        title: string,
+      ): Record<string, unknown> => themes.find((t) => t.title === title)!
+
+      it('counts each theme’s stances and asks from its own issues only', async () => {
+        const llm = answer({
+          'Street flooding': 'Drainage',
+          'Property taxes': 'Taxes',
+          Parks: null,
+        })
+        const ids = await seedMemos()
+        const runId = await completeAndMatch(twoThemes(ids))
+
+        const res = await report()
+
+        expect(themeNamed(res.data.themes, 'Drainage')).toEqual(
+          expect.objectContaining({
+            conversationCount: 4,
+            stanceCounts: { supports: 1, opposes: 3, mixed: 0, unclear: 0 },
+            desiredOutcomes: ['Clear the drain'],
+          }),
+        )
+        expect(themeNamed(res.data.themes, 'Taxes')).toEqual(
+          expect.objectContaining({
+            conversationCount: 2,
+            stanceCounts: { supports: 1, opposes: 1, mixed: 0, unclear: 0 },
+            desiredOutcomes: expect.arrayContaining([
+              'A freeze for seniors',
+              'Lower the levy',
+            ]),
+          }),
+        )
+        const run = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow(
+          { where: { id: runId } },
+        )
+        expect(run.issuesMatchedAt).not.toBeNull()
+        expect(llm).toHaveBeenCalledTimes(1)
+
+        // The theme page counts the same way and still shows every member
+        // with every issue it raised.
+        const taxesId = themeNamed(res.data.themes, 'Taxes').id as string
+        const detail = await service.client.get(
+          `/v1/constituent-feedback/themes/${taxesId}`,
+          ownerHeaders(slug),
+        )
+        expect(detail.data.stanceCounts).toEqual({
+          supports: 1,
+          opposes: 1,
+          mixed: 0,
+          unclear: 0,
+        })
+        const both = detail.data.members.find(
+          (member: { feedbackId: string }) => member.feedbackId === ids[0],
+        )
+        expect(
+          both.issues.map((i: { issueLabel: string }) => i.issueLabel),
+        ).toEqual(['Street flooding', 'Property taxes'])
+      })
+
+      it('drops an issue assigned to a theme its note is not in', async () => {
+        // Parks was raised only in a Drainage note, so Taxes cannot take it.
+        answer({
+          'Street flooding': 'Drainage',
+          'Property taxes': 'Taxes',
+          Parks: 'Taxes',
+        })
+        const ids = await seedMemos()
+        const runId = await completeAndMatch(twoThemes(ids))
+
+        const res = await report()
+
+        expect(themeNamed(res.data.themes, 'Taxes')).toEqual(
+          expect.objectContaining({
+            stanceCounts: { supports: 1, opposes: 1, mixed: 0, unclear: 0 },
+            desiredOutcomes: expect.arrayContaining([
+              'A freeze for seniors',
+              'Lower the levy',
+            ]),
+          }),
+        )
+        const drainage = themeNamed(res.data.themes, 'Drainage')
+        expect(drainage.desiredOutcomes).not.toContain('More shade')
+        const parks = await service.prisma.feedbackThemeIssue.count({
+          where: {
+            theme: { runId },
+            issue: { issueLabel: 'Parks' },
+          },
+        })
+        expect(parks).toBe(0)
+      })
+
+      it('gives a theme with no issue of its own no split', async () => {
+        answer({
+          'Street flooding': 'Drainage',
+          'Property taxes': null,
+          Parks: null,
+        })
+        const ids = await seedMemos()
+        await completeAndMatch(twoThemes(ids))
+
+        const res = await report()
+
+        expect(themeNamed(res.data.themes, 'Taxes')).toEqual(
+          expect.objectContaining({
+            conversationCount: 2,
+            stanceCounts: null,
+            desiredOutcomes: [],
+          }),
+        )
+      })
+
+      // The run is the record worth keeping: a matching failure leaves it
+      // completed, unmatched, and counted the way it was before matching.
+      it('falls back to every issue in a theme’s notes when the model fails', async () => {
+        const ids = await seedMemos()
+        const runId = await completeAndMatch(twoThemes(ids))
+
+        const run = await service.prisma.feedbackSynthesisRun.findUniqueOrThrow(
+          { where: { id: runId } },
+        )
+        expect(run.status).toBe(SynthesisRunStatus.completed)
+        expect(run.issuesMatchedAt).toBeNull()
+        expect(
+          await service.prisma.feedbackThemeIssue.count({
+            where: { theme: { runId } },
+          }),
+        ).toBe(0)
+        const res = await report()
+        expect(themeNamed(res.data.themes, 'Taxes')).toEqual(
+          expect.objectContaining({
+            stanceCounts: { supports: 1, opposes: 2, mixed: 0, unclear: 0 },
+          }),
+        )
+      })
+
+      it('names no product’s people and fences the notes', async () => {
+        const llm = answer({})
+        const ids = await seedMemos()
+        await completeAndMatch(twoThemes(ids))
+
+        const messages = llm.mock.calls[0]![0].messages
+        const assembled = messages
+          .map((message) =>
+            typeof message.content === 'string' ? message.content : '',
+          )
+          .join('\n')
+        expect(assembled).not.toMatch(/constituent/i)
+        expect(assembled).not.toMatch(/voter/i)
+        expect(assembled).toContain('<notes>')
+        expect(assembled).toContain('quoted material')
+        expect(llm.mock.calls[0]![0].retries).toBe(0)
       })
     })
 
