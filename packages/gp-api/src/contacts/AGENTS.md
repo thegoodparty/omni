@@ -687,8 +687,12 @@ contracts' `CIVIC_PANEL_BUILD_CARD_HREF`, the home itself with
 hidden turn `BUILD_CITIZENS_PANEL_MESSAGE`, and the agent explains the panel,
 counts the district's cell phones, sizes the invite with `size_panel_invite`
 and presents one text card with `purpose: build_citizens_panel` (see
-`chats/general/chief-of-staff`, `civicPanelBuildBlock`). A card still holding
-the old outreach link is rewritten on the next read. The card is done once any `text` row of the org with `asksToJoinCivicPanel` is past
+`chats/general/chief-of-staff`, `civicPanelBuildBlock`). The card's quiet
+What's a civic panel? opens the same chat with the hidden turn
+`EXPLAIN_CIVIC_PANEL_MESSAGE` instead: the agent explains the panel and
+builds nothing unless the official says yes (`civicPanelExplainLines`).
+Old words or the old outreach link on a card are rewritten on the next
+read. The card is done once any `text` row of the org with `asksToJoinCivicPanel` is past
 checkout (not `pending_payment`, `draft`, `canceled`, `denied` or `failed`):
 the purpose is not stored on the row, and the ask is what recruits. While it
 is open its due date rolls forward so it never lapses into missed. That sent

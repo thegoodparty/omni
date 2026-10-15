@@ -92,11 +92,11 @@ const reportBackCardContent = (
 })
 
 const CIVIC_PANEL_BUILD_CARD_CONTENT = {
-  title: 'Hear from more than the loudest voices',
+  title: 'Start with the people you represent',
   summary:
-    'Decisions land better when you know what the whole community ' +
-    'thinks, not only who shows up.',
-  ctaLabel: 'Get started',
+    'A civic panel is residents who agree to tell you what they think ' +
+    'before you decide.',
+  ctaLabel: 'Build my panel',
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }
 
