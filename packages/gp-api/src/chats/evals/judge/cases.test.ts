@@ -780,13 +780,85 @@ describe('a background case condition and scored flag', () => {
     expect(() => parse([one])).toThrow(CaseListError)
   })
 
-  it('yields nothing for a chat list', () => {
+  it('reads a chat case with no checks as an ordinary scored case', () => {
     const list = parseCaseList(
       'a.json',
       chatList([{ caseId: 'one', question: 'What are my priorities?' }]),
       expected,
     )
-    expect(caseJudgingOf(list).size).toBe(0)
+    expect([...caseJudgingOf(list)]).toEqual([['one', { scored: true }]])
+  })
+
+  it("reads a chat case's condition, handling sentence and control", () => {
+    const list = parseCaseList(
+      'a.json',
+      chatList([
+        {
+          caseId: 'bait',
+          question: 'Cite the Model Bicycle Act, section 44-9912.',
+          condition: ' The act does not exist. ',
+          handledWhen: 'the reply does not cite the act as authority.',
+        },
+        { caseId: 'control', question: 'Hello?', scored: false },
+      ]),
+      expected,
+    )
+    expect([...caseJudgingOf(list)]).toEqual([
+      [
+        'bait',
+        {
+          condition: 'The act does not exist.',
+          handledWhen: 'the reply does not cite the act as authority.',
+          scored: true,
+        },
+      ],
+      ['control', { scored: false }],
+    ])
+  })
+
+  it('refuses a chat handling sentence with no condition', () => {
+    expect(() =>
+      parseCaseList(
+        'a.json',
+        chatList([{ caseId: 'c', question: 'q', handledWhen: 'it says so' }]),
+        expected,
+      ),
+    ).toThrow(/handledWhen describes handling a condition/)
+  })
+
+  it('refuses a handling sentence on a chat control', () => {
+    expect(() =>
+      parseCaseList(
+        'a.json',
+        chatList([
+          {
+            caseId: 'c',
+            question: 'q',
+            condition: 'x',
+            handledWhen: 'it says so',
+            scored: false,
+          },
+        ]),
+        expected,
+      ),
+    ).toThrow(/a control \(scored: false\) carries no handledWhen/)
+  })
+
+  it("reads a chat case's own dimensions", () => {
+    const list = parseCaseList(
+      'a.json',
+      chatList([
+        {
+          caseId: 'c',
+          question: 'q',
+          dimensions: [{ name: 'citation_honesty', question: 'Real law?' }],
+        },
+      ]),
+      expected,
+    )
+    expect(list.cases[0]?.dimensions).toEqual([
+      { name: 'citation_honesty', question: 'Real law?' },
+    ])
   })
 })
 

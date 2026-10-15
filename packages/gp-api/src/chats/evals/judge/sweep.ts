@@ -126,14 +126,6 @@ export interface JudgingDeps {
   outputContract?: (agent: AgentEntry) => ContractRead
 }
 
-// Only a background list carries either field, so a chat agent costs no read.
-const readCaseJudging = (
-  agent: AgentEntry,
-): ReadonlyMap<string, CaseJudging> =>
-  agent.shape === 'background'
-    ? caseJudgingOf(loadCaseList(agent))
-    : new Map<string, CaseJudging>()
-
 // Read raw rather than through `parseCaseList`: the base ref's list is held to
 // the base ref's schema, not this one, and the only fact wanted here is which
 // cases it holds out.
@@ -366,12 +358,11 @@ const storeRulings = async (
   }
 }
 
-// Background agents only: a chat case has no dimensions of its own yet.
 const caseDimensionsByCase = (
   agent: AgentEntry | undefined,
   load: (agent: AgentEntry) => CaseList,
 ): ReadonlyMap<string, readonly CaseDimension[]> => {
-  if (agent === undefined || agent.shape !== 'background') return new Map()
+  if (agent === undefined) return new Map()
   return new Map(
     load(agent)
       .cases.map((one) => [one.caseId, caseDimensionsOf(one)] as const)
@@ -403,7 +394,8 @@ export const judgeSweep = async (
   const rng = deps.rng ?? createRng(1)
   const registry = deps.registry ?? AGENTS
   const loadCases = deps.loadCases ?? loadCaseList
-  const caseJudging = deps.caseJudging ?? readCaseJudging
+  const caseJudging =
+    deps.caseJudging ?? ((agent: AgentEntry) => caseJudgingOf(loadCases(agent)))
   const outputContract =
     deps.outputContract ??
     ((agent: AgentEntry) => readOutputContracts(agent.agentId, env.baseDir))
