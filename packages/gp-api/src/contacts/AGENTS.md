@@ -803,13 +803,15 @@ doors, in waves (`CivicPanelBuildPlanService`, pure math in
 question, the steps, Next and the answers the panel can give.
 
 **Sized in answers.** Every panel size targets answers to one question, not
-members (Bryan, 2026-10-15). `contracts/src/people/PanelAnswers.ts` holds the
-math, shared with Serve onboarding: `answersNeeded(population)` is the
+members (Bryan, 2026-10-15). Contracts' `answersNeeded(population)`
+(`outreach/AnswersNeeded.const.ts`, the same figure Serve onboarding shows)
+is the
 finite-population-corrected sample for 10 points either way at 95%
 confidence near an even split, `n0 = 1.96² × 0.25 / 0.1²` (96.04), `n = n0 /
 (1 + (n0 - 1) / N)`, rounded: 96 for Asheville (105,154), 92 for a town of
 2,000. Without a census population (no row, no district, or a failed read)
-it is the uncorrected 96. `panelGoalMembers(population)` is
+it is the uncorrected 96. The panel's own math is in
+`contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(population)` is
 `ceil(answersNeeded / PANEL_ASSUMED_REPLY_RATE)`, 240 or 230.
 `ContactsService.getDistrictPopulation` reads the population
 (`StatsService.findDistrictPopulation`, the census mart's

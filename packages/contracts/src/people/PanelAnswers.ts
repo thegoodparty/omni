@@ -1,43 +1,17 @@
 import { MAX_LIST_SAMPLE_SIZE } from './ListSample.schema'
 import { DEFAULT_TEXT_REPLY_RATE } from '../outreach/SampleSizing.const'
+import { answersNeeded } from '../outreach/AnswersNeeded.const'
 import {
   PANEL_ASSUMED_REPLY_RATE,
   PANEL_SEED_ASSUMED_JOIN_RATE,
 } from '../outreach/CivicPanelJoin'
 
 // Everything the civic panel sizes targets answers to one question, not
-// members (Bryan, 2026-10-15): enough to read a question within 10 points
-// either way, 95 times in 100, when residents split about evenly.
-export const ANSWERS_MARGIN_OF_ERROR = 0.1
-export const ANSWERS_CONFIDENCE_Z = 1.96
-// An even split is the worst case, so it sizes for every other split too.
-export const ANSWERS_ASSUMED_SPLIT = 0.5
-
-// The sample size for an unlimited population: 1.96² × 0.25 / 0.1² ≈ 96.04.
-const UNCORRECTED_ANSWERS =
-  (ANSWERS_CONFIDENCE_Z ** 2 *
-    ANSWERS_ASSUMED_SPLIT *
-    (1 - ANSWERS_ASSUMED_SPLIT)) /
-  ANSWERS_MARGIN_OF_ERROR ** 2
+// members (Bryan, 2026-10-15): answersNeeded, shared with Serve onboarding.
 
 // Rounded to six places first so float noise (96 / 0.4) never asks one more
 // person than the math says.
 const ceilClean = (value: number): number => Math.ceil(Number(value.toFixed(6)))
-
-// The answers one question needs from a district of `population` people,
-// with the finite population correction: n0 / (1 + (n0 - 1) / N), rounded.
-// About 96 for any district of a few thousand or more. Without a census
-// population (null, or not a positive number), the uncorrected 96.
-export const answersNeeded = (
-  population: number | null | undefined,
-): number => {
-  if (!population || !Number.isFinite(population) || population <= 0) {
-    return Math.round(UNCORRECTED_ANSWERS)
-  }
-  return Math.round(
-    UNCORRECTED_ANSWERS / (1 + (UNCORRECTED_ANSWERS - 1) / population),
-  )
-}
 
 // The members a panel needs so that asking all of them brings back the
 // answers a question needs: ceil(answersNeeded / PANEL_ASSUMED_REPLY_RATE),

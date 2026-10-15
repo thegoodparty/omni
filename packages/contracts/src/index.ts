@@ -228,10 +228,6 @@ export {
   type PrepareCivicPanelBuildStepResponse,
 } from './people/CivicPanelBuildPlan.schema'
 export {
-  ANSWERS_MARGIN_OF_ERROR,
-  ANSWERS_CONFIDENCE_Z,
-  ANSWERS_ASSUMED_SPLIT,
-  answersNeeded,
   panelGoalMembers,
   panelExpectedAnswers,
   sizePanelAsk,

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_LIST_SAMPLE_SIZE } from './ListSample.schema'
 import {
-  answersNeeded,
   panelExpectedAnswers,
   panelGoalMembers,
   panelSeedSampleSize,
@@ -9,25 +8,6 @@ import {
   sizePanelAsk,
 } from './PanelAnswers'
 import { PANEL_SEED_ASSUMED_JOIN_RATE } from '../outreach/CivicPanelJoin'
-
-describe('answersNeeded', () => {
-  it('is about 96 for a city', () => {
-    expect(answersNeeded(105_154)).toBe(96)
-    expect(answersNeeded(10_000_000)).toBe(96)
-  })
-
-  it('corrects for a small town', () => {
-    expect(answersNeeded(2_000)).toBe(92)
-    expect(answersNeeded(200)).toBe(65)
-  })
-
-  it('falls back to the uncorrected 96 without a population', () => {
-    expect(answersNeeded(null)).toBe(96)
-    expect(answersNeeded(undefined)).toBe(96)
-    expect(answersNeeded(0)).toBe(96)
-    expect(answersNeeded(Number.NaN)).toBe(96)
-  })
-})
 
 describe('panelGoalMembers', () => {
   it('is the members it takes to give the answers needed', () => {

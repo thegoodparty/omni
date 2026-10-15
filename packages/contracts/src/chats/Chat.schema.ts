@@ -197,9 +197,7 @@ export const ChatConversationUsageSchema = z.object({
     }),
   ),
 })
-export type ChatConversationUsage = z.infer<
-  typeof ChatConversationUsageSchema
->
+export type ChatConversationUsage = z.infer<typeof ChatConversationUsageSchema>
 
 export const ChatConversationSchema = z.object({
   conversationId: z.string(),
