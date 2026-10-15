@@ -874,6 +874,27 @@ describe('OutreachService', () => {
       expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
     })
 
+    it('refuses a Peerly content-restricted word before anything is created or charged', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: 'identity-123',
+      })
+
+      await expect(
+        service.create(
+          mockUser,
+          mockCampaign,
+          {
+            ...p2pCreateDto,
+            script: 'Hello {first_name}, Sexual health matters',
+          },
+          'https://cdn.example.com/p2p.png',
+        ),
+      ).rejects.toThrow(/content-restricted word\(s\): 'sexual'/)
+
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      expect(mockOutreachCreate).not.toHaveBeenCalled()
+    })
+
     it('throws BadRequest when the resolved P2P script exceeds the MMS limit', async () => {
       mockTcrFindFirstOrThrow.mockResolvedValue({
         peerlyIdentityId: 'identity-123',

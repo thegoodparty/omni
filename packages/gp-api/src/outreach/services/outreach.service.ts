@@ -102,6 +102,15 @@ const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
     'provider rejects shortened links',
 }
 
+// Words Peerly refuses outright (400 "content-restricted word(s)"). A refusal
+// after payment charges the candidate with nothing scheduled and a second
+// charge on reschedule, so the ones seen in production are refused up front.
+const PEERLY_RESTRICTED_WORDS = ['sexual']
+const PEERLY_RESTRICTED_WORDS_PATTERN = new RegExp(
+  `\\b(${PEERLY_RESTRICTED_WORDS.join('|')})\\b`,
+  'gi',
+)
+
 @Injectable()
 export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   constructor(
@@ -170,6 +179,20 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       ),
       committeeName: tcr?.committeeName ?? null,
     })
+    const restricted = [
+      ...new Set(
+        [...script.matchAll(PEERLY_RESTRICTED_WORDS_PATTERN)].map((match) =>
+          match[0].toLowerCase(),
+        ),
+      ),
+    ]
+    if (restricted.length > 0) {
+      throw new BadRequestException(
+        `Message cannot contain the content-restricted word(s): ${restricted
+          .map((word) => `'${word}'`)
+          .join(', ')}. Please correct your message.`,
+      )
+    }
     if (verdict.passed) return
     const fixes = verdict.failures
       .map((rule) => SMS_STANDARDS_FIXES[rule])
