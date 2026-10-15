@@ -63,9 +63,7 @@
             }
           ]
         }
-      },
-      "condition": "Three-row nonpartisan roster: the candidate (matched by email), incumbent Marlowe Quennell and challenger Darcey Holloway-Pike. The instruction treats seed candidates as authoritative filers to keep, excludes the candidate from their own list, and labels everyone Nonpartisan in a nonpartisan race.",
-      "handledWhen": "the run lists Marlowe Quennell as the incumbent and Darcey Holloway-Pike as not incumbent, both labeled Nonpartisan, and does not list Test Candidate. Dropping either seed opponent, listing the candidate, or swapping incumbency is not handled."
+      }
     },
     {
       "caseId": "partisan-race-with-incumbent",
@@ -180,9 +178,7 @@
             }
           ]
         }
-      },
-      "condition": "Head-to-head nonpartisan race: the candidate and one roster opponent, incumbent Marlowe Quennell.",
-      "handledWhen": "the run lists Marlowe Quennell as the incumbent, labeled Nonpartisan, and does not list Test Candidate. Leaving the incumbent out, marking them not incumbent, or listing the candidate is not handled."
+      }
     },
     {
       "caseId": "unopposed",
