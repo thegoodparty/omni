@@ -83,6 +83,11 @@ export interface ConstituentDataScope {
   // residents who are not registered to vote, so the description names that
   // base. Scopes that omit it (Win) read voters only.
   peopleDataset?: PeopleDataset
+  // One sentence on how L2 assigns Parties_Description in this district's
+  // state when it is not a registration (peopleDb/partySource.ts), so a
+  // party count is never reported as one. Scopes that omit it keep the
+  // registration wording.
+  partyNote?: string | null
 }
 
 const normalizeColumn = (name: string): string => name.toLowerCase()
@@ -400,7 +405,7 @@ RULES:
   - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
 ${
   scope.partisanQueriesAllowed
-    ? '  - Party registration (Parties_Description) and modeled partisanship/ideology score columns are available and ALLOWED — breaking constituents down by party is a normal campaign analysis here.'
+    ? `  - ${scope.partyNote ? 'Party' : 'Party registration'} (Parties_Description) and modeled partisanship/ideology score columns are available and ALLOWED — breaking ${scope.audienceNoun}s down by party is a normal campaign analysis here.${scope.partyNote ? `\n  - Parties_Description is not a registration here. ${scope.partyNote} Report party counts and shares as assigned or modeled, never as registrations.` : ''}`
     : '  - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.'
 }
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.

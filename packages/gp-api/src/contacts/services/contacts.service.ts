@@ -99,6 +99,7 @@ import { CountContactsDTO } from '../schemas/countContacts.schema'
 import { PolygonPreviewContactsDTO } from '../schemas/polygonPreviewContacts.schema'
 import { FilterPointsContactsDTO } from '../schemas/filterPointsContacts.schema'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
+import { partyProvenanceForState } from '@/peopleDb/partySource'
 import type { VoterFileFilter } from '../../generated/prisma'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
@@ -355,18 +356,26 @@ export class ContactsService {
   // The civic panel dimensions follow the user's serve-citizen-panels
   // flag, the same flag that shows them in the list builder, so an agent never
   // names a filter the official cannot see.
+  // The catalog marks party as observed, which holds only where the state
+  // registers voters by party; elsewhere the mark and a note follow L2's
+  // account of how it assigned the value (peopleDb/partySource.ts).
   getFilterDimensions(
     organization: Organization,
-    options: { citizenPanels: boolean },
+    options: { citizenPanels: boolean; state?: string | null },
   ): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
       : 'serve'
+    const party = partyProvenanceForState(options.state)
     return FILTER_DIMENSIONS.filter(
       (dimension) =>
         dimension.modes !== excludedMode &&
         (options.citizenPanels ||
           !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)),
+    ).map((dimension) =>
+      dimension.key === 'party' && party && party.provenance !== 'observed'
+        ? { ...dimension, provenance: party.provenance, note: party.sentence }
+        : dimension,
     )
   }
 

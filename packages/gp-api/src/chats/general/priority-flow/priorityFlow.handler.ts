@@ -513,6 +513,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         filterConsumers: registeredFilterConsumers(crmTools),
         peopleDataset: ctx.peopleDataset,
         citizenPanels: ctx.outreachFeedbackEnabled === true,
+        state: ctx.state,
       })
       Object.assign(tools, crmTools)
     }

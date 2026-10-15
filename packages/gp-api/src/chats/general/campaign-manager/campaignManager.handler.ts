@@ -443,6 +443,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       officeLevel: details.ballotLevel ?? null,
       location,
       state: details.state ?? null,
+      districtState: resolved?.state ?? details.state ?? null,
       // The record as stored. The prompt builder parses and counts from these
       // against the candidate's local day, so an unparseable value reads as no
       // date there rather than becoming NaN here.
@@ -615,6 +616,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       const scope = buildWinConstituentDataScope(
         ctx.districtFilters,
         this.constituentTables,
+        ctx.districtState,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
@@ -722,6 +724,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         filterConsumers: registeredFilterConsumers(filterTools),
         peopleDataset: 'voters',
         citizenPanels: false,
+        state: ctx.districtState,
       })
       Object.assign(tools, filterTools)
       // The card's flows save the list through the voter-file route,
