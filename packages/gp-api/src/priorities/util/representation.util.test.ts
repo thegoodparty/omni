@@ -1,42 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ACS_COUNT_KEYS,
+  type AcsCounts,
+} from '@/peopleDb/databricks/districtCensusSql.util'
+import {
   computeRepresentation,
   MIN_RESPONDENTS_FOR_RACE,
-  type AcsCounts,
 } from './representation.util'
 
-const EMPTY: AcsCounts = {
-  totalPopulation: 0,
-  populationUnder18: 0,
-  population65Plus: 0,
-  populationRaceUniverse: 0,
-  populationWhiteNh: 0,
-  populationBlackNh: 0,
-  populationNativeAmericanNh: 0,
-  populationAsianNh: 0,
-  populationOtherNh: 0,
-  populationHispanic: 0,
-  population25Plus: 0,
-  populationHsOrHigher: 0,
-  populationBachelorsOrHigher: 0,
-  households: 0,
-  ownerOccupiedHouseholds: 0,
-  populationPovertyUniverse: 0,
-  populationBelowPoverty: 0,
-  householdsIncomeUniverse: 0,
-  householdsIncomeUnder25k: 0,
-  householdsIncome25kTo50k: 0,
-  householdsIncome50kTo75k: 0,
-  householdsIncome75kTo100k: 0,
-  householdsIncome100kTo150k: 0,
-  householdsIncome150kPlus: 0,
-}
+const EMPTY = Object.fromEntries(
+  ACS_COUNT_KEYS.map((key) => [key, 0]),
+) as AcsCounts
 
 const counts = (overrides: Partial<AcsCounts> = {}): AcsCounts => ({
   ...EMPTY,
   totalPopulation: 1000,
   populationUnder18: 200,
-  population65Plus: 150,
+  population65Plus: 160,
   populationRaceUniverse: 1000,
   populationWhiteNh: 700,
   populationBlackNh: 200,
@@ -50,10 +30,14 @@ const counts = (overrides: Partial<AcsCounts> = {}): AcsCounts => ({
   populationPovertyUniverse: 1000,
   populationBelowPoverty: 100,
   householdsIncomeUniverse: 400,
-  householdsIncomeUnder25k: 100,
-  householdsIncome25kTo50k: 100,
-  householdsIncome50kTo75k: 100,
-  householdsIncome150kPlus: 100,
+  householdsIncomeUnder10k: 40,
+  householdsIncome20kTo25k: 60,
+  householdsIncome25kTo30k: 50,
+  householdsIncome45kTo50k: 50,
+  householdsIncome50kTo60k: 60,
+  householdsIncome75kTo100k: 40,
+  householdsIncome150kTo200k: 70,
+  householdsIncome200kPlus: 30,
   ...overrides,
 })
 
@@ -111,6 +95,37 @@ describe('computeRepresentation', () => {
     ])
     expect(groups.some((g) => g.dimension === 'income')).toBe(false)
     expect(groups.some((g) => g.dimension === 'housing')).toBe(true)
+  })
+
+  it('rolls the 16 ACS income brackets up into the four bands', () => {
+    const groups = computeRepresentation(counts(), [counts()])
+    expect(find(groups, 'under25k')?.districtShare).toBe(0.25)
+    expect(find(groups, '25kTo50k')?.districtShare).toBe(0.25)
+    expect(find(groups, '50kTo100k')?.districtShare).toBe(0.25)
+    expect(find(groups, '100kPlus')?.districtShare).toBe(0.25)
+  })
+
+  it('reads age over adults, with no under 18 row', () => {
+    const groups = computeRepresentation(counts(), [counts()])
+    // 800 adults: 640 are 18 to 64, 160 are 65 and over.
+    expect(find(groups, '18to64')?.districtShare).toBe(0.8)
+    expect(find(groups, '65plus')?.districtShare).toBe(0.2)
+    expect(find(groups, 'under18')).toBeUndefined()
+  })
+
+  it('drops a dimension with a suppressed figure instead of reading it as zero', () => {
+    const groups = computeRepresentation(counts(), [
+      counts(),
+      counts({ householdsIncome60kTo75k: null }),
+    ])
+    expect(groups.some((g) => g.dimension === 'income')).toBe(false)
+    expect(groups.some((g) => g.dimension === 'education')).toBe(true)
+
+    const district = computeRepresentation(
+      counts({ ownerOccupiedHouseholds: null }),
+      [counts()],
+    )
+    expect(district.some((g) => g.dimension === 'housing')).toBe(false)
   })
 
   it('skips a group whose universe is empty rather than dividing by zero', () => {

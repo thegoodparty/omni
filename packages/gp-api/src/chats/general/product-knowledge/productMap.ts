@@ -352,6 +352,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Before a step is done, it offers to check it with the constituents it affects most and least, with the lists and the question ready',
       'Where the civic panel is on, that check is one text to your civic panel and as many residents not on it, inviting them to join. The most and least affected come after, if what comes back is thin or one-sided',
       'Where the civic panel is on, What we heard, under Where this stands on an open priority, pools every text, call and door knock sent for it: how many answered, how many joined your civic panel, the themes in what they said, a map of where answers came from, and how those neighborhoods compare with the whole district',
+      'That comparison, here and on the civic panel page, uses census figures: age among adults, education, household income, owning or renting, poverty, and race once 25 people are in it. It has no gender. Where the district’s census figures are not available yet, it says so instead of showing bars',
       'Where the civic panel is on, once a text’s replies are in, the priority offers to report back: it shows who the text went to, how many answered and the main themes, asks what you will do next, and drafts a short text to everyone it reached who has not opted out since. It never quotes anyone, never asks them to join the panel, and goes out from the card’s Start the text button like any other text',
     ],
     gate: 'Priorities is being rolled out, so it is not on every account yet.',

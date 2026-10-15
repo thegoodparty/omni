@@ -1,6 +1,14 @@
 import { useTestService } from '@/test-service'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+  type MockInstance,
+} from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import type { PriorityResults } from '@goodparty_org/contracts'
 import {
@@ -14,6 +22,14 @@ import {
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { seedTurfEffort } from '@/constituentFeedback/tests/issueCaptureFixtures'
+import {
+  ACS_COUNT_KEYS,
+  type AcsCounts,
+} from '@/peopleDb/databricks/districtCensusSql.util'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from './services/censusComposition'
 
 const service = useTestService()
 
@@ -25,6 +41,12 @@ const headers = () => ({ headers: { 'x-organization-slug': eoOrgSlug } })
 
 const results = (id = priorityId) =>
   service.client.get<PriorityResults>(`/v1/priorities/${id}/results`, headers())
+
+const blockGroup = Object.fromEntries(
+  ACS_COUNT_KEYS.map((key) => [key, 100]),
+) as AcsCounts
+
+let compose: MockInstance<CensusCompositionSource['compose']>
 
 const pointsFor = (ids: string[]) =>
   ids.map((id, index) => ({
@@ -109,6 +131,20 @@ beforeEach(async () => {
     points: pointsFor(ids),
     truncated: false,
   }))
+  vi.spyOn(
+    service.app.get(ContactsService),
+    'resolveEligibleDistrict',
+  ).mockResolvedValue({ districtId: 'd-1', dataset: 'voters' })
+  compose = vi
+    .spyOn(
+      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+      'compose',
+    )
+    .mockImplementation(async ({ personIds }) => ({
+      available: true,
+      district: blockGroup,
+      respondentBlockGroups: personIds.map(() => blockGroup),
+    }))
 })
 
 describe('GET /v1/priorities/:id/results', () => {
@@ -140,11 +176,26 @@ describe('GET /v1/priorities/:id/results', () => {
       expect(Math.round(lat * 1000) / 1000).toBe(lat)
       expect(Math.round(lng * 1000) / 1000).toBe(lng)
     }
-    expect(res.data.representation).toMatchObject({
-      source: 'sample',
-      respondentCount: 12,
+    expect(compose.mock.calls[0]?.[0]).toEqual({
+      districtId: 'd-1',
+      dataset: 'voters',
+      personIds: expect.arrayContaining(respondents),
     })
+    expect(res.data.representation?.respondentCount).toBe(12)
     expect(res.data.representation?.groups.length).toBeGreaterThan(0)
+  })
+
+  it('shows unavailable census as a comparison with no rows, not an error', async () => {
+    compose.mockResolvedValue({ available: false })
+    await createTextSend(12, 0)
+
+    const res = await results()
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.representation).toEqual({
+      respondentCount: 12,
+      groups: [],
+    })
   })
 
   it('does not count a reply that was only STOP as hearing from someone', async () => {

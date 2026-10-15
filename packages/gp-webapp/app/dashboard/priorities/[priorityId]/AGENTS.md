@@ -258,14 +258,13 @@ does not list sends, since the tiles already give those counts.
   the district's, so both sides read one census source. Race shows only from
   25 respondents and only for groups at 2% or more of the district; nothing
   shows below 10 respondents.
-- **The census figures are a sample for now, and the page does not say so.**
-  gp-api reads them through `CENSUS_COMPOSITION_SOURCE`, bound once in
-  `CensusCompositionModule` (shared with the civic panel page) to
-  `SampleCensusComposition` until gp-data-platform's district ACS columns,
-  block group table and per person block group geoid reach `mart_gp_api`.
-  The response says `source: 'sample'`; the label was taken off the page by
-  product call, so swapping the binding before the flag reaches an official
-  is required, not optional.
+- **The census figures are ACS 2024 5-year estimates** that gp-api reads
+  from `mart_gp_api` (`CENSUS_COMPOSITION_SOURCE`, shared with the civic
+  panel page). Age is shares of adults (18 to 64, 65 and over), since
+  everyone who answers is an adult. There is no gender row: the census
+  marts carry none. When the district's figures cannot be read, the
+  comparison arrives with no `groups`, and `RepresentationBars` says the
+  figures are not available instead of drawing bars.
 - **Themes are pooled across every send.** "Top themes" reads the
   priority's latest completed `priority`-scope synthesis run (gp-api
   `FeedbackSynthesisService.requestPriorityRun`): text replies, door notes
