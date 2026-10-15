@@ -837,7 +837,9 @@ reads as a shared failure on every sweep and catches nothing. These
 conditions state a contract the input exercises rather than a mutation it
 planted. `opposition_research`'s roster opponents carry plain invented names
 rather than `Test` ones, because its instruction drops `Test` rows as junk and
-its checks would then have nothing to grade.
+its checks would then have nothing to grade. Only its partisan-race check
+runs in CI: on unchanged code its three-way and head-to-head checks flipped
+between runs, which a live-search agent walked once per case can't avoid.
 
 ## A chat case can carry the same checks
 
