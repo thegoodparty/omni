@@ -1,0 +1,672 @@
+import { randomUUID } from 'node:crypto'
+import { HttpStatus } from '@nestjs/common'
+import { format, subDays, addDays } from 'date-fns'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import type {
+  CivicPanelBuildPlanResponse,
+  PrepareCivicPanelBuildStepResponse,
+} from '@goodparty_org/contracts'
+import { useTestService } from '@/test-service'
+import {
+  CivicPanelStatus,
+  ContactStatusField,
+  ContactStatusSource,
+  OutreachStatus,
+  OutreachType,
+} from '@/generated/prisma'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
+import type { PersonOutput } from '@/contacts/schemas/person.schema'
+
+const service = useTestService()
+
+const ORG_SLUG_HEADER = 'X-Organization-Slug'
+
+type FilterArg = {
+  filters?: {
+    filters?: string[]
+    filterOperators?: { id?: { operator: string; values: string[] } }
+  }
+}
+
+const filterKeys = (dto: FilterArg) => dto.filters?.filters ?? []
+const notInIds = (dto: FilterArg) =>
+  dto.filters?.filterOperators?.id?.operator === 'notIn'
+    ? dto.filters.filterOperators.id.values
+    : []
+
+const page = (totalResults: number) => ({
+  people: [],
+  pagination: {
+    totalResults,
+    currentPage: 1,
+    pageSize: 1,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  },
+})
+
+// The pools people-db would count, per channel, keyed by the reach filter
+// the step's criteria carry.
+const stubPools = (pools: { cell: number; phone: number; door: number }) =>
+  vi
+    .spyOn(service.app.get(VoterQueryService), 'findPeople')
+    .mockClear()
+    .mockImplementation(async (dto) => {
+      const keys = filterKeys(dto as FilterArg)
+      if (keys.includes('hasCellPhone')) return page(pools.cell) as never
+      if (keys.includes('hasAnyPhone') || keys.includes('hasLandline')) {
+        return page(pools.phone) as never
+      }
+      return page(pools.door) as never
+    })
+
+// Every draw returns fresh people, as many as asked for.
+const stubDraws = () =>
+  vi
+    .spyOn(service.app.get(VoterQueryService), 'samplePeople')
+    .mockClear()
+    .mockImplementation(async (dto) =>
+      Array.from(
+        { length: Number(dto.size) },
+        () => ({ id: randomUUID() }) as PersonOutput,
+      ),
+    )
+
+const household = (n: number, lat: number) =>
+  Array.from({ length: 2 }, () => ({
+    id: randomUUID(),
+    firstName: null,
+    lastName: null,
+    lat,
+    lng: -75,
+    addressKey: `home-${n}`,
+    displayAddress: `${n} Main St`,
+  }))
+
+const stubDoors = (households: number) => {
+  const people = Array.from({ length: households }, (_, n) =>
+    household(n, 40 + n * 0.0001),
+  ).flat()
+  return vi
+    .spyOn(service.app.get(VoterDoorKnockingService), 'evaluatePoints')
+    .mockClear()
+    .mockImplementation(async (dto) => {
+      const only = (dto.filters as { id?: { in?: string[] } } | undefined)?.id
+        ?.in
+      const excluded = new Set(dto.excludePersonIds ?? [])
+      return {
+        people: people.filter((p) =>
+          only ? only.includes(p.id) : !excluded.has(p.id),
+        ),
+        truncated: false,
+      }
+    })
+}
+
+const seedOffice = async (prefix: 'eo' | 'campaign' = 'eo') => {
+  const slug = `${prefix}-panel-plan-${randomUUID()}`
+  await service.prisma.organization.create({
+    data: { slug, ownerId: service.user.id, overrideDistrictId: randomUUID() },
+  })
+  if (prefix === 'eo') {
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: slug, userId: service.user.id },
+    })
+  }
+  return slug
+}
+
+const setPanel = (slug: string, personId: string, value: CivicPanelStatus) =>
+  service.app.get(ContactStatusService).changeStatus({
+    organizationSlug: slug,
+    personId,
+    field: ContactStatusField.civic_panel,
+    toValue: value,
+    source: ContactStatusSource.manual,
+    actorUserId: service.user.id,
+    fallbackFromValue: CivicPanelStatus.left,
+  })
+
+const headers = (slug: string) => ({ [ORG_SLUG_HEADER]: slug })
+
+const createPlan = (slug: string, hoursPerMonth: number) =>
+  service.client.post<CivicPanelBuildPlanResponse>(
+    '/v1/contacts/civic-panel/plan',
+    { hoursPerMonth },
+    { headers: headers(slug), validateStatus: () => true },
+  )
+
+const readPlan = (slug: string) =>
+  service.client.get<CivicPanelBuildPlanResponse>(
+    '/v1/contacts/civic-panel/plan',
+    { headers: headers(slug), validateStatus: () => true },
+  )
+
+const prepare = (slug: string, stepId: string) =>
+  service.client.post<PrepareCivicPanelBuildStepResponse>(
+    `/v1/contacts/civic-panel/plan/steps/${stepId}/prepare`,
+    {},
+    { headers: headers(slug), validateStatus: () => true },
+  )
+
+const stepOf = (
+  res: { data: CivicPanelBuildPlanResponse },
+  channel: string,
+  wave = 1,
+) => {
+  const step = res.data.plan?.steps.find(
+    (s) => s.channel === channel && s.wave === wave,
+  )
+  if (!step) throw new Error(`no ${channel} step in wave ${wave}`)
+  return step
+}
+
+const flagOff = () => {
+  const flag = vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockResolvedValue(false)
+  onTestFinished(() => flag.mockRestore())
+}
+
+const sendText = (
+  slug: string,
+  voterFileFilterId: number,
+  sendsOn: Date,
+  status: OutreachStatus = OutreachStatus.paid,
+) =>
+  service.prisma.outreach.create({
+    data: {
+      organizationSlug: slug,
+      outreachType: OutreachType.text,
+      voterFileFilterId,
+      status,
+      asksToJoinCivicPanel: true,
+      scheduledLocalDate: format(sendsOn, 'yyyy-MM-dd'),
+    },
+  })
+
+const LARGE = { cell: 58_000, phone: 20_000, door: 60_000 }
+
+describe('POST /v1/contacts/civic-panel/plan', () => {
+  it('texts only with no hours, sized from the gap at the cold rate', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    for (let i = 0; i < 10; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const res = await createPlan(slug, 0)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.progress).toEqual({ members: 10, goal: 100 })
+    expect(
+      res.data.plan?.steps.map(({ channel, targetSize, status }) => ({
+        channel,
+        targetSize,
+        status,
+      })),
+    ).toEqual([{ channel: 'text', targetSize: 3_000, status: 'not_started' }])
+    expect(res.data.next).toMatchObject({
+      channel: 'text',
+      line: 'Text residents an invite to your civic panel',
+    })
+  })
+
+  it('sizes calls and doors from a few hours', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+
+    const res = await createPlan(slug, 4)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(
+      res.data.plan?.steps.map(({ channel, position, targetSize }) => ({
+        channel,
+        position,
+        targetSize,
+      })),
+    ).toEqual([
+      { channel: 'text', position: 1, targetSize: 3_150 },
+      { channel: 'phone_banking', position: 1, targetSize: 30 },
+      { channel: 'door_knocking', position: 1, targetSize: 40 },
+    ])
+  })
+
+  it('sizes two walkable areas from many hours, and caps texts at the cell phones', async () => {
+    const slug = await seedOffice()
+    stubPools({ cell: 900, phone: 20_000, door: 60_000 })
+
+    const res = await createPlan(slug, 40)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(
+      res.data.plan?.steps.map(({ channel, targetSize }) => [
+        channel,
+        targetSize,
+      ]),
+    ).toEqual([
+      ['text', 900],
+      ['phone_banking', 450],
+      ['door_knocking', 100],
+      ['door_knocking', 100],
+    ])
+  })
+
+  it('skips calls when nobody has a phone to call', async () => {
+    const slug = await seedOffice()
+    stubPools({ cell: 58_000, phone: 0, door: 60_000 })
+
+    const res = await createPlan(slug, 4)
+
+    expect(res.data.plan?.steps.map((s) => s.channel)).toEqual([
+      'text',
+      'door_knocking',
+    ])
+  })
+
+  it('keeps one active plan per office', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+
+    const [first, second] = await Promise.all([
+      createPlan(slug, 0),
+      createPlan(slug, 0),
+    ])
+
+    expect([first.status, second.status].sort()).toEqual([
+      HttpStatus.CREATED,
+      HttpStatus.CONFLICT,
+    ])
+    expect(
+      await service.prisma.civicPanelBuildPlan.count({
+        where: { organizationSlug: slug },
+      }),
+    ).toBe(1)
+  })
+
+  it('400s for an organization that is not an office', async () => {
+    const slug = await seedOffice('campaign')
+
+    expect((await createPlan(slug, 0)).status).toBe(HttpStatus.BAD_REQUEST)
+    expect((await readPlan(slug)).status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('404s with the civic panel flag off', async () => {
+    const slug = await seedOffice()
+    flagOff()
+
+    expect((await createPlan(slug, 0)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await readPlan(slug)).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await prepare(slug, randomUUID())).status).toBe(
+      HttpStatus.NOT_FOUND,
+    )
+  })
+})
+
+describe('GET /v1/contacts/civic-panel/plan', () => {
+  it('reads no plan as null with the panel progress', async () => {
+    const slug = await seedOffice()
+
+    const res = await readPlan(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({
+      plan: null,
+      next: null,
+      progress: { members: 0, goal: 100 },
+    })
+  })
+})
+
+describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
+  it('draws a text step away from members, leavers, the invited, opt-outs and the recently reached', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const member = randomUUID()
+    const left = randomUUID()
+    const invited = randomUUID()
+    const optedOut = randomUUID()
+    const reached = randomUUID()
+    await setPanel(slug, member, CivicPanelStatus.member)
+    await setPanel(slug, left, CivicPanelStatus.member)
+    await setPanel(slug, left, CivicPanelStatus.left)
+    const ask = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.completed,
+        asksToJoinCivicPanel: true,
+      },
+    })
+    await service.prisma.outreachTextRecipient.create({
+      data: {
+        outreachId: ask.id,
+        organizationSlug: slug,
+        personId: invited,
+        phone: '+15550000001',
+      },
+    })
+    await service.prisma.contactInteractionText.create({
+      data: {
+        organizationSlug: slug,
+        personId: optedOut,
+        occurredAt: subDays(new Date(), 90),
+        optedOutAt: subDays(new Date(), 90),
+        manual: true,
+      },
+    })
+    await service.prisma.contactInteractionText.create({
+      data: {
+        organizationSlug: slug,
+        personId: reached,
+        occurredAt: subDays(new Date(), 5),
+        manual: true,
+      },
+    })
+    const plan = await createPlan(slug, 0)
+    const draw = stubDraws()
+
+    const res = await prepare(slug, stepOf(plan, 'text').id)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      channel: 'text',
+      purpose: 'build_citizens_panel',
+      // One member already: the gap is 99.
+      size: 3_300,
+      area: null,
+    })
+    const [request] = draw.mock.calls[0] ?? []
+    expect(filterKeys(request as FilterArg)).toContain('hasCellPhone')
+    expect(notInIds(request as FilterArg)).toEqual(
+      expect.arrayContaining([member, left, invited, optedOut, reached]),
+    )
+    const list = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: res.data.voterFileFilterId },
+    })
+    expect(list).toMatchObject({
+      organizationSlug: slug,
+      hasCellPhone: true,
+      civicPanelNeverInvited: true,
+      notContactedRecently: true,
+      sampleSize: 3_300,
+    })
+  })
+
+  it('returns the same list when pressed again', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 0)
+    const draw = stubDraws()
+    const stepId = stepOf(plan, 'text').id
+
+    const first = await prepare(slug, stepId)
+    const second = await prepare(slug, stepId)
+
+    expect(second.data.voterFileFilterId).toBe(first.data.voterFileFilterId)
+    expect(draw).toHaveBeenCalledTimes(1)
+  })
+
+  it('never draws one person twice across channels', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 4)
+    const draw = stubDraws()
+    stubDoors(60)
+
+    const text = await prepare(slug, stepOf(plan, 'text').id)
+    const calls = await prepare(slug, stepOf(plan, 'phone_banking').id)
+    const doors = await prepare(slug, stepOf(plan, 'door_knocking').id)
+
+    expect(calls.data).toMatchObject({
+      channel: 'phone_banking',
+      purpose: 'introduce_myself',
+      size: 30,
+    })
+    // Landlines first, so the first call draw asks for landlines.
+    const callDraw = draw.mock.calls[1]?.[0] as FilterArg
+    expect(filterKeys(callDraw)).toContain('hasLandline')
+    const textIds = await sampleIds(text.data.voterFileFilterId)
+    expect(notInIds(callDraw)).toEqual(expect.arrayContaining(textIds))
+    expect(doors.data.channel).toBe('door_knocking')
+    expect(doors.data.size).toBe(80)
+    expect(doors.data.area?.type).toBe('Polygon')
+    const all = [
+      ...textIds,
+      ...(await sampleIds(calls.data.voterFileFilterId)),
+      ...(await sampleIds(doors.data.voterFileFilterId)),
+    ]
+    expect(new Set(all).size).toBe(all.length)
+  })
+
+  it('404s for another office’s step', async () => {
+    stubPools(LARGE)
+    const otherUser = await service.prisma.user.create({
+      data: { email: `panel-plan-${randomUUID()}@example.com` },
+    })
+    const theirs = `eo-panel-plan-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug: theirs, ownerId: otherUser.id },
+    })
+    const theirOffice = await service.prisma.electedOffice.create({
+      data: { organizationSlug: theirs, userId: otherUser.id },
+    })
+    const theirPlan = await service.prisma.civicPanelBuildPlan.create({
+      data: {
+        electedOfficeId: theirOffice.id,
+        organizationSlug: theirs,
+        goalMembers: 100,
+        hoursPerMonth: 0,
+        steps: {
+          create: { wave: 1, channel: 'text', targetSize: 3_334 },
+        },
+      },
+      include: { steps: true },
+    })
+    const mine = await seedOffice()
+
+    const res = await prepare(mine, theirPlan.steps[0]?.id ?? '')
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+const sampleIds = (voterFileFilterId: number) =>
+  service.prisma.voterFileFilterSampleMember
+    .findMany({ where: { voterFileFilterId }, select: { personId: true } })
+    .then((rows) => rows.map((r) => r.personId))
+
+describe('step status and waves', () => {
+  it('reads a text from scheduled to waiting on replies to done', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDraws()
+    const plan = await createPlan(slug, 0)
+    const stepId = stepOf(plan, 'text').id
+    const { data: list } = await prepare(slug, stepId)
+    const send = await sendText(
+      slug,
+      list.voterFileFilterId,
+      addDays(new Date(), 10),
+    )
+
+    const scheduled = await readPlan(slug)
+    expect(stepOf(scheduled, 'text')).toMatchObject({
+      status: 'in_progress',
+      outreachId: send.id,
+    })
+    expect(scheduled.data.next?.line).toMatch(
+      /^Your civic panel invite goes out /,
+    )
+
+    await service.prisma.outreach.update({
+      where: { id: send.id },
+      data: { scheduledLocalDate: format(new Date(), 'yyyy-MM-dd') },
+    })
+    const waiting = await readPlan(slug)
+    expect(stepOf(waiting, 'text').status).toBe('waiting_on_replies')
+    expect(waiting.data.next).toMatchObject({ href: null, stepId })
+    expect(waiting.data.next?.line).toMatch(
+      /^Replies to your invite arrive by /,
+    )
+
+    await service.prisma.outreach.update({
+      where: { id: send.id },
+      data: { status: OutreachStatus.completed },
+    })
+    const done = await readPlan(slug)
+    expect(stepOf(done, 'text').status).toBe('done')
+  })
+
+  it('ignores a text that never got past checkout', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDraws()
+    const plan = await createPlan(slug, 0)
+    const { data: list } = await prepare(slug, stepOf(plan, 'text').id)
+    await sendText(
+      slug,
+      list.voterFileFilterId,
+      new Date(),
+      OutreachStatus.pending_payment,
+    )
+
+    const res = await readPlan(slug)
+
+    expect(stepOf(res, 'text').status).toBe('not_started')
+  })
+
+  it('reads calls as done once everyone on the list was called', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDraws()
+    stubDoors(60)
+    const plan = await createPlan(slug, 4)
+    const { data: list } = await prepare(slug, stepOf(plan, 'phone_banking').id)
+    const calls = await service.prisma.phoneBankingList.create({
+      data: {
+        organizationSlug: slug,
+        voterFileFilterId: list.voterFileFilterId,
+        name: 'Civic panel calls',
+        script: 'Hello',
+        sheetCount: 1,
+        purpose: 'introduce_myself',
+      },
+    })
+
+    expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
+      status: 'in_progress',
+      phoneBankingListId: calls.id,
+    })
+
+    await service.prisma.contactInteractionPhoneBanking.createMany({
+      data: (await sampleIds(list.voterFileFilterId)).map((personId) => ({
+        organizationSlug: slug,
+        personId,
+        phoneBankingListId: calls.id,
+        occurredAt: new Date(),
+        outcome: 'no_answer' as const,
+      })),
+    })
+
+    expect(stepOf(await readPlan(slug), 'phone_banking').status).toBe('done')
+  })
+
+  it('reads doors as done once the walk is marked done', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDraws()
+    stubDoors(60)
+    const plan = await createPlan(slug, 4)
+    const { data: list } = await prepare(slug, stepOf(plan, 'door_knocking').id)
+    if (!list.area) throw new Error('a door step draws an area')
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: list.voterFileFilterId,
+        name: 'Civic panel doors',
+        color: '#000000',
+        geoPoly: list.area,
+      },
+    })
+    const envelope = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        doorKnockingTurfId: turf.id,
+        status: OutreachStatus.in_progress,
+      },
+    })
+
+    expect(stepOf(await readPlan(slug), 'door_knocking')).toMatchObject({
+      status: 'in_progress',
+      doorKnockingTurfId: turf.id,
+      outreachId: envelope.id,
+    })
+
+    await service.prisma.outreach.update({
+      where: { id: envelope.id },
+      data: { status: OutreachStatus.completed },
+    })
+
+    expect(stepOf(await readPlan(slug), 'door_knocking').status).toBe('done')
+  })
+
+  it('makes the next wave once the last is done, once, sized to the gap', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const draw = stubDraws()
+    const plan = await createPlan(slug, 0)
+    const { data: list } = await prepare(slug, stepOf(plan, 'text').id)
+    await sendText(
+      slug,
+      list.voterFileFilterId,
+      subDays(new Date(), 20),
+      OutreachStatus.completed,
+    )
+    for (let i = 0; i < 40; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const [a, b] = await Promise.all([readPlan(slug), readPlan(slug)])
+    const again = await readPlan(slug)
+
+    for (const res of [a, b, again]) expect(res.status).toBe(HttpStatus.OK)
+    expect(again.data.plan?.currentWave).toBe(2)
+    expect(
+      again.data.plan?.steps.map(({ wave, channel, targetSize, status }) => ({
+        wave,
+        channel,
+        targetSize,
+        status,
+      })),
+    ).toEqual([
+      { wave: 1, channel: 'text', targetSize: 3_334, status: 'done' },
+      { wave: 2, channel: 'text', targetSize: 2_000, status: 'not_started' },
+    ])
+
+    const second = await prepare(slug, stepOf(again, 'text', 2).id)
+    const wave1 = await sampleIds(list.voterFileFilterId)
+    const wave2Draw = draw.mock.calls.at(-1)?.[0] as FilterArg
+    expect(notInIds(wave2Draw)).toEqual(expect.arrayContaining(wave1))
+    expect(second.data.size).toBe(2_000)
+  })
+
+  it('closes the plan once the panel reaches its goal', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    await createPlan(slug, 0)
+    for (let i = 0; i < 100; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const res = await readPlan(slug)
+
+    expect(res.data.plan?.status).toBe('completed')
+    expect(res.data.next).toBeNull()
+    expect(res.data.progress).toEqual({ members: 100, goal: 100 })
+  })
+})
