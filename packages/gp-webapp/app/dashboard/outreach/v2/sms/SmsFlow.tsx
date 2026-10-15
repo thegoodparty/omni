@@ -121,6 +121,7 @@ import {
   type SmsFlowPurpose,
   unfilledBrackets,
   upgradeScriptFooter,
+  profilePhotoFile,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -679,6 +680,9 @@ export const SmsFlow = ({
   const [customTime, setCustomTime] = useState('10:00')
 
   const [image, setImage] = useState<File | null>(null)
+  // Bumped by the open reset, which clears the image, so the profile photo
+  // prefill below runs again for each fresh open.
+  const [imageResetCount, setImageResetCount] = useState(0)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   // Presses of the message step's Continue while something was missing. The
@@ -919,6 +923,7 @@ export const SmsFlow = ({
     setTimeSlot('10')
     setCustomTime('10:00')
     setImage(null)
+    setImageResetCount((count) => count + 1)
     setImageError(null)
     setComposeContinueAttempts(0)
     setDraftOutreachId(null)
@@ -940,6 +945,36 @@ export const SmsFlow = ({
     landing,
     carriedPurpose,
   ])
+
+  // A fresh text starts with the sender's profile photo attached. Win reads
+  // the campaign owner's, since a Campaign Manager composing is not the
+  // candidate; Serve's sender is the session user. A resume keeps its saved
+  // image, and a photo the candidate removed or replaced is never put back.
+  const profilePhotoUrl = surface.isServe
+    ? (user?.avatar ?? null)
+    : (campaign?.ownerAvatar ?? null)
+  const profilePhotoAppliedRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (
+      !open ||
+      resumeDraft ||
+      !profilePhotoUrl ||
+      profilePhotoAppliedRef.current === imageResetCount
+    ) {
+      return
+    }
+    profilePhotoAppliedRef.current = imageResetCount
+    let settled = false
+    void profilePhotoFile(profilePhotoUrl).then((file) => {
+      if (settled) return
+      settled = true
+      if (file) setImage((current) => current ?? file)
+    })
+    return () => {
+      if (!settled) profilePhotoAppliedRef.current = null
+      settled = true
+    }
+  }, [open, resumeDraft, profilePhotoUrl, imageResetCount])
 
   // Object URL lifecycle for the image preview.
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
@@ -10,6 +10,8 @@ import {
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
   composeScript,
+  IMAGE_MAX_BYTES,
+  profilePhotoFile,
   ensureSmsIdentification,
   identificationIntro,
   openWithSmsIdentification,
@@ -471,5 +473,114 @@ describe('withCivicPanelLeave', () => {
       start: offered.indexOf(CIVIC_PANEL_LEAVE_LINE),
     })
     expect(offered.length).toBe(base.length + CIVIC_PANEL_LEAVE_LINE.length + 2)
+  })
+})
+
+describe('profilePhotoFile', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  const stubOversizedPhoto = (type = 'image/jpeg') => {
+    const photo = new Blob([new Uint8Array(IMAGE_MAX_BYTES + 1)], { type })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => photo }),
+    )
+    const bitmap = { width: 3000, height: 1500, close: vi.fn() }
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap))
+    return bitmap
+  }
+
+  // Each toBlob call answers with the next size, recording the canvas it
+  // drew from and the quality it was asked for.
+  const stubJpegSizes = (sizes: number[]) => {
+    const calls: { width: number; height: number; quality?: number }[] = []
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+      function (this: HTMLCanvasElement, callback, _type, quality) {
+        calls.push({ width: this.width, height: this.height, quality })
+        const size = sizes[calls.length - 1] ?? 0
+        callback(new Blob([new Uint8Array(size)], { type: 'image/jpeg' }))
+      },
+    )
+    return calls
+  }
+
+  it('redraws an oversized photo as a JPEG under the cap', async () => {
+    const bitmap = stubOversizedPhoto()
+    const calls = stubJpegSizes([IMAGE_MAX_BYTES + 1, 400_000])
+
+    const file = await profilePhotoFile('https://assets.example/large.jpg')
+
+    expect(file?.type).toBe('image/jpeg')
+    expect(file?.size).toBe(400_000)
+    expect(calls).toEqual([
+      { width: 1024, height: 512, quality: 0.85 },
+      { width: 1024, height: 512, quality: 0.7 },
+    ])
+    expect(bitmap.close).toHaveBeenCalled()
+  })
+
+  it('redraws a photo in a format texts cannot carry', async () => {
+    const photo = new Blob(['webp-bytes'], { type: 'image/webp' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => photo }),
+    )
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn().mockResolvedValue({ width: 400, height: 300, close: vi.fn() }),
+    )
+    const calls = stubJpegSizes([50_000])
+
+    const file = await profilePhotoFile('https://assets.example/avatar.webp')
+
+    expect(file?.type).toBe('image/jpeg')
+    expect(calls).toEqual([{ width: 400, height: 300, quality: 0.85 }])
+  })
+
+  it('leaves the image blank when no quality fits under the cap', async () => {
+    stubOversizedPhoto()
+    const calls = stubJpegSizes([
+      IMAGE_MAX_BYTES + 1,
+      IMAGE_MAX_BYTES + 1,
+      IMAGE_MAX_BYTES + 1,
+    ])
+
+    expect(
+      await profilePhotoFile('https://assets.example/large.jpg'),
+    ).toBeNull()
+    expect(calls.map((call) => call.quality)).toEqual([0.85, 0.7, 0.5])
+  })
+
+  it('attaches a photo that already fits as-is', async () => {
+    const photo = new Blob(['jpeg-bytes'], { type: 'image/jpeg' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => photo }),
+    )
+
+    const file = await profilePhotoFile('https://assets.example/avatar.jpg')
+
+    expect(file?.type).toBe('image/jpeg')
+    expect(file?.size).toBe(photo.size)
+    expect(file?.size).toBeLessThanOrEqual(IMAGE_MAX_BYTES)
+  })
+
+  it('leaves the image blank when the photo cannot be loaded', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+
+    expect(
+      await profilePhotoFile('https://assets.example/avatar.jpg'),
+    ).toBeNull()
+  })
+
+  it('leaves the image blank when the request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('CORS')))
+
+    expect(
+      await profilePhotoFile('https://assets.example/avatar.jpg'),
+    ).toBeNull()
   })
 })
