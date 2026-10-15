@@ -576,6 +576,60 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
+    // Money-safety (prod bug ENG win-sms-freetexts-hold-fix): a pre-build send
+    // the free-texts offer would fully cover (reachable estimate <=5,000) must
+    // NEVER take the pay-before-ready estimate path or create a draft while
+    // the build is still running — gp-api's pre-build pricing never consults
+    // the offer, so a free pre-build send would place no hold and strand
+    // (R1's build-ready recovery edges find a paid draft only through a hold's
+    // satellite link). The flow must wait for `ready` instead, exactly like
+    // the flag-off path, so the client and server can never disagree.
+    it('flag ON + free-texts-covered estimate: waits for the build instead of pay-before-ready (never strands a free send)', async () => {
+      winSmsHoldRef.enabled = true
+      vi.mocked(createOutreach).mockClear()
+      completeFreePurchase.mockClear()
+      // hasFreeTextsOffer stays true (the campaignState default) and the
+      // mocked audience reach (1,200) is under FREE_TEXTS_OFFER.COUNT.
+      vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
+        buildStatus: 'building',
+      })
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText(/AI body \(warm\) for introduce_myself/)
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      // The review step sits in its preparing (spinner) state — no draft, no
+      // checkout session, and no "Schedule campaign" free-complete CTA — while
+      // the build runs, same as the flag-off wait.
+      await waitFor(() =>
+        expect(screen.getByRole('progressbar')).toHaveAttribute(
+          'aria-valuetext',
+          'Step 5 of 5',
+        ),
+      )
+      expect(
+        screen.queryByRole('button', { name: 'Schedule campaign' }),
+      ).not.toBeInTheDocument()
+      expect(createOutreach).not.toHaveBeenCalled()
+      expect(completeFreePurchase).not.toHaveBeenCalled()
+    })
+
     // NO CLIENT/SERVER RACE: gp-api and the browser evaluate the SAME managed
     // flag independently, so this client's own read can lag the server's
     // (e.g. the Amplitude JS SDK hasn't resolved yet when the request fires).
