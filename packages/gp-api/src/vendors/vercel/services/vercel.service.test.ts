@@ -87,6 +87,7 @@ describe('VercelService.purchaseDomain', () => {
     const service = new VercelService({
       setContext: vi.fn(),
       error: vi.fn(),
+      warn: vi.fn(),
       debug: vi.fn(),
     } as unknown as PinoLogger)
 
