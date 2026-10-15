@@ -4156,6 +4156,26 @@ describe('door-knocking routes', () => {
         expect((await knockAndServe()).res.data.isServe).toBe(false)
       })
 
+      // The walk asks a panel member whether they want to stay on rather
+      // than whether they want to join, read off the turf's own list.
+      it('says when the turf is civic panel members only', async () => {
+        const res = await serveTurf('panelonly')
+        expect(res.data.civicPanelOnly).toBe(false)
+
+        const turf = await service.prisma.doorKnockingTurf.findFirstOrThrow({
+          where: { id: res.data.route.doorKnockingTurfId },
+        })
+        const filter = await service.prisma.voterFileFilter.update({
+          where: { id: turf.voterFileFilterId },
+          data: { civicPanelMember: true },
+        })
+        const again = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { headers: { 'x-organization-slug': filter.organizationSlug } },
+        )
+        expect(again.data.civicPanelOnly).toBe(true)
+      })
+
       // Whose campaign the walk is for, riding the payload for the same reason
       // `isServe` above does with a sharper case: a volunteer's session has no
       // campaign at all (`GET /v1/campaigns/mine` 403s them, ENG-11072), so
@@ -5356,6 +5376,129 @@ describe('door-knocking routes', () => {
           clientKey: CLIENT_KEY,
           outcome: 'not_home',
           joinCivicPanel: 'yes',
+        })
+        expect(res.status).toBe(400)
+      })
+    })
+
+    describe('stay on civic panel, on a turf of panel members', () => {
+      const panelTarget = async (label: string, panelOnly: boolean) => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg(label)
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: `EO ${label} turf`,
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        // Marked after the turf is drawn: the fixture district has no panel
+        // members, so a panel-only list would draw an empty turf.
+        if (panelOnly) {
+          await service.prisma.voterFileFilter.update({
+            where: { id: filterId },
+            data: { civicPanelMember: true },
+          })
+        }
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+        await service.prisma.contactCurrentStatus.create({
+          data: {
+            organizationSlug: eoSlug,
+            personId: eoTarget.personId,
+            field: 'civic_panel',
+            value: 'member',
+          },
+        })
+        const recordEo = (stayOnCivicPanel: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp: 'no',
+              stayOnCivicPanel,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+        const panelStatus = async () =>
+          (
+            await service.prisma.contactCurrentStatus.findFirstOrThrow({
+              where: { organizationSlug: eoSlug, field: 'civic_panel' },
+            })
+          ).value
+        return { eoSlug, eoTarget, recordEo, panelStatus }
+      }
+
+      it('a no takes them off the panel, and a replayed knock adds no event', async () => {
+        const { eoSlug, eoTarget, recordEo, panelStatus } = await panelTarget(
+          'stayno',
+          true,
+        )
+
+        expect((await recordEo('no')).status).toBe(201)
+        expect((await recordEo('no')).status).toBe(201)
+
+        expect(await panelStatus()).toBe('left')
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug, field: 'civic_panel' },
+        })
+        expect(events).toHaveLength(1)
+        expect(events[0]).toMatchObject({
+          personId: eoTarget.personId,
+          fromValue: 'member',
+          toValue: 'left',
+          source: 'door_knock',
+        })
+      })
+
+      it('a yes leaves them on the panel and writes nothing', async () => {
+        const { eoSlug, recordEo, panelStatus } = await panelTarget(
+          'stayyes',
+          true,
+        )
+
+        expect((await recordEo('yes')).status).toBe(201)
+
+        expect(await panelStatus()).toBe('member')
+        expect(
+          await service.prisma.contactStatusEvent.count({
+            where: { organizationSlug: eoSlug, field: 'civic_panel' },
+          }),
+        ).toBe(0)
+      })
+
+      it('ignores the answer on a turf that reaches beyond the panel', async () => {
+        const { eoSlug, recordEo, panelStatus } = await panelTarget(
+          'staywide',
+          false,
+        )
+
+        expect((await recordEo('no')).status).toBe(201)
+
+        expect(await panelStatus()).toBe('member')
+        const knock =
+          await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+            where: { organizationSlug: eoSlug },
+          })
+        expect(knock.stayOnCivicPanel).toBeNull()
+      })
+
+      it('refuses both panel questions on one knock', async () => {
+        const target = await knockAndGetTarget()
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          joinCivicPanel: 'yes',
+          stayOnCivicPanel: 'no',
         })
         expect(res.status).toBe(400)
       })

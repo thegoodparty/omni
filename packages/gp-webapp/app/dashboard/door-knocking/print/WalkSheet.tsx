@@ -315,7 +315,11 @@ export default function WalkSheet({
   // to that surface, and a service worker's snapshot carries no such key.
   const isServe = Boolean(payload.isServe)
   const asksCivicPanel = isServe && citizenPanelsEnabled
-  const columns = walkColumns(isServe, asksCivicPanel)
+  const columns = walkColumns(
+    isServe,
+    asksCivicPanel,
+    Boolean(payload.civicPanelOnly),
+  )
 
   return (
     <div className="ws mx-auto max-w-[10in] p-6 print:max-w-none print:p-0">

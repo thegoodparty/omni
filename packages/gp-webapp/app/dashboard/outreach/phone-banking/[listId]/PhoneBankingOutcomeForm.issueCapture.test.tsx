@@ -118,6 +118,7 @@ const LOGGED: PhoneBankingInteraction = {
   willVote: null,
   followUp: 'yes',
   joinCivicPanel: null,
+  stayOnCivicPanel: null,
   occurredAt: new Date('2026-09-26T00:00:00.000Z'),
 }
 
@@ -645,6 +646,7 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
           willVote: null,
           followUp: 'yes',
           joinCivicPanel: null,
+          stayOnCivicPanel: null,
           occurredAt: expect.any(Date),
         },
       },

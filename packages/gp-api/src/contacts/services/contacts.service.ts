@@ -1906,6 +1906,28 @@ export class ContactsService {
       return { ...aggregates, outreachHistory: [] }
     }
 
+    // The built-in civic panel list: the panel filter's figures, and as its
+    // history every send that reached a current member. The filter's own
+    // gate 400s a Win org before any history is read.
+    if (segment === CIVIC_PANEL_SEGMENT) {
+      const detail = await this.getFilterDetail(
+        { civicPanelMember: true },
+        organization,
+      )
+      const members = await this.contactStatusService.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.civic_panel,
+        [CivicPanelStatus.member],
+      )
+      return {
+        ...detail,
+        outreachHistory: await this.civicPanelOutreachHistory(
+          organization.slug,
+          members,
+        ),
+      }
+    }
+
     const filter =
       await this.voterFileFilterService.findByIdAndOrganizationSlug(
         segment,
@@ -1959,6 +1981,26 @@ export class ContactsService {
       filter.search ?? undefined,
     )
     return { ...aggregates, outreachHistory }
+  }
+
+  // The office's sends that reached at least one of `members`, most recent
+  // first. Reached is the interaction rule reachedRecently and "Last asked"
+  // count by, so the panel's history agrees with both.
+  async civicPanelOutreachHistory(
+    organizationSlug: string,
+    members: string[],
+    take?: number,
+  ) {
+    const outreachIds =
+      await this.contactsMadeResolutionService.outreachIdsReachingAmong(
+        organizationSlug,
+        members,
+      )
+    return this.voterFileFilterService.findSentOutreachesByIds(
+      organizationSlug,
+      outreachIds,
+      take,
+    )
   }
 
   // The same payload as getListDetail for a filter that has not been saved

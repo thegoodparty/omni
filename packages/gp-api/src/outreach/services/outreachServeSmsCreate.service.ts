@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
   findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
+  isCivicPanelOnlyList,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
@@ -29,6 +31,7 @@ import type { ProposalLink } from '@goodparty_org/contracts'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
 import {
   ElectedOffice,
+  Organization,
   OutreachStatus,
   OutreachType,
   Prisma,
@@ -273,51 +276,32 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const filterInput: ContactsFilterResolutionInput = { ...filter }
 
-    const optedOutPersonIds = await this.resolveOptOutScrub(organizationSlug)
-    let excludedOptedOutCount = 0
-
-    const audience = resolveFilterAudience(this.contactsService, {
-      filterInput,
-      organization,
-      dataset: await this.contactsService.resolvePeopleDataset(organization),
-      // Empty on purpose, with the scrub applied through `isEligible` below.
-      // Handing the ids to people-api as an exclusion filter means those rows
-      // never come back, so this route could only ever report how many people
-      // the ORG has opted out — not how many THIS list lost, which is the
-      // number quoted on the pay step. Matches the delivery layer, which has
-      // to agree with this quote when it re-resolves at send time.
-      excludePersonIds: new Set(),
-      // After the cell-phone check and before dedupe/cap, so an opted-out
-      // constituent neither claims a phone number nor spends a recipient.
-      isEligible: (person) => {
-        if (!optedOutPersonIds.has(person.id)) return true
-        excludedOptedOutCount += 1
-        return false
-      },
-      limitExceededMessage:
-        `This list reaches over the ${MAX_AUDIENCE_RECIPIENTS} constituent ` +
-        'limit — narrow the list and try again.',
-      // Same clock as the phone-list upload, and for the same reason: this runs
-      // on a request, nothing has been paid for yet, and a draft the gateway
-      // killed at ~120s is a pay step the official never reaches. A refusal
-      // naming the count is something they can act on.
-      timeBudgetMs: MAX_INTERACTIVE_RESOLUTION_MS,
-      budgetExceededMessage: ({ matchedCount, affordableCount }) =>
-        `This list reaches ${matchedCount} constituents — too many to quote ` +
-        `while you wait (about ${affordableCount} right now). Narrow the list ` +
-        `and try again.`,
-    })
-
-    // A generator's RETURN value carries the duplicate count, and
-    // `for await...of` discards it — drive the iterator so the summary is
-    // readable. See the helper's doc comment.
-    let recipientCount = 0
-    let next = await audience.next()
-    while (!next.done) {
-      recipientCount += 1
-      next = await audience.next()
+    // The LEAVE line belongs to a send that reaches panel members alone, and
+    // a send never carries both civic panel lines: one asks people on, the
+    // other offers members a way off.
+    const asksToJoinCivicPanel = findCivicPanelJoinLine(input.message) !== null
+    const offersCivicPanelLeave =
+      findCivicPanelLeaveLine(input.message) !== null
+    if (asksToJoinCivicPanel && offersCivicPanelLeave) {
+      throw new BadRequestException(
+        "A text can't ask people to join your civic panel and offer a way to leave it. Remove one of those lines and try again.",
+      )
     }
-    const { excludedDuplicatePhoneCount } = next.value
+    if (offersCivicPanelLeave && !isCivicPanelOnlyList(filter)) {
+      throw new BadRequestException(
+        'Only a text to your civic panel can offer a way to leave it. Remove that line and try again.',
+      )
+    }
+
+    const {
+      recipientCount,
+      excludedOptedOutCount,
+      excludedDuplicatePhoneCount,
+    } = await this.resolveListAudienceCount(
+      organization,
+      filterInput,
+      organizationSlug,
+    )
 
     if (recipientCount < MIN_SERVE_SMS_RECIPIENTS) {
       throw new BadRequestException(
@@ -341,7 +325,8 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       message: input.message,
       // Read off the message, never a request flag, so the stored text and
       // whether the ingest honors JOIN cannot disagree.
-      asksToJoinCivicPanel: findCivicPanelJoinLine(input.message) !== null,
+      asksToJoinCivicPanel,
+      offersCivicPanelLeave,
       imageUrl: input.imageUrl,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay
       // null: Serve sends at a fixed 11am local, so there is no chosen
@@ -413,6 +398,73 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
   }
 
   /**
+   * How many people a saved list reaches once the opt-out scrub and the phone
+   * dedupe have run. Shared with the Serve poll create so a poll to a list is
+   * counted and billed exactly as a text to it.
+   */
+  async resolveListAudienceCount(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    organizationSlug: string,
+  ): Promise<{
+    recipientCount: number
+    excludedOptedOutCount: number
+    excludedDuplicatePhoneCount: number
+  }> {
+    const optedOutPersonIds = await this.resolveOptOutScrub(organizationSlug)
+    let excludedOptedOutCount = 0
+
+    const audience = resolveFilterAudience(this.contactsService, {
+      filterInput,
+      organization,
+      dataset: await this.contactsService.resolvePeopleDataset(organization),
+      // Empty on purpose, with the scrub applied through `isEligible` below.
+      // Handing the ids to people-api as an exclusion filter means those rows
+      // never come back, so this route could only ever report how many people
+      // the ORG has opted out — not how many THIS list lost, which is the
+      // number quoted on the pay step. Matches the delivery layer, which has
+      // to agree with this quote when it re-resolves at send time.
+      excludePersonIds: new Set(),
+      // After the cell-phone check and before dedupe/cap, so an opted-out
+      // constituent neither claims a phone number nor spends a recipient.
+      isEligible: (person) => {
+        if (!optedOutPersonIds.has(person.id)) return true
+        excludedOptedOutCount += 1
+        return false
+      },
+      limitExceededMessage:
+        `This list reaches over the ${MAX_AUDIENCE_RECIPIENTS} constituent ` +
+        'limit — narrow the list and try again.',
+      // Same clock as the phone-list upload, and for the same reason: this runs
+      // on a request, nothing has been paid for yet, and a draft the gateway
+      // killed at ~120s is a pay step the official never reaches. A refusal
+      // naming the count is something they can act on.
+      timeBudgetMs: MAX_INTERACTIVE_RESOLUTION_MS,
+      budgetExceededMessage: ({ matchedCount, affordableCount }) =>
+        `This list reaches ${matchedCount} constituents — too many to quote ` +
+        `while you wait (about ${affordableCount} right now). Narrow the list ` +
+        `and try again.`,
+    })
+
+    // A generator's RETURN value carries the duplicate count, and
+    // `for await...of` discards it — drive the iterator so the summary is
+    // readable. See the helper's doc comment.
+    let recipientCount = 0
+    let next = await audience.next()
+    while (!next.done) {
+      recipientCount += 1
+      next = await audience.next()
+    }
+    const { excludedDuplicatePhoneCount } = next.value
+
+    return {
+      recipientCount,
+      excludedOptedOutCount,
+      excludedDuplicatePhoneCount,
+    }
+  }
+
+  /**
    * ENG-10800: a constituent who opted out of a past text in this org must
    * not land on the next one. Honoring an opt-out follows the message rather
    * than the sender, and Serve is explicitly a repeat-send product, so this
@@ -427,9 +479,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
    * The only remaining truncation is the `LIMIT` inside
    * `findOptedOutPersonIds`, which is loud rather than silent.
    */
-  private async resolveOptOutScrub(
-    organizationSlug: string,
-  ): Promise<Set<string>> {
+  async resolveOptOutScrub(organizationSlug: string): Promise<Set<string>> {
     const optedOutIds =
       await this.contactInteractionTextService.findOptedOutPersonIds(
         organizationSlug,

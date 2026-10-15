@@ -260,7 +260,7 @@ export class ContactEngagementService {
         : []
 
     // One vocabulary per row, decided here rather than per reader — this feed
-    // has two (the walk's person sheet and the Constituent Data overlay), and
+    // has two (the walk's person sheet and the Constituents overlay), and
     // the `eo-` prefix is the whole rule, the same way `politicalParty` is
     // stripped in `ContactsService`. A support answer and a turnout intention
     // are Win facts about a person; a follow-up is Serve's. Each surface reads

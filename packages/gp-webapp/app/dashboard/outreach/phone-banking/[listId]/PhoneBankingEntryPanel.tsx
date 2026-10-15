@@ -59,6 +59,9 @@ interface PhoneBankingEntryPanelProps {
   // Passed straight through to the outcome form, which asks a different
   // engaged-call question on each surface.
   isServe: boolean
+  // The list is civic panel members only, so the form asks whether they want
+  // to stay on the panel. Passed straight through like isServe.
+  civicPanelOnly?: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
   callDrafts?: UnsavedDrafts<CallDraft>
 }
@@ -116,6 +119,7 @@ export default function PhoneBankingEntryPanel({
   open,
   onOpenChange,
   isServe,
+  civicPanelOnly = false,
   onSaved,
   callDrafts,
 }: PhoneBankingEntryPanelProps): React.JSX.Element {
@@ -295,6 +299,7 @@ export default function PhoneBankingEntryPanel({
           interaction={person.interaction}
           householdHasOthersUnlogged={householdHasOthersUnlogged}
           isServe={isServe}
+          civicPanelOnly={civicPanelOnly}
           onSaved={onSaved}
           drafts={callDrafts}
         />

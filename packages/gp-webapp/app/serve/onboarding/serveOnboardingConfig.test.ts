@@ -6,6 +6,8 @@ import {
   resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
+  SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
+  SERVE_WELCOME_VALUE_PROPS,
   shouldSeedInOfficeOnResume,
 } from './serveOnboardingConfig'
 
@@ -305,5 +307,23 @@ describe('the priorities step behind serve-citizen-panels', () => {
     expect(resolveServeResumeStep('net-new', 'priorities', done)).toBe(
       'constituents',
     )
+  })
+})
+
+describe('the welcome tiles behind serve-citizen-panels', () => {
+  it('fills the 2x2 grid like the flag-off tiles', () => {
+    expect(SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS).toHaveLength(4)
+    expect(SERVE_WELCOME_VALUE_PROPS).toHaveLength(4)
+  })
+
+  it('ends with meeting briefings', () => {
+    expect(
+      SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS.map(({ title }) => title),
+    ).toEqual([
+      'Build a civic panel you can ask before you vote',
+      'Know what your community is talking about',
+      'Follow through on the issues you were elected to solve',
+      'Walk into every meeting prepared',
+    ])
   })
 })

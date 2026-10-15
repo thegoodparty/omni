@@ -109,6 +109,8 @@ export const EVENTS = {
     ContentGenerated: 'Content Builder: Generation Completed',
   },
   Polls: {
+    PollCreated: 'Polls - Poll Created',
+    PollSubmitted: 'Polls - Poll Submitted For Review',
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
   // Meeting Briefings (Serve). Fires when the daily cron skips an

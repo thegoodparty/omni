@@ -26,6 +26,7 @@ import {
   wasCorrected,
 } from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
+  FollowUpAnswer,
   PhoneBankingCallResult,
   PhoneBankingInteraction,
   ConfirmedConstituentFeedbackIssue,
@@ -60,6 +61,7 @@ import {
   draftWithEngagement,
   draftWithFollowUp,
   draftWithJoinCivicPanel,
+  draftWithStayOnCivicPanel,
   draftWithOutcome,
   draftWithSupportAnswer,
   draftWithWillVote,
@@ -125,6 +127,9 @@ interface PhoneBankingOutcomeFormProps {
   // `isDraftComplete`. Threaded from the caller page's `list.isServe` rather
   // than re-derived, so one loaded list cannot answer it two ways.
   isServe: boolean
+  // The list is civic panel members only: the closing question asks whether
+  // they want to stay on the panel, and a No takes them off it.
+  civicPanelOnly?: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
   // Owned by the caller page, keyed by `entryId:personId`: a tab switch
   // remounts this form, and this is what brings the answers back.
@@ -152,6 +157,7 @@ export default function PhoneBankingOutcomeForm({
   interaction,
   householdHasOthersUnlogged,
   isServe,
+  civicPanelOnly = false,
   onSaved,
   drafts,
 }: PhoneBankingOutcomeFormProps): React.JSX.Element {
@@ -397,6 +403,7 @@ export default function PhoneBankingOutcomeForm({
             willVote: request.willVote ?? null,
             followUp: request.followUp ?? null,
             joinCivicPanel: request.joinCivicPanel ?? null,
+            stayOnCivicPanel: request.stayOnCivicPanel ?? null,
             occurredAt: new Date(),
           },
         },
@@ -730,20 +737,33 @@ export default function PhoneBankingOutcomeForm({
                             draft.followUp !== undefined && (
                               <div className="mt-4">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                  Do they want to join your civic panel?
+                                  {civicPanelOnly
+                                    ? 'Do they want to stay on your civic panel?'
+                                    : 'Do they want to join your civic panel?'}
                                 </p>
                                 <div className="mt-2">
                                   <FilterPillGroup
                                     type="single"
-                                    value={draft.joinCivicPanel ?? ''}
+                                    value={
+                                      (civicPanelOnly
+                                        ? draft.stayOnCivicPanel
+                                        : draft.joinCivicPanel) ?? ''
+                                    }
                                     onValueChange={(value) =>
-                                      setDraft((current) =>
-                                        draftWithJoinCivicPanel(
-                                          current,
-                                          (value ||
-                                            undefined) as typeof draft.joinCivicPanel,
-                                        ),
-                                      )
+                                      setDraft((current) => {
+                                        const answer = (value || undefined) as
+                                          | FollowUpAnswer
+                                          | undefined
+                                        return civicPanelOnly
+                                          ? draftWithStayOnCivicPanel(
+                                              current,
+                                              answer,
+                                            )
+                                          : draftWithJoinCivicPanel(
+                                              current,
+                                              answer,
+                                            )
+                                      })
                                     }
                                   >
                                     <FilterPill value="yes">Yes</FilterPill>

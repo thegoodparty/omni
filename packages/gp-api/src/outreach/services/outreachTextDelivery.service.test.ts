@@ -372,8 +372,14 @@ describe('OutreachTextDeliveryService', () => {
     ])
   })
 
-  it('resolves the sample branch, which no product calls yet', async () => {
+  const stubPoolSize = (total: number) =>
+    vi.spyOn(contacts, 'getDistrictStats').mockResolvedValue({
+      totalConstituentsWithCellPhone: total,
+    } as never)
+
+  it('resolves the sample branch', async () => {
     const { outreach } = await seedSend()
+    stubPoolSize(100)
     const sampleContacts = vi
       .spyOn(contacts, 'sampleContacts')
       .mockResolvedValue([
@@ -407,6 +413,7 @@ describe('OutreachTextDeliveryService', () => {
 
   it('narrows the sample POOL with the scrub and so loses nobody', async () => {
     const { outreach, slug } = await seedSend()
+    stubPoolSize(100)
     await seedOptOuts(slug, ['p-optout'])
     const sampleContacts = vi
       .spyOn(contacts, 'sampleContacts')
@@ -424,6 +431,84 @@ describe('OutreachTextDeliveryService', () => {
     // 0 is the honest answer here, unlike the filter branch.
     expect(result.excludedOptedOutCount).toBe(0)
     expect(result.recipientCount).toBe(1)
+  })
+
+  describe('sample audience against a pool that shrinks', () => {
+    // Stands in for people-api: a draw excludes inside the query and, like
+    // `samplePeople`, refuses a size the pool minus the exclusions cannot
+    // fill.
+    const stubPoolOf = (total: number) => {
+      stubPoolSize(total)
+      return vi.spyOn(contacts, 'sampleContacts').mockImplementation((({
+        size,
+        excludeIds,
+      }: {
+        size: number
+        excludeIds: string[]
+      }) => {
+        const excluded = new Set(excludeIds)
+        const eligible = Array.from({ length: total }, (_, i) => i)
+          .map((i) => person(`p-${i}`, `55500${String(i).padStart(5, '0')}`))
+          .filter((p) => !excluded.has(p.id))
+        if (eligible.length < size) {
+          throw new Error('Not enough non-excluded constituents')
+        }
+        return Promise.resolve(eligible.slice(0, size))
+      }) as never)
+    }
+
+    it('draws exactly size people, none opted out, from a pool of 100', async () => {
+      const { outreach, slug } = await seedSend()
+      const optedOut = Array.from({ length: 10 }, (_, i) => `p-${i}`)
+      await seedOptOuts(slug, optedOut)
+      stubPoolOf(100)
+
+      const result = await delivery.requestSend(
+        input(outreach.id, { audience: { kind: 'sample', size: 50 } }),
+      )
+
+      expect(result.recipientCount).toBe(50)
+      const delivered = (await recipientRows(outreach.id)).map(
+        (r) => r.personId,
+      )
+      expect(delivered).toHaveLength(50)
+      expect(delivered.filter((id) => optedOut.includes(id))).toEqual([])
+    })
+
+    it('clamps to what is left when someone opted out after checkout', async () => {
+      const { outreach, slug } = await seedSend()
+      await seedOptOuts(slug, ['p-0'])
+      const sampleContacts = stubPoolOf(100)
+
+      const result = await delivery.requestSend(
+        input(outreach.id, { audience: { kind: 'sample', size: 100 } }),
+      )
+
+      expect(sampleContacts).toHaveBeenCalledWith(
+        { size: 99, excludeIds: ['p-0'] },
+        expect.objectContaining({ slug }),
+      )
+      expect(result.terminalReason).toBeUndefined()
+      expect(result.recipientCount).toBe(99)
+      expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
+      expect(warn).toHaveBeenCalledWith(
+        { outreachId: outreach.id, requested: 100, delivered: 99 },
+        expect.stringContaining('Sample pool shrank'),
+      )
+    })
+
+    it('fails the send when nobody is left to reach', async () => {
+      const { outreach, slug } = await seedSend()
+      await seedOptOuts(slug, ['p-0', 'p-1'])
+      const sampleContacts = stubPoolOf(2)
+
+      const result = await delivery.requestSend(
+        input(outreach.id, { audience: { kind: 'sample', size: 2 } }),
+      )
+
+      expect(sampleContacts).not.toHaveBeenCalled()
+      expect(result.terminalReason).toBe('send_failed')
+    })
   })
 
   it('hands a canceled send off to nobody', async () => {

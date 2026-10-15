@@ -90,8 +90,8 @@ const titles = (cards: { title: string }[]) =>
 
 const buildCard = {
   type: 'civic_panel',
-  title: 'Hear from more than the loudest voices',
-  ctaLabel: 'Get started',
+  title: 'Start with the people you represent',
+  ctaLabel: 'Build my panel',
   ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
 }
 
@@ -112,8 +112,8 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       completedAt: null,
     })
     expect(build?.summary).toBe(
-      'Decisions land better when you know what the whole community ' +
-        'thinks, not just who shows up.',
+      'A civic panel is residents who agree to tell you what they think ' +
+        'before you decide.',
     )
     expect(build?.summary.split(' ').length).toBeLessThanOrEqual(20)
     expect(
@@ -127,7 +127,7 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
     })
   })
 
-  // Get started used to drop the official into the outreach page with no
+  // Its button used to drop the official into the outreach page with no
   // context. It now opens the Chief of Staff chat on the home, so a card
   // made with the old link follows on the next read.
   it("moves a card made with the outreach link onto the home's chat", async () => {
@@ -246,6 +246,34 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       completedAt,
       dueDate: card.dueDate,
     })
+  })
+
+  it('rewrites an open build card still holding the old words', async () => {
+    const orgSlug = 'eo-civic-build-old-words'
+    const eo = await seedElectedOffice(orgSlug)
+    await listCards(orgSlug)
+    const [card] = await panelRows(eo.id)
+    if (!card) throw new Error('no card')
+    await service.prisma.dashboardCard.update({
+      where: { id: card.id },
+      data: {
+        title: 'Hear from more than the loudest voices',
+        summary:
+          'Decisions land better when you know what the whole community ' +
+          'thinks, not only who shows up.',
+        ctaLabel: 'Get started',
+      },
+    })
+
+    await listCards(orgSlug)
+
+    const [after] = await panelRows(eo.id)
+    expect(after).toMatchObject({
+      title: buildCard.title,
+      ctaLabel: buildCard.ctaLabel,
+      completedAt: null,
+    })
+    expect(after?.summary).toMatch(/^A civic panel is residents/)
   })
 
   it('renames the build card as the text that finishes it is read', async () => {

@@ -61,6 +61,7 @@ const buildList = (): PhoneBankingList => ({
   purpose: 'introduce_myself',
   createdAt: new Date('2026-01-01'),
   isServe: false,
+  civicPanelOnly: false,
   entries: [
     {
       id: 1,
@@ -125,6 +126,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
   purpose: 'introduce_myself',
   createdAt: new Date('2026-01-01'),
   isServe: false,
+  civicPanelOnly: false,
   entries: [
     {
       id: 1,
@@ -147,6 +149,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
             willVote: 'yes',
             followUp: null,
             joinCivicPanel: null,
+            stayOnCivicPanel: null,
             occurredAt: new Date('2026-01-02'),
           },
         },
@@ -292,6 +295,7 @@ describe('<PhoneBankingCallerPage>', () => {
               willVote: 'yes',
               followUp: null,
               joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt: new Date(),
             },
           },
@@ -528,6 +532,7 @@ describe('<PhoneBankingCallerPage>', () => {
               willVote: null,
               followUp: null,
               joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt: new Date(),
             },
           },
@@ -600,6 +605,7 @@ describe('<PhoneBankingCallerPage>', () => {
               willVote: null,
               followUp: null,
               joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt: new Date(),
             },
           },
@@ -611,6 +617,7 @@ describe('<PhoneBankingCallerPage>', () => {
               willVote: null,
               followUp: null,
               joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt: new Date(),
             },
           },
@@ -677,6 +684,7 @@ describe('<PhoneBankingCallerPage>', () => {
               willVote: null,
               followUp: null,
               joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt,
             },
           },
@@ -688,6 +696,7 @@ describe('<PhoneBankingCallerPage>', () => {
               willVote: null,
               followUp: null,
               joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt,
             },
           },
@@ -734,6 +743,7 @@ describe('<PhoneBankingCallerPage>', () => {
       willVote: null,
       followUp: null,
       joinCivicPanel: null,
+      stayOnCivicPanel: null,
       occurredAt: new Date(),
     }
     mockGetList(list)
@@ -759,6 +769,7 @@ describe('<PhoneBankingCallerPage>', () => {
               willVote: null,
               followUp: null,
               joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt: new Date(),
             },
           },

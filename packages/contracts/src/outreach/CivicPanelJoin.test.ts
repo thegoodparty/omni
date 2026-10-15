@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 import {
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_LEAVE_LINE,
+  findCivicPanelLeaveLine,
   CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
   PANEL_SEED_ASSUMED_JOIN_RATE,
@@ -49,5 +51,21 @@ describe('CIVIC_PANEL_JOIN_LINE', () => {
   it('composes only the newest wording', () => {
     expect(LEGACY_JOIN_LINES).not.toContain(CIVIC_PANEL_JOIN_LINE)
     expect(CIVIC_PANEL_JOIN_LINES).toHaveLength(LEGACY_JOIN_LINES.length + 1)
+  })
+})
+
+describe('CIVIC_PANEL_LEAVE_LINE', () => {
+  it('is the panel-only way off the panel', () => {
+    expect(CIVIC_PANEL_LEAVE_LINE).toBe('Reply LEAVE to leave my civic panel.')
+  })
+
+  it('is found where a send carries it, and never read as a join', () => {
+    const message = `Hi Pat, what do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`
+    expect(findCivicPanelLeaveLine(message)).toEqual({
+      text: CIVIC_PANEL_LEAVE_LINE,
+      start: message.indexOf(CIVIC_PANEL_LEAVE_LINE),
+    })
+    expect(findCivicPanelJoinLine(message)).toBeNull()
+    expect(findCivicPanelLeaveLine('Reply STOP to opt out.')).toBeNull()
   })
 })

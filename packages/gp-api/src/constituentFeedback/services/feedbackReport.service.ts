@@ -133,8 +133,12 @@ export type Effort = Awaited<ReturnType<FeedbackReportService['findEffort']>>
 
 export type Denominators = FeedbackReportResponse['denominators']
 
+// A Serve poll is a text send, so its replies take the text path.
+const isTextEffortType = (outreachType: OutreachType): boolean =>
+  outreachType === OutreachType.text || outreachType === OutreachType.poll
+
 export const effortChannel = (effort: Effort): FeedbackReportChannel => {
-  if (effort.outreachType === OutreachType.text) return TEXT_CHANNEL
+  if (isTextEffortType(effort.outreachType)) return TEXT_CHANNEL
   return effort.phoneBankingListId === null
     ? ConstituentFeedbackChannel.door_knock
     : ConstituentFeedbackChannel.phone_bank
@@ -253,7 +257,10 @@ export class FeedbackReportService extends createPrismaBase(
         OR: [
           { doorKnockingTurfId: { not: null } },
           { phoneBankingListId: { not: null } },
-          { outreachType: OutreachType.text, campaignId: null },
+          {
+            outreachType: { in: [OutreachType.text, OutreachType.poll] },
+            campaignId: null,
+          },
         ],
       },
       select: {

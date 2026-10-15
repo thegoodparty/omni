@@ -8,6 +8,7 @@ export type OutreachType =
   | 'socialMedia'
   | 'robocall'
   | 'p2p'
+  | 'poll'
 
 /** Outreach status values from the API / Prisma */
 export type OutreachStatus =

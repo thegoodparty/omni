@@ -45,4 +45,25 @@ describe('checkPanelPart', () => {
       'not both',
     )
   })
+
+  // A text to the panel alone offers LEAVE, never the JOIN ask.
+  it('refuses the join ask on a text to panel members alone', () => {
+    expect(
+      checkPanelPart({
+        channel: 'text',
+        civicPanelAsk: true,
+        audienceFilters: {
+          civicPanelMember: true,
+          hasCellPhone: true,
+          notContactedRecently: true,
+        },
+      }),
+    ).toContain('already on the civic panel')
+    expect(
+      checkPanelPart({
+        channel: 'text',
+        audienceFilters: { civicPanelMember: true, hasCellPhone: true },
+      }),
+    ).toBeNull()
+  })
 })

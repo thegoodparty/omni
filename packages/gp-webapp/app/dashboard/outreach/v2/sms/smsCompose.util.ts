@@ -6,7 +6,9 @@ import type {
 import {
   checkSmsStandards,
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_LEAVE_LINE,
   findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
   SMS_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import { SOCIAL_PURPOSE_LABELS } from '../socialPurposes'
@@ -150,13 +152,15 @@ export const SMS_GREETING_PREVIEW = {
 // removes it. Tone-flavored per the design prototype's
 // introFor; reads as the continuation of SMS_GREETING, so no variant
 // carries its own greeting word. The CS compose-rules pass may replace
-// this wording.
+// this wording. The full name, not the first name alone: a voter texted
+// "this is Jane" from a number they do not know cannot tell which Jane is
+// asking for their vote (CAS, 2026-10-14).
 export const identificationIntro = (
   tone: SocialTone,
-  firstName: string,
+  fullName: string,
   office: string,
 ): string => {
-  const name = firstName || 'your candidate'
+  const name = fullName || 'your candidate'
   const role = office || 'local office'
   if (tone === 'direct') return `${name} here, candidate for ${role}.`
   if (tone === 'urgent') return `${name} here, running for ${role}.`
@@ -240,12 +244,12 @@ const hasSenderPlaceholder = (text: string): boolean =>
     NAME_HERE_PLACEHOLDER,
   ].some((pattern) => text.search(pattern) !== -1)
 
-const fillSenderPlaceholders = (text: string, firstName: string): string =>
-  firstName
+const fillSenderPlaceholders = (text: string, name: string): string =>
+  name
     ? text
-        .replace(SENDER_NAME_PLACEHOLDER, firstName)
-        .replace(SELF_INTRO_NAME_PLACEHOLDER, `$1 ${firstName}`)
-        .replace(NAME_HERE_PLACEHOLDER, firstName)
+        .replace(SENDER_NAME_PLACEHOLDER, name)
+        .replace(SELF_INTRO_NAME_PLACEHOLDER, `$1 ${name}`)
+        .replace(NAME_HERE_PLACEHOLDER, name)
     : text
 
 // The composed message already opens "Hello {first_name},", so a body's own
@@ -280,14 +284,17 @@ export interface SmsIdentificationContext {
   // The surface's own identification sentence for the current tone: Win's
   // identificationIntro or Serve's useServeSmsIdentification.
   intro: string
-  firstName: string
+  // What a sender-name placeholder is filled with: the name the intro uses,
+  // so a filled body names the sender the way the intro does (Win's full
+  // name, Serve's first name).
+  senderName: string
   // The same names the compose step's candidate_name check matches against.
   candidateNames: string[]
 }
 
 const identify = (
   body: string,
-  { intro, firstName, candidateNames }: SmsIdentificationContext,
+  { intro, senderName, candidateNames }: SmsIdentificationContext,
   mode: 'ensure' | 'open',
 ): string => {
   const names = candidateNames.map((name) => name.trim()).filter(Boolean)
@@ -303,9 +310,20 @@ const identify = (
     return body
   }
 
+  // NAME_HERE stops at two words before "here", which a longer full name
+  // overruns ("Mary Ann Smith here, ...", Win's direct and urgent intros), so
+  // a sentence that opens on one of the sender's own names counts too.
+  const opensOnNameHere = (sentence: string): boolean =>
+    names.some(
+      (name) =>
+        sentence.slice(0, name.length).toLowerCase() === name.toLowerCase() &&
+        /^\s+here\b/i.test(sentence.slice(name.length)),
+    )
   const isOpener = (sentence: string): boolean =>
     sentence.length <= 160 &&
-    (SELF_INTRO.test(sentence) || NAME_HERE.test(sentence)) &&
+    (SELF_INTRO.test(sentence) ||
+      NAME_HERE.test(sentence) ||
+      opensOnNameHere(sentence)) &&
     (hasSenderPlaceholder(sentence) ||
       namesSender(sentence) ||
       INSTITUTION_INTRO.test(sentence))
@@ -325,7 +343,7 @@ const identify = (
   }
   const ungreeted = rest.replace(LONE_GREETING, '')
   const trimmedStart = replacedOpener || ungreeted !== rest
-  rest = fillSenderPlaceholders(ungreeted, firstName).trim()
+  rest = fillSenderPlaceholders(ungreeted, senderName).trim()
 
   if (mode === 'ensure' && !replacedOpener && namesSender(rest)) return rest
   if (!rest) return intro
@@ -406,5 +424,86 @@ export const withCivicPanelJoin = (script: string, on: boolean): string => {
   return `${lead}${CIVIC_PANEL_JOIN_LINE}\n\n${script.slice(optOutAt)}`
 }
 
+// Adds or removes the civic panel LEAVE line, which a text to panel members
+// alone carries in the JOIN line's place: its own paragraph just above the
+// opt-out. Removing it also drops any JOIN line, and adding it drops one, so
+// a message never carries both.
+export const withCivicPanelLeave = (script: string, on: boolean): string => {
+  const leave = findCivicPanelLeaveLine(script)
+  if (!on) {
+    if (!leave) return script
+    const end = leave.start + leave.text.length
+    return (
+      script.slice(0, leave.start) + script.slice(end).replace(/^(\n\n| )/, '')
+    )
+  }
+  const withoutJoin = withCivicPanelJoin(script, false)
+  if (leave) return withoutJoin
+  const optOutAt = withoutJoin.lastIndexOf(OPT_OUT_FOOTER)
+  if (optOutAt === -1) {
+    return `${withoutJoin.trimEnd()}\n\n${CIVIC_PANEL_LEAVE_LINE}`
+  }
+  const before = withoutJoin.slice(0, optOutAt).trimEnd()
+  const lead = before === '' ? '' : `${before}\n\n`
+  return `${lead}${CIVIC_PANEL_LEAVE_LINE}\n\n${withoutJoin.slice(optOutAt)}`
+}
+
+// The civic panel line a message should carry: LEAVE on a text to panel
+// members alone, otherwise JOIN when the ask is on, otherwise neither.
+export const withCivicPanelLines = (
+  script: string,
+  lines: { join: boolean; leave: boolean },
+): string =>
+  lines.leave
+    ? withCivicPanelLeave(script, true)
+    : withCivicPanelJoin(withCivicPanelLeave(script, false), lines.join)
+
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
+
+const PROFILE_PHOTO_MAX_EDGE = 1024
+const PROFILE_PHOTO_QUALITIES = [0.85, 0.7, 0.5]
+
+// The profile photo the SMS image starts from. Avatars are stored at up to
+// 5 MB, ten times what an MMS attachment allows, so anything over the cap or
+// in another format is redrawn as a JPEG. Null on any failure: the dropzone
+// is still there, so a missing prefill only costs the candidate one upload.
+export const profilePhotoFile = async (url: string): Promise<File | null> => {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    if (
+      IMAGE_ACCEPT.split(',').includes(blob.type) &&
+      blob.size <= IMAGE_MAX_BYTES
+    ) {
+      const extension = blob.type.split('/')[1] ?? 'jpeg'
+      return new File([blob], `profile-photo.${extension}`, {
+        type: blob.type,
+      })
+    }
+    const bitmap = await createImageBitmap(blob)
+    const scale = Math.min(
+      1,
+      PROFILE_PHOTO_MAX_EDGE / Math.max(bitmap.width, bitmap.height),
+    )
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    canvas
+      .getContext('2d')
+      ?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+    for (const quality of PROFILE_PHOTO_QUALITIES) {
+      const jpeg = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', quality),
+      )
+      if (jpeg && jpeg.size <= IMAGE_MAX_BYTES) {
+        return new File([jpeg], 'profile-photo.jpeg', { type: 'image/jpeg' })
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}

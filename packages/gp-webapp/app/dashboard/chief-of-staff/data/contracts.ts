@@ -65,7 +65,8 @@ export interface DashboardCardListResponse {
   cards: DashboardCard[]
 }
 
-// onboarding cards (GET /v1/dashboard/onboarding-cards, PUT .../:key/skip).
+// onboarding cards (GET /v1/dashboard/onboarding-cards, PUT .../:key/skip,
+// PUT .../:key/complete).
 // The two fixed get-started cards; status is derived server-side.
 export type OnboardingCardKey = 'meet' | 'priorities'
 

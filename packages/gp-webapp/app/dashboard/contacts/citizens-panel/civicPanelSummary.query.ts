@@ -1,7 +1,7 @@
 import { queryOptions } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 
-// One key for the Constituent Data section and the built-in list row, so the
+// One key for the Constituents section and the built-in list row, so the
 // page reads the panel summary once.
 export const civicPanelSummaryQueryOptions = (orgSlug: string | undefined) =>
   queryOptions({

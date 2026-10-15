@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useSearchParams } from 'next/navigation'
-import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import type {
@@ -49,8 +53,23 @@ vi.mock('helpers/useSnackbar', () => ({
 }))
 
 // The deck, the banner and the footer read their own endpoints; the build
-// card's link is covered in TaskStack.test.tsx.
-vi.mock('./TaskStack', () => ({ default: () => null }))
+// card's buttons are covered in TaskStack.test.tsx. The stand-in deck only
+// presses the build card's What's a civic panel?.
+vi.mock('./TaskStack', async () => {
+  const { EXPLAIN_CIVIC_PANEL_MESSAGE: explain } =
+    await import('@goodparty_org/contracts')
+  return {
+    default: ({
+      onDiscussCard,
+    }: {
+      onDiscussCard?: (message: string) => void
+    }) => (
+      <button type="button" onClick={() => onDiscussCard?.(explain)}>
+        Explain the panel
+      </button>
+    ),
+  }
+})
 vi.mock('./BriefingDispatchBanner', () => ({ default: () => null }))
 vi.mock('./chat/FooterChatBar', () => ({ default: () => null }))
 vi.mock('../data/use-briefing-dispatch', () => ({
@@ -112,7 +131,7 @@ afterEach(() => {
   )
 })
 
-describe('DashboardContent: Get started on the civic panel card', () => {
+describe('DashboardContent: Build my panel on the civic panel card', () => {
   it('opens the chat on the home, started by a turn the official never sees', async () => {
     arriveWith('chat=build_citizens_panel')
     render(<DashboardContent />)
@@ -158,5 +177,32 @@ describe('DashboardContent: Get started on the civic panel card', () => {
 
     expect(streamMessageMock).not.toHaveBeenCalled()
     expect(router.replace).not.toHaveBeenCalled()
+  })
+})
+
+describe("DashboardContent: What's a civic panel? on the build card", () => {
+  it('opens the chat on a turn the official never sees', async () => {
+    const user = userEvent.setup()
+    listMessagesMock.mockResolvedValue([
+      message('u1', 'user', EXPLAIN_CIVIC_PANEL_MESSAGE),
+      message('a1', 'assistant', REPLY),
+    ])
+    render(<DashboardContent />)
+
+    await user.click(screen.getByRole('button', { name: 'Explain the panel' }))
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: EXPLAIN_CIVIC_PANEL_MESSAGE }),
+      ),
+    )
+    await waitFor(
+      () => {
+        expect(listMessagesMock).toHaveBeenCalled()
+        expect(screen.getByText(REPLY)).toBeInTheDocument()
+      },
+      { timeout: 5000 },
+    )
+    expect(screen.queryByText(/What is a civic panel\?/)).toBeNull()
   })
 })

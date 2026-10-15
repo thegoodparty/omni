@@ -1,8 +1,14 @@
 import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Button, CropIcon } from '@styleguide'
-import { shapesFromSaved } from 'app/dashboard/shared/listShapes'
-import { getContactsLabels } from '../../../shared/contactsLabels'
+import {
+  type ListShape,
+  shapesFromSaved,
+} from 'app/dashboard/shared/listShapes'
+import {
+  type ContactsLabels,
+  getContactsLabels,
+} from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
 import { SectionLabel } from '../lists/ListDetailSection'
 import type { SegmentResponse } from '../shared/contacts-types'
@@ -25,21 +31,25 @@ const MapFrame = ({ children }: { children: React.ReactNode }) => (
   </div>
 )
 
+// A built-in list (the civic panel) has no saved row a boundary could be
+// written to, so it maps its members read-only, the way a locked list does.
+type ListMapSectionProps =
+  | { segment: SegmentResponse; builtInListId?: never }
+  | { segment?: never; builtInListId: string }
+
 export default function ListMapSection({
   segment,
-}: {
-  segment: SegmentResponse
-}) {
-  const listId = segment.id
+  builtInListId,
+}: ListMapSectionProps) {
+  const listId = segment ? segment.id : builtInListId
   const { selectPerson, currentlySelectedPersonId, isWinContext } =
     useContactsTable()
   const { people, truncated, total, isLoading, isError } = useListPeople(listId)
-  const [drawing, setDrawing] = useState(false)
 
   const labels = getContactsLabels(isWinContext)
   const savedShapes = useMemo(
-    () => shapesFromSaved(segment.geoPoly, segment.geoPolyLabels),
-    [segment.geoPoly, segment.geoPolyLabels],
+    () => shapesFromSaved(segment?.geoPoly, segment?.geoPolyLabels),
+    [segment?.geoPoly, segment?.geoPolyLabels],
   )
   // Stable for the map's layer effect, which lists both among its deps.
   const savedRings = useMemo(
@@ -50,11 +60,7 @@ export default function ListMapSection({
     () => savedShapes.map((shape) => shape.color),
     [savedShapes],
   )
-  const isLocked = Boolean(segment.firstUsedForOutreachAt)
-
-  const saveMutation = useSaveListBoundary(listId, 'listDetail', {
-    onClose: () => setDrawing(false),
-  })
+  const isLocked = Boolean(segment?.firstUsedForOutreachAt)
 
   return (
     <div className="flex flex-col gap-2">
@@ -93,32 +99,57 @@ export default function ListMapSection({
               {total.toLocaleString()}.
             </p>
           ) : null}
-          {!isLocked && (
-            <Button
-              type="button"
-              variant="outline"
-              size="small"
-              className="self-start gap-2"
-              onClick={() => setDrawing(true)}
-            >
-              <CropIcon className="size-4" aria-hidden />
-              {savedShapes.length > 0
-                ? labels.boundaryEditCta
-                : labels.boundaryDrawCta}
-            </Button>
-          )}
-          {drawing && (
-            <ListBoundaryOverlay
+          {segment && !isLocked && (
+            <DrawShapesControl
               segment={segment}
-              initialShapes={savedShapes}
+              savedShapes={savedShapes}
               labels={labels}
-              isSaving={saveMutation.isPending}
-              onCancel={() => setDrawing(false)}
-              onSave={(shapes) => saveMutation.mutate(shapes)}
             />
           )}
         </>
       )}
     </div>
+  )
+}
+
+const DrawShapesControl = ({
+  segment,
+  savedShapes,
+  labels,
+}: {
+  segment: SegmentResponse
+  savedShapes: ListShape[]
+  labels: ContactsLabels
+}) => {
+  const [drawing, setDrawing] = useState(false)
+  const saveMutation = useSaveListBoundary(segment.id, 'listDetail', {
+    onClose: () => setDrawing(false),
+  })
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="small"
+        className="self-start gap-2"
+        onClick={() => setDrawing(true)}
+      >
+        <CropIcon className="size-4" aria-hidden />
+        {savedShapes.length > 0
+          ? labels.boundaryEditCta
+          : labels.boundaryDrawCta}
+      </Button>
+      {drawing && (
+        <ListBoundaryOverlay
+          segment={segment}
+          initialShapes={savedShapes}
+          labels={labels}
+          isSaving={saveMutation.isPending}
+          onCancel={() => setDrawing(false)}
+          onSave={(shapes) => saveMutation.mutate(shapes)}
+        />
+      )}
+    </>
   )
 }

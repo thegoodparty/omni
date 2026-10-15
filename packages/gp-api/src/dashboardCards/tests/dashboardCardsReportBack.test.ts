@@ -227,6 +227,64 @@ describe("the Chief of Staff's report back card", () => {
     expect(await listCards(slug)).toHaveLength(1)
   })
 
+  it('rewrites old words on cards it already made, in every state', async () => {
+    const slug = 'eo-report-back-old-words'
+    const { electedOffice, priority } = await seedOffice(slug)
+    const open = await seedSend(slug, { priorityId: priority.id })
+    const skipped = await seedSend(slug, { priorityId: priority.id })
+    const done = await seedSend(slug, { priorityId: priority.id })
+    await listCards(slug)
+    const skippedAt = new Date('2026-10-01T00:00:00Z')
+    const doneAt = new Date('2026-10-02T00:00:00Z')
+    const oldWords = {
+      title: 'Report back on Downtown parking',
+      summary: 'Tell people what you heard.',
+      ctaLabel: 'Start',
+      ctaHref: '/dashboard/priorities',
+    }
+    const rowFor = (sendId: number) => ({
+      electedOfficeId: electedOffice.id,
+      type: DashboardCardType.report_back,
+      sourceExternalId: String(sendId),
+    })
+    await service.prisma.dashboardCard.updateMany({
+      where: rowFor(open.id),
+      data: oldWords,
+    })
+    await service.prisma.dashboardCard.updateMany({
+      where: rowFor(skipped.id),
+      data: { ...oldWords, dismissedAt: skippedAt },
+    })
+    await service.prisma.dashboardCard.updateMany({
+      where: rowFor(done.id),
+      data: { ...oldWords, completedAt: doneAt },
+    })
+
+    await listCards(slug)
+
+    for (const send of [open, skipped, done]) {
+      const card = await service.prisma.dashboardCard.findFirstOrThrow({
+        where: rowFor(send.id),
+      })
+      expect(card).toMatchObject({
+        title: 'Show people their voice counted on Downtown parking',
+        summary: 'People keep answering when they see what came of it.',
+        ctaLabel: 'Report back',
+        ctaHref: `/dashboard/priorities/${priority.id}?reportBack=${send.id}`,
+      })
+    }
+    const skippedCard = await service.prisma.dashboardCard.findFirstOrThrow({
+      where: rowFor(skipped.id),
+    })
+    expect(skippedCard.dismissedAt).toEqual(skippedAt)
+    expect(skippedCard.completedAt).toBeNull()
+    const doneCard = await service.prisma.dashboardCard.findFirstOrThrow({
+      where: rowFor(done.id),
+    })
+    expect(doneCard.completedAt).toEqual(doneAt)
+    expect(doneCard.dismissedAt).toBeNull()
+  })
+
   it('stays away with the flag off', async () => {
     const slug = 'eo-report-back-flag-off'
     const { electedOffice, priority } = await seedOffice(slug)

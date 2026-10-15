@@ -258,6 +258,9 @@ interface PersonSheetProps {
   // for the same reason. Absent for every list created before the wizard had
   // a points step, which is what the static script still exists for.
   talkingPoints?: string
+  // Off the same payload: the turf is civic panel members only, so the form
+  // asks whether they want to stay on the panel.
+  civicPanelOnly?: boolean
 }
 
 // The demo's person sheet: a right panel on desktop, a bottom sheet on
@@ -329,6 +332,7 @@ export default function PersonSheet({
   stopSeq,
   isServe,
   talkingPoints,
+  civicPanelOnly = false,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   // The chevrons move the sheet from door to door without unmounting it, so the
@@ -799,6 +803,7 @@ export default function PersonSheet({
                   onRecorded(target.stopTargetId, personId, knockStatus)
                 }
                 drafts={knockDrafts}
+                civicPanelOnly={civicPanelOnly}
               />
               {/* Below the form, because it is a follow-up to what the form
                   just recorded — it renders nothing until this door is logged

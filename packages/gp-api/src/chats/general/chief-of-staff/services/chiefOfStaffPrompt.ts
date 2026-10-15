@@ -6,6 +6,7 @@ import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnow
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   BUILD_CITIZENS_PANEL_PURPOSE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
   PANEL_SEED_ASSUMED_JOIN_RATE,
   PANEL_SEED_TARGET_MEMBERS,
@@ -256,8 +257,8 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
   ].join('\n')
 }
 
-// What the agent does when the official presses Get started on the "Build
-// your civic panel" card: the home sends BUILD_CITIZENS_PANEL_MESSAGE as
+// What the agent does when the official presses Build my panel on the civic
+// panel build card: the home sends BUILD_CITIZENS_PANEL_MESSAGE as
 // a hidden turn. Behind serve-citizen-panels (civicPanel is only read with it
 // on). The steps follow what is already true, so it never offers a second
 // invite or a text the office cannot send.
@@ -301,10 +302,33 @@ const civicPanelBuildBlock = (
               ]
   return [
     `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", or they ask to build or start their civic panel):`,
-    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app when they press Get started on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
+    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app when they press Build my panel on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
     ...state,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters.',
+    ...civicPanelExplainLines(panel),
   ].join('\n')
+}
+
+// What the agent does when the official presses What's a civic panel? on the
+// build card: it explains, and builds nothing unless they say yes.
+const civicPanelExplainLines = (panel: CivicPanelBuildState): string[] => {
+  const offer =
+    panel.members > 0
+      ? `- End by saying they already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel, and offer to help them ask it about a priority.`
+      : panel.inviteSent
+        ? '- End by saying their panel invite already went out and people join as they reply JOIN. Offer nothing more.'
+        : '- End with one short question: do they want to build theirs? Nothing more. If they say yes, follow the CIVIC PANEL steps above as their ask to build it, without explaining the panel again.'
+  return [
+    `CIVIC PANEL EXPLAINED (apply when the user's message is exactly "${EXPLAIN_CIVIC_PANEL_MESSAGE}"):`,
+    `- "${EXPLAIN_CIVIC_PANEL_MESSAGE}" is sent by the app when they press What's a civic panel? on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
+    '- They asked what it is, not to build one. In 4 or 5 short sentences, calling it their civic panel, explain:',
+    '  - Why talking with people first makes the rest of the job easier: they walk into a decision already knowing what residents think.',
+    '  - What it is: residents who agreed to be asked what they think, about once a month, before the official decides.',
+    '  - How it gives residents a voice in council, board and committee work, including the people who never come to a meeting.',
+    offer,
+    '- In this reply, never count the district, size an invite, draft a text or present a card.',
+    '- Never call it representative, a poll, a survey panel, a focus group or proprietary.',
+  ]
 }
 
 const cardRulesBlock = (toolNames: string[]): string | null => {

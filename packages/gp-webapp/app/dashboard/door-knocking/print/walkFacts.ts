@@ -10,6 +10,7 @@ import {
   ANSWER_OPTIONS,
   CIVIC_PANEL_OPTIONS,
   CIVIC_PANEL_QUESTION,
+  CIVIC_PANEL_STAY_QUESTION,
   ENGAGEMENT_OPTIONS,
   FOLLOW_UP_OPTIONS,
   FOLLOW_UP_QUESTION,
@@ -77,6 +78,16 @@ const SERVE_PANEL_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
     : column,
 ) as unknown as typeof WALK_COLUMNS
 
+// A turf of panel members asks whether they want to stay on instead.
+const SERVE_PANEL_STAY_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
+  column.key === 'support'
+    ? {
+        ...column,
+        label: `${FOLLOW_UP_QUESTION} ${CIVIC_PANEL_STAY_QUESTION}`,
+      }
+    : column,
+) as unknown as typeof WALK_COLUMNS
+
 // Which grid a sheet prints, off the payload's own `isServe`. Paper is the
 // reason that flag is on the payload at all: `print/[turfId]` and its PDF
 // sibling render server-side with no organization provider over them, so the
@@ -84,11 +95,14 @@ const SERVE_PANEL_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
 export const walkColumns = (
   isServe: boolean,
   asksCivicPanel: boolean,
+  civicPanelOnly = false,
 ): typeof WALK_COLUMNS =>
   !isServe
     ? WALK_COLUMNS
     : asksCivicPanel
-      ? SERVE_PANEL_WALK_COLUMNS
+      ? civicPanelOnly
+        ? SERVE_PANEL_STAY_WALK_COLUMNS
+        : SERVE_PANEL_WALK_COLUMNS
       : SERVE_WALK_COLUMNS
 
 // The three answer columns a blank form fills, in order. What a skip

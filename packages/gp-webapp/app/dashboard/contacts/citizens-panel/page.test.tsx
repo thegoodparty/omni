@@ -32,7 +32,12 @@ const flagOn = () =>
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.serverRequest.mockResolvedValue({
-    data: { members: 3, reachedRecently: 1, askableNow: 2 },
+    data: {
+      members: 3,
+      reachedRecently: 1,
+      askableNow: 2,
+      lastOutreachAt: null,
+    },
   })
 })
 
