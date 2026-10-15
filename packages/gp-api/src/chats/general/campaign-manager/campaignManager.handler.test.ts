@@ -30,6 +30,7 @@ import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
 import { guardrailLine } from '../services/guardrailLines'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import type { PublicProfileAddressService } from '@/personProfiles/services/public-profile-address.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -80,6 +81,7 @@ const ctxWith = (
   isPro: null,
   story: null,
   plan: null,
+  publicProfile: { status: 'not-live' },
   ...over,
 })
 
@@ -292,6 +294,142 @@ const buildHandlerWithStory = (): CampaignManagerHandler =>
     undefined,
     {} as CampaignStoryIntakeService,
   )
+
+describe('CampaignManagerHandler.loadContext — public profile address', () => {
+  const ORG_SLUG = 'win-campaign'
+  const URL = 'https://goodparty.org/people/renee-diaz-0189abcd'
+  const GATE = {
+    personId: '0189abcd-0000-7000-8000-000000000000',
+    publishedAt: new Date('2026-10-01T00:00:00Z'),
+    deletedAt: null,
+  }
+  // The conversation owner (7) and the campaign's own user (9) differ on
+  // purpose: the profile belongs to the candidate, whoever is chatting.
+  const CAMPAIGN_ROW = {
+    id: 5,
+    userId: 9,
+    details: { state: 'IL' },
+    data: {},
+    user: { id: 9, firstName: 'Renee', lastName: 'Diaz', personProfile: GATE },
+  }
+
+  type CampaignRow = Omit<typeof CAMPAIGN_ROW, 'user'> & {
+    user: Omit<(typeof CAMPAIGN_ROW)['user'], 'personProfile'> & {
+      personProfile: typeof GATE | null
+    }
+  }
+
+  const buildAddressHandler = (
+    publicProfiles?: PublicProfileAddressService,
+    campaignRow: CampaignRow | null = CAMPAIGN_ROW,
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: ORG_SLUG }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: { findFirst: vi.fn(() => Promise.resolve(campaignRow)) },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      publicProfiles,
+    )
+  }
+
+  it("carries the address resolved from the campaign user's own gate, for the local day", async () => {
+    const resolve = vi.fn(() =>
+      Promise.resolve({ status: 'live' as const, url: URL }),
+    )
+    const handler = buildAddressHandler({
+      resolve,
+    } as unknown as PublicProfileAddressService)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'live', url: URL })
+    expect(resolve).toHaveBeenCalledWith(
+      GATE,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
+  })
+
+  it('passes a null gate when the campaign user has no profile row', async () => {
+    const resolve = vi.fn(() =>
+      Promise.resolve({ status: 'not-live' as const }),
+    )
+    const handler = buildAddressHandler(
+      { resolve } as unknown as PublicProfileAddressService,
+      { ...CAMPAIGN_ROW, user: { ...CAMPAIGN_ROW.user, personProfile: null } },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'not-live' })
+    expect(resolve).toHaveBeenCalledWith(
+      null,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
+  })
+
+  it('reads unknown when no service is wired', async () => {
+    const ctx = await buildAddressHandler(undefined).loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'unknown' })
+  })
+
+  it('reads unknown, not not-live, when the lookup throws', async () => {
+    const handler = buildAddressHandler({
+      resolve: vi.fn(() => Promise.reject(new Error('election-api down'))),
+    } as unknown as PublicProfileAddressService)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'unknown' })
+  })
+
+  it('reads unknown when the lookup outlives the turn timer', async () => {
+    vi.useFakeTimers()
+    try {
+      const handler = buildAddressHandler({
+        resolve: vi.fn(
+          () =>
+            new Promise(() => {
+              // Never settles: the handler's timer must give up first.
+            }),
+        ),
+      } as unknown as PublicProfileAddressService)
+      const pending = handler.loadContext('c1', 7)
+      // The handler's lookup timer (LIVE_RACE_TIMEOUT_MS) is 3 s.
+      await vi.advanceTimersByTimeAsync(3_100)
+      expect((await pending).publicProfile).toEqual({ status: 'unknown' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reads unknown when the campaign does not resolve', async () => {
+    const handler = buildAddressHandler(
+      {
+        resolve: vi.fn(() =>
+          Promise.resolve({ status: 'live' as const, url: URL }),
+        ),
+      } as unknown as PublicProfileAddressService,
+      null,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'unknown' })
+  })
+})
 
 describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
   it('registers campaign_story when the intake service + campaign are present', () => {
