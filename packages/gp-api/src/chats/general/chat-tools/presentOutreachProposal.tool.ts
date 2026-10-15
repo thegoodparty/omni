@@ -3,7 +3,7 @@ import {
   CIVIC_PANEL_LEAVE_LINE,
   isCivicPanelOnlyList,
   OutreachProposalSchema,
-  PANEL_SEED_SAMPLE_SIZE,
+  panelSeedSampleSize,
   PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
   PRIORITY_STEP_LABELS,
@@ -143,7 +143,8 @@ type ChiefOfStaffPanelProposalInput = z.infer<
 
 // Why a Chief of Staff proposal's civic panel part cannot be shown, or
 // null. The invite goes once, to a random group of the district's cell
-// phones sized for about 100 members, with the join ask on.
+// phones sized for the district's goal (panelGoalMembers), with the join
+// ask on.
 export const checkPanelInvite = (
   input: Pick<
     ChiefOfStaffPanelProposalInput,
@@ -155,7 +156,7 @@ export const checkPanelInvite = (
     | 'count'
     | 'sampleSize'
   >,
-  panel: { members: number; inviteSent: boolean },
+  panel: { members: number; inviteSent: boolean; goalMembers: number },
 ): string | null => {
   if (input.purpose === undefined) {
     return input.civicPanelAsk
@@ -202,7 +203,7 @@ export const checkPanelInvite = (
       'pass that as audienceFilters.'
     )
   }
-  const sendTo = Math.min(PANEL_SEED_SAMPLE_SIZE, input.count)
+  const sendTo = Math.min(panelSeedSampleSize(panel.goalMembers), input.count)
   if (input.sampleSize !== sendTo) {
     return (
       `Set sampleSize to ${sendTo}, the number size_panel_invite returned ` +
@@ -215,6 +216,7 @@ export const checkPanelInvite = (
 export const buildChiefOfStaffOutreachProposalTool = (panel: {
   members: number
   inviteSent: boolean
+  goalMembers: number
 }): LlmStreamTool<typeof chiefOfStaffPanelProposalInput> => ({
   description:
     DESCRIPTION +
@@ -375,8 +377,8 @@ export const checkPanelPart = (input: {
     input.panelSampleSize >= input.sampleSize
   ) {
     return (
-      'sampleSize is the whole send: the panel part plus as many residents ' +
-      'not on the panel, so twice panelSampleSize. A send of panel members ' +
+      'sampleSize is the whole send: the panel part plus the residents not ' +
+      'on the panel, as size_panel_ask returned it. A send of panel members ' +
       'alone invites nobody new to join. Set sampleSize that way and ' +
       'present again.'
     )

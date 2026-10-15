@@ -129,6 +129,7 @@ describe('buildChiefOfStaffOutreachProposalTool', () => {
     const tool = buildChiefOfStaffOutreachProposalTool({
       members: 0,
       inviteSent: false,
+      goalMembers: 240,
     })
     expect(
       await tool.execute({

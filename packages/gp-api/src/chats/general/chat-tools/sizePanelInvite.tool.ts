@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import {
   PANEL_SEED_ASSUMED_JOIN_RATE,
-  PANEL_SEED_SAMPLE_SIZE,
-  PANEL_SEED_TARGET_MEMBERS,
+  panelSeedSampleSize,
 } from '@goodparty_org/contracts'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
@@ -28,14 +27,16 @@ const formatCost = (cents: number): string =>
     ? `$${(cents / 100).toFixed(2)}`
     : `$${Math.round(cents / 100).toLocaleString('en-US')}`
 
-// Pure arithmetic over the panel's seed constants, so the model never sizes
-// the invite or prices it in its head.
+// Pure arithmetic over the panel's seed constants and the district's goal
+// (panelGoalMembers), so the model never sizes the invite or prices it in
+// its head.
 export const sizePanelInvite = (
   input: z.infer<typeof sizePanelInviteInput>,
+  goalMembers: number,
 ) => {
-  const sendTo = Math.min(PANEL_SEED_SAMPLE_SIZE, input.audience)
+  const sendTo = Math.min(panelSeedSampleSize(goalMembers), input.audience)
   return {
-    targetMembers: PANEL_SEED_TARGET_MEMBERS,
+    targetMembers: goalMembers,
     joinPerHundred: Math.round(PANEL_SEED_ASSUMED_JOIN_RATE * 100),
     sendTo,
     wholeAudience: sendTo >= input.audience,
@@ -43,9 +44,9 @@ export const sizePanelInvite = (
   }
 }
 
-export const buildSizePanelInviteTool = (): LlmStreamTool<
-  typeof sizePanelInviteInput
-> => ({
+export const buildSizePanelInviteTool = (
+  goalMembers: number,
+): LlmStreamTool<typeof sizePanelInviteInput> => ({
   description:
     'Size the text that builds the civic panel. Call it after ' +
     'count_contacts counts the district with a cell phone. Returns the ' +
@@ -54,5 +55,5 @@ export const buildSizePanelInviteTool = (): LlmStreamTool<
     'the cost, ready to quote as written. Use these numbers as given; never work ' +
     'them out yourself.',
   inputSchema: sizePanelInviteInput,
-  execute: sizePanelInvite,
+  execute: (input) => sizePanelInvite(input, goalMembers),
 })

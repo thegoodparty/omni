@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import {
+  answersNeeded,
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
   OrdinanceCurrentLawSummarySchema,
@@ -65,6 +66,7 @@ import {
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
+import { buildSizePanelAskTool } from '../chat-tools/sizePanelAsk.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
@@ -226,6 +228,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
+    const panelAnswersNeeded = outreachFeedbackEnabled
+      ? answersNeeded(
+          this.contacts
+            ? await this.contacts.getDistrictPopulation(ctx.organization)
+            : null,
+        )
+      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -240,6 +249,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
+        panelAnswersNeeded,
         reportBacks,
       }
     }
@@ -247,6 +257,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       ...ctx,
       outreachFeedbackEnabled,
       civicPanelMembers,
+      panelAnswersNeeded,
       reportBacks,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
@@ -435,6 +446,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     }
 
     if (ctx.outreachFeedbackEnabled) {
+      if (ctx.panelAnswersNeeded !== undefined) {
+        tools.size_panel_ask = buildSizePanelAskTool(ctx.panelAnswersNeeded)
+      }
       tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
         outreach: this.outreach,
         priorityId: ctx.priorityId,

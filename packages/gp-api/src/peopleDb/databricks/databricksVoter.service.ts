@@ -470,6 +470,20 @@ export class DatabricksVoterService {
     return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
+  // The district's census population on its own, without the voter scan
+  // findStats runs: the civic panel sizes its goal from it. Null without a
+  // census row. Throws on a warehouse failure; the caller decides what that
+  // means.
+  async findDistrictPopulation(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<number | null> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(buildDistrictCensusSql(district))
+    const raw = rows[0]?.[0]
+    return raw == null ? null : Math.round(Number(raw))
+  }
+
   // The district's census row and the block groups the given people live
   // in, for comparing the two. Not through `run()`: every caller treats a
   // failure as "comparison unavailable" and answers 200, so the error-level

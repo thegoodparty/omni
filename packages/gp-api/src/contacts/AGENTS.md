@@ -698,8 +698,10 @@ Once the office has an active plan, the open card follows it: the sync
 reads the plan first (`CivicPanelBuildPlanService.read`, looked up through
 `ModuleRef` because importing the contacts module closes a module cycle, and
 before the lock, since the read is what moves the plan), and the card's
-title is the plan's `next.line`, its summary "<members> of <goal> members so
-far.", its button the panel page's own words for that step ("Start the
+title is the plan's `next.line`, its summary the panel page rail's answers
+line ("Your panel can give about <expectedAnswers> of the <answersNeeded>
+answers you need.", or "Your panel can give the <answersNeeded> answers you
+need." once it can), its button the panel page's own words for that step ("Start the
 text", "Start the calls", "Start door knocking"; "Keep calling", "Keep
 knocking"; "See your plan" while waiting) and its link `next.href` (the
 panel page on that step, or the page itself with no link). With no plan, an
@@ -734,9 +736,12 @@ the rest. `meet` is done only once its button opens the intro
 the build card's own chat would otherwise hide it from a new official. One
 advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
-second insert. The seed draw is contracts' `PANEL_SEED_SAMPLE_SIZE`:
-`ceil(PANEL_SEED_TARGET_MEMBERS / PANEL_SEED_ASSUMED_JOIN_RATE)`, 3,334 at
-100 members and 3%, under `MAX_LIST_SAMPLE_SIZE`.
+second insert. The Chief of Staff's single invite text is
+`panelSeedSampleSize(goalMembers)`: `ceil(goalMembers /
+PANEL_SEED_ASSUMED_JOIN_RATE)` under `MAX_LIST_SAMPLE_SIZE` (8,000 at 240
+members and 3%), with the district's goal (see "Sized in answers" below).
+The outreach page's own invite has no population at hand and uses
+`PANEL_SEED_SAMPLE_SIZE`, the same for the uncorrected 240.
 
 **Reporting back is a card too.** The same read runs
 `DashboardCardsService.syncReportBackCards`: one `report_back` card per
@@ -795,13 +800,27 @@ doors, in waves (`CivicPanelBuildPlanService`, pure math in
 `utils/civicPanelBuild.util.ts`, contracts in
 `people/CivicPanelBuildPlan.schema.ts`). The webapp's panel page
 (`/dashboard/contacts/citizens-panel`) is its home: the weekly time
-question, the steps, Next and members against the goal.
+question, the steps, Next and the answers the panel can give.
+
+**Sized in answers.** Every panel size targets answers to one question, not
+members (Bryan, 2026-10-15). `contracts/src/people/PanelAnswers.ts` holds the
+math, shared with Serve onboarding: `answersNeeded(population)` is the
+finite-population-corrected sample for 10 points either way at 95%
+confidence near an even split, `n0 = 1.96² × 0.25 / 0.1²` (96.04), `n = n0 /
+(1 + (n0 - 1) / N)`, rounded: 96 for Asheville (105,154), 92 for a town of
+2,000. Without a census population (no row, no district, or a failed read)
+it is the uncorrected 96. `panelGoalMembers(population)` is
+`ceil(answersNeeded / PANEL_ASSUMED_REPLY_RATE)`, 240 or 230.
+`ContactsService.getDistrictPopulation` reads the population
+(`StatsService.findDistrictPopulation`, the census mart's
+`district_population` on its own, without the voter scan) and folds any
+failure into null.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`
 (Prisma cannot declare it), plus an advisory lock per office around every
-write. It ends `completed` once members reach `goalMembers` (100, contracts'
-`PANEL_SEED_TARGET_MEMBERS`) or `exhausted` once a wave can reach nobody;
+write. It ends `completed` once members reach `goalMembers` (the district's
+`panelGoalMembers`) or `exhausted` once a wave can reach nobody;
 either way a new plan can be made. `CivicPanelBuildStep` is one text, one
 call list or one walkable area in a wave (`wave`, `channel`, `position`,
 `targetSize`: residents to text, residents to call, households to knock).
@@ -809,6 +828,17 @@ call list or one walkable area in a wave (`wave`, `channel`, `position`,
 `phoneBankingListId`, `doorKnockingTurfId` and the three dates are written by
 the plan read from what it finds made from that list. The official never
 sets a flag.
+
+**The goal follows the district.** A new plan's `goalMembers` is
+`panelGoalMembers` of the district's population. Every read brings an active
+plan's goal to the district's, written back to the row, so plans made toward
+the old 100 members read like new ones with no migration. A goal may come
+down (a census figure moved) but never below the members the panel has: the
+plan then completes. The response's `progress` is `{ members, goal,
+answersNeeded, expectedAnswers }` (`CivicPanelBuildProgressSchema`):
+`expectedAnswers` is `panelExpectedAnswers(members)`, members ×
+`PANEL_ASSUMED_REPLY_RATE`, rounded. Without an active plan `goal` is the
+district's, so an office whose old plan completed at 100 can make a new one.
 
 **Sizing** (`sizePanelWave`, constants in contracts). One question: the
 official's own hours each week, `hoursPerWeek`, `PANEL_MIN_HOURS_PER_WEEK`

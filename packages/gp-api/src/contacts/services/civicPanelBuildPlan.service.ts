@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import {
+  answersNeeded,
   BUILD_CITIZENS_PANEL_PURPOSE,
-  PANEL_SEED_TARGET_MEMBERS,
+  panelExpectedAnswers,
+  panelGoalMembers,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   type CivicPanelBuildPlanResponse,
@@ -137,7 +139,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       throw new ConflictException('This office already has a panel plan')
     }
     const members = await this.memberCount(organization)
-    const gap = PANEL_SEED_TARGET_MEMBERS - members
+    const goalMembers = panelGoalMembers(
+      await this.contactsService.getDistrictPopulation(organization),
+    )
+    const gap = goalMembers - members
     if (gap <= 0) {
       throw new ConflictException(
         'Your civic panel has already reached its goal',
@@ -170,7 +175,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           data: {
             electedOfficeId: office.id,
             organizationSlug: office.organizationSlug,
-            goalMembers: PANEL_SEED_TARGET_MEMBERS,
+            goalMembers,
             hoursPerWeek,
             steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
           },
@@ -242,22 +247,51 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return this.read(organization)
   }
 
-  // The plan as it stands. Reading it is what moves it: step links and
-  // dates are refreshed from the sends, call lists and walks, the plan
-  // closes once the panel reaches its goal, and the next wave is made once
-  // the current one is due.
+  // The plan as it stands. Reading it is what moves it: an active plan's
+  // goal is brought to the district's (see goalFor), step links and dates
+  // are refreshed from the sends, call lists and walks, the plan closes once
+  // the panel reaches its goal, and the next wave is made once the current
+  // one is due.
   async read(organization: Organization): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
     const members = await this.memberCount(organization)
+    const population =
+      await this.contactsService.getDistrictPopulation(organization)
+    const needed = answersNeeded(population)
+    const districtGoal = panelGoalMembers(population)
     const active = await this.findActive(office.id)
-    if (active) await this.advance(organization, office, active, members)
+    if (active) {
+      const goalMembers = this.goalFor(
+        active.goalMembers,
+        districtGoal,
+        members,
+      )
+      if (goalMembers !== active.goalMembers) {
+        await this.model.updateMany({
+          where: { id: active.id, status: CivicPanelBuildPlanStatus.active },
+          data: { goalMembers },
+        })
+      }
+      await this.advance(
+        organization,
+        office,
+        { ...active, goalMembers },
+        members,
+      )
+    }
     const plan = await this.model.findFirst({
       where: { electedOfficeId: office.id },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: { steps: { select: STEP_SELECT } },
     })
-    const progress = { members, goal: PANEL_SEED_TARGET_MEMBERS }
-    if (!plan) return { plan: null, next: null, progress }
+    const progressToward = (goal: number) => ({
+      members,
+      goal,
+      answersNeeded: needed,
+      expectedAnswers: panelExpectedAnswers(members),
+    })
+    if (!plan)
+      return { plan: null, next: null, progress: progressToward(districtGoal) }
     const now = new Date()
     const currentWave = Math.max(1, ...plan.steps.map((s) => s.wave))
     const steps = plan.steps
@@ -281,7 +315,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         plan.status === CivicPanelBuildPlanStatus.active
           ? nextStep(steps.filter((s) => s.wave === currentWave))
           : null,
-      progress: { members, goal: plan.goalMembers },
+      progress: progressToward(
+        plan.status === CivicPanelBuildPlanStatus.active
+          ? plan.goalMembers
+          : districtGoal,
+      ),
     }
   }
 
@@ -744,6 +782,20 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       [CivicPanelStatus.member],
     )
     return members.length
+  }
+
+  // An active plan's goal follows the district's, so plans made before the
+  // goal was sized in answers (100 members) and plans whose census figure
+  // moved read the same as a new one. It may come down, but never below the
+  // members the panel already has: the plan then completes rather than
+  // reading as past its goal.
+  private goalFor(
+    planGoal: number,
+    districtGoal: number,
+    members: number,
+  ): number {
+    if (districtGoal >= planGoal) return districtGoal
+    return Math.max(districtGoal, members)
   }
 
   private findActive(electedOfficeId: string): Promise<PlanRow | null> {

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
+import { panelGoalMembers } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -175,6 +176,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
               user: userId,
               feature: SERVE_SMS_FLAG,
             }),
+            panelGoalMembers(
+              this.contacts
+                ? await this.contacts.getDistrictPopulation(ctx.organization)
+                : null,
+            ),
           )
         : undefined
     const reportBacks =
@@ -400,7 +406,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           ? buildChiefOfStaffOutreachProposalTool(panelInvite)
           : buildPresentOutreachProposalTool()
         tools.size_outreach_sample = buildSizeOutreachSampleTool()
-        if (panelInvite) tools.size_panel_invite = buildSizePanelInviteTool()
+        if (panelInvite) {
+          tools.size_panel_invite = buildSizePanelInviteTool(
+            panelInvite.goalMembers,
+          )
+        }
       }
     }
 
