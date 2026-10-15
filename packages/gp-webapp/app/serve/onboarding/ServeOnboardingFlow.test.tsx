@@ -280,6 +280,152 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     await waitFor(() => expect(communityStarts).toBe(1))
   })
 
+  it('starts community issues on the welcome step when the office is already on the org', async () => {
+    mockLoad(
+      buildEO(),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
+      }),
+    )
+    let communityStarts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return { status: 200, data: { starterIssueCount: 1 } }
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText(
+      'Hear from your whole community, not just the loudest voices',
+    )
+    await waitFor(() => expect(communityStarts).toBe(1))
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Are you already in office?')
+    expect(communityStarts).toBe(1)
+  })
+
+  it('starts community issues for a net-new official right after the office is saved, and only once', async () => {
+    const calls: string[] = []
+    api.mock('GET /v1/elected-office/current', { status: 404, data: {} })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] })
+    api.mock('POST /v1/elected-office', {
+      status: 200,
+      data: buildEO({ id: 'eo-new' }),
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ id: 'eo-new' }),
+    })
+    api.mock('PATCH /v1/organizations/:slug', () => {
+      calls.push('patch office')
+      return { status: 200, data: buildOrg() }
+    })
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      calls.push('start issues')
+      return { status: 200, data: { starterIssueCount: 1 } }
+    })
+    const positionsKey = ['serve-onboarding-positions', '90001']
+    testQueryClient.setQueryData(positionsKey, [
+      {
+        brPositionId: 'br-pos-1',
+        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+        city: 'Springfield',
+      },
+    ])
+
+    try {
+      const user = userEvent.setup()
+      renderFlow()
+
+      await screen.findByText(
+        'Hear from your whole community, not just the loudest voices',
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('button', { name: /I'm an elected official/ }),
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('button', {
+          name: /Independent \/ Non-major party/,
+        }),
+      )
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await screen.findByText('What office do you currently hold?')
+      await user.type(
+        screen.getByPlaceholderText('Enter 5 digit zip code'),
+        '90001',
+      )
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      expect(calls).toEqual([])
+
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await waitFor(() =>
+        expect(calls).toEqual(['patch office', 'start issues']),
+      )
+
+      await screen.findByText('When does your term run?')
+      await fillTermDates(user)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByText(
+        "Here's everything to know about your constituents",
+      )
+      expect(calls.filter((call) => call === 'start issues')).toHaveLength(1)
+    } finally {
+      testQueryClient.removeQueries({ queryKey: positionsKey })
+    }
+  })
+
+  it('adds issues that land after the list loads, past a failed check, without resetting picks', async () => {
+    resumedAt('priorities')
+    let loads = 0
+    api.mock('GET /v1/priorities/onboarding', () => {
+      loads += 1
+      const typed = {
+        key: 'typed-1',
+        kind: 'other' as const,
+        title: 'Library hours',
+        description: 'Open on Sundays.',
+        selected: true,
+      }
+      const community = {
+        key: 'issue-1',
+        kind: 'community' as const,
+        title: 'Housing costs',
+        description: 'Rents are rising fast.',
+        selected: false,
+      }
+      if (loads === 2) return { status: 500, data: {} }
+      return {
+        status: 200,
+        data: { options: loads < 3 ? [typed] : [typed, community] },
+      }
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    const typed = await screen.findByLabelText(/Library hours/)
+    expect(typed).toBeChecked()
+    expect(screen.queryByLabelText(/Housing costs/)).not.toBeInTheDocument()
+    await user.click(typed)
+    expect(typed).not.toBeChecked()
+
+    expect(
+      await screen.findByLabelText(/Housing costs/, {}, { timeout: 12_000 }),
+    ).not.toBeChecked()
+    expect(screen.getByLabelText(/Library hours/)).not.toBeChecked()
+    expect(
+      screen.queryByText('Finding issues in your community'),
+    ).not.toBeInTheDocument()
+    const loadsWhenFound = loads
+    await new Promise((resolve) => setTimeout(resolve, 4_500))
+    expect(loads).toBe(loadsWhenFound)
+  }, 25_000)
+
   it('offers a retry and never saves when the issues fail to load', async () => {
     resumedAt('priorities')
     let failing = true

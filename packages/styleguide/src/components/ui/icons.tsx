@@ -131,6 +131,7 @@ export {
   DoorOpen as DoorOpenIcon,
   MessageSquareMore as MessageSquareMoreIcon,
   CalendarClock as CalendarClockIcon,
+  CalendarCheck as CalendarCheckIcon,
   CircleDot as CircleDotIcon,
   Headset as HeadsetIcon,
   Facebook as FacebookIcon,
