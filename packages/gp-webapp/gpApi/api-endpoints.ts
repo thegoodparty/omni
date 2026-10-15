@@ -71,6 +71,10 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServePollCreate,
+  ServePollCreateResponse,
+  ServePollDraftRequest,
+  ServePollDraftResponse,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
   ServeSmsDraftRequest,
@@ -483,6 +487,20 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/sms': {
     Request: ServeSmsCreateRequest
     Response: ServeSmsCreateResponse
+  }
+
+  // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
+  // returns only the question: the greeting and opt-out line are composed by
+  // the create. The create writes the pending_payment row the SERVE_TEXT
+  // checkout then bills.
+  'POST /v1/outreach/serve/poll/draft': {
+    Request: ServePollDraftRequest
+    Response: ServePollDraftResponse
+  }
+
+  'POST /v1/outreach/serve/poll': {
+    Request: ServePollCreate
+    Response: ServePollCreateResponse
   }
 
   // Persists the social campaign atomically (spine row + satellite +

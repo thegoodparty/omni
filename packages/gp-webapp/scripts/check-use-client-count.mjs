@@ -512,7 +512,10 @@ import { dirname, join, relative } from 'node:path'
 // and useSmsCompliance reads the campaign through the client campaign
 // context, so neither can render on the server. SmsCutoffNoticeDialog and
 // SmsCutoffPage carry no directive.
-const BASELINE = 593
+// 2026-10-14: 593 -> 594 for the Serve poll create flow. PollFlow owns the
+// step, draft, audience and checkout state of a multi-step flow; its topic and
+// question steps carry no directive and inherit the boundary from it.
+const BASELINE = 594
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

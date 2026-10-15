@@ -380,7 +380,8 @@ const SERVE_AREAS: ProductArea[] = [
     modes: ['serve'],
     does: 'Build and send outreach to constituents, and see what has gone out.',
     inside: [
-      'Four channels: Social media, SMS, Phone banking, and Door knocking',
+      'Four channels: Social media, SMS, Phone banking, and Door knocking. Where self-serve polls are on, a fifth, Poll / Survey, sits beside them',
+      'Poll / Survey walks topic, who, question, date, then review and pay. Picking a topic drafts the question; the tone (Neutral, Warm, Direct, Friendly) and Regenerate rewrite it, and Optimize message flags wording that leads people toward an answer. It goes to a random sample of constituents, sized for a reliable read, or to a saved list. The greeting and the opt-out line are fixed. It is paid per text at checkout and then held for review, within 2 business days, before it sends at 11am local on the date chosen',
       'Door knocking opens its own page rather than a flow here',
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
@@ -390,7 +391,7 @@ const SERVE_AREAS: ProductArea[] = [
       'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
       'Once a text send’s replies are in, its row in outreach history lists them under Responses and links to What we heard, where the replies are grouped into themes',
     ],
-    gate: 'Texting is being rolled out office by office, so the SMS channel is not on every account yet. It is paid for per message at checkout, with no subscription.',
+    gate: 'Texting and self-serve polls are being rolled out office by office, so the SMS and Poll / Survey channels are not on every account yet. Both are paid for per message at checkout, with no subscription.',
   },
   {
     navId: 'contacts-dashboard',
