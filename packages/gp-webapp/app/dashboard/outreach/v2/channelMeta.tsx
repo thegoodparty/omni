@@ -14,6 +14,7 @@ import {
   CheckCircleIcon,
   CircleDotIcon,
   CircleIcon,
+  ClipboardListIcon,
   ClockIcon,
   DoorOpenIcon,
   HeadsetIcon,
@@ -76,9 +77,9 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   },
   poll: {
     label: 'Poll / Survey',
-    icon: <MessageSquareIcon />,
-    iconTint: 'bg-brand-blue-200',
-    badgeTint: 'bg-brand-blue-200 text-foreground',
+    icon: <ClipboardListIcon />,
+    iconTint: 'bg-brand-bright-yellow-200',
+    badgeTint: 'bg-brand-bright-yellow-200 text-foreground',
   },
   robocall: {
     label: 'Robocall',
