@@ -833,7 +833,11 @@ its top guardrail or a fallback path, and is gradeable from the final output
 alone. Checked cases come first, because a background list is walked only to
 `maxCases` (3), so a background list's first three cases are its CI checks. A
 check is only useful while the base passes it: one the current agent fails
-reads as a shared failure on every sweep and catches nothing.
+reads as a shared failure on every sweep and catches nothing. These
+conditions state a contract the input exercises rather than a mutation it
+planted. `opposition_research` is the weak one: every roster opponent is a
+`Test` placeholder the agent is told to drop, so its checks catch the
+candidate listing itself but not a run that drops real filers.
 
 ## A chat case can carry the same checks
 

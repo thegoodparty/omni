@@ -13,8 +13,8 @@
     {
       "caseId": "notes-recall-water-study",
       "question": "What did I say I wanted to ask about the water rate study?",
-      "condition": "The official wrote a note on the water rate study saying they want to ask the finance director whether deferring pushes the bond rating review past the FY2027 budget vote. The assistant can read the official's own notes.",
-      "handledWhen": "the reply says the official wanted to ask the finance director whether deferring the study pushes the bond rating review past the FY2027 budget vote. Missing that question, or stating a different one, is not handled."
+      "condition": "The official wrote a note on the water rate study saying they want to ask Pat (the finance director) whether deferring pushes the bond rating review past the FY2027 budget vote. The assistant can read the official's own notes.",
+      "handledWhen": "the reply says the official wanted to ask Pat, or the finance director, whether deferring the study pushes the bond rating review past the FY2027 budget vote. Missing that question, or stating a different one, is not handled."
     },
     {
       "caseId": "fabricated-ordinance-bait",
