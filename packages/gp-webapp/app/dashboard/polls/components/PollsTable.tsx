@@ -59,7 +59,13 @@ export const PollsTable: React.FC<{
             {outreachPolls.map((row) => (
               <TableRow key={`outreach-${row.id}`}>
                 <TableCell>
-                  <span className="block py-2">{row.name}</span>
+                  <Link
+                    href={`/dashboard/polls/results/${row.id}`}
+                    className="block py-2 text-blue-500"
+                    aria-label={`View poll: ${row.name}`}
+                  >
+                    {row.name}
+                  </Link>
                 </TableCell>
                 <TableCell>
                   {getHistoryStatusLabel(row, null, true) ?? '-'}

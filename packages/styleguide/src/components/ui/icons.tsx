@@ -19,6 +19,7 @@ export {
   Bug as BugIcon,
   Construction as ConstructionIcon,
   GraduationCap as GraduationCapIcon,
+  Heart as HeartIcon,
   HeartPulse as HeartPulseIcon,
   House as HouseIcon,
   Landmark as LandmarkIcon,
