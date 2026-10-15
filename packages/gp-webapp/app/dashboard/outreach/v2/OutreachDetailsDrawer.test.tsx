@@ -1878,3 +1878,58 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('OutreachDetailsDrawer — poll rows', () => {
+  const pollRow: HistoryRow = {
+    id: 52,
+    createdAt: '2026-08-10T00:00:00Z',
+    outreachType: 'poll',
+    name: 'Budget poll',
+    status: 'completed',
+    message: 'Hi there, this is Dana. Should we fund the pool? Reply STOP',
+  }
+
+  it('links a completed poll to its results page by outreach id', () => {
+    render(
+      <OutreachDetailsDrawer row={pollRow} onOpenChange={vi.fn()} isServe />,
+    )
+
+    expect(screen.getByText(/Should we fund the pool\?/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'View full results' }),
+    ).toHaveAttribute('href', '/dashboard/polls/results/52')
+  })
+
+  it('says responses are still coming in for a poll in progress, with no results link', () => {
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...pollRow, status: 'in_progress' }}
+        onOpenChange={vi.fn()}
+        isServe
+      />,
+    )
+
+    expect(
+      screen.getByText('Sent, now gathering responses. No action needed.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'View full results' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers no footer action while a poll is in review', () => {
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...pollRow, status: 'pending' }}
+        onOpenChange={vi.fn()}
+        isServe
+      />,
+    )
+
+    expect(screen.getByText('In review')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'View full results' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/Move to archive/)).not.toBeInTheDocument()
+  })
+})
