@@ -882,3 +882,66 @@ describe('synthesis after results land', () => {
     ).toBe(0)
   })
 })
+
+describe('a Serve poll send through the same surface', () => {
+  const PEOPLE = Array.from({ length: 5 }, (_, i) => ({
+    personId: `person-poll-${i}`,
+    phone: `+1303555030${i}`,
+  }))
+  const REPLIES_CSV = [
+    'Contact Phone Number,Message Text,Sent At,Send Direction',
+    ...PEOPLE.map(
+      (person, i) =>
+        `${person.phone},Fix the splash pad ${i},2026-08-11T15:0${i}:00.000Z,INBOUND`,
+    ),
+  ].join('\n')
+
+  let poll: Outreach
+
+  beforeEach(async () => {
+    poll = await createSend(OutreachStatus.in_progress, OutreachType.poll)
+    await service.prisma.outreachTextRecipient.createMany({
+      data: PEOPLE.map((person) => ({
+        outreachId: poll.id,
+        organizationSlug: ORG_SLUG,
+        personId: person.personId,
+        phone: person.phone,
+      })),
+    })
+  })
+
+  it('lists an in-progress poll in the awaiting queue', async () => {
+    const result = await getQueue()
+
+    expect(result.data.items).toContainEqual(
+      expect.objectContaining({
+        kind: 'sms',
+        id: String(poll.id),
+        outreachType: OutreachType.poll,
+        recipientCount: 5,
+      }),
+    )
+  })
+
+  it('ingests its replies and starts a synthesis run', async () => {
+    const result = await upload(REPLIES_CSV, false, poll.id)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    expect(
+      await service.prisma.pollIndividualMessage.count({
+        where: { outreachId: poll.id },
+      }),
+    ).toBe(5)
+    await vi.waitFor(async () => {
+      const runs = await service.prisma.feedbackSynthesisRun.findMany({
+        where: { outreachId: poll.id },
+      })
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        organizationSlug: ORG_SLUG,
+        confirmed: 5,
+      })
+    })
+  })
+})

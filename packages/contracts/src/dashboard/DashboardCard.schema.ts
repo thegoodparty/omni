@@ -60,7 +60,7 @@ export const isCivicPanelBuildCard = (
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_BUILD_CARD_PREFIX)
 
-// Where the build card's Get started goes: the Chief of Staff home, which
+// Where the build card's Build my panel goes: the Chief of Staff home, which
 // opens its chat on the conversation that builds the panel and drops the
 // param, so the official never leaves the home to start.
 export const CIVIC_PANEL_BUILD_CHAT_PARAM = 'chat'

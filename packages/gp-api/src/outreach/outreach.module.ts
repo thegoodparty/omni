@@ -66,6 +66,7 @@ import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneB
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
+import { OutreachPollResultsService } from './services/outreachPollResults.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
 import { OutreachServePollDraftService } from './services/outreachServePollDraft.service'
@@ -215,6 +216,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // The reply list behind the Serve results surface. Reads
     // poll_individual_message, the only table that stores inbound SMS text.
     OutreachSmsRepliesService,
+    OutreachPollResultsService,
     // The Serve SMS product layer: draft-first create, and the purchase
     // handler its checkout runs through.
     OutreachServeSmsCreateService,

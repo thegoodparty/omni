@@ -444,3 +444,50 @@ export const withCivicPanelLines = (
 
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
+
+const PROFILE_PHOTO_MAX_EDGE = 1024
+const PROFILE_PHOTO_QUALITIES = [0.85, 0.7, 0.5]
+
+// The profile photo the SMS image starts from. Avatars are stored at up to
+// 5 MB, ten times what an MMS attachment allows, so anything over the cap or
+// in another format is redrawn as a JPEG. Null on any failure: the dropzone
+// is still there, so a missing prefill only costs the candidate one upload.
+export const profilePhotoFile = async (url: string): Promise<File | null> => {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    if (
+      IMAGE_ACCEPT.split(',').includes(blob.type) &&
+      blob.size <= IMAGE_MAX_BYTES
+    ) {
+      const extension = blob.type.split('/')[1] ?? 'jpeg'
+      return new File([blob], `profile-photo.${extension}`, {
+        type: blob.type,
+      })
+    }
+    const bitmap = await createImageBitmap(blob)
+    const scale = Math.min(
+      1,
+      PROFILE_PHOTO_MAX_EDGE / Math.max(bitmap.width, bitmap.height),
+    )
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    canvas
+      .getContext('2d')
+      ?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+    for (const quality of PROFILE_PHOTO_QUALITIES) {
+      const jpeg = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', quality),
+      )
+      if (jpeg && jpeg.size <= IMAGE_MAX_BYTES) {
+        return new File([jpeg], 'profile-photo.jpeg', { type: 'image/jpeg' })
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}

@@ -20,7 +20,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   buildPanel: 'Build your civic panel',
   loadError:
     "We couldn't load your civic panel. Refresh the page to try again.",
-  backToContacts: 'Back to constituent data',
+  backToContacts: 'Back to constituents',
   pageCaption:
     'How many people are on it, and how they compare with your district.',
   seeMembers: 'See members',

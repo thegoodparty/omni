@@ -78,9 +78,15 @@ export const PANEL_SEED_SAMPLE_SIZE = Math.min(
   MAX_LIST_SAMPLE_SIZE,
 )
 
-// The hidden turn the Chief of Staff home sends when the official presses Get
-// started on the build card, so the agent starts building the panel and the
+// The hidden turn the Chief of Staff home sends when the official presses Build
+// my panel on the build card, so the agent starts building the panel and the
 // transcript can leave the turn out. A fixed string: the chat hides it on
 // reload by its exact words, and gp-api titles the conversation off it.
 export const BUILD_CITIZENS_PANEL_MARKER = '[Build civic panel]'
 export const BUILD_CITIZENS_PANEL_MESSAGE = `${BUILD_CITIZENS_PANEL_MARKER} Help me build my civic panel.`
+
+// The hidden turn the home sends when the official presses What's a civic
+// panel? on the build card: the agent explains the panel and builds nothing
+// unless they say yes. Fixed for the same reasons as the build turn.
+export const EXPLAIN_CIVIC_PANEL_MARKER = '[Explain civic panel]'
+export const EXPLAIN_CIVIC_PANEL_MESSAGE = `${EXPLAIN_CIVIC_PANEL_MARKER} What is a civic panel?`

@@ -229,9 +229,9 @@ const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
   // The Contacts route is shared: Win reads "Voter Data", Serve reads
-  // "Constituent Data". Use the same Win/Serve source as the page body
+  // "Constituents". Use the same Win/Serve source as the page body
   // (useWinVoterContext) so the header and content always agree — and wait for
-  // isReady so a Win user never flashes "Constituent Data" during load.
+  // isReady so a Win user never flashes "Constituents" during load.
   const { isWin, isReady } = useWinVoterContext()
   const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
   const pageTitle =

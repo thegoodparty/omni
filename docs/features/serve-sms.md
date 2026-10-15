@@ -241,16 +241,21 @@ shared message rows.
 
 ### Polls layer
 
-Not built in this work, specified so the delivery layer is shaped correctly.
+A self-serve poll is an `Outreach` row of type `poll` plus an `OutreachPoll`
+satellite (`topic`, `tone`, `audienceKind`, `lastAnalysisAt`, and
+`OutreachPollExpansion` rows for follow-on sends). The question is the spine's
+`message`. Themes are not `PollIssue` rows: a poll's replies take the `sms`
+upload path and What we heard synthesis groups them like any Serve send, so
+`FeedbackTheme` and `FeedbackThemeMember` (keyed on `textReplyId`) are the
+theme store. `PollIssue` stays on the legacy `Poll` table.
 
-When polls moves in, it becomes an `Outreach` row of type `poll` plus an
-`OutreachPoll` satellite, following the repo's documented satellite convention
-(a channel gets its own table only when its data changes shape, as with
-`OutreachSocial` and `OutreachRobocall`). The satellite carries what the spine
-has no column for: `targetAudienceSize`, `confidence`, `responseCount`,
-`estimatedCompletionDate`, `lastAnalysisAt`. `PollIssue` is re-keyed from
-`pollId` to `outreachId` the same XOR way. The `Poll` table then collapses into
-the spine.
+`GET /v1/outreach/serve/:id/poll-results` (flag `serve-self-serve-polls`)
+reads that run: `sent` is the `OutreachTextRecipient` count, `responses` is
+distinct non-opt-out constituents, and confidence uses `sent` as the
+population. Under `POLL_MIN_RESPONSES` (20, in contracts) it returns no themes
+and no confidence. `lastAnalysisAt` is stamped when an effort-scope run
+completes. The pipeline publishes at most 3 themes today (`publish_top_n`),
+under the contract's cap of 5.
 
 ## Layer 1: Delivery
 
@@ -666,20 +671,21 @@ model, and no per-person outbound path:
 `PollIndividualMessageSender.ELECTED_OFFICIAL` rows are only ever written by
 the bulk blast.
 
-**All three are deferred for v1** (decided 2026-09-21). Recorded by cost, since
-they come back at different times:
+**The thread and composer are deferred for v1** (decided 2026-09-21).
+Recorded by cost, since they come back at different times:
 
-* **Favorites and read state** need no vendor, just one flags table in the
-  delivery layer keyed by user and message. Deferred because the customer's
-  need is seeing who replied and what they said, not triage.
-* **The three filters that depend on read state** (Unread, Responded today,
-  Awaiting reply) come free once that table exists, and two of them are
-  meaningless without the thread anyway.
+* **Favorites and read state** shipped with polls (`OutreachReplyFlag`, one
+  row per user and reply). `PUT /v1/outreach/serve/:id/replies/:replyId/flags`
+  sets them and `GET :id/replies` returns the session user's own, with
+  `filter=unread|favorited`, `themeId`, `nonClustered` and a `crm` block
+  (contact id and status label only).
+* **The Unread filter** comes with that table. Responded today and Awaiting
+  reply are meaningless without the thread.
 * **The reply thread** needs per-person outbound SMS, which Slack fulfillment
   does not have. A vendor decision, not a slice. Do not design around it.
 
-v1 renders the reply list read-only: first name, content, CRM panel, and the
-"All" filter.
+The reply list has no thread or composer: first name, content, CRM panel,
+favorite and read state.
 
 ## Sequencing
 

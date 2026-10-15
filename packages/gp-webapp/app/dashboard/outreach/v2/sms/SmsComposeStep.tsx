@@ -291,19 +291,6 @@ export const SmsComposeStep = ({
         body="Start from a draft, dictate your own, or improve with AI."
       />
 
-      <FilterPillGroup
-        type="single"
-        value={tone}
-        onValueChange={(value) => value && onToneChange(value as SocialTone)}
-      >
-        {SOCIAL_TONE_VALUES.map((t) => (
-          <FilterPill key={t} value={t} className="gap-1.5">
-            {TONE_ICONS[t]}
-            {TONE_LABELS[t]}
-          </FilterPill>
-        ))}
-      </FilterPillGroup>
-
       <div className="space-y-3">
         {isDraftError && (
           <Card className="items-start gap-3 border-destructive p-4">
@@ -485,6 +472,18 @@ export const SmsComposeStep = ({
             </IconButton>
           </div>
         </Card>
+        <FilterPillGroup
+          type="single"
+          value={tone}
+          onValueChange={(value) => value && onToneChange(value as SocialTone)}
+        >
+          {SOCIAL_TONE_VALUES.map((t) => (
+            <FilterPill key={t} value={t} className="gap-1.5">
+              {TONE_ICONS[t]}
+              {TONE_LABELS[t]}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
         {civicPanelAsk && (
           <div className="flex items-start gap-3">
             <Checkbox

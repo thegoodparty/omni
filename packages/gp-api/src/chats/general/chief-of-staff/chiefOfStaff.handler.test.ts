@@ -21,7 +21,10 @@ import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
-import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -810,6 +813,49 @@ describe('ChiefOfStaffHandler', () => {
       expect(
         await proposalTool(handler.buildTools(ctx)).execute(invite),
       ).toHaveProperty('error')
+    })
+
+    describe("What's a civic panel?", () => {
+      const explainPrompt = async () => {
+        const { handler } = buildPanelHandler({ panels: true, texting: true })
+        return handler.buildSystemPrompt(
+          await handler.loadContext('c1', USER_ID),
+        )
+      }
+
+      it('explains the panel and asks before building anything', async () => {
+        const prompt = await explainPrompt()
+        expect(prompt).toContain(
+          "CIVIC PANEL EXPLAINED (apply when the user's message is exactly " +
+            `"${EXPLAIN_CIVIC_PANEL_MESSAGE}"`,
+        )
+        expect(prompt).toContain('They asked what it is, not to build one.')
+        expect(prompt).toContain('do they want to build theirs?')
+        expect(prompt).toContain(
+          'never count the district, size an invite, draft a text or ' +
+            'present a card',
+        )
+        expect(prompt).toContain(
+          'Never call it representative, a poll, a survey panel, a focus ' +
+            'group or proprietary.',
+        )
+      })
+
+      it('offers no build to an office that already has members', async () => {
+        withPanel({ members: 42, inviteSent: true })
+        const prompt = await explainPrompt()
+        expect(prompt).toContain(
+          'they already have 42 people on their civic panel',
+        )
+        expect(prompt).not.toContain('do they want to build theirs?')
+      })
+
+      it('offers no build once the invite is out', async () => {
+        withPanel({ members: 0, inviteSent: true })
+        const prompt = await explainPrompt()
+        expect(prompt).toContain('their panel invite already went out')
+        expect(prompt).not.toContain('do they want to build theirs?')
+      })
     })
 
     it('explains texting is not set up yet, and offers no invite', async () => {
