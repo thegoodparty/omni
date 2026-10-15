@@ -8,6 +8,11 @@ import ThemeDetailPage from './ThemeDetailPage'
 
 // The title bar is drawn as the real DashboardNavHeader draws it, an h1, since
 // the theme's title lives there now.
+// The note cards' Voter info sheet reads the org for its person query.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-slug' }),
+}))
+
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
   default: ({
@@ -338,6 +343,25 @@ describe('ThemeDetailPage', () => {
       screen.getByRole('button', { name: 'Show 2 more notes' }),
     )
     expect(screen.getByText('Note 12')).toBeInTheDocument()
+  })
+
+  it('opens the person a note is about in a sheet, not another page', async () => {
+    mockTheme()
+    api.mock('GET /v1/contacts/:id', ({ params }) => {
+      expect(params.id).toBe('person-1')
+      return { status: 500, data: {} }
+    })
+    renderPage()
+
+    const [first] = await screen.findAllByRole('button', { name: 'Voter data' })
+    await userEvent.click(first!)
+
+    const sheet = await screen.findByRole('dialog', { name: 'Voter data' })
+    expect(
+      await within(sheet).findByText(
+        "We couldn't load this voter. Try again in a moment.",
+      ),
+    ).toBeInTheDocument()
   })
 
   it('leaves out the asks when nobody named one', async () => {

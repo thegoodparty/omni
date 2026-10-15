@@ -40,6 +40,7 @@ const ThemeMemos = ({
         memos={members.map((member) => ({
           // Exactly one of the two is set.
           id: member.feedbackId ?? member.textReplyId ?? '',
+          personId: member.personId,
           transcript: member.transcript,
           issues: member.issues,
           actorName: member.actorName,

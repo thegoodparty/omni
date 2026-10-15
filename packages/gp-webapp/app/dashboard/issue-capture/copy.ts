@@ -85,6 +85,8 @@ export const WHAT_WE_HEARD_COPY = {
     backLabel: 'Back',
     details: 'Details',
     whatPeopleWant: 'What people want',
+    personInfo: 'Voter data',
+    personInfoFailed: "We couldn't load this voter. Try again in a moment.",
     showMoreWants: (hidden: number): string =>
       `Show ${hidden.toLocaleString()} more`,
     theNotes: (channel: FeedbackReportChannel): string =>
@@ -154,6 +156,9 @@ export const WHAT_WE_HEARD_COPY = {
     backLabel: 'Back',
     details: 'Details',
     whatPeopleWant: 'What people want',
+    personInfo: 'Constituent data',
+    personInfoFailed:
+      "We couldn't load this constituent. Try again in a moment.",
     showMoreWants: (hidden: number): string =>
       `Show ${hidden.toLocaleString()} more`,
     theNotes: (channel: FeedbackReportChannel): string =>

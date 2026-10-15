@@ -11,21 +11,22 @@ one flag, `issue-capture`. The API is `packages/gp-api/src/constituentFeedback/`
 
 ## Files
 
-| File                                                     | Role                                                                     |
-| -------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `issueCaptureAccess.ts`                                  | The server gates (dashboard, and flag only); return `isServe`            |
-| `[outreachId]/page.tsx`                                  | The report route                                                         |
-| `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                                |
-| `[outreachId]/queries.ts`                                | Report (polls while a summary runs) and theme                            |
-| `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states                         |
-| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize notes" and its refusals                                       |
-| `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                             |
-| `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members                        |
+| File                                                     | Role                                                                    |
+| -------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `issueCaptureAccess.ts`                                  | The server gates (dashboard, and flag only); return `isServe`           |
+| `[outreachId]/page.tsx`                                  | The report route                                                        |
+| `[outreachId]/theme/[themeId]/page.tsx`                  | One theme                                                               |
+| `[outreachId]/queries.ts`                                | Report (polls while a summary runs) and theme                           |
+| `[outreachId]/components/WhatWeHeardPage.tsx`            | The report's client boundary and its four states                        |
+| `[outreachId]/components/SummarizeButton.tsx`            | "Summarize notes" and its refusals                                      |
+| `[outreachId]/components/ThemeGrid.tsx`, `ThemeCard.tsx` | Ranked cards                                                            |
+| `[outreachId]/components/MemoList.tsx`                   | The notes, on the report and as a theme's members                       |
 | `[outreachId]/components/DownloadNotesLink.tsx`          | Plain link to the CSV export, next to All notes / the pre-summary notes |
-| `copy.ts`                                                | Every string, mode-keyed                                                 |
-| `analytics.ts`                                           | The `channel` value each effort reports under                            |
-| `WhatWeHeardLink.tsx`                                    | The entry row on the turf                                                |
-| `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                                |
+| `[outreachId]/components/PersonInfoSheet.tsx`            | A note's person, in Voter Data's record, in a side sheet                |
+| `copy.ts`                                                | Every string, mode-keyed                                                |
+| `analytics.ts`                                           | The `channel` value each effort reports under                           |
+| `WhatWeHeardLink.tsx`                                    | The entry row on the turf                                               |
+| `WhatWeHeardAction.tsx`                                  | The outreach drawer's link, at any status                               |
 
 ## Access
 
@@ -112,6 +113,15 @@ fires on the press, refused or not.
   deduplicated, so `ThemeDetails` counts them from `members`), merges
   spellings that differ only in case, and lists the ask left and the count
   right, most named first. Five show; the rest wait behind "Show N more".
+- **A note opens its person in place.** Each door or call note carries
+  "Voter data" ("Constituent data" on Serve), a small link at the end of its meta line, sentence case because it opens a sheet rather than the tab, which opens a side sheet with
+  that person's record as Voter Data renders it: `PersonInfoSheet` mounts
+  `PersonRecord` (the presentational half of `PersonOverlay`) in
+  `PersonOverlay`'s own sheet shell, on the contacts page's person query key,
+  the way the chat's `ConstituentsCard` does. The parts that read Voter
+  Data's own table (the Win status row, top issues, the activity feed) and
+  the map are left out. A text reply has no button: that branch stays as it
+  shipped.
 - **Copied from `polls/`, not imported.** The cards and the theme page are
   adapted from `polls/[id]/components/PollsIssue*` and
   `polls/[id]/issue/[issueIndex]/components/*`. Polls' providers are
@@ -175,10 +185,10 @@ and its accepted tags as badges under it.
 match the capture and outreach events. Counts only, never a memo's words or
 a tag's name.
 
-| Event                  | Fires                                | Properties                                                   |
-| ---------------------- | ------------------------------------ | ------------------------------------------------------------ |
-| `ReportViewed`         | Once per visit, on the first report  | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
-| `SynthesisRequested`   | On the button's press                | `scope: 'effort'`, `channel`, `confirmedCount`               |
+| Event                | Fires                               | Properties                                                   |
+| -------------------- | ----------------------------------- | ------------------------------------------------------------ |
+| `ReportViewed`       | Once per visit, on the first report | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
+| `SynthesisRequested` | On the button's press               | `scope: 'effort'`, `channel`, `confirmedCount`               |
 
 The offline path's other two, `MemoQueuedOffline` (`channel`) and
 `MemoUploaded` (`channel`, `queuedForMs`), fire from

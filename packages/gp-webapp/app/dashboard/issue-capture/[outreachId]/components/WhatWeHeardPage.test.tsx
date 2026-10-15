@@ -34,6 +34,11 @@ const expectReason = async (text: string) => {
 
 // The real layout pulls in the user, the campaign and the nav, none of which
 // this page's states depend on.
+// The note cards' Voter info sheet reads the org for its person query.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-slug' }),
+}))
+
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
   default: ({
