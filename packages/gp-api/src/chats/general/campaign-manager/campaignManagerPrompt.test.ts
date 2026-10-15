@@ -5,7 +5,8 @@ import {
   LEGAL_LINE,
   type LiveRaceData,
 } from './campaignManagerPrompt'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import { legalAdviceBackstop } from '../services/guardrailBackstops'
+import { guardrailLine } from '../services/guardrailLines'
 import {
   GUARDRAIL_DECLINE,
   HONEST_REPORTING_BLOCK,
@@ -81,9 +82,27 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain(
       'A text message you draft for the candidate to send must say who is ' +
-        'sending it: their first name and the office they are running for',
+        'sending it: their full name and the office they are running for',
     )
+    expect(prompt).toContain('"this is Renee Diaz, running for City Council"')
     expect(prompt).toContain('never write a placeholder such as [Your Name]')
+  })
+
+  // The texting flow introduces the candidate by full name; a drafted text
+  // that names them already is carried in as written, so the manager needs
+  // the full name in front of it to write the same intro.
+  it('gives the manager the full name a text introduces the candidate by', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Candidate: Renee\nCandidate full name: Renee Diaz',
+    )
+  })
+
+  it('omits the full-name line when it adds nothing to the first name', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ candidateName: 'Renee' }),
+    )
+    expect(prompt).not.toContain('Candidate full name:')
   })
 
   // The product map's status line is the only place the prompt says whether
@@ -724,7 +743,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain(
       'Do not save a list for it with crud_saved_filters',
     )
-    expect(prompt).toContain('this is Renee, candidate for Asheville City')
+    expect(prompt).toContain(
+      'the candidate by full name and the office they are running for, ' +
+        'for example "this is Renee Diaz, candidate for Asheville City',
+    )
     expect(prompt).toContain('"Paid for by"')
     expect(prompt).not.toContain('sample.size set to the sampleSize')
     expect(prompt).not.toContain('/dashboard/outreach?compose=text')
@@ -934,7 +956,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain(
       'snapshot taken when the candidate set up the race',
     )
-    expect(prompt).toContain('confirm it with the filing office')
+    expect(prompt).toContain('the line from ELECTION RULES')
     expect(prompt).not.toContain('refreshed monthly')
   })
 
@@ -1188,10 +1210,15 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
   it('pins the legal line to one the finish-time check recognizes', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(`include this line: "${LEGAL_LINE}"`)
+    expect(prompt).toContain(
+      `in place of any caution of your own: "${LEGAL_LINE}"`,
+    )
     // A statute-citing reply that carries the line gets nothing appended.
     expect(
-      professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
+      legalAdviceBackstop(
+        `RCW 42.17A applies. ${LEGAL_LINE}`,
+        'campaign_assistant',
+      ),
     ).toBeNull()
   })
 
@@ -1226,5 +1253,58 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).toContain('the candidate clearly wants')
       expect(prompt).not.toContain('the official')
     })
+  })
+})
+
+describe('guardrail lines on the Campaign Manager', () => {
+  it('gives the decline in place of an answer and splits a mixed request', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      `do not do it; give this line in its place, in these exact words: "${GUARDRAIL_DECLINE.win}"`,
+    )
+    expect(prompt).toContain(
+      'If a request mixes their campaign with something unrelated, answer the part that belongs here and give the line in place of the rest.',
+    )
+    expect(prompt).toContain('respond to the danger first')
+    expect(prompt).toContain('reply with the same line and nothing more')
+    expect(prompt).not.toContain('entire reply')
+    expect(prompt).not.toContain('exact line and nothing else')
+  })
+
+  it('asks for the legal line once, in exact words, in place of its own caution', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      `include this line, once, in these exact words and in place of any caution of your own: "${LEGAL_LINE}"`,
+    )
+    expect(LEGAL_LINE).toBe(guardrailLine('legal_advice', 'campaign_assistant'))
+  })
+
+  it('closes a stated election rule with the registry line', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'ELECTION RULES (apply whenever you state a rule of this race)',
+    )
+    expect(prompt).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('election_rule_verify', 'campaign_assistant')}"`,
+    )
+  })
+
+  it('asks for the small-count line only where the data tool is registered', () => {
+    const line = guardrailLine('small_count', 'campaign_assistant')
+    expect(
+      buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: true })),
+    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    expect(
+      buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: false })),
+    ).not.toContain(line)
+  })
+
+  it('asks for the search line in exact words when search is on', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: true }),
+    )
+    expect(prompt).toContain(
+      `include this line in the draft, in these exact words: "${guardrailLine('search_provenance', 'campaign_assistant')}"`,
+    )
   })
 })

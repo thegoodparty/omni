@@ -109,10 +109,10 @@ describe('CallhubCampaignService', () => {
         dont_call_litigator: true,
         block_cellphone_numbers: true,
       })
-      // A low calls-per-minute (default 10) so several campaigns coexist under
-      // CallHub's shared ~60/min account cap, instead of the 60 default that
-      // fills the whole pool and 400s a second campaign's START.
-      expect(body.frequency).toBe(10)
+      // Calls-per-minute defaults to 30 (raised from 10 on 2026-10-15 to drain
+      // the serial queue faster) — under the shared ~60/min account cap a single
+      // running campaign sustains it, and the serial gate runs only one at a time.
+      expect(body.frequency).toBe(30)
       // The launch status is never sent from this service.
       expect(body).not.toHaveProperty('status')
       expect(result.pk_str).toBe('3972682680557897335')

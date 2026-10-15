@@ -136,8 +136,9 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: TOOLS,
     })
     expect(prompt).toContain(
-      'A text message you draft for the user to send to constituents must say who is sending it: their first name and the office they hold',
+      'A text message you draft for the user to send to constituents must say who is sending it: their full name and the office they hold',
     )
+    expect(prompt).toContain('never the first name alone')
     expect(prompt).toContain('never write a placeholder such as [Your Name]')
   })
 
@@ -760,13 +761,19 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('SUPPORT HANDOFFS')
   })
 
-  it('routes to the most specific response and keeps the decline terminal', () => {
+  it('routes to the most specific response and answers the in-scope part of a mixed request', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: TOOLS,
     })
     expect(prompt).toContain('most specific applicable response')
-    expect(prompt).toContain('it is your entire reply')
+    expect(prompt).toContain(
+      'If a request mixes their official work with something unrelated, answer the part that belongs here and give the line in place of the rest.',
+    )
+    expect(prompt).toContain('respond to the danger first')
+    expect(prompt).toContain('reply with the same line and nothing more')
+    expect(prompt).not.toContain('entire reply')
+    expect(prompt).not.toContain('exact line and nothing else')
   })
 
   it('pins the campaign-resource boundary and untrusted-link rule', () => {

@@ -422,7 +422,8 @@ const SERVE_OPENER_RULE =
   'behalf of the elected official, never the elected official ' +
   `themselves: "Hi, is this ${CONSTITUENT_NAME_TOKEN}? My name is [your ` +
   'name], and I am calling on behalf of" followed by the elected ' +
-  'official name given below. Keep "[your name]" and ' +
+  "official's full name given below, never the first name alone. Keep " +
+  '"[your name]" and ' +
   `"${CONSTITUENT_NAME_TOKEN}" as literal bracketed placeholders — never ` +
   'invent a volunteer name or a constituent name.'
 

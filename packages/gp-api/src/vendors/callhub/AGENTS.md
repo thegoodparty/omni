@@ -54,7 +54,7 @@ HTTP routes of its own.
   whole pool. With the default, a second campaign's START 400s `over_cps_limit`
   (incident 2026-10-08: a batch of staged runs all defaulting to 60 could not
   dial). `createVoiceBroadcast` now sends an explicit low `frequency`
-  (`CALLHUB_VB_CALLS_PER_MINUTE`, default 10) so several campaigns coexist under
+  (`CALLHUB_VB_CALLS_PER_MINUTE`, default 30 — raised from 10 on 2026-10-15 so big lists dial faster and the serial queue drains instead of backing up overdue; safe because only one campaign runs at a time) so several campaigns coexist under
   the cap; each dials slower but the 48h run window absorbs it. Raising total
   throughput means raising the account cap with CallHub (support@callhub.io,
   billed monthly), not just this knob. The existing 5 stuck campaigns were
@@ -100,4 +100,4 @@ HTTP routes of its own.
 `CALLHUB_API_KEY` (required, asserted lazily), `CALLHUB_API_BASE_URL`
 (regional, defaults to the NA host — the generic host 403s),
 `CALLHUB_HTTP_TIMEOUT`, `CALLHUB_VB_CALLS_PER_MINUTE` (per-campaign `frequency`,
-default 10 — see the account-cap gotcha above).
+default 30 — see the account-cap gotcha above).

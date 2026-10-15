@@ -26,6 +26,9 @@ import {
   TableBody,
   TableCell,
   TableRow,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@styleguide'
 import {
   ArchiveIcon,
@@ -51,6 +54,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { VoterFileFilters } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { FetchError } from 'ofetch'
+import { MessageSquareOff } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
@@ -66,6 +70,11 @@ import {
 import { MarkDoneDialog } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { RESUME_COPY, type GateChannel } from './gate/gateCopy'
 import { shortOutreachDate } from './outreachDate.util'
 import {
@@ -81,6 +90,7 @@ import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 import {
   CONTINUE_LABELS,
+  DRAFT_FOOTER_LABELS,
   continueLabel,
   draftFooterAction,
   listDetailsFooterMode,
@@ -204,6 +214,10 @@ export const OutreachDetailsDrawer = ({
   isServe = false,
   onCallFollowUpList,
 }: OutreachDetailsDrawerProps) => {
+  const { smsCutoffDate } = useSmsCompliance()
+  const textingClosedReason = SMS_CUTOFF_COPY.closedReason(
+    smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+  )
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
   const isDoorKnocking = row?.outreachType === OUTREACH_TYPES.nativeDoorKnocking
@@ -631,22 +645,38 @@ export const OutreachDetailsDrawer = ({
             <Trash2Icon className="size-4" />
             Delete
           </Button>
-          <Button
-            size="large"
-            className="flex-1"
-            disabled={draftAction.disabled}
-            onClick={() => {
-              onOpenChange(false)
-              onResumeDraft?.(row)
-            }}
-          >
-            {draftAction.disabled ? (
-              <Loader2Icon className="size-4 animate-spin" />
-            ) : draftAction.label === 'Start verification' ? (
-              <ShieldCheckIcon className="size-4" />
-            ) : null}
-            {draftAction.label}
-          </Button>
+          {draftAction.label === DRAFT_FOOTER_LABELS.closed ? (
+            // A disabled button gets no pointer events, so the span carries
+            // the hover and focus that open the reason.
+            <Tooltip openOnClick>
+              <TooltipTrigger asChild>
+                <span tabIndex={0} className="flex flex-1">
+                  <Button size="large" className="flex-1" disabled>
+                    <MessageSquareOff className="size-4" />
+                    {draftAction.label}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{textingClosedReason}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              size="large"
+              className="flex-1"
+              disabled={draftAction.disabled}
+              onClick={() => {
+                onOpenChange(false)
+                onResumeDraft?.(row)
+              }}
+            >
+              {draftAction.disabled ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : draftAction.label === DRAFT_FOOTER_LABELS.verification ? (
+                <ShieldCheckIcon className="size-4" />
+              ) : null}
+              {draftAction.label}
+            </Button>
+          )}
         </div>
       </div>
     ) : null
@@ -727,7 +757,10 @@ export const OutreachDetailsDrawer = ({
                 <h2 className="text-[22px] font-semibold text-foreground">
                   {row.name || row.title || 'Untitled campaign'}
                 </h2>
-                <HistoryStatusText label={displayStatusLabel} />
+                <HistoryStatusText
+                  label={displayStatusLabel}
+                  textingClosedReason={textingClosedReason}
+                />
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <ChannelBadge type={row.outreachType} />

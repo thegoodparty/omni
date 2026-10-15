@@ -98,7 +98,7 @@ describe('a Serve text that reports back', () => {
       {
         name: 'Parking report back',
         message:
-          'this is Bryan, your City Council Member. Thanks for answering.',
+          'this is Bryan, your City Council Member. Thanks for answering.\n\nReply STOP to opt out.',
         imageUrl: 'https://assets.test/header.png',
         scheduledLocalDate: format(
           addBusinessDays(new Date(), 5),
@@ -125,7 +125,7 @@ describe('a Serve text that reports back', () => {
 
   it('refuses the civic panel join line', async () => {
     const response = await create({
-      message: `this is Bryan, your City Council Member. ${CIVIC_PANEL_JOIN_LINE}`,
+      message: `this is Bryan, your City Council Member.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`,
     })
 
     expect(response.status).toBe(HttpStatus.BAD_REQUEST)

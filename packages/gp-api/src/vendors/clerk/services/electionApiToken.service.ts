@@ -6,6 +6,11 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 // Renew slightly before expiry so an in-flight request never uses a token
 // that expires mid-call.
 const TOKEN_RENEWAL_BUFFER_MS = 30_000
+// Start renewing this long before the token is due, while it is still usable.
+// A Clerk outage at renewal time then costs nothing as long as it ends before
+// the token really expires, instead of failing every election-api call.
+const TOKEN_REFRESH_AHEAD_MS = 5 * 60_000
+const REFRESH_RETRY_DELAY_MS = 15_000
 // 1h TTL. JWT M2M tokens are billed/quota'd per creation and are never
 // deduplicated by Clerk (JWTs are stateless), so a longer TTL directly cuts
 // mint volume: at 600s this singleton re-minted ~6×/hour/task (over Clerk's
@@ -22,13 +27,16 @@ const { GP_API_MACHINE_SECRET } = process.env
  * dashboard.
  *
  * The token is cached and reused until shortly before it expires; concurrent
- * callers share a single in-flight mint.
+ * callers share a single in-flight mint. Renewal starts in the background
+ * TOKEN_REFRESH_AHEAD_MS early and callers keep the still-valid token, so a
+ * transient Clerk failure at renewal time does not fail requests.
  */
 @Injectable()
 export class ElectionApiTokenService {
   private cachedToken: string | null = null
   private tokenExpiration: number | null = null
   private pendingTokenPromise: Promise<string> | null = null
+  private nextRefreshAttemptAt = 0
 
   constructor(
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
@@ -40,20 +48,44 @@ export class ElectionApiTokenService {
 
   async getToken(): Promise<string> {
     if (this.cachedToken && this.isTokenValid()) {
+      if (this.shouldRefreshAhead()) {
+        this.refreshInBackground()
+      }
       return this.cachedToken
     }
+    return this.mint()
+  }
+
+  private mint(): Promise<string> {
     if (this.pendingTokenPromise) {
       return this.pendingTokenPromise
     }
-    const promise = this.createAndCacheToken()
-    this.pendingTokenPromise = promise
-    try {
-      return await promise
-    } finally {
+    const promise = this.createAndCacheToken().finally(() => {
       if (this.pendingTokenPromise === promise) {
         this.pendingTokenPromise = null
       }
-    }
+    })
+    this.pendingTokenPromise = promise
+    return promise
+  }
+
+  private refreshInBackground(): void {
+    this.nextRefreshAttemptAt = Date.now() + REFRESH_RETRY_DELAY_MS
+    this.mint().catch((error: unknown) => {
+      this.logger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Election API M2M token refresh failed; reusing the cached token',
+      )
+    })
+  }
+
+  private shouldRefreshAhead(): boolean {
+    if (this.pendingTokenPromise || !this.tokenExpiration) return false
+    const now = Date.now()
+    return (
+      now >= this.tokenExpiration - TOKEN_REFRESH_AHEAD_MS &&
+      now >= this.nextRefreshAttemptAt
+    )
   }
 
   /** Authorization header for an election-api request. */

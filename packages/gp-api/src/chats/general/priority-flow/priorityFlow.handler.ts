@@ -95,28 +95,28 @@ const PLACEHOLDER = /\[[^\]\n]{1,40}\]/
 
 const unsignedDraftReason = (
   input: { channel: ProposalChannel; message: string },
-  firstName: string | null,
+  officialName: string | null,
 ): string | null => {
   if (PLACEHOLDER.test(input.message)) {
     return (
       'The message has a placeholder in brackets. Write it out in full, ' +
-      "signed with the official's first name and office from <priority>."
+      "signed with the official's full name and office from <priority>."
     )
   }
   const voiced = input.channel === 'text' || input.channel === 'phoneBanking'
-  if (!voiced || firstName === null) return null
+  if (!voiced || officialName === null) return null
   const { failures } = checkSmsStandards(input.message, {
-    candidateNames: [firstName],
+    candidateNames: [officialName],
   })
   if (!failures.includes('candidate_name')) return null
   // A caller may be a volunteer, so the script names the official without
   // claiming to be them.
   return input.channel === 'text'
     ? `A text has to name the official. Open it with "this is ` +
-        `${firstName}, your" and their office (no greeting, the flow adds ` +
+        `${officialName}, your" and their office (no greeting, the flow adds ` +
         `one), then present it again.`
     : `A phone script has to name the official. Have the caller say who ` +
-        `they are calling for: "${firstName}, your" and their office.`
+        `they are calling for: "${officialName}, your" and their office.`
 }
 
 @Injectable()
@@ -372,7 +372,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       present_outreach_proposal: {
         ...propose,
         execute: async (input: Parameters<typeof propose.execute>[0]) => {
-          const unsigned = unsignedDraftReason(input, ctx.officialFirstName)
+          const unsigned = unsignedDraftReason(input, ctx.officialName)
           if (unsigned !== null) return { error: unsigned }
           if (input.reportBackForOutreachId !== undefined) {
             const reportBack = await this.reportBackRefusal(ctx, {

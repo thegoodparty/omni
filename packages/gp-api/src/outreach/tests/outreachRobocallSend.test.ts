@@ -665,8 +665,8 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   const dialedAt = new Date('2026-06-01T14:00:00Z')
 
   it('reports done (source estimate) once the conservative ceiling has passed', async () => {
-    // billable 100 @ safe rate floor(10/3)=3 → 34 raw min; + 180 buffer → ceiling
-    // ~17:34Z. A now well past it is surely done.
+    // billable 100 @ safe rate floor(10/2)=5 → 20 raw min; + 180 buffer → ceiling
+    // ~17:20Z (default divisor 2). A now well past it is surely done.
     const result = seam().isDoneDialing(
       { dialedAt, billableCount: 100, stagedCallsPerMinute: null },
       new Date('2026-06-01T18:00:00Z'),
@@ -687,16 +687,16 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   it('MONEY-SAFE floor: the rate haircut keeps a run NOT done that the naive rate would free (finding 1)', async () => {
     // billable 600, now 18:30Z. At the configured rate (divisor 1): 60 raw min +
     // 180 buffer → ceiling 18:00Z → naive says DONE. At the real safe rate
-    // (divisor 3 = ~3/min): 200 raw min + 180 buffer → ceiling 20:20Z → the floor
-    // says NOT done. The haircut is what stops an early abort of a dial that runs
-    // slower than configured — the exact finding-1 regression.
+    // (default divisor 2 = 5/min): 120 raw min + 180 buffer → ceiling 19:00Z → the
+    // floor says NOT done. The haircut is what stops an early abort of a dial that
+    // runs slower than configured — the exact finding-1 regression.
     const run = { dialedAt, billableCount: 600, stagedCallsPerMinute: null }
     const now = new Date('2026-06-01T18:30:00Z')
 
     vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '1')
     expect(seam().isDoneDialing(run, now).done).toBe(true)
 
-    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '3')
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
     expect(seam().isDoneDialing(run, now).done).toBe(false)
   })
 

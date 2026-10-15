@@ -109,6 +109,17 @@ generation services, the spine scoping — are in
   texted whole. With the panels flag off the same link
   opens a plain text flow; with the SMS flag off it opens nothing. Both are
   spent on close, so the tile opens a plain flow afterwards.
+- **Poll / Survey is the second flagged channel.** `useServeSelfServePollsFlag()`
+  (`serve-self-serve-polls`) gates the card and mounts `PollFlow`
+  (`outreach/v2/poll/`) on `ready && enabled`, the same way SMS does; gp-api
+  gates `POST /v1/outreach/serve/poll/draft` and `POST /v1/outreach/serve/poll`
+  on the same key. The flow rides the Serve SMS machinery: `ServeSmsScheduleStep`
+  without its name field, `SmsReviewStep` with `channelLabel`, and the
+  `SERVE_TEXT` checkout. A paid poll is then held for review, and its row reads
+  "In review". The Polls page (`/dashboard/polls`) merges these rows
+  (`GET /v1/outreach/serve`, `outreachType: poll`) into its list and opens the
+  same flow from Create Poll when the flag is on.
+
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the
   create response; a paid text send only exists once the server finalizes it,

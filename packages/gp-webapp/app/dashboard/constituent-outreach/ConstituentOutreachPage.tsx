@@ -38,6 +38,8 @@ import {
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
+import { useServeSelfServePollsFlag } from '@shared/experiments/serveSelfServePollsFlag'
+import { PollFlow } from 'app/dashboard/outreach/v2/poll/PollFlow'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { clientRequest } from 'gpApi/typed-request'
 
@@ -127,6 +129,12 @@ const ConstituentOutreachContent = () => {
   // Until it resolves this surface is the pre-SMS one, unchanged.
   const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
   const smsMounted = smsFlagReady && smsFlagEnabled
+  const [pollFlowOpen, setPollFlowOpen] = useState(false)
+  // Same shape as SMS: the tile is the treatment surface, and the flow is
+  // mounted only on `ready && enabled`.
+  const { ready: pollsFlagReady, enabled: pollsFlagEnabled } =
+    useServeSelfServePollsFlag()
+  const pollsMounted = pollsFlagReady && pollsFlagEnabled
   const { ready: panelsFlagReady, enabled: panelsFlagEnabled } =
     useServeCitizenPanelsFlag(false)
   // The Chief of Staff's "Build your civic panel" card links here as
@@ -283,6 +291,7 @@ const ConstituentOutreachContent = () => {
         // Undefined while the flag is off or still resolving, which is what
         // keeps the card out of the grid entirely.
         onSmsClick={smsMounted ? () => setSmsFlowOpen(true) : undefined}
+        onPollClick={pollsMounted ? () => setPollFlowOpen(true) : undefined}
         // A navigation, not a flow: door knocking's create wizard is drawn
         // over its own map, which is a route rather than a drawer, and the map
         // is most of what the flow is for. `?create=1` so the card still opens
@@ -338,6 +347,13 @@ const ConstituentOutreachContent = () => {
             proposedAudience: SERVE_PANEL_SEED_AUDIENCE,
           })}
           source={smsSeedsPanel ? 'deep_link' : 'outreach_page'}
+        />
+      )}
+      {pollsMounted && (
+        <PollFlow
+          open={pollFlowOpen}
+          onClose={() => setPollFlowOpen(false)}
+          onScheduled={refetchOutreaches}
         />
       )}
       <OutreachHistoryTable
