@@ -68,6 +68,8 @@ import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.s
 import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 import { OutreachPollResultsService } from './services/outreachPollResults.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
+import { OutreachServePollCreateService } from './services/outreachServePollCreate.service'
+import { OutreachServePollDraftService } from './services/outreachServePollDraft.service'
 import { OutreachReportBackModule } from './outreachReportBack.module'
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
@@ -218,6 +220,8 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // The Serve SMS product layer: draft-first create, and the purchase
     // handler its checkout runs through.
     OutreachServeSmsCreateService,
+    OutreachServePollCreateService,
+    OutreachServePollDraftService,
     OutreachServeSmsPurchaseHandlerService,
     OutreachRobocallGenerationService,
     OutreachRobocallService,

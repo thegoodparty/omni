@@ -76,6 +76,15 @@ export const ServePollCreateSchema = z.object({
 })
 export type ServePollCreate = z.infer<typeof ServePollCreateSchema>
 
+export const ServePollCreateResponseSchema = z.object({
+  outreachId: z.number().int().positive(),
+  recipientCount: z.number().int().nonnegative(),
+  amountCents: z.number().int().nonnegative(),
+})
+export type ServePollCreateResponse = z.infer<
+  typeof ServePollCreateResponseSchema
+>
+
 export const ServePollExpansionCreateSchema = z.object({
   size: z.number().int().positive(),
 })
