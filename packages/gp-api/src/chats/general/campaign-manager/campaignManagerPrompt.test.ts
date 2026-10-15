@@ -27,6 +27,8 @@ const ctx = (
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   liveRace: { status: 'none', reason: 'no-race' },
   ballotStatus: null,
   filingPeriodStart: null,
@@ -757,6 +759,76 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(block).not.toContain('constituent')
     expect(block).not.toContain('official')
     expect(block).not.toContain('{{first_name}}')
+  })
+
+  describe('SMS compliance cutoff', () => {
+    const outreachTools = [
+      'count_contacts',
+      'crud_saved_filters',
+      'size_outreach_sample',
+      'present_outreach_proposal',
+      'ask_clarify_question',
+    ]
+    const crm = {
+      crmToolsEnabled: true,
+      savedFilterToolsEnabled: true,
+      isPro: true,
+      organization: { slug: 'win-campaign' } as Organization,
+    }
+
+    it('closes texting with the cutoff date when the window is closed', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          ...crm,
+          smsCompliance: 'closed',
+          smsCutoffDate: '2026-10-15',
+        }),
+        outreachTools,
+      )
+      expect(prompt).toContain('TEXTING IS CLOSED FOR THIS RACE')
+      expect(prompt).toContain(
+        'The deadline to get verified for texting was Thursday, October ' +
+          '15, 2026 and has passed.',
+      )
+      expect(prompt).toContain(
+        'Never propose, recommend, draft or schedule a text',
+      )
+      expect(prompt).toContain(
+        'door knocking, robocalls, phone banking and social media',
+      )
+      expect(prompt).toContain('Never a text: texting is closed for this race.')
+      expect(prompt).not.toContain(
+        'A text for a short answer from a large group.',
+      )
+      expect(prompt).not.toContain('a sequence of texts')
+      expect(prompt.indexOf('TEXTING IS CLOSED')).toBeLessThan(
+        prompt.indexOf('SAMPLING RULES'),
+      )
+    })
+
+    it('closes texting without the CRM tools too', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ smsCompliance: 'closed', smsCutoffDate: '2026-10-15' }),
+      )
+      expect(prompt).toContain('TEXTING IS CLOSED FOR THIS RACE')
+      expect(prompt).not.toContain('SAMPLING RULES')
+    })
+
+    it.each(['open', 'closing', 'not_applicable', null] as const)(
+      'leaves texting alone when the window is %s',
+      (smsCompliance) => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          ctx({ ...crm, smsCompliance, smsCutoffDate: '2026-10-15' }),
+          outreachTools,
+        )
+        expect(prompt).not.toContain('TEXTING IS CLOSED')
+        expect(prompt).not.toContain('Never a text')
+        expect(prompt).toContain(
+          'A text for a short answer from a large group.',
+        )
+        expect(prompt).toContain('a sequence of texts, a text and a call')
+      },
+    )
   })
 
   it('reads past sends only where the tool is registered', () => {

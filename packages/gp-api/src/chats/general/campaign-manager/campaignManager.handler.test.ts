@@ -64,6 +64,8 @@ const ctxWith = (
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   liveRace: { status: 'none', reason: 'no-race' },
   ballotStatus: null,
   filingPeriodStart: null,
@@ -786,6 +788,74 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     }
     expect(descriptionOf(tool)).not.toContain('official')
     expect(descriptionOf(tool)).not.toContain('constituent')
+  })
+
+  describe('SMS compliance cutoff', () => {
+    const proposal = {
+      audience: 'Renters on the east side',
+      count: 1200,
+      listName: 'East side renters',
+      message: 'this is Renee, candidate for City Council. What matters?',
+    }
+    const outreachTools = (smsCompliance: 'closed' | 'open') => {
+      const tools = buildCrmHandler(
+        buildContacts(),
+        buildVoterFileFilters(),
+      ).buildTools(
+        ctxWith({
+          ...CRM_ON,
+          savedFilterToolsEnabled: true,
+          smsCompliance,
+          smsCutoffDate: '2026-10-15',
+        }),
+      )
+      const present = tools.present_outreach_proposal
+      const size = tools.size_outreach_sample
+      if (!present || 'kind' in present || !size || 'kind' in size) {
+        throw new Error('not registered')
+      }
+      return { present, size }
+    }
+
+    it('refuses a text card and a text sample when texting is closed', async () => {
+      const { present, size } = outreachTools('closed')
+      expect(await present.execute({ ...proposal, channel: 'text' })).toEqual({
+        error: expect.stringContaining('Texting is closed for this race'),
+      })
+      expect(await size.execute({ audience: 50_000 })).toEqual({
+        error: expect.stringContaining('Texting is closed for this race'),
+      })
+      for (const channel of ['phoneBanking', 'doorKnocking', 'social']) {
+        expect(await present.execute({ ...proposal, channel })).toMatchObject({
+          presented: true,
+        })
+      }
+    })
+
+    it('presents and sizes a text when texting is open', async () => {
+      const { present, size } = outreachTools('open')
+      expect(await present.execute({ ...proposal, channel: 'text' })).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      expect(await size.execute({ audience: 50_000 })).toMatchObject({
+        sampleSize: 2_767,
+      })
+    })
+
+    it('leaves texting out of the product overview only when closed', () => {
+      const closed = buildHandler().maybeCannedReply(
+        CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+        ctxWith({ smsCompliance: 'closed' }),
+      )
+      expect(closed).not.toContain('texting')
+      expect(closed).toContain('robocalls, door-knocking scripts')
+      const open = buildHandler().maybeCannedReply(
+        CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+        ctxWith({ smsCompliance: 'open' }),
+      )
+      expect(open).toContain('texting, door-knocking scripts')
+    })
   })
 
   it('names the registered card tools in the prompt it builds', () => {
