@@ -43,10 +43,8 @@ import {
  * Who to reach. The product resolves its own audience; delivery owns what
  * happens to it.
  *
- * The sample branch exists on day one even though only polls will pass one,
- * and nothing calls it that way yet. That is deliberate: if the sample branch
- * does not work, the layer is not actually shared, and we would not find out
- * until polls tried to move onto it.
+ * The sample branch is what a self-serve poll passes when it asks for a random
+ * sample of the district instead of a saved list.
  */
 export type TextDeliveryAudience =
   | { kind: 'savedFilter'; voterFileFilterId: number }
@@ -415,6 +413,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         audience,
         organization,
         excludePersonIds,
+        outreachId,
       )
       if (resolved.recipients.length === 0) {
         // Nothing is written and nothing is handed off. A 4xx, so
@@ -594,6 +593,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     audience: TextDeliveryAudience,
     organization: Organization,
     excludePersonIds: Set<string>,
+    outreachId: number,
   ): Promise<ResolvedAudience> {
     return audience.kind === 'savedFilter'
       ? this.resolveSavedFilterAudience(
@@ -601,7 +601,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
           organization,
           excludePersonIds,
         )
-      : this.resolveSampleAudience(audience, organization, excludePersonIds)
+      : this.resolveSampleAudience(
+          audience,
+          organization,
+          excludePersonIds,
+          outreachId,
+        )
   }
 
   /** SMS today, polls later. */
@@ -680,14 +685,14 @@ export class OutreachTextDeliveryService extends createPrismaBase(
 
   /**
    * District-wide random sample, with `hasCellPhone` forced inside
-   * `sampleContacts`. Nothing calls this yet — polls needs it when it moves
-   * onto this layer, and a branch that is never exercised is a branch that
-   * does not work.
+   * `sampleContacts`. Polls are the caller: a self-serve poll that asks for a
+   * random sample of the district rather than a saved list.
    */
   private async resolveSampleAudience(
     audience: Extract<TextDeliveryAudience, { kind: 'sample' }>,
     organization: Organization,
     excludePersonIds: Set<string>,
+    outreachId: number,
   ): Promise<ResolvedAudience> {
     // The sample branch keeps sending exclusions UPSTREAM, unlike the filter
     // branch. A sample is a request for N people, so the scrub has to narrow
@@ -695,14 +700,40 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // fewer than N. That makes `excludedOptedOutCount` 0 here and correct: a
     // caller asking for N still gets N, so this audience lost nobody.
     //
-    // It does mean this branch inherits people-api's id-filter cap on the
-    // exclusion list, which the filter branch no longer has. Polls has to
-    // resolve that when it adopts this layer; nothing calls it today.
+    // The exclusion list rides to people-api as an id filter, which caps it
+    // at `MAX_ID_FILTER_VALUES`; a poll's org will not reach that.
     const excludeIds = [
       ...new Set([...excludePersonIds, ...(audience.excludePersonIds ?? [])]),
     ]
+
+    // The upstream draw throws when the pool minus the exclusions is smaller
+    // than the size asked for, and a throw here lands a PAID send in
+    // `failed`. A poll sized to the whole pool hits it whenever somebody
+    // opts out while it sits in review, so ask for what is still reachable.
+    // Same arithmetic as `samplePeople`, so the two cannot disagree.
+    const { totalConstituentsWithCellPhone } =
+      await this.contactsService.getDistrictStats(organization)
+    const remaining =
+      totalConstituentsWithCellPhone -
+      Math.min(excludeIds.length, totalConstituentsWithCellPhone)
+    const size = Math.min(audience.size, remaining)
+    if (size < audience.size) {
+      this.logger.warn(
+        { outreachId, requested: audience.size, delivered: size },
+        'Sample pool shrank since checkout; sending to what is still ' +
+          'reachable, so the send is short of what was paid for',
+      )
+    }
+    if (size < 1) {
+      return {
+        recipients: [],
+        excludedDuplicateCount: 0,
+        excludedOptedOutCount: 0,
+      }
+    }
+
     const sample = await this.contactsService.sampleContacts(
-      { size: audience.size, excludeIds },
+      { size, excludeIds },
       organization,
     )
 
