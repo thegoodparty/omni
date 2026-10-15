@@ -262,6 +262,9 @@ export const PollFlow = ({
     setQuestion('')
     setDrafted(false)
     setBiasState(null)
+    // A list picked on an earlier pass must not ride into this poll.
+    setAudienceKind('sample')
+    resetAudience()
     setStepId('audience')
     // A question the official writes themselves has nothing to draft from.
     if (picked === 'custom') {
