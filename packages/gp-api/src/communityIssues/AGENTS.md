@@ -64,9 +64,14 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   went stale while they were away regenerates immediately. Distinct from
   `self-dispatch`, which is staff-only and single-type.
 
-- `POST /onboarding` — `@UseElectedOffice()`; called by Serve onboarding once
-  the office is saved, only while the `serve-citizen-panels` flag is on (it
-  feeds the onboarding priorities step that flag gates). Writes up to 5
+- `POST /onboarding` — `@UseElectedOffice()`; called by Serve onboarding the
+  moment the office is on the org (on load for a prefilled or resumed
+  official, right after the office PATCH for a net-new one), only while the
+  `serve-citizen-panels` flag is on (it feeds the onboarding priorities step
+  that flag gates). Called before the PATCH it would find no serve context and
+  write nothing, so the client waits for the saved office, not the pick. The
+  priorities step keeps polling `GET /v1/priorities/onboarding` for a while
+  so starter issues that land late still appear. Writes up to 5
   starter `top_community` issues from one Gemini Flash search (skipped if the
   org already has a top list), then calls `onElectedOfficeCreated` to dispatch
   the full runs. Onboarding creates the

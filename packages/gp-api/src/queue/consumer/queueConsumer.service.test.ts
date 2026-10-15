@@ -1644,6 +1644,88 @@ describe('QueueConsumerService - message type routing', () => {
     })
   })
 
+  describe('outreachTextSend for a poll', () => {
+    const pollRow = (overrides: Record<string, unknown> = {}) => ({
+      outreachType: 'poll',
+      approvedAt: new Date('2026-10-10T12:00:00Z'),
+      message: 'Hi, do you support the park?',
+      imageUrl: null,
+      scheduledLocalDate: '2026-10-14',
+      voterFileFilterId: null,
+      textCount: 250,
+      pollDetails: { audienceKind: 'sample' },
+      ...overrides,
+    })
+    const delivered = {
+      audienceResolved: true,
+      recipientCount: 250,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '3-1.csv',
+    }
+
+    it('delivers a sample poll as a sample of textCount people', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'sample', size: 250 },
+          paidRecipientCap: 250,
+        }),
+      )
+    })
+
+    it('delivers a list poll to its saved filter', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({
+          voterFileFilterId: 61,
+          pollDetails: { audienceKind: 'list' },
+        }),
+      )
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'savedFilter', voterFileFilterId: 61 },
+        }),
+      )
+    })
+
+    it('sends nothing for a poll that was never approved', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({ approvedAt: null }),
+      )
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+    })
+
+    it('throws for an expansion send until expansions are delivered', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+
+      await expect(
+        service.processMessage(
+          outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
+        ),
+      ).rejects.toThrow('poll expansion sends')
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+    })
+  })
+
   it('defaults sendSeq to 1 and passes no imageUrl when the row has none', async () => {
     mockOutreachService.model.findUnique.mockResolvedValue({
       message: 'Budget hearing Tuesday.',

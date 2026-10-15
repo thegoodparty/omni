@@ -87,17 +87,22 @@ describe('serveIdentificationIntro', () => {
   })
 })
 
-describe('identificationIntro (Win, unchanged)', () => {
+describe('identificationIntro (Win)', () => {
   const cases: Record<SocialTone, string> = {
-    warm: 'this is Jane, candidate for City Council.',
-    direct: 'Jane here, candidate for City Council.',
-    friendly: "it's Jane, running for City Council.",
-    urgent: 'Jane here, running for City Council.',
+    warm: 'this is Jane Doe, candidate for City Council.',
+    direct: 'Jane Doe here, candidate for City Council.',
+    friendly: "it's Jane Doe, running for City Council.",
+    urgent: 'Jane Doe here, running for City Council.',
   }
 
-  it.each(SOCIAL_TONE_VALUES)('still frames a candidacy (%s)', (tone) => {
-    expect(identificationIntro(tone, 'Jane', 'City Council')).toBe(cases[tone])
-  })
+  it.each(SOCIAL_TONE_VALUES)(
+    'frames a candidacy under the full name (%s)',
+    (tone) => {
+      expect(identificationIntro(tone, 'Jane Doe', 'City Council')).toBe(
+        cases[tone],
+      )
+    },
+  )
 })
 
 // A build-mode draft is composed with no committee, and resume carries the
@@ -188,7 +193,7 @@ describe('ensureSmsIdentification', () => {
   const serveIntro = 'this is Bryan, your Asheville City Council Member.'
   const serve = {
     intro: serveIntro,
-    firstName: 'Bryan',
+    senderName: 'Bryan',
     candidateNames: ['Bryan Levine'],
   }
 
@@ -223,13 +228,23 @@ describe('ensureSmsIdentification', () => {
   it('prepends the intro to a body with no introduction, dropping its own greeting', () => {
     expect(
       ensureSmsIdentification('Hi! Early voting starts Monday.', {
-        intro: identificationIntro('warm', 'Jane', 'City Council'),
-        firstName: 'Jane',
+        intro: identificationIntro('warm', 'Jane Doe', 'City Council'),
+        senderName: 'Jane Doe',
         candidateNames: ['Jane Doe'],
       }),
     ).toBe(
-      'this is Jane, candidate for City Council. Early voting starts Monday.',
+      'this is Jane Doe, candidate for City Council. Early voting starts Monday.',
     )
+  })
+
+  it("fills a Win sender placeholder with the candidate's full name", () => {
+    expect(
+      ensureSmsIdentification('Vote Tuesday. [Your Name]', {
+        intro: identificationIntro('warm', 'Jane Doe', 'City Council'),
+        senderName: 'Jane Doe',
+        candidateNames: ['Jane Doe'],
+      }),
+    ).toBe('Vote Tuesday. Jane Doe')
   })
 
   it('keeps a sentence that only looks like an opener', () => {
@@ -290,23 +305,69 @@ describe('unfilledBrackets', () => {
 
 describe('openWithSmsIdentification', () => {
   const win = {
-    intro: identificationIntro('direct', 'Jane', 'City Council'),
-    firstName: 'Jane',
+    intro: identificationIntro('direct', 'Jane Doe', 'City Council'),
+    senderName: 'Jane Doe',
     candidateNames: ['Jane Doe'],
   }
 
-  it("replaces the model's own introduction instead of stacking under it", () => {
-    expect(
-      openWithSmsIdentification(
-        'Hi, this is Jane, running for City Council. Vote early.',
-        win,
-      ),
-    ).toBe('Jane here, candidate for City Council. Vote early.')
+  // The model is told not to introduce the candidate, but when it does it
+  // tends to use the first name; the full-name intro replaces it.
+  it.each([
+    'Hi, this is Jane, running for City Council. Vote early.',
+    'Jane here, candidate for City Council. Vote early.',
+    'this is Jane Doe, candidate for City Council. Vote early.',
+    'Jane Doe here, running for City Council. Vote early.',
+  ])("replaces the model's own introduction: %s", (body) => {
+    expect(openWithSmsIdentification(body, win)).toBe(
+      'Jane Doe here, candidate for City Council. Vote early.',
+    )
   })
 
   it('opens a plain body on the intro', () => {
     expect(openWithSmsIdentification('Vote early.', win)).toBe(
-      'Jane here, candidate for City Council. Vote early.',
+      'Jane Doe here, candidate for City Council. Vote early.',
+    )
+  })
+
+  it.each(SOCIAL_TONE_VALUES)(
+    'never stacks a second full-name intro on a repeat pass (%s)',
+    (tone) => {
+      const context = {
+        ...win,
+        intro: identificationIntro(tone, 'Jane Doe', 'City Council'),
+      }
+      const once = openWithSmsIdentification('Vote early.', context)
+      expect(openWithSmsIdentification(once, context)).toBe(once)
+      expect(ensureSmsIdentification(once, context)).toBe(once)
+    },
+  )
+
+  describe('with a name longer than two words', () => {
+    const long = {
+      intro: identificationIntro('direct', 'Mary Ann Smith', 'City Council'),
+      senderName: 'Mary Ann Smith',
+      candidateNames: ['Mary Ann Smith'],
+    }
+
+    it("replaces the model's own name-first introduction", () => {
+      expect(
+        openWithSmsIdentification(
+          'Mary Ann Smith here, running for City Council. Vote early.',
+          long,
+        ),
+      ).toBe('Mary Ann Smith here, candidate for City Council. Vote early.')
+    })
+
+    it.each(SOCIAL_TONE_VALUES)(
+      'never stacks a second intro on a repeat pass (%s)',
+      (tone) => {
+        const context = {
+          ...long,
+          intro: identificationIntro(tone, 'Mary Ann Smith', 'City Council'),
+        }
+        const once = openWithSmsIdentification('Vote early.', context)
+        expect(openWithSmsIdentification(once, context)).toBe(once)
+      },
     )
   })
 })
