@@ -710,8 +710,12 @@ nothing else, so the agent never sees any of them.
   a short quote. The report's **Condition handling** section lists each case
   with both arms' values in each order it was judged, and sorts it: both
   handled, a shared failure (neither said yes), a regression (the base said
-  yes, the candidate did not) or an improvement (the reverse). `partly`, and
-  a value that changes between the two orders, count as not handled. The
+  yes, the candidate did not), an improvement (the reverse) or unsettled.
+  `partly`, and a value that changes between the two orders, count as not
+  handled; when that split is on the arm that fell short, the pair is
+  unsettled rather than a change. So a regression needs the candidate to fall
+  short in every order it was read, and an improvement the same of the base.
+  The
   quotes go to the private rulings file only. The section does not move the
   verdict label or any score. A pair whose every judgment came back ungraded
   is counted as asked but not graded, and a value read in only one of two
