@@ -47,7 +47,7 @@ const sendTask = (flowType: 'text' | 'robocall'): CampaignTrackerTask => ({
   cta: null,
   link: null,
   flowType,
-  week: null,
+  week: 1,
   date: todayIso,
   completed: false,
   phase: 'active',
